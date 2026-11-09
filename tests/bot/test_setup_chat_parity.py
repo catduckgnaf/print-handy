@@ -5,12 +5,17 @@ adapter feeds, must land the same settings keys the Web UI walkthrough
 writes — and a Web UI password given in chat must never appear in the
 guided session store or any reply.
 """
+import asyncio
 import json
 
+import pytest
 import yaml
 
-from print_handy.bot import guided, webui_access
+from print_handy.bot import guided, platform, runtime, webui_access
+from print_handy.hermes import _config
 from print_handy.webui import access
+
+from corpus import fake_discord
 
 PASSWORD = "correct horse battery staple"
 
@@ -196,3 +201,228 @@ def test_timelapse_off_and_camera_skip_write_no_camera_keys(tmp_path):
     assert "camera_snapshot_url" not in (written.get("services") or {})
     # The session store is valid JSON and holds no secret-shaped values.
     json.loads((tmp_path / "state" / guided.STORE_NAME).read_text())
+
+
+# ------------------------------------------------- the token step's platform
+
+def test_token_env_follows_the_chosen_platform_not_the_source():
+    session = {"answers": {"platform": "telegram"}}
+    assert guided.setup_token_env({}, session, "discord") == "TELEGRAM_BOT_TOKEN"
+    assert guided.setup_token_env(None, session, "discord") == "TELEGRAM_BOT_TOKEN"
+
+
+def test_token_env_falls_back_to_the_source_until_a_platform_is_chosen():
+    assert guided.setup_token_env({}, None, "telegram") == "TELEGRAM_BOT_TOKEN"
+    assert guided.setup_token_env({}, {"answers": {}}, "matrix") == "MATRIX_ACCESS_TOKEN"
+    assert guided.setup_token_env({}, None, None) == "DISCORD_BOT_TOKEN"
+
+
+def test_token_env_reads_the_chosen_platforms_own_setting():
+    cfg = {"discord": {"token_env": "WRONG"},
+           "telegram": {"token_env": "MY_TG_TOKEN"},
+           "matrix": {"access_token_env": "MY_MX_TOKEN"}}
+    assert guided.setup_token_env(cfg, {"answers": {"platform": "telegram"}},
+                                  "discord") == "MY_TG_TOKEN"
+    assert guided.setup_token_env(cfg, {"answers": {"platform": "matrix"}},
+                                  "discord") == "MY_MX_TOKEN"
+
+
+def test_resumed_token_step_keeps_the_token_variable(tmp_path):
+    store = _store(tmp_path)
+    answers = TELEGRAM_ANSWERS[:8]
+    reply = _drive(store, "k", answers, token_env="TELEGRAM_BOT_TOKEN")
+    assert "$TELEGRAM_BOT_TOKEN" in reply
+    guided.handle_text("k", "/print-handy cancel", store=store, now=1100.0)
+    reply = guided.handle_text("k", "/print-handy setup", store=store, now=1101.0,
+                               token_env="TELEGRAM_BOT_TOKEN")
+    assert "$TELEGRAM_BOT_TOKEN" in reply and "DISCORD_BOT_TOKEN" not in reply
+
+
+@pytest.fixture
+def _clean_guided_store():
+    path = _config.state_dir() / guided.STORE_NAME
+    path.unlink(missing_ok=True)
+    yield
+    path.unlink(missing_ok=True)
+
+
+@pytest.fixture
+def core(_clean_guided_store, cfg, monkeypatch, tmp_path):
+    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    monkeypatch.setattr(_config, "cfg", lambda: cfg)
+    discord = fake_discord.FakeDiscord(chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(cfg["discord"]["allowed_user_ids"]))
+    return discord, runtime.BotCore(discord.client, cfg)
+
+
+def _send(discord, bot, text):
+    before = len(discord.sent)
+    asyncio.run(bot.handle_message(discord.message(text)))
+    return discord.sent[before:]
+
+
+def test_telegram_chosen_on_discord_names_the_telegram_variable(core):
+    discord, bot = core
+    _send(discord, bot, "/print-handy setup")
+    sent = []
+    for answer in TELEGRAM_ANSWERS[:8]:
+        sent = _send(discord, bot, answer)
+    assert "BotFather" in sent[-1]
+    assert "$TELEGRAM_BOT_TOKEN" in sent[-1]
+    assert "DISCORD_BOT_TOKEN" not in sent[-1]
+
+
+def test_dispatcher_tells_the_flow_when_messages_cannot_be_deleted(core, monkeypatch):
+    discord, bot = core
+    monkeypatch.setattr(webui_access, "deletion_supported", lambda adapter: False)
+    _send(discord, bot, "/print-handy setup")
+    for answer in ("discord", "flashforge.ad5x", "100000000000000001", "everyone",
+                   "skip", "skip", "skip", "skip", "stored", "password"):
+        _send(discord, bot, answer)
+    sent = _send(discord, bot, "catduck")
+    assert "cannot delete messages" in sent[-1]
+
+
+# ----------------------------------------------- the pending password's life
+
+@pytest.fixture
+def pending():
+    guided._pending_webui_passwords.clear()
+    yield guided._pending_webui_passwords
+    guided._pending_webui_passwords.clear()
+
+
+def _to_password_step(store, key, tmp_path, data, **kwargs):
+    answers = ("discord", "flashforge.ad5x", "100000000000000001", "everyone",
+               "skip", "skip", "skip", "skip", "stored")
+    _drive(store, key, answers, **kwargs)
+    guided.handle_text(key, "password", store=store, now=1100.0, access_data=data, **kwargs)
+    return guided.handle_text(key, "catduck", store=store, now=1101.0, access_data=data, **kwargs)
+
+
+def _to_confirm_step(store, key, tmp_path, data):
+    _to_password_step(store, key, tmp_path, data)
+    guided.handle_text(key, PASSWORD, store=store, now=1102.0, access_data=data)
+
+
+def test_captured_password_is_held_with_its_time(tmp_path, pending):
+    store = _store(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, _data(tmp_path))
+    assert pending["k"] == (PASSWORD, 1102.0)
+
+
+def test_cancel_clears_the_pending_password(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, data)
+    reply = guided.handle_text("k", "/print-handy cancel", store=store, now=1103.0)
+    assert "k" not in pending
+    assert "stays saved" not in reply  # nothing was confirmed yet
+
+
+def test_restart_clears_the_pending_password(tmp_path, pending):
+    store = _store(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, _data(tmp_path))
+    guided.handle_text("k", "/print-handy setup restart", store=store, now=1103.0)
+    assert "k" not in pending
+
+
+def test_expiry_clears_the_pending_password(tmp_path, pending):
+    store = _store(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, _data(tmp_path))
+    later = 1102.0 + guided.SESSION_TIMEOUT_S + 1
+    reply = guided.handle_text("k", "anything", store=store, now=later)
+    assert "timed out" in reply
+    assert "k" not in pending
+
+
+def test_any_message_purges_other_sessions_stale_passwords(tmp_path, pending):
+    store = _store(tmp_path)
+    now = 5000.0 + guided.SESSION_TIMEOUT_S
+    pending["old"] = ("stale password", 4999.0)
+    pending["fresh"] = ("fresh password", now - 10)
+    guided.handle_text("someone", "/print-handy status", store=store, now=now)
+    assert "old" not in pending
+    assert "fresh" in pending
+
+
+def _assert_not_consumed(reply, data):
+    assert "Start the login step again" in reply
+    assert PASSWORD not in reply
+    assert webui_access.saved_claim(data) is None
+
+
+def test_confirmation_after_cancel_cannot_consume_the_password(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, data)
+    guided.handle_text("k", "/print-handy cancel", store=store, now=1103.0)
+    guided.handle_text("k", "/print-handy setup", store=store, now=1104.0)
+    reply = guided.handle_text("k", PASSWORD, store=store, now=1105.0, access_data=data)
+    _assert_not_consumed(reply, data)
+
+
+def test_confirmation_after_expiry_cannot_consume_the_password(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, data)
+    later = 1102.0 + guided.SESSION_TIMEOUT_S + 1
+    guided.handle_text("k", "/print-handy setup", store=store, now=later)
+    reply = guided.handle_text("k", PASSWORD, store=store, now=later + 1, access_data=data)
+    _assert_not_consumed(reply, data)
+
+
+def test_stale_password_cannot_be_consumed_in_a_session_kept_alive(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, data)
+    # Resuming refreshes the session, but not the password's own age.
+    guided.handle_text("k", "/print-handy setup", store=store,
+                       now=1102.0 + guided.SESSION_TIMEOUT_S - 10)
+    reply = guided.handle_text("k", PASSWORD, store=store,
+                               now=1102.0 + guided.SESSION_TIMEOUT_S + 1, access_data=data)
+    _assert_not_consumed(reply, data)
+
+
+def test_cancel_after_a_confirmed_password_says_the_login_stays(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    _to_confirm_step(store, "k", tmp_path, data)
+    guided.handle_text("k", PASSWORD, store=store, now=1103.0, access_data=data)
+    assert webui_access.saved_claim(data) == "password"
+    reply = guided.handle_text("k", "/print-handy cancel", store=store, now=1104.0)
+    assert "Web UI login you confirmed stays saved" in reply
+    assert webui_access.saved_claim(data) == "password"
+
+
+# ------------------------------------------ chats that cannot delete messages
+
+def test_login_prompts_are_honest_when_messages_cannot_be_deleted(tmp_path, pending):
+    store = _store(tmp_path)
+    data = _data(tmp_path)
+    login = _drive(store, "k", ("discord", "flashforge.ad5x", "100000000000000001", "everyone",
+                                "skip", "skip", "skip", "skip", "stored"),
+                   can_delete_secrets=False)
+    assert "cannot delete messages" in login and "is deleted" not in login
+    guided.handle_text("k", "password", store=store, now=1100.0, access_data=data,
+                       can_delete_secrets=False)
+    ask = guided.handle_text("k", "catduck", store=store, now=1101.0, access_data=data,
+                             can_delete_secrets=False)
+    assert webui_access.capture_notice(False) in ask
+    assert "deleted from chat" not in ask
+    confirm = guided.handle_text("k", PASSWORD, store=store, now=1102.0, access_data=data,
+                                 can_delete_secrets=False)
+    assert "cannot delete messages" in confirm and "deleted from chat" not in confirm
+    assert PASSWORD not in confirm
+
+
+def test_login_prompts_promise_deletion_by_default(tmp_path, pending):
+    store = _store(tmp_path)
+    ask = _to_password_step(store, "k", tmp_path, _data(tmp_path))
+    assert "deleted from chat" in ask and "cannot delete" not in ask
+
+
+def test_capture_notice_matches_the_adapter_check():
+    bare = platform.BasePlatformAdapter([])
+    assert webui_access.pre_capture_notice(bare) == webui_access.capture_notice(False)
+    assert "cannot delete messages" in webui_access.capture_notice(False)

@@ -325,6 +325,42 @@ def _token_prompt(platform, token_env):
             f"saved, or `skip` to do it later.")
 
 
+def setup_token_env(cfg, session, source_platform):
+    """The token variable the setup token step should name.
+
+    Setup can configure a different chat app from the one it is running
+    in, so the session's chosen platform decides; the platform the chat
+    arrived on only applies until a choice has been made. ``cfg`` may be
+    None when the settings do not load.
+    """
+    answers = (session or {}).get("answers") or {}
+    platform = answers.get("platform") or source_platform or "discord"
+    env_key = "access_token_env" if platform == "matrix" else "token_env"
+    try:
+        configured = cfg[platform].get(env_key)
+    except (AttributeError, KeyError, TypeError):
+        configured = None
+    default, _how = PLATFORM_TOKEN_INFO.get(platform, PLATFORM_TOKEN_INFO["discord"])
+    return str(configured or default)
+
+
+def _no_delete_login_prompt(step_key):
+    """A Web UI login step's wording for a chat that cannot delete messages."""
+    if step_key == "webui_login":
+        return ("The Web UI is Print Handy's browser page. Reply `password` to set its login "
+                "now (this chat cannot delete messages, so the password you send would stay "
+                "visible in the chat history; the Web UI walkthrough's Login step avoids "
+                "that), `open` to leave it open on your network, `clear` to remove a login "
+                "saved earlier, or `skip` to leave it as it is.")
+    if step_key == "webui_password":
+        from . import webui_access
+        return ("The new Web UI password needs at least 8 characters; a few unrelated words "
+                "work well. " + webui_access.capture_notice(False))
+    return ("Reply with the same password once more to confirm it. This chat cannot delete "
+            "messages, so this one stays visible in the chat history too; the login is "
+            "saved as soon as it matches.")
+
+
 def _chat_id_prompt(platform):
     if platform == "telegram":
         return ("Reply with the print chat's numeric ID. In Telegram, add the bot to the "
@@ -467,8 +503,16 @@ def _applicable_steps(answers, token_env="DISCORD_BOT_TOKEN"):
 
 # Password answers live only in this in-memory map, keyed by session
 # key, between the password step and its confirmation. They are never
-# written to the session store, never logged, and never echoed.
+# written to the session store, never logged, and never echoed. Each
+# value is (password, captured_at), so an abandoned one can be dropped.
 _pending_webui_passwords = {}
+
+
+def _purge_stale_webui_passwords(now):
+    """Forget every captured password older than the session timeout."""
+    for key, (_password, captured_at) in list(_pending_webui_passwords.items()):
+        if now - captured_at > SESSION_TIMEOUT_S:
+            _pending_webui_passwords.pop(key, None)
 
 
 STEP_LABELS = {s.key: s.label for s in steps()}
@@ -1520,7 +1564,7 @@ def checklist_text(session):
     return "\n".join(lines)
 
 
-def _prompt_text(session, note="", token_env="DISCORD_BOT_TOKEN"):
+def _prompt_text(session, note="", token_env="DISCORD_BOT_TOKEN", can_delete_secrets=True):
     flow = steps(token_env)
     step = flow[session["step"]]
     answers = session.get("answers") or {}
@@ -1533,6 +1577,8 @@ def _prompt_text(session, note="", token_env="DISCORD_BOT_TOKEN"):
         prompt = _user_ids_prompt(platform)
     elif step.key == "token_stored":
         prompt = _token_prompt(platform, token_env)
+    elif not can_delete_secrets and step.key in ("webui_login", "webui_password", "webui_confirm"):
+        prompt = _no_delete_login_prompt(step.key)
     else:
         prompt = step.prompt
     applicable = _applicable_steps(answers, token_env)
@@ -1862,7 +1908,8 @@ def handle_text(key, text, **kwargs):
 def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 apply_config=None, report=None, bundle=None, debug=None,
                 probe_runner=None, onboard_apply=None, config_loader=None,
-                setup_only=False, access_data=None, access_environ=None):
+                setup_only=False, access_data=None, access_environ=None,
+                can_delete_secrets=True):
     """One message in the guided flows. Returns the reply text, or None when not ours.
 
     ``key`` identifies one person's session in one channel/thread. ``report`` is a zero-arg
@@ -1873,12 +1920,21 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
     consented settings. The onboarding kwargs are the same injection seam for #537:
     ``probe_runner`` runs the live connection test, ``onboard_apply`` performs the
     review-approved roster write, and ``config_loader`` reads the current settings the new
-    printer joins.
+    printer joins. ``access_data`` and ``access_environ`` are the settings and environment
+    the Web UI login steps act on. ``can_delete_secrets`` says whether this chat can delete
+    the password messages; when it cannot, the login prompts say so before asking.
     """
     now = time.time() if now is None else now
     raw = str(text or "").strip()
     low = raw.casefold()
     session = store.get(key)
+    _purge_stale_webui_passwords(now)
+    if session is not None and _expired(session, now):
+        _pending_webui_passwords.pop(key, None)
+
+    def _prompt(current, note=""):
+        return _prompt_text(current, note, token_env=token_env,
+                            can_delete_secrets=can_delete_secrets)
 
     if low.startswith("/print-handy"):
         rest = low[len("/print-handy"):].strip()
@@ -1919,6 +1975,7 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                          else checklist_text(session))
             return f"Print Handy {__version__}\n**Guided setup: {state}**\n" + checklist
         if rest == "cancel":
+            _pending_webui_passwords.pop(key, None)
             if session is None or session["status"] == "complete":
                 return "No guided setup is in progress. Nothing was changed."
             session["status"] = "cancelled"
@@ -1930,9 +1987,14 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         + _onboard_checklist_text(session) +
                         "\nResume any time with `/print-handy add-printer`, or discard the "
                         "checklist and start over with `/print-handy add-printer restart`.")
+            login_note = ""
+            if session["answers"].get("webui_confirm"):
+                login_note = ("\nThe Web UI login you confirmed stays saved: cancelling setup "
+                              "does not remove it. To remove it, run `/print-handy setup "
+                              "restart` and choose `clear` at the Web UI login step.")
             return ("Setup paused. Your answers are saved in the checklist and nothing was "
                     "written to the configuration.\n" + checklist_text(session) +
-                    "\nResume any time with `/print-handy setup`.")
+                    "\nResume any time with `/print-handy setup`." + login_note)
         if rest == "add-printer restart":
             # Discard a saved onboarding checklist and start over (P2-219):
             # resuming is the default everywhere else, so without this an
@@ -1987,10 +2049,11 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                     return (_setup_state.describe(prior) +
                             " Run `/print-handy setup restart` to run guided setup again.")
             if rest == "setup restart" or session is None or session["status"] == "complete":
+                _pending_webui_passwords.pop(key, None)
                 session = _new_session(key, now)
                 store.save(session)
-                return _prompt_text(session, "**Guided setup started.** One question at a time; "
-                                             "nothing is written until you approve it at the end.")
+                return _prompt(session, "**Guided setup started.** One question at a time; "
+                                        "nothing is written until you approve it at the end.")
             note = ""
             if session["status"] == "cancelled":
                 note = "**Welcome back — resuming your saved checklist.**"
@@ -2007,7 +2070,7 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             store.save(session)
             if session["status"] == "awaiting_consent":
                 return (note + "\n" if note else "") + _review_text(session)
-            return _prompt_text(session, note)
+            return _prompt(session, note)
         return ("Use `/print-handy setup`, `/print-handy add-printer`, `/print-handy debugging`, "
                 "`/print-handy bundle`, `/print-handy debug on|off|status`, `/print-handy status`, "
                 "or `/print-handy cancel`.")
@@ -2133,37 +2196,36 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             store.save(session)
             return _review_text(session)
         store.save(session)
-        return _prompt_text(session, f"Saved: {step.label}.", token_env=token_env)
+        return _prompt(session, f"Saved: {step.label}.")
 
     if step.key == "webui_password":
         # In memory only: the value never enters the session, the store,
         # or any reply. Validation happens at confirmation, through the
         # Web UI's own writer (bot/webui_access.py).
         if not raw:
-            return "That answer does not work: reply with the password.\n\n" + \
-                _prompt_text(session, token_env=token_env)
-        _pending_webui_passwords[key] = raw
+            return "That answer does not work: reply with the password.\n\n" + _prompt(session)
+        _pending_webui_passwords[key] = (raw, now)
         session["answers"]["webui_password"] = True
         return _advance()
     if step.key == "webui_confirm":
-        pending = _pending_webui_passwords.pop(key, None)
-        if pending is None:
+        pending_entry = _pending_webui_passwords.pop(key, None)
+        if pending_entry is None:
             session["step"] = next(i for i, s in enumerate(flow) if s.key == "webui_login")
             session["answers"].pop("webui_password", None)
             store.save(session)
-            return ("The password step was lost (the bot restarted between the two "
-                    "messages), so nothing was saved. Start the login step again.\n\n"
-                    + _prompt_text(session, token_env=token_env))
+            return ("The password from the previous step is gone (setup was paused or timed "
+                    "out, or the bot restarted, before it was confirmed), so nothing was "
+                    "saved. Start the login step again.\n\n" + _prompt(session))
+        pending = pending_entry[0]
         from . import webui_access
         data = _access_data(access_data)
         if data is None:
             session["step"] = next(i for i, s in enumerate(flow)
                                    if s.key == "webui_password")
-            _pending_webui_passwords[key] = pending
             store.save(session)
             return ("The Web UI login could not be saved because this install's settings "
                     "do not load. Fix that first, then reply with the password again.\n\n"
-                    + _prompt_text(session, token_env=token_env))
+                    + _prompt(session))
         result = webui_access.set_password(
             data, session["answers"].get("webui_username"), pending, raw,
             environ=access_environ)
@@ -2172,14 +2234,13 @@ def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                                    if s.key == "webui_password")
             session["answers"].pop("webui_password", None)
             store.save(session)
-            return (f"That password does not work: {result.message}\n\n"
-                    + _prompt_text(session, token_env=token_env))
+            return (f"That password does not work: {result.message}\n\n" + _prompt(session))
         session["answers"]["webui_confirm"] = True
         return _advance()
     try:
         value = step.validate(raw, session["answers"])
     except ValueError as exc:
-        return f"That answer does not work: {exc}\n\n" + _prompt_text(session, token_env=token_env)
+        return f"That answer does not work: {exc}\n\n" + _prompt(session)
     session["answers"][step.key] = value
     return _advance()
 

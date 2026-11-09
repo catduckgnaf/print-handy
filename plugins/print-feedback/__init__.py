@@ -541,26 +541,24 @@ async def guided_dispatch(event, gateway, **kwargs):
         return ("Use `/print-handy debug on [minutes]`, `/print-handy debug off`, "
                 "or `/print-handy debug status`.")
 
-    # Per-platform token env (parity): the token step names the variable
-    # of the platform the user is actually setting up, not Discord's.
-    platform_name = _platform_value(source) or 'discord'
     try:
         cfg_now = _config.cfg()
-        section = cfg_now.get(platform_name) or {}
-        env_key = 'access_token_env' if platform_name == 'matrix' else 'token_env'
-        defaults = {'discord': 'DISCORD_BOT_TOKEN', 'telegram': 'TELEGRAM_BOT_TOKEN',
-                    'matrix': 'MATRIX_ACCESS_TOKEN'}
-        token_env = str(section.get(env_key) or defaults.get(platform_name,
-                                                             'DISCORD_BOT_TOKEN'))
     except Exception:
         cfg_now = None
-        token_env = 'DISCORD_BOT_TOKEN'
+    try:
+        existing = store.get(key)
+    except Exception:
+        existing = None
+    # The token step names the variable of the platform being set up,
+    # which is not always the one this chat is running on.
+    token_env = guided.setup_token_env(cfg_now, existing, _platform_value(source))
+    from print_handy.bot import webui_access
+    can_delete_secrets = webui_access.deletion_supported(getattr(adapter, '_host', None) or adapter)
     # Was this message a Web UI password answer? Its session step says
     # so; the message is deleted right after the reply is sent, exactly
     # like a pasted login token.
     secret_step = False
     try:
-        existing = store.get(key)
         if existing and existing.get('status') == 'in_progress':
             flow = guided.steps(token_env)
             if 0 <= existing.get('step', 0) < len(flow):
@@ -571,7 +569,8 @@ async def guided_dispatch(event, gateway, **kwargs):
         reply = await asyncio.to_thread(guided.handle_text, key, text, store=store,
                                         token_env=token_env, report=report, bundle=bundle,
                                         debug=debug, setup_only=setup_only,
-                                        access_data=cfg_now)
+                                        access_data=cfg_now,
+                                        can_delete_secrets=can_delete_secrets)
     except Exception:
         logger.exception('guided setup/debugging failed')
         reply = 'That guided step failed and nothing was changed. Try `/print-handy status`, or `/print-handy cancel` to pause setup.'
