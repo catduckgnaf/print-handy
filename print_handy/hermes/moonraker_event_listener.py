@@ -196,7 +196,7 @@ def _post_rest_discord(message, mention_user_id=None):
     return ok
 
 
-def post_alert(message, kind, filename):
+def post_alert(message, kind, filename, episode=None):
     """Post with Resume/Cancel buttons; fall back to plain text if Discord refuses.
 
     On Telegram and Matrix (#164 stages 2-3) the Discord-shaped button
@@ -210,7 +210,14 @@ def post_alert(message, kind, filename):
     # decision is made once here and threaded to whichever transport
     # delivers, so the button post and its plain-text fallback can never
     # ping twice for the same alert.
-    mention = starter_pings.ping_for(kind, job_key=filename, episode=kind) or None
+    if episode is None:
+        # A pause's episode is its cause, so a different problem on the
+        # same print pings again: the pause call sites pass theirs
+        # explicitly (they classified the pause already); the cause is
+        # read back out of the alert text for any caller that does not.
+        # Every other kind's episode is the kind itself.
+        episode = f"paused:{classify_pause(message)}" if kind == "paused" else kind
+    mention = starter_pings.ping_for(kind, job_key=filename, episode=episode) or None
     delivered = None
     if _buttonless_standalone():
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
@@ -229,7 +236,7 @@ def post_alert(message, kind, filename):
     if not delivered and mention:
         # Every delivery attempt failed, so the recorded ping never
         # landed: release it, and a re-send of this alert can ping.
-        starter_pings.release_ping(kind, job_key=filename, episode=kind)
+        starter_pings.release_ping(kind, job_key=filename, episode=episode)
     return delivered
 
 
@@ -2967,7 +2974,10 @@ def _visual_alert(filename, image, reason, identity=None):
     # whichever transport delivers, button post or plain fallback.
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text + f"\n{path}\nMEDIA:{path}", **({"mention_user_id": mention} if mention else {}))
+        delivered = post(text + f"\n{path}\nMEDIA:{path}",
+                         **({"mention_user_id": mention} if mention else {}))
+        if mention and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return path
     try:
         from . import print_alert_buttons as pab
@@ -2979,7 +2989,13 @@ def _visual_alert(filename, image, reason, identity=None):
         log("visual button post failed; falling back to text")
     except Exception as exc:
         log(f"visual button post error: {exc!r}")
-    post(text + f"\n{path}\nMEDIA:{path}", **({"mention_user_id": mention} if mention else {}))
+    delivered = post(text + f"\n{path}\nMEDIA:{path}",
+                     **({"mention_user_id": mention} if mention else {}))
+    if mention and not delivered:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a later alert can ping (post_alert's
+        # rule, #1095).
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
     return path
 
 
@@ -3001,7 +3017,9 @@ def _visual_alert_text(filename, reason, identity=None):
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text, **({"mention_user_id": mention} if mention else {}))
+        delivered = post(text, **({"mention_user_id": mention} if mention else {}))
+        if mention and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return
     try:
         from . import print_alert_buttons as pab
@@ -3013,7 +3031,11 @@ def _visual_alert_text(filename, reason, identity=None):
         log("visual text alert button post failed; falling back to text")
     except Exception as exc:
         log(f"visual text alert post error: {exc!r}")
-    post(text, **({"mention_user_id": mention} if mention else {}))
+    delivered = post(text, **({"mention_user_id": mention} if mention else {}))
+    if mention and not delivered:
+        # Every delivery attempt failed: release the recorded ping, as
+        # post_alert does, so a later alert can ping (#1095).
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
 
 
 def _visual_dark_notice(filename, identity=None):
@@ -3328,6 +3350,7 @@ class Listener:
         self.clock_sync_retry_at = 0.0
         self.last_clock_sync = 0.0
         self.last_pause_was_runout = False
+        self.last_pause_episode = None  # the starter-pings episode of the live pause's alert
         self.pause_context = None
         self.native_error_alerted = load_native_error_alerted()
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
@@ -3759,9 +3782,13 @@ class Listener:
         """
         self.last_pause_was_runout = True
         spool_id = _mapped_spool(slot) if slot else None
+        # The upgrade re-posts the SAME pause with its cause filled in:
+        # it carries the original pause's ping episode, so the re-post
+        # does not ping a second time for the one problem (#1095).
         await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
                                                            slot=slot, spool_id=spool_id),
-                                "paused", self.filename)
+                                "paused", self.filename,
+                                episode=self.last_pause_episode or "paused:other")
         self.pause_context = await self.open_question(slot, "runout")
 
     def _visual_identity(self):
@@ -4066,6 +4093,11 @@ class Listener:
             if old == "paused":
                 log(f"resume, no start post: {self.filename!r}")
                 self.last_pause_was_runout = False
+                self.last_pause_episode = None
+                # The pause is over: its starter-ping episodes stop
+                # suppressing, so a later pause of the same print is a
+                # new problem that can ping (#1095).
+                starter_pings.clear_pause_episodes(job_key=self.filename)
             else:
                 self.slot_tracker.reset()
                 self.failover_watch.reset()
@@ -4090,21 +4122,25 @@ class Listener:
                 # facts and only safe actions; it is never auto-resumed
                 # and never folded into the runout question flow.
                 self.last_pause_was_runout = False
+                self.last_pause_episode = "paused:jam"
                 self.pause_context = None
                 facts = await asyncio.to_thread(self._jam_facts)
                 await asyncio.to_thread(post_alert, jam_message(self.filename, facts),
-                                        "paused", self.filename)
+                                        "paused", self.filename, episode="paused:jam")
             else:
                 self.last_pause_was_runout, slot = await self.classify_runout()
                 if self.last_pause_was_runout:
+                    self.last_pause_episode = "paused:runout"
                     spool_id = _mapped_spool(slot) if slot else None
                     await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
                                                                        slot=slot, spool_id=spool_id),
-                                            "paused", self.filename)
+                                            "paused", self.filename, episode="paused:runout")
                     self.pause_context = await self.open_question(slot, "runout")
                 else:
+                    self.last_pause_episode = "paused:other"
                     self.pause_context = None
-                    await asyncio.to_thread(post_alert, paused_message(self.filename), "paused", self.filename)
+                    await asyncio.to_thread(post_alert, paused_message(self.filename),
+                                            "paused", self.filename, episode="paused:other")
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
             self.last_pause_was_runout = False
             # Ended into standby gets the cancelled notice: the print stopped

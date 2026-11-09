@@ -224,10 +224,13 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     media_text = text + f"\n{path}\nMEDIA:{path}"
     if buttonless:
+        delivered = None
         if default_post:
-            post(media_text, **({"mention_user_id": mention} if mention else {}))
+            delivered = post(media_text, **({"mention_user_id": mention} if mention else {}))
         else:
             post(media_text)
+        if mention and default_post and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return path
     try:
         from . import print_alert_buttons as pab
@@ -237,10 +240,18 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
         log("bambu visual button post failed; falling back to text")
     except Exception as exc:
         log(f"bambu visual button post error: {exc!r}")
+    delivered = None
     if default_post:
-        post(media_text, **({"mention_user_id": mention} if mention else {}))
+        delivered = post(media_text, **({"mention_user_id": mention} if mention else {}))
     else:
         post(media_text)
+    if mention and default_post and not delivered:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a later alert can ping — the rule
+        # post_alert and post_pause_alert already follow (#1095). Only
+        # the production sender reports delivery; an injected post
+        # callable's return is not a verdict.
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
     return path
 
 
@@ -295,10 +306,13 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
     from . import starter_pings
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if buttonless:
+        delivered = None
         if default_post:
-            post(text, **({"mention_user_id": mention} if mention else {}))
+            delivered = post(text, **({"mention_user_id": mention} if mention else {}))
         else:
             post(text)
+        if mention and default_post and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return
     try:
         from . import print_alert_buttons as pab
@@ -308,10 +322,13 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
         log("bambu visual text button post failed; falling back to text")
     except Exception as exc:
         log(f"bambu visual text alert post error: {exc!r}")
+    delivered = None
     if default_post:
-        post(text, **({"mention_user_id": mention} if mention else {}))
+        delivered = post(text, **({"mention_user_id": mention} if mention else {}))
     else:
         post(text)
+    if mention and default_post and not delivered:
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
 
 
 class BambuPrintMonitor:

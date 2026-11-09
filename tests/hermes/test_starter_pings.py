@@ -82,6 +82,80 @@ def test_terminal_posts_are_not_episode_limited():
     assert ping("complete", now=T0 + 5) == STARTER
 
 
+# ------------------------------------------------------- shutdown urgency
+
+def test_shutdown_pings_inside_the_cooldown():
+    """A firmware shutdown is the alert that matters most: the per-job
+    cooldown that throttles flapping detectors must not swallow it when
+    it lands minutes after another problem's ping."""
+    assert ping("watchdog", episode="watchdog", now=T0) == STARTER
+    assert ping("shutdown", episode="shutdown", now=T0 + 60) == STARTER
+    # A shutdown re-send is still the same episode, not a new ping.
+    assert ping("shutdown", episode="shutdown", now=T0 + 120) == ""
+
+
+# ------------------------------------------------------- per-cause pauses
+
+def test_pause_episodes_are_per_problem():
+    """One pause problem never stands in for another: the send paths
+    record pause episodes per cause (paused:<cause>), so a runout and a
+    later jam on the same print each ping once."""
+    assert ping("paused", episode="paused:runout", now=T0) == STARTER
+    # The same runout re-sent inside its window stays silent...
+    assert ping("paused", episode="paused:runout", now=T0 + 900) == ""
+    # ...while the jam is a different problem and pings.
+    assert ping("paused", episode="paused:jam", now=T0 + 1200) == STARTER
+
+
+def test_resume_clears_pause_episodes():
+    """A resume ends the pause: its episodes stop suppressing, so the
+    same problem pausing the print again is a new occurrence and pings
+    (outside the per-job cooldown, as #1095 scoped it)."""
+    assert ping("paused", episode="paused:other", now=T0) == STARTER
+    starter_pings.clear_pause_episodes(job=JOB)
+    assert ping("paused", episode="paused:other",
+                now=T0 + starter_pings.COOLDOWN_S + 1) == STARTER
+
+
+def test_resume_clearing_keeps_the_cooldown_anchor_and_other_episodes():
+    """Clearing on resume drops only the pause episodes: the job's
+    last-ping anchor still measures the cooldown for the next problem,
+    and a watchdog episode recorded before the pause survives."""
+    assert ping("watchdog", episode="watchdog", now=T0) == STARTER
+    assert ping("paused", episode="paused:runout",
+                now=T0 + starter_pings.COOLDOWN_S + 1) == STARTER
+    starter_pings.clear_pause_episodes(job=JOB)
+    # A different problem inside the cooldown is still held back: the
+    # anchor is the last landed ping, cleared episodes or not.
+    assert ping("paused", episode="paused:jam",
+                now=T0 + starter_pings.COOLDOWN_S + 60) == ""
+    # The watchdog's own episode was not a pause episode: still recorded.
+    assert ping("watchdog", episode="watchdog",
+                now=T0 + starter_pings.COOLDOWN_S + 700) == ""
+
+
+# ------------------------------------------- key spellings and the reprint
+
+def test_reprint_does_not_inherit_episodes_across_key_spellings():
+    """An alert path names the print by filename; a terminal decision
+    may carry the job itself. Both spellings resolve to the same job,
+    whose own file is the tracking key — so the terminal prune finds
+    the alert episodes either way, and a reprint of the same file
+    inside the window does not inherit the earlier print's episodes."""
+    assert starter_pings.ping_for("watchdog", job=JOB, job_key="plate.gcode",
+                                  episode="watchdog", now=T0) == STARTER
+    assert ping("complete", now=T0 + 30) == STARTER
+    # The reprint's own watchdog alert pings: the slate was pruned.
+    assert starter_pings.ping_for("watchdog", job=JOB, job_key="plate.gcode",
+                                  episode="watchdog", now=T0 + 60) == STARTER
+    # And the other way round: an alert recorded under the job's own
+    # key is pruned by a terminal post naming the file.
+    assert ping("paused", episode="paused:other", now=T0 + 700) == STARTER
+    assert starter_pings.ping_for("complete", job=JOB, job_key="plate.gcode",
+                                  now=T0 + 730) == STARTER
+    assert ping("paused", episode="paused:other", now=T0 + 760) == STARTER
+
+
 # ------------------------------------------------- failed deliveries
 
 def test_a_failed_delivery_releases_the_episode():
@@ -207,3 +281,56 @@ def test_visual_alert_send_allows_only_the_starter(monkeypatch, tmp_path):
     body = seen[-1].data
     payload = json.loads(body.split(b"\r\n\r\n", 1)[1].split(b"\r\n--")[0])
     assert payload["allowed_mentions"] == {"parse": []}
+
+
+# ------------------------------------------- one state file, many processes
+
+_PING_CHILD = r"""
+import os, sys, time
+sys.path.insert(0, os.environ["PH_REPO_ROOT"])
+from print_handy.hermes import starter_pings
+starter_pings.mentions_on = lambda: True
+who = os.environ["PH_WHO"]
+# Barrier: both processes start their bursts together, so the
+# load-modify-save windows genuinely overlap.
+go = os.environ["PH_GO"]
+for _ in range(6000):
+    if os.path.exists(go):
+        break
+    time.sleep(0.005)
+for i in range(150):
+    key = f"{who}-{i}.gcode"
+    job = {"title": "W", "gcode": f"/archive/w/{key}",
+           "started_by": {"platform": "discord", "user_id": "111222333444555666"}}
+    got = starter_pings.ping_for("alert", job=job, episode="alert",
+                                 now=1000.0 + i)
+    assert got == "111222333444555666", (key, got)
+"""
+
+
+def test_two_processes_sharing_one_state_file_lose_nothing(tmp_path):
+    """starter_pings.json is one file shared by every per-printer
+    listener process: concurrent decisions from two processes must all
+    survive — no lost job records, and the file is never left truncated
+    or half-written for the next reader."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    state = tmp_path / "starter_pings.json"
+    env = dict(os.environ, PRINT_STARTER_PING_STATE=str(state),
+               PH_REPO_ROOT=str(Path(__file__).resolve().parents[2]),
+               PH_GO=str(tmp_path / "go"))
+    procs = [subprocess.Popen([sys.executable, "-c", _PING_CHILD],
+                              env={**env, "PH_WHO": who},
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True)
+             for who in ("alpha", "beta")]
+    (tmp_path / "go").write_text("go")
+    for proc in procs:
+        _out, err = proc.communicate(timeout=300)
+        assert proc.returncode == 0, err
+    data = json.loads(state.read_text())
+    assert set(data) == {f"/archive/w/{who}-{i}.gcode"
+                         for who in ("alpha", "beta") for i in range(150)}

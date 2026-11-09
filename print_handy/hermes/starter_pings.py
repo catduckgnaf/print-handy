@@ -26,22 +26,40 @@ and completion, not picking the number of bag clips"):
   updates, heating/calibration/start-of-print status, roast follow-ups,
   and the dark-camera notice (a camera problem, not a print alert).
 
-Episode and cooldown: an episode is one problem on one job. The same
-episode re-sent, refreshed or repeated never pings twice; a different
-problem (a different episode on the same job) pings again, but never
-inside COOLDOWN_S of the job's last ping, so a flapping detector
-alternating problems cannot spam. An episode record older than
+Episode and cooldown: an episode is one problem on one job — a pause's
+episode is its cause (``paused:runout``, ``paused:jam``), so a runout
+and a later jam on the same print are different problems, while the
+runout upgrade re-post of one pause shares that pause's episode. The
+same episode re-sent, refreshed or repeated never pings twice; a
+different problem (a different episode on the same job) pings again,
+but never inside COOLDOWN_S of the job's last ping, so a flapping
+detector alternating problems cannot spam — except a firmware
+shutdown, which is exempt from the cooldown: it is the alert that
+matters most, and a detector's flapping is not its failure mode. A
+resume clears the job's pause episodes (the problem ended; if it
+pauses the print again that is a new occurrence), leaving the cooldown
+anchored on the last ping that landed. An episode record older than
 EPISODE_TTL_S no longer suppresses: a pause that recurs hours later is
 a new occurrence of the problem, not a re-send of the old alert, while
 re-sends and refreshes (which happen within minutes) stay silent.
 Tracking is persisted like the alert buttons' state (a restart
 mid-episode does not re-ping), keyed by job and episode, and pruned
-with the job's terminal post.
+with the job's terminal post. The state file is shared by every
+per-printer listener process, so every load-modify-save runs under a
+cross-process file lock and lands by atomic rename: no process can
+lose another's update or leave the file half-written.
 """
+import contextlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX platform: in-process lock only
+    fcntl = None
 
 from . import _config
 from . import discord_print_summary as print_summary
@@ -93,23 +111,76 @@ def _load():
 
 
 def _save(data):
+    """Write the store by atomic rename (the bot/health.py pattern): a
+    concurrent reader in another listener process sees the old file or
+    the new one, never a truncated half-write."""
     try:
-        Path(STATE).parent.mkdir(parents=True, exist_ok=True)
-        Path(STATE).write_text(json.dumps(data))
+        path = Path(STATE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, path)
     except OSError:
         pass
 
 
+@contextlib.contextmanager
+def _locked():
+    """The store's critical section, in this process and across them.
+
+    The thread lock is layered over an OS file lock on a sibling file
+    (the core/control_lock.py pattern): the state file is shared by
+    every per-printer listener process, and a thread lock alone let two
+    processes load the same snapshot and lose each other's update.
+    flock is released by the kernel when a holder dies, so a crashed
+    listener cannot wedge the store; the sections are milliseconds of
+    JSON I/O, so waiting briefly is right — losing an update is the bug
+    being fixed. Where fcntl is unavailable, or the lock file cannot be
+    opened, the thread lock stands alone rather than the decision.
+    """
+    with _LOCK:
+        fd = None
+        if fcntl is not None:
+            try:
+                path = Path(str(STATE) + ".lock")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            except OSError:
+                if fd is not None:
+                    os.close(fd)
+                fd = None
+        try:
+            yield
+        finally:
+            if fd is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+                os.close(fd)
+
+
 def _job_key(job, job_key):
-    """The tracking key for a job: the caller's key, else the job's own file."""
-    if job_key:
-        return str(job_key)
+    """The tracking key for a job: the job's own file when the job is
+    known, else the caller's key, else the job's title.
+
+    The job's own file is the one identity every caller spelling of
+    the same print shares: an alert path keys on the print's filename
+    and a terminal decision may carry the job itself, but both resolve
+    to the same job (find_job resolves by name), so keying on the
+    resolved job's file keeps one entry per print — the terminal prune
+    always finds the episodes the alert paths recorded, and two
+    different jobs whose files share a name stay separate entries.
+    """
     if isinstance(job, dict):
         for field in ("_job_path", "gcode"):
             if job.get(field):
                 return str(job[field])
-        if job.get("title"):
-            return f"title:{job['title']}"
+    if job_key:
+        return str(job_key)
+    if isinstance(job, dict) and job.get("title"):
+        return f"title:{job['title']}"
     return ""
 
 
@@ -133,7 +204,8 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
     dict (or None, with ``job_key`` naming the print so the job can be
     resolved); ``episode`` names the alert problem for dedupe — the kind
     itself when the caller passes none, so a watchdog alert's varying
-    reason text never mints a new episode. ``now`` is injectable for
+    reason text never mints a new episode (a pause's callers pass their
+    cause, ``paused:<cause>``). ``now`` is injectable for
     tests. A decision that pings also records it: an alert decision is
     the ping, so a re-sent or refreshed post asking again gets "". A
     caller whose delivery then fails outright undoes the record with
@@ -152,7 +224,7 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
         # The print is over: its alert tracking is dead weight either way.
         key = _job_key(job, job_key)
         if key:
-            with _LOCK:
+            with _locked():
                 data = _load()
                 if data.pop(key, None) is not None:
                     _save(data)
@@ -165,7 +237,7 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
         return user_id
     moment = time.time() if now is None else float(now)
     episode = str(episode or kind)
-    with _LOCK:
+    with _locked():
         data = _load()
         entry = data.get(key)
         if not isinstance(entry, dict):
@@ -173,7 +245,10 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
         episodes = entry.get("episodes") or {}
         if episode in episodes and moment - float(episodes[episode]) < EPISODE_TTL_S:
             return ""
-        if moment - float(entry.get("last_ping") or 0.0) < COOLDOWN_S:
+        # The cooldown throttles flapping detectors alternating
+        # problems; a firmware shutdown is exempt — it is the one alert
+        # that must never be swallowed by an earlier, lesser ping.
+        if kind != "shutdown" and moment - float(entry.get("last_ping") or 0.0) < COOLDOWN_S:
             return ""
         episodes[episode] = moment
         entry["episodes"] = episodes
@@ -203,11 +278,14 @@ def release_ping(kind, job=None, *, job_key=None, episode=None):
     """
     if str(kind or "") not in ALERT_KINDS:
         return
-    key = _job_key(job, job_key)
+    # Resolve like ping_for does, so the key names the same entry the
+    # decision recorded (the resolved job's file, not the raw spelling
+    # this caller happened to hold).
+    key = _job_key(_resolve_job(job, job_key), job_key)
     if not key:
         return
     episode = str(episode or kind)
-    with _LOCK:
+    with _locked():
         data = _load()
         entry = data.get(key)
         if not isinstance(entry, dict):
@@ -225,7 +303,36 @@ def release_ping(kind, job=None, *, job_key=None, episode=None):
         _save(data)
 
 
+def clear_pause_episodes(job=None, *, job_key=None):
+    """Forget a job's pause episodes: the print resumed.
+
+    The pause that was pinged is over, so its episodes stop
+    suppressing: if the same problem pauses the print again it is a
+    new occurrence and pings again, subject to the per-job cooldown,
+    which stays anchored on the last ping that landed (the entry and
+    its anchor survive). Only the pause kind's episodes are dropped —
+    a watchdog episode from before the pause is a different problem
+    and keeps its window.
+    """
+    key = _job_key(_resolve_job(job, job_key), job_key)
+    if not key:
+        return
+    with _locked():
+        data = _load()
+        entry = data.get(key)
+        if not isinstance(entry, dict):
+            return
+        episodes = entry.get("episodes") or {}
+        kept = {name: at for name, at in episodes.items()
+                if name != "paused" and not str(name).startswith("paused:")}
+        if len(kept) == len(episodes):
+            return
+        entry["episodes"] = kept
+        data[key] = entry
+        _save(data)
+
+
 def reset():
     """Drop all episode tracking (tests and process-fresh installs)."""
-    with _LOCK:
+    with _locked():
         _save({})

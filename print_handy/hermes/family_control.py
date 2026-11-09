@@ -290,8 +290,11 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     text = paused_text(filename, status)
     # A pause that needs a person pings the print's starter (#1095), once
     # per episode; the decision is threaded to the delivering transport.
+    # The episode is the pause's cause, as on the Moonraker path, so a
+    # different problem on the same print pings again.
     from . import starter_pings
-    mention = starter_pings.ping_for("paused", job_key=filename, episode="paused") or None
+    episode = f"paused:{mel.classify_pause(text)}"
+    mention = starter_pings.ping_for("paused", job_key=filename, episode=episode) or None
     delivered = None
     if mel._buttonless_standalone():
         delivered = mel.post(text, mention_user_id=mention)
@@ -312,7 +315,7 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     if not delivered and mention:
         # Every delivery attempt failed, so the recorded ping never
         # landed: release it, and a re-send of this alert can ping.
-        starter_pings.release_ping("paused", job_key=filename, episode="paused")
+        starter_pings.release_ping("paused", job_key=filename, episode=episode)
     return delivered
 
 
@@ -391,6 +394,14 @@ class PauseAlerts:
                 self._poster(self.filename, self.connection, self.printer_id, status)
             except Exception as exc:
                 log(f"pause alert post failed file={self.filename!r}: {exc!r}")
+        elif state == "printing" and prev == "paused":
+            # A resume ends the pause: its starter-ping episodes stop
+            # suppressing, so a later pause is a new problem (#1095).
+            try:
+                from . import starter_pings
+                starter_pings.clear_pause_episodes(job_key=self.filename)
+            except Exception as exc:
+                log(f"pause episode clear failed file={self.filename!r}: {exc!r}")
         elif prev in ACTIVE and state in TERMINAL_STATES:
             try:
                 self._retirer(self.filename, retire_headline(state))

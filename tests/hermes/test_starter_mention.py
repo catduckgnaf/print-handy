@@ -320,6 +320,60 @@ def test_pause_alert_pings_once_per_episode(archive, monkeypatch):
     assert calls[-1] == {}
 
 
+def test_pause_alerts_ping_per_problem(archive, monkeypatch, ping_state):
+    """A runout and a jam are different problems (#1095): each pause
+    alert pings its starter, once its own episode is new and the
+    per-job cooldown from the last landed ping has passed."""
+    calls = _fake_button_post(monkeypatch)
+    runout = "Filament runout: the active slot ran out of filament."
+    jam = "Filament jam detected (IFS) while printing."
+    assert mel.post_alert(runout, "paused", "plate.gcode")
+    assert calls[-1] == {"mention_user_id": STARTER}
+    # The same runout re-posted is the same episode: no second ping.
+    assert mel.post_alert(runout, "paused", "plate.gcode")
+    assert calls[-1] == {}
+    # Age the cooldown anchor (the classifier reads the wall clock on
+    # this path): the jam is a different problem and pings.
+    data = json.loads(ping_state.read_text())
+    for entry in data.values():
+        entry["last_ping"] -= starter_pings.COOLDOWN_S + 60
+    ping_state.write_text(json.dumps(data))
+    assert mel.post_alert(jam, "paused", "plate.gcode")
+    assert calls[-1] == {"mention_user_id": STARTER}
+
+
+def test_runout_upgrade_repost_shares_the_pauses_episode(archive, monkeypatch):
+    """The runout upgrade re-posts the SAME pause with more detail
+    (#442): handed the original pause's episode explicitly, it does not
+    ping a second time for the one problem."""
+    calls = _fake_button_post(monkeypatch)
+    assert mel.post_alert("Print paused: Widget", "paused", "plate.gcode")
+    assert calls[-1] == {"mention_user_id": STARTER}
+    assert mel.post_alert("Filament runout: the active slot ran out of filament.",
+                          "paused", "plate.gcode", episode="paused:other")
+    assert calls[-1] == {}
+
+
+def test_watchdog_visual_alert_releases_a_fully_failed_ping(archive, monkeypatch):
+    """The listener's watchdog visual alert mirrors post_alert: when
+    the button post and the plain fallback both fail, the recorded
+    ping is released, so the next watchdog alert for the print can
+    ping instead of arriving silently."""
+    from print_handy.hermes import print_alert_buttons as pab
+    monkeypatch.setattr(pab, "post_visual_alert",
+                        lambda *args, **kwargs: False)
+    monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    seen = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: seen.append(kw) or False)
+    mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "spaghetti at layer 3")
+    assert seen[-1] == {"mention_user_id": STARTER}
+    monkeypatch.setattr(mel, "post", lambda text, **kw: seen.append(kw) or True)
+    mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "spaghetti at layer 3")
+    assert seen[-1] == {"mention_user_id": STARTER}
+
+
 def test_a_fully_failed_alert_delivery_can_ping_on_resend(archive, monkeypatch):
     """When the button post and its plain-text fallback both fail, the
     alert was never delivered, so its ping decision is released: a
