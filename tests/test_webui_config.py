@@ -119,6 +119,40 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(source.kind, "picker")
         self.assertEqual(choices_for(source), tuple(settings.CAMERA_SOURCES))
 
+    def test_timelapse_capture_fields_are_in_the_catalog(self):
+        # The #246 stage 2/3 capture knobs are Web UI fields, so the Unraid
+        # template variables for them can go: the settings live in the
+        # config file like everything else. The trigger picker carries
+        # exactly the settings-owned choice set.
+        trigger = field_by_id("timelapse.capture_trigger")
+        self.assertIsNotNone(trigger)
+        self.assertEqual(trigger.kind, "picker")
+        self.assertEqual(choices_for(trigger), tuple(settings.CAPTURE_TRIGGERS))
+        self.assertEqual(trigger.group, "timelapse")
+        interval = field_by_id("timelapse.capture_interval_s")
+        self.assertIsNotNone(interval)
+        self.assertEqual(interval.kind, "number")
+        self.assertEqual(interval.maximum, 3600)
+        self.assertEqual(interval.group, "timelapse")
+        for field_id in ("timelapse.capture_max_frames", "timelapse.capture_max_bytes"):
+            with self.subTest(field=field_id):
+                field = field_by_id(field_id)
+                self.assertIsNotNone(field)
+                self.assertEqual(field.kind, "number")
+                self.assertEqual(field.minimum, 0)  # 0 disables the cap
+                self.assertEqual(field.group, "timelapse")
+
+    def test_visual_watch_early_fields_are_in_the_catalog(self):
+        # The #913 early-layer watch knobs ride the same surface.
+        numbers = {"visual_watch.early_layers": (1, 1000),
+                   "visual_watch.early_interval_s": (1, 3600)}
+        for field_id, (minimum, maximum) in numbers.items():
+            with self.subTest(field=field_id):
+                field = field_by_id(field_id)
+                self.assertIsNotNone(field)
+                self.assertEqual(field.kind, "number")
+                self.assertEqual((field.minimum, field.maximum), (minimum, maximum))
+
     def test_live_stream_fields_are_in_the_catalog_under_the_live_group(self):
         # #311 stage 4: the whole [live_stream] section is editable here —
         # the Web UI is the settings surface — with the loader's own
@@ -419,6 +453,45 @@ class WriteAPITests(unittest.TestCase):
         values = values_by_id(local=self.local, environ={})
         self.assertEqual(values["timelapse.render_wait_s"].provenance, SETTINGS_FILE)
         self.assertEqual(values["services.camera_snapshot_url"].provenance, SETTINGS_FILE)
+
+    def test_capture_and_early_watch_writes_feed_the_consumers(self):
+        # The values the Web UI writes are the values the capture loop and
+        # the early-layer watch read back: persistence through the real
+        # loader, consumption through the real reader functions.
+        from print_handy.hermes import timelapse_capture, visual_watch
+        self.write_file("timelapse:\\n  capture_enabled: true\\n")
+        changed = write_changes(
+            {"timelapse.capture_trigger": "both", "timelapse.capture_interval_s": 2.5,
+             "timelapse.capture_max_frames": 1200, "timelapse.capture_max_bytes": 0,
+             "visual_watch.early_layers": 25, "visual_watch.early_interval_s": 45},
+            config_path=self.local, environ={}, timestamp="20261026-120000")
+        self.assertEqual(len(changed), 6)
+        data = settings.load(local=self.local, environ={})
+        self.assertEqual(timelapse_capture.capture_settings(data),
+                         {"capture_trigger": "both", "capture_interval_s": 2.5,
+                          "capture_max_frames": 1200, "capture_max_bytes": 0})
+        watch = visual_watch.watch_settings(data)
+        self.assertEqual((watch["early_layers"], watch["early_interval_s"]), (25, 45))
+        values = values_by_id(local=self.local, environ={})
+        self.assertEqual(values["timelapse.capture_trigger"].provenance, SETTINGS_FILE)
+        self.assertEqual(values["visual_watch.early_layers"].provenance, SETTINGS_FILE)
+
+    def test_invalid_capture_values_are_rejected_unchanged(self):
+        before = self.write_file("timelapse:\\n  capture_enabled: true\\n")
+        for changes in ({"timelapse.capture_trigger": "sometimes"},  # not a trigger
+                        {"timelapse.capture_interval_s": 0},         # must be above 0
+                        {"timelapse.capture_interval_s": 3601},      # loader cap
+                        {"timelapse.capture_interval_s": True},      # bool is not a number
+                        {"timelapse.capture_max_frames": -1},
+                        {"timelapse.capture_max_frames": 1.5},       # whole frames only
+                        {"timelapse.capture_max_bytes": -1},
+                        {"visual_watch.early_layers": 0},
+                        {"visual_watch.early_interval_s": 3601}):
+            with self.subTest(changes=changes):
+                with self.assertRaises(WebUIConfigError):
+                    write_changes(changes, config_path=self.local, environ={})
+                self.assertEqual(self.local.read_bytes(), before)
+                self.assertFalse(list(Path(self.tmp.name).glob("*.bak-*")))
 
     def test_invalid_timelapse_and_image_values_are_rejected_unchanged(self):
         before = self.write_file("timelapse:\n  render_wait_s: 900\\n")

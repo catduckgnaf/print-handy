@@ -151,19 +151,32 @@ run_listener() {
         # asks for a stack dump (faulthandler on SIGUSR1), then TERM, then KILL,
         # which ends the `wait` below and falls through to the normal restart
         # with its backoff and budget. The watcher dies with each child.
+        # Only the probe's own FAIL verdict condemns a listener: a probe that
+        # crashed or timed out says nothing about the heartbeat.
         (
             trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
             sleep "$watch_grace" & wait $!
+            probe_warned=""
             while kill -0 "$child" 2>/dev/null; do
-                if ! timeout 20 python3 -m print_handy.healthcheck --printer "$printer_id" >/dev/null 2>&1; then
-                    echo "Listener for printer '$printer_id' has a stale heartbeat; dumping its stack and restarting it." >&2
-                    kill -USR1 "$child" 2>/dev/null || true
-                    sleep 2 & wait $!
-                    kill -TERM "$child" 2>/dev/null || true
-                    sleep 5 & wait $!
-                    kill -KILL "$child" 2>/dev/null || true
-                    exit 0
-                fi
+                verdict="$(timeout 20 python3 -m print_handy.healthcheck --printer "$printer_id" 2>/dev/null || true)"
+                case "$verdict" in
+                    FAIL*)
+                        echo "Listener for printer '$printer_id' has a stale heartbeat; dumping its stack and restarting it." >&2
+                        kill -USR1 "$child" 2>/dev/null || true
+                        sleep 2 & wait $!
+                        kill -TERM "$child" 2>/dev/null || true
+                        sleep 5 & wait $!
+                        kill -KILL "$child" 2>/dev/null || true
+                        exit 0
+                        ;;
+                    ok*) probe_warned="" ;;
+                    *)
+                        if [ -z "$probe_warned" ]; then
+                            echo "Listener watchdog for printer '$printer_id': the health probe gave no verdict; leaving the listener running." >&2
+                            probe_warned=1
+                        fi
+                        ;;
+                esac
                 sleep "$watch_interval" & wait $!
             done
         ) &

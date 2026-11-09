@@ -149,6 +149,61 @@ def test_shallow_wide_sloped_low_clearance_is_still_flagged(tmp_path):
     assert support_clearance.CODE_CLEARANCE in support_clearance.codes(rep)
 
 
+def chamfered_block_file(tmp_path, size=50.0, chamfer=1.0, height=10.0):
+    """A block whose four bottom edges carry a 45 degree chamfer starting at the plate."""
+    def ring(inset, z):
+        lo, hi = inset, size - inset
+        return [(lo, lo, z), (hi, lo, z), (hi, hi, z), (lo, hi, z)]
+
+    bottom, shoulder, top = ring(chamfer, 0.0), ring(0.0, chamfer), ring(0.0, height)
+    quads = [bottom, top]
+    for lower, upper in ((bottom, shoulder), (shoulder, top)):
+        for i in range(4):
+            j = (i + 1) % 4
+            quads.append([lower[i], lower[j], upper[j], upper[i]])
+    tris = []
+    for q in quads:
+        tris.append([q[0], q[1], q[2]])
+        tris.append([q[0], q[2], q[3]])
+    return write_3mf(tmp_path / 'chamfered.3mf',
+                     [('BLOCK', _orient(tris, (size / 2, size / 2, height / 2)), '', None)])
+
+
+def test_bottom_chamfer_around_a_part_is_not_a_clearance_risk(tmp_path):
+    # The strip follows the part's outline, so its bounding width is the whole
+    # part; across the strip it is 1 mm and it prints without support.
+    rep = support_clearance.analyze(str(chamfered_block_file(tmp_path)))
+    assert rep['risky'] is False
+    assert support_clearance.CODE_CLEARANCE not in support_clearance.codes(rep)
+    assert [r for r in rep['regions'] if r.get('kind') == 'sloped_wedge_root']
+
+
+def test_flat_low_underside_is_still_a_clearance_risk(tmp_path):
+    shelf = box(0, 0, 0.5, 60, 34, 5.0)
+    path = write_3mf(tmp_path / 'flat.3mf', [('SHELF', shelf, '', None)])
+    rep = support_clearance.analyze(str(path))
+    assert rep['risky'] is True
+    assert support_clearance.CODE_CLEARANCE in support_clearance.codes(rep)
+
+
+def test_supports_are_not_recommended_for_a_gap_they_cannot_reach(tmp_path):
+    from print_handy.core import prepared_intake
+    shelf = box(0, 0, 0.5, 60, 34, 5.0)
+    rep = support_clearance.analyze(str(write_3mf(tmp_path / 'flat.3mf', [('SHELF', shelf, '', None)])))
+    line = prepared_intake.with_supports_line('too low for supports to reach', '1h', None, rep)
+    assert '(not recommended: too low for supports to reach)' in line
+    finding = {'objects': ['a']}
+    assert '(recommended: floats)' in prepared_intake.with_supports_line('floats', '1h', finding, rep)
+    assert '(recommended: floats)' in prepared_intake.with_supports_line('floats', '1h', None, {'findings': []})
+
+
+def test_clearance_reason_shows_the_measured_gap_unrounded():
+    report = {'risky': True, 'findings': [{'code': support_clearance.CODE_CLEARANCE, 'clearance_mm': {'min': 0.05}}]}
+    from print_handy.core import prepared_intake
+    _show, reason, _inputs = prepared_intake.supports_decision(False, None, report)
+    assert 'by only 0.05 mm' in reason
+
+
 # ---------------------------------------------------------------- gap 4
 
 def supportable_file(tmp_path):

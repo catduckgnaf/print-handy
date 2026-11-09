@@ -137,6 +137,10 @@ GROUP_OF = {
     "visual_watch.early_interval_s": "images",
     "visual_watch.auto_pause_early": "images",
     "timelapse.capture_enabled": "timelapse",
+    "timelapse.capture_trigger": "timelapse",
+    "timelapse.capture_interval_s": "timelapse",
+    "timelapse.capture_max_frames": "timelapse",
+    "timelapse.capture_max_bytes": "timelapse",
     "timelapse.mode": "timelapse",
     "timelapse.render_wait_s": "timelapse",
     "timelapse.render_poll_s": "timelapse",
@@ -491,6 +495,25 @@ CATALOG = (
            "capture is the timelapse; mode off stops capture whatever "
            "this says.",
            validator="settings timelapse check"),
+    _field("timelapse", "capture_trigger", "Capture trigger", "picker",
+           "How in-container capture takes frames (#246 stage 2): interval = "
+           "a frame every capture interval; layer = a frame on each layer "
+           "change the printer reports; both = either trigger takes a frame.",
+           choices=tuple(settings.CAPTURE_TRIGGERS),
+           validator="settings timelapse check"),
+    _field("timelapse", "capture_interval_s", "Capture interval", "number",
+           "Seconds between captured frames for the interval capture "
+           "trigger (#246 stage 2); above 0, at most 3600.",
+           validator="settings timelapse check", maximum=3600),
+    _field("timelapse", "capture_max_frames", "Capture max frames", "number",
+           "Most frames captured for one print (#246 stage 3). Capture stops "
+           "at the cap and keeps the frames already taken; 0 turns the cap off.",
+           validator="settings timelapse check", minimum=0),
+    _field("timelapse", "capture_max_bytes", "Capture max size", "number",
+           "Largest total size of one print's captured frames, in bytes "
+           "(#246 stage 3). Capture stops at the cap and keeps the frames "
+           "already taken; 0 turns the cap off.",
+           validator="settings timelapse check", minimum=0),
     _field("timelapse", "mode", "Timelapse mode", "picker",
            "How timelapses are made (#246/#295): rendered = the printer renders it "
            "(moonraker-timelapse), with in-container capture preferred when on; "
