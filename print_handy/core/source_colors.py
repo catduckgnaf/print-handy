@@ -588,7 +588,15 @@ def _append_filament_stats(path, manifest):
                 names = z.namelist()
                 if 'Metadata/slice_info.config' in names:
                     root = ET.fromstring(z.read('Metadata/slice_info.config'))
-                    for plate in root.findall('.//plate'):
+                    stats['plates'] = {}
+                    for plate_index, plate in enumerate(root.findall('.//plate'), 1):
+                        # Bambu's slice_info.config reports real sliced usage per plate.
+                        # Preserve its plate index and source filament IDs; do not
+                        # conflate logical source colors with loaded slots/nozzles.
+                        meta = {m.get('key'): m.get('value') for m in plate.findall('metadata')}
+                        plate_id = meta.get('index') or str(plate_index)
+                        plate_stats = {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
+                                       'usage_known': True}
                         for fil in plate.findall('.//filament'):
                             g = float(fil.get('used_g', 0))
                             m = float(fil.get('used_m', 0))
@@ -600,6 +608,12 @@ def _append_filament_stats(path, manifest):
                                 ext['m'] += m
                                 stats['total_g'] += g
                                 stats['total_m'] += m
+                                plate_stats['extruders'][ext_id] = {'g': g, 'm': m}
+                                plate_stats['total_g'] += g
+                                plate_stats['total_m'] += m
+                        plate_stats['total_g'] = round(plate_stats['total_g'], 1)
+                        plate_stats['total_m'] = round(plate_stats['total_m'], 1)
+                        stats['plates'][str(plate_id)] = plate_stats
                     for ext in stats['extruders'].values():
                         ext['g'], ext['m'] = round(ext['g'], 1), round(ext['m'], 1)
         except Exception:

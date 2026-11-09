@@ -32,7 +32,23 @@ class FilamentStatsTests(unittest.TestCase):
         self.assertEqual(stats["extruders"][1], {"g": 100.0, "m": 33.0})
         self.assertEqual(stats["extruders"][2], {"g": 5.5, "m": 1.8})
         self.assertEqual(stats["total_g"], 105.5)
+        self.assertEqual(stats["plates"]["1"], {
+            "extruders": {1: {"g": 40.0, "m": 13.0}, 2: {"g": 5.5, "m": 1.8}},
+            "total_g": 45.5, "total_m": 14.8, "usage_known": True})
+        self.assertEqual(stats["plates"]["2"], {
+            "extruders": {1: {"g": 60.0, "m": 20.0}},
+            "total_g": 60.0, "total_m": 20.0, "usage_known": True})
         self.assertEqual(sum(e["g"] for e in stats["extruders"].values()), stats["total_g"])
+
+    def test_per_plate_filament_usage_preserves_explicit_plate_ids(self):
+        path = self.dir / "indexed.3mf"
+        xml = """<config><plate><metadata key="index" value="7"/>
+        <filament id="3" used_g="2.5" used_m="0.8"/></plate></config>"""
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("Metadata/slice_info.config", xml)
+        sc._append_filament_stats(path, manifest := {})
+        self.assertEqual(manifest["filament_stats"]["plates"]["7"]["extruders"][3],
+                         {"g": 2.5, "m": 0.8})
 
     def test_stl_has_no_palette_and_is_bound_to_its_bytes(self):
         path = self.dir / "part.stl"
