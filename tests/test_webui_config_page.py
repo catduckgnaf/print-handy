@@ -368,6 +368,43 @@ class ConfigPageTests(unittest.TestCase):
             _code, body, _csrf = self.get_config(port)
         self.assertIn("Unsaved changes on this tab will be lost", body)
         self.assertIn("config-tabs", body)
+        # The Set up links navigate away the same way, so the guard
+        # covers them too.
+        self.assertIn(".config-tabs a, .setup-reveal a", body)
+
+    def test_revealed_platform_stays_revealed_after_a_validation_error(self):
+        # ?setup= exists only on the GET: the form reposts it as _setup,
+        # so an error re-render keeps the revealed fields on screen with
+        # whatever the user typed instead of hiding them behind Set up.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            code, body = self.request(port, "GET",
+                                      "/config?section=platform&setup=telegram")
+            self.assertEqual(code, 200)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            csrf = dict(hidden_inputs(body))["_csrf"]
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf, **{"bot.platform": "nope"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400, body)
+            self.assertIn('class="error"', row_segment(body, "bot.platform"))
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn("Set up Telegram", body)
+            self.assertNotIn('id="row-matrix.room_id"', body)
+            self.assertIn("Set up Matrix", body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            self.assertEqual(local.read_bytes(), before)
+
+    def test_preview_confirm_form_keeps_the_reveal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, _body, csrf = self.get_config(port, section="platform")
+            form = self.browser_form(environ, csrf, **{"discord.chat_id": "999"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
 
     # -- save flow -----------------------------------------------------------
 

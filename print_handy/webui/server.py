@@ -1905,13 +1905,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
                 field_values, submitted=submitted, theme=self._theme(),
                 section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
@@ -1919,7 +1921,8 @@ class _Handler(BaseHTTPRequestHandler):
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
             entries, submitted, form_token=self.server.form_token, theme=self._theme(),
-            section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+            section=(form.get(pages.SECTION_FIELD) or [None])[0],
+            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
             "text/html; charset=utf-8")
 
     def _config_save(self):
@@ -1940,7 +1943,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         try:
@@ -1956,7 +1960,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         self._send(200, pages.render_result_page(changed, theme=self._theme()),

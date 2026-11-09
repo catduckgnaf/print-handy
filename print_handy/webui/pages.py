@@ -71,6 +71,9 @@ FIELDS_FIELD = "_fields"
 # submit came from, so a preview error re-render returns to the same
 # section instead of the first one.
 SECTION_FIELD = "_section"
+# Hidden field carrying the ?setup= chat platform reveal through a submit,
+# so a revealed Telegram or Matrix section stays open on a re-render.
+REVEAL_FIELD = "_setup"
 
 # Page groups in render order: (catalog group name, heading). The
 # headings follow the docs' grouping of the same settings.
@@ -371,7 +374,7 @@ _TAB_GUARD = (
     "if(!form)return;var dirty=false;"
     "form.addEventListener('input',function(){dirty=true;});"
     "form.addEventListener('change',function(){dirty=true;});"
-    "document.querySelectorAll('.config-tabs a').forEach(function(link){"
+    "document.querySelectorAll('.config-tabs a, .setup-reveal a').forEach(function(link){"
     "link.addEventListener('click',function(event){"
     "if(dirty&&!confirm('Unsaved changes on this tab will be lost. Switch tabs anyway?'))"
     "event.preventDefault();});});})();</script>"
@@ -455,7 +458,9 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     parts.append(f'<form method="post" action="/config/preview">'
                  f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
                  f'<input type="hidden" name="{SECTION_FIELD}" '
-                 f'value="{_esc(selected or "")}">')
+                 f'value="{_esc(selected or "")}">'
+                 + (f'<input type="hidden" name="{REVEAL_FIELD}" '
+                    f'value="{_esc(reveal)}">' if reveal else ""))
     for name, heading, rows in sections:
         if name != selected:
             # Unshown sections: hidden inputs only, so the one-form save
@@ -498,13 +503,14 @@ def render_config_page(field_values, *, data, form_token, errors=None,
 
 
 def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME,
-                        section=None):
+                        section=None, reveal=None):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
 
     ``section`` is the sub-tab the preview was posted from; the confirm
     form reposts it as _section so a save re-render lands back on that
     tab (an errored field's own tab still outranks it — see
-    render_config_page).
+    render_config_page). ``reveal`` is the ?setup= chat platform, reposted
+    as _setup so a save re-render keeps that platform's fields open.
 
     ``entries`` is [(field, old, new)]; ``submitted`` carries the raw form
     values the confirm form reposts as hidden inputs, so what is confirmed
@@ -521,6 +527,9 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
     if section:
         hidden.append(f'<input type="hidden" name="{SECTION_FIELD}" '
                       f'value="{_esc(section)}">')
+    if reveal:
+        hidden.append(f'<input type="hidden" name="{REVEAL_FIELD}" '
+                      f'value="{_esc(reveal)}">')
     # The whole parsed form state rides along, not just the changed keys:
     # the confirm POST parses exactly the fields the preview parsed (the
     # FIELDS_FIELD list), so an absent toggle or multi-select there means
@@ -683,7 +692,8 @@ def attribute_error(message, changes, *, environ=None):
 
 
 __all__ = [
-    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "SECTION_FIELD", "GROUPS",
+    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "REVEAL_FIELD", "SECTION_FIELD",
+    "GROUPS",
     "LOGIN_REMEMBER_FIELD", "LOGIN_TOKEN_FIELD", "LOGIN_USER_FIELD",
     "PROVENANCE_LABELS", "attribute_error", "parse_form",
     "render_config_page", "render_login_page", "render_preview_page",
