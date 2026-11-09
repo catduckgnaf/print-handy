@@ -1,10 +1,12 @@
 """Stage 1 surfaces (#455 item 4): the ``vision.local_empty_enabled``
 setting everywhere a vision setting lives, and bot check's plate
 reference row. Mirrors the watch_source treatment from PR #1034: schema
-+ validation, .env.example, compose, config examples, the in-repo Unraid
-template, the Web UI catalog, docs/SETTINGS.md, and the vendor-profile
-golden strip. The catduck-unraid-templates repo is deliberately not
-synced (routine-variable rule).
++ validation, .env.example, compose, config examples, the Web UI
+catalog, docs/SETTINGS.md, and the vendor-profile golden strip. The
+Unraid templates are deliberately not surfaces for routine settings:
+the catduck-unraid-templates repo is not synced (routine-variable rule)
+and the in-repo template carries only the install surface since its
+slimming, so it deliberately omits this key (pinned below).
 """
 from pathlib import Path
 
@@ -60,9 +62,9 @@ def test_config_examples_carry_the_key():
         assert "local_empty_enabled" in (ROOT / name).read_text(encoding="utf-8"), name
 
 
-def test_unraid_template_carries_the_key():
+def test_unraid_template_deliberately_omits_the_key():
     text = (ROOT / "docker/unraid/print-handy.xml").read_text(encoding="utf-8")
-    assert "PRINT_HANDY__VISION__LOCAL_EMPTY_ENABLED" in text
+    assert "PRINT_HANDY__VISION__LOCAL_EMPTY_ENABLED" not in text
 
 
 def test_settings_doc_carries_the_row():

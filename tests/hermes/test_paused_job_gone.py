@@ -20,7 +20,7 @@ def _drive(monkeypatch, transitions):
     posted, alerts, retired = [], [], []
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel, "post_alert",
-                        lambda message, kind, filename: alerts.append((kind, message)) or True)
+                        lambda message, kind, filename, **kw: alerts.append((kind, message)) or True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: False)
     monkeypatch.setattr(mel, "log", lambda line: None)

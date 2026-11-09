@@ -34,9 +34,9 @@ Spoolman 0.27.1 is built from exact upstream revision `ff8efd517b76a4b2783f29c89
 
 Default bind is `127.0.0.1:8000` inside the container. Print Handy defaults to `http://127.0.0.1:8000`. Compose publishes no port by default, and with no port mapped Spoolman stays loopback-only and unexposed.
 
-**Optional LAN access:** Moonraker running on printer hardware (for example a ZMod AD5X at its own LAN address) and Home Assistant need network access to the bundled API. Both deployment surfaces now carry the opt-in:
+**Optional LAN access:** Moonraker running on printer hardware (for example a ZMod AD5X at its own LAN address) and Home Assistant need network access to the bundled API. The opt-in is a port mapping plus the bind host:
 
-- **Unraid template:** the advanced **Spoolman port** mapping (host 7912 to container 8000) plus the advanced **Spoolman bind host** variable. Keep `SPOOLMAN_HOST=127.0.0.1` (the default) and Spoolman stays loopback-only even with the mapping present; set `SPOOLMAN_HOST=0.0.0.0` to actually serve the LAN.
+- **Unraid template:** the slimmed template ships neither, so add both by hand in the container editor: a **Port** mapping (host 7912 to container 8000) and a `SPOOLMAN_HOST` **Variable**. Keep `SPOOLMAN_HOST=127.0.0.1` (the default) and Spoolman stays loopback-only even with the mapping present; set `SPOOLMAN_HOST=0.0.0.0` to actually serve the LAN.
 - **Compose:** uncomment the `#   - "7912:8000"` line under the combined service and set `SPOOLMAN_HOST=0.0.0.0` in `.env`.
 
 Then point Moonraker's `[spoolman]` section at `server: http://<unraid-ip>:7912` (see [ZMod printers](ZMOD.md#bundled-spoolman-from-printer-moonraker-443)); a healthy bundled Spoolman answers `GET http://<unraid-ip>:7912/api/v1/info` with HTTP 200. The API is unauthenticated: keep it on the LAN only and never forward its port from a router. Spoolman's web UI is not bundled — Print Handy remains the interface.
@@ -55,7 +55,7 @@ Fluidd or Mainsail on the printer can show "Live updates from Spoolman aren't wo
 SPOOLMAN_CORS_ORIGIN=http://<printer-ip>,http://<printer-ip>:80
 ```
 
-Set it in `.env` for Compose, or as the advanced **Spoolman CORS origin** variable in the Unraid template. Leave it empty otherwise: the default keeps browsers from other origins from writing to or opening the websocket of the bundled Spoolman. Do not use `*`, which disables the check. Moonraker and other server-to-server callers do not need this variable. An external Spoolman container needs the same variable set on its own container.
+Set it in `.env` for Compose; on Unraid, add the `SPOOLMAN_CORS_ORIGIN` variable by hand in the container editor. Leave it empty otherwise: the default keeps browsers from other origins from writing to or opening the websocket of the bundled Spoolman. Do not use `*`, which disables the check. Moonraker and other server-to-server callers do not need this variable. An external Spoolman container needs the same variable set on its own container.
 
 ## Print records
 
@@ -114,7 +114,7 @@ moonraker_url = "http://<ad5x-lan-ip>:7125"
 
 The first entry is the default printer and is named wherever output talks about "the printer". Each printer keeps its own state folder and job queue under `state/printers/<id>/` inside the one data directory, gets its own listener child under the supervisor (a dead listener never takes the bot or a sibling listener down), and is bound to its own chat channel — an approval in a channel can only start that channel's printer. The healthcheck reports every listener, and the Web UI status page lists the roster read-only. Spoolman stays one shared inventory for all printers. The full roster reference is [SETTINGS.md — Printers list](SETTINGS.md#printers-list).
 
-On Unraid the template has no per-printer variables (the roster is file-only), so mount a config file: copy `config/docker.yaml`, replace its `[printer]` section with your `[[printers]]` list, mount the file and point `PRINT_HANDY_CONFIG` at it. Any single value inside a declared entry can still be overridden from the environment with the indexed spelling `PRINT_HANDY__PRINTERS__<ID>__<KEY>` — the entry's `id` uppercased in the `<ID>` position, the key in the `<KEY>` position.
+On Unraid the template has no per-printer variables (the roster is file-only), so mount a config file: copy `config/docker.yaml`, replace its `[printer]` section with your `[[printers]]` list, mount the file (inside the Appdata path is easiest) and point `PRINT_HANDY_CONFIG` at it — add that variable by hand in the container editor; the slimmed template no longer carries a field for it. Any single value inside a declared entry can still be overridden from the environment with the indexed spelling `PRINT_HANDY__PRINTERS__<ID>__<KEY>` — the entry's `id` uppercased in the `<ID>` position, the key in the `<KEY>` position.
 
 Run a second *instance* instead only when you want hard process isolation between printers; that remains an alternative, not the only answer — see [More than one printer](MULTI-INSTANCE.md).
 
@@ -130,7 +130,7 @@ The one-line roast rides the **completion post** (one per print), the failure an
 
 An optional **auto light-off** builds on the same verdicts: set `PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES` above zero (30 is the suggested value; `0`, the default, is off) and the printer's light turns on when a print starts and off again after the camera has seen an empty plate for that many minutes after a print ends — any non-empty or uncertain check restarts the wait, so a part left on the plate keeps the light on. It covers Moonraker printers (the light object named with `PRINT_HANDY__VISION__LIGHT_OBJECT`, for example `led chamber_led`, or auto-discovered when the printer has exactly one `led` / `neopixel` / `output_pin` object), Bambu Lab chamber lights, and Elegoo SDCP chamber lights (turn-on only until an SDCP camera source is verified); other families have no light to switch and `bot check` says so. On Moonraker the switch is thrown in Moonraker, so Home Assistant's Moonraker integration sees the same light state with no extra wiring. This is the one opt-in exception to the watchdog's alert-only rule, and it covers the light only — never motion, heaters or print control. Full behavior is in [SETTINGS.md](SETTINGS.md#auto-light-off).
 
-Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/docker.yaml`), in TOML (`[visual_watch]` in `config/docker.toml`), or as Compose/`.env` variables — Compose and the Unraid template both carry them:
+Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/docker.yaml`), in TOML (`[visual_watch]` in `config/docker.toml`), or as Compose/`.env` variables — Compose carries them as environment entries; the Unraid template does not, so on Unraid they are set in the mounted config file or the Web UI:
 
 | YAML key | Environment variable | Default | What it does |
 |---|---|---|---|
@@ -144,9 +144,9 @@ Sensitivity also sets the periodic check interval (30, 20, 15, 10 or 7.5 minutes
 
 ## Web UI (optional)
 
-Print Handy has a Web UI: a simple status page plus a picker configuration page that reads and writes the same YAML settings file as everything else. It is on by default in the code settings and in the container: `config/docker.yaml`, Compose and the Unraid template all serve it on `0.0.0.0:8088`. Set `PRINT_HANDY__WEBUI__ENABLED=false` to turn it off; then the supervisor starts no extra child and nothing listens. The supervisor decides from the resolved configuration (`python3 -m print_handy.webui_gate`, mirroring the listener gate), and the container healthcheck reports a Web UI row that is skipped while disabled.
+Print Handy has a Web UI: a simple status page plus a picker configuration page that reads and writes the same YAML settings file as everything else. It is on by default in the code settings and in the container: `config/docker.yaml` and Compose both serve it on `0.0.0.0:8088`, and the Unraid template maps that port. Set `PRINT_HANDY__WEBUI__ENABLED=false` to turn it off; then the supervisor starts no extra child and nothing listens. The supervisor decides from the resolved configuration (`python3 -m print_handy.webui_gate`, mirroring the listener gate), and the container healthcheck reports a Web UI row that is skipped while disabled.
 
-Enable it in the mounted YAML (`webui` in `config/docker.yaml`), in TOML (`[webui]` in `config/docker.toml`), or with Compose/`.env` variables — Compose and the Unraid template both carry them:
+Enable it in the mounted YAML (`webui` in `config/docker.yaml`), in TOML (`[webui]` in `config/docker.toml`), or with Compose/`.env` variables — Compose carries them as environment entries; the Unraid template carries only the port mapping, so on Unraid they are set in the mounted config file:
 
 | YAML key | Environment variable | Default | What it does |
 |---|---|---|---|
@@ -172,7 +172,7 @@ It is **off by default** — with it disabled the supervisor starts no extra chi
 Discord clients never connect to this container directly. They reach the Activity server through a **named Cloudflare Tunnel** (stable hostname) and the Developer Portal **URL mapping** for that hostname; `activity_origin` is that hostname's https origin. The tunnel connector is a **sidecar, not part of this image**:
 
 - **Compose:** the `cloudflared` service under the `live-stream` profile (`docker compose --profile live-stream up -d`). It shares the combined container's network namespace, so its ingress target is the loopback Activity port (`http://127.0.0.1:<port>` — point the tunnel's public hostname at it in the Cloudflare dashboard). The connector image defaults to a pinned release tag plus digest ([component provenance](COMPONENTS.md)); set `CLOUDFLARED_IMAGE` only to override it, and set `TUNNEL_TOKEN` in `.env` — without a token the sidecar exits immediately (cloudflared refuses to run), which affects only the live view.
-- **Unraid:** run a separate `cloudflared` container the same way, sharing Print Handy's network namespace (Extra Parameters `--network container:<print-handy container name>`) so its `127.0.0.1` is Print Handy's; without it, loopback is the connector's own and the tunnel reaches nothing. The in-repo template carries the token as a masked field beside the other live fields for convenience, and Print Handy itself never reads it.
+- **Unraid:** run a separate `cloudflared` container the same way, sharing Print Handy's network namespace (Extra Parameters `--network container:<print-handy container name>`) so its `127.0.0.1` is Print Handy's; without it, loopback is the connector's own and the tunnel reaches nothing. The `TUNNEL_TOKEN` is set on that cloudflared container, in its own settings; Print Handy itself never reads it.
 
 If the tunnel is down, only the live view is unreachable — the bot, listener and Spoolman are unaffected, and nothing about a print changes.
 
@@ -181,7 +181,7 @@ If the tunnel is down, only the live view is unreachable — the bot, listener a
 | `live_stream.enabled` | `PRINT_HANDY__LIVE_STREAM__ENABLED` | `false` | Live view switch; `true` plus the rows below starts the Activity server and the go2rtc fan-out |
 | `live_stream.voice_channel_id` | `PRINT_HANDY__LIVE_STREAM__VOICE_CHANNEL_ID` | empty | The one private voice channel the Activity is launched in |
 | `live_stream.activity_origin` | `PRINT_HANDY__LIVE_STREAM__ACTIVITY_ORIGIN` | empty | The tunnel hostname's https origin, mapped in the Developer Portal |
-| `live_stream.port` | `PRINT_HANDY__LIVE_STREAM__PORT` | `0` | Loopback port the Activity server binds; `0` means no port chosen, so nothing starts (the Unraid template pre-fills 8091 as the fixed tunnel target) |
+| `live_stream.port` | `PRINT_HANDY__LIVE_STREAM__PORT` | `0` | Loopback port the Activity server binds; `0` means no port chosen, so nothing starts (set `8091` explicitly for the fixed tunnel target the setup examples use) |
 | — | `DISCORD_CLIENT_ID` | empty | The Discord application ID (a plain identifier, not a secret) |
 | — | `DISCORD_CLIENT_SECRET` | empty | Secret: the application's client secret for the server-side OAuth exchange |
 | — | `LIVE_STREAM_SESSION_SECRET` | empty | Secret: signs the Activity session markers |
@@ -197,7 +197,7 @@ All three stages of #246 have landed: Stage 1 is the container plumbing below, S
 
 Print Handy has two separate timelapse paths. They share no settings, and neither requires the other:
 
-- **In-container capture (this section)** is **off by default and opt-in**: set `PRINT_HANDY__TIMELAPSE__CAPTURE_ENABLED=true` (the Unraid template variable) or `timelapse.capture_enabled: true` in the config file. When both are set, **the environment variable wins** — the settings load order is defaults, home file, local file, then environment, later winning key by key. Captured frames and the assembled video are **local files** under the container cache (`<cache>/timelapse/<job>/`, pruned under `timelapse.local_retention_days`), and the video rides the completion post. No SSH archive is involved at any point.
+- **In-container capture (this section)** is **off by default and opt-in**: set `timelapse.capture_enabled: true` in the config file or `PRINT_HANDY__TIMELAPSE__CAPTURE_ENABLED=true` in the environment. When both are set, **the environment variable wins** — the settings load order is defaults, home file, local file, then environment, later winning key by key. Captured frames and the assembled video are **local files** under the container cache (`<cache>/timelapse/<job>/`, pruned under `timelapse.local_retention_days`), and the video rides the completion post. No SSH archive is involved at any point.
 - **Printer-rendered** (the moonraker-timelapse plugin on the printer): this path **requires** the `timelapse.archive_host` / `timelapse.archive_dir` settings. Print Handy waits a bounded time (`timelapse.render_wait_s`) for the rendered MP4 to appear in `archive_dir` on `archive_host` (reached over SSH), downloads the archived copy and attaches it to the completion post. With either setting unset the archive is off and the lookup is skipped outright — no search, no wait, and no printer-rendered video is attached. In-container capture never reads these settings.
 
 Capture needs a camera source, and what counts as one depends on the printer family:
@@ -264,17 +264,17 @@ AMD's AMF encoders are not in Debian's ffmpeg build and need AMD's proprietary r
 Intel iGPU or AMD GPU:
 
 1. In the Unraid terminal, check the device exists and note its group: `ls -l /dev/dri` and `stat -c %g /dev/dri/renderD128`. On an Intel iGPU with no `/dev/dri`, install the **Intel GPU TOP** plugin (it loads the `i915` driver). AMD GPUs normally load `amdgpu` by themselves, or use the **Radeon TOP** plugin.
-2. Edit the container, switch to **Advanced View**, and add to **Extra Parameters**: `--device=/dev/dri --group-add=GID`, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
+2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry already maps `/dev/dri` — keep it — and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
 3. Apply, then check from the Unraid terminal: `docker exec print-handy vainfo --display drm --device /dev/dri/renderD128`. It should list an H.264 `VAEntrypointEncSlice` (or `…EncSliceLP`) line.
-4. Leave **Timelapse capture encoder** on `auto`, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
+4. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
 
 NVIDIA:
 
 1. Install the **Nvidia-Driver** plugin from Community Applications and reboot when it asks. Its page shows your GPU's UUID (`GPU-…`).
 2. Edit the container, switch to **Advanced View**, and add `--runtime=nvidia` to **Extra Parameters**.
-3. Click **Show more settings** and set **NVIDIA visible devices** (`NVIDIA_VISIBLE_DEVICES`) to your GPU UUID, or `all`. The template ships it empty, which grants no GPU. **NVIDIA driver capabilities** (`NVIDIA_DRIVER_CAPABILITIES`) ships as `compute,video,utility`, the same as the image default. If you change it, keep `video` in it (or use `all`), or NVENC cannot load. Both variables are optional and hidden, and do nothing without `--runtime=nvidia`.
+3. Switch to **Advanced View** and set **NVIDIA Visible Devices** (`NVIDIA_VISIBLE_DEVICES`) to your GPU UUID, or `all`. The template ships it empty, which grants no GPU. **NVIDIA Driver Capabilities** (`NVIDIA_DRIVER_CAPABILITIES`) ships as `compute,video,utility`, the same as the image default. If you change it, keep `video` in it (or use `all`), or NVENC cannot load. Both variables are optional, and do nothing without `--runtime=nvidia`.
 4. Apply, then check: `docker exec print-handy ls /dev/nvidia0` and `docker exec print-handy sh -c 'ldconfig -p | grep libnvidia-encode'`.
-5. Leave **Timelapse capture encoder** on `auto`, or set `nvenc`.
+5. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `nvenc`.
 
 A host with both an iGPU and an NVIDIA card can grant either one or both. `auto` tries VAAPI (the iGPU) first, and `nvenc` moves NVIDIA first.
 
@@ -321,7 +321,7 @@ services:
       - ${PRINT_HANDY_DATA:-./data}/dot-config:/data/.config
 ```
 
-On the host, put only the token in `dot-config/bambu/token` under `PRINT_HANDY_DATA`. Make `dot-config` and everything in it owned by UID/GID 1000:1000, with mode 0700 on `bambu` and 0600 on `token`, then recreate the container. Thingiverse links use the same mounted directory: the App Token (see the [project reference](PROJECT-REFERENCE.md#thingiverse-app-token)) goes in `dot-config/thingiverse/token`, with mode 0700 on `thingiverse` and 0600 on `token`, so it survives container recreation exactly the way the MakerWorld token does. MyMiniFactory links use it too: the API key (see the [project reference](PROJECT-REFERENCE.md#myminifactory-api-key)) goes in `dot-config/myminifactory/token`, and the download sign-in in `dot-config/myminifactory/oauth_token`, with mode 0700 on `myminifactory` and 0600 on both files. Cults3D links (metadata only — Cults' API never exposes a listing's files) use it too: `nickname:key` from your Cults account (see the [project reference](PROJECT-REFERENCE.md#cults3d-api-key)) goes in `dot-config/cults3d/token`, with mode 0700 on `cults3d` and 0600 on `token`. The login-token sites (Creality Cloud, Thangs, Nexprint, and MyMiniFactory's sign-in; see the [project reference](PROJECT-REFERENCE.md#connecting-a-login-token-site-from-chat)) use it the same way: `dot-config/<site>/token` with mode 0700 on the folder and 0600 on `token`, where `<site>` is `crealitycloud`, `thangs` or `nexprint`. When one of them needs a token, the bot posts the walkthrough in the chat: paste the token there, or save the file and press **Saved**. Mount the whole `/data/.config` directory, not just `bambu`: the image does not create `/data/.config`, and a mount point Docker has to create itself is owned by root, which leaves the rest of `~/.config` unwritable for the container user. Anything else the container keeps under `~/.config` persists in that host directory too. On Unraid, the Community Applications template has an optional **Account tokens** Path mapping from `/mnt/user/appdata/print-handy/dot-config` to container path `/data/.config`; fill it in (or, on a container created from an older template or from `docker/unraid/print-handy.xml` in this repository, add that Path mapping by hand) and make the host folder owned by 1000:1000 before the container starts.
+On the host, put only the token in `dot-config/bambu/token` under `PRINT_HANDY_DATA`. Make `dot-config` and everything in it owned by UID/GID 1000:1000, with mode 0700 on `bambu` and 0600 on `token`, then recreate the container. Thingiverse links use the same mounted directory: the App Token (see the [project reference](PROJECT-REFERENCE.md#thingiverse-app-token)) goes in `dot-config/thingiverse/token`, with mode 0700 on `thingiverse` and 0600 on `token`, so it survives container recreation exactly the way the MakerWorld token does. MyMiniFactory links use it too: the API key (see the [project reference](PROJECT-REFERENCE.md#myminifactory-api-key)) goes in `dot-config/myminifactory/token`, and the download sign-in in `dot-config/myminifactory/oauth_token`, with mode 0700 on `myminifactory` and 0600 on both files. Cults3D links (metadata only — Cults' API never exposes a listing's files) use it too: `nickname:key` from your Cults account (see the [project reference](PROJECT-REFERENCE.md#cults3d-api-key)) goes in `dot-config/cults3d/token`, with mode 0700 on `cults3d` and 0600 on `token`. The login-token sites (Creality Cloud, Thangs, Nexprint, and MyMiniFactory's sign-in; see the [project reference](PROJECT-REFERENCE.md#connecting-a-login-token-site-from-chat)) use it the same way: `dot-config/<site>/token` with mode 0700 on the folder and 0600 on `token`, where `<site>` is `crealitycloud`, `thangs` or `nexprint`. When one of them needs a token, the bot posts the walkthrough in the chat: paste the token there, or save the file and press **Saved**. Mount the whole `/data/.config` directory, not just `bambu`: the image does not create `/data/.config`, and a mount point Docker has to create itself is owned by root, which leaves the rest of `~/.config` unwritable for the container user. Anything else the container keeps under `~/.config` persists in that host directory too. On Unraid no extra mapping is needed: the template's single **Appdata** path mounts all of `/data`, so the account tokens live at `/data/.config` under that mount — the host folder is `.config` inside the Appdata folder (`/mnt/user/appdata/print-handy/.config`) — and survive recreation like everything else under it. Create that folder and make it owned by 1000:1000 before the container starts. (A container created from an older multi-path template keeps its separate **Account tokens** mapping to the same folder; it can be dropped once the Appdata mount is in place.)
 
 ### Upgrading a Flashforge AD5X install
 
@@ -375,7 +375,7 @@ the entrypoint checks the two paths:
 - Only the legacy volume holds data: `/data/state` becomes a symlink to
   it, one deprecation line is logged, and every service reads the existing
   data through the new path. Where `/data/state` is itself a mounted volume
-  (the shipped Compose file and templates mount both paths), it cannot be
+  (the shipped Compose file mounts both paths), it cannot be
   replaced by a symlink: on the first start the legacy contents are copied
   into the mounted volume instead, the legacy folder is left untouched, and
   the log says so; later starts use `/data/state` and warn that both hold data.
@@ -400,8 +400,11 @@ To adopt the new name (optional, any time before that removal):
    `docker-compose.yml` the state line already maps both names in the
    shipped file, so nothing changes there; in the Unraid template (the
    in-repo `docker/unraid/print-handy.xml` and the Community Applications
-   template alike) point the **State** path at `/data/state` with host
-   folder `/mnt/user/appdata/print-handy/state`, and remove the legacy
+   template alike) nothing changes either — the single **Appdata** path
+   already covers both host folders, so renaming the folder in step 2 is
+   the whole move. A container still created from an older multi-path
+   template instead points its **State** path at `/data/state` with host
+   folder `/mnt/user/appdata/print-handy/state` and drops the legacy
    **State (legacy /data/hermes)** path if it is still mapped.
 4. If you set `PRINT_HANDY__PATHS__HERMES_HOME` or `logging.file`
    explicitly, change `/data/hermes` in those values to `/data/state`.
@@ -484,21 +487,21 @@ printer warnings recorded before the stop".
 
 ## Unraid DockerMan
 
-Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template specifies UID/GID 1000:1000 and five persistent paths under `/mnt/user/appdata/print-handy`. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
+Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template carries only the install-time surface: the Web UI port (8088), a single **Appdata** path mounting all of `/data`, a **Timelapse Archive** path whose default folder sits inside Appdata, the bundled/external Spoolman choice, the container timezone and the GPU passthrough entries — both paths under `/mnt/user/appdata/print-handy` by default, the Appdata path owned by UID/GID 1000:1000. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port beyond the Web UI's; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
 
-The runtime selector `PRINT_HANDY_ORCA_CHANNEL` (Compose, `.env.example` and the template) defaults to `stable`, the one bundled OrcaSlicer; `preview` and its pre-#600 name `alpha` also start on that single build with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops container startup.
+The runtime selector `PRINT_HANDY_ORCA_CHANNEL` (Compose and `.env.example`) defaults to `stable`, the one bundled OrcaSlicer; `preview` and its pre-#600 name `alpha` also start on that single build with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops container startup.
 
 The container timezone `TZ` (Compose, `.env.example` and the template) defaults to `America/New_York` and takes any IANA name, for example `Europe/London`. It sets the container's local time: log timestamps, scheduled and timed features, and the bundled Spoolman's timestamps. The image ships the timezone database and points `/etc/localtime` at the default zone; a `TZ` set at runtime overrides it for every process, and an unknown name is logged at startup while the default is used instead. Print Handy's chat display times keep following `discord.timezone`, a separate setting.
 
-The template and the Compose environment also carry the feature-enabling variables — the ones that turn a feature on, as opposed to tuning settings, which stay in a mounted YAML pointed to by `PRINT_HANDY_CONFIG`:
+The Compose environment also carries the feature-enabling variables — the ones that turn a feature on, as opposed to tuning settings, which stay in a mounted YAML pointed to by `PRINT_HANDY_CONFIG`:
 
 - **Camera watch:** `PRINT_HANDY__SERVICES__VISION_CHAT_URL`, `PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL`, `PRINT_HANDY__VISION__MODEL` and the `CLIPROXY_API_KEY` secret; see [Camera watch](#camera-watch-visual_watch).
 - **Stock Flashforge LAN:** `PRINT_HANDY__FLASHFORGE_STOCK__HOST` with the `AD5X_SERIAL` and `AD5X_CHECK_CODE` secrets.
-- **Bambu Lab LAN status:** `PRINT_HANDY__BAMBU__LAN_HOST`, `PRINT_HANDY__BAMBU__LAN_SERIAL` and the `BAMBU_LAN_PASSWORD` secret. The template's printer model list includes `bambulab.a1` and `bambulab.p1s` (offline only).
+- **Bambu Lab LAN status:** `PRINT_HANDY__BAMBU__LAN_HOST`, `PRINT_HANDY__BAMBU__LAN_SERIAL` and the `BAMBU_LAN_PASSWORD` secret. The Bambu Lab models (`bambulab.a1`, `bambulab.p1s`) are offline only.
 - **Key-protected Moonraker:** the `MOONRAKER_API_KEY` secret.
 - **Discord and LLM:** `PRINT_HANDY__DISCORD__APPROVAL_USER_ID`, `PRINT_HANDY__DISCORD__TIMEZONE`, `PRINT_HANDY__LLM__CHAT_URL`, `PRINT_HANDY__LLM__MODEL` and the `LLM_API_KEY` secret.
 
-In Compose, the settings are environment entries with their documented defaults and the secrets reach the container through the `.env` file, like `DISCORD_BOT_TOKEN`. In the template, secrets are masked fields. Leaving every one of them at its default or empty changes nothing about a running install.
+In Compose, the settings are environment entries with their documented defaults and the secrets reach the container through the `.env` file, like `DISCORD_BOT_TOKEN`. The Unraid template carries none of them: on Unraid the same settings are made in the mounted config file or the Web UI, and secrets go in the profile `.env` inside the Appdata path (or in a variable added by hand in the container editor, masked). Leaving every one of them at its default or empty changes nothing about a running install.
 
 This source template does not prove a Community Applications listing or an exercised Unraid installation. The host owner verifies deployment and final network mapping.
 

@@ -281,8 +281,18 @@ class StockPrintMonitor:
 
     # -- terminal post -------------------------------------------------------
 
+
+    def _send(self, text):
+        """Deliver a terminal post (#1095): the production sender lets the
+        starter pings classifier decide the ping from the terminal kind
+        and this print; an injected post callable keeps its shape."""
+        if self._post is _default_post:
+            return self._post(text, ping_kind=self._terminal_kind, ping_job_key=self.filename)
+        return self._post(text)
+
     def _terminal_post(self, state, session):
         kind = _TERMINAL[state]
+        self._terminal_kind = kind
         text = print_summary.format_event(kind, self.filename)
         video = None
         undeliverable = False
@@ -311,7 +321,7 @@ class StockPrintMonitor:
                 # The production sender reports a refusal as a False
                 # return, not an exception (the P2-169/P2-173 contract):
                 # only an explicit False means undelivered.
-                if self._post(f"{text}\nMEDIA:{video}") is not False:
+                if self._send(f"{text}\nMEDIA:{video}") is not False:
                     return kind
                 log(f"stock completion post with timelapse was refused for {self.filename!r}; "
                     "posting the text only")
@@ -320,7 +330,7 @@ class StockPrintMonitor:
                     "posting the text only")
         if undeliverable:
             text = f"{text}\n{_too_big_text()}"
-        self._post(text)
+        self._send(text)
         return kind
 
     # -- the poll loop ---------------------------------------------------------
@@ -378,9 +388,9 @@ class StockPrintMonitor:
         return None
 
 
-def _default_post(message):
+def _default_post(message, **kwargs):
     from . import moonraker_event_listener as mel
-    return mel.post(message)
+    return mel.post(message, **kwargs)
 
 
 def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):

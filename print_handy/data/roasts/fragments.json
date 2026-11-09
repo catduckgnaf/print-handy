@@ -1,7 +1,7 @@
 {
  "_about": "Grammar fragments for framed assembly (Phase 2); shipped and validated, not drawn yet.",
  "_phase": 2,
- "_license": "Original to Print Handy; MIT with the project.",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": {
   "comparisons": [
    "like a sandcastle negotiating with the tide",

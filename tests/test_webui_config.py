@@ -41,7 +41,9 @@ class WebUISettingsTests(unittest.TestCase):
                                          "access_token_env": "WEBUI_ACCESS_TOKEN",
                                          "require_auth": True,
                                          "controls_enabled": False,
-                                         "cookie_secure": False})
+                                         "cookie_secure": False,
+                                         "chat_llm_enabled": True,
+                                         "chat_enabled": True})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -211,12 +213,12 @@ class CatalogTests(unittest.TestCase):
             "notify.ntfy_enabled": ("notifications", "toggle"),
             "notify.ntfy_url": ("notifications", "url"),
             "notify.ntfy_topic": ("notifications", "text"),
-            "llm.chat_url": ("endpoints", "url"),
-            "llm.model": ("endpoints", "text"),
-            "design.chat_url": ("endpoints", "url"),
-            "design.model": ("endpoints", "text"),
-            "agent.chat_url": ("endpoints", "url"),
-            "agent.model": ("endpoints", "text"),
+            "llm.chat_url": ("ai", "url"),
+            "llm.model": ("ai", "text"),
+            "design.chat_url": ("ai", "url"),
+            "design.model": ("ai", "text"),
+            "agent.chat_url": ("ai", "url"),
+            "agent.model": ("ai", "text"),
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -224,6 +226,35 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(field)
                 self.assertEqual(field.group, group)
                 self.assertEqual(field.kind, kind)
+    def test_ai_section_fields_groups_and_gate(self):
+        # Settings restructure stage 2: every AI surface lives in the ai
+        # group — the three endpoint pairs, the vision endpoint and
+        # model, and the [ai] edit gate as ordinary fields (#902). The
+        # tier tables stay file-only: no field exists for them.
+        expected = {
+            "services.vision_chat_url": ("ai", "url"),
+            "vision.model": ("ai", "text"),
+            "ai.allowed_users": ("ai", "id_list"),
+            "ai.edit_requests_per_hour": ("ai", "number"),
+        }
+        for field_id, (group, kind) in expected.items():
+            with self.subTest(field=field_id):
+                field = field_by_id(field_id)
+                self.assertIsNotNone(field)
+                self.assertEqual(field.group, group)
+                self.assertEqual(field.kind, kind)
+        self.assertEqual(field_by_id("ai.edit_requests_per_hour").minimum, 0)
+        for tier in ("ai.small", "ai.chat", "ai.heavy"):
+            self.assertIsNone(field_by_id(tier))
+        # The gate serves every chat platform, so its help names the ID
+        # form each platform uses — numeric on Discord and Telegram, a
+        # full @user:server ID on Matrix — and shows no issue reference.
+        help_text = field_by_id("ai.allowed_users").help
+        self.assertIn("@user:server", help_text)
+        self.assertIn("Discord and Telegram", help_text)
+        self.assertNotIn("(#902)", help_text)
+        self.assertNotIn("numeric user IDs", help_text)
+
         spacing = field_by_id("layout.spacing")
         self.assertEqual(choices_for(spacing), tuple(settings.SPACING_PRESETS))
         mqtt_port = field_by_id("notify.mqtt_port")
@@ -407,6 +438,20 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual((data["webui"]["enabled"], data["webui"]["port"]), (True, 8080))
         values = values_by_id(local=self.local, environ={})
         self.assertEqual(values["visual_watch.sensitivity"].provenance, SETTINGS_FILE)
+
+    def test_ai_allowed_users_round_trips_a_matrix_id(self):
+        # A Matrix ID is not numeric: @user:server must pass the same
+        # load/validate path the ai.allowed_users catalog field uses and
+        # come back unchanged.
+        changed = write_changes({"ai.allowed_users": ["@name:matrix.org"]},
+                                config_path=self.local, environ={},
+                                timestamp="20261026-120000")
+        self.assertEqual(changed, [("ai", "allowed_users")])
+        data = settings.load(local=self.local, environ={})
+        self.assertEqual(data["ai"]["allowed_users"], ["@name:matrix.org"])
+        values = values_by_id(local=self.local, environ={})
+        self.assertEqual(values["ai.allowed_users"].value, ["@name:matrix.org"])
+        self.assertEqual(values["ai.allowed_users"].provenance, SETTINGS_FILE)
 
     def test_write_creates_the_file_and_preserves_uncatalogued_data(self):
         changed = write_changes({"bot.platform": "telegram"}, config_path=self.local, environ={})
