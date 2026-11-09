@@ -100,6 +100,41 @@ def test_install_claimed_by_require_auth_opt_out(unclaimed, cfg):
     assert web.install_claimed(cfg) is True
 
 
+def test_chat_toggles_load_from_env_and_file_opt_out_stands(tmp_path):
+    """The .env route works, and no layer invents a true over a file false.
+
+    The Compose file carries no environment entry for either toggle
+    (P2-88, pinned in tests/test_docker_release.py); the values reach
+    the container through the .env env_file, i.e. the process
+    environment the loader reads. Absent from the environment, a
+    config file's explicit false stands.
+    """
+    local = Path(tmp_path) / "local.yaml"
+    local.write_text("webui:\n  chat_enabled: false\n"
+                     "  chat_llm_enabled: false\n")
+    data = settings.load(local=local, environ={})
+    assert data["webui"]["chat_enabled"] is False
+    assert data["webui"]["chat_llm_enabled"] is False
+    env = {"PRINT_HANDY__WEBUI__CHAT_ENABLED": "true",
+           "PRINT_HANDY__WEBUI__CHAT_LLM_ENABLED": "true"}
+    data = settings.load(local=local, environ=env)
+    assert data["webui"]["chat_enabled"] is True
+    assert data["webui"]["chat_llm_enabled"] is True
+
+
+def test_shipped_configs_show_both_chat_toggles_explicitly():
+    """The default config files name both toggles, not a loader comment.
+
+    A reviewer (and an operator) should find chat_llm_enabled in the
+    defaults they are handed, at the same explicit true as
+    chat_enabled — in all four shipped files.
+    """
+    for name in ("home.yaml", "home.toml", "docker.yaml", "docker.toml"):
+        data = settings._read(settings.ROOT / "config" / name)
+        assert data["webui"]["chat_enabled"] is True, name
+        assert data["webui"]["chat_llm_enabled"] is True, name
+
+
 def test_chat_enabled_setting_validates(tmp_path):
     local = Path(tmp_path) / "local.yaml"
     local.write_text("webui:\n  chat_enabled: false\n")

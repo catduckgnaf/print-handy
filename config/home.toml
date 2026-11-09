@@ -395,9 +395,12 @@ controls_enabled = false
 # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
 # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
 cookie_secure = false
+# Web chat's stray-chat model switch: false runs web chat as a pure bot
+# (commands still work, no model call is made for web chat text).
+chat_llm_enabled = true
 # The Web UI chat page switch: off shows a disabled page and web chat
-# processes nothing. chat_llm_enabled (loader default true) is separate —
-# it only governs web chat's stray-chat model lane.
+# processes nothing. Separate from chat_llm_enabled above, which only
+# governs web chat's stray-chat model lane.
 chat_enabled = true
 
 [live_stream]
