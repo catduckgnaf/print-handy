@@ -459,7 +459,45 @@ The values a warning names are not used for slicing. Print Handy slices from the
 
 - **Orca percentage line widths to Bambu Studio:** Orca expresses `*_line_width` values ending in `%` relative to nozzle diameter; the Bambu fallback receives absolute millimeters. The fallback converts each percentage using the destination machine's nozzle diameter and fails closed if that diameter cannot be read. `tests/pipeline/test_orca_adapter.py::test_bambu_fallback_converts_percent_line_widths` asserts concrete values and that no percentage width reaches Bambu.
 - **Unsupported author enumerations:** `author_settings.carry` validates author enum values against values accepted by the selected Orca process profile; unsupported values use that target profile's setting or slicer default with an explicit conversion note. `tests/pipeline/test_author_settings.py::test_unknown_author_enum_falls_back_to_the_template` covers unsupported values; `test_bad_enum_never_reaches_the_slice_profile` verifies the emitted profile.
-- **Source hardware keys and commands:** source machine settings and startup/end commands are not imported into the destination machine profile; the target template supplies machine setup. `tests/pipeline/test_port_contracts.py` asserts the generated machine profile contract; `tests/printers/test_vendor_profiles.py` checks foreign machine macros. These are behavior rules, not a version-paired compatibility registry: exact source/destination slicer/profile versions and regression evidence per version pair remain a gap.
+- **Source hardware keys and commands:** source machine settings and startup/end commands are not imported into the destination machine profile; the target template supplies machine setup. `tests/pipeline/test_port_contracts.py` asserts the generated machine profile contract; `tests/printers/test_vendor_profiles.py` checks foreign machine macros. These behavior rules are now recorded as rules in the versioned compatibility registry below, each with its source/destination version applicability and regression evidence.
+
+## Versioned compatibility registry
+
+Every compatibility decision described above is a rule in a versioned registry in the code (`print_handy/core/compat_registry.py`, registry version 1). The converter does not keep separate ad-hoc tables: the author-settings module and the Orca adapter build their live key, value, enumeration, pattern and profile tables from the registry rule parameters, and the call sites resolve their rule by id for the parameters they use, so the registry and the behavior cannot drift apart. A parity test (`tests/pipeline/test_compat_registry.py`) asserts exactly that, and an integrity test checks that rule ids are unique, that every rule carries its required fields, that every version applicability spec parses, and that every cited test and documentation section exists.
+
+Each rule carries: a unique id; a decision kind; the source slicer family and a version applicability spec; the destination slicer family and its spec; the reason for the decision; the parameters it governs (the exact keys, values, patterns or profile — no rule is a broad unexplained substitution); and regression evidence, named tests and/or a section of this page. A version spec is `any` or comparisons such as `>=2.4,<3.0`. An unknown version matches only an unrestricted (`any`) spec: a rule written for known versions never silently governs a source or destination whose version was not established.
+
+| Rule | Kind | Source | Destination |
+|---|---|---|---|
+| `author-intent-allowlist` | allowlist | any any | orca >=2.4,<3.0 |
+| `prusa-key-translation` | key_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `prusa-value-translation` | value_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `prusa-support-threshold-zero-drop` | value_drop | prusaslicer any | orca >=2.4,<3.0 |
+| `prusa-ironing-translation` | value_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `prusa-support-style-translation` | value_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `prusa-wall-sequence-translation` | value_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `orca-enum-fallback` | enum_fallback | any any | orca >=2.4,<3.0 |
+| `designer-lowered-speed-carry` | speed_carry | any any | orca >=2.4,<3.0 |
+| `organic-tree-hybrid-conversion` | support_style_conversion | any any | orca >=2.4,<3.0 |
+| `painted-supports-enable-generation` | support_enable | any any | orca >=2.4,<3.0 |
+| `arachne-flex-profile` | profile_substitution | any any | orca >=2.4,<3.0 |
+| `gap-fill-default` | default_value | any any | orca >=2.4,<3.0 |
+| `imported-auto-sentinel-normalization` | sentinel_normalization | orca any | orca >=2.4,<3.0 |
+| `imported-template-override` | template_override | any any | orca >=2.4,<3.0 |
+| `settings-id-validation` | settings_id_validation | any any | orca >=2.4,<3.0 |
+| `wipe-tower-bed-clamp` | value_clamp | any any | orca >=2.4,<3.0 |
+| `foreign-machine-key-removal` | hardware_key_removal | any any | orca >=2.4,<3.0 |
+| `bed-type-replacement` | value_replacement | any any | orca >=2.4,<3.0 |
+| `preset-bookkeeping-clearing` | bookkeeping_clearing | any any | orca >=2.4,<3.0 |
+| `override-restriction` | override_restriction | any any | orca >=2.4,<3.0 |
+| `orca-percent-line-width-to-bambu-mm` | unit_conversion | orca >=2.4,<3.0 | bambu_studio any |
+| `orca-range-error-clamp` | value_clamp | orca >=2.4,<3.0 | orca >=2.4,<3.0 |
+| `support-filament-designation` | designation_carry | any any | orca >=2.4,<3.0 |
+| `prusa-plate-adoption-seeding` | profile_seeding | prusaslicer any | orca >=2.4,<3.0 |
+
+How Phase A of the #1110 completion program consumes this registry: conversion provenance records a version pair for each job (`source_slicer_version`, `destination_slicer_version`, `source_profile_version`, `destination_profile_version` — the field names the registry module declares). Phase A fills those fields from the source project and the destination templates instead of leaving them null, and evaluates which rules governed a conversion with the registry's family and version-applicability check for that recorded pair. The registry is the source of the version-pair shape; Phase A adds the recording, and does not need a second compatibility table.
+
+Two conversion-adjacent decisions are deliberately not registry rules, because they are not source/destination slicer compatibility decisions: the fitted nozzle's tuned profile and the ZMod purge profile are destination hardware facts owned by the printer profiles, and source-profile compatibility warnings only display a warning — they convert nothing. Temperatures follow the loaded spool and the filament family, never a slicer-pair rule, and a job whose spool temperature is out of range is refused rather than adjusted.
 
 ## Bambu Lab
 

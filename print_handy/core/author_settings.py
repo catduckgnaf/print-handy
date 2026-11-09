@@ -13,6 +13,8 @@ the key and value tables here are Print Handy's own.
 import json
 import re
 import zipfile
+
+from . import compat_registry
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -24,51 +26,11 @@ PRUSA_MODEL = 'Metadata/Slic3r_PE_model.config'
 # lowered). Unmapped Prusa keys are ignored, as before. perimeter_generator is deliberately not
 # mapped: PrusaSlicer defaults to Arachne, and an Orca wall_generator=arachne selects the
 # print-in-place flex profile (orca_adapter.FLEX_PROFILE) for every PrusaSlicer project.
-PRUSA_KEYS = {
-    'layer_height': 'layer_height', 'first_layer_height': 'initial_layer_print_height',
-    'perimeters': 'wall_loops', 'fill_density': 'sparse_infill_density',
-    'fill_pattern': 'sparse_infill_pattern', 'fill_angle': 'infill_direction',
-    'top_fill_pattern': 'top_surface_pattern', 'bottom_fill_pattern': 'bottom_surface_pattern',
-    'top_solid_layers': 'top_shell_layers', 'bottom_solid_layers': 'bottom_shell_layers',
-    'top_solid_min_thickness': 'top_shell_thickness', 'bottom_solid_min_thickness': 'bottom_shell_thickness',
-    'support_material': 'enable_support', 'support_material_threshold': 'support_threshold_angle',
-    'support_material_buildplate_only': 'support_on_build_plate_only', 'seam_position': 'seam_position',
-    'elefant_foot_compensation': 'elefant_foot_compensation', 'ironing_flowrate': 'ironing_flow',
-    'ironing_spacing': 'ironing_spacing', 'brim_width': 'brim_width', 'brim_separation': 'brim_object_gap',
-    'external_perimeter_speed': 'outer_wall_speed', 'perimeter_speed': 'inner_wall_speed',
-    'infill_speed': 'sparse_infill_speed', 'solid_infill_speed': 'internal_solid_infill_speed',
-    'top_solid_infill_speed': 'top_surface_speed', 'gap_fill_speed': 'gap_infill_speed',
-    'support_material_speed': 'support_speed', 'support_material_interface_speed': 'support_interface_speed',
-    'bridge_speed': 'bridge_speed', 'first_layer_speed': 'initial_layer_speed', 'travel_speed': 'travel_speed',
-    'ironing_speed': 'ironing_speed', 'small_perimeter_speed': 'small_perimeter_speed',
-}
+PRUSA_KEYS = dict(compat_registry.get_rule('prusa-key-translation').parameters['mapping'])
 # Prusa values whose Orca spelling differs; any other value passes through to the enum check.
-_PRUSA_VALUES = {
-    'rectilinear': 'zig-zag', 'stars': 'tri-hexagon', 'monotoniclines': 'monotonicline', 'rear': 'back',
-}
+_PRUSA_VALUES = dict(compat_registry.get_rule('prusa-value-translation').parameters['mapping'])
 
-_INFILL = frozenset((
-    'concentric', 'zig-zag', 'grid', 'line', 'cubic', 'triangles', 'tri-hexagon', 'gyroid', 'honeycomb',
-    'adaptivecubic', 'alignedrectilinear', '3dhoneycomb', 'hilbertcurve', 'archimedeanchords', 'octagramspiral',
-    'supportcubic', 'lightning', 'crosshatch', 'quartercubic', 'zigzag', 'crosszag', 'lockedzag', '2dlattice',
-    '2dhoneycomb', 'tpmsd'))
-_SURFACE = frozenset(('concentric', 'zig-zag', 'monotonic', 'monotonicline', 'alignedrectilinear', 'hilbertcurve',
-                      'archimedeanchords', 'octagramspiral'))
-# Enum values Orca's CLI accepts for the kept keys (OrcaSlicer 2.4/2.5 config names). An author value
-# outside its set (another slicer's spelling, a newer slicer's option) falls back to the template's.
-ORCA_ENUMS = {
-    'sparse_infill_pattern': _INFILL,
-    'top_surface_pattern': _SURFACE,
-    'bottom_surface_pattern': _SURFACE,
-    'ironing_pattern': frozenset(('concentric', 'zig-zag')),
-    'ironing_type': frozenset(('no ironing', 'top', 'topmost', 'solid')),
-    'support_type': frozenset(('normal(auto)', 'tree(auto)', 'normal(manual)', 'tree(manual)')),
-    'support_style': frozenset(('default', 'grid', 'snug', 'organic', 'tree_slim', 'tree_strong', 'tree_hybrid')),
-    'seam_position': frozenset(('nearest', 'aligned', 'aligned_back', 'back', 'random')),
-    'wall_sequence': frozenset(('inner wall/outer wall', 'outer wall/inner wall', 'inner-outer-inner wall')),
-    'wall_generator': frozenset(('classic', 'arachne')),
-    'gap_fill_target': frozenset(('everywhere', 'topbottom', 'nowhere')),
-}
+ORCA_ENUMS = {key: frozenset(values) for key, values in compat_registry.get_rule('orca-enum-fallback').parameters['enums'].items()}
 
 
 def _prusa(config_bytes):
@@ -80,17 +42,21 @@ def _prusa(config_bytes):
             key, _, value = line[1:].partition('=')
             raw[key.strip()] = value.strip()
     out = {orca: _PRUSA_VALUES.get(raw[prusa], raw[prusa]) for prusa, orca in PRUSA_KEYS.items() if raw.get(prusa)}
-    if out.get('support_threshold_angle') == '0':
-        del out['support_threshold_angle']  # PrusaSlicer's 0 is "detect automatically", not an angle
+    _threshold = compat_registry.get_rule('prusa-support-threshold-zero-drop').parameters
+    if out.get(_threshold['key']) == _threshold['sentinel']:
+        del out[_threshold['key']]  # PrusaSlicer's 0 is "detect automatically", not an angle
     if 'ironing' in raw:
-        out['ironing_type'] = raw.get('ironing_type', 'top') if raw['ironing'] == '1' else 'no ironing'
+        _ironing = compat_registry.get_rule('prusa-ironing-translation').parameters
+        out['ironing_type'] = raw.get('ironing_type', _ironing['default_on_value']) if raw['ironing'] == '1' else _ironing['off_value']
     if 'support_material_style' in raw:
-        tree = raw['support_material_style'] == 'organic'
+        _style = compat_registry.get_rule('prusa-support-style-translation').parameters
+        tree = raw['support_material_style'] == _style['tree_style']
         manual = raw.get('support_material_auto') == '0'
         out['support_type'] = ('tree' if tree else 'normal') + ('(manual)' if manual else '(auto)')
-        out['support_style'] = raw['support_material_style'] if raw['support_material_style'] in ('grid', 'snug', 'organic') else 'default'
+        out['support_style'] = raw['support_material_style'] if raw['support_material_style'] in _style['carried_styles'] else _style['fallback_style']
     if 'external_perimeters_first' in raw:
-        out['wall_sequence'] = 'outer wall/inner wall' if raw['external_perimeters_first'] == '1' else 'inner wall/outer wall'
+        _seq = compat_registry.get_rule('prusa-wall-sequence-translation').parameters
+        out['wall_sequence'] = _seq['on_value'] if raw['external_perimeters_first'] == '1' else _seq['off_value']
     return out
 
 
@@ -339,8 +305,9 @@ def lowered_speeds(author, template):
     for that model (fragile detail, a bridge), so it is kept. A faster author speed never is.
     """
     out = {}
+    _suffix = compat_registry.get_rule('designer-lowered-speed-carry').parameters['key_suffix']
     for key, value in template.items():
-        if not key.endswith('_speed'):
+        if not key.endswith(_suffix):
             continue
         ours, theirs = _speed(value), _speed(author.get(key))
         if ours is not None and theirs is not None and theirs < ours:
@@ -435,14 +402,15 @@ def tree_style(process, source):
     Organic trees fail with variable layer height and with a zero top Z distance (a soluble or
     zero-gap interface); Tree Hybrid handles both. `process` is changed in place.
     """
-    if process.get('support_style') != 'organic':
+    _tree = compat_registry.get_rule('organic-tree-hybrid-conversion').parameters
+    if process.get('support_style') != _tree['from_style']:
         return None
     try:
-        zero_gap = float(str(process.get('support_top_z_distance', '0.2')).strip()) == 0
+        zero_gap = float(str(process.get(_tree['gap_key'], _tree['gap_default'])).strip()) == 0
     except ValueError:
         zero_gap = False
     if not (zero_gap or variable_layer_height(source)):
         return None
-    process['support_style'] = 'tree_hybrid'
+    process['support_style'] = _tree['to_style']
     why = 'a zero top Z distance' if zero_gap else 'variable layer height'
     return f'organic tree supports slice as Tree Hybrid with {why}'
