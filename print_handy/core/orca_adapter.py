@@ -2317,6 +2317,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # What the author's values became (#868): lowered speeds kept, enum fallbacks, painted
                     # supports, Tree Hybrid; and which project keys the private 3MF copy took from the job.
                     'author_notes': author_notes,
+                    'conversion_provenance': author_settings.conversion_provenance(
+                        source, process, process, author, author_notes),
                     'project_settings_rewritten': sorted(rewritten),
                     'source_profile_warnings': profile_warnings,
                     # Orca's own non-fatal findings (floating cantilever ...), read on success too.
