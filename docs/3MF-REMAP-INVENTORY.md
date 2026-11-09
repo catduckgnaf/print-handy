@@ -128,9 +128,12 @@ name extruders rather than drop the member silently.
 
 Per-layer tool changes (`Metadata/custom_gcode_per_layer.xml`): the
 standalone archive remap already refused unmapped tools; the in-export path
-now refuses the same way instead of dropping the change, and a kept entry's
-`color` attribute — the *source* filament's color — is stripped rather than
-carried as if it described the mapped tool. Pauses and custom entries are
+now refuses the same way instead of dropping the change. A kept entry's
+`color` attribute rides verbatim: it names the source filament's color, but
+tool selection comes from the `extruder` attribute, and real-slicer CI
+(PR #1133) proved the attribute is load-bearing — a build that stripped it
+got Orca -6 ("the input model file can not be parsed") for every
+height-color slice — so it is never stripped. Pauses and custom entries are
 reported from the inventory, as before. The single-color copy remaps the
 member to its one filament (or drops it, named, when it carries only
 pauses/custom entries).

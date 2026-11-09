@@ -135,7 +135,7 @@ def _rewrite(xml_bytes, convert, z_scale=1.0):
     return ET.tostring(root, encoding='utf-8', xml_declaration=True), kept, dropped
 
 
-def remap(xml_bytes, tool_map, z_scale=1.0, strip_color=False):
+def remap(xml_bytes, tool_map, z_scale=1.0):
     """Rewrite tool-change extruders through {source extruder: job tool (1-based)}.
 
     Entries for an extruder the job does not map are dropped rather than left
@@ -143,10 +143,11 @@ def remap(xml_bytes, tool_map, z_scale=1.0, strip_color=False):
     entries are dropped too — only the height color changes are carried, and
     the caller reports the rest from the inventory. Returns (bytes, report).
 
-    strip_color drops the kept entries' `color` attribute: it names the
-    *source* filament's color, and a remap that does not know the destination
-    slot's verified color must not let the stale hex ride along as if it
-    described the mapped tool (Phase C, #1110 criterion 4).
+    A kept entry's `color` attribute rides verbatim: it is display metadata
+    (tool selection comes from the `extruder` attribute), and Orca's 3MF
+    loader requires the attribute — a build that stripped it got Orca -6
+    ("the input model file can not be parsed") for every height-color slice
+    in real-slicer CI (PR #1133). Never strip it.
     """
     def convert(node):
         if kind_of(dict(node.attrib)) != 'tool_change':
@@ -159,8 +160,6 @@ def remap(xml_bytes, tool_map, z_scale=1.0, strip_color=False):
         if tool is None:
             return False
         node.set('extruder', str(tool))
-        if strip_color:
-            node.attrib.pop('color', None)
         return True
     data, kept, dropped = _rewrite(xml_bytes, convert, z_scale)
     return data, {'kept': kept, 'dropped': dropped,

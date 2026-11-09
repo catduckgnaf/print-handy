@@ -521,8 +521,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             if unresolved:
                 raise RuntimeError(f'per-layer tool change(s) to source extruder(s) {unresolved} '
                                    'have no slot choice; refusing rather than drop them')
-            layer_payload, layer_report = layer_gcode.remap(xml, tool_map, z_scale=scale or 1.0,
-                                                            strip_color=True)
+            layer_payload, layer_report = layer_gcode.remap(xml, tool_map, z_scale=scale or 1.0)
         if layer_report is not None and not layer_report.get('kept'):
             layer_payload = None
     from . import layer_gcode as _layer_gcode_module
@@ -1260,7 +1259,7 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
         tool_map = {ext: 1 for ext in _layer_gcode.tool_change_extruders(entries)}
         if tool_map:
             payload[_layer_gcode.MEMBER], single_layer_report = _layer_gcode.remap(
-                payload[_layer_gcode.MEMBER], tool_map, strip_color=True)
+                payload[_layer_gcode.MEMBER], tool_map)
         else:
             # Only pauses/custom entries: they are the job's to re-derive, and
             # the member naming source heights for another plate shape drops.

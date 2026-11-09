@@ -175,12 +175,13 @@ def test_generic_remap_permutates_every_reference_and_preserves_the_rest(tmp_pat
     assert project["layer_height"] == "0.2"
     # Object and part extruders are remapped; the range's extruder value and its
     # object id are both translated; the layer change names the mapped tool and
-    # its stale source color does not ride along.
+    # keeps its color attribute (Orca's 3MF loader requires the attribute; the
+    # tool selection comes from the extruder, not the color).
     assert '<metadata key="extruder" value="2"/>' in settings  # object 1 -> 2
     assert '<metadata key="extruder" value="1"/>' in settings  # part 2 -> 1
     assert '<object id="9">' in ranges and '<option opt_key="extruder">1</option>' in ranges
     assert '<option opt_key="layer_height">0.12</option>' in ranges
-    assert layer[0]["source_extruder"] == 1 and layer[0]["color"] is None
+    assert layer[0]["source_extruder"] == 1 and layer[0]["color"] == "#222222"
     assert '<filament id="1"' in info
     # Paint: paint_color state 1 -> state 2 ("8"); mmu state 2 is translated to
     # paint_color state 1 ("4") and the Prusa attribute is gone.
@@ -353,9 +354,17 @@ def test_rebuilt_export_refuses_height_range_extruders_by_name(tmp_path):
     assert target.read_bytes() == b"existing destination sentinel"
 
 
-# --- C7: a kept layer change does not keep the source filament's color --------
+# --- C7: a kept layer change keeps the color attribute Orca's loader requires -
 
-def test_rebuilt_layer_change_drops_the_stale_source_color(tmp_path):
+def test_rebuilt_layer_change_keeps_the_color_attribute(tmp_path):
+    """The first Phase C build stripped the kept entries' color attribute, on
+    the audit's UNVERIFIED note that no consumer treats it as authoritative.
+    Real-Orca CI falsified the strip: Orca returned -6 ("the input model file
+    can not be parsed") for every height-color slice (PR #1133, Slicer test
+    stable shard 1: test_creator_height_colors_change_tool_at_their_heights
+    and the corpus height-color-changes case, both green on the stack base).
+    The attribute is load-bearing for parsing, and tool selection comes from
+    the extruder attribute, so the color rides verbatim as display metadata."""
     source = tmp_path / "chroma.3mf"
     write_3mf(source, [("Tower", 1, box(20, 20, 12), (60, 60))], [("Plate 1", [0])],
               [("#111111", "PLA"), ("#222222", "PLA")])
@@ -380,7 +389,7 @@ def test_rebuilt_layer_change_drops_the_stale_source_color(tmp_path):
     assert report["layer_changes"]["kept"] == 1
     with zipfile.ZipFile(target) as archive:
         rows = layer_gcode.parse(archive.read("Metadata/custom_gcode_per_layer.xml"))
-    assert rows[0]["source_extruder"] == 2 and rows[0]["color"] is None
+    assert rows[0]["source_extruder"] == 2 and rows[0]["color"] == "#222222"
 
 
 # --- C9: dropped per-part settings are named, not silent ----------------------

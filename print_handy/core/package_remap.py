@@ -435,7 +435,7 @@ def remap_package(source, target, mapping, object_map=None):
             if unresolved:
                 raise RuntimeError(f'unmapped source layer tool(s): {unresolved}')
             converted, _layer_report = layer_gcode.remap(
-                data, mapping, strip_color=True)
+                data, mapping)
             payload[name] = converted
         elif name.lower().endswith('.model'):
             payload[name] = _remap_model_member(data, mapping)
