@@ -355,7 +355,8 @@ def _no_delete_login_prompt(step_key):
     if step_key == "webui_password":
         from . import webui_access
         return ("The new Web UI password needs at least 8 characters; a few unrelated words "
-                "work well. " + webui_access.capture_notice(False))
+                "work well. " + webui_access.capture_notice(False)
+                + " Spaces at the very start or end are trimmed in chat, so leave them off.")
     return ("Reply with the same password once more to confirm it. This chat cannot delete "
             "messages, so this one stays visible in the chat history too; the login is "
             "saved as soon as it matches.")
@@ -479,7 +480,8 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
         Step("webui_password", "Web UI password",
              "Reply with the new Web UI password (at least 8 characters; a few unrelated "
              "words work well). It is deleted from chat as soon as it is captured and is "
-             "never saved in this checklist or repeated back.", _validate_secret_step),
+             "never saved in this checklist or repeated back. Spaces at the very start "
+             "or end are trimmed in chat, so leave them off.", _validate_secret_step),
         Step("webui_confirm", "Confirm Web UI password",
              "Reply with the same password once more to confirm it. It is deleted from "
              "chat as soon as it is captured; the login is saved as soon as it matches.",
