@@ -129,19 +129,19 @@ class CatalogTests(unittest.TestCase):
         self.assertIsNotNone(trigger)
         self.assertEqual(trigger.kind, "picker")
         self.assertEqual(choices_for(trigger), tuple(settings.CAPTURE_TRIGGERS))
-        self.assertEqual(trigger.group, "timelapse")
+        self.assertEqual(trigger.group, "camera")
         interval = field_by_id("timelapse.capture_interval_s")
         self.assertIsNotNone(interval)
         self.assertEqual(interval.kind, "number")
         self.assertEqual(interval.maximum, 3600)
-        self.assertEqual(interval.group, "timelapse")
+        self.assertEqual(interval.group, "camera")
         for field_id in ("timelapse.capture_max_frames", "timelapse.capture_max_bytes"):
             with self.subTest(field=field_id):
                 field = field_by_id(field_id)
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, "number")
                 self.assertEqual(field.minimum, 0)  # 0 disables the cap
-                self.assertEqual(field.group, "timelapse")
+                self.assertEqual(field.group, "camera")
 
     def test_visual_watch_early_fields_are_in_the_catalog(self):
         # The #913 early-layer watch knobs ride the same surface.
@@ -154,7 +154,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(field.kind, "number")
                 self.assertEqual((field.minimum, field.maximum), (minimum, maximum))
 
-    def test_live_stream_fields_are_in_the_catalog_under_the_live_group(self):
+    def test_live_stream_fields_are_in_the_catalog_under_the_camera_group(self):
         # #311 stage 4: the whole [live_stream] section is editable here —
         # the Web UI is the settings surface — with the loader's own
         # bounds, and the encoder picker carries the settings choice set.
@@ -168,7 +168,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, "number")
                 self.assertEqual((field.minimum, field.maximum), (minimum, maximum))
-                self.assertEqual(field.group, "live")
+                self.assertEqual(field.group, "camera")
         for field_id, kind in (("live_stream.enabled", "toggle"),
                                ("live_stream.auto_start_on_print", "toggle"),
                                ("live_stream.voice_channel_id", "text"),
@@ -177,7 +177,7 @@ class CatalogTests(unittest.TestCase):
                 field = field_by_id(field_id)
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, kind)
-                self.assertEqual(field.group, "live")
+                self.assertEqual(field.group, "camera")
         encoder = field_by_id("live_stream.encoder")
         self.assertIsNotNone(encoder)
         self.assertEqual(encoder.kind, "picker")
@@ -192,26 +192,26 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(field.group)
         slicing = {field.id for field in CATALOG if field.group == "slicing"}
         self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing"})
-        self.assertEqual(field_by_id("timelapse.mode").group, "timelapse")
-        self.assertEqual(field_by_id("services.camera_source").group, "images")
-        self.assertEqual(field_by_id("printer.model").group, "printer")
+        self.assertEqual(field_by_id("timelapse.mode").group, "camera")
+        self.assertEqual(field_by_id("services.camera_source").group, "camera")
+        self.assertEqual(field_by_id("printer.model").group, "printers")
 
     def test_settings_surface_fix_fields_are_in_the_catalog(self):
         # The 2.2.2 settings-surface fix: every consumed, user-facing
         # setting the 2.2.1 audit found missing from the catalog is now
         # offered, in its group, with the kind its value needs.
         expected = {
-            "bambu.lan_serial": ("services", "text"),
-            "timelapse.capture_enabled": ("timelapse", "toggle"),
+            "bambu.lan_serial": ("printers", "text"),
+            "timelapse.capture_enabled": ("camera", "toggle"),
             "layout.spacing": ("slicing", "picker"),
-            "notify.mqtt_enabled": ("services", "toggle"),
-            "notify.mqtt_host": ("services", "host"),
-            "notify.mqtt_port": ("services", "number"),
-            "notify.mqtt_topic": ("services", "text"),
-            "notify.mqtt_username": ("services", "text"),
-            "notify.ntfy_enabled": ("services", "toggle"),
-            "notify.ntfy_url": ("services", "url"),
-            "notify.ntfy_topic": ("services", "text"),
+            "notify.mqtt_enabled": ("home_assistant", "toggle"),
+            "notify.mqtt_host": ("home_assistant", "host"),
+            "notify.mqtt_port": ("home_assistant", "number"),
+            "notify.mqtt_topic": ("home_assistant", "text"),
+            "notify.mqtt_username": ("home_assistant", "text"),
+            "notify.ntfy_enabled": ("notifications", "toggle"),
+            "notify.ntfy_url": ("notifications", "url"),
+            "notify.ntfy_topic": ("notifications", "text"),
             "llm.chat_url": ("endpoints", "url"),
             "llm.model": ("endpoints", "text"),
             "design.chat_url": ("endpoints", "url"),
@@ -322,9 +322,28 @@ class CatalogTests(unittest.TestCase):
     def test_printer_url_and_rtsp_fields_follow_the_model(self):
         rtsp = field_by_id("timelapse.capture_source_url")
         self.assertEqual(rtsp.label, "RTSP stream URL")
-        self.assertEqual(rtsp.group, "images")
-        self.assertEqual(field_by_id("services.moonraker_url").label, "Printer URL")
-        self.assertEqual(field_by_id("services.octoprint_url").label, "Printer URL")
+        self.assertEqual(rtsp.group, "camera")
+        # Per-connection labels (settings restructure stage 1): each
+        # address field names the connection it addresses instead of
+        # sharing one "Printer URL" label.
+        self.assertEqual(field_by_id("services.moonraker_url").label, "Moonraker URL")
+        self.assertEqual(field_by_id("services.octoprint_url").label, "OctoPrint URL")
+        self.assertEqual(field_by_id("bambu.lan_host").label, "Bambu Lab LAN host")
+        self.assertEqual(field_by_id("prusa.link_host").label, "PrusaLink host")
+        self.assertEqual(field_by_id("flashforge_stock.host").label, "Flashforge stock host")
+        self.assertEqual(field_by_id("elegoo_sdcp.host").label, "Elegoo SDCP host")
+        # The address fields (and the Bambu serial that pairs with its
+        # host) live in the Printers group; the Spoolman URL and its
+        # neighbor live in Spools (settings restructure stage 1).
+        for field_id in ("services.moonraker_url", "services.octoprint_url",
+                         "bambu.lan_host", "bambu.lan_serial",
+                         "prusa.link_host", "flashforge_stock.host",
+                         "elegoo_sdcp.host"):
+            with self.subTest(field=field_id):
+                self.assertEqual(field_by_id(field_id).group, "printers")
+        for field_id in ("services.spoolman_url", "spool.prompt_brand"):
+            with self.subTest(field=field_id):
+                self.assertEqual(field_by_id(field_id).group, "spools")
         data = settings.load(local=False, environ={})
         self.assertTrue(config_page_visible("services.moonraker_url", data))
         self.assertFalse(config_page_visible("services.octoprint_url", data))
