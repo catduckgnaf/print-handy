@@ -279,6 +279,48 @@ def checks(cfg):
     return rows
 
 
+# Startup check tiers (bootstrap): the credential tier is fatal — a bot
+# with no platform token cannot connect at all, and the token arrives
+# through the environment / Docker variable, never through chat. The
+# configuration tier (no print channel/room yet, no allowed users, no
+# Matrix homeserver on non-Matrix platforms) is not fatal: the bot
+# starts in setup-only mode and holds exactly one conversation, the
+# guided setup. Every other failing row stays fatal.
+CREDENTIAL_TIER_LABELS = frozenset({"token"})
+CONFIGURATION_TIER_LABELS = frozenset({"print channel", "allowed users", "print room"})
+
+
+def split_check_rows(rows):
+    """(credential, configuration, other) failing labels for check rows."""
+    credential, configuration, other = [], [], []
+    for label, ok, _detail in rows:
+        if ok:
+            continue
+        if label in CREDENTIAL_TIER_LABELS:
+            credential.append(label)
+        elif label in CONFIGURATION_TIER_LABELS or label == "homeserver":
+            configuration.append(label)
+        else:
+            other.append(label)
+    return credential, configuration, other
+
+
+def setup_only_mode(cfg, rows):
+    """True when only configuration-tier rows fail: start setup-only.
+
+    Matrix is the exception for its homeserver row: without a
+    homeserver the Matrix client cannot connect at all, so that row is
+    credential-tier there even though it is configuration elsewhere.
+    """
+    credential, configuration, other = split_check_rows(rows)
+    if credential or other or not configuration:
+        return False
+    name = str(cfg["bot"].get("platform") or "discord")
+    if name == "matrix" and "homeserver" in configuration:
+        return False
+    return True
+
+
 def check(out=None):
     out = out or sys.stdout
     try:
@@ -296,10 +338,28 @@ def check(out=None):
 def run():
     logs.configure()
     logger.info("standalone bot starting (Print Handy %s)", __version__)
-    if check(sys.stderr):
+    try:
+        cfg = settings.current()
+    except settings.SettingsError as exc:
+        print(f"FAIL  settings: {exc}", file=sys.stderr)
         print("Not starting: fix the FAIL lines above.", file=sys.stderr)
         return 2
-    cfg = settings.current()
+    rows = checks(cfg)
+    failed = False
+    for label, ok, detail in rows:
+        failed |= not ok
+        print(f"{'ok' if ok else 'FAIL':<5} {label}: {detail}", file=sys.stderr)
+    if failed and not setup_only_mode(cfg, rows):
+        print("Not starting: fix the FAIL lines above.", file=sys.stderr)
+        return 2
+    if failed:
+        cfg["bot"]["setup_only"] = True
+        print("Starting in setup-only mode: the bot connects and answers only the "
+              "guided setup conversation (`/print-handy setup`) until setup is "
+              "applied. The platform token still comes from the environment — "
+              "chat setup starts once the bot can connect.", file=sys.stderr)
+        logger.warning("setup-only mode: no chat configuration yet; only guided "
+                       "setup is answered")
     name = str(cfg["bot"].get("platform") or "discord")
     if name == "discord":
         from .client import run_bot
