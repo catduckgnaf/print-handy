@@ -580,6 +580,19 @@ def inventory(path):
     return res
 
 
+def validate_plate_usage_if_present(manifest, selected_plate_ids=None):
+    """Validate source slicer usage claims when present; absence is UNKNOWN, not invalid."""
+    stats = manifest.get('filament_stats')
+    plates = stats.get('plates') if isinstance(stats, dict) else None
+    if not isinstance(plates, dict) or not plates:
+        return  # No source claim. Destination slicing supplies authoritative usage.
+    if all(isinstance(value, dict) and value.get('usage_known') is False
+           and value.get('usage_unknown_reason') == 'source has no slicer usage metadata'
+           for value in plates.values()):
+        return
+    require_plate_usage_known(manifest, selected_plate_ids)
+
+
 def require_plate_usage_known(manifest, selected_plate_ids=None):
     """Refuse readiness when selected plates lack validated usage records.
 

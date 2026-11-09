@@ -5907,11 +5907,11 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
     if multi_plate:
-        # Multi-plate conversion must not infer filament demand from palette or
-        # hardware slots. Usage must cover every source plate; missing records
-        # remain UNKNOWN and prevent slicing.
-        from .source_colors import require_plate_usage_known
-        require_plate_usage_known(manifest)
+        # Source usage is evidence, not a prerequisite for slicing an unsliced
+        # project. Validate claims when present; absent metadata stays UNKNOWN
+        # and the destination slicer's output becomes authoritative.
+        from .source_colors import validate_plate_usage_if_present
+        validate_plate_usage_if_present(manifest)
     # A height-color-only source (#870) is not a multi-color source: its parts
     # share one extruder and the recorded single-color decision carries the
     # operator's pause-or-one-color choice, which a single-extruder printer

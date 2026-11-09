@@ -90,17 +90,26 @@ class FilamentStatsTests(unittest.TestCase):
             with self.subTest(usage=usage), self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
                 sc.require_plate_usage_known({'filament_stats': {'plates': {'7': usage}}}, ['7'])
 
-    def test_per_plate_usage_unknown_without_slicer_usage_metadata(self):
-        path = self.dir / "unsliced.3mf"
+    def test_optional_source_usage_allows_slicing_when_absent(self):
+        manifest = {'filament_stats': {'plates': {
+            'unknown': {'usage_known': False, 'usage_unknown_reason': 'source has no slicer usage metadata'}}}}
+        sc.validate_plate_usage_if_present(manifest)
+
+    def test_optional_source_usage_fails_closed_when_claimed_invalid(self):
+        manifest = {'filament_stats': {'plates': {
+            '7': {'usage_known': False, 'usage_unknown_reason': 'invalid source filament usage record'}}}}
+        with self.assertRaisesRegex(RuntimeError, 'plate 7'):
+            sc.validate_plate_usage_if_present(manifest)
+
+        path = Path(self.dir) / "unsliced.3mf"
         with zipfile.ZipFile(path, "w") as z:
             z.writestr("Metadata/model_settings.config", "<config/>")
         manifest = {}
         sc._append_filament_stats(path, manifest)
         self.assertFalse(manifest["filament_stats"]["plates"]["unknown"]["usage_known"])
-        with self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
-            sc.require_plate_usage_known(manifest)
+        sc.validate_plate_usage_if_present(manifest)
 
-        path = self.dir / "part.stl"
+        path = Path(self.dir) / "part.stl"
         path.write_bytes(b"solid x\nendsolid x\n")
         res = sc.inventory(path)
         self.assertEqual(res["parts"], [])
