@@ -165,6 +165,36 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(reloaded["printer"]["name"], "Bench Printer")
             self.assertEqual(settings.printers(reloaded)[0]["name"], "Bench Printer")
 
+    def test_printer_step_asks_for_spoolman_and_saves_it(self):
+        # The one service chat setup asked about that this walkthrough
+        # used to skip: the Spoolman URL rides the Printer step and the
+        # Review step shows it.
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(tmp, setup_done=True)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="services.spoolman_url"', body)
+            code, headers, _ = self.post_step(
+                port, environ, httpd.form_token, "printer",
+                **{"services.spoolman_url": "http://spoolman.example:7912"})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            reloaded = settings.load(local=local, environ={})
+            self.assertEqual(reloaded["services"]["spoolman_url"],
+                             "http://spoolman.example:7912")
+            self.assertIn("services.spoolman_url", walkthrough.REVIEW_FIELDS)
+
+    def test_chat_step_does_not_ask_for_bot_mode(self):
+        # Since the Hermes removal the only legal bot.mode is
+        # "standalone": the Chat step must not offer a one-answer field.
+        self.assertNotIn("bot.mode", walkthrough.STEP_FIELDS["chat"])
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            walkthrough.save_state(data, {"step": 1})
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="bot.platform"', body)
+            self.assertNotIn('name="bot.mode"', body)
+
     def test_a_bambu_install_gets_its_connection_fields_on_the_printer_step(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, _, local, environ = self.start(
@@ -384,12 +414,11 @@ class WalkthroughServerTests(unittest.TestCase):
             code, _, _ = self.login_step(port, retained)
             self.assertEqual(code, 403)
 
-    def test_login_step_inputs_are_optional_unlike_setup(self):
+    def test_login_step_inputs_are_optional(self):
         """#880 review (P2): the walkthrough documents leaving the login
         fields empty to keep the current login, and ticking the box to
         remove it — `required` inputs make the browser refuse both
-        before the form is ever sent. The standalone /setup form keeps
-        its required fields: a first-run choice must be complete."""
+        before the form is ever sent."""
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, _ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 3})
@@ -401,11 +430,6 @@ class WalkthroughServerTests(unittest.TestCase):
                 tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', body)
                 self.assertIsNotNone(tag, name)
                 self.assertNotIn("required", tag.group(0), name)
-            setup_body = pages.render_setup_page("some-token")
-            for name in names:
-                tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', setup_body)
-                self.assertIsNotNone(tag, name)
-                self.assertIn("required", tag.group(0), name)
 
     def test_finish_on_review_marks_done_and_lifts_the_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -439,6 +463,102 @@ class WalkthroughServerTests(unittest.TestCase):
             _, port, _, _, environ = self.start(tmp, setup_done=True)
             code, _, _ = self.post_step(port, environ, "not-the-token", "printer")
             self.assertEqual(code, 403)
+
+    # -- the "No login is set" banner must not dead-end on / ----------------
+
+    LOGIN = walkthrough.STEPS.index(("login", "Login"))
+
+    def assert_login_step(self, port):
+        code, _, body = self.request(port, "GET", "/walkthrough")
+        self.assertEqual(code, 200)
+        self.assertIn('name="step" value="login"', body)
+
+    def test_closed_walkthrough_on_unclaimed_install_serves_login(self):
+        closed = {"skipped": {"step": 0, "done": True, "skipped": True, "offered": True},
+                  "finished": {"step": 5, "done": True, "offered": True},
+                  "finished after a reopen": {"step": 5, "done": True, "offered": True,
+                                              "reopened": True}}
+        for name, state in closed.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                httpd, port, data, _, _ = self.start(tmp)
+                self.assertTrue(httpd.access.unclaimed)
+                walkthrough.save_state(data, state)
+                self.assert_login_step(port)
+                self.assertEqual(walkthrough.load_state(data),
+                                 {"step": self.LOGIN, "offered": True, "reopened": True})
+
+    def test_repeat_get_after_moving_on_keeps_the_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, environ = self.start(tmp)
+            walkthrough.save_state(data, {"step": 0, "done": True, "skipped": True})
+            self.assert_login_step(port)
+            code, headers, _ = self.post_step(port, environ, httpd.form_token, "login", action="skip")
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            moved_on = self.LOGIN + 1
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="providers"', body)
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+            # pending() can be false with no done flag in the state file
+            # (a completion recorded elsewhere): still no reset.
+            with mock.patch.object(walkthrough, "pending", return_value=False):
+                code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="providers"', body)
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+
+    def test_pending_false_without_done_flag_still_reopens_at_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp)
+            walkthrough.save_state(data, {"step": 5, "offered": True})
+            with mock.patch.object(walkthrough, "pending", return_value=False):
+                self.assert_login_step(port)
+
+    def test_login_step_reach_wording_matches_the_bind(self):
+        """A loopback install must not be told anyone on the network can
+        use it; a network bind says so plainly (gate-reversal review)."""
+        state = {"step": 5, "done": True, "offered": True}
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp, host="127.0.0.1")
+            walkthrough.save_state(data, state)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="login"', body)
+            self.assertIn("only someone using this machine can reach it", body)
+            self.assertNotIn("anyone on your network", body)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp, host="0.0.0.0")
+            walkthrough.save_state(data, state)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="login"', body)
+            self.assertIn("anyone on your network can use it", body)
+
+    def test_install_with_a_credential_still_redirects(self):
+        token = {"WEBUI_ACCESS_TOKEN": "a-long-enough-test-token"}
+        cases = {"saved open choice": ({"setup_done": True}, {}),
+                 "access token": ({"environ": token}, {server.TOKEN_HEADER: token["WEBUI_ACCESS_TOKEN"]})}
+        for name, (start, headers) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                httpd, port, data, _, _ = self.start(tmp, **start)
+                self.assertFalse(httpd.access.unclaimed)
+                state = {"step": 5, "done": True, "offered": True}
+                walkthrough.save_state(data, state)
+                code, response, _ = self.request(port, "GET", "/walkthrough", headers=headers)
+                self.assertEqual((code, response["location"]), (303, "/"))
+                self.assertEqual(walkthrough.load_state(data), state)
+
+    def test_banner_wording_follows_the_bind(self):
+        wide = "anyone who can reach it can use it"
+        for host, says_wide in (("0.0.0.0", True), ("127.0.0.1", False)):
+            with self.subTest(host), tempfile.TemporaryDirectory() as tmp:
+                _, port, _, _, _ = self.start(tmp, host=host)
+                code, _, body = self.request(port, "GET", "/")
+                self.assertEqual(code, 200)
+                self.assertIn("No login is set", body)
+                self.assertEqual(wide in body, says_wide)
+                self.assertEqual("listens only on this machine" in body, not says_wide)
 
 
 class ThemeTests(unittest.TestCase):
@@ -523,12 +643,13 @@ class ThemeTests(unittest.TestCase):
             self.assertEqual(headers["location"], "/")
             self.assertNotIn("x-injected", headers)
 
-    def test_theme_route_is_unreachable_before_setup(self):
+    def test_theme_route_is_reachable_while_unclaimed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp)  # LAN bind, nothing chosen: setup mode
+            port = self.start(tmp)  # LAN bind, nothing chosen: open, unclaimed
             code, headers, _ = self.request(port, "GET", "/theme?set=light", headers=HTML)
-            self.assertEqual((code, headers["location"]), (303, "/setup"))
-            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 503)
+            self.assertEqual(code, 303)
+            self.assertNotEqual(headers["location"], "/setup")
+            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 303)
 
     def test_theme_route_needs_auth_on_a_token_install(self):
         with tempfile.TemporaryDirectory() as tmp:

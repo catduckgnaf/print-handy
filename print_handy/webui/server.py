@@ -54,9 +54,9 @@ step) serving:
   one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
   pause, or exclude control, and nothing here changes chat confirm.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
-  walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered
-  only to installs that resolved access through the setup page and
-  have not finished it; its steps write through the config path above.
+  walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
+  every install that has not finished it; its steps write through the
+  config path above, and its Login step is where a password is set.
 - ``GET /theme?set=dark|light&back=<path>`` — the header theme toggle
   (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
   and redirects back. A browser preference only, behind the same
@@ -75,14 +75,14 @@ same validated path; every other non-GET method or path is 405.
 The server starts only when ``[webui] enabled`` is true and ``port`` is
 above 0. Access control is decided by :mod:`print_handy.webui.access`:
 the access token in the environment variable ``[webui] access_token_env``
-names (default ``WEBUI_ACCESS_TOKEN``), or the password chosen on the
-first-run setup page (#708), is sent as the ``X-WebUI-Token`` header and
+names (default ``WEBUI_ACCESS_TOKEN``), or the password chosen in the
+walkthrough's Login step, is sent as the ``X-WebUI-Token`` header and
 compared in constant time. ``[webui] require_auth`` false keeps its
-meaning: no credential at all. A non-loopback bind with neither a token
-nor a saved setup choice starts in setup mode and serves only
-``/setup`` (and ``/healthz``) until the operator sets a password or
-affirmatively leaves it open. The token or password is never rendered,
-logged, or included in any response.
+meaning: no credential at all. A bind with neither a token nor a saved
+choice serves openly and is *unclaimed* — the walkthrough is offered
+from the first request, and a credential exists only once one is
+deliberately set (the #708 setup gate is reversed). The token or
+password is never rendered, logged, or included in any response.
 
 POSTs additionally accept the per-server form token the config pages
 embed (``pages.CSRF_FIELD``) instead of the header — that is how a
@@ -139,6 +139,7 @@ from .. import settings
 from ..bot import health as bot_health
 from . import access as access_module
 from . import camera as camera_module
+from . import chat as chat_module
 from . import config as config_api
 from . import controls as controls_module
 from . import data as data_module
@@ -150,6 +151,7 @@ from . import shell
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
+from . import upload as upload_module
 from . import walkthrough as walkthrough_module
 
 log = logging.getLogger(__name__)
@@ -196,6 +198,13 @@ def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
     lock = getattr(server, "remembered_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def _chat_lock(server):
+    """The server's chat-service build lock, or a no-op context when the
+    server object predates it (same rule as _remember_lock)."""
+    lock = getattr(server, "chat_service_lock", None)
     return lock if lock is not None else contextlib.nullcontext()
 
 
@@ -327,15 +336,15 @@ def access_token(data, environ=None):
 def check_start(data, environ=None):
     """Refuse a disabled or unconfigured start; return (host, port, token).
 
-    A non-loopback bind with no token and no saved setup choice no longer
-    refuses: it starts in first-run setup (:mod:`print_handy.webui.access`)
-    and serves nothing but the setup page until a choice is made (#708).
+    A bind with no token and no saved choice starts open and unclaimed
+    (:mod:`print_handy.webui.access`): the full Web UI serves from the
+    first request and the walkthrough is offered.
     """
     webui = data["webui"]
     if not webui["enabled"]:
         raise WebUIServerError(
             "webui: not started: [webui] enabled is false (the Web UI is "
-            "optional and off by default; set enabled = true and a port to run it)")
+            "on by default; this install turned it off — set enabled = true and a port to run it)")
     port = int(webui["port"] or 0)
     if port <= 0:
         raise WebUIServerError(
@@ -419,7 +428,8 @@ def _job_block(job):
 
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False, job=None, error=None, nav=None):
+                       walkthrough_pending=False, job=None, error=None, nav=None,
+                       unclaimed=False, loopback=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -523,6 +533,14 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
         banner = ('<div class="banner"><span>Finish setting up Print Handy — '
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
+    if unclaimed:
+        reach = ('It listens only on this machine, so only someone using this '
+                 'machine can reach it. Set a login in the walkthrough if you '
+                 'want one.' if loopback else
+                 'anyone who can reach it can use it. Set a login in the '
+                 'walkthrough, or leave it open on a network you trust.')
+        banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
+                   '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + f'<table class="rows">{main_rows}</table>'
@@ -553,9 +571,8 @@ class _Handler(BaseHTTPRequestHandler):
         still names the attacker's hostname in Host (and Origin), so only
         the loopback names and the bind address are accepted.
 
-        A LAN bind with no password (first-run setup, or the "leave it open"
-        choice) has the same exposure on any address, and #708 makes it the
-        container default. A rebinding site needs a public DNS name it
+        A LAN bind with no password (an unclaimed install, or the "leave
+        it open" choice) has the same exposure on any address. A rebinding site needs a public DNS name it
         controls, so there only names it cannot serve are accepted (an IP
         literal, a single-label name, a private-use suffix), and a write's
         Origin must be the same host, which also refuses cross-site posts.
@@ -583,8 +600,9 @@ class _Handler(BaseHTTPRequestHandler):
         if private_hostname(names[0]) and all(name == names[0] for name in names[1:]):
             return False
         self._send(403, "Forbidden: with no Web UI password this page answers only by IP "
-                        "address or a local host name. Set a password on the setup page to "
-                        "reach it through another name.", "text/plain; charset=utf-8")
+                        "address or a local host name. Set a password in the setup "
+                        "walkthrough's Login step to reach it through another name.",
+                   "text/plain; charset=utf-8")
         return True
 
     def _send(self, code, body, content_type, headers=()):
@@ -731,23 +749,16 @@ class _Handler(BaseHTTPRequestHandler):
                 code, body = healthz(self.server.settings_data)
                 self._json(code, body)
                 return
-            if self.server.access.setup_pending:
-                # First-run setup (#708): nothing but the setup page until
-                # the operator sets a password or chooses to leave it open.
-                if path == "/setup":
-                    self._send(200, pages.render_setup_page(self.server.setup_token,
-                                                            theme=self._theme()),
-                               "text/html; charset=utf-8")
-                elif self._browser_navigation(path):
-                    self._redirect("/setup")
-                else:
-                    self._setup_pending_json()
-                return
             if path == "/setup":
                 self._redirect("/")
                 return
             if path == "/login":
                 self._login_page()
+                return
+            if path.startswith("/u/"):
+                # A no-login upload link: the token in the address is
+                # the whole credential, and it opens this form only.
+                self._token_upload_page(unquote(path[len("/u/"):]))
                 return
             if not self._authorized():
                 if self._browser_navigation(path):
@@ -777,9 +788,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, render_status_html(
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
+                    unclaimed=self.server.access.unclaimed,
+                    loopback=is_loopback(self.server.bind_host),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
-                    if data_module.wrapped_enabled(self.server.settings_data) else None),
+                    if (data_module.data_enabled(self.server.settings_data)
+                        or data_module.wrapped_enabled(self.server.settings_data))
+                    else None),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
@@ -808,8 +823,22 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                self._send(200, self._config_html(self._field_values(), theme=self._theme()),
+                query = parse_qs(urlparse(self.path).query)
+                section = (query.get("section") or [None])[0]
+                reveal = (query.get("setup") or [None])[0]
+                self._send(200, self._config_html(self._field_values(),
+                                                  theme=self._theme(),
+                                                  section=section,
+                                                  reveal=reveal),
                            "text/html; charset=utf-8")
+            elif path == "/chat":
+                self._chat_page()
+            elif path == "/upload":
+                self._send(200, upload_module.render_upload_page(
+                    self.server.settings_data, form_token=self.server.form_token,
+                    theme=self._theme(),
+                    nav=data_module.nav_for(self.server.settings_data)),
+                    "text/html; charset=utf-8")
             elif path == "/sources":
                 self._send(200, sources_module.render_sources_page(
                     theme=self._theme(),
@@ -864,9 +893,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _data_route(self, path):
         """GET /data, /wrapped, /api/data and /api/wrapped (#956).
 
-        Behind the same login as every other page. While
-        [timelapse] wrapped_enabled is off, all four answer the named
-        403 refusal from data.py, for pages and APIs alike.
+        Served under the Web UI's own access rules, like every other
+        page: open on an install with no login set, behind the login
+        when one is set. While a route's own switch is off ([timelapse]
+        data_enabled for the Data routes, wrapped_enabled for the
+        Wrapped routes), it answers the named 403 refusal from
+        data.py, for pages and APIs alike.
         """
         year, error = self._year_param()
         if error:
@@ -910,7 +942,7 @@ class _Handler(BaseHTTPRequestHandler):
         """
         data = self.server.settings_data
         if not data_module.wrapped_enabled(data):
-            self._json(403, {"ok": False, "reason": data_module.OFF_REASON})
+            self._json(403, {"ok": False, "reason": data_module.WRAPPED_OFF_REASON})
             return
         year, error = self._year_param()
         if error:
@@ -1334,8 +1366,8 @@ class _Handler(BaseHTTPRequestHandler):
         """Revoke every remembered session and delete its store file.
 
         Called only where the login rule itself was just set, changed or
-        removed (the setup submit and the walkthrough Login step, beside
-        their _rotate_form_token calls): a session minted under the old
+        removed (the walkthrough Login step, beside its
+        _rotate_form_token call): a session minted under the old
         credential must not outlive it. Ephemeral sessions are untouched
         — they die with the process, as before."""
         with _remember_lock(self.server):
@@ -1359,16 +1391,22 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _walkthrough_page(self):
         """GET /walkthrough: the current step, or / when this install
-        has no walkthrough pending (finished, skipped, or never owed
-        one — token, loopback and require_auth=false installs)."""
+        has no walkthrough pending (finished or skipped). Every install
+        owes it until then, however its access was resolved. An unclaimed
+        install is the exception: the status page's "No login is set"
+        banner links here, so a closed walkthrough reopens at Login
+        instead of bouncing the banner's link back to the status page."""
         data = self._walkthrough_data()
         if not walkthrough_module.pending(data):
-            self._redirect("/")
-            return
+            if not self.server.access.unclaimed:
+                self._redirect("/")
+                return
+            walkthrough_module.reopen_at_login(data)
         self._send(200, walkthrough_module.render_page(
             data, self._field_values(),
             form_token=self.server.form_token, theme=self._theme(),
-            environ=self.server.webui_environ), "text/html; charset=utf-8")
+            environ=self.server.webui_environ,
+            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
 
     def _walkthrough_post(self):
         """POST /walkthrough: one step's action, authorized exactly like
@@ -1383,7 +1421,7 @@ class _Handler(BaseHTTPRequestHandler):
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
-            theme=self._theme())
+            theme=self._theme(), loopback=is_loopback(self.server.bind_host))
         if kind == "access":
             # The Login step saved a new rule: apply it now, and keep the
             # person who chose it signed in on this browser.
@@ -1494,59 +1532,6 @@ class _Handler(BaseHTTPRequestHandler):
             in _REMEMBER_TRUTHY
         self._redirect("/", headers=[self._start_session(remember=remember)])
 
-    # -- first-run setup (#708) ---------------------------------------------
-    def _setup_pending_json(self):
-        self._json(503, {"ok": False,
-                         "reason": "first-run setup is not finished: open /setup in a "
-                                   "browser to set a Web UI password or leave it open"})
-
-    def _setup_submit(self):
-        """POST /setup: save a password or the affirmative open choice.
-
-        Needs the setup page's own token, so a cross-origin page cannot
-        answer setup for the operator. That token is separate from the
-        config form token and authorizes nothing else: the setup page is
-        served to anyone before setup, so its token must never open a
-        config or debug write once a password protects the Web UI. Only the first completed setup counts;
-        later posts (setup already done) just go to the status page.
-        """
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/setup")
-            return
-        provided = (form.get(pages.CSRF_FIELD) or [""])[0]
-        if not (provided and hmac.compare_digest(provided, self.server.setup_token)):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/setup")
-            return
-        data = self.server.settings_data
-        with self.server.setup_lock:
-            if not self.server.access.setup_pending:
-                self._redirect("/")
-                return
-            choice = (form.get(pages.SETUP_CHOICE_FIELD) or [""])[0]
-            try:
-                if choice == "password":
-                    access_module.save_password(
-                        data, (form.get(pages.SETUP_PASSWORD_FIELD) or [""])[0],
-                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0],
-                        username=(form.get(pages.SETUP_USER_FIELD) or [""])[0])
-                elif choice == "open":
-                    access_module.save_open(data, (form.get(pages.SETUP_OPEN_FIELD) or [""])[0] == "yes")
-                else:
-                    raise access_module.AccessError("Choose one of the two options.")
-            except access_module.AccessError as exc:
-                self._send(400, pages.render_setup_page(self.server.setup_token,
-                                                        error=str(exc), theme=self._theme()),
-                           "text/html; charset=utf-8")
-                return
-            self.server.access = access_module.resolve(data, self.server.bind_host,
-                                                       self.server.webui_environ)
-            self.server.access_stamp = _access_stamp(data)
-            self._rotate_form_token()
-            self._revoke_remembered_sessions()
-        # The person who just chose the password is signed in on this browser.
-        self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
-
     def _logout(self):
         # Ends only the caller's own session, so no form token is needed:
         # the worst a cross-origin post can do is sign the operator out.
@@ -1608,14 +1593,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._sync_access()
             if self._host_refused(post=True):
                 return
-            if path == "/setup":
-                self._setup_submit()
-                return
-            if self.server.access.setup_pending:
-                self._setup_pending_json()
+            if path.startswith("/u/"):
+                self._token_upload_submit(unquote(path[len("/u/"):]))
                 return
             if path == "/login":
                 self._login_submit()
+            elif path == "/chat":
+                self._chat_post()
+            elif path == "/chat/choice":
+                self._chat_choice_post()
+            elif path == "/upload":
+                self._upload_post()
             elif path == "/logout":
                 self._logout()
             elif path == "/walkthrough":
@@ -1646,6 +1634,257 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # a broken write is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
+    # -- web chat -------------------------------------------------------------
+
+    def _chat_service(self):
+        # Built lazily (the service spawns a BotCore and its own
+        # event-loop thread, so a server that never serves /chat must
+        # not pay for it), but the build is serialized: this server is
+        # threaded, and two concurrent first requests must not each
+        # build one — the loser's service would be orphaned when its
+        # assignment is overwritten, its replies rendered nowhere.
+        service = getattr(self.server, "chat_service", None)
+        if service is not None:
+            return service
+        with _chat_lock(self.server):
+            service = getattr(self.server, "chat_service", None)
+            if service is None:
+                from ..bot.web import WebChatService
+                service = WebChatService(self.server.settings_data)
+                self.server.chat_service = service
+            return service
+
+    def _web_chat_enabled(self):
+        """[webui] chat_enabled, the chat page's own switch (PR #1106).
+
+        Read from the server's settings mapping on every request, so
+        the page a request gets always matches the saved configuration.
+        """
+        from ..bot.web import chat_enabled
+        return chat_enabled(self.server.settings_data)
+
+    def _chat_page(self, notice=None, error=None):
+        if not self._web_chat_enabled():
+            # Off is a page, not an error: it says the state and the way
+            # back on, and the chat service is never built behind it.
+            self._send(200, chat_module.render_chat_disabled_page(
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        ft = self.server.form_token
+        self._send(200, chat_module.render_chat_page(
+            self._chat_service(), form_token=ft, notice=notice, error=error,
+            theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _chat_form(self):
+        """The parsed, authorized chat form, or None (refusal sent)."""
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/chat")
+            return None
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/chat")
+            return None
+        return form
+
+    def _chat_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
+            return
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            self._redirect("/chat")
+            return
+        if not self._chat_service().submit(text):
+            self._chat_page(error="Too many messages in the last minute; "
+                                  "give the bot a moment to catch up.")
+            return
+        self._redirect("/chat")
+
+    def _chat_choice_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            # A press can fail two ways, and neither may look like
+            # success: the answer wait can time out (which used to
+            # surface as a raw 500 from the outer POST guard), and the
+            # press can resolve nothing — the question already closed,
+            # or the press was refused — which used to redirect in
+            # silence. Both come back as the page with an explanation.
+            try:
+                label = self._chat_service().answer(clarify_id, index)
+            except Exception:
+                self._chat_page(error="That answer didn't reach the bot "
+                                      "in time. The question is still "
+                                      "open — try again.")
+                return
+            if label is None:
+                self._chat_page(error="That answer wasn't accepted — "
+                                      "the question may have closed, or "
+                                      "the answer belongs to another step.")
+                return
+        self._redirect("/chat")
+
+    # -- uploads ------------------------------------------------------------
+
+    def _read_upload_body(self):
+        """(fields, files, None) or (None, None, (code, reason)).
+
+        The upload routes are the one place a multipart body is read:
+        the shared form reader's 64 KB urlencoded rule does not apply,
+        but the body is still capped before it is read — at the upload
+        module's size limit plus a small multipart overhead allowance.
+        """
+        content_type = self.headers.get("Content-Type") or ""
+        if not content_type.startswith("multipart/form-data"):
+            return None, None, (415, "uploads must be multipart/form-data")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None, None, (400, "bad Content-Length")
+        if length < 0 or length > upload_module.MAX_UPLOAD_BYTES + 65536:
+            return None, None, (413, "upload too large")
+        raw = self.rfile.read(length) if length else b""
+        fields, files = upload_module.parse_multipart(raw, content_type)
+        if fields is None:
+            return None, None, (400, "could not read the upload form")
+        return {name: [value] for name, value in fields.items()}, files, None
+
+    def _upload_post(self):
+        content_type = self.headers.get("Content-Type") or ""
+        if content_type.startswith("multipart/form-data"):
+            # Gate before the body is read: an upload body can run to
+            # the shared download budget (~200 MiB), so an
+            # unauthenticated client must not be able to make the
+            # server buffer and parse one. The gate is the GET rule
+            # (access open, the header token, or a login session —
+            # session first, so a browser request does not trip the
+            # header throttle); it does not replace the POST rule
+            # below, which still requires the header token or the form
+            # token once the fields are parsed. A session alone still
+            # cannot save a file.
+            if self.server.access.required and not (
+                    self._session_authorized() or self._header_authorized()):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                return
+            fields, files, error = self._read_upload_body()
+            if error:
+                self._html_refusal(error[0], error[1], "/upload")
+                return
+            if not self._post_authorized(fields):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                return
+            if not files:
+                self._html_refusal(400, "no file was attached", "/upload")
+                return
+            saved, reason = upload_module.save_upload(
+                self.server.settings_data, files[0][0], files[0][1])
+            if saved is None:
+                self._html_refusal(400, reason, "/upload")
+                return
+            self._send(200, upload_module.render_upload_page(
+                self.server.settings_data, form_token=self.server.form_token,
+                notice=f"{saved.name} is in the inbox. Pick it up in chat "
+                       "to slice and print it.",
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/upload")
+            return
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+            return
+        action = (form.get("action") or [""])[0]
+        notice = error_text = None
+        if action == "create_link":
+            token = upload_module.create_link(self.server.settings_data)
+            notice = (f"Upload link created: /u/{token} — copy it now; "
+                      "only a digest of it is kept, so it cannot be shown again.")
+        elif action == "revoke_link":
+            if upload_module.revoke_link(self.server.settings_data,
+                                         (form.get("digest") or [""])[0]):
+                notice = "Upload link revoked."
+            else:
+                error_text = "that upload link is already gone"
+        else:
+            error_text = "unknown upload action"
+        self._send(200, upload_module.render_upload_page(
+            self.server.settings_data, form_token=self.server.form_token,
+            notice=notice, error=error_text, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _token_upload_page(self, token):
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        self._send(200, upload_module.render_token_page(),
+                   "text/html; charset=utf-8")
+
+    def _token_upload_submit(self, token):
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        fields, files, error = self._read_upload_body()
+        if error:
+            self._send(error[0], upload_module.render_token_page(error=error[1]),
+                       "text/html; charset=utf-8")
+            return
+        # Check the token again after the read: reading a large upload
+        # can take a while, and a link revoked in that window must not
+        # still deliver a file into the inbox. This re-check is only
+        # the early refusal — the guarantee is in save_upload_for_link,
+        # which makes the final validity decision and the write one
+        # atomic step against revocation.
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        if not files:
+            self._send(400, upload_module.render_token_page(
+                error="No file was attached."), "text/html; charset=utf-8")
+            return
+        saved, reason = upload_module.save_upload_for_link(
+            self.server.settings_data, token, files[0][0], files[0][1])
+        if saved is None and reason is None:
+            # Revoked after the re-check above but before the write;
+            # the atomic check-and-save refused the delivery.
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        if saved is None:
+            self._send(400, upload_module.render_token_page(error=reason),
+                       "text/html; charset=utf-8")
+            return
+        self._send(200, upload_module.render_token_page(
+            notice=f"{saved.name} is in the inbox. It will be picked up "
+                   "and confirmed there before anything prints."),
+            "text/html; charset=utf-8")
+
     def _config_preview(self):
         got = self._config_form()
         if got is None:
@@ -1659,21 +1898,54 @@ class _Handler(BaseHTTPRequestHandler):
             if general:
                 errors["_general"] = general
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
                 field_values, submitted=submitted, theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token, theme=self._theme()),
+            entries, submitted, form_token=self.server.form_token, theme=self._theme(),
+            warnings=self._preview_warnings(changes),
+            section=(form.get(pages.SECTION_FIELD) or [None])[0],
+            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
             "text/html; charset=utf-8")
+
+    def _request_is_https(self):
+        """Whether this request reached the Web UI over HTTPS. The server
+        itself speaks plain HTTP; HTTPS arrives through a reverse proxy,
+        which reports the original scheme as X-Forwarded-Proto."""
+        forwarded = self.headers.get("X-Forwarded-Proto") or ""
+        return forwarded.split(",")[0].strip().lower() == "https"
+
+    def _preview_warnings(self, changes):
+        """Plain-language warnings about a previewed change set. Turning
+        the Secure session cookie on over plain HTTP strands browser
+        sign-ins: browsers drop Secure cookies there, so the session
+        cookie never comes back and there is no UI way back in — the
+        preview is the place to say so before the save is confirmed."""
+        warnings = []
+        for field, value in changes.items():
+            if field.id == "webui.cookie_secure" and value and not self._request_is_https():
+                warnings.append(
+                    "The Secure session cookie is being turned on, but this "
+                    "request arrived over plain HTTP. Browsers drop Secure "
+                    "cookies on plain HTTP, so browser sign-ins will not "
+                    "stick once this takes effect. Turn it on only when the "
+                    "Web UI is reached over HTTPS, for example behind an "
+                    "HTTPS reverse proxy.")
+        return warnings
 
     def _config_save(self):
         got = self._config_form()
@@ -1690,12 +1962,15 @@ class _Handler(BaseHTTPRequestHandler):
         only = {part for part in named.split(",") if part} or None
         changes, submitted, errors = pages.parse_form(form, field_values, only=only)
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         try:
-            changed = config_api.write_changes(
+            changed, warnings = config_api.write_changes_reporting(
                 {field.id: value for field, value in changes.items()},
                 environ=self.server.webui_environ)
         except config_api.WebUIConfigError as exc:
@@ -1704,12 +1979,16 @@ class _Handler(BaseHTTPRequestHandler):
             errors = dict(field_errors)
             if general:
                 errors["_general"] = general
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
-        self._send(200, pages.render_result_page(changed, theme=self._theme()),
-                   "text/html; charset=utf-8")
+        self._send(200, pages.render_result_page(
+            changed, warnings=warnings,
+            theme=self._theme()), "text/html; charset=utf-8")
 
     def _debug_post(self):
         """POST /debug (#478): turn debug log mode on or off.
@@ -1800,7 +2079,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.access_stamp = _access_stamp(data)
     server.access_sync_lock = threading.Lock()
     server.bind_host = bind_host
-    server.setup_lock = threading.Lock()
+    # Web chat's service, built lazily under this lock on the first
+    # /chat request (see _Handler._chat_service).
+    server.chat_service = None
+    server.chat_service_lock = threading.Lock()
     # DNS-rebinding guard (see _Handler._host_refused): only an open
     # loopback bind relies on the form token alone, so only it checks Host.
     server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
@@ -1811,9 +2093,6 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
     # here, kept only in memory, never the access token.
     server.form_token = secrets.token_urlsafe(32)
-    # First-run setup's own CSRF token (#708): shown to unauthenticated
-    # visitors on /setup, so it is never the config form token above.
-    server.setup_token = secrets.token_urlsafe(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs these out; nothing about them is persisted.
     server.sessions = {}

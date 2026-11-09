@@ -59,8 +59,11 @@ KNOWN = (
     "setup_completion.json",
     "spoolman_known_spools.json",
     "start-recordings",
+    "starter_pings.json",
     "stops",
     "timelapse_plans",
+    "webui-inbox",
+    "webui_upload_links.json",
     "webui_walkthrough.json",
 )
 

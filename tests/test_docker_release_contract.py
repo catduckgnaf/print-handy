@@ -130,7 +130,9 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertEqual(services["cloudflared"]["profiles"], ["live-stream"])
         service = services["combined"]
         self.assertNotIn("command", service)
-        self.assertNotIn("ports", service)
+        # The one published port is the Web UI's, so a stock Compose
+        # first boot can reach it; nothing else is published.
+        self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertNotIn("depends_on", service)
         self.assertTrue(service["init"])
         self.assertEqual(service["healthcheck"]["test"], ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])

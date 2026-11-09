@@ -114,6 +114,9 @@ LEGACY_ENV = {
 KEY_ALIASES = {
     ("printer", "ifs_slots"): ("printer", "filament_slots"),
     ("webui", "secure_cookie"): ("webui", "cookie_secure"),
+    # #1095: the starter-mention setting outgrew its completion-only name
+    # when alert posts started pinging the starter too.
+    ("discord", "mention_starter_on_complete"): ("discord", "mention_starter"),
 }
 
 
@@ -157,6 +160,8 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("slicer", "flash_studio_path"): str,
                  ("webui", "enabled"): bool, ("webui", "host"): str,
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
+                 ("webui", "chat_llm_enabled"): bool,
+                 ("webui", "chat_enabled"): bool,
                  ("design", "enabled"): bool, ("design", "chat_url"): str,
                  ("design", "model"): str, ("design", "api_key_env"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
@@ -164,6 +169,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("agent", "api_key_env"): str, ("agent", "timeout_s"): int,
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
+                 ("timelapse", "data_enabled"): bool,
                  ("timelapse", "wrapped_ai_video"): bool,
                  ("timelapse", "wrapped_tts_engine"): str,
                  ("timelapse", "wrapped_music_file"): str,
@@ -183,7 +189,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
-                 ("discord", "mention_starter_on_complete"): bool,
+                 ("discord", "mention_starter"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
 # List settings that may also come from the environment, as a comma- or space-separated value
@@ -1213,14 +1219,17 @@ def _validate_matrix(data):
 def _validate_webui(data):
     """The [webui] section (#286). Absent in an older config means the defaults.
 
-    The Web UI is optional and off by default. ``port`` 0 means no port has
-    been chosen yet (the same convention as [bot] health_port); a later
-    stage's server only listens when enabled is true. The access token
-    itself is never a setting: access_token_env names the environment
-    variable holding it, the same indirection as [discord] token_env.
+    The Web UI is on by default: ``enabled`` defaults to true on every
+    install, bare-metal included. ``port`` 0 still means no port has
+    been chosen yet (the same convention as [bot] health_port), and
+    nothing listens until a port is chosen; ``host`` defaults to
+    127.0.0.1, so a default bare-metal install serves only its own
+    machine until the operator binds wider. The access token itself is
+    never a setting: access_token_env names the environment variable
+    holding it, the same indirection as [discord] token_env.
     """
     webui = data.setdefault("webui", {})
-    enabled = webui.setdefault("enabled", False)
+    enabled = webui.setdefault("enabled", True)
     if not isinstance(enabled, bool):
         raise SettingsError(f"[webui] enabled must be true or false, got {enabled!r}")
     host = str(webui.setdefault("host", "127.0.0.1") or "").strip()
@@ -1254,6 +1263,21 @@ def _validate_webui(data):
     cookie_secure = webui.setdefault("cookie_secure", False)
     if not isinstance(cookie_secure, bool):
         raise SettingsError(f"[webui] cookie_secure must be true or false, got {cookie_secure!r}")
+    # chat_llm_enabled: the web chat page's stray-chat model switch, the
+    # [discord] switch's twin. Off runs web chat as a pure bot — commands
+    # and handlers still run, no [llm]/[agent] lane is called for web
+    # chat text. On by default; a missing key means true.
+    chat_llm = webui.setdefault("chat_llm_enabled", True)
+    if not isinstance(chat_llm, bool):
+        raise SettingsError(f"[webui] chat_llm_enabled must be true or false, got {chat_llm!r}")
+    # chat_enabled: the web chat page's own switch (PR #1106 review).
+    # Off, /chat shows a disabled state and the web chat service
+    # processes no message and no button press. Distinct from
+    # chat_llm_enabled above, which only governs the stray-chat model
+    # lane. On by default; a missing key means true.
+    chat_page = webui.setdefault("chat_enabled", True)
+    if not isinstance(chat_page, bool):
+        raise SettingsError(f"[webui] chat_enabled must be true or false, got {chat_page!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")
@@ -1293,10 +1317,26 @@ def _validate_timelapse(data):
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
     for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
-                         ("wrapped_enabled", False), ("wrapped_ai_video", False)):
+                         ("wrapped_enabled", True), ("wrapped_ai_video", False)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
+    # The Data tab's own switch (settings restructure stage 5): while
+    # data_enabled is unset it follows wrapped_enabled, so an install
+    # that only ever set the one combined switch keeps its meaning; an
+    # explicit data_enabled pins the Data tab independently. The
+    # setdefault bakes the followed value into the loaded mapping,
+    # which is what the Web UI field shows; data_enabled_explicit
+    # records whether the operator actually set the key (the
+    # mode_explicit pattern), so a followed value is never mistaken
+    # for a pinned one: the Data gate keeps following wrapped_enabled
+    # while the flag is false, and a Web UI save that changes
+    # wrapped_enabled pins the shown data_enabled value explicitly.
+    if "data_enabled" in timelapse and not isinstance(timelapse["data_enabled"], bool):
+        raise SettingsError(
+            f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")
+    timelapse["data_enabled_explicit"] = "data_enabled" in timelapse
+    timelapse.setdefault("data_enabled", timelapse["wrapped_enabled"])
     # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
     # the default and keeps the video exactly as it was before narration
     # existed; "piper" is the local Piper binary under [paths]. There is
@@ -1804,14 +1844,17 @@ def _validate_bot(data):
     chat_llm_enabled = discord.setdefault("chat_llm_enabled", True)
     if not isinstance(chat_llm_enabled, bool):
         raise SettingsError(f"[discord] chat_llm_enabled must be true or false, got {chat_llm_enabled!r}")
-    # Mention the starter when a print ends: on by default, so a terminal
-    # post (complete / cancelled / error) on Discord @mentions only the user
-    # who started that print — the one person who needs the notification.
-    # False restores the previous behavior: terminal posts mention nobody.
-    # Prints with no recorded starter never mention anyone either way.
-    mention_starter = discord.setdefault("mention_starter_on_complete", True)
+    # Mention the starter when a print needs them: on by default, so a
+    # terminal post (complete / cancelled / error) and an alert post that
+    # needs a person (watchdog, error pause, runout) on Discord @mention
+    # only the user who started that print — the one person who needs the
+    # notification. False restores the previous behavior: no post mentions
+    # anyone. Prints with no recorded starter never mention anyone either
+    # way. The pre-#1095 spelling mention_starter_on_complete is a
+    # KEY_ALIASES alias and lands here under the current name.
+    mention_starter = discord.setdefault("mention_starter", True)
     if not isinstance(mention_starter, bool):
-        raise SettingsError(f"[discord] mention_starter_on_complete must be true or false, got {mention_starter!r}")
+        raise SettingsError(f"[discord] mention_starter must be true or false, got {mention_starter!r}")
     _validate_telegram(data)
     _validate_matrix(data)
     llm = data.setdefault("llm", {})
@@ -2149,8 +2192,8 @@ def unknown_settings():
     """The unknown settings the most recent load() ignored, as message strings.
 
     Each entry names its source and the setting, e.g.
-    "$PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: unknown setting
-    [discord] mention_starter_on_complete". Empty when the last load saw none.
+    "$PRINT_HANDY__DISCORD__MENTION_STARTER: unknown setting
+    [discord] mention_starter". Empty when the last load saw none.
     """
     return list(_unknown_settings)
 
