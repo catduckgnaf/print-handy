@@ -855,14 +855,32 @@ _CHAT_IDENTITY_KEYS = {
 }
 
 
+def _value_is_set(value) -> bool:
+    """Whether a stored settings value counts as set: a non-blank string,
+    a non-empty list, or any other truthy value."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(_value_is_set(item) for item in value)
+    return bool(value)
+
+
 def chat_platform_configured(data, platform) -> bool:
     """Whether a conditional chat platform counts as configured: it is
-    the selected bot platform, or one of its identity keys is set."""
+    the selected bot platform, one of its identity keys is set, or any
+    field in its group holds a value — a value stored without an
+    identity key (say, only allowed_user_ids pasted in) must not be
+    hidden from its owner behind the reveal row."""
     bot = (data or {}).get("bot") or {}
     if str(bot.get("platform") or "") == platform:
         return True
-    return any(str(((data or {}).get(section) or {}).get(key) or "").strip()
-               for section, key in _CHAT_IDENTITY_KEYS[platform])
+    data = data or {}
+    keys = list(_CHAT_IDENTITY_KEYS[platform])
+    for field_id in CONDITIONAL_CHAT_FIELDS[platform]:
+        section, _, key = field_id.partition(".")
+        keys.append((section, key))
+    return any(_value_is_set((data.get(section) or {}).get(key))
+               for section, key in keys)
 
 
 def unconfigured_chat_platforms(data):
