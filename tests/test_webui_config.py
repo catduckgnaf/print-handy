@@ -614,5 +614,92 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), before)
 
 
+class ClosedTableToleranceTests(unittest.TestCase):
+    """CFG-1: a closed-table violation a settings file already carries —
+    a credential-shaped unknown key, a non-optional [notify] key, the
+    retired [printer] family key — must not block an unrelated Web UI
+    save. The save proceeds, the key stays in the file untouched, and
+    the violation is recorded by name (never by value). A violation a
+    save introduces or modifies still fails closed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.local = Path(self.tmp.name) / "local.yaml"
+        from print_handy.webui import config as webui_config
+        self.config = webui_config
+        webui_config._last_write_warnings = []
+
+    def save_roast_off(self, environ=None):
+        return write_changes({"vision.roast_enabled": False},
+                             config_path=self.local, environ=environ or {})
+
+    def test_preexisting_credential_shaped_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        written = self.local.read_text()
+        self.assertIn("mqtt_password: hunter2", written)  # left untouched
+        self.assertIn("roast_enabled: false", written)
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        warning = settings.unknown_settings_warning() or ""
+        self.assertIn("[notify] mqtt_password", warning)
+        self.assertNotIn("hunter2", warning)  # the secret is never echoed
+
+    def test_preexisting_retired_printer_family_does_not_block_a_save(self):
+        self.local.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("family: klipper", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_preexisting_non_optional_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  some_future_key: 1\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("some_future_key: 1", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] some_future_key"])
+
+    def test_preexisting_violation_in_the_user_file_does_not_block_a_save(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        user = Path(self.tmp.name) / "user.yaml"
+        user.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off(environ={"PRINT_HANDY_USER_CONFIG": str(user)})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(user.read_text(), "printer:\n  family: klipper\n")
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_introduced_credential_shaped_key_still_fails_closed(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        candidate = {"vision": {"roast_enabled": False},
+                     "notify": {"mqtt_password": "hunter2"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "vision:\n  roast_enabled: true\n")
+
+    def test_modified_preexisting_violation_still_fails_closed(self):
+        self.local.write_text("notify:\n  mqtt_password: old\n")
+        candidate = {"notify": {"mqtt_password": "new"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "notify:\n  mqtt_password: old\n")
+
+    def test_ordinary_unknown_keys_still_warn_and_drop_not_tolerated(self):
+        # #1058's settled behavior is unchanged: an ordinary unknown key
+        # is not a violation at all — the save validates as before, the
+        # key is preserved in the written file, and nothing is recorded
+        # as tolerated.
+        self.local.write_text("vision:\n  future_knob: 3\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("future_knob: 3", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_clean_save_records_no_warnings(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
