@@ -2,7 +2,7 @@
 from tests.corpus.timing_gate import check, record
 
 BASE = {"tolerance": 0.25, "slack_s": 1.0,
-        "cases": {"single-part/hermes": {"wall_s": 4.0, "first_prompt_s": 2.0}}}
+        "cases": {"single-part/direct": {"wall_s": 4.0, "first_prompt_s": 2.0}}}
 
 
 def row(wall, prompt=2.0, result="PASS"):
@@ -35,7 +35,7 @@ def test_new_case_needs_a_baseline():
 
 def test_raise_without_reason_is_refused_and_reason_accepts_it():
     proposed = record([row(8.0)], BASE)
-    entry = proposed["cases"]["single-part/hermes"]
+    entry = proposed["cases"]["single-part/direct"]
     assert entry["raised_from"] == {"wall_s": 4.0, "first_prompt_s": 2.0}
     assert any("without a reason" in p for p in check([row(8.0)], proposed))
     entry["reason"] = "full mesh validation added, accepted"
@@ -69,7 +69,7 @@ def test_fit_check_budget_applies_to_cases_without_a_baseline_entry_and_survives
 
 def test_per_case_fit_check_baseline_uses_tolerance():
     base = {"tolerance": 0.25, "slack_s": 1.0,
-            "cases": {"single-part/hermes": {"wall_s": 4.0, "first_prompt_s": 2.0, "fit_check_s": 1.0}}}
+            "cases": {"single-part/direct": {"wall_s": 4.0, "first_prompt_s": 2.0, "fit_check_s": 1.0}}}
     assert check([fit_row(2.2)], base) == []  # 1 * 1.25 + 1 = 2.25
     assert any("fit_check_s" in p for p in check([fit_row(2.3)], base))
 
@@ -83,11 +83,11 @@ def test_fit_check_is_measured_from_the_real_intake_flow(tmp_path):
 
 
 def test_missing_fit_measurement_fails_for_required_case_only():
-    req = dict(BASE, fit_check_required=["single-part/hermes"])
+    req = dict(BASE, fit_check_required=["single-part/direct"])
     assert any("not measured" in p for p in check([row(4.0)], req))
     assert check([fit_row(0.5)], req) == []
     assert check([row(4.0)], BASE) == []  # not required: no measurement is fine
-    assert record([row(4.0)], req)["fit_check_required"] == ["single-part/hermes"]
+    assert record([row(4.0)], req)["fit_check_required"] == ["single-part/direct"]
     from tests.corpus.timing_gate import median_rows
     merged = median_rows([[fit_row(0.5)], [row(4.0)], [fit_row(0.6)]])
     assert any("not measured" in p for p in check(merged, req))
@@ -98,7 +98,7 @@ def test_missing_fit_measurement_fails_for_required_case_only():
 def test_default_limits_are_the_issue_ten_percent_with_absolute_slack():
     from tests.corpus.timing_gate import DEFAULT_SLACK_S, DEFAULT_TOLERANCE, limits
     assert (DEFAULT_TOLERANCE, DEFAULT_SLACK_S) == (0.10, 0.5)
-    bare = {"cases": {"single-part/hermes": {"wall_s": 10.0}}}
+    bare = {"cases": {"single-part/direct": {"wall_s": 10.0}}}
     assert limits(bare) == (0.10, 0.5)
     assert check([row(11.5)], bare) == []  # 10 * 1.10 + 0.5 = 11.5
     assert any("wall_s 11.60s > limit 11.50s" in p for p in check([row(11.6)], bare))
@@ -120,7 +120,7 @@ def test_checked_in_baselines_use_ten_percent():
 
 def test_a_newly_measured_metric_is_not_a_raise():
     proposed = record([fit_row(0.01)], BASE)  # BASE has no fit_check_s for this case
-    assert "raised_from" not in proposed["cases"]["single-part/hermes"]
+    assert "raised_from" not in proposed["cases"]["single-part/direct"]
 
 
 def test_record_stores_provenance_and_does_not_carry_the_old_one():
@@ -150,9 +150,9 @@ def test_warn_only_reports_but_exits_zero_and_summary_lists_each_case(tmp_path, 
     summary = tmp_path / "summary.md"
     assert main([*runs, "--baseline", str(base), "--warn-only", "--summary", str(summary), "--title", "T"]) == 0
     out = capsys.readouterr().out
-    assert "::warning title=Timing (reporting only)::single-part/hermes: wall_s 9.10s" in out
+    assert "::warning title=Timing (reporting only)::single-part/direct: wall_s 9.10s" in out
     text = summary.read_text()
-    assert text.startswith("### T") and "| single-part/hermes | PASS | wall_s | 9.10 | 4.00 | 6.00 | +12" in text and "% OVER |" in text
+    assert text.startswith("### T") and "| single-part/direct | PASS | wall_s | 9.10 | 4.00 | 6.00 | +12" in text and "% OVER |" in text
 
 
 def _ci_jobs():
@@ -232,4 +232,4 @@ def test_timing_variance_leave_one_out(tmp_path):
     assert timing_variance.leave_one_out(runs, 0.10, 1.0)[:2] == (2, 6)
     out = timing_variance.measure(runs, {"tolerance": 0.10, "slack_s": 1.0, "cases": {}}, "test")
     assert out["leave_one_out_at_baseline"]["failing_pairings"] == 2
-    assert out["spread"]["single-part/hermes wall_s"]["max"] == 9.0
+    assert out["spread"]["single-part/direct wall_s"]["max"] == 9.0
