@@ -609,7 +609,7 @@ CATALOG = (
     # The Web UI itself. access_token_env is deliberately not editable here:
     # no *_env key is in the catalog (see the module docstring).
     _field("webui", "enabled", "Web UI", "toggle",
-           "Optional Web UI switch; off by default, and nothing listens while disabled.",
+           "Web UI switch; on by default, and nothing listens while disabled or while no port is chosen.",
            validator="settings webui check"),
     _field("webui", "host", "Web UI host", "host",
            "Host the Web UI binds to when enabled; a plain IP address or hostname.",

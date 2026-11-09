@@ -54,9 +54,9 @@ step) serving:
   one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
   pause, or exclude control, and nothing here changes chat confirm.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
-  walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered
-  only to installs that resolved access through the setup page and
-  have not finished it; its steps write through the config path above.
+  walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
+  every install that has not finished it; its steps write through the
+  config path above, and its Login step is where a password is set.
 - ``GET /theme?set=dark|light&back=<path>`` — the header theme toggle
   (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
   and redirects back. A browser preference only, behind the same
@@ -75,14 +75,14 @@ same validated path; every other non-GET method or path is 405.
 The server starts only when ``[webui] enabled`` is true and ``port`` is
 above 0. Access control is decided by :mod:`print_handy.webui.access`:
 the access token in the environment variable ``[webui] access_token_env``
-names (default ``WEBUI_ACCESS_TOKEN``), or the password chosen on the
-first-run setup page (#708), is sent as the ``X-WebUI-Token`` header and
+names (default ``WEBUI_ACCESS_TOKEN``), or the password chosen in the
+walkthrough's Login step, is sent as the ``X-WebUI-Token`` header and
 compared in constant time. ``[webui] require_auth`` false keeps its
-meaning: no credential at all. A non-loopback bind with neither a token
-nor a saved setup choice starts in setup mode and serves only
-``/setup`` (and ``/healthz``) until the operator sets a password or
-affirmatively leaves it open. The token or password is never rendered,
-logged, or included in any response.
+meaning: no credential at all. A bind with neither a token nor a saved
+choice serves openly and is *unclaimed* — the walkthrough is offered
+from the first request, and a credential exists only once one is
+deliberately set (the #708 setup gate is reversed). The token or
+password is never rendered, logged, or included in any response.
 
 POSTs additionally accept the per-server form token the config pages
 embed (``pages.CSRF_FIELD``) instead of the header — that is how a
@@ -319,15 +319,15 @@ def access_token(data, environ=None):
 def check_start(data, environ=None):
     """Refuse a disabled or unconfigured start; return (host, port, token).
 
-    A non-loopback bind with no token and no saved setup choice no longer
-    refuses: it starts in first-run setup (:mod:`print_handy.webui.access`)
-    and serves nothing but the setup page until a choice is made (#708).
+    A bind with no token and no saved choice starts open and unclaimed
+    (:mod:`print_handy.webui.access`): the full Web UI serves from the
+    first request and the walkthrough is offered.
     """
     webui = data["webui"]
     if not webui["enabled"]:
         raise WebUIServerError(
             "webui: not started: [webui] enabled is false (the Web UI is "
-            "optional and off by default; set enabled = true and a port to run it)")
+            "on by default; this install turned it off — set enabled = true and a port to run it)")
     port = int(webui["port"] or 0)
     if port <= 0:
         raise WebUIServerError(
@@ -411,7 +411,8 @@ def _job_block(job):
 
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False, job=None, error=None, nav=None):
+                       walkthrough_pending=False, job=None, error=None, nav=None,
+                       unclaimed=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -515,6 +516,11 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
         banner = ('<div class="banner"><span>Finish setting up Print Handy — '
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
+    if unclaimed:
+        banner += ('<div class="banner"><span>No login is set for this Web UI — '
+                   'anyone who can reach it can use it. Set a login in the '
+                   'walkthrough, or leave it open on a network you trust.</span>'
+                   '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + f'<table class="rows">{main_rows}</table>'
@@ -545,9 +551,8 @@ class _Handler(BaseHTTPRequestHandler):
         still names the attacker's hostname in Host (and Origin), so only
         the loopback names and the bind address are accepted.
 
-        A LAN bind with no password (first-run setup, or the "leave it open"
-        choice) has the same exposure on any address, and #708 makes it the
-        container default. A rebinding site needs a public DNS name it
+        A LAN bind with no password (an unclaimed install, or the "leave
+        it open" choice) has the same exposure on any address. A rebinding site needs a public DNS name it
         controls, so there only names it cannot serve are accepted (an IP
         literal, a single-label name, a private-use suffix), and a write's
         Origin must be the same host, which also refuses cross-site posts.
@@ -575,8 +580,9 @@ class _Handler(BaseHTTPRequestHandler):
         if private_hostname(names[0]) and all(name == names[0] for name in names[1:]):
             return False
         self._send(403, "Forbidden: with no Web UI password this page answers only by IP "
-                        "address or a local host name. Set a password on the setup page to "
-                        "reach it through another name.", "text/plain; charset=utf-8")
+                        "address or a local host name. Set a password in the setup "
+                        "walkthrough's Login step to reach it through another name.",
+                   "text/plain; charset=utf-8")
         return True
 
     def _send(self, code, body, content_type, headers=()):
@@ -722,18 +728,6 @@ class _Handler(BaseHTTPRequestHandler):
                 code, body = healthz(self.server.settings_data)
                 self._json(code, body)
                 return
-            if self.server.access.setup_pending:
-                # First-run setup (#708): nothing but the setup page until
-                # the operator sets a password or chooses to leave it open.
-                if path == "/setup":
-                    self._send(200, pages.render_setup_page(self.server.setup_token,
-                                                            theme=self._theme()),
-                               "text/html; charset=utf-8")
-                elif self._browser_navigation(path):
-                    self._redirect("/setup")
-                else:
-                    self._setup_pending_json()
-                return
             if path == "/setup":
                 self._redirect("/")
                 return
@@ -768,6 +762,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, render_status_html(
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
+                    unclaimed=self.server.access.unclaimed,
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
                     if data_module.wrapped_enabled(self.server.settings_data) else None),
@@ -1292,8 +1287,8 @@ class _Handler(BaseHTTPRequestHandler):
         """Revoke every remembered session and delete its store file.
 
         Called only where the login rule itself was just set, changed or
-        removed (the setup submit and the walkthrough Login step, beside
-        their _rotate_form_token calls): a session minted under the old
+        removed (the walkthrough Login step, beside its
+        _rotate_form_token call): a session minted under the old
         credential must not outlive it. Ephemeral sessions are untouched
         — they die with the process, as before."""
         with _remember_lock(self.server):
@@ -1451,58 +1446,6 @@ class _Handler(BaseHTTPRequestHandler):
             in _REMEMBER_TRUTHY
         self._redirect("/", headers=[self._start_session(remember=remember)])
 
-    # -- first-run setup (#708) ---------------------------------------------
-    def _setup_pending_json(self):
-        self._json(503, {"ok": False,
-                         "reason": "first-run setup is not finished: open /setup in a "
-                                   "browser to set a Web UI password or leave it open"})
-
-    def _setup_submit(self):
-        """POST /setup: save a password or the affirmative open choice.
-
-        Needs the setup page's own token, so a cross-origin page cannot
-        answer setup for the operator. That token is separate from the
-        config form token and authorizes nothing else: the setup page is
-        served to anyone before setup, so its token must never open a
-        config or debug write once a password protects the Web UI. Only the first completed setup counts;
-        later posts (setup already done) just go to the status page.
-        """
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/setup")
-            return
-        provided = (form.get(pages.CSRF_FIELD) or [""])[0]
-        if not (provided and hmac.compare_digest(provided, self.server.setup_token)):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/setup")
-            return
-        data = self.server.settings_data
-        with self.server.setup_lock:
-            if not self.server.access.setup_pending:
-                self._redirect("/")
-                return
-            choice = (form.get(pages.SETUP_CHOICE_FIELD) or [""])[0]
-            try:
-                if choice == "password":
-                    access_module.save_password(
-                        data, (form.get(pages.SETUP_PASSWORD_FIELD) or [""])[0],
-                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0],
-                        username=(form.get(pages.SETUP_USER_FIELD) or [""])[0])
-                elif choice == "open":
-                    access_module.save_open(data, (form.get(pages.SETUP_OPEN_FIELD) or [""])[0] == "yes")
-                else:
-                    raise access_module.AccessError("Choose one of the two options.")
-            except access_module.AccessError as exc:
-                self._send(400, pages.render_setup_page(self.server.setup_token,
-                                                        error=str(exc), theme=self._theme()),
-                           "text/html; charset=utf-8")
-                return
-            self.server.access = access_module.resolve(data, self.server.bind_host,
-                                                       self.server.webui_environ)
-            self._rotate_form_token()
-            self._revoke_remembered_sessions()
-        # The person who just chose the password is signed in on this browser.
-        self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
-
     def _logout(self):
         # Ends only the caller's own session, so no form token is needed:
         # the worst a cross-origin post can do is sign the operator out.
@@ -1562,12 +1505,6 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             if self._host_refused(post=True):
-                return
-            if path == "/setup":
-                self._setup_submit()
-                return
-            if self.server.access.setup_pending:
-                self._setup_pending_json()
                 return
             if path == "/login":
                 self._login_submit()
@@ -1753,7 +1690,6 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
     server.bind_host = bind_host
-    server.setup_lock = threading.Lock()
     # DNS-rebinding guard (see _Handler._host_refused): only an open
     # loopback bind relies on the form token alone, so only it checks Host.
     server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
@@ -1764,9 +1700,6 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
     # here, kept only in memory, never the access token.
     server.form_token = secrets.token_urlsafe(32)
-    # First-run setup's own CSRF token (#708): shown to unauthenticated
-    # visitors on /setup, so it is never the config form token above.
-    server.setup_token = secrets.token_urlsafe(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs these out; nothing about them is persisted.
     server.sessions = {}

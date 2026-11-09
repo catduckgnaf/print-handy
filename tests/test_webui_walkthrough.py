@@ -384,12 +384,11 @@ class WalkthroughServerTests(unittest.TestCase):
             code, _, _ = self.login_step(port, retained)
             self.assertEqual(code, 403)
 
-    def test_login_step_inputs_are_optional_unlike_setup(self):
+    def test_login_step_inputs_are_optional(self):
         """#880 review (P2): the walkthrough documents leaving the login
         fields empty to keep the current login, and ticking the box to
         remove it — `required` inputs make the browser refuse both
-        before the form is ever sent. The standalone /setup form keeps
-        its required fields: a first-run choice must be complete."""
+        before the form is ever sent."""
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, _ = self.start(tmp, setup_done=True)
             walkthrough.save_state(data, {"step": 3})
@@ -401,11 +400,6 @@ class WalkthroughServerTests(unittest.TestCase):
                 tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', body)
                 self.assertIsNotNone(tag, name)
                 self.assertNotIn("required", tag.group(0), name)
-            setup_body = pages.render_setup_page("some-token")
-            for name in names:
-                tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', setup_body)
-                self.assertIsNotNone(tag, name)
-                self.assertIn("required", tag.group(0), name)
 
     def test_finish_on_review_marks_done_and_lifts_the_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -523,12 +517,13 @@ class ThemeTests(unittest.TestCase):
             self.assertEqual(headers["location"], "/")
             self.assertNotIn("x-injected", headers)
 
-    def test_theme_route_is_unreachable_before_setup(self):
+    def test_theme_route_is_reachable_while_unclaimed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            port = self.start(tmp)  # LAN bind, nothing chosen: setup mode
+            port = self.start(tmp)  # LAN bind, nothing chosen: open, unclaimed
             code, headers, _ = self.request(port, "GET", "/theme?set=light", headers=HTML)
-            self.assertEqual((code, headers["location"]), (303, "/setup"))
-            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 503)
+            self.assertEqual(code, 303)
+            self.assertNotEqual(headers["location"], "/setup")
+            self.assertEqual(self.request(port, "GET", "/theme?set=light")[0], 303)
 
     def test_theme_route_needs_auth_on_a_token_install(self):
         with tempfile.TemporaryDirectory() as tmp:
