@@ -61,12 +61,38 @@ def test_status_outranks_everything():
     assert _pool_names(c, "nonsense") == []
 
 
-def test_completed_order_is_title_then_context_then_generic():
+def test_completed_order_is_facts_then_title_then_generic():
+    # Fact banks (context, history, color) outrank the title reaction:
+    # title entries fill from the title alone, so a bare keyword match
+    # must not beat a line built from a real fact of the print.
     c = ctx("Benchy", duration_s=10 * 3600, grams=300, times=4, finish_hour=3)
-    assert _pool_names(c) == ["title:benchy", "overnight", "long_print", "heavy_filament",
-                              "repeat_print", "generic"]
+    assert _pool_names(c) == ["overnight", "long_print", "heavy_filament",
+                              "repeat_print", "title:benchy", "generic"]
     assert _pool_names(ctx("Widget", duration_s=600)) == ["short_print", "generic"]
     assert _pool_names(ctx("Widget")) == ["generic"]
+    # The title reaction still outranks generic when no fact pool applies.
+    assert _pool_names(ctx("Remote Holder")) == ["title:holder", "generic"]
+    assert _pool_names(ctx("Remote Holder", color="Black")) == [
+        "color:black", "title:holder", "generic"]
+
+
+def test_a_title_keyword_match_alone_never_beats_a_fact_line():
+    # "Remote Holder" matches the holder title pool, but with a known
+    # color every draw must come from the color bank, not the title pool.
+    corpus = roast.load_corpus()
+    c = ctx("Remote Holder", color="Black", material="PLA")
+    color_lines = {roast.render(t, c) for _id, t in corpus["color_roasts"]["black"]}
+    color_lines.discard(None)
+    assert color_lines
+    for seed in range(30):
+        line = roast.roast(c, rng=random.Random(seed))
+        assert line in color_lines, line
+    # With no facts at all, the same title still draws its reaction.
+    bare = ctx("Remote Holder")
+    title_lines = {roast.render(t, bare) for _id, t in corpus["title_reactions"]["holder"]}
+    title_lines.discard(None)
+    for seed in range(30):
+        assert roast.roast(bare, rng=random.Random(seed)) in title_lines
 
 
 def test_phase2_precedence_pools():
