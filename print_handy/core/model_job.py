@@ -5872,10 +5872,24 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         from .slice_failure import SliceFailure
         raise SliceFailure('slice request is for another slice recipe; the job changed after it was requested. '
                            'Nothing sliced', kind='recipe')
-    # A Bambu/Orca multi-plate project is not one PrusaSlicer bed. Its aggregate
-    # dimensions and center are not meaningful for an individual printable plate.
     if src.suffix.lower() == ".3mf":
         with zipfile.ZipFile(src) as archive:
+            # Thumbnail-less multi-plate archives are rejected before inventory
+            # parses object/component references, preserving the safety contract.
+            has_plate_metadata = False
+            if "Metadata/model_settings.config" in archive.namelist():
+                try:
+                    plate_settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
+                    plate_ids = [metadata.get("value")
+                                 for plate in plate_settings.iter("plate")
+                                 for metadata in plate.iter("metadata")
+                                 if metadata.get("key") == "plater_id"]
+                    has_plate_metadata = len(set(plate_ids)) > 1
+                except ET.ParseError:
+                    pass
+            if has_plate_metadata and not any(re.fullmatch(r"Metadata/plate_\\d+\\.png", name)
+                                               for name in archive.namelist()):
+                raise RuntimeError("multi-plate 3MF source has no plate thumbnails; no slicing attempted")
             actual_plates = {int(match.group(1)) for name in archive.namelist()
                              if (match := re.fullmatch(r"Metadata/plate_(\d+)\.(?:png|gcode)", name))}
             has_slicer_plate_metadata = False
