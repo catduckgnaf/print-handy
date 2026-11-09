@@ -643,7 +643,9 @@ def format_slice_summary(job, now=None):
                 details.append('designer intent unknown for some settings')
             if unresolved:
                 details.append(f'{len(unresolved)} designer setting conflict(s) resolved by destination profile')
-            lines.append('Conversion: ' + '; '.join(details))
+            artifact = conversion.get('artifact')
+            suffix = f' (full record: {artifact})' if artifact else ''
+            lines.append('Conversion: ' + '; '.join(details) + suffix)
     if job.get('derived_plates'):
         conversion_rows = [row.get('provenance', {}).get('conversion_provenance', {})
                            for row in job['derived_plates'] if isinstance(row.get('provenance'), dict)]
@@ -657,7 +659,9 @@ def format_slice_summary(job, now=None):
                 details.append('designer intent unknown for some settings')
             if conflicts:
                 details.append(f'{conflicts} designer setting conflict(s) resolved by destination profile')
-            lines.append('Conversion: ' + '; '.join(details))
+            artifacts = {row.get('artifact') for row in conversion_rows if row.get('artifact')}
+            suffix = f' (full record: {sorted(artifacts)[0]})' if artifacts else ''
+            lines.append('Conversion: ' + '; '.join(details) + suffix)
     total = 0
     total_filament = 0.0
     filament_known = True

@@ -1938,6 +1938,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             command[-1:-1] = ['--scale', str(scale)]
     sanitized = {}
     rewritten = {}  # what adopt_job_settings changed on the private 3MF copy
+    # Which registry decision points this slice actually reaches, for the
+    # conversion provenance's governing rules (Phase A of #1110): flags are
+    # set where each decision runs, never inferred after the fact.
+    _project_copy_converted = False
+    _range_clamped = False
+    _bambu_widths_converted = False
     # Keep the untouched base templates for protected-setting comparison; gate the
     # final effective configs immediately before invoking Orca.
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
@@ -2015,6 +2021,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # Then the copy takes the job's own machine, process and filament values (#868): a derived
         # plate is a byte copy of a foreign project, and its settings must not reach Orca.
         rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
+        _project_copy_converted = True
     # Never accept stale output if a failed slicer leaves the preceding artifact behind.
     output.unlink(missing_ok=True)
     primary = slicer_choice(printer)
@@ -2053,6 +2060,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             # Already-normalized sentinels are not rewritten by this path.
             fixed = clamp_rejected_settings(input_path, result.stdout + result.stderr)
             if fixed:
+                _range_clamped = True
                 sanitized.update(fixed)
                 result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
                 (folder / 'orca.log').write_text(result.stdout + result.stderr)
@@ -2173,6 +2181,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 nozzle_values = machine['nozzle_diameter']
                 nozzle_diameter = float(nozzle_values[0] if isinstance(nozzle_values, list) else nozzle_values)
                 bambu_profile = convert_percent_line_widths(bambu_profile, nozzle_diameter)
+                _bambu_widths_converted = True
             except (KeyError, TypeError, ValueError, IndexError) as exc:
                 raise RuntimeError(
                     f'cannot convert Orca percentage line widths for Bambu fallback: {exc}'
@@ -2298,10 +2307,58 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Provenance is a record about the slice, never a reason to lose it:
     # malformed or unexpected project data must not fail a finished slice.
     try:
+        _source_family, _source_slicer_version, _source_format = author_settings.source_identity(source)
+        _candidates = set()
+        if _source_format != 'unknown':
+            # The carry and the process assembly run for every project source.
+            _candidates.update(('author-intent-allowlist', 'orca-enum-fallback',
+                                'designer-lowered-speed-carry', 'gap-fill-default'))
+        if _source_family == 'prusaslicer':
+            # read() translates a PrusaSlicer project through each of these.
+            _candidates.update(('prusa-key-translation', 'prusa-value-translation',
+                                'prusa-support-threshold-zero-drop', 'prusa-ironing-translation',
+                                'prusa-support-style-translation', 'prusa-wall-sequence-translation'))
+        if _project_copy_converted:
+            _candidates.update(('imported-auto-sentinel-normalization', 'imported-template-override',
+                                'settings-id-validation', 'wipe-tower-bed-clamp',
+                                'foreign-machine-key-removal', 'bed-type-replacement',
+                                'preset-bookkeeping-clearing', 'override-restriction'))
+            if _source_family == 'prusaslicer':
+                _candidates.add('prusa-plate-adoption-seeding')
+        if geometry.get('thin_feature_profile'):
+            _candidates.add('arachne-flex-profile')
+        if any('Tree Hybrid' in note for note in author_notes):
+            _candidates.add('organic-tree-hybrid-conversion')
+        if any('painted support' in note for note in author_notes):
+            _candidates.add('painted-supports-enable-generation')
+        if _range_clamped:
+            _candidates.add('orca-range-error-clamp')
+        if _bambu_widths_converted:
+            _candidates.add('orca-percent-line-width-to-bambu-mm')
+        _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
+                               'Flash Studio': 'flash_studio'}.get(slicer)
+        _destination_slicer_version = sg.slicer_version(generator)
+        _governing_rules = author_settings.governing_rule_ids(
+            _candidates, _source_family, _source_slicer_version,
+            _destination_family, _destination_slicer_version)
         _conversion_provenance = author_settings.conversion_provenance(
-            source, destination_process, process, author, author_notes)
+            source, destination_process, process, author, author_notes,
+            destination_slicer_version=_destination_slicer_version,
+            destination_profile=author_settings.destination_profile_identity(
+                destination_process, templates),
+            governing_rules=_governing_rules)
     except Exception:
         _conversion_provenance = None
+    if _conversion_provenance is not None:
+        # The record is its own authoritative job artifact, written beside the
+        # slice output it describes; JOB.json keeps the same record embedded
+        # and names the artifact. A failed write never loses the slice.
+        try:
+            artifact_path = folder / author_settings.PROVENANCE_ARTIFACT
+            _conversion_provenance['artifact'] = author_settings.PROVENANCE_ARTIFACT
+            artifact_path.write_text(json.dumps(_conversion_provenance, indent=2) + '\n')
+        except (OSError, ValueError):
+            _conversion_provenance.pop('artifact', None)
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
                     # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
                     # subprocess time; python_s is everything else slice_model did (profile

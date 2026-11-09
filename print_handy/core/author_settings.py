@@ -121,8 +121,86 @@ def _source_preset_settings(source, raw):
     return {}
 
 
-def conversion_provenance(source, target, process, author_process, author_notes):
-    """Build a per-slice record without guessing intent when source preset evidence is absent."""
+PROVENANCE_ARTIFACT = 'conversion_provenance.json'
+
+_FAMILY_BY_FORMAT = {'orca_project': 'orca', 'prusaslicer_project': 'prusaslicer'}
+
+
+def source_identity(source):
+    """(slicer family, slicer version, format) a source records about itself.
+
+    Family is the registry's family name ('orca', 'prusaslicer') or None when
+    the source carries no slicer project at all (an STL, a core 3MF).
+    """
+    raw = _read_raw_project(source)
+    return _FAMILY_BY_FORMAT.get(raw['format']), raw['source_version'], raw['format']
+
+
+def destination_profile_identity(template, templates_dir=None):
+    """{'name', 'version'}: the destination process template's own identity.
+
+    The version is the template's version identity, from the first real source
+    that carries one: the template's own `version` when it has one, else the
+    vendor version recorded in the template folder's SOURCE.json when the
+    templates were generated from a vendor's profiles, else the template's
+    Orca `setting_id` (the preset identity Orca itself writes), else its name.
+    Nothing is invented: every template carries at least a name.
+    """
+    template = template if isinstance(template, dict) else {}
+    version = template.get('version')
+    if not version and templates_dir is not None:
+        try:
+            source_record = json.loads((Path(templates_dir) / 'SOURCE.json').read_text())
+            version = source_record.get('vendor_version') if isinstance(source_record, dict) else None
+        except (OSError, ValueError):
+            version = None
+    if not version:
+        version = template.get('setting_id') or template.get('name')
+    return {'name': template.get('name'), 'version': version}
+
+
+def governing_rule_ids(candidates, source_family, source_version,
+                       destination_family, destination_version):
+    """The registry ids, in registry order, that governed a conversion.
+
+    `candidates` names the rules whose decision points the conversion actually
+    reached (the caller knows its own path); a candidate is recorded only when
+    the registry's own applicability check accepts it for the recorded
+    source/destination pair. A rule whose destination family is not the
+    producing slicer's family (a conversion to Orca profiles whose output a
+    fallback slicer then wrote) is checked on its source side only: its
+    decision governed the profile conversion either way.
+    """
+    wanted = set(candidates or ())
+    out = []
+    for rule in compat_registry.RULES:
+        if rule.id not in wanted:
+            continue
+        if source_family is not None and rule.source_family not in ('any', source_family):
+            continue
+        if not compat_registry.applies(rule.source_versions, source_version):
+            continue
+        if destination_family is not None and rule.destination_family in ('any', destination_family):
+            if not compat_registry.applies(rule.destination_versions, destination_version):
+                continue
+        out.append(rule.id)
+    return out
+
+
+def conversion_provenance(source, target, process, author_process, author_notes, *,
+                          destination_slicer_version=None, destination_profile=None,
+                          governing_rules=()):
+    """Build a per-slice record without guessing intent when source preset evidence is absent.
+
+    Version fields record only what a real source states: the source slicer
+    and profile versions come from the source 3MF's own project and embedded
+    preset evidence; the destination slicer version is the producing slicer's
+    own identity (read from its output by the adapter) and the destination
+    profile is the template actually applied (see destination_profile_identity).
+    A source that records no profile version keeps the field null and says so
+    in source_profile_version_status — a fact about the source, distinct from
+    a field nobody wired.
+    """
     raw = _read_raw_project(source)
     source_settings = raw['settings']
     target_settings = target if isinstance(target, dict) else {}
@@ -171,9 +249,24 @@ def conversion_provenance(source, target, process, author_process, author_notes)
     # selected value actually differs from the destination template.
     entries = {key: row for key, row in entries.items()
                if key in author_process or row['selected_value'] != row['target_value']}
+    source_profile_version = source_preset.get('version') or None
+    if source_profile_version:
+        source_profile_status = 'recorded'
+    elif raw['format'] != 'unknown':
+        source_profile_status = 'not_recorded_by_source'
+    else:
+        source_profile_status = 'not_applicable'
+    profile = destination_profile if isinstance(destination_profile, dict) else {}
     return {'schema_version': 1, 'source_format': raw['format'],
-            'source_slicer_version': raw['source_version'], 'destination_slicer_version': None,
-            'source_profile_version': None, 'destination_profile_version': None,
+            'source_slicer_version': raw['source_version'],
+            'destination_slicer_version': destination_slicer_version,
+            'source_profile_version': source_profile_version,
+            'source_profile_name': source_preset.get('name'),
+            'source_profile_version_status': source_profile_status,
+            'destination_profile_version': profile.get('version'),
+            'destination_profile_name': profile.get('name'),
+            'registry_version': compat_registry.REGISTRY_VERSION,
+            'governing_rules': list(governing_rules or ()),
             'intent_status': 'known' if explicit else 'unknown',
             'settings': entries, 'unresolved_conflicts': conflicts,
             'conversion_notes': list(author_notes or [])}

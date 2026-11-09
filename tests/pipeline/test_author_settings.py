@@ -386,6 +386,103 @@ def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
     assert "intent unknown" not in entry["reason"]
 
 
+def test_conversion_provenance_records_source_profile_version_from_embedded_preset(tmp_path):
+    # The embedded preset record (filament_sequence.json's print preset) is the
+    # source 3MF's own evidence for its profile identity: name and version are
+    # recorded from it, never inferred from the project values.
+    source = tmp_path / "preset-version.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": [""]},
+                  extra={"Metadata/filament_sequence.json": json.dumps(
+                      {"print": [{"setting": {"wall_loops": "4", "name": "0.20mm Standard @BBL X1C",
+                                              "version": "1.4.2"}}]}).encode()})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_profile_version"] == "1.4.2"
+    assert result["source_profile_name"] == "0.20mm Standard @BBL X1C"
+    assert result["source_profile_version_status"] == "recorded"
+
+
+def test_conversion_provenance_marks_source_profile_version_not_recorded(tmp_path):
+    # A project whose own evidence carries no preset version: the field stays
+    # null, but the status names that as a recorded fact about the source
+    # ("not recorded by the source"), not as an unwired placeholder.
+    source = tmp_path / "no-preset-version.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "4"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [])
+    assert result["source_profile_version"] is None
+    assert result["source_profile_version_status"] == "not_recorded_by_source"
+
+
+def test_conversion_provenance_records_destination_identity_and_governing_rules(tmp_path):
+    source = tmp_path / "destination.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [],
+        destination_slicer_version="2.5.0",
+        destination_profile={"name": "0.20mm Standard @FF AD5X", "version": "3ei5QadUbDuTI3hi"},
+        governing_rules=["author-intent-allowlist", "orca-enum-fallback"])
+    assert result["destination_slicer_version"] == "2.5.0"
+    assert result["destination_profile_version"] == "3ei5QadUbDuTI3hi"
+    assert result["destination_profile_name"] == "0.20mm Standard @FF AD5X"
+    assert result["governing_rules"] == ["author-intent-allowlist", "orca-enum-fallback"]
+    assert result["registry_version"] == 1
+
+
+def test_destination_profile_identity_prefers_real_versions_over_setting_id(tmp_path):
+    template = {"name": "0.20mm Standard @FF AD5X", "setting_id": "abc123"}
+    # A template carrying its own version wins.
+    assert author_settings.destination_profile_identity(
+        {**template, "version": "7.1"}, tmp_path) == {"name": template["name"], "version": "7.1"}
+    # A generated template folder records the vendor version beside the templates.
+    (tmp_path / "SOURCE.json").write_text(json.dumps({"vendor_version": "02.08.00.15"}))
+    assert author_settings.destination_profile_identity(
+        template, tmp_path)["version"] == "02.08.00.15"
+    # A shipped template with neither carries its Orca setting_id as its identity.
+    assert author_settings.destination_profile_identity(
+        template, tmp_path / "missing") == {"name": template["name"], "version": "abc123"}
+
+
+def test_slice_provenance_records_real_destination_versions_rules_and_artifact(tmp_path):
+    # End to end over the production slice path: the fake slicer identifies
+    # itself as OrcaSlicer 2.4.2 in its G-code, and that identity — the one
+    # the adapter itself verifies — is the recorded destination slicer version.
+    source = tmp_path / "carried.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source)
+    record = provenance["conversion_provenance"]
+    assert record["destination_slicer_version"] == "2.4.2"
+    assert record["destination_profile_name"] == TEMPLATE["name"]
+    assert record["destination_profile_version"] == TEMPLATE["setting_id"]
+    assert record["source_profile_version"] is None
+    assert record["source_profile_version_status"] == "not_recorded_by_source"
+    for rule_id in ("author-intent-allowlist", "orca-enum-fallback",
+                    "designer-lowered-speed-carry", "gap-fill-default"):
+        assert rule_id in record["governing_rules"]
+    assert "prusa-key-translation" not in record["governing_rules"]
+    # The record is its own authoritative artifact beside the slice output,
+    # with content equal to the record JOB.json embeds.
+    artifact = tmp_path / "out" / record["artifact"]
+    assert record["artifact"] == "conversion_provenance.json"
+    assert json.loads(artifact.read_text()) == record
+
+
+def test_slice_provenance_records_prusa_rules_and_source_version_for_a_prusa_project(tmp_path):
+    _process, provenance = sliced_process(tmp_path, prusa_project(tmp_path / "prusa.3mf"))
+    record = provenance["conversion_provenance"]
+    assert record["destination_slicer_version"] == "2.4.2"
+    assert record["destination_profile_version"] is not None
+    for rule_id in ("prusa-key-translation", "prusa-value-translation",
+                    "prusa-ironing-translation", "author-intent-allowlist"):
+        assert rule_id in record["governing_rules"]
+    # A PrusaSlicer project records no Orca preset version; that is the
+    # source's own truth, named by the status, not a missing wire.
+    assert record["source_profile_version"] is None
+    assert record["source_profile_version_status"] == "not_recorded_by_source"
+
+
 def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
     source = tmp_path / "unchanged.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],

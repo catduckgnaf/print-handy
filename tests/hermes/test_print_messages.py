@@ -757,6 +757,30 @@ def test_slice_summary_reports_only_consequential_conversion_provenance(job):
     assert 'project_value' not in text
 
 
+def test_slice_summary_references_provenance_artifact_and_stays_concise(job):
+    # A large provenance record (many settings, many conflicts) still yields
+    # one short Conversion line: counts plus the artifact's name, never the
+    # record's keys or values.
+    job.data['provenance'] = {'conversion_provenance': {
+        'intent_status': 'unknown',
+        'artifact': 'conversion_provenance.json',
+        'unresolved_conflicts': [{'key': f'setting_{n}', 'source_value': 'x' * 40,
+                                  'target_value': 'y' * 40, 'selected_value': 'z' * 40}
+                                 for n in range(30)],
+        'settings': {f'setting_{n}': {'project_value': 'x' * 40, 'source_preset_value': 'p' * 40,
+                                      'target_value': 'y' * 40, 'selected_value': 'z' * 40,
+                                      'origin': 'designer', 'reason': 'r' * 80}
+                     for n in range(30)},
+    }}
+    text = summary.format_slice_summary(job.data)
+    conversion_lines = [line for line in text.splitlines() if line.startswith('Conversion:')]
+    assert len(conversion_lines) == 1
+    assert 'conversion_provenance.json' in conversion_lines[0]
+    assert '30 designer setting conflict(s)' in conversion_lines[0]
+    assert len(conversion_lines[0]) < 220
+    assert 'setting_0' not in text and 'x' * 40 not in text
+
+
 def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
     job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
     assert 'Conversion:' not in summary.format_slice_summary(job.data)
