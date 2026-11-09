@@ -984,3 +984,15 @@ def test_history_facts_flow_into_roast_generation(monkeypatch, tmp_path):
     assert captured.get("prev_fails") == "3"
     assert captured.get("fail_streak") == "2"
     assert captured.get("color_streak") == "4"
+
+
+def test_slice_summary_stays_quiet_about_intent_for_a_plain_source(job):
+    # A plain STL has no designer project to have intent about; the summary
+    # must not announce unknown intent for it (only foreign projects report).
+    job.data['provenance'] = {'conversion_provenance': {
+        'source_format': 'unknown',
+        'intent_status': 'unknown',
+        'unresolved_conflicts': [],
+        'settings': {},
+    }}
+    assert 'Conversion:' not in summary.format_slice_summary(job.data)

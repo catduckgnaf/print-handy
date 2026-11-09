@@ -334,3 +334,67 @@ def test_slice_model_clamps_with_the_job_tower_width(tmp_path):
     with patch.object(orca_adapter.subprocess, "run", side_effect=run):
         orca_adapter.slice_model(source, tmp_path / "out", state, preserve_layout=True)
     assert float(seen["wipe_tower_x"][0]) == pytest.approx(220 - width)
+
+
+
+def test_slice_model_provenance_targets_the_destination_template(tmp_path):
+    # Regression (five review waves): the adapter passed the final process
+    # mapping as BOTH target and process, so target_value recorded the
+    # selected value and conflicts with the destination template vanished.
+    source = tmp_path / "carried.3mf"
+    bambu_project(source, {"wall_loops": "4",
+                           "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source)
+    entry = provenance["conversion_provenance"]["settings"]["wall_loops"]
+    assert entry["target_value"] != "4"  # the author's value is not the target
+    assert entry["target_value"] == entry["selected_value"] or entry["target_value"]
+    conflicts = provenance["conversion_provenance"]["unresolved_conflicts"]
+    assert any(row["key"] == "wall_loops" and row["target_value"] == entry["target_value"]
+               for row in conflicts)
+
+
+def test_conversion_provenance_empty_changed_list_is_unknown_intent(tmp_path):
+    # different_settings_to_system present but EMPTY names no deliberate key;
+    # intent stays unknown (the docs have always said "unknown otherwise").
+    source = tmp_path / "empty-changed.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["intent_status"] == "unknown"
+
+
+def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
+    # A present changed list proves the LISTED keys deliberate; an unlisted key
+    # with no preset evidence is unknown, not "inherited", and its reason agrees.
+    source = tmp_path / "unlisted.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "sparse_infill_density": "25%",
+                             "different_settings_to_system": ["wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_density": "15%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"}, [])
+    entry = result["settings"]["sparse_infill_density"]
+    # The changed list is complete by definition: an unlisted key equals the
+    # source preset, so it is inherited — and the reason must say exactly
+    # that, never "intent unknown" on an inherited row.
+    assert entry["origin"] == "inherited"
+    assert "different_settings_to_system" in entry["reason"]
+    assert "intent unknown" not in entry["reason"]
+
+
+def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
+    source = tmp_path / "unchanged.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source,
+        {"wall_loops": "3", "brim_width": "5", "skirt_loops": "1"},
+        {"wall_loops": "3", "brim_width": "5", "skirt_loops": "1"},
+        {"wall_loops": "3"}, [])
+    # wall_loops was carried by the author: kept. brim_width / skirt_loops are
+    # template values identical in target and selected, never carried: dropped.
+    assert set(result["settings"]) == {"wall_loops"}

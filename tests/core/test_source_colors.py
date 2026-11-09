@@ -142,3 +142,30 @@ class MakerWorldProfileTests(unittest.TestCase):
         self.assertEqual(out["recommended_profile"]["printer"], "A1 mini")
         self.assertEqual(out["recommended_profile"]["bed_fit"], "fits")
         self.assertEqual(len(out["bambu_profiles"]), 2)
+
+
+class MalformedUsageAmountTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_non_numeric_used_g_marks_the_plate_unknown_not_absent(self):
+        # A usage CLAIM with a malformed amount must mark the plate unknown so
+        # the gate fails closed; it must not abandon parsing and make the
+        # archive look like it never claimed usage at all.
+        path = self.dir / "malformed.3mf"
+        xml = """<config><plate><metadata key="index" value="4"/>
+        <filament id="1" used_g="lots" used_m="1"/></plate></config>"""
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("Metadata/slice_info.config", xml)
+        manifest = {}
+        sc._append_filament_stats(path, manifest)
+        plate = manifest["filament_stats"]["plates"]["4"]
+        self.assertFalse(plate["usage_known"])
+        self.assertEqual(plate["usage_unknown_reason"],
+                         "invalid or unmapped source filament usage record")
+        with self.assertRaisesRegex(RuntimeError, 'plate 4'):
+            sc.validate_plate_usage_if_present(manifest)

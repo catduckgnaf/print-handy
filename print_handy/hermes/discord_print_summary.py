@@ -631,7 +631,12 @@ def format_slice_summary(job, now=None):
     conversion = provenance.get('conversion_provenance') if isinstance(provenance, dict) else None
     if isinstance(conversion, dict):
         unresolved = conversion.get('unresolved_conflicts') or []
-        unknown = conversion.get('intent_status') == 'unknown'
+        # Unknown intent is only worth a line for a foreign project; a plain
+        # STL (source_format 'unknown') has no designer settings whose intent
+        # could be unknown. Records without a format predate the field and
+        # were all written for projects, so they still report.
+        unknown = (conversion.get('intent_status') == 'unknown'
+                   and conversion.get('source_format') != 'unknown')
         if unresolved or unknown:
             details = []
             if unknown:
@@ -642,7 +647,9 @@ def format_slice_summary(job, now=None):
     if job.get('derived_plates'):
         conversion_rows = [row.get('provenance', {}).get('conversion_provenance', {})
                            for row in job['derived_plates'] if isinstance(row.get('provenance'), dict)]
-        unknown = any(row.get('intent_status') == 'unknown' for row in conversion_rows)
+        unknown = any(row.get('intent_status') == 'unknown'
+                      and row.get('source_format') != 'unknown'
+                      for row in conversion_rows)
         conflicts = sum(len(row.get('unresolved_conflicts') or []) for row in conversion_rows)
         if unknown or conflicts:
             details = []

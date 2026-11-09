@@ -1,4 +1,4 @@
-# Issue #1110: Current 3MF export preservation boundary
+# 3MF remap inventory: current export preservation boundary
 
 This is an implementation inventory, not evidence that every reference is remapped. The existing `export_color_geometry` and `export_single_color_plate` functions build reduced output packages rather than rewriting an arbitrary source archive.
 

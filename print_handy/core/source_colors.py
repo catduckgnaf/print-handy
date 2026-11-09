@@ -624,6 +624,7 @@ def require_plate_usage_known(manifest, selected_plate_ids=None):
 
 def _append_filament_stats(path, manifest):
     path = Path(path)
+    has_slice_usage = False
     stats = {'total_g': 0.0, 'total_m': 0.0, 'extruders': {}}
     if path.suffix.lower() == '.3mf':
         try:
@@ -657,9 +658,9 @@ def _append_filament_stats(path, manifest):
                         plate_stats = {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
                                        'usage_known': True, 'usage_unknown_reason': None}
                         for fil in plate.findall('.//filament'):
-                            g = float(fil.get('used_g', 0))
-                            m = float(fil.get('used_m', 0))
                             try:
+                                g = float(fil.get('used_g', 0))
+                                m = float(fil.get('used_m', 0))
                                 ext_id = int(fil.get('id'))
                                 if (ext_id < 1 or not math.isfinite(g) or not math.isfinite(m)
                                         or g < 0 or m < 0 or (expected_filaments and ext_id not in expected_filaments)):
@@ -707,7 +708,7 @@ def _append_filament_stats(path, manifest):
             pass
     stats['total_g'] = round(stats['total_g'], 1)
     stats['total_m'] = round(stats['total_m'], 1)
-    if path.suffix.lower() == '.3mf' and not locals().get('has_slice_usage', False):
+    if path.suffix.lower() == '.3mf' and not has_slice_usage:
         stats['plates'] = {'unknown': {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
                                        'usage_known': False,
                                        'usage_unknown_reason': 'source has no slicer usage metadata'}}

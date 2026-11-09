@@ -191,6 +191,8 @@ def conversion_provenance(source, target, process, author_process, author_notes)
         origin = ('designer' if deliberate is True else 'inherited' if deliberate is False else 'unknown')
         reason = ('different_settings_to_system' if deliberate is True and explicit is not None else
                   'project value matches exact source preset' if deliberate is False and key in source_preset else
+                  'not in different_settings_to_system; inherited from the source preset'
+                  if deliberate is False and explicit is not None else
                   'project differs from exact source preset' if deliberate is True else
                   'exact source preset comparison unavailable; intent unknown')
         entries[key] = {'source_preset_value': preset_value, 'project_value': source_value,
@@ -199,10 +201,14 @@ def conversion_provenance(source, target, process, author_process, author_notes)
         if deliberate is True and source_value is not None and target_value is not None and source_value != target_value:
             conflicts.append({'key': key, 'source_value': source_value,
                               'target_value': target_value, 'selected_value': selected})
+    # JOB.json economy: keep only settings the author carried or whose
+    # selected value actually differs from the destination template.
+    entries = {key: row for key, row in entries.items()
+               if key in author_process or row['selected_value'] != row['target_value']}
     return {'schema_version': 1, 'source_format': raw['format'],
             'source_slicer_version': raw['source_version'], 'destination_slicer_version': None,
             'source_profile_version': None, 'destination_profile_version': None,
-            'intent_status': 'known' if explicit is not None else 'unknown',
+            'intent_status': 'known' if explicit else 'unknown',
             'settings': entries, 'unresolved_conflicts': conflicts,
             'conversion_notes': list(author_notes or [])}
 

@@ -1947,6 +1947,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
                     **json.loads((templates / 'process.json').read_text()),
                     **json.loads(Path(filament_template).read_text())}
+    # The destination process template before any author overlay: conversion
+    # provenance compares carried author values against THIS, never against
+    # the final selected process (which would make target == selected).
+    destination_process = json.loads((templates / 'process.json').read_text())
     effective_profile = {**machine, **process, **filament}
     placed_bounds = geometry.get('placed_bounds_mm')
     if placed_bounds and len(placed_bounds) >= 2:
@@ -2296,6 +2300,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
         aliases=machine_identity(templates))
     _slicer_s = sum(_slicer_runs)
+    # Provenance is a record about the slice, never a reason to lose it:
+    # malformed or unexpected project data must not fail a finished slice.
+    try:
+        _conversion_provenance = author_settings.conversion_provenance(
+            source, destination_process, process, author, author_notes)
+    except Exception:
+        _conversion_provenance = None
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
                     # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
                     # subprocess time; python_s is everything else slice_model did (profile
@@ -2317,8 +2328,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # What the author's values became (#868): lowered speeds kept, enum fallbacks, painted
                     # supports, Tree Hybrid; and which project keys the private 3MF copy took from the job.
                     'author_notes': author_notes,
-                    'conversion_provenance': author_settings.conversion_provenance(
-                        source, process, process, author, author_notes),
+                    'conversion_provenance': _conversion_provenance,
                     'project_settings_rewritten': sorted(rewritten),
                     'source_profile_warnings': profile_warnings,
                     # Orca's own non-fatal findings (floating cantilever ...), read on success too.
