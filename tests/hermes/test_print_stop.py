@@ -167,7 +167,7 @@ def test_stop_command_idle_sends_nothing():
 
 def test_stop_command_confirmed_cancels_confirmed_file():
     ad = FakeAdapter()
-    from tools import clarify_gateway as cm
+    from print_handy.core import prompts as cm
     with mock.patch.object(print_stop, "status", return_value=st("printing", "a.gcode")), \
             mock.patch.object(print_stop, "cancel", return_value=(True, "Stopped. Printer now reports cancelled.")) as cancel, \
             mock.patch.object(cm, "wait_for_response", return_value=print_stop.STOP_LABEL):
@@ -178,7 +178,7 @@ def test_stop_command_confirmed_cancels_confirmed_file():
 
 def test_stop_command_declined_sends_nothing():
     ad = FakeAdapter()
-    from tools import clarify_gateway as cm
+    from print_handy.core import prompts as cm
     with mock.patch.object(print_stop, "status", return_value=st("printing", "a.gcode")), \
             mock.patch.object(print_stop, "cancel") as cancel, \
             mock.patch.object(cm, "wait_for_response", return_value=print_stop.KEEP_LABEL):

@@ -1,8 +1,8 @@
-# Standalone bot (no Hermes, no LLM)
+# The Print Handy bot
 
-Print Handy can talk to Discord itself. Links, dropped 3MF and STL files, color and fit buttons, slicing, the
+Print Handy talks to Discord itself. Links, dropped 3MF and STL files, color and fit buttons, slicing, the
 bed-clear start button, slash commands and printer alerts all run from Python with a Discord bot token. No
-Hermes and no LLM are needed. An OpenAI-compatible LLM is an optional extra for replying to free text.
+LLM is needed. An OpenAI-compatible LLM is an optional extra for replying to free text.
 
 It can also run on Telegram instead: set `bot.platform` to `telegram` and follow
 [Telegram bot setup](TELEGRAM-BOT-SETUP.md). The Telegram bot is a pure bot with no LLM at all — unmatched
@@ -12,13 +12,11 @@ Or in a Matrix room: set `bot.platform` to `matrix` and follow
 [Matrix bot setup](MATRIX-BOT-SETUP.md). The Matrix bot is a pure bot with no LLM too; prompts are a
 numbered list answered by typing the number (Matrix has no buttons), and the room must be unencrypted.
 
-The standalone bot runs the same handlers as the Hermes plugin, in the same order: `print_handy.bot.router`
-loads `plugins/print-feedback` through its own `register()` hook. A new command added to the plugin works in
-both modes. Every safety gate is unchanged: nothing heats, moves or starts without a button press from an
-allowed user, and the G-code guards and fit checks run exactly as before.
+The bot's handlers live in one module: `print_handy.bot.router` loads `plugins/print-feedback` through its
+own `register()` hook and runs its handlers in order. Every safety gate applies: nothing heats, moves or
+starts without a button press from an allowed user, and the G-code guards and fit checks run on every print.
 
-Use one bot token for one mode. If the Hermes gateway and the standalone bot share a token, both answer every
-message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the standalone bot's token.
+Use one bot token for one bot. Two live connections on one token both answer every message.
 
 ## Discord setup
 
@@ -34,7 +32,7 @@ message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the s
 
 | Key | Default | What it does |
 |---|---|---|
-| `bot.mode` | `standalone` | `standalone` runs `python3 -m print_handy.bot` with no Hermes; it is the default when a config does not state a mode. `hermes` keeps the gateway plugin on installs that state it explicitly |
+| `bot.mode` | `standalone` | The only mode: the bot runs itself (`python3 -m print_handy.bot`). A config stating the removed `hermes` mode is refused at load with a message naming the removal |
 | `bot.platform` | `discord` | The chat platform the standalone bot talks to: `discord`, `telegram` or `matrix`. A config without this key keeps `discord` |
 | `telegram.token_env` | `TELEGRAM_BOT_TOKEN` | Name of the environment variable that holds the Telegram bot token |
 | `telegram.chat_id` | empty | The print chat. Group and channel IDs are negative. The bot ignores every other chat (forum topics inside it work like threads) |
@@ -107,10 +105,10 @@ services:
 | Command | What it does |
 |---|---|
 | `python3 -m print_handy.bot` (or `... run`) | Start the bot. Refuses to start, and lists why, unless every check below passes |
-| `python3 -m print_handy.bot check` | Offline setup check: mode, token present, channel, allowed users, discord.py, handlers loaded, no Hermes module imported, state folder writable, LLM, roast. Exit 1 on any FAIL |
-| `python3 -m print_handy.bot health` | Exit 0 only while a running bot reports a fresh heartbeat, is logged in, its process is alive and no Hermes module is loaded in it |
-| `python3 -m print_handy.hermes.moonraker_event_listener` | The printer listener, unchanged. In standalone mode it posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its Discord button posts degrade to plain text on Telegram and Matrix) |
-| `python3 -m print_handy.doctor` | Also reports the bot mode, the Discord login and a token shared with a Hermes profile |
+| `python3 -m print_handy.bot check` | Offline setup check: mode, token present, channel, allowed users, discord.py, handlers loaded, no host module imported, state folder writable, LLM, roast. Exit 1 on any FAIL |
+| `python3 -m print_handy.bot health` | Exit 0 only while a running bot reports a fresh heartbeat, is logged in, its process is alive and no host module is loaded in it |
+| `python3 -m print_handy.hermes.moonraker_event_listener` | The printer listener. It posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its Discord button posts degrade to plain text on Telegram and Matrix) |
+| `python3 -m print_handy.doctor` | Also reports the bot mode and the Discord login |
 
 The bot writes its heartbeat to `<paths.hermes_home>/state/bot_health.json` every 15 seconds. `health` and
 `GET /healthz` read the same record:
@@ -121,8 +119,8 @@ The bot writes its heartbeat to `<paths.hermes_home>/state/bot_health.json` ever
  "llm": false, "open_prompts": 0, "started_at": 1792727900.1}
 ```
 
-`hermes_modules` lists any loaded module from Hermes (`tools`, `gateway`, `hermes_state`, `hermes_cli`). It must
-be empty; the check fails otherwise. That is the proof the bot started without Hermes.
+`hermes_modules` lists any loaded module from a host application (`tools`, `gateway`, `hermes_state`, `hermes_cli`). It must
+be empty; the check fails otherwise. That is the proof the bot runs on its own.
 
 ### systemd
 
@@ -147,7 +145,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 
 ## What you get
 
-* Post a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link, or drop one `.3mf` or `.stl`: the same intake as under Hermes, with the same
+* Post a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link, or drop one `.3mf` or `.stl`: the intake runs with the same
   buttons. "print it" after a link prints that link (the intake names the model and asks first); "print the last one again" and "print again" reprint the last job that actually printed (when that job's source model is gone, the bot names it and points to `/print-again` rather than picking an older model). "print 57" (or "print #57", "reprint 57", "print 57 again") reprints
   print #57 behind the same bed-clear button as `/print-again 57`; an unknown number gets a "no such print"
   reply pointing at `/print-again list`, not the help text. A bare number on its own is not a print request.
@@ -199,7 +197,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   feature, served by the configured `[design]` endpoint only — ordinary chat there still gets no LLM
   reply and falls back to the short “didn't understand” reply, exactly as before.
 * Listener posts (started, complete, failed, timelapse) and alert buttons (Resume, Cancel, spool questions, IFS
-  insertion, plate picker) work with the Hermes gateway stopped.
+  insertion, plate picker) work while the bot runs.
 * A pending spool question (filament runout or a mid-print swap) can also end the print: tap its **Cancel print**
   button or reply `cancel the print`. That cancels through the same path as `/print-stop`, closes the question
   and stops its reminders; filament usage stays paused for every spool, exactly as a cancelled print leaves it.
@@ -220,7 +218,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   confirm steps, with the new spool already chosen), **Leave on the shelf** and **Dismiss**. A spool that
   arrives already archived is learned silently, a deleted spool is forgotten silently, and when Spoolman is
   unreachable or not configured the poll simply skips — it never blocks the listener and never prompts.
-* A typed reply answers your own open question, as under Hermes ("2" for two copies, "split", "cancel"). It
+* A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
 * Anything else is tried with a model lane first — the `[agent]` lane when an agent endpoint is
@@ -251,12 +249,6 @@ deterministic (commands, links, files, typed answers, buttons, `print 57`) works
 The switch gates every stray-chat model call: the `[llm]` call and the `[agent]` lane alike.
 `bot check` says so on its llm and agent rows, naming the switch, and the bot's status reports `"llm": false`.
 
-The same is true under Hermes: the plugin's final dispatch hook claims
-otherwise-unmatched Discord text for these same lanes — with the switch off the profile agent
-never sees the text, a configured `[agent]` endpoint (or `[llm]`) answers through the bot
-instead, and only when the switch is on and no lane is configured does the profile agent keep
-answering as it does today.
-
 You do not have to remove `[llm]` to do this, and you should not if you use `/print-design`: design
 inherits the `[llm]` endpoint when `[design]` is unset, and that inheritance keeps working with chat
 off — design has its own switch (`design.enabled`). Two other features use a model through the
@@ -266,49 +258,42 @@ separate vision endpoint or need none, and keep their own gates: the **roast** (
 `vision.local_detector_enabled`, #455). Turning the chat LLM off changes none of them; turn each off at its own
 switch if you want no model calls at all.
 
-## Hermes pieces and their replacement
+## How the bot is put together
 
-| Hermes piece | Standalone replacement |
+| Piece | Where it lives |
 |---|---|
-| `pre_gateway_dispatch` hook with the plugin's handlers | `print_handy.bot.router.Router` calls the plugin's `register()` and runs the same handlers in the same order. `receive_ack` (a receipt promising an agent reply) is skipped, since no agent follows |
-| Gateway authorization (`_is_user_authorized_for_source`), delivery adapter, session key | `print_handy.bot.runtime.Gateway`: allowed user IDs plus the print channel; replies go to the same channel or thread; one session per person per channel |
+| Dispatch handlers | `plugins/print-feedback` (the handler module); `print_handy.bot.router.Router` calls its `register()` and runs the handlers in order |
+| Authorization, delivery adapter, session key | `print_handy.bot.runtime`: allowed user IDs plus the print channel; replies go to the same channel or thread; one session per person per channel |
 | Adapter `send` / `send_clarify` | The platform interface in `print_handy.bot.platform`: `send`, `send_clarify`, `answer_typed`, `close_prompt`, `is_allowed_id`, plus per-platform limits (`message_limit`, `upload_max_bytes`, `supports_buttons`, `max_buttons`). Discord's implementation is `print_handy.bot.adapter.StandaloneAdapter` over discord.py. `MEDIA:/path` becomes an attachment; long text is split at 2000 characters |
-| Clarify gateway (register, wait, resolve, cancelled) | `print_handy.core.prompts`, the same API; standalone always draws its own questions with it. Under Hermes, Hermes' adapter draws questions by default; with `discord.clarify_ui = true` the plugin's own renderer draws them there too: questions are posted by Discord REST from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed), exactly as standalone renders. On that path the locale hint patch and the Stop-view substitution stand down — they only compensate for host-drawn questions |
-| Platform handler registration and the adapter's `_is_allowed_user` | The router hands the plugin's `alert_button_handlers` our discord.py client; the adapter implements `_is_allowed_user` |
-| `hermes send` subprocess in the listener | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments. Since #524 this is the listener's Discord post path in Hermes mode too — no `hermes send` subprocess remains anywhere |
-| Hermes `state.db` messages for "print it" | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json`. This file is the single source in both modes; `state.db` is no longer read for link recall |
-| Agent session resets and cleanups after a print (`state.db`, `SessionDB`) | Retired in every mode: the bot no longer resets or archives agent sessions and never opens `state.db`. Session lifetime belongs to the agent host — the shipped Hermes profile template resets its sessions daily at 4 AM |
-| Profile `auxiliary.print_design` pin answering /print-design | The `[design]`/`[llm]` HTTP transport in both modes: the configured endpoint answers; the profile pin is only the fallback when no endpoint is configured |
-| Tool-call hooks (`pre_tool_call`, `post_tool_call`) | Not needed: they only guard an agent's tool calls. Kept registered for Hermes |
-| Hermes home, install script, systemd units, restart drop-in | `paths.hermes_home` is just the data folder; `scripts/install-standalone.sh` and `systemd/*.service.template` with no gateway coupling |
+| Question registry (register, wait, resolve, cancelled) | `print_handy.core.prompts`. The bot draws its own questions: they are posted from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed) |
+| Platform handler registration and the adapter's `_is_allowed_user` | The router hands the handler module's `alert_button_handlers` our discord.py client; the adapter implements `_is_allowed_user` |
+| Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments — no subprocess poster |
+| "print it" link recall | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json` |
+| /print-design model | The `[design]`/`[llm]` HTTP transport: the configured endpoint answers |
+| Data folder, install script, systemd units | `paths.hermes_home` is just the data folder (the name is historical); `scripts/install-standalone.sh` and `systemd/*.service.template` |
 
-Standalone needs no Hermes profile at all — not a dedicated one, not any other kind. That is
-not because the bot's restrictions are stronger here: it is because there is no agent behind
-the bot, so a message no handler claims simply ends instead of falling through to an
-assistant. Hermes mode keeps that fall-through on purpose, which is why it requires a
-dedicated profile — see
-[docs/INSTALL.md](INSTALL.md#why-hermes-mode-needs-a-dedicated-profile-any-name).
+There is no agent behind the bot: a message no handler claims simply ends (or gets the
+bounded stray-chat reply, above) instead of falling through to an assistant.
 
-## Moving from Hermes
+## Moving from a Hermes-hosted install
 
-1. Stop the gateway for this bot: `systemctl --user disable --now hermes-gateway` (or remove the Discord token from
-   that profile). One token, one connection: if both end up live, the doctor's shared-token check
-   (`python3 -m print_handy.bot check`) names the collision.
-2. Keep `paths.hermes_home` pointing at the old profile to keep its state (print numbers, plans, alerts), or copy
-   its `state/` folder to the new data folder.
-3. Set `bot.mode: standalone` and `discord.chat_id` (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the environment or the
-   data folder's `.env`.
+The Hermes install method and `bot.mode: hermes` are removed; a config stating that mode
+is refused at load with a message naming the removal. Moving an existing install over:
+
+1. Stop the gateway for this bot (or remove the Discord token from that profile). One
+   token, one connection: two live connections on one token answer twice.
+2. Keep `paths.hermes_home` pointing at the old profile folder to keep its state (print
+   numbers, plans, alerts), or copy its `state/` folder to the new data folder.
+3. Set `bot.mode: standalone` (or remove the mode line) and `discord.chat_id`
+   (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the
+   environment or the data folder's `.env`.
 4. Run `python3 -m print_handy.bot check`, then `scripts/install-standalone.sh` and enable both units.
-5. Optional — keep agent answers for stray chat: point `[agent] chat_url` (and `api_key_env`) at the
-   Hermes API. Without it, stray chat uses the `[llm]` endpoint if one is configured, else the short
-   bounded reply.
-6. If the profile pinned a design model (`auxiliary.print_design`), set the same model under
-   `[design]` (or `[llm]`): the HTTP values are the normal path now.
-
-Session resets need no step: the bot no longer resets agent sessions in any mode, and the profile's
-own daily 4 AM reset (`session_reset` in the shipped template) is the remaining behaviour.
-
-Going back is the reverse: `bot.mode: hermes`, stop the standalone units, start the gateway.
+5. Optional — keep agent answers for stray chat: point `[agent] chat_url` (and
+   `api_key_env`) at an agent API endpoint (a Hermes agent behind its API works). Without
+   it, stray chat uses the `[llm]` endpoint if one is configured, else the short bounded
+   reply.
+6. If the profile pinned a design model (`auxiliary.print_design`), set the same model
+   under `[design]` (or `[llm]`): design resolves only its HTTP endpoint now.
 
 ## Adding a chat platform
 
@@ -324,7 +309,7 @@ limits live on the adapter, not in callers. No handler or core change should be 
 
 ## Not covered yet
 
-* Agent-only work has no scripted equivalent: filament photo inventory, incident write-ups, mesh routines from chat
+* Free-form agent work has no equivalent: filament photo inventory, incident write-ups, mesh routines from chat
   and free-form troubleshooting. With an LLM configured you get a short reply, not an agent.
 * Button questions asked by a running intake live in memory. After a bot restart an old question's buttons answer
   "That question already closed"; send the link again. Listener alert buttons do survive restarts.

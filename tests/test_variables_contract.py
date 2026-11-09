@@ -63,8 +63,6 @@ EXEMPTIONS = {
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
-    # The AI edit-lane gate (#902) is file-only too: who may reach the AI is
-    # an operator decision made in the settings file.
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
     ("ai", "heavy"): (frozenset({"webui"}), "#818"),
     ("ai", "small"): (frozenset({"webui"}), "#818"),
@@ -118,10 +116,7 @@ EXEMPTIONS = {
     # path settings have no catalog fields in this codebase.
     ("paths", "piper"): (frozenset({"webui"}), "#981"),
     ("paths", "piper_model"): (frozenset({"webui"}), "#981"),
-    ("paths", "hermes_agent"): (frozenset({"webui", "consumer"}), "#657"),
-    ("paths", "hermes_bin"): (frozenset({"webui"}), "#657"),
     ("paths", "hermes_home"): (frozenset({"webui"}), "#657"),
-    ("paths", "hermes_restart_helper"): (frozenset({"webui"}), "#657"),
     ("paths", "records_vault"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "edge_mm"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "merge_slack_mm"): (frozenset({"webui"}), "#657"),

@@ -1,7 +1,6 @@
 # Discord bot setup
 
-Print Handy talks to you through a Discord bot you own. Use this page for the standalone bot;
-Hermes users can follow the Discord application steps, then use [Hermes installation](INSTALL.md).
+Print Handy talks to you through a Discord bot you own.
 Allow about 15 minutes after installing Print Handy and its Python requirements. Start in the
 repository root with the installation's Python environment activated. For installation itself,
 use the [standalone bot](STANDALONE.md) or [Docker](DOCKER.md).
@@ -53,13 +52,11 @@ Doing it by hand instead:
 - Standalone: put `DISCORD_BOT_TOKEN=...` in `~/.local/share/print-handy/.env` (or your `paths.hermes_home`),
   and set `discord.chat_id` in `config/local.yaml` (`discord.allowed_user_ids` is optional; see
   [Who can use the bot](#who-can-use-the-bot)). See [standalone bot](STANDALONE.md).
-- Hermes: put `DISCORD_BOT_TOKEN`, `DISCORD_ALLOWED_USERS` and `DISCORD_HOME_CHANNEL` in
-  `~/.hermes/profiles/<profile>/.env`. See [Hermes installation](INSTALL.md).
 
-Use one bot token for one mode. Running the standalone bot and a Hermes profile on the same token makes both
-answer, or neither. Stop the old owner before starting the new one; see [moving from Hermes](STANDALONE.md#moving-from-hermes).
+Use one bot token for one bot. Running two bots on the same token makes both answer, or neither.
+Stop the old owner before starting the new one.
 More generally: **one token, one instance per channel.** Two running instances that serve the same print
-channel (a leftover Hermes profile next to the container is the classic case) each receive every message in
+channel (a leftover second instance next to the container is the classic case) each receive every message in
 it and both act, which looks exactly like random bot misbehaviour. Sharing one token across instances is
 supported only with a separate channel per instance — see [multi-instance](MULTI-INSTANCE.md). The standalone
 bot logs a warning when Discord hands it a second READY on a live session, one sign of a competing login.
@@ -99,7 +96,7 @@ Developer Portal and replace it locally. Never commit `.env` or `config/local.ya
 | `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `false` |
 | `discord.token_env` | Environment variable name holding the secret, not the token itself |
 | `discord.bot_name` | Name in replies; does not change the Discord account name |
-| `bot.mode` | `standalone` (the default); set `hermes` only for a Hermes-hosted install |
+| `bot.mode` | `standalone` — the only mode |
 | `bot.sync_commands` | Register slash commands at startup; default `true` |
 | `bot.health_port` | Default `0`: no HTTP listener; leave disabled for this setup |
 | `bot.health_stale_s` | Heartbeat freshness limit; default 120 seconds |
@@ -137,12 +134,6 @@ channel per user per hour ("You are not on this bot's allowed list."). Approvals
 restricts anyone else, and widening intake does not widen the live camera's own allowlist
 (`approval_user_id` plus `allowed_user_ids`, as before).
 
-In Hermes mode the same model applies through the Hermes profile: the profile serves its configured
-channels, participants share the channel session, and per-user restriction is the gateway's own
-`DISCORD_ALLOWED_USERS` (see the Hermes install docs) — the standalone `[discord]` lists are not consulted
-there.
-
-
 ## 5. Verify offline before connecting
 
 Run in the repository root using the Python environment from installation:
@@ -152,7 +143,7 @@ python3 -m print_handy.bot check
 ```
 
 This does not log into Discord or contact a printer. It checks mode, token presence (not validity),
-channel, allowed users, discord.py, loaded handlers, absence of Hermes modules and writable state.
+channel, allowed users, discord.py, loaded handlers, absence of host modules and writable state.
 It creates the state directory and briefly writes a probe file there. Expect exit 0 and `ok` lines;
 resolve each `FAIL` before proceeding. A valid configuration is not proof the token can log in.
 Do not use `python3 -m print_handy.doctor` as this offline check: doctor can contact configured services.
@@ -358,7 +349,7 @@ Once the bot is running, this is the whole conversation for one print. Every ste
 | Slash commands absent | Confirm `applications.commands` invite scope and `bot.sync_commands: true`; inspect startup errors. Allow Discord time to propagate; typed `/print-help` can test routing meanwhile |
 | Login/connectivity errors | The standalone Discord bot retries transient DNS/connection failures at startup up to 5 attempts over roughly 2–3 minutes (watch for `DISCORD_STARTUP_RETRY` lines). If it still exits, inspect those log lines for the DNS, TLS or Discord availability error and resolve the reported cause; do not disable TLS checks or expose a new port |
 | Health fails | Start with its reason: no heartbeat, stale heartbeat, disconnected, or replaced process. Check that both terminals/services use the same config and data directory |
-| Duplicate replies | Stop the extra standalone process or Hermes gateway using that token. Keep exactly one owner |
+| Duplicate replies | Stop the extra bot process using that token. Keep exactly one owner |
 
 Startup logs go to stderr by default; optional logging settings are in [standalone settings](STANDALONE.md#settings).
 Review and redact logs locally before sharing: diagnostic output can contain paths, channel IDs and service URLs.

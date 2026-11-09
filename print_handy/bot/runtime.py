@@ -606,7 +606,6 @@ class BotCore:
         touches a platform library.
         """
         self.cfg = cfg if cfg is not None else _config.cfg()
-        prompts.activate()  # our buttons resolve the core registry, even if Hermes is importable
         self.client = client
         self.platform_name = str(platform_name or (self.cfg.get("bot") or {}).get("platform")
                                  or getattr(adapter, "name", None) or "discord")

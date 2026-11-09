@@ -316,7 +316,7 @@ class BasePlatformAdapter:
         return True
 
     async def answer_typed(self, session_key, text, user_id=None):
-        """A typed reply to the open question of this session (Hermes routes these the same way).
+        """A typed reply to the open question of this session.
 
         ``user_id`` is the sender; a print approval answers only to the
         approval user, and a refused reply leaves the prompt open.

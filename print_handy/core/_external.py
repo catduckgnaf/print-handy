@@ -1,4 +1,4 @@
-"""Runtime modules that live next to the Hermes profile rather than in the offline core.
+"""Runtime modules that live in the listener package rather than in the offline core.
 
 print_records, print_control, maintenance, print_next and discord_print_summary are found as
 print_handy.hermes.<name> when packaged, otherwise as a top level module on the Hermes path.

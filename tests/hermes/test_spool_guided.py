@@ -186,7 +186,7 @@ def _run(text, answers, adapter=None, fake=None, bind=None):
     adapter = adapter or FakeAdapter()
     fake = fake or FakeSpoolman()
     queue = list(answers)
-    from tools import clarify_gateway as cm
+    from print_handy.core import prompts as cm
 
     def wait(cid, timeout=None):
         return queue.pop(0) if queue else None
@@ -298,7 +298,7 @@ def test_guided_new_prompt_brand_on_asks_brand_first():
 def test_guided_new_with_no_saved_types_skips_type_question():
     adapter = FakeAdapter()
     queue = ["PLA", "Green", "1000", "Create spool", "Leave it on the shelf"]
-    from tools import clarify_gateway as cm
+    from print_handy.core import prompts as cm
 
     def wait(cid, timeout=None):
         return queue.pop(0) if queue else None
