@@ -193,7 +193,7 @@ The published Community Applications template is separate from the in-repo templ
 
 The UI does not start prints. Printer control endpoints are a separate opt-in described below.
 
-There is **no token on the local network by default**. An install with no access token and no saved login is *unclaimed*: it serves openly, and the status page says plainly that no login is set until you either set one or record that you mean to leave it open. A login comes into existence only by a deliberate act, through one of three routes:
+There is **no token on the local network by default**. An install with no access token and no saved login is *unclaimed*: it serves openly and is fully usable by anyone who can reach its port, printing and arming controls included, and the status page says plainly that no login is set until you either set one or record that you mean to leave it open. A login comes into existence only by a deliberate act, through one of three routes:
 
 - **The Docker variable:** set `WEBUI_ACCESS_TOKEN` in `.env` (or the masked Unraid template variable). That token is then required from every client.
 - **The Web UI walkthrough:** the walkthrough's **Login** step sets a username and password, or records the "leave it open" choice that dismisses the no-login note. A password saved there is stored only as a salted PBKDF2-SHA256 hash in `webui_access.json` in the Print Handy state folder (in Docker, under `/data`, so it survives updates). The browser that set it is signed in. Afterwards the login page asks for it, and API clients such as the Home Assistant integration send it as the `X-WebUI-Token` header, exactly like an access token. A password saved before usernames existed keeps working with any name.

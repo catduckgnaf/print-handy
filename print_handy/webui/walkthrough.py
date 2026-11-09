@@ -345,16 +345,22 @@ def _review_html(field_values, data, environ):
     return '<table class="rows">' + "".join(rows) + "</table>"
 
 
-def _login_html(data, environ, submitted_username=""):
+def _login_html(data, environ, submitted_username="", *, loopback=False):
     """The Login step (#875): the current rule and a form to change it."""
     try:
         current = access_module.resolve(data, "0.0.0.0", environ)
     except Exception:  # settings too broken to resolve: show the form only
         current = None
     mode = getattr(current, "mode", None)
+    # Who can reach an open Web UI depends on the bind: a loopback bind is
+    # reachable only from this machine, and the step must not claim the
+    # whole network can use it (release review on the gate reversal).
+    reach = ("it listens only on this machine, so only someone using this "
+             "machine can reach it" if loopback else
+             "anyone on your network can use it")
     if not data["webui"].get("require_auth", True):
         status = ("Login is turned off by <code>[webui] require_auth = false</code>: "
-                  "anyone on the network can use this Web UI. A login saved here "
+                  f"{reach}. A login saved here "
                   "takes effect only once that setting is back on.")
     elif mode == access_module.PASSWORD and current.username:
         status = f"Signed in with the username <strong>{_esc(current.username)}</strong>."
@@ -366,7 +372,7 @@ def _login_html(data, environ, submitted_username=""):
                   "A username and password saved here is easier to type; the token "
                   "keeps working for Home Assistant and other tools.")
     else:
-        status = "This Web UI is open: anyone on your network can use it."
+        status = f"This Web UI is open: {reach}."
     parts = [f'<p>{status}</p>', pages.login_rows(submitted_username, required=False)]
     if mode != access_module.OPEN:
         parts.append(
@@ -423,7 +429,7 @@ def _actions(index, step_id):
 
 def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
                 environ=None, errors=None, submitted=None, general_error=None,
-                step_index=None):
+                step_index=None, loopback=False):
     """The walkthrough page for the saved (or given) step."""
     index = _step_index(load_state(data)) if step_index is None else step_index
     step_id, step_label = STEPS[index]
@@ -449,7 +455,8 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
             parts.append(pages._field_row(field_value, data=data, errors=errors,
                                           submitted=submitted))
     elif step_id == "login":
-        parts.append(_login_html(data, environ, (submitted or {}).get("username", "")))
+        parts.append(_login_html(data, environ, (submitted or {}).get("username", ""),
+                                 loopback=loopback))
     elif step_id == "providers":
         parts.append(_providers_html(environ))
     elif step_id == "review":
@@ -463,7 +470,7 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
 # -------------------------------------------------------------------- POST
 
 def apply_post(data, environ, form, field_values, *, form_token,
-               theme=shell.DEFAULT_THEME):
+               theme=shell.DEFAULT_THEME, loopback=False):
     """Handle one walkthrough POST.
 
     Returns ``("redirect", location)``, ``("page", html)`` (the step
@@ -501,7 +508,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
             return "page", render_page(
                 data, field_values, form_token=form_token, theme=theme, environ=environ,
                 submitted={"username": username}, general_error=str(exc),
-                step_index=index)
+                step_index=index, loopback=loopback)
         save_state(data, {**state, "step": index + 1})
         return ("access" if outcome else "redirect"), "/walkthrough"
     if step_id == "providers":  # Continue: nothing to write on this step
@@ -555,7 +562,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
         return "page", render_page(
             data, field_values, form_token=form_token, theme=theme, environ=environ,
             errors=errors, submitted=submitted, general_error=general,
-            step_index=index)
+            step_index=index, loopback=loopback)
     save_state(data, {**state, "step": min(index + 1, len(STEPS) - 1)})
     return "redirect", "/walkthrough"
 

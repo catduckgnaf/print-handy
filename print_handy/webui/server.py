@@ -1352,7 +1352,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, walkthrough_module.render_page(
             data, self._field_values(),
             form_token=self.server.form_token, theme=self._theme(),
-            environ=self.server.webui_environ), "text/html; charset=utf-8")
+            environ=self.server.webui_environ,
+            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
 
     def _walkthrough_post(self):
         """POST /walkthrough: one step's action, authorized exactly like
@@ -1367,7 +1368,7 @@ class _Handler(BaseHTTPRequestHandler):
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
-            theme=self._theme())
+            theme=self._theme(), loopback=is_loopback(self.server.bind_host))
         if kind == "access":
             # The Login step saved a new rule: apply it now, and keep the
             # person who chose it signed in on this browser.

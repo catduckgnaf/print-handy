@@ -515,6 +515,26 @@ class WalkthroughServerTests(unittest.TestCase):
             with mock.patch.object(walkthrough, "pending", return_value=False):
                 self.assert_login_step(port)
 
+    def test_login_step_reach_wording_matches_the_bind(self):
+        """A loopback install must not be told anyone on the network can
+        use it; a network bind says so plainly (gate-reversal review)."""
+        state = {"step": 5, "done": True, "offered": True}
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp, host="127.0.0.1")
+            walkthrough.save_state(data, state)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="login"', body)
+            self.assertIn("only someone using this machine can reach it", body)
+            self.assertNotIn("anyone on your network", body)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp, host="0.0.0.0")
+            walkthrough.save_state(data, state)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="login"', body)
+            self.assertIn("anyone on your network can use it", body)
+
     def test_install_with_a_credential_still_redirects(self):
         token = {"WEBUI_ACCESS_TOKEN": "a-long-enough-test-token"}
         cases = {"saved open choice": ({"setup_done": True}, {}),
