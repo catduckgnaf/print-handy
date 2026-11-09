@@ -1302,8 +1302,18 @@ class _Handler(BaseHTTPRequestHandler):
             if stamp == server.access_stamp:
                 return
             server.access_stamp = stamp
-            server.access = access_module.resolve(
+            new_access = access_module.resolve(
                 server.settings_data, server.bind_host, server.webui_environ)
+            if new_access.credential_fingerprint() == \
+                    server.access.credential_fingerprint():
+                # The stamp is only the file's mtime: a rewrite carrying
+                # the credential this server already enforces (a byte-for-
+                # byte re-save, or a login this process resolved from the
+                # file itself) changed no rule, so nothing issued under it
+                # is stale — sessions and the form token stay valid.
+                server.access = new_access
+                return
+            server.access = new_access
             server.sessions.clear()
             self._rotate_form_token()
             self._revoke_remembered_sessions()
