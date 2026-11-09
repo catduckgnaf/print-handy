@@ -165,11 +165,9 @@ def conversion_provenance(source, target, process, author_process, author_notes)
         target_value = target_settings.get(key)
         deliberate = (key in explicit) if explicit is not None else None
         selected = author_process.get(key) if deliberate is True else process.get(key)
-        origin = ('designer' if deliberate is True else
-                  'source_preset' if deliberate is False else 'unknown')
+        origin = ('designer' if deliberate is True else 'unknown')
         reason = ('different_settings_to_system' if deliberate is True else
-                  'inherited_from_source_preset' if deliberate is False else
-                  'source preset or changed-setting metadata unavailable')
+                  'exact source preset comparison unavailable; intent unknown')
         entries[key] = {'source_preset_value': None, 'project_value': source_value,
                         'target_value': target_value, 'selected_value': selected,
                         'origin': origin, 'reason': reason}

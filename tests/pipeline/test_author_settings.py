@@ -107,7 +107,7 @@ def test_conversion_provenance_marks_unchanged_keys_as_inherited(tmp_path):
               project_extra={"wall_loops": "4", "different_settings_to_system": []})
     result = author_settings.conversion_provenance(
         source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
-    assert result["settings"]["wall_loops"]["origin"] == "source_preset"
+    assert result["settings"]["wall_loops"]["origin"] == "unknown"
     assert result["unresolved_conflicts"] == []
 
 
