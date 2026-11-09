@@ -66,8 +66,13 @@ STEP_ANSWERS = {
     "token_stored": "stored",
     "camera_snapshot_url": CANONICAL["camera_snapshot_url"],
     "camera_source": "mjpeg",
+    "timelapse": "on",
     "timelapse_mode": "moonraker",
     "timelapse_capture_enabled": "true",
+    "homeserver_url": "https://matrix.example.org",
+    "webui_username": CANONICAL["username"],
+    "webui_password": CANONICAL["password"],
+    "webui_confirm": CANONICAL["password"],
 }
 
 LANE_B_BOOTSTRAP = "Lane B PR-5 (feat/bootstrap-setup-only) not landed: "
@@ -92,16 +97,22 @@ class ChatDriver:
     """Scripted answers through guided.handle_text(), one session key
     per platform/chat/user (the dispatcher's own key shape)."""
 
-    def __init__(self, tmp_path, platform, user=None):
+    def __init__(self, tmp_path, platform, user=None, login_mode="skip",
+                 access_data=None):
         self.platform = platform
         self.store = guided.SetupStore(Path(tmp_path) / "guided-setup.json")
         answers = PLATFORM_ANSWERS[platform]
         self.key = f"{answers['chat_id']}:{(user or CANONICAL['user_id'])}"
         self.user = user or CANONICAL["user_id"]
+        self.login_mode = login_mode
+        self.access_data = access_data
         self.replies = []
 
     def say(self, text, **kwargs):
         kwargs.setdefault("report", lambda: "REPORT")
+        if self.access_data is not None:
+            kwargs.setdefault("access_data", self.access_data)
+            kwargs.setdefault("access_environ", {})
         reply = guided.handle_text(self.key, text, store=self.store, **kwargs)
         self.replies.append(reply)
         return reply
@@ -109,11 +120,22 @@ class ChatDriver:
     def session(self):
         return self.store.get(self.key)
 
+    def current_step_key(self, session):
+        # session["step"] indexes the full step list; the machine
+        # itself skips steps that do not apply to the answers so far.
+        flow = guided.steps()
+        step = session.get("step")
+        if step is None or step >= len(flow):
+            return None
+        return flow[step].key
+
     def answer_for(self, step_key):
         if step_key in ("chat_id", "user_ids"):
             return PLATFORM_ANSWERS[self.platform][step_key]
         if step_key == "platform":
             return self.platform
+        if step_key == "webui_login":
+            return self.login_mode
         return STEP_ANSWERS.get(step_key)
 
     def drive_to_review(self):
@@ -121,12 +143,11 @@ class ChatDriver:
         keys it could not answer (the parity gap, when non-empty)."""
         self.say("/print-handy setup")
         unanswered = []
-        for _ in range(30):
+        for _ in range(40):
             session = self.session()
             if not session or session.get("status") == "awaiting_consent":
                 break
-            step_key = guided.steps()[session["step"]].key \
-                if session.get("step") is not None else None
+            step_key = self.current_step_key(session)
             answer = self.answer_for(step_key)
             if answer is None:
                 unanswered.append(step_key)
@@ -144,6 +165,35 @@ class ChatDriver:
     def apply(self, target):
         return self.say("apply", apply_config=lambda answers:
                         guided._apply_answers(answers, target))
+
+
+def answer_flow(store, key, platform, start_now, setup_only=False, **kwargs):
+    """Answer a guided setup session step by step (canonical answers,
+    login left as-is) until it reaches the review step. Returns the
+    number of answers given. Used by the scenarios that drive
+    handle_text directly rather than through ChatDriver."""
+    kwargs.setdefault("report", lambda: "REPORT")
+    answers = dict(STEP_ANSWERS)
+    answers.update({"chat_id": PLATFORM_ANSWERS[platform]["chat_id"],
+                    "user_ids": PLATFORM_ANSWERS[platform]["user_ids"],
+                    "platform": platform, "webui_login": "skip"})
+    count = 0
+    for index in range(40):
+        session = store.get(key)
+        if not session or session.get("status") == "awaiting_consent":
+            break
+        flow = guided.steps()
+        step = session.get("step")
+        if step is None or step >= len(flow):
+            break
+        answer = answers.get(flow[step].key)
+        if answer is None:
+            break
+        guided.handle_text(key, answer, store=store,
+                           now=start_now + index, setup_only=setup_only,
+                           **kwargs)
+        count += 1
+    return count
 
 
 def applied_config(tmp_path, platform):
@@ -176,9 +226,14 @@ def test_s5_full_walkthrough_identical_config_via_chat(tmp_path, platform):
         "printer.model": CANONICAL["model"],
         "services.moonraker_url": CANONICAL["moonraker_url"].rstrip("/"),
         "services.spoolman_url": CANONICAL["spoolman_url"].rstrip("/"),
+        "services.camera_snapshot_url":
+            CANONICAL["camera_snapshot_url"].rstrip("/"),
+        "bot.platform": platform,
         answers["platform_chat_key"]: answers["chat_id"],
         answers["platform_user_key"]: answers["user_ids"],
     }
+    if platform == "matrix":
+        expected["matrix.homeserver_url"] = "https://matrix.example.org"
     for dotted, want in expected.items():
         section, key = dotted.split(".", 1)
         got = (data.get(section) or {}).get(key)
@@ -201,11 +256,11 @@ def test_s5_chat_step_set_covers_the_canonical_topics(tmp_path):
     today = {"model", "chat_id", "user_ids", "moonraker_url",
              "spoolman_url", "token_stored"}
     assert today <= keys  # the existing steps never regress away
-    missing = {"platform", "camera", "login"} - \
-        {k.split("_")[0] for k in keys} - keys
+    missing = {"platform", "camera_snapshot_url", "webui_login"} - keys
     if missing:
         pytest.skip(LANE_B_CHAT + f"guided setup has no steps for "
                     f"{sorted(missing)} yet")
+    assert {"webui_username", "webui_password", "webui_confirm"} <= keys
 
 
 # --------------------------------------------------------------------- S1
@@ -307,16 +362,73 @@ def test_s3b_clear_claim_via_chat(tmp_path, platform):
     assert resolved.mode == access.TOKEN
 
 
+def _guided_login_driver(tmp_path, platform, login_mode):
+    """A chat driver whose access writes land in a temp install, the
+    way the dispatcher wires access_data for the login step."""
+    data = _chat_data(tmp_path)
+    driver = ChatDriver(tmp_path, platform, login_mode=login_mode,
+                        access_data=data)
+    unanswered = driver.drive_to_review()
+    if unanswered:
+        pytest.skip(LANE_B_CHAT + f"{platform} flow cannot answer steps "
+                    f"{unanswered}")
+    return driver, data
+
+
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s2_claim_password_via_guided_step(tmp_path, platform):
     """The end-to-end form of S2: the password arrives inside the
     guided conversation's login step (PR-7) and lands in the same
-    store. Gated on the step existing."""
+    store the Web UI writes, with the same resolve() outcome."""
     _require_chat_access()
-    if "login" not in "".join(guided_step_keys()):
+    if "webui_login" not in guided_step_keys():
         pytest.skip(LANE_B_CHAT + "guided setup has no login/access "
                     "step yet; S2 is asserted at the PR-6 core seam "
                     "every platform's step will call")
+    driver, data = _guided_login_driver(tmp_path, platform, "password")
+    driver.apply(Path(tmp_path) / "local.yaml")
+    resolved = access.resolve(data, "0.0.0.0", environ={})
+    assert resolved.mode == access.PASSWORD
+    assert resolved.matches_login(CANONICAL["username"], CANONICAL["password"])
+    assert not resolved.matches_login(CANONICAL["username"], "wrong-password-1")
+    # S9, end to end: neither the session store nor any reply the user
+    # saw contains the password.
+    raw = (Path(tmp_path) / "guided-setup.json").read_text()
+    assert CANONICAL["password"] not in raw
+    for reply in driver.replies:
+        assert not reply or CANONICAL["password"] not in reply
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_s3_leave_open_via_guided_step(tmp_path, platform):
+    _require_chat_access()
+    if "webui_login" not in guided_step_keys():
+        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step yet")
+    driver, data = _guided_login_driver(tmp_path, platform, "open")
+    driver.apply(Path(tmp_path) / "local.yaml")
+    record = json.loads(access.access_path(data).read_text())
+    assert record == {"mode": access.OPEN}  # Q2: the explicit record
+    assert access.resolve(data, "0.0.0.0", environ={}).mode == access.OPEN
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_s3b_clear_claim_via_guided_step(tmp_path, platform):
+    _require_chat_access()
+    if "webui_login" not in guided_step_keys():
+        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step yet")
+    driver, data = _guided_login_driver(tmp_path, platform, "password")
+    driver.apply(Path(tmp_path) / "local.yaml")
+    assert access.access_path(data).exists()
+    clearer = ChatDriver(tmp_path, platform, login_mode="clear",
+                         access_data=data)
+    clearer.store = driver.store
+    unanswered = clearer.drive_to_review()
+    assert not unanswered
+    clearer.apply(Path(tmp_path) / "local.yaml")
+    assert not access.access_path(data).exists()
+    resolved = access.resolve(
+        data, "0.0.0.0", environ={"WEBUI_ACCESS_TOKEN": CANONICAL["token"]})
+    assert resolved.mode == access.TOKEN  # Q4: the token survives a clear
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -395,10 +507,10 @@ def test_s6_zero_config_bootstrap_claim(tmp_path, platform):
     # A second user can neither start nor join mid-flow.
     refused = say(other, "/print-handy setup", now + 1)
     assert refused and "another user" in refused
-    refused = say(other, CANONICAL["model"], now + 2)
+    refused = say(other, platform, now + 2)
     assert refused and "another user" in refused
     # The owner continues normally.
-    answer = say(owner, CANONICAL["model"], now + 3)
+    answer = say(owner, platform, now + 3)
     assert answer and "Saved" in answer
 
     # An abandoned session past its timeout releases the bind.
@@ -410,11 +522,8 @@ def test_s6_zero_config_bootstrap_claim(tmp_path, platform):
     # After apply, normal authorization is in force: a different user
     # starting setup on the now-configured install is refused (the
     # shared completion record answers instead of a fresh flow).
-    for index, text in enumerate(
-            (CANONICAL["model"], CANONICAL["chat_id"], CANONICAL["user_id"],
-             "skip", "skip", "stored")):
-        say(other, text, later + 1 + index)
-    applied = say(other, "apply", later + 10,
+    answer_flow(store, other, platform, later + 1, setup_only=True)
+    applied = say(other, "apply", later + 50,
                   apply_config=lambda answers: "written.")
     assert applied and "Setup complete" in applied
     third = "chan::200000000000000077"
@@ -444,15 +553,12 @@ def test_s7_chat_completion_ends_the_webui_offer(tmp_path, platform):
     assert walkthrough.pending(data)
     store = guided.SetupStore(state_dir / guided.STORE_NAME)
     key = f"{CANONICAL['chat_id']}::{CANONICAL['user_id']}"
-    guided.handle_text(key, "/print-handy setup", store=store,
+    guided.handle_text(key, "/print-handy setup", store=store, now=1000.0,
                        report=lambda: "REPORT")
-    for answer in (CANONICAL["model"], CANONICAL["chat_id"],
-                   CANONICAL["user_id"], "skip", CANONICAL["spoolman_url"],
-                   "stored"):
-        guided.handle_text(key, answer, store=store, report=lambda: "REPORT")
+    answer_flow(store, key, platform, 1001.0)
     target = Path(tmp_path) / "local.yaml"
     reply = guided.handle_text(
-        key, "apply", store=store, report=lambda: "REPORT",
+        key, "apply", store=store, now=2000.0, report=lambda: "REPORT",
         apply_config=lambda answers: guided._apply_answers(answers, target))
     assert reply and "Setup complete" in reply
     record = setup_state.load_completion(data)
