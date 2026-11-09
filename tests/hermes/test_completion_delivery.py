@@ -68,6 +68,12 @@ def test_timelapse_leg_pings_by_its_own_job_key_not_the_current_state(monkeypatc
     assert decided == [("complete", "stand.gcode")]
     decided.clear()
     monkeypatch.setattr(listener, "_captured_timelapse", lambda key: None)
+    # The plan leg's printer-rendered archive lookup must stay a double:
+    # unstubbed it polls the (test) Moonraker host for the full render
+    # wait and the test dies on the pytest timeout instead of asserting.
+    monkeypatch.setattr(announcer, "archive_completed_timelapse",
+                        lambda key: announcer.ArchiveOutcome(announcer.ARCHIVE_OFF, ""))
+    monkeypatch.setattr(listener, "_dark_capture", lambda key: None)
     listener._plan_timelapse_post("stand.gcode", "Print complete: Stand", ("plan1", "more", 0))
     assert decided == [("complete", "stand.gcode")]
 
