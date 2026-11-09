@@ -2,3 +2,4 @@
 # print_handy reads them via Path(__file__) (Orca templates, data files,
 # HMS data, the Bambu CA bundle).
 recursive-include print_handy *.json *.toml *.pem *.md *.js
+include LICENSE NOTICE
