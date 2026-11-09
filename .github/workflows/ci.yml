@@ -450,7 +450,7 @@ jobs:
         run: sh scripts/install-orca-flatpak.sh
       - name: Warm-up slice (not timed; first flatpak start pays one-off costs)
         run: xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport direct --case single-part || true
-      - name: Time the real-slicer cases (3 repeats, hermes transport)
+      - name: Time the real-slicer cases (3 repeats, direct transport)
         run: |
           mkdir -p slicer-timing
           # shellcheck disable=SC2086 # TIMING_CASES is a list of --case arguments
