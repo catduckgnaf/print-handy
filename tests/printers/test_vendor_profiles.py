@@ -45,6 +45,7 @@ def without_added(data):
     for key in ("wrapped_enabled", "wrapped_ai_video",
                 "wrapped_tts_engine", "wrapped_music_file"):  # added by #956 / #981 step 4, after capture
         data.get("timelapse", {}).pop(key, None)
+    data.get("timelapse", {}).pop("data_enabled", None)  # added by the Data/Wrapped split (settings restructure stage 5), after capture
     data.pop("webui", None)  # added by #286 stage 1, after the golden files were captured
     data.pop("live_stream", None)  # added by #311 stage 3, after the golden files were captured
     data.pop("design", None)  # added by #388 stage 1, after the golden files were captured
