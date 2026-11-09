@@ -39,6 +39,12 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 
 Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, layers, login, setup and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only) — it is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card — **All good** or **Attention needed**, with the doctor checks' warning and failure counts — above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
+### Upload page and upload links
+
+`/upload` takes a model file (`.stl` or `.3mf`; an STL over the 32 MiB intake limit is refused) and puts it in the inbox (`<state>/webui-inbox`). An uploaded file is not a print: it becomes printable only when it is picked up in chat, where it goes through the normal confirm-before-print flow like a file dropped in chat. The page also lists the inbox contents.
+
+The page can mint an **upload link**, `/u/<token>`: a no-login address that opens an upload form and nothing else — no navigation, no other page honors it — for handing to someone who should send a model file to this inbox. Only a digest of the token is kept, the full link is shown once when it is created, and a link can be revoked on the upload page. Files sent through a link land in the same inbox under the same rules.
+
 ### Model sources page
 
 `/sources` lists every place a model link can be dropped from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. It is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top.
