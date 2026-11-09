@@ -77,12 +77,10 @@ def test_adapter_records_prompts_and_answers_choices(cfg):
                                             user_id=web.OPERATOR_ID)
         return label
 
-    # Register the prompt in the gateway registry the way ask() does.
-    prompts.activate()
-    try:
-        prompts.register("cid-web-1", "webui:webui::webui", "Which one?",
-                         ["Small", "Large"])
-        label = asyncio.run(ask_and_answer())
-    finally:
-        prompts.activate(False)
+    # Register the prompt in the registry the way ask() does (post-#1109
+    # prompts.gateway() is always this core registry; there is no
+    # activate() switch left to flip).
+    prompts.register("cid-web-1", "webui:webui::webui", "Which one?",
+                     ["Small", "Large"])
+    label = asyncio.run(ask_and_answer())
     assert label == "Large"
