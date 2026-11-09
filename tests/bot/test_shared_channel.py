@@ -461,7 +461,6 @@ def test_adapter_open_prompt_scoped_lookup():
 
 
 def test_typed_reply_with_two_printers_open_resolves_neither(monkeypatch):
-    monkeypatch.setattr(prompts, "_active", True)
     source = S(chat_id="c1", thread_id=None, user_id="u1")
     scope = ("c1", "", "u1")
     base = "sess:3"
@@ -499,7 +498,6 @@ def test_typed_reply_counts_an_open_button_only_prompt_for_another_printer(monke
     # the workshop printer is open beside a typed quantity question for
     # the garage one, and a typed "2" could be answering either — so it
     # resolves neither (#536 close-out; before, it fed the garage parser).
-    monkeypatch.setattr(prompts, "_active", True)
     monkeypatch.setattr(link_intake, "_typed_prompts", {})
     monkeypatch.setattr(link_intake, "_open_prompts", {})
     source = runtime.make_source(OPERATOR, HOME, platform_name="discord")
@@ -612,40 +610,19 @@ def test_pending_completion_adopts_the_legacy_single_slot(monkeypatch):
 def test_picker_flow_through_corpus_harness_fakes(plugin_cfg, monkeypatch):
     from corpus import harness
 
-    # install_clarify_stand_in() writes a fake tools.clarify_gateway into
-    # sys.modules for the whole process: prompts.gateway() then returns the
-    # stand-in instead of the bot registry, and a later suite whose adapter
-    # answers through the registry (test_routing's stop confirm) waits on a
-    # registry nothing resolves. Snapshot the module table and put it back
-    # when this test is done.
-    saved = {name: sys.modules.get(name) for name in ("tools", "tools.clarify_gateway")}
-    saved_pkg_attr = getattr(saved["tools"], "clarify_gateway", None) if saved["tools"] else None
-    harness.install_clarify_stand_in()
-    try:
-        plugin = harness.load_plugin()
-        calls = []
-        _intake_stubs(monkeypatch, calls)
-        adapter = harness.FakeAdapter([{"question": "Which printer", "button": "Workshop"}])
-        gateway = S(_is_user_authorized_for_source=lambda source: True,
-                    _delivery_adapter_for=lambda source: adapter,
-                    _session_key_for_source=lambda source: f"{source.chat_id}:{source.user_id}",
-                    printer_id_for=lambda source: None,
-                    shared_printer_ids_for=lambda source: [GARAGE, WORKSHOP])
-        out = run(plugin.model_link_dispatch(shared_event(LINK), gateway))
-        assert out == {"action": "skip", "reason": "recorded intake"}
-        assert adapter.questions and adapter.questions[0]["picked"] == "Workshop AD5X"
-        assert calls[-1] == ("prepare", {"reuse": None, "printer_id": WORKSHOP})
-    finally:
-        for name, module in saved.items():
-            if module is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = module
-        if saved["tools"] is not None:
-            if saved_pkg_attr is None:
-                vars(saved["tools"]).pop("clarify_gateway", None)
-            else:
-                saved["tools"].clarify_gateway = saved_pkg_attr
+    plugin = harness.load_plugin()
+    calls = []
+    _intake_stubs(monkeypatch, calls)
+    adapter = harness.FakeAdapter([{"question": "Which printer", "button": "Workshop"}])
+    gateway = S(_is_user_authorized_for_source=lambda source: True,
+                _delivery_adapter_for=lambda source: adapter,
+                _session_key_for_source=lambda source: f"{source.chat_id}:{source.user_id}",
+                printer_id_for=lambda source: None,
+                shared_printer_ids_for=lambda source: [GARAGE, WORKSHOP])
+    out = run(plugin.model_link_dispatch(shared_event(LINK), gateway))
+    assert out == {"action": "skip", "reason": "recorded intake"}
+    assert adapter.questions and adapter.questions[0]["picked"] == "Workshop AD5X"
+    assert calls[-1] == ("prepare", {"reuse": None, "printer_id": WORKSHOP})
 
 
 def test_picker_flow_through_the_standalone_bot(cfg, monkeypatch):

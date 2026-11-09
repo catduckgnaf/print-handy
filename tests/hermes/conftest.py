@@ -129,13 +129,13 @@ def _never_touch_live_printer(monkeypatch, request):
 
 @pytest.fixture(scope="package", autouse=True)
 def _clarify_gateway_stand_in():
-    """Hermes' clarify gateway is not installed in CI: use an in-memory stand in (same as tests/pipeline).
+    """A `tools.clarify_gateway` name may still be imported by test fakes
+    that answer questions the way the old host module did; the module
+    installed here delegates every call to the one real registry,
+    print_handy.core.prompts, so a question registered by the code under
+    test and an answer delivered through the fake land in the same book.
 
     Package scope, not session: the stand-in must leave with tests/hermes.
-    Left installed, prompts.gateway() kept returning it for every later
-    package, so a tests/bot plugin flow registered its prompt here while
-    the test answered print_handy.core.prompts, and waited out the 600 s
-    confirm timeout (the order-dependent /print-stop routing hang).
     """
     try:
         import tools.clarify_gateway  # noqa: F401
@@ -143,45 +143,13 @@ def _clarify_gateway_stand_in():
         return
     except ImportError:
         pass
-    lock = threading.Lock()
-    prompts = {}
-
-    class Entry:
-        def __init__(self):
-            self.event = threading.Event()
-            self.answer = None
-
-    def entry(cid):
-        with lock:
-            return prompts.setdefault(cid, Entry())
-
-    def register(cid, session_key, question, choices):
-        entry(cid)
-
-    def resolve_gateway_clarify(cid, answer):
-        e = entry(cid)
-        e.answer = answer
-        e.event.set()
-        return True
-
-    def wait_for_response(cid, timeout=None):
-        e = entry(cid)
-        got = e.event.wait(timeout)
-        with lock:
-            prompts.pop(cid, None)
-        return e.answer if got else None
-
-    def is_open(cid):
-        with lock:
-            e = prompts.get(cid)
-            return e is not None and not e.event.is_set()
-
+    from print_handy.core import prompts as core_prompts
     module = types.ModuleType("tools.clarify_gateway")
-    module.CANCELLED = "__cancelled__"
-    module.register = register
-    module.resolve_gateway_clarify = resolve_gateway_clarify
-    module.wait_for_response = wait_for_response
-    module.is_open = is_open
+    module.CANCELLED = core_prompts.CANCELLED
+    module.register = core_prompts.register
+    module.resolve_gateway_clarify = core_prompts.resolve_gateway_clarify
+    module.wait_for_response = core_prompts.wait_for_response
+    module.is_open = core_prompts.is_open
     package = sys.modules.get("tools") or types.ModuleType("tools")
     package.clarify_gateway = module
     sys.modules["tools"] = package

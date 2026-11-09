@@ -1,5 +1,0 @@
-description: 'Owns 3D printer job control via Klipper and Moonraker: slicing, print start/stop/monitoring,
-  temperature and motion control.'
-description_auto: false
-display_name: ${DISPLAY_NAME}
-personality_class: specialist

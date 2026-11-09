@@ -86,7 +86,7 @@ def _platform_name():
 
 
 def _telegram_standalone():
-    return _config.standalone() and _platform_name() == "telegram"
+    return _platform_name() == "telegram"
 
 
 def _telegram_token():
@@ -99,11 +99,11 @@ def _telegram_chat_id():
 
 
 def _matrix_standalone():
-    return _config.standalone() and _platform_name() == "matrix"
+    return _platform_name() == "matrix"
 
 
 def _buttonless_standalone():
-    """The platform name when standalone posts have no Discord buttons, else None.
+    """The platform name when the bot's posts have no Discord buttons, else None.
 
     Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
     button posts: alerts go out as plain text and the operator answers
@@ -141,13 +141,11 @@ def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, pi
     if mention_user_id is None and ping_kind:
         mention_user_id = starter_pings.ping_for(
             ping_kind, job_key=ping_job_key, episode=ping_episode) or None
-    if _config.standalone():
-        return _post_rest(message, mention_user_id=mention_user_id)
-    return _post_rest_discord(message, mention_user_id=mention_user_id)
+    return _post_rest(message, mention_user_id=mention_user_id)
 
 
 def _post_rest(message, mention_user_id=None):
-    """Standalone mode: the configured platform's REST sender with its bot token.
+    """The configured platform's REST sender with its bot token.
 
     Works with no gateway connected. Discord is the original path; Telegram
     (#164 stage 2) posts text and MEDIA files through telegram_rest, Matrix
@@ -179,9 +177,9 @@ def _post_rest(message, mention_user_id=None):
 def _post_rest_discord(message, mention_user_id=None):
     """Discord delivery through the bot's own REST sender with its bot token (#524).
 
-    The one Discord post path in both modes: Hermes mode no longer shells
-    out to the `hermes send` CLI. The token and chat id resolve exactly as
-    the standalone path resolves them ([discord] token_env / chat_id, via
+    The one Discord post path: delivery through the bot's own REST sender,
+    never a host CLI (#524). The token and chat id resolve from
+    ([discord] token_env / chat_id, via
     the profile env). rest.send refuses honestly when either is missing —
     the failure is logged with its detail and False is returned; there is
     no silent fallback to another transport.
@@ -1878,7 +1876,7 @@ def _timelapse_too_big_text(archived_name=None, *, combined=False):
     was recorded but cannot be delivered, instead of it silently never
     arriving. A failed attachment is never reported as delivered.
     """
-    platform = _platform_name() if _config.standalone() else "discord"
+    platform = _platform_name()
     if platform == "matrix":
         subject = "Combined timelapse" if combined else "Timelapse"
         return f"{subject} was recorded but is too large for this Matrix server's upload limit."
@@ -1897,7 +1895,7 @@ def _timelapse_unposted_text(archived_name=None, *, combined=False):
     only what is true: the video exists — archived under the same name —
     but could not be posted. It never names a cause that was not measured.
     """
-    platform = _platform_name() if _config.standalone() else "discord"
+    platform = _platform_name()
     if platform in ("matrix", "telegram"):
         subject = "Combined timelapse" if combined else "Timelapse"
         return f"{subject} was recorded but could not be posted."

@@ -117,6 +117,26 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "broken.yaml"):
             settings.load(local=path, environ={})
 
+    def test_hermes_mode_gets_the_named_refusal(self):
+        # The Hermes install method and runtime mode are removed: a config
+        # still stating the mode fails closed with a message naming the
+        # removal and the way out — never a silent fallback to standalone
+        # and never a bare unknown-value error.
+        path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
+        with self.assertRaisesRegex(
+                settings.SettingsError,
+                r"mode 'hermes' was removed.*set \[bot\] mode to 'standalone'"):
+            settings.load(local=path, environ={})
+
+    def test_hermes_mode_refusal_is_case_insensitive_and_covers_env(self):
+        with self.assertRaisesRegex(settings.SettingsError, "was removed"):
+            settings.load(local=None, environ={"PRINT_HANDY__BOT__MODE": "Hermes"})
+
+    def test_standalone_mode_still_loads(self):
+        path = self.toml("bot:\n  mode: standalone\n", "local.yaml")
+        data = settings.load(local=path, environ={})
+        self.assertEqual(data["bot"]["mode"], "standalone")
+
     def test_yaml_and_legacy_toml_local_precedence_is_yaml_first(self):
         toml_path = self.toml("[layout]\nmulti_copy_edge_mm = 4\n", "local.toml")
         yaml_path = self.toml("layout:\n  multi_copy_edge_mm: 6\n", "local.yaml")
@@ -202,12 +222,13 @@ class OverrideTests(unittest.TestCase):
         data = settings.load(home=home, local=False, environ={})
         self.assertEqual(data["bot"]["mode"], "standalone")
 
-    def test_bot_mode_explicit_hermes_is_preserved(self):
-        # An explicit hermes choice still resolves to hermes after the
-        # default flip (#524 stage 5): only an unset mode changes.
+    def test_bot_mode_explicit_hermes_is_refused(self):
+        # The hermes mode is removed: an explicit hermes choice gets the
+        # named refusal, not preservation (see also the refusal tests in
+        # the YAML loading tests above).
         path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
-        data = settings.load(local=path, environ={})
-        self.assertEqual(data["bot"]["mode"], "hermes")
+        with self.assertRaisesRegex(settings.SettingsError, "mode 'hermes' was removed"):
+            settings.load(local=path, environ={})
 
     def test_yaml_home_preserves_effective_legacy_toml_values(self):
         yaml_data = settings.load(home=settings.HOME, local=False, environ={})
@@ -263,15 +284,15 @@ class OverrideTests(unittest.TestCase):
             "flashforge_stock": {"host"},
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},
-            "paths": {"hermes_home", "archive", "records_vault", "cache", "hermes_bin", "ffmpeg",
-                      "piper", "piper_model", "hermes_agent", "hermes_restart_helper"},
+            "paths": {"hermes_home", "archive", "records_vault", "cache", "ffmpeg",
+                      "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
             "discord": {"chat_id", "approval_user_id", "upload_max_bytes", "post_print_quiet_s",
                         "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
                         "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
-                        "clarify_ui", "approval_all_users", "mention_starter"},
+                        "approval_all_users", "mention_starter"},
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
             "matrix": {"homeserver_url", "access_token_env", "room_id", "allowed_user_ids",
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},

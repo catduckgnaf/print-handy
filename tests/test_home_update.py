@@ -23,6 +23,26 @@ SMOKE_TEST = (
 )
 
 
+DISCORD_STUB = """
+import json, urllib.request
+_real_urlopen = urllib.request.urlopen
+class _Resp:
+    status = 200
+    def read(self):
+        return json.dumps({"id": "1", "username": "fixture-bot"}).encode()
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+def _urlopen(req, *args, **kwargs):
+    url = getattr(req, "full_url", str(req))
+    if "discord.com" in url and url.rstrip("/").endswith("/users/@me"):
+        return _Resp()
+    return _real_urlopen(req, *args, **kwargs)
+urllib.request.urlopen = _urlopen
+"""
+
+
 def git(cwd, *args):
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
                           check=True, capture_output=True, text=True).stdout.strip()
@@ -58,11 +78,19 @@ class HomeUpdateTests(unittest.TestCase):
         (profile / "state" / "printer_hardware.json").write_text(
             '{"spool": {"material": "PLA", "density": 1.24}, "temps_c": {"nozzle": 210, "bed": 60}, '
             '"nozzle": {"diameter_mm": 0.4}}')
-        # The install this fixture models is a Hermes install, and a real one
-        # states its mode explicitly (the shipped templates always did) — so
-        # the fixture does too; since #524 an unset mode means standalone.
+        # The install this fixture models states its mode explicitly (the
+        # shipped templates always did) — so the fixture does too. The
+        # standalone doctor also logs in over REST with the bot token, which
+        # a throwaway fixture cannot do for real: the modeled install carries
+        # a token, and update() runs the checks with a sitecustomize stub
+        # (below) answering Discord's users/@me probe.
         (self.home / "config" / "local.toml").write_text(
-            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nhermes_home = "{profile}"\n\n[bot]\nmode = "hermes"\n')
+            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nhermes_home = "{profile}"\n\n[bot]\nmode = "standalone"\n\n[discord]\nchat_id = "123"\n')
+        (profile / ".env").write_text("DISCORD_BOT_TOKEN=fixture-token\n")
+        stub = base / "discord-stub"
+        stub.mkdir()
+        (stub / "sitecustomize.py").write_text(DISCORD_STUB)
+        self.stub = stub
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -86,6 +114,7 @@ class HomeUpdateTests(unittest.TestCase):
         # Run the update's checks with this interpreter. With HOME moved, the script cannot find
         # the agent venv and would fall back to whatever python3 is first on PATH.
         env.setdefault("PYTHON", sys.executable)
+        env["PYTHONPATH"] = str(self.stub) + os.pathsep + env.get("PYTHONPATH", "")
         if home:
             env["PYTHONUSERBASE"] = site.getuserbase()  # keep user-installed packages after HOME moves
             env["HOME"] = str(home)
@@ -179,18 +208,14 @@ class HomeUpdateTests(unittest.TestCase):
 
 
 class InstallDocModePinTests(unittest.TestCase):
-    """P2-210: the install guide's migration note must tell existing Hermes
-    installs whose local file holds only overrides to pin bot.mode in that
-    local file BEFORE updating — their mode otherwise comes from the shipped
-    home template, whose line the update replaces. The old blanket claim
-    that existing configs state the mode explicitly must not come back."""
+    """The install guide must name the Hermes removal and the refusal a
+    leftover `mode: hermes` config gets, so an operator updating an old
+    Hermes-hosted install learns the mode is gone from the guide itself,
+    not from a bare startup failure."""
 
-    def test_migration_note_carries_the_pin_first_step(self):
+    def test_install_doc_names_the_removal_and_the_refusal(self):
         doc = (ROOT / "docs" / "INSTALL.md").read_text()
-        section = doc.split("## Migration notes", 1)[1]
-        self.assertIn("pin the mode before updating", section)
-        self.assertIn("config/local.yaml", section)
-        self.assertIn("config/local.toml", section)
-        self.assertIn("mode: hermes", section)
-        self.assertIn('mode = "hermes"', section)
-        self.assertNotIn("existing configs state `mode: hermes`", section)
+        self.assertIn("The Hermes install is removed", doc)
+        self.assertIn("mode: hermes", doc)
+        self.assertIn("refused at load", doc)
+        self.assertIn("standalone", doc)

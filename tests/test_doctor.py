@@ -53,24 +53,19 @@ class CheckLoggingTests(unittest.TestCase):
 
 
 class DoctorTests(unittest.TestCase):
-    def run_doctor(self, local_toml="", hardware=None, profile_config="enabled"):
+    def run_doctor(self, local_toml="", hardware=None):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "local.toml"
-            # These tests model a Hermes home install (profile, gateway rows),
-            # so the mode is stated explicitly: since #524 an unset mode
-            # resolves to standalone and the doctor would check that instead.
-            path.write_text('[bot]\nmode = "hermes"\n' + local_toml)
+            path.write_text('[bot]\nmode = "standalone"\n[discord]\nchat_id = "123"\n' + local_toml)
             data = settings.load(local=path, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(self.profile)})
-        if profile_config is not None:
-            self.profile.mkdir(parents=True, exist_ok=True)
-            (self.profile / "config.yaml").write_text(
-                "platforms:\n  discord:\n    enabled: true\n" if profile_config == "enabled" else profile_config)
         state = settings.state_dir(data)
         state.mkdir(parents=True, exist_ok=True)
         if hardware is not False:
             (state / "printer_hardware.json").write_text(json.dumps(hardware or HARDWARE))
         out = io.StringIO()
-        with mock.patch.object(doctor.settings, "load", return_value=data), \
+        with mock.patch.dict("os.environ", {"DISCORD_BOT_TOKEN": "token-present"}), \
+                mock.patch.object(doctor, "check_discord_login", return_value="logged in as test bot"), \
+                mock.patch.object(doctor.settings, "load", return_value=data), \
                 mock.patch.object(doctor.shutil, "which", side_effect=self.which), \
                 mock.patch.object(doctor.subprocess, "run", return_value=mock.MagicMock(returncode=self.orca_code)):
             code = doctor.run(out)
@@ -89,25 +84,6 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("ok    settings: Flashforge AD5X, bed 220x220 mm, 4 slot(s), 0.4 mm nozzle", text)
         self.assertIn("skip  moonraker", text)
         self.assertIn("ok    orca cli: flatpak run com.orcaslicer.OrcaSlicer", text)
-        self.assertIn("ok    hermes discord platform", text)
-
-    def test_hermes_profile_disabling_discord_fails_with_the_remedy(self):
-        """#384: the gateway honours an explicit platform disable over any
-        credentials, so the doctor must fail loudly instead of all-ok."""
-        with mock.patch.dict("os.environ", {"DISCORD_BOT_TOKEN": "token-present"}):
-            code, text = self.run_doctor(profile_config="platforms:\n  discord:\n    enabled: false\n")
-        self.assertEqual(code, 1)
-        self.assertIn("FAIL  hermes discord platform", text)
-        self.assertIn("platforms.discord.enabled is false", text)
-        self.assertIn("Set it to true and restart the Hermes gateway", text)
-
-    def test_hermes_profile_config_missing_skips(self):
-        """No profile config means the profile was never installed — already
-        loud everywhere else; this check must not become an update blocker
-        for it (home-update.sh gates on the doctor)."""
-        code, text = self.run_doctor(profile_config=None)
-        self.assertEqual(code, 0, text)
-        self.assertIn("skip  hermes discord platform", text)
 
     def test_stray_state_files_warn_without_failing(self):
         root = Path(self.tmp.name) / "hermes"
@@ -231,24 +207,6 @@ class DoctorTests(unittest.TestCase):
     def test_bad_service_url_is_a_settings_error(self):
         with self.assertRaisesRegex(settings.SettingsError, "must be a URL"):
             self.run_doctor('[services]\nspoolman_url = "spoolman.lan"\n')
-
-    def test_hermes_profile_config_unreadable_fails_instead_of_passing(self):
-        """#391 (#384 expansion): an unparseable profile config means the
-        platform switch cannot be verified — the doctor must fail that row
-        rather than report the platform check ok or skip it silently."""
-        code, text = self.run_doctor(profile_config="platforms: [unclosed\n")
-        self.assertEqual(code, 1)
-        self.assertIn("FAIL  hermes discord platform", text)
-        self.assertIn("cannot read", text)
-
-    def test_hermes_profile_without_a_platform_switch_is_ok(self):
-        """#391 (#384 expansion): no explicit switch means the gateway
-        default applies — ok, and the row says why it is ok."""
-        code, text = self.run_doctor(profile_config="model:\n  default: test\n")
-        self.assertEqual(code, 0, text)
-        self.assertIn("ok    hermes discord platform", text)
-        self.assertIn("no explicit discord platform disable", text)
-
 
 class _FakeResponse:
     """A urlopen response: a status for the service probe, JSON for the reader."""

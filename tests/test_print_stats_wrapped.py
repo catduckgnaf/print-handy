@@ -489,7 +489,7 @@ class SettingsTests(unittest.TestCase):
             field = catalog.field_by_id(field_id)
             self.assertIsNotNone(field)
             self.assertEqual(field.kind, "toggle")
-            self.assertEqual(field.group, "timelapse")
+            self.assertEqual(field.group, "wrapped")
 
 
 class FakeRunner:

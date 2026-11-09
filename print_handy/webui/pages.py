@@ -68,14 +68,15 @@ FIELDS_FIELD = "_fields"
 # Page groups in render order: (catalog group name, heading). The
 # headings follow the docs' grouping of the same settings.
 GROUPS = (
-    ("printer", "Printer"),
+    ("printers", "Printers"),
     ("platform", "Platform and chat"),
-    ("services", "Services"),
+    ("spools", "Spools"),
     ("endpoints", "Model endpoints"),
-    ("timelapse", "Timelapse"),
-    ("images", "Images and camera watch"),
-    ("live", "Live camera (Discord)"),
+    ("camera", "Camera, timelapse and images"),
+    ("wrapped", "Wrapped"),
     ("slicing", "Slicing and delivery"),
+    ("home_assistant", "Home Assistant"),
+    ("notifications", "Notifications"),
     ("logging", "Logging"),
     ("webui", "Web UI"),
 )

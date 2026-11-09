@@ -776,12 +776,11 @@ def _post_target_configured():
     """
     try:
         from . import moonraker_event_listener as mel
-        if _config.standalone():
-            platform = str(_config.cfg()["bot"].get("platform") or "discord")
-            if platform == "telegram":
-                return bool(mel._telegram_chat_id())
-            if platform == "matrix":
-                return bool(mel._matrix_room_id())
+        platform = str(_config.cfg()["bot"].get("platform") or "discord")
+        if platform == "telegram":
+            return bool(mel._telegram_chat_id())
+        if platform == "matrix":
+            return bool(mel._matrix_room_id())
         from . import moonraker_discord_announcements as announcer
         return bool(announcer.DISCORD_CHAT_ID)
     except Exception:

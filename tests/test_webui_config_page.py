@@ -118,9 +118,10 @@ class ConfigPageTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(csrf)
         self.assertIn('action="/config/preview"', body)
-        for heading in ("Printer", "Platform and chat", "Services", "Timelapse",
-                        "Images and camera watch", "Slicing and delivery",
-                        "Logging", "Web UI"):
+        for heading in ("Printers", "Platform and chat", "Spools",
+                        "Camera, timelapse and images", "Wrapped",
+                        "Slicing and delivery", "Home Assistant",
+                        "Notifications", "Logging", "Web UI"):
             self.assertIn(f"<h2>{heading}</h2>", body)
         for name in ("printer.model", "bot.platform", "discord.chat_id",
                      "telegram.chat_id", "matrix.room_id",

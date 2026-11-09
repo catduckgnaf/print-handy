@@ -86,8 +86,7 @@ Details: [Z offset](CALIBRATION.md#z-offset--report--guide-in-every-mode).
 ## Bed mesh
 
 Build the full mesh with `/print-calibration` (or the supervised
-`moonrakerctl mesh-run` routine,
-[bed mesh routine](../hermes/skills/klipper-3d-printing/references/bed-mesh-routine.md)).
+`moonrakerctl mesh-run` routine).
 Screenless, both run ZMod's load-cell-aware leveling:
 
 ```
