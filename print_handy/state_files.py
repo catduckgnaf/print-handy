@@ -56,10 +56,12 @@ KNOWN = (
     "roast_state.json",
     "runout_pause.json",
     "screen_sync_pending.json",
+    "setup_completion.json",
     "spoolman_known_spools.json",
     "start-recordings",
     "stops",
     "timelapse_plans",
+    "webui_walkthrough.json",
 )
 
 # Files the cutover (#45) moved from $HOME into the profile state folder.

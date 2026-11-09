@@ -131,7 +131,7 @@ def _esc(value):
 
 def state_path(data):
     """The walkthrough state file: beside the access file in the state folder."""
-    return Path(settings.state_dir(data)) / STATE_FILE
+    return settings.state_dir(data) / "webui_walkthrough.json"
 
 
 def load_state(data):
