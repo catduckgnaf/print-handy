@@ -28,63 +28,6 @@ def hermes_home() -> Path:
     return Path(cfg()["paths"]["hermes_home"])
 
 
-def profile_config_path() -> Path:
-    """The Hermes profile's own config file: <hermes_home>/config.yaml."""
-    return hermes_home() / "config.yaml"
-
-
-def _parse_yaml(text: str):
-    """Parse YAML text with settings' loader fallback (P2-149).
-
-    PyYAML is preferred, but the Hermes plugin runtime ships ruamel.yaml
-    instead (#170) — settings resolved that choice at its own import, so
-    reuse its loader rather than importing yaml unconditionally (which
-    raised ImportError out of the platform check on ruamel-only hosts).
-    Raises when no YAML library is reachable at all; the caller maps
-    that to its 'unreadable' state.
-    """
-    try:
-        import yaml
-    except ImportError:
-        if settings._yaml_load is None:
-            raise
-        return settings._yaml_load(text)
-    return yaml.safe_load(text)
-
-
-def profile_platform_state(platform: str = "discord", path: Path | None = None) -> tuple[str, Path]:
-    """(state, path): the gateway platform switch in the Hermes profile config.
-
-    state is "enabled", "disabled" (platforms.<platform>.enabled is explicitly
-    false: the gateway will not connect that platform even when credentials are
-    set — environment credentials do not override an explicit platform disable),
-    "unset" (no explicit switch; the gateway default applies), "missing" (no
-    profile config at all) or "unreadable" (the file cannot be parsed, so the
-    switch cannot be verified). Print Handy never writes this file — the
-    installer renders it once from hermes/profile/config.yaml.template and the
-    Hermes gateway owns it after that — so this only ever reads (#384).
-    ``path`` overrides the profile config location for callers holding their
-    own settings dict (the doctor); the default is the live profile's.
-    """
-    path = Path(path) if path is not None else profile_config_path()
-    if not path.is_file():
-        return "missing", path
-    try:
-        data = _parse_yaml(path.read_text(encoding="utf-8"))
-    except Exception:
-        return "unreadable", path
-    if not isinstance(data, dict):
-        return "unreadable", path
-    platforms = data.get("platforms")
-    section = platforms.get(platform) if isinstance(platforms, dict) else None
-    if not isinstance(section, dict) or "enabled" not in section:
-        return "unset", path
-    value = section["enabled"]
-    if value is False or (isinstance(value, str) and value.strip().casefold() in ("false", "no", "off")):
-        return "disabled", path
-    return "enabled", path
-
-
 _pinned: dict[str, Any] | None = None
 
 
@@ -102,61 +45,20 @@ def pinned_hermes_home() -> Path:
     return Path(_pinned["paths"]["hermes_home"])
 
 
-# The shipped default profile name, and the standalone bot's identity label
-# (print_handy.bot.runtime.PROFILE stamps it on the bot's own sources). It is
-# the fallback identity when no hosting profile can be derived — standalone
-# runtimes, which have no Hermes profile at all (#574).
+# The shipped default profile name, and the bot's identity label
+# (print_handy.bot.runtime.PROFILE stamps it on the bot's own sources):
+# the one hosting identity every install answers for (#574).
 DEFAULT_PROFILE = "3dprinting"
 
 
 def hosting_profile(plugin_file=None, home=None, mode=None) -> tuple[str, bool]:
-    """(name, derived): the Hermes profile identity this install answers for (#574).
+    """(name, derived): the profile identity this install answers for (#574).
 
-    Hermes mode requires a dedicated profile (#566), but its name is the
-    operator's choice, so the identity the print-feedback plugin gates on is
-    derived from the install itself, never from a setting of its own:
-
-    * ``paths.hermes_home`` inside a Hermes profiles layout
-      (``~/.hermes/profiles/<name>``) — the path the installer targets; its
-      basename is the profile name. A hermes_home outside that layout
-      (Docker's ``/data/state``) names a data root, not a profile, and is
-      skipped; ``$HERMES_HOME`` is never consulted either, for the
-      pinned_hermes_home reason (a cron job's names the launching profile).
-    * the plugin's own install location, when ``plugin_file``'s folder is
-      the symlink scripts/install-hermes.sh creates at
-      ``<profile>/plugins/print-feedback``.
-
-    When neither derives a profile, returns (DEFAULT_PROFILE, False): the
-    standalone bot's stamped identity, which is the only event identity a
-    standalone runtime ever presents.
-
-    Derivation applies only in Hermes mode (``mode``, default ``[bot] mode``).
-    A standalone runtime stamps every event DEFAULT_PROFILE, so deriving
-    "printshop" from a standalone install whose hermes_home happens to sit
-    in a profiles layout made the gates refuse every command.
-    """
-    if mode is None:
-        try:
-            mode = str((cfg().get("bot") or {}).get("mode") or "")
-        except Exception:
-            mode = ""
-    if mode != "hermes":
-        return DEFAULT_PROFILE, False
-    if home is None:
-        try:
-            home = hermes_home()
-        except Exception:
-            home = None
-    if home is not None:
-        home = Path(home)
-        if home.name and home.parent.name == "profiles":
-            return home.name, True
-    if plugin_file is not None:
-        folder = Path(plugin_file).parent
-        if folder.parent.name == "plugins" and folder.is_symlink():
-            name = folder.parent.parent.name
-            if name:
-                return name, True
+    The bot is its own host now — the Hermes install that used to derive a
+    profile name from the install layout is gone — so the identity is
+    always the fixed DEFAULT_PROFILE the standalone runtime stamps on its
+    sources, never derived. The parameters are accepted for provenance
+    only."""
     return DEFAULT_PROFILE, False
 
 
@@ -232,10 +134,6 @@ def records_vault() -> Path:
     return Path(cfg()["paths"]["records_vault"])
 
 
-def hermes_bin() -> str:
-    return str(cfg()["paths"]["hermes_bin"])
-
-
 def ffmpeg_bin() -> str:
     return str(cfg()["paths"]["ffmpeg"])
 
@@ -266,31 +164,10 @@ def discord_chat_id() -> str:
     return str(cfg()["discord"]["chat_id"] or "")
 
 
-def bot_mode() -> str:
-    """standalone (python3 -m print_handy.bot, the default) or hermes (the gateway runs the plugin)."""
-    return str((cfg().get("bot") or {}).get("mode") or "standalone")
-
-
-def standalone() -> bool:
-    return bot_mode() == "standalone"
-
-
 def discord_token() -> str:
     """The Discord bot token: the [discord] token_env variable, then the profile .env files."""
     name = str((cfg().get("discord") or {}).get("token_env") or "DISCORD_BOT_TOKEN")
     return profile_env_value(name)
-
-
-def clarify_ui_enabled() -> bool:
-    """[discord] clarify_ui: Print Handy's own renderer draws handler questions under Hermes (#524 stage 2).
-
-    Off by default — Hermes' adapter keeps rendering, exactly as before the
-    switch existed. On, the plugin activates its own prompt registry, posts
-    questions by direct Discord REST (print_handy.hermes.clarify_ui) and
-    resolves clicks and typed answers itself: one renderer in both modes.
-    Read at plugin register/attach time; changing it takes effect on restart.
-    """
-    return bool((cfg().get("discord") or {}).get("clarify_ui", False))
 
 
 def question_timeout_s() -> int:

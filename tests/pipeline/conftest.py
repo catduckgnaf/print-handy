@@ -98,54 +98,24 @@ def _scratch_state(tmp_path, monkeypatch):
 
 @pytest.fixture(scope="package", autouse=True)
 def _clarify_gateway_stand_in():
-    """Hermes' clarify gateway is not installed in CI. Install an in-memory stand in with the same
-    calls the intake code makes (register, wait_for_response, resolve_gateway_clarify, is_open, CANCELLED).
-    Package scope so it leaves with tests/pipeline (see tests/hermes/conftest.py)."""
+    """A `tools.clarify_gateway` name may still be imported by test fakes
+    that answer questions the way the old host module did; the module
+    installed here delegates every call to the one real registry,
+    print_handy.core.prompts (see tests/hermes/conftest.py).
+    Package scope so it leaves with tests/pipeline."""
     try:
         import tools.clarify_gateway  # noqa: F401
         yield
         return
     except ImportError:
         pass
-    lock = threading.Lock()
-    prompts = {}
-
-    class Entry:
-        def __init__(self):
-            self.event = threading.Event()
-            self.answer = None
-
-    def entry(cid):
-        with lock:
-            return prompts.setdefault(cid, Entry())
-
-    def register(cid, session_key, question, choices):
-        entry(cid)
-
-    def resolve_gateway_clarify(cid, answer):
-        e = entry(cid)
-        e.answer = answer
-        e.event.set()
-        return True
-
-    def wait_for_response(cid, timeout=None):
-        e = entry(cid)
-        got = e.event.wait(timeout)
-        with lock:
-            prompts.pop(cid, None)
-        return e.answer if got else None
-
-    def is_open(cid):
-        with lock:
-            e = prompts.get(cid)
-            return e is not None and not e.event.is_set()
-
+    from print_handy.core import prompts as core_prompts
     module = types.ModuleType("tools.clarify_gateway")
-    module.CANCELLED = "__cancelled__"
-    module.register = register
-    module.resolve_gateway_clarify = resolve_gateway_clarify
-    module.wait_for_response = wait_for_response
-    module.is_open = is_open
+    module.CANCELLED = core_prompts.CANCELLED
+    module.register = core_prompts.register
+    module.resolve_gateway_clarify = core_prompts.resolve_gateway_clarify
+    module.wait_for_response = core_prompts.wait_for_response
+    module.is_open = core_prompts.is_open
     package = sys.modules.get("tools") or types.ModuleType("tools")
     package.clarify_gateway = module
     sys.modules["tools"] = package

@@ -70,7 +70,7 @@ user.
 
 The message scoping is per channel, so the inverse is the hazard: **never let two instances serve
 the same channel on one token.** Both receive every message in that channel and both act —
-a leftover instance (an old Hermes profile on another host, a forgotten container) doing
+a leftover instance (an old install on another host, a forgotten container) doing
 this looks exactly like random bot misbehaviour, including slicing failures from an
 outdated code path. The standalone bot logs a warning when Discord hands it a second
 READY on a live session, one sign that another process logged in with the same token.

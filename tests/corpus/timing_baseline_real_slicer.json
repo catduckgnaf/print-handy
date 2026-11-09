@@ -1,6 +1,6 @@
 {
  "cases": {
-  "plates-multicolor/hermes": {
+  "plates-multicolor/direct": {
    "first_prompt_s": 0.11,
    "fit_check_s": 0.01,
    "raised_from": {
@@ -11,7 +11,7 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.4 s of wall time, inside this leg's 1.0 s slack and its measured runner spread (tests/corpus/timing_variance_real_slicer.json). The leg stays reporting-only: no variance refresh was run for this release, so no promotion to blocking is proposed (see #734).",
    "wall_s": 1.98
   },
-  "rotation-fit/hermes": {
+  "rotation-fit/direct": {
    "first_prompt_s": 0.14,
    "fit_check_s": 3.94,
    "raised_from": {
@@ -22,7 +22,7 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.4 s of wall time, inside this leg's 1.0 s slack and its measured runner spread (tests/corpus/timing_variance_real_slicer.json). The leg stays reporting-only: no variance refresh was run for this release, so no promotion to blocking is proposed (see #734).",
    "wall_s": 8.45
   },
-  "single-part/hermes": {
+  "single-part/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 5.68,
    "raised_from": {
@@ -33,7 +33,7 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.4 s of wall time, inside this leg's 1.0 s slack and its measured runner spread (tests/corpus/timing_variance_real_slicer.json). The leg stays reporting-only: no variance refresh was run for this release, so no promotion to blocking is proposed (see #734).",
    "wall_s": 6.35
   },
-  "stl-large-plate/hermes": {
+  "stl-large-plate/direct": {
    "first_prompt_s": 0.07,
    "fit_check_s": 0.71,
    "raised_from": {
@@ -44,7 +44,7 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.4 s of wall time, inside this leg's 1.0 s slack and its measured runner spread (tests/corpus/timing_variance_real_slicer.json). The leg stays reporting-only: no variance refresh was run for this release, so no promotion to blocking is proposed (see #734).",
    "wall_s": 33.29
   },
-  "stl-single-part/hermes": {
+  "stl-single-part/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 5.73,
    "raised_from": {
@@ -55,7 +55,7 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.4 s of wall time, inside this leg's 1.0 s slack and its measured runner spread (tests/corpus/timing_variance_real_slicer.json). The leg stays reporting-only: no variance refresh was run for this release, so no promotion to blocking is proposed (see #734).",
    "wall_s": 6.4
   },
-  "witch-ghost-cults3d/hermes": {
+  "witch-ghost-cults3d/direct": {
    "first_prompt_s": 0.52,
    "fit_check_s": 6.82,
    "raised_from": {

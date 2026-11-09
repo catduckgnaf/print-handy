@@ -1,5 +1,0 @@
-# Any gateway stop or restart also restarts the printer listener,
-# so code updates never leave the listener running old code.
-[Unit]
-PartOf=hermes-gateway.service
-After=hermes-gateway.service

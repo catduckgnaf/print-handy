@@ -7,7 +7,6 @@ health  exit 0 only while a running bot reports a fresh heartbeat with no Hermes
 import logging
 import os
 import sys
-from pathlib import Path
 
 from .. import __version__, ai_routes, logs, settings
 
@@ -26,53 +25,11 @@ def checks(cfg):
 
     mode = cfg["bot"]["mode"]
     add("mode", mode == "standalone", mode if mode == "standalone" else
-        f"{mode}; set PRINT_HANDY__BOT__MODE=standalone (or [bot] mode) to run without Hermes")
-    if mode == "hermes":
-        # #574: in Hermes mode the plugin answers events of the dedicated
-        # profile it is installed in (#566); the name is derived from
-        # paths.hermes_home, never configured. Name the identity the gates
-        # will use, and fail the row when it cannot be derived: the
-        # fallback answers only the default profile's events, which on a
-        # renamed install means the bot silently ignores its channel.
-        profile_name, derived = _config.hosting_profile(home=Path(cfg["paths"]["hermes_home"]), mode=mode)
-        if derived:
-            add("hosting profile", True,
-                f"{profile_name} (derived from paths.hermes_home {cfg['paths']['hermes_home']})")
-        else:
-            add("hosting profile", False,
-                f"cannot derive the hosting profile from paths.hermes_home "
-                f"({cfg['paths']['hermes_home']}); the plugin will answer only "
-                f"'{profile_name}' events — point paths.hermes_home at the dedicated "
-                "profile directory (~/.hermes/profiles/<name>)")
+        f"{mode}; the Hermes mode was removed — set [bot] mode to 'standalone'")
     name = str(cfg["bot"].get("platform") or "discord")
     implemented = platform.platform_module(name) is not None
     add("platform", implemented, name if implemented else
         f"{name}; platform {name!r} is not implemented yet (#164) — discord, telegram and matrix are available")
-    if mode == "hermes" and name == "discord":
-        # #384: in Hermes mode the gateway owns the Discord connection, and an
-        # explicit platforms.discord.enabled: false in the profile config
-        # silently removes attachment intake — credentials do not override it
-        # and the gateway only logs a warning. Name it here, with the remedy.
-        state, profile_config = _config.profile_platform_state(
-            "discord", path=Path(cfg["paths"]["hermes_home"]) / "config.yaml")
-        remedy = (f"set platforms.discord.enabled: true in {profile_config} and restart the Hermes gateway; "
-                  "environment credentials do not override an explicit platform disable")
-        if state == "disabled":
-            add("hermes discord platform", False,
-                f"disabled in {profile_config}: platforms.discord.enabled is false, so the gateway never "
-                f"connects Discord and attachment intake is silently absent; {remedy}")
-        elif state == "enabled":
-            add("hermes discord platform", True, f"enabled in {profile_config}")
-        elif state == "unset":
-            add("hermes discord platform", True,
-                f"no explicit platforms.discord.enabled in {profile_config}; the gateway default applies")
-        elif state == "missing":
-            add("hermes discord platform", True,
-                f"no profile config at {profile_config} (not installed; no platform switch to disable)")
-        else:
-            add("hermes discord platform", False,
-                f"cannot read {profile_config} to verify platforms.discord.enabled; "
-                "fix or remove it, then re-run scripts/install-hermes.sh")
     if name == "discord":
         token_env = cfg["discord"]["token_env"]
         add("token", bool(_config.discord_token()), f"${token_env} is set" if _config.discord_token()
@@ -169,19 +126,10 @@ def checks(cfg):
     else:
         add("agent", True, "not configured (set [agent] chat_url to let an agent endpoint "
                            "answer stray chat; unmatched messages use the llm row above)")
-    # Question rendering (#524 stage 2): the standalone bot always draws
-    # its own questions; on a Hermes install the host adapter draws them
-    # unless the operator turns on Print Handy's own renderer, so Hermes
-    # mode renders exactly what standalone (and the README mockups) show.
-    # A healthy-off row in both states, like the agent row above. The
-    # setting is read at plugin register/attach time (restart to change).
+    # Question rendering: the bot always draws its own questions — there
+    # is no host renderer anymore (the Hermes mode that drew them is gone).
     if name == "discord":
-        if bool((cfg.get("discord") or {}).get("clarify_ui", False)):
-            add("clarify ui", True, "own renderer (discord.clarify_ui is on: in Hermes mode "
-                                    "Print Handy draws its questions itself, one renderer in both modes)")
-        else:
-            add("clarify ui", True, "host renderer (in Hermes mode Hermes draws the questions; "
-                                    "set discord.clarify_ui=true for Print Handy's own renderer)")
+        add("clarify ui", True, "own renderer (Print Handy draws its questions itself)")
     # The roast is separate from the chat fallback above and needs no model
     # at all (#1002): one line per print from the local roast corpus, on the
     # completion post, the failure and cancel posts and a confirmed-spaghetti
@@ -306,16 +254,14 @@ def checks(cfg):
     # off; explicit true is on; unset is auto (on whenever a design/LLM
     # endpoint resolves — the roast posture). When on it needs OpenSCAD (the
     # design engine) and a model: the [design] endpoint inheriting [llm] is
-    # the normal path in every mode (#524 Stage 3); in Hermes mode with no
-    # endpoint configured, the profile's auxiliary.print_design task is the
-    # fallback lane. A forced-on-but-unusable design fails the check, like
-    # a missing token, so the misconfiguration is visible before a user
-    # hits it mid-conversation; auto with no endpoint is a healthy off.
+    # the path (#524 Stage 3). A forced-on-but-unusable design fails the
+    # check, like a missing token, so the misconfiguration is visible before
+    # a user hits it mid-conversation; auto with no endpoint is a healthy off.
     import shutil as _shutil
     from ..core import design as _design
     design_cfg = cfg.get("design") or {}
     resolved = _design.resolve_http_config(cfg)
-    endpoint_available = resolved is not None or mode == "hermes"
+    endpoint_available = resolved is not None
     design_mode = _design.mode_name(cfg, endpoint_available=endpoint_available)
     if design_mode == "off":
         add("design", True, "off (design.enabled is false; /print-design and /design are unavailable)")
@@ -327,9 +273,6 @@ def checks(cfg):
                              "(it is in the Docker image) or set design.enabled=false")
     elif resolved:
         add("design", True, f"{design_mode} ({resolved['model']} at {resolved['chat_url']})")
-    elif mode == "hermes":
-        add("design", True, f"{design_mode} (Hermes print_design auxiliary task; pin its model in the "
-                            "profile's auxiliary.print_design block)")
     else:
         add("design", False, "enabled, but no model endpoint: set [design] chat_url and "
                              "model, or the [llm] values they inherit")

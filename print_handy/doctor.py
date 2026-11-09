@@ -215,10 +215,7 @@ def check_purge(data):
 
 
 def check_bot(data):
-    """Which runtime talks to Discord, and for the standalone bot, where and for whom."""
-    mode = data["bot"]["mode"]
-    if mode != "standalone":
-        return f"{mode} (the Hermes gateway runs the print-feedback plugin)"
+    """Where the bot talks to Discord, and for whom."""
     from .bot.platform import describe_access
     from .bot.runtime import allowed_users, denied_users, listed_users
     chat = data["discord"]["chat_id"]
@@ -229,37 +226,6 @@ def check_bot(data):
     access = describe_access(len(allowed_users(data)), len(denied_users(data)),
                               not listed_users(data))
     return f"standalone, print channel {chat}, access: {access}"
-
-
-def check_hermes_platform(data):
-    """Hermes mode: the profile must not explicitly disable the Discord platform (#384).
-
-    The gateway honours platforms.discord.enabled: false over any credentials,
-    so Discord attachment intake is silently absent while everything else
-    looks healthy. Returns None outside Hermes/Discord mode, and when there
-    is no profile config to check (a missing config means the profile was
-    never installed — already loud everywhere else, and this check must
-    never become an update blocker for it); raises with the remedy when the
-    switch is explicitly off or the file cannot be parsed.
-    """
-    if data["bot"]["mode"] != "hermes" or str(data["bot"].get("platform") or "discord") != "discord":
-        return None
-    from .hermes import _config
-    state, path = _config.profile_platform_state(
-        "discord", path=Path(data["paths"]["hermes_home"]) / "config.yaml")
-    if state == "disabled":
-        raise RuntimeError(
-            f"the Hermes profile disables Discord: platforms.discord.enabled is false in {path}. "
-            "The gateway will not connect Discord, so attachment intake is absent even though "
-            "credentials are set; environment credentials do not override an explicit platform "
-            "disable. Set it to true and restart the Hermes gateway")
-    if state == "missing":
-        return None
-    if state == "unreadable":
-        raise RuntimeError(f"cannot read {path} to verify platforms.discord.enabled")
-    if state == "enabled":
-        return f"discord platform enabled in {path}"
-    return f"no explicit discord platform disable in {path}"
 
 
 def check_logging(data):
@@ -351,35 +317,13 @@ def _bot_token(data):
 
 
 def check_discord_login(data):
-    """Standalone only: log in over REST with the bot token. Skipped in Hermes mode."""
-    if data["bot"]["mode"] != "standalone":
-        return None
+    """Log in over REST with the bot token."""
     token, name = _bot_token(data)
     if not token:
         raise RuntimeError(f"${name} is empty; the standalone bot needs its Discord bot token there")
     from .bot import rest
     me = rest.whoami(token)
     return f"{me.get('username')} ({me.get('id')})"
-
-
-def check_shared_token(data, hermes_root=None):
-    """A warning when a Hermes profile holds the standalone bot's token: both would answer everything."""
-    if data["bot"]["mode"] != "standalone":
-        return None
-    token, _name = _bot_token(data)
-    if not token:
-        return None
-    root = Path(hermes_root) if hermes_root is not None else Path.home() / ".hermes"
-    for env in [root / ".env", *sorted(root.glob("profiles/*/.env"))]:
-        try:
-            lines = env.read_text().splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            if line.startswith("DISCORD_BOT_TOKEN=") and line.split("=", 1)[1].strip().strip("'\"") == token:
-                return (f"the Hermes profile {env} holds this bot token. Stop that Hermes gateway: "
-                        "one token runs one mode, or every message is answered twice")
-    return None
 
 
 def run(out=sys.stdout):
@@ -413,15 +357,8 @@ def run(out=sys.stdout):
     report("zmod version", check_zmod_version, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
-    report("hermes discord platform", check_hermes_platform, data)
     report("logging", check_logging, data)
-    if data["bot"]["mode"] == "standalone":
-        report("discord login", check_discord_login, data)
-        try:
-            shared = check_shared_token(data)
-        except Exception as exc:
-            shared = f"could not compare tokens: {exc}"
-        print(f"WARN  bot token: {shared}" if shared else "ok    bot token: not shared with a Hermes profile", file=out)
+    report("discord login", check_discord_login, data)
     try:
         model_warning = settings.defaulted_model_warning(data)
     except Exception as exc:  # a state problem is a warning here, never a failed check

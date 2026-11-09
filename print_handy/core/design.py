@@ -26,9 +26,7 @@ Safety shape (Stage 0 audit on #388, spike-proven):
   and POSIX CPU/memory rlimits, following cad_split._run_openscad's discipline.
 
 The engine takes a ``complete(messages) -> str`` callable and never knows the transport:
-every mode resolves an OpenAI-compatible HTTP endpoint from [design]/[llm] first; only
-when no endpoint resolves does Hermes mode fall back to the plugin's ``ctx.llm`` lane
-with its registered ``print_design`` auxiliary task (#524 Stage 3).
+the transport resolves an OpenAI-compatible HTTP endpoint from [design]/[llm] (#524 Stage 3).
 """
 from __future__ import annotations
 
@@ -309,8 +307,11 @@ def fetch_link_source(url, target_dir) -> Path:
     target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     host = urlsplit(str(url)).hostname or ""
+    # Which site this is comes from the one registry (via model_job's
+    # SITE_HOSTS, which model_sources builds); no host lists here.
+    site = mj.SITE_HOSTS.get(host.lower())
     try:
-        if "cults3d.com" in host:
+        if site == "cults3d":
             # Metadata-only (#462 Stage 3): Cults' API exposes no files at all,
             # so there is nothing design could fetch — name the gap instead of
             # falling through to the Printables lookup.
@@ -319,7 +320,7 @@ def fetch_link_source(url, target_dir) -> Path:
                 "listing's details only, never its 3D files, which are downloaded "
                 "through the signed-in website. Download the file from the model "
                 "page in a browser and drop the file here instead.")
-        if "makerworld.com" in host:
+        if site == "makerworld":
             job = mj.maker_inventory(str(url))
             from .makerworld_profiles import choose as choose_profile
             hint = re.fullmatch(r"profileId-(\d+)", urlsplit(str(url)).fragment or "")
@@ -329,7 +330,7 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that MakerWorld link has {len(job['sources'])} profiles and no clear "
                     "default, so design cannot pick one; drop the file you want edited")
             return Path(mj.maker_download(job, chosen, target_dir))
-        if "thingiverse.com" in host:
+        if site == "thingiverse":
             job = mj.thingiverse_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
@@ -340,7 +341,7 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that Thingiverse link has {len(rows)} model files, so design cannot pick "
                     "one; drop the file you want edited")
             return Path(mj.thingiverse_download(job, rows[0], target_dir))
-        if "crealitycloud.com" in host:
+        if site == "crealitycloud":
             job = mj.crealitycloud_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
@@ -741,8 +742,7 @@ def effective_enabled(cfg, *, endpoint_available=None) -> bool:
 
     ``enabled`` absent/None is AUTO: design is on exactly when an endpoint
     is available — ``endpoint_available`` when the caller knows its
-    transport (the Hermes lane counts as available), else whether the
-    standalone HTTP endpoint resolves. Explicit True is on (the caller
+    transport, else whether the HTTP endpoint resolves. Explicit True is on (the caller
     still reports an unconfigured endpoint separately), explicit False is
     off in all cases.
     """
@@ -790,41 +790,6 @@ def http_complete(cfg, messages, *, opener=None):
         return str(data["choices"][0]["message"]["content"] or "")
     except (KeyError, IndexError, TypeError):
         raise DesignError("the design model returned a reply with no message content") from None
-
-
-async def hermes_complete(llm, messages, *, timeout_s=180):
-    """One design model call through the Hermes plugin LLM lane (ctx.llm).
-
-    This lane is the legacy fallback (#524 Stage 3): it serves a design
-    turn only when no [design]/[llm] HTTP endpoint resolves. The model is
-    the plugin's registered ``print_design`` auxiliary task: the
-    operator pins provider/model/reasoning for it in the profile's
-    ``auxiliary.print_design`` block; with no pin it follows the profile's
-    active model. A trust-gate refusal (an operator who has not granted a
-    pin the call needs) surfaces as a plain DesignError, never a crash.
-    """
-    kwargs = {"messages": messages, "task": "print_design", "purpose": "print-design",
-              "timeout": timeout_s, "max_tokens": 4000, "temperature": 0.3}
-    try:
-        acomplete = getattr(llm, "acomplete", None)
-        if callable(acomplete):
-            result = await acomplete(**kwargs)
-        elif callable(getattr(llm, "complete", None)):
-            result = await asyncio.to_thread(llm.complete, **kwargs)
-        else:
-            raise DesignError("this Hermes version does not offer the plugin LLM lane "
-                              "(ctx.llm), so design has no model in Hermes mode")
-    except DesignError:
-        raise
-    except Exception as exc:
-        if "Trust" in type(exc).__name__ or "trust" in str(exc).lower():
-            raise DesignError(
-                "Hermes refused the design model call (plugin LLM trust gate). "
-                "Pin the design model in the profile's auxiliary.print_design block, "
-                "or grant the print-feedback plugin a model override in config.yaml") from None
-        raise DesignError("the design service did not answer — wait a moment and try again") from None
-    text = getattr(result, "text", result)
-    return str(text or "")
 
 
 # --------------------------------------------------------------------- the engine

@@ -76,7 +76,7 @@ def test_settings_doc_carries_the_row():
 def test_webui_catalog_carries_the_field():
     from print_handy.webui import catalog
     text = Path(catalog.__file__).read_text(encoding="utf-8")
-    assert '"vision.local_empty_enabled": "images"' in text
+    assert '"vision.local_empty_enabled": "camera"' in text
     assert '_field("vision", "local_empty_enabled"' in text
 
 
