@@ -798,7 +798,11 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                self._send(200, self._config_html(self._field_values(), theme=self._theme()),
+                section = (parse_qs(urlparse(self.path).query).get("section")
+                           or [None])[0]
+                self._send(200, self._config_html(self._field_values(),
+                                                  theme=self._theme(),
+                                                  section=section),
                            "text/html; charset=utf-8")
             elif path == "/designs":
                 rows = designs_module.catalog_rows(self.server.settings_data)
@@ -1608,13 +1612,16 @@ class _Handler(BaseHTTPRequestHandler):
             if general:
                 errors["_general"] = general
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
                 field_values, submitted=submitted, theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
@@ -1639,8 +1646,10 @@ class _Handler(BaseHTTPRequestHandler):
         only = {part for part in named.split(",") if part} or None
         changes, submitted, errors = pages.parse_form(form, field_values, only=only)
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         try:

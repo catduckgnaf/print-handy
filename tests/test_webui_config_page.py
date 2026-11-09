@@ -68,8 +68,9 @@ class ConfigPageTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def get_config(self, port, headers=None):
-        code, body = self.request(port, "GET", "/config", headers=headers)
+    def get_config(self, port, headers=None, section=None):
+        path = "/config" if section is None else f"/config?section={section}"
+        code, body = self.request(port, "GET", path, headers=headers)
         csrf = dict(hidden_inputs(body)).get("_csrf", "")
         return code, body, csrf
 
@@ -112,18 +113,39 @@ class ConfigPageTests(unittest.TestCase):
     # -- rendering ---------------------------------------------------------
 
     def test_config_page_renders_groups_fields_badges_and_pickers(self):
+        section_names = ("printers", "platform", "spools", "ai", "camera",
+                         "wrapped", "slicing", "home_assistant",
+                         "notifications", "logging", "webui")
         with tempfile.TemporaryDirectory() as tmp:
             port, _local, _environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
             code, body, csrf = self.get_config(port)
+            bodies = {}
+            for name in section_names:
+                _c, bodies[name], _t = self.get_config(port, section=name)
         self.assertEqual(code, 200)
         self.assertTrue(csrf)
         self.assertIn('action="/config/preview"', body)
-        for heading in ("Printers", "Platform and chat", "Spools",
-                        "AI and models",
-                        "Camera, timelapse and images", "Wrapped",
-                        "Slicing and delivery", "Home Assistant",
-                        "Notifications", "Logging", "Web UI"):
-            self.assertIn(f"<h2>{heading}</h2>", body)
+        # Stage 3 sub-tabs: the default page shows the first section
+        # only; every section is one server-side link away, and unshown
+        # sections ride along as hidden inputs, never as controls.
+        self.assertIn("<h2>Printers</h2>", body)
+        self.assertNotIn("<h2>Logging</h2>", body)
+        for name in section_names:
+            self.assertIn(f'href="/config?section={name}"', body)
+        self.assertIn('name="printer.model"', body)
+        self.assertIn('type="hidden" name="logging.level"', body)
+        self.assertNotIn('id="row-logging.level"', body)
+        for name, heading in (("printers", "Printers"),
+                              ("platform", "Platform and chat"),
+                              ("spools", "Spools"), ("ai", "AI and models"),
+                              ("camera", "Camera, timelapse and images"),
+                              ("wrapped", "Wrapped"),
+                              ("slicing", "Slicing and delivery"),
+                              ("home_assistant", "Home Assistant"),
+                              ("notifications", "Notifications"),
+                              ("logging", "Logging"), ("webui", "Web UI")):
+            self.assertIn(f"<h2>{heading}</h2>", bodies[name])
+        joined = "".join(bodies.values())
         for name in ("printer.model", "bot.platform", "discord.chat_id",
                      "telegram.chat_id", "matrix.room_id",
                      "services.moonraker_url", "services.spoolman_url",
@@ -131,41 +153,67 @@ class ConfigPageTests(unittest.TestCase):
                      "visual_watch.sensitivity", "timelapse.mode",
                      "timelapse.render_wait_s", "printer.slicer",
                      "delivery.methods", "logging.level", "webui.port"):
-            self.assertIn(f'name="{name}"', body, name)
-        # The AI group names its file-only tier tables in the page.
-        self.assertIn("File-only in this section: the [ai] tier tables", body)
-        self.assertIn('name="ai.allowed_users"', body)
-        self.assertIn('name="ai.edit_requests_per_hour"', body)
+            self.assertIn(f'name="{name}"', joined, name)
         # Provenance badges: the file value, the home value, a model default.
-        self.assertIn("settings file", row_segment(body, "discord.chat_id"))
-        self.assertIn("home config", row_segment(body, "printer.model"))
-        self.assertIn("model default", row_segment(body, "printer.slicer"))
+        self.assertIn("settings file", row_segment(bodies["platform"], "discord.chat_id"))
+        self.assertIn("home config", row_segment(bodies["printers"], "printer.model"))
+        self.assertIn("model default", row_segment(bodies["slicing"], "printer.slicer"))
         # Pickers carry the real choice sets with the effective value selected.
-        self.assertIn('<option value="flashforge.ad5x" selected>', body)
+        self.assertIn('<option value="flashforge.ad5x" selected>', bodies["printers"])
         for choice in ("rendered", "container", "off"):
-            self.assertIn(f'<option value="{choice}"', body)
+            self.assertIn(f'<option value="{choice}"', bodies["camera"])
         # No Moonraker URL is configured here, so the derived mode is off.
-        self.assertIn('<option value="off" selected>', body)
+        self.assertIn('<option value="off" selected>', bodies["camera"])
         for choice in ("auto", "moonraker", "bambu", "go2rtc", "none"):
-            self.assertIn(f'<option value="{choice}"', body)
-        self.assertIn('<option value="auto" selected>', body)
+            self.assertIn(f'<option value="{choice}"', bodies["camera"])
+        self.assertIn('<option value="auto" selected>', bodies["camera"])
         # The sensitivity number input carries the catalog bounds.
-        self.assertIn('min="1" max="5"', row_segment(body, "visual_watch.sensitivity"))
+        self.assertIn('min="1" max="5"', row_segment(bodies["camera"], "visual_watch.sensitivity"))
         # Every picker is A–Z by the text shown, not by the stored key order.
-        platform = re.findall(r'<option value="([^"]*)"', row_segment(body, "bot.platform"))
+        platform = re.findall(r'<option value="([^"]*)"', row_segment(bodies["platform"], "bot.platform"))
         self.assertEqual(platform, ["discord", "matrix", "telegram"])
-        model_labels = re.findall(r"<option[^>]*>([^<]*)</option>", row_segment(body, "printer.model"))
+        model_labels = re.findall(r"<option[^>]*>([^<]*)</option>", row_segment(bodies["printers"], "printer.model"))
         self.assertEqual(model_labels, sorted(model_labels, key=str.casefold))
         self.assertGreater(len(model_labels), 1)
         # Default home model is Flashforge ZMod: Moonraker is the Printer URL
         # field, and the OctoPrint address stays in the form as a hidden input.
-        self.assertIn('name="services.moonraker_url"', body)
-        self.assertIn('type="hidden" name="services.octoprint_url" value=""', body)
+        self.assertIn('name="services.moonraker_url"', bodies["printers"])
+        self.assertIn('type="hidden" name="services.octoprint_url" value=""', bodies["printers"])
         # Hidden inputs carry raw values, never the display text: a posted
         # "(empty)" would read as a change and fail to save.
         self.assertNotRegex(body, r'type="hidden" name="[^"]+" value="\(empty\)"')
-        self.assertIn('name="printer.zmod_delivery_format"', body)
-        self.assertNotIn('type="hidden" name="printer.zmod_delivery_format"', body)
+        self.assertIn('name="printer.zmod_delivery_format"', bodies["printers"])
+        self.assertNotIn('type="hidden" name="printer.zmod_delivery_format"', bodies["printers"])
+
+    def test_save_from_a_non_first_tab_preserves_unshown_sections(self):
+        # Stage 3's required guard: a save submitted from the camera tab
+        # (the browser posts that tab's controls plus every hidden input
+        # the page rendered) changes the camera field and leaves an
+        # unshown section's file value exactly as it was.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "discord:\n  chat_id: '12345'\nlogging:\n  level: debug\n")
+            _code, body, csrf = self.get_config(port, section="camera")
+            form = [(k, v) for k, v in hidden_inputs(body)]
+            # The tab's own visible controls, as a browser submits them:
+            # browser_form values restricted to the camera group's fields,
+            # with the one edit applied.
+            from print_handy.webui.catalog import field_by_id
+            visible = [(k, v) for k, v in self.browser_form(environ, csrf)
+                       if k == "_csrf" or (field_by_id(k) is not None
+                                           and field_by_id(k).group == "camera")]
+            form += [(k, v) for k, v in visible if k != "_csrf"]
+            form = [(k, v) for k, v in form if k != "visual_watch.sensitivity"]
+            form.append(("visual_watch.sensitivity", "4"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            code, body = self.post(port, "/config", hidden_inputs(body))
+            self.assertEqual(code, 200, body)
+            data = settings.load(local=local, environ={})
+            self.assertEqual(data["visual_watch"]["sensitivity"], 4)
+            # The loader canonicalizes the level to upper case on read.
+            self.assertEqual(data["logging"]["level"], "DEBUG")
+            self.assertEqual(data["discord"]["chat_id"], "12345")
 
     def test_status_page_links_to_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -178,7 +226,7 @@ class ConfigPageTests(unittest.TestCase):
         environ = {"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "4"}
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(tmp, environ=environ)
-            code, body, csrf = self.get_config(port)
+            code, body, csrf = self.get_config(port, section="camera")
             self.assertEqual(code, 200)
             row = row_segment(body, "visual_watch.sensitivity")
             self.assertIn("disabled", row)

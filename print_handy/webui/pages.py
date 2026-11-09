@@ -65,6 +65,10 @@ SETUP_OPEN_FIELD = "confirm_open"
 # Hidden field on the confirm form listing the field ids the preview
 # parsed; the save POST parses exactly those, no others.
 FIELDS_FIELD = "_fields"
+# Hidden field on the config form naming the section (sub-tab) the
+# submit came from, so a preview error re-render returns to the same
+# section instead of the first one.
+SECTION_FIELD = "_section"
 
 # Page groups in render order: (catalog group name, heading). The
 # headings follow the docs' grouping of the same settings.
@@ -350,8 +354,19 @@ _FIELD_SEARCH = (
 
 
 def render_config_page(field_values, *, data, form_token, errors=None,
-                       submitted=None, notice=None, theme=shell.DEFAULT_THEME):
-    """The GET /config form (also the error/notice re-render target)."""
+                       submitted=None, notice=None, theme=shell.DEFAULT_THEME,
+                       section=None):
+    """The GET /config form (also the error/notice re-render target).
+
+    Side sub-tabs (settings restructure stage 3): exactly one section's
+    fields render as controls, selected server-side by ``section`` (the
+    ?section= query parameter; the first section when absent or
+    unknown). Every other section's fields ride along as hidden inputs
+    in the same single form — the save model is unchanged from the
+    all-sections page: one form, one preview, one confirm, and a field
+    the page does not show keeps its current value because it is still
+    submitted, exactly like a field hidden for this printer model.
+    """
     by_group = {}
     for field_value in field_values:
         by_group.setdefault(field_value.field.group, []).append(field_value)
@@ -369,29 +384,54 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     general = (errors or {}).get("_general")
     if general:
         parts.append(f'<p class="error">{_esc(general)}</p>')
-    parts.append(f'<form method="post" action="/config/preview">'
-                 f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">')
     known = {name for name, _heading in GROUPS}
     sections = [(name, heading, by_group[name]) for name, heading in GROUPS
                 if by_group.get(name)]
     sections += [(name, name or "Other", rows) for name, rows in by_group.items()
                  if name not in known]  # a group this page does not know yet
-    # Tabs (#875): one jump link per catalog group, each a deep link
-    # (/config#group-<name>) the walkthrough and error pages can target.
+    names = [name for name, _heading, _rows in sections]
+    selected = section if section in names else None
+    if selected is None and errors:
+        # An error re-render lands on the section holding the first
+        # errored field, so the message is on screen, not behind a tab.
+        for field_id in errors:
+            field = field_by_id(field_id)
+            if field is not None and field.group in names:
+                selected = field.group
+                break
+    if selected is None:
+        selected = names[0] if names else None
+    # Sub-tabs: one link per section, each a server-side selection
+    # (/config?section=<name>) the walkthrough and error pages can
+    # target; the shown section also keeps its group-<name> anchor id.
     parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
-                 + "".join(f'<a href="#group-{_esc(name or "other")}">{_esc(heading)}</a>'
-                           for name, heading, _rows in sections)
+                 + "".join(
+                     f'<a href="/config?section={_esc(name or "other")}"'
+                     + (' aria-current="page"' if name == selected else "")
+                     + f'>{_esc(heading)}</a>'
+                     for name, heading, _rows in sections)
                  + '</nav><p><label>Find a setting <input type="search" id="field-search" '
-                 'placeholder="Type to filter every section"></label></p>')
+                 'placeholder="Type to filter this section"></label></p>')
+    parts.append(f'<form method="post" action="/config/preview">'
+                 f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
+                 f'<input type="hidden" name="{SECTION_FIELD}" '
+                 f'value="{_esc(selected or "")}">')
     for name, heading, rows in sections:
-        parts.append(f'<details class="config-group" id="group-{_esc(name or "other")}" open>'
-                     f"<summary><h2>{_esc(heading)}</h2></summary>")
+        if name != selected:
+            # Unshown sections: hidden inputs only, so the one-form save
+            # cannot clear them (the hidden-field discipline).
+            for fv in rows:
+                parts.append(_hidden_inputs(
+                    fv.field, _current(fv.field, fv, submitted)))
+            continue
+        parts.append(f'<section class="config-group" id="group-{_esc(name or "other")}">'
+                     f"<h2>{_esc(heading)}</h2>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
                      for fv in rows)
         note = GROUP_FILE_ONLY_NOTES.get(name)
         if note:
             parts.append(f'<p class="file-only-note">{_esc(note)}</p>')
-        parts.append("</details>")
+        parts.append("</section>")
     parts.append('<p><button type="submit">Preview changes</button></p></form>')
     parts.append(
         '<h2 id="restart-setup">Setup</h2><form method="post" action="/walkthrough">'
@@ -581,7 +621,7 @@ def attribute_error(message, changes, *, environ=None):
 
 
 __all__ = [
-    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "GROUPS",
+    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "SECTION_FIELD", "GROUPS",
     "LOGIN_REMEMBER_FIELD", "LOGIN_TOKEN_FIELD", "LOGIN_USER_FIELD",
     "PROVENANCE_LABELS", "attribute_error", "parse_form",
     "render_config_page", "render_login_page", "render_preview_page",
