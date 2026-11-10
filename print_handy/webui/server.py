@@ -1031,11 +1031,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_refusal(400, "year must be a whole number. Nothing was exported.",
                                "/wrapped")
             return
+        # The share form posts what to include as checkboxes (an unticked
+        # box is simply absent); a post without the options marker keeps
+        # the safe defaults: titles and printer names in, footage out.
+        explicit = (form.get("options") or [""])[0] == "explicit"
+
+        def ticked(name, default):
+            return bool((form.get(name) or [""])[0]) if explicit else default
+
         code, payload = data_module.export_share(
             self.server.settings_data, year,
-            (form.get("visibility") or ["public"])[0],
+            (form.get("visibility") or ["link-only"])[0],
             destination_note=(form.get("destination") or [""])[0],
-            passphrase=(form.get("passphrase") or [None])[0])
+            passphrase=(form.get("passphrase") or [None])[0],
+            include_titles=ticked("include_titles", True),
+            include_printers=ticked("include_printers", True),
+            include_video=ticked("include_video", False))
         if code != 200:
             self._html_refusal(code, payload.get("reason", "the export failed"),
                                "/wrapped")

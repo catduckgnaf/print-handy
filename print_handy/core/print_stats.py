@@ -29,6 +29,7 @@ when no events file exists the aggregate keeps the honest
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -49,6 +50,37 @@ def record_key(record):
     return f"#{record.get('print_number')}@{record.get('started_at') or record.get('completed_at') or ''}"
 
 UNKNOWN = "unknown"
+
+
+_TITLE_MAX = 80
+# A drive or root prefix, two or more separators, or a separator before a
+# model/G-code file name: "A/B bracket" is a title, "/data/x/part.gcode" is a path.
+_PATH_LIKE_RE = re.compile(
+    r"^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])|[\\/].*[\\/]|[\\/][^\\/]*\.(?:gcode|3mf|stl|bgcode)$",
+    re.IGNORECASE)
+
+
+def display_title(title, job_key=None):
+    """A title safe to show or share, or None when there is nothing to show.
+
+    A record's title falls back to its job key, and a job key can be a
+    file path. A value with a path separator is reduced to the file's base
+    name without its extension, control characters are dropped and runs of
+    whitespace collapse, so a path never reaches a page, a commentary line
+    or a share bundle.
+    """
+    for candidate in (title, job_key):
+        if not isinstance(candidate, str):
+            continue
+        text = "".join(" " if ord(ch) < 32 or ord(ch) == 127 else ch for ch in candidate)
+        text = " ".join(text.split())
+        if _PATH_LIKE_RE.search(text):
+            text = text.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            text = text.rsplit(".", 1)[0] if "." in text.strip(".") else text
+            text = " ".join(text.split())
+        if text:
+            return text[:_TITLE_MAX]
+    return None
 
 
 def prints_dir(records_vault):
@@ -280,7 +312,7 @@ def _repeats(rows):
             ungrouped += 1
             continue
         group = groups.setdefault(identity, {
-            "title": str(record.get("title")).strip(),
+            "title": display_title(record.get("title")) or "untitled",
             "gcode_file": identity[1], "count": 0,
             "total_seconds": 0.0, "total_filament_g": 0.0})
         group["count"] += 1
@@ -419,7 +451,8 @@ def _pasta_summary(events, year, resolved, rows):
         if number is not None:
             match = next((r for r in rows if r.get("print_number") == number), None)
             title = match.get("title") if match else None
-        worst = {"print_number": number, "job_key": event.get("job_key"),
+        title = display_title(title, event.get("job_key"))
+        worst = {"print_number": number, "job_key": display_title(event.get("job_key")),
                  "printer": event.get("printer"), "title": title,
                  "date": group["first"], "streak": group["streak"],
                  "events": group["events"]}
@@ -444,8 +477,8 @@ def _top(rows, key, limit=5):
     scored.sort(key=lambda item: item[0], reverse=True)
     out = []
     for value, record in scored[:limit]:
-        entry = {"title": record.get("title"), "print_number": record.get("print_number"),
-                 key: value}
+        entry = {"title": display_title(record.get("title")),
+                 "print_number": record.get("print_number"), key: value}
         if key == "print_duration_seconds":
             entry["seconds"] = value
         out.append(entry)
@@ -505,7 +538,8 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     if durations:
         best = max(rows, key=lambda r: _num(r.get("print_duration_seconds"))
                    if _num(r.get("print_duration_seconds")) is not None else -1)
-        longest = {"title": best.get("title"), "print_number": best.get("print_number"),
+        longest = {"title": display_title(best.get("title")),
+                   "print_number": best.get("print_number"),
                    "seconds": _num(best.get("print_duration_seconds"))}
     grams_values = [v for r in rows if (v := _num(r.get("filament_used_g"))) is not None]
     total_grams = float(sum(grams_values))
@@ -878,7 +912,7 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
             failed_rows,
             key=lambda r: (_num(r.get("print_duration_seconds")) or 0,
                            str(r.get("started_at") or "")))
-        worst_failure = {"title": best_failed.get("title"),
+        worst_failure = {"title": display_title(best_failed.get("title")),
                          "print_number": best_failed.get("print_number"),
                          "seconds": _num(best_failed.get("print_duration_seconds"))}
         # The failed print's OWN stop detail (by record): a number shared
@@ -988,8 +1022,8 @@ def _script(year, stats, highlights, tz=None):
                      "watchdog event recording began.")
         worst_spaghetti = highlights.get("worst_spaghetti")
         if worst_spaghetti and worst_spaghetti.get("streak", 0) >= 2:
-            name = worst_spaghetti.get("title") or worst_spaghetti.get("job_key") \
-                or "one print"
+            name = display_title(worst_spaghetti.get("title"),
+                                 worst_spaghetti.get("job_key")) or "one print"
             lines.append(f"The worst of it: {name} hit a spaghetti streak of "
                          f"{worst_spaghetti['streak']} before anyone stepped in.")
     if highlights["worst_failure_streak"] >= 3:
@@ -1028,6 +1062,6 @@ def _script(year, stats, highlights, tz=None):
     return lines
 
 
-__all__ = ["UNKNOWN", "aggregate", "build_wrapped", "load_records",
+__all__ = ["UNKNOWN", "aggregate", "display_title", "build_wrapped", "load_records",
            "load_records_from_dir", "load_watchdog_events", "prints_dir",
            "record_key", "records_in_year", "watchdog_events_path", "years_available"]

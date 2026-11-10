@@ -405,6 +405,7 @@ def wrapped_view(data, year=None, *, records_vault=None):
         _vault(data, records_vault) / "wrapped")
     return 200, {"ok": True, **payload, "skipped_records": summary["skipped"],
                  "share_exports": share_entries,
+                 "share_preview": share_export.preview(payload),
                  "share_registry_note": share_note,
                  "skipped_event_lines": summary["skipped_events"],
                  "timelapse_clips_found": len(detailed),
@@ -501,8 +502,9 @@ def video_status(data, year, *, records_vault=None, jobs=None):
                      data, year, records_vault=records_vault) is not None}
 
 
-def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
-                 destination_note="", passphrase=None):
+def export_share(data, year, visibility="link-only", *, records_vault=None, out_dir=None,
+                 destination_note="", passphrase=None, include_titles=True,
+                 include_printers=True, include_video=False):
     """(code, body) for POST /wrapped/share: one explicit export.
 
     Behind the same ``wrapped_enabled`` gate as every other Wrapped
@@ -519,8 +521,10 @@ def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was exported."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
     result = share_export.export_bundle(
-        wrapped, target_dir, visibility=str(visibility or "public"),
-        destination_note=destination_note, passphrase=passphrase)
+        wrapped, target_dir, visibility=str(visibility or "link-only"),
+        destination_note=destination_note, passphrase=passphrase,
+        include_titles=include_titles, include_printers=include_printers,
+        include_video=include_video)
     if not result.get("ok"):
         return 400, {"ok": False, "reason": result.get("reason") or "the export failed"}
     return 200, {"ok": True, **result}
@@ -648,8 +652,8 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
             "cannot be counted. ")
         worst_spaghetti = stats.get("worst_spaghetti")
         if worst_spaghetti:
-            worst_name = (worst_spaghetti.get("title")
-                          or worst_spaghetti.get("job_key") or "one print")
+            worst_name = print_stats.display_title(
+                worst_spaghetti.get("title"), worst_spaghetti.get("job_key")) or "one print"
             pasta_text += (
                 f"Worst spaghetti: {_esc(worst_name)} — streak "
                 f"{worst_spaghetti['streak']}, {worst_spaghetti['events']} events. ")
@@ -797,22 +801,53 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "data", "".join(parts), path="/data", theme=theme)
 
 
-def _share_panel(year, form_token, exports, registry_note):
+def _share_panel(year, form_token, exports, registry_note, preview=None,
+                 video_available=False):
     """The share panel (#981 sharing phase): export form, deploy
     guides, and the local list of what has been shared and where."""
+    preview = preview or {}
+    titles = preview.get("titles") or []
+    printers = preview.get("printers") or []
     parts = [
         "<h2>Share this Wrapped</h2>",
         "<p>Export this year as a self-contained static bundle — the "
-        "scrolling Wrapped page, the summary card images, and the "
-        "year's compiled video when one exists — written locally under "
-        "the wrapped outputs. Print Handy uploads nothing and asks for "
-        "no tokens: hosting is your own free static-host account.</p>",
+        "scrolling Wrapped page and the summary card images, written "
+        "locally under the wrapped outputs. Print Handy uploads nothing "
+        "and asks for no tokens: hosting is your own free static-host "
+        "account. Choose what goes in before you export.</p>",
         f'<form method="post" action="/wrapped/share">'
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         f'<input type="hidden" name="year" value="{year}">'
+        '<input type="hidden" name="options" value="explicit">'
+        '<fieldset><legend>What this export includes</legend>'
+        "<p>Always: the year's numbers (prints, hours, kilograms, success "
+        "rate, top color and material, busiest month), your printing "
+        "personality and the commentary. Nothing else from your records, "
+        "settings or files.</p>"
+        '<p><label><input type="checkbox" name="include_titles" value="1" checked> '
+        "Print titles"
+        + (f" — would show: {_esc(', '.join(titles[:8]))}"
+           + (f" and {len(titles) - 8} more" if len(titles) > 8 else "")
+           if titles else " — none appear this year")
+        + "</label></p>"
+        '<p><label><input type="checkbox" name="include_printers" value="1" checked> '
+        "Printer names"
+        + (f" — would show: {_esc(', '.join(printers[:6]))}" if printers
+           else " — none appear this year")
+        + "</label></p>"
+        '<p><label><input type="checkbox" name="include_video" value="1"'
+        + ("" if video_available else " disabled")
+        + "> The compiled video"
+        + ("" if video_available else " (compile it first)")
+        + "</label> <strong>The video contains camera footage</strong>: "
+        "frames from your printer's camera, which can show the room, the "
+        "desk and anyone in view. It is left out unless you tick this, and "
+        "you should watch it first.</p>"
+        "<p>Leaving titles or printer names out also drops every commentary "
+        "line that mentions one.</p></fieldset>"
         '<label>Visibility <select name="visibility">'
+        '<option value="link-only" selected>link-only (recommended)</option>'
         '<option value="public">public</option>'
-        '<option value="link-only">link-only</option>'
         '<option value="private" disabled>private (not available yet)</option>'
         "</select></label> "
         '<label>Passphrase (private exports) '
@@ -821,12 +856,15 @@ def _share_panel(year, form_token, exports, registry_note):
         '<input type="text" name="destination" '
         'placeholder="e.g. my GitHub Pages repo"></label> '
         '<button type="submit">Export share bundle</button></form>',
-        "<p><strong>Public</strong> is public: the plain bundle, "
-        "indexable by search engines. <strong>Link-only</strong> puts "
+        "<p><strong>Link-only</strong> puts "
         "the bundle under an unguessable address with a noindex tag — "
         "that is obscurity, not privacy: anyone with the link can open "
-        "it. <strong>Private</strong> exports are not available yet: "
-        f"{_esc(share_export.PRIVATE_UNAVAILABLE_REASON)}</p>",
+        "it. At most "
+        f"{share_export.MAX_LINK_ONLY_EXPORTS} link-only exports per year are kept; "
+        "older ones are removed. <strong>Public</strong> is public: the plain "
+        "bundle, indexable by search engines, so leave out anything you "
+        "would not put on a web page. <strong>Private</strong> exports are "
+        f"not available yet: {_esc(share_export.PRIVATE_UNAVAILABLE_REASON)}</p>",
         "<h3>Put it on a free static host</h3>"
         "<p><strong>GitHub Pages:</strong> create a repository (or use "
         "an existing one), copy the bundle's files into it so "
@@ -850,7 +888,10 @@ def _share_panel(year, form_token, exports, registry_note):
             f"{_esc(entry.get('visibility') or '')}"
             + (f", to {_esc(entry['destination'])}" if entry.get("destination") else "")
             + f", exported {_esc(entry.get('exported_at') or '')}, "
-            f"video {'included' if entry.get('video_included') else 'not included'}</li>"
+            f"video {'included' if entry.get('video_included') else 'not included'}"
+            + ("" if entry.get("titles_included", True) else ", titles left out")
+            + ("" if entry.get("printer_names_included", True) else ", printer names left out")
+            + "</li>"
             for entry in exports)
         parts.append(f"<ul>{rows}</ul>")
     else:
@@ -966,8 +1007,8 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "events from before recording began were never recorded. ")
         worst_spaghetti = highlights.get("worst_spaghetti")
         if worst_spaghetti:
-            worst_name = (worst_spaghetti.get("title")
-                          or worst_spaghetti.get("job_key") or "one print")
+            worst_name = print_stats.display_title(
+                worst_spaghetti.get("title"), worst_spaghetti.get("job_key")) or "one print"
             pasta_section += (
                 f"Worst spaghetti: {_esc(worst_name)} — streak "
                 f"{worst_spaghetti['streak']}. ")
@@ -1058,7 +1099,9 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             f'<video controls preload="metadata" '
             f'src="/wrapped/video-file?year={year}"></video>')
     parts.append(_share_panel(year, form_token, payload.get("share_exports") or [],
-                              payload.get("share_registry_note")))
+                              payload.get("share_registry_note"),
+                              payload.get("share_preview"),
+                              bool(payload.get("video_available"))))
     # Finale: the share card is the last section of the scroll.
     if archetype.get("name"):
         share_top = _esc(highlights.get("top_color") or "unknown")
