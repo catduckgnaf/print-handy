@@ -114,6 +114,102 @@ class FeatureClearanceTests(unittest.TestCase):
         # Below the 50% floor there is no search at all.
         self.assertIsNone(oa.largest_fitting_scale('src', {}, 0.4))
 
+    @staticmethod
+    def _linear_walk_oracle(fits, ceiling):
+        """The pre-bisection search (top-down 1% walk, then 0.1% bisect), kept as the oracle."""
+        import math
+        top = math.floor((float(ceiling) - 1e-9) * 1000)
+        if top < 500:
+            return None
+        if fits(top):
+            return top / 1000.0
+        coarse = top - top % 10
+        if coarse == top:
+            coarse -= 10
+        found = None
+        step = coarse
+        while step >= 500:
+            if fits(step):
+                found = step
+                break
+            step -= 10
+        if found is None:
+            return None
+        lo, hi = found, min(found + 10, top)
+        while hi - lo > 1:
+            middle = (lo + hi) // 2
+            if fits(middle):
+                lo = middle
+            else:
+                hi = middle
+        return lo / 1000.0
+
+    def test_largest_fitting_scale_matches_the_linear_walk_with_far_fewer_probes(self):
+        from unittest.mock import patch
+        worst_new = worst_old = 0
+        for ceiling in (1.10, 1.5, 1.05, 1.0, 0.75, 0.52, 0.501):
+            top = int((ceiling - 1e-9) * 1000)
+            for limit in list(range(490, top + 2)):
+                old_probes, new_probes = [], []
+
+                def capacity(src, state, scale=1.0, **kw):
+                    new_probes.append(scale)
+                    return 1 if round(scale * 1000) <= limit else 0
+
+                def old_fits(step):
+                    old_probes.append(step)
+                    return step <= limit
+
+                expected = self._linear_walk_oracle(old_fits, ceiling)
+                with patch.object(oa, 'orca_plate_capacity', capacity):
+                    got = oa.largest_fitting_scale('src', {}, ceiling)
+                self.assertEqual(got, expected, (ceiling, limit))
+                worst_new = max(worst_new, len(new_probes))
+                worst_old = max(worst_old, len(old_probes))
+        # 1.5 x ceiling: the walk needs up to ~105 probes; the bisect at most 14.
+        self.assertLessEqual(worst_new, 14)
+        self.assertGreater(worst_old, 50)
+
+    def test_largest_fitting_scale_rechecks_a_flaky_boundary_and_walks_up(self):
+        from unittest.mock import patch
+        seen = {}
+
+        def capacity(src, state, scale=1.0, **kw):
+            step = round(scale * 1000)
+            seen[step] = seen.get(step, 0) + 1
+            if step == 900:  # nondeterministic: refused the first time, fits the second
+                return 0 if seen[step] == 1 else 1
+            return 1 if step <= 920 else 0
+
+        with patch.object(oa, 'orca_plate_capacity', capacity):
+            got = oa.largest_fitting_scale('src', {}, 1.10)
+        # The bisect alone would settle below 900; the second look walks up to 92%.
+        self.assertEqual(got, 0.92)
+
+    def test_largest_fitting_scale_raises_when_the_slicer_keeps_failing(self):
+        from unittest.mock import patch
+        calls = []
+
+        def broken(src, state, scale=1.0, **kw):
+            calls.append(scale)
+            raise RuntimeError('orca aborted')
+
+        with patch.object(oa, 'orca_plate_capacity', broken):
+            with self.assertRaises(RuntimeError):
+                oa.largest_fitting_scale('src', {}, 1.10)
+        self.assertEqual(len(calls), 2)  # one retry, then the failure surfaces
+
+        flaky = {'n': 0}
+
+        def once(src, state, scale=1.0, **kw):
+            flaky['n'] += 1
+            if flaky['n'] == 1:
+                raise RuntimeError('one-off abort')
+            return 1 if scale <= 1.04 else 0
+
+        with patch.object(oa, 'orca_plate_capacity', once):
+            self.assertEqual(oa.largest_fitting_scale('src', {}, 1.10), 1.04)
+
     def test_fine_search_deferred_for_painted_multi_plate_jobs(self):
         from unittest.mock import patch
         with patch.object(oa, '_source_plate_count', return_value=2), \
