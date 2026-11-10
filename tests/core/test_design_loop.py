@@ -376,3 +376,52 @@ def test_going_back_to_a_parameter_edit_does_not_warn_about_its_stale_size_line(
     run(eng.run_turn(session, "undo"))
     back = run(eng.run_turn(session, "go back to version 2"))
     assert back["reverted_to"] == 2 and back["findings"] == []
+
+
+# ------------------------------------------------------------------ question flow edges (#1206)
+
+def test_the_answer_survives_a_failed_answer_turn_and_a_retry_keeps_it(tmp_path):
+    """#1206 finding 4: the answer lived only in memory, so after a failed
+    answer turn the next message ("try again") became the answer."""
+    fake = scripted(["QUESTION: How wide is the rail?", "no code", "no code", "no code",
+                     part(30, 25, 40)])
+    eng, _ = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a hook")
+    with pytest.raises(design.DesignQuestion):
+        run(eng.run_turn(session, "a hook"))
+    with pytest.raises(design.DesignError):
+        run(eng.run_turn(design.load_session(eng.root, session["id"]), "25 mm"))
+    saved = design.load_session(eng.root, session["id"])
+    assert saved["question_answer"] == "25 mm"
+    result = run(eng.run_turn(saved, "try again, and make it 40 mm tall"))
+    prompt = user_prompt(fake.calls[-1])
+    assert "The user answered: 25 mm" in prompt
+    assert "try again, and make it 40 mm tall" in prompt
+    assert "no further questions" not in prompt
+    assert result["geometry"]["dimensions_mm"] == [30.0, 25.0, 40.0]
+
+
+def test_a_model_that_only_asks_is_reported_as_such_not_as_a_render_failure(tmp_path):
+    """#1206 finding 5: every refused question used to end in "OpenSCAD could
+    not render the design ... Last error:" with nothing rendered."""
+    fake = scripted(["QUESTION: What size?"])
+    eng, runner = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a hook")
+    with pytest.raises(design.DesignQuestion):
+        run(eng.run_turn(session, "a hook"))
+    with pytest.raises(design.DesignError) as failed:
+        run(eng.run_turn(design.load_session(eng.root, session["id"]), "you pick"))
+    text = str(failed.value)
+    assert "OpenSCAD" not in text and runner.renders == 0
+    assert "kept asking" in text and "3 tries" in text
+
+
+@pytest.mark.parametrize("raw,budget", [(-1, 1), (0, 1), ("x", 4), (None, 4), (2, 3)])
+def test_repair_attempts_is_clamped_to_a_usable_budget(tmp_path, raw, budget):
+    cfg = {**CFG, "design": {**CFG["design"], "repair_attempts": raw}}
+    fake = scripted(["SYNTAX\ncube([1, 1, 1]);"])
+    eng, _ = engine(tmp_path, fake, cfg=cfg)
+    session = eng.start_session("o", "c", "a plate")
+    with pytest.raises(design.DesignError, match=f"after {budget} attempt"):
+        run(eng.run_turn(session, "a plate"))
+    assert len(fake.calls) == budget

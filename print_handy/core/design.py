@@ -788,6 +788,10 @@ def _messages(session, instruction, previous_scad=None, error=None, *, cfg=None,
         parts.append(f"Change requested: {instruction}")
     elif mesh or session.get("edit_mode") == "scad":
         parts.append(f"Edit requested: {instruction}")
+    elif instruction and str(instruction).strip() != str(session["description"]).strip():
+        # A retry of a first design (after a failed turn) may add detail;
+        # without this it was silently dropped (#1206).
+        parts.append(f"The user also said: {instruction}")
     if session.get("scad_deps"):
         parts.append("Note: the original file references external files that are not "
                      "available here; return a complete self-contained file.")
@@ -1072,7 +1076,12 @@ class DesignEngine:
                                 and not isinstance(configured, bool) and configured > 0
                                 else RENDER_TIMEOUT_S)
         self.render_timeout_s = render_timeout_s
-        self.repair_attempts = int(design.get("repair_attempts", 3))
+        # A bad value must not leave a turn with no model call at all (#1206).
+        try:
+            attempts = int(design.get("repair_attempts", 3))
+        except (TypeError, ValueError):
+            attempts = 3
+        self.repair_attempts = max(0, attempts)
 
     # -- session lifecycle -------------------------------------------------
 
@@ -1383,6 +1392,9 @@ class DesignEngine:
             # the answer beside the original request and design that.
             session["question_answer"] = str(instruction)[:500]
             instruction = session["description"]
+            # Kept on disk at once: if this turn fails, the next message is a
+            # retry, not a second answer (#1206).
+            _save(self.root, session)
         target = parse_revert(instruction) if previous else None
         if target is not None:
             return await asyncio.to_thread(self._revert, session, target, instruction,
@@ -1418,7 +1430,7 @@ class DesignEngine:
         budget = 1 + self.repair_attempts
         last_error = ""
         best = None  # (rank, attempt, findings, number)
-        calls = 0
+        calls = questions = renders = 0
         for number in range(budget):
             calls += 1
             reply = await self._call(_messages(session, instruction, previous, error,
@@ -1443,13 +1455,26 @@ class DesignEngine:
                     raise DesignQuestion(question)
                 # At most one question per design: anything later is answered
                 # by an assumption, and the retry spends the same budget.
+                questions += 1
                 error, feedback = None, [
                     f"you asked '{question}', but no further questions are possible: "
                     "make a sensible assumption, state it in an Assumes line, and "
                     "return the complete file"]
                 continue
-            source = extract_scad(reply)
+            try:
+                source = extract_scad(reply)
+            except DesignError as exc:
+                # A chatty reply with no file is asked again within the same
+                # budget, like a render error (#1206), not the end of the turn.
+                last_error = str(exc)
+                logger.info("design session %s attempt %s/%s returned no OpenSCAD code",
+                            session["id"], number + 1, budget)
+                error, feedback = None, [
+                    "your reply contained no OpenSCAD code: answer with the complete "
+                    "OpenSCAD file only"]
+                continue
             scan_scad(source)  # a sandbox refusal is not repaired by asking again
+            renders += 1
             attempt, last_error = await asyncio.to_thread(
                 self._render_attempt, session, source, number)
             if attempt is None:
@@ -1471,6 +1496,16 @@ class DesignEngine:
             previous = source
         if best is None:
             self._discard_attempts(session)
+            if not renders and questions:
+                # Nothing was rendered: say what really happened (#1206).
+                raise DesignError(
+                    f"the design model kept asking questions instead of designing "
+                    f"({calls} tries), so nothing was made. Say the size or detail it is "
+                    "missing in your next message, or start over with more detail")
+            if not renders:
+                raise DesignError(
+                    f"the design model did not return a usable OpenSCAD file after {calls} "
+                    f"attempt(s): {last_error}")
             raise DesignError(
                 f"OpenSCAD could not render the design after {calls} attempt(s). "
                 f"Last error: {last_error}")
