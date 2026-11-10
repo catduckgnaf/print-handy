@@ -687,3 +687,17 @@ def test_one_slice_parses_the_source_project_once(tmp_path):
     # One process-template read for the slice itself; the other is the
     # imported-project sanitizer loading its whole template set, as on main.
     assert calls == {"read_project": 1, "prusa": 1, "process.json": 2}
+
+
+def test_slice_records_intent_unknown_for_a_prusa_project_and_a_project_without_metadata(tmp_path):
+    # Over the production slice path: no evidence of designer intent means
+    # UNKNOWN, never a guess in either direction.
+    _process, prusa = sliced_process(tmp_path, prusa_project(tmp_path / "prusa.3mf"))
+    record = prusa["conversion_provenance"]
+    assert record["intent_status"] == "unknown"
+    assert {row["origin"] for row in record["settings"].values()} <= {"unknown"}
+    bare = bambu_project(tmp_path / "bare.3mf", {"wall_loops": "4"})
+    _process, provenance = sliced_process(tmp_path, bare)
+    record = provenance["conversion_provenance"]
+    assert record["intent_status"] == "unknown"
+    assert record["settings"]["wall_loops"]["origin"] == "unknown"

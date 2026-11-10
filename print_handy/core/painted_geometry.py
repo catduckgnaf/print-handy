@@ -26,6 +26,7 @@ from pathlib import Path
 
 PAINT_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
 MMU_RE = re.compile(rb'(?:slic3rpe:)?mmu_segmentation="([0-9A-Fa-f]+)"')
+_TRIANGLE_TAG_RE = re.compile(rb'<(?:\w+:)?triangle\b[^>]*>')
 # Either paint attribute on one triangle tag; paint_color wins when both are
 # present (no known writer emits both, and Orca reads paint_color).
 ANY_PAINT_RE = re.compile(rb'(?:paint_color|slic3rpe:mmu_segmentation|mmu_segmentation)="([0-9A-Fa-f]+)"')
@@ -194,11 +195,22 @@ def rewrite_paint_bytes(data, table):
     support/seam paint, material properties — stays byte-for-byte. A code whose
     state the table does not map keeps its state (the caller validates the
     table covers every state present before writing).
+
+    A triangle never leaves carrying two paint attributes: when it holds both
+    paint_color and mmu_segmentation, paint_color wins (the same precedence
+    paint_census and leaf_states read) and the mmu attribute is dropped.
     """
-    data = PAINT_RE.sub(
-        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
-    return MMU_RE.sub(
-        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
+    def _code(match):
+        return b'paint_color="' + remap_code(match.group(1).decode(), table).encode() + b'"'
+
+    def _triangle(match):
+        tag = match.group(0)
+        if PAINT_RE.search(tag):
+            tag = re.sub(rb'\s+(?:slic3rpe:)?mmu_segmentation="[0-9A-Fa-f]+"', b'', tag)
+            return PAINT_RE.sub(_code, tag)
+        return MMU_RE.sub(_code, tag)
+
+    return _TRIANGLE_TAG_RE.sub(_triangle, data)
 
 
 def paint_states_in(data):

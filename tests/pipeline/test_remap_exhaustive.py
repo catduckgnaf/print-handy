@@ -443,3 +443,184 @@ def test_production_plate_preserves_auxiliaries_members(tmp_path):
     export_production_plate(source, target, decisions, {"2": "#123456"})
     with zipfile.ZipFile(target) as archive:
         assert archive.read("Auxiliaries/.thumbnails/thumbnail_3mf.png") == b"thumbnail bytes"
+
+
+# --- #1155 part C: atomic write shell and refusals ----------------------------
+
+def _files(directory):
+    """Directory entries, ignoring the pipeline-state folder the conftest drops in tmp_path."""
+    return sorted(p.name for p in Path(directory).iterdir() if p.name != "pipeline-state")
+
+
+def _staging_leftovers(directory):
+    return sorted(p.name for p in Path(directory).iterdir() if p.name.endswith(".tmp"))
+
+
+def test_atomic_write_failure_after_staging_leaves_no_partial_target_or_temp(tmp_path):
+    target = tmp_path / "out.3mf"
+    target.write_bytes(b"existing destination sentinel")
+    calls = []
+
+    def validate(payload):
+        calls.append(len(payload))
+        if len(calls) == 2:  # the re-read of the STAGED file, after it was written
+            raise RuntimeError("staged package rejected")
+
+    with pytest.raises(RuntimeError, match="staged package rejected"):
+        package_remap.write_package_atomically(target, {"a.txt": b"one", "b.txt": b"two"}, validate)
+    assert len(calls) == 2  # the failure really happened after staging
+    assert target.read_bytes() == b"existing destination sentinel"
+    assert _staging_leftovers(tmp_path) == []
+    assert _files(tmp_path) == ["out.3mf"]
+
+
+def test_atomic_write_failure_after_staging_leaves_no_target_when_none_existed(tmp_path):
+    target = tmp_path / "fresh.3mf"
+
+    def validate(payload):
+        if getattr(validate, "seen", False):
+            raise RuntimeError("staged package rejected")
+        validate.seen = True
+
+    with pytest.raises(RuntimeError, match="staged package rejected"):
+        package_remap.write_package_atomically(target, {"a.txt": b"one"}, validate)
+    assert _files(tmp_path) == []
+
+
+def test_atomic_write_fsyncs_the_staged_file_before_replacing(tmp_path, monkeypatch):
+    order = []
+    real_fsync, real_replace = package_remap.os.fsync, package_remap.os.replace
+    monkeypatch.setattr(package_remap.os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(package_remap.os, "replace", lambda a, b: (order.append("replace"), real_replace(a, b))[1])
+    package_remap.write_package_atomically(tmp_path / "out.3mf", {"a.txt": b"one"})
+    assert order == ["fsync", "replace"]
+    with zipfile.ZipFile(tmp_path / "out.3mf") as archive:
+        assert archive.read("a.txt") == b"one"
+
+
+def test_atomic_write_refuses_source_equal_to_target(tmp_path):
+    source = _generic_source(tmp_path / "source.3mf")
+    original = source.read_bytes()
+    with pytest.raises(RuntimeError, match="own source"):
+        package_remap.remap_package(source, source, {1: 2, 2: 1})
+    alias = tmp_path / "." / "source.3mf"  # a different spelling of the same path
+    with pytest.raises(RuntimeError, match="own source"):
+        package_remap.write_package_atomically(alias, {"a.txt": b"x"}, source=source)
+    assert source.read_bytes() == original
+    assert _staging_leftovers(tmp_path) == []
+
+
+def test_atomic_write_stages_under_unique_names_in_the_target_folder(tmp_path, monkeypatch):
+    names = []
+    real = package_remap.tempfile.mkstemp
+
+    def spy(*args, **kwargs):
+        fd, name = real(*args, **kwargs)
+        names.append(Path(name))
+        return fd, name
+
+    monkeypatch.setattr(package_remap.tempfile, "mkstemp", spy)
+    target = tmp_path / "out.3mf"
+    for _ in range(3):
+        package_remap.write_package_atomically(target, {"a.txt": b"one"})
+    assert len({n.name for n in names}) == 3
+    assert all(n.parent == target.parent and n.name != "out.3mf.tmp" for n in names)
+    assert _staging_leftovers(tmp_path) == []
+
+
+def test_concurrent_atomic_writes_never_share_a_staging_file(tmp_path, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    target = tmp_path / "out.3mf"
+    staged, lock = [], threading.Lock()
+    barrier = threading.Barrier(8)
+    real_replace = package_remap.os.replace
+
+    def replace(src, dst):
+        # All eight writers have staged their own file before any replaces; the
+        # replace itself is serialized because Windows refuses concurrent
+        # replaces of one destination (that is the OS, not the staging name).
+        with lock:
+            staged.append(Path(src).name)
+        barrier.wait(timeout=30)
+        with lock:
+            real_replace(src, dst)
+
+    monkeypatch.setattr(package_remap.os, "replace", replace)
+    payloads = [{"a.txt": str(i).encode() * 4096} for i in range(8)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda p: package_remap.write_package_atomically(target, p), payloads))
+    assert len(set(staged)) == 8
+    with zipfile.ZipFile(target) as archive:
+        assert archive.testzip() is None
+        assert archive.read("a.txt") in [p["a.txt"] for p in payloads]
+    assert _staging_leftovers(tmp_path) == []
+
+
+def test_generic_remap_refuses_a_mapping_past_the_palette_by_name(tmp_path):
+    source = _generic_source(tmp_path / "source.3mf")  # two-filament palette
+    target = tmp_path / "out.3mf"
+    with pytest.raises(RuntimeError, match=r"past the 2-filament project palette"):
+        package_remap.remap_package(source, target, {1: 2, 2: 1, 3: 3})
+    assert not target.exists()
+
+
+def test_rewrite_paint_never_leaves_two_paint_attributes_on_a_triangle():
+    data = (b'<triangle v1="0" v2="1" v3="2" paint_color="4" slic3rpe:mmu_segmentation="8"/>'
+            b'<triangle v1="0" v2="1" v3="2" slic3rpe:mmu_segmentation="8" paint_color="4"/>'
+            b'<triangle v1="0" v2="1" v3="2" mmu_segmentation="8"/>'
+            b'<triangle v1="0" v2="1" v3="2" paint_color="8"/>')
+    out = painted_geometry.rewrite_paint_bytes(data, {1: 2, 2: 1})
+    triangles = re.findall(rb"<triangle[^>]*>", out)
+    assert len(triangles) == 4
+    for tag in triangles:
+        assert len(re.findall(rb'paint_color="|mmu_segmentation="', tag)) == 1, tag
+    assert b"mmu_segmentation" not in out
+    # paint_color wins where both were present (state 1 -> 2 is code "8"); a
+    # lone mmu state 2 translates to paint_color state 1 ("4").
+    assert triangles[0].count(b'paint_color="8"') == 1
+    assert triangles[1].count(b'paint_color="8"') == 1
+    assert b'paint_color="4"' in triangles[2]
+    assert b'paint_color="4"' in triangles[3]
+
+
+def test_declare_one_filament_refuses_to_drop_extra_entries_of_an_odd_shaped_array():
+    project = {"filament_colour": ["#111111", "#222222"],
+               "filament_mystery_table": ["a", "b", "c"]}  # 3 entries, 2 filaments
+    with pytest.raises(RuntimeError, match=r"filament_mystery_table has 3 entries for a 2-filament"):
+        _declare_one_filament(json.dumps(project).encode(), keep_index=1)
+    # A single-entry array is not truncated, so it is kept as authored.
+    project["filament_mystery_table"] = ["only"]
+    out = json.loads(_declare_one_filament(json.dumps(project).encode(), keep_index=2))
+    assert out["filament_mystery_table"] == ["only"]
+
+
+def test_export_single_color_plate_failure_after_staging_leaves_no_partial_output(tmp_path, monkeypatch):
+    """Production entry point: the exporter's write fails after the package is staged."""
+    source = _two_part_source(tmp_path / "source.3mf")
+    manifest, decisions = _single_decisions(source)
+    keys = [p["key"] for p in manifest["parts"] if p["source_extruder"] == 1]
+    slot_colors = json.loads(STATE.read_text())["filament_slots"]
+    work = tmp_path / "work"
+    work.mkdir()
+    target = work / "plate.3mf"
+    target.write_bytes(b"existing destination sentinel")
+    original = source.read_bytes()
+    staged = []
+    real_fsync = package_remap.os.fsync
+
+    def fsync(fd):
+        real_fsync(fd)
+        staged.append(True)  # the package is fully staged and synced by here
+
+    def replace(src, dst):
+        raise OSError("disk went away during the replace")
+
+    monkeypatch.setattr(package_remap.os, "fsync", fsync)
+    monkeypatch.setattr(package_remap.os, "replace", replace)
+    with pytest.raises(OSError, match="disk went away"):
+        export_single_color_plate(source, target, decisions, keys, slot_colors=slot_colors)
+    assert staged  # the failure really came after staging
+    assert target.read_bytes() == b"existing destination sentinel"
+    assert source.read_bytes() == original
+    assert _files(work) == ["plate.3mf"]  # no temp file left behind

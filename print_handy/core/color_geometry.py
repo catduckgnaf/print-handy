@@ -1644,7 +1644,13 @@ def _declare_one_filament(project, keep_index=1):
             elif key == 'different_settings_to_system' and len(value) == count + 2:
                 settings[key] = [value[0], value[1], value[-1]]
             elif _PER_FILAMENT_KEYS.fullmatch(key):
-                settings[key] = [value[keep]] if len(value) == count else value[:1]
+                if len(value) == count:
+                    settings[key] = [value[keep]]
+                elif len(value) > 1:
+                    raise RuntimeError(
+                        f'per-filament project array {key} has {len(value)} entries for a '
+                        f'{count}-filament palette; refusing to keep only its first entry '
+                        'and drop the rest')
         matrix = settings.get('flush_volumes_matrix')
         if isinstance(matrix, list) and len(matrix) == count * count:
             settings['flush_volumes_matrix'] = [matrix[keep * count + keep]]
