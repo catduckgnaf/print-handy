@@ -520,6 +520,64 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
             assert verdict["phase"] == want
 
 
+def leftover_complete(remote):
+    """What a printer shows after the previous run of the same artifact: remote names come from the
+    file hash, so a reprint's name is the one already there, state complete, axes still homed."""
+    return {"result": {"status": {"print_stats": {"state": "complete", "filename": remote, "total_duration": 612.0},
+                                  "toolhead": {"homed_axes": "xyz"}, "extruder": {"target": 0},
+                                  "heater_bed": {"target": 0}, "virtual_sdcard": {"is_active": False},
+                                  "idle_timeout": {"state": "Idle"}, "webhooks": {"state": "ready"}}}}
+
+
+class ReprintScript(MoonrakerScript):
+    """The printer shows the previous run's leftover from the upload on, until the start changes it."""
+
+    def mr(self, st, path, data=None, timeout=30):
+        if path.startswith("/printer/objects/query") and not self.posts and self.remote():
+            return leftover_complete(self.remote())
+        return super().mr(st, path, data=data, timeout=timeout)
+
+
+@pytest.mark.parametrize("start, want_phase", [(raises(TimeoutError("timed out")), "preparing_or_unresolved"),
+                                               (None, "awaiting_confirmation")])
+def test_a_reprints_leftover_complete_state_is_never_reported_started(start, want_phase, printer, monkeypatch,
+                                                                       capsys, patch):
+    """A lost (or answered) start on a reprint used to read the previous run's state=complete with the
+    same file name (and homed axes) as "preparing": STARTED, lease released, though nothing ran."""
+    script = ReprintScript(printer, start=start, after=leftover_complete)
+    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    jp, _ = make_job(printer.root, "a")
+    ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
+    assert ok, tail
+    outcome = print_next.start_outcome(full)
+    assert outcome.get("phase") == want_phase and outcome.get("started") is False, full
+    assert intake_view(ok, tail)[0] == "START_PENDING", tail
+    assert phases() == ["uncertain"] and script.posts == 1  # the duplicate guard holds; nothing resubmitted
+
+
+def test_a_reprint_that_heats_from_a_cold_baseline_is_still_preparing(printer, monkeypatch, capsys, patch):
+    """The fix compares with the baseline; it does not ignore this start's real heating."""
+    def heating(remote):
+        status = leftover_complete(remote)
+        status["result"]["status"]["extruder"] = {"target": 215}
+        return status
+    ReprintScript(printer, start=raises(TimeoutError("timed out")), after=heating)
+    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    jp, _ = make_job(printer.root, "a")
+    ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
+    assert print_next.start_outcome(full).get("phase") == "preparing", full
+
+
+def test_wait_printing_does_not_end_on_the_previous_jobs_cancelled_state(monkeypatch):
+    reads = iter([("cancelled", "x.gcode", "Idle")] * 3 + [("printing", "x.gcode", "Printing")])
+    monkeypatch.setattr(model_job, "_printer_phase", lambda st: next(reads))
+    monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
+    baseline = {"print_stats": {"state": "cancelled", "filename": "x.gcode"}}
+    assert REAL_WAIT_PRINTING({}, "x.gcode", 30, baseline=baseline) == "printing"
+    reads = iter([("cancelled", "x.gcode", "Idle")])
+    assert REAL_WAIT_PRINTING({}, "x.gcode", 30) == "cancelled"  # no baseline: unchanged behavior
+
+
 def test_item8_both_paths_share_one_reconcile():
     import inspect
     # print_now is a thin wrapper since the SAFE-6 control lock (P1-33); its body
