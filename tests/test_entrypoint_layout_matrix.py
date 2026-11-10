@@ -117,3 +117,216 @@ def test_mounted_state_volume_copies_instead_of_symlinking(tmp_path):
     assert (state / "old.txt").read_text() == "state\n"
     assert not (state / ".migration-incomplete").exists()
     assert "cannot be replaced by a symlink" in result.stderr
+
+
+# --- #1144: the copy is one-time, never overwrites, resumes, and counts
+# symlinks as data. PRINT_HANDY_ASSUME_STATE_MOUNT=1 makes an empty
+# /data/state read as the mountpoint it is in Compose (a test process cannot
+# create a real mount), which selects the copy branch.
+
+def run_mounted(home: Path, **extra) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env.update({"HOME": str(home), "TZ": "America/New_York",
+                "PRINT_HANDY_ASSUME_STATE_MOUNT": "1", **extra})
+    env.pop("PRINT_HANDY_ORCA_CHANNEL", None)
+    env.pop("PRINT_HANDY_ORCA_CMD", None)
+    return subprocess.run(["bash", str(ENTRYPOINT), "true"], env=env,
+                          capture_output=True, text=True, timeout=60)
+
+
+def symlink(target: str, link: Path):
+    link.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["bash", "-c", 'ln -s "$1" "$2"', "_", target, str(link)], check=True)
+
+
+def tree(root: Path) -> dict:
+    """Relative path -> (kind, content-or-target, mtime_ns) for every entry."""
+    out = {}
+    for path in sorted(root.rglob("*")):
+        rel = str(path.relative_to(root))
+        if path.is_symlink():
+            out[rel] = ("link", os.readlink(path), None)
+        elif path.is_dir():
+            out[rel] = ("dir", None, None)
+        else:
+            out[rel] = ("file", path.read_text(), path.stat().st_mtime_ns)
+    return out
+
+
+def test_copy_runs_once_and_the_second_run_is_a_no_op(tmp_path):
+    seed(tmp_path / "hermes", "old.txt")
+    (tmp_path / "hermes" / "sub").mkdir()
+    (tmp_path / "hermes" / "sub" / "deep.txt").write_text("deep\n")
+    (tmp_path / "state").mkdir()
+    first = run_mounted(tmp_path)
+    assert first.returncode == 0, first.stderr
+    state = tmp_path / "state"
+    assert (state / "old.txt").read_text() == "state\n"
+    assert (state / "sub" / "deep.txt").read_text() == "deep\n"
+    assert (state / ".migrated-from-legacy").is_file()
+    assert not (state / ".migration-incomplete").exists()
+    assert "were copied into /data/state" in first.stderr
+    legacy_before, state_before = tree(tmp_path / "hermes"), tree(state)
+    second = run_mounted(tmp_path)
+    assert second.returncode == 0, second.stderr
+    assert "were copied into /data/state" not in second.stderr
+    assert "already copied into /data/state" in second.stderr
+    assert tree(state) == state_before
+    assert tree(tmp_path / "hermes") == legacy_before
+
+
+def test_stale_legacy_never_overwrites_newer_state_after_the_migration(tmp_path):
+    seed(tmp_path / "hermes", "shared.txt")
+    (tmp_path / "state").mkdir()
+    assert run_mounted(tmp_path).returncode == 0
+    state = tmp_path / "state"
+    # The app keeps running on /data/state; the legacy folder stays stale.
+    (state / "shared.txt").write_text("newer\n")
+    (state / "fresh.txt").write_text("fresh\n")
+    (tmp_path / "hermes" / "shared.txt").write_text("stale\n")
+    (tmp_path / "hermes" / "gone.txt").write_text("deleted since\n")
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (state / "shared.txt").read_text() == "newer\n"
+    assert (state / "fresh.txt").read_text() == "fresh\n"
+    # Not even a file the operator deleted from /data/state comes back.
+    assert not (state / "gone.txt").exists()
+
+
+def test_stale_legacy_does_not_overwrite_state_that_predates_the_record(tmp_path):
+    # An install migrated by a release that wrote no record: both folders
+    # hold data, so nothing is copied.
+    seed(tmp_path / "state", "shared.txt")
+    (tmp_path / "state" / "shared.txt").write_text("newer\n")
+    seed(tmp_path / "hermes", "shared.txt")
+    (tmp_path / "hermes" / "shared.txt").write_text("stale\n")
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "state" / "shared.txt").read_text() == "newer\n"
+    assert not (tmp_path / "state" / ".migrated-from-legacy").exists()
+    assert "both /data/state and the legacy /data/hermes state volumes hold data" in result.stderr
+
+
+def test_resume_over_a_mark_keeps_newer_files_and_fills_the_gaps(tmp_path):
+    seed(tmp_path / "hermes", "a.txt")
+    (tmp_path / "hermes" / "a.txt").write_text("legacy a\n")
+    (tmp_path / "hermes" / "b.txt").write_text("legacy b\n")
+    (tmp_path / "hermes" / "c.txt").write_text("legacy c\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".migration-incomplete").write_text("")
+    (state / "a.txt").write_text("newer a\n")           # done, then edited
+    (state / "b.txt.ph-migrating").write_text("leg")    # killed mid-copy
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "did not finish; completing it" in result.stderr
+    assert (state / "a.txt").read_text() == "newer a\n"
+    assert (state / "b.txt").read_text() == "legacy b\n"
+    assert (state / "c.txt").read_text() == "legacy c\n"
+    assert not (state / "b.txt.ph-migrating").exists()
+    assert not (state / ".migration-incomplete").exists()
+    assert (state / ".migrated-from-legacy").is_file()
+
+
+def test_recopying_over_a_mark_twice_is_safe(tmp_path):
+    seed(tmp_path / "hermes", "a.txt")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".migration-incomplete").write_text("")
+    assert run_mounted(tmp_path).returncode == 0
+    before = tree(state)
+    (state / ".migration-incomplete").write_text("")  # a stale mark again
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert not (state / ".migration-incomplete").exists()
+    assert tree(state) == before
+
+
+def test_a_legacy_folder_of_only_symlinks_is_data_and_is_copied_as_links(tmp_path):
+    symlink("elsewhere", tmp_path / "hermes" / "link")
+    (tmp_path / "state").mkdir()
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert os.readlink(tmp_path / "state" / "link") == "elsewhere"
+    assert (tmp_path / "state" / ".migrated-from-legacy").is_file()
+
+
+def test_a_state_folder_of_only_symlinks_is_data_and_is_not_replaced(tmp_path):
+    symlink("elsewhere", tmp_path / "state" / "link")
+    seed(tmp_path / "hermes", "old.txt")
+    result = run_entrypoint(tmp_path)  # plain folder: would be swapped for a link if "empty"
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "state").is_symlink()
+    assert os.readlink(tmp_path / "state" / "link") == "elsewhere"
+    assert not (tmp_path / "state" / "old.txt").exists()
+    assert "both /data/state and the legacy /data/hermes state volumes hold data" in result.stderr
+
+
+def test_a_legacy_folder_of_only_empty_directories_is_not_a_source(tmp_path):
+    (tmp_path / "hermes" / "state" / "nested").mkdir(parents=True)
+    (tmp_path / "state").mkdir()
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "state" / ".migrated-from-legacy").exists()
+    assert not (tmp_path / "state" / "nested").exists()
+    assert "copied into /data/state" not in result.stderr
+
+
+def test_a_state_folder_of_only_empty_directories_still_migrates(tmp_path):
+    (tmp_path / "state" / "state").mkdir(parents=True)
+    (tmp_path / "state" / "logs").mkdir()
+    seed(tmp_path / "hermes", "old.txt")
+    result = run_entrypoint(tmp_path)
+    assert result.returncode == 0, result.stderr
+    state = tmp_path / "state"
+    assert state.is_symlink() and os.readlink(state) == str(tmp_path / "hermes")
+
+
+def test_the_compat_link_to_state_is_not_a_migration_source_on_restart(tmp_path):
+    seed(tmp_path / "state")
+    assert run_entrypoint(tmp_path).returncode == 0  # creates hermes -> state
+    assert (tmp_path / "hermes").is_symlink()
+    before = tree(tmp_path / "state")
+    again = run_entrypoint(tmp_path)  # a restart in the same container
+    assert again.returncode == 0, again.stderr
+    assert "hold data" not in again.stderr and "copied" not in again.stderr
+    assert not (tmp_path / "state").is_symlink()
+    assert tree(tmp_path / "state") == before
+
+
+def test_migrate_only_mode_copies_from_a_foreign_path_and_stops(tmp_path):
+    legacy = tmp_path / "ro" / "hermes"
+    seed(legacy, "old.txt")
+    home = tmp_path / "data"
+    (home / "state").mkdir(parents=True)
+    env = dict(os.environ, HOME=str(home), PRINT_HANDY_ASSUME_STATE_MOUNT="1",
+               PRINT_HANDY_STATE_MIGRATE_ONLY="1", PRINT_HANDY_LEGACY_STATE=str(legacy))
+    result = subprocess.run(["bash", str(ENTRYPOINT), "false"], env=env,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr   # exited before exec "$@"
+    assert (home / "state" / "old.txt").read_text() == "state\n"
+    assert not (home / "archive").exists()           # no application setup
+    assert not (home / "hermes").exists()            # no compat link either
+    again = subprocess.run(["bash", str(ENTRYPOINT), "false"], env=env,
+                           capture_output=True, text=True, timeout=60)
+    assert again.returncode == 0
+    assert "were copied" not in again.stderr
+
+
+def test_migrate_only_mode_with_no_legacy_folder_is_a_quiet_no_op(tmp_path):
+    home = tmp_path / "data"
+    (home / "state").mkdir(parents=True)
+    env = dict(os.environ, HOME=str(home), PRINT_HANDY_STATE_MIGRATE_ONLY="1",
+               PRINT_HANDY_LEGACY_STATE=str(tmp_path / "ro" / "hermes"))
+    result = subprocess.run(["bash", str(ENTRYPOINT), "false"], env=env,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0 and result.stderr == ""
+    assert not (home / "state" / ".migrated-from-legacy").exists()
+    assert not (tmp_path / "ro").exists()
+
+
+def test_the_image_does_not_precreate_the_legacy_folder():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    run_line = next(line for line in dockerfile.splitlines()
+                    if line.startswith("RUN mkdir -p /data/state/state"))
+    assert "/data/hermes" not in run_line
