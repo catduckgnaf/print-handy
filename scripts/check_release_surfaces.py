@@ -62,7 +62,7 @@ def heading_anchors(path):
     text = re.sub(r"```.*?```", "", path.read_text(encoding="utf-8"), flags=re.S)
     seen, anchors = {}, set()
     for match in re.finditer(r"^#{1,6}\s+(.*?)\s*#*$", text, flags=re.M):
-        title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"", match.group(1))
+        title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match.group(1))
         slug = re.sub(r"[^\w\- ]", "", title.replace("`", "").strip().lower())
         slug = slug.replace(" ", "-")
         count = seen.get(slug, 0)

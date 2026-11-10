@@ -177,9 +177,12 @@ class GateScriptBehaviour(unittest.TestCase):
                       result.stdout)
 
     def test_readme_links_must_point_at_real_headings(self):
-        (self.root / "docs" / "GUIDE.md").write_text("# Guide\n\n## Real heading\n")
+        (self.root / "docs" / "GUIDE.md").write_text(
+            "# Guide\n\n## Real heading\n\n## Install [OrcaSlicer](https://example.com)\n"
+        )
         self.write_root(version="1.2.3",
                         readme="Ships with 1.2.3. [Ok](docs/GUIDE.md#real-heading) "
+                               "[Install](docs/GUIDE.md#install-orcaslicer) "
                                "[Stale](docs/GUIDE.md#real-heading-264)")
         result = self.run_gate(True)
         self.assertEqual(result.returncode, 1)
