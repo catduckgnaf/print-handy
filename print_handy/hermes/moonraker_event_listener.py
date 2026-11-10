@@ -2889,6 +2889,34 @@ def _auto_pause_early(filename, identity):
     return pab.handle_click("pause", alert)
 
 
+def _camera_missing_reason():
+    """Why this Moonraker printer has no camera to watch with, in plain words; "" when it has one.
+
+    Configuration only, no network: no snapshot URL and no go2rtc fan-out,
+    or a [services] camera_source pin that rules the webcam out. A camera
+    that is configured but fails is not "missing": its failed checks alert
+    (throttled). Unreadable settings read as "" so the watch keeps its
+    old behaviour.
+    """
+    try:
+        data = _config.cfg()
+        pin = go2rtc.camera_source(data)
+        if pin == "none":
+            return "camera images are off (services.camera_source is none)"
+        if pin == "bambu":
+            return ("services.camera_source is bambu, but this printer's camera is the "
+                    "Moonraker webcam")
+        if pin == "go2rtc" or _config.service_url("camera_snapshot_url"):
+            return ""
+        try:
+            fanout = go2rtc.fanout_frame_url(data)
+        except Exception:
+            fanout = None
+        return "" if fanout else "no camera snapshot URL is configured (services.camera_snapshot_url)"
+    except Exception:
+        return ""
+
+
 def _watch_now():
     """The camera watch's wall clock (a seam: tests replace it)."""
     return time.time()
@@ -4063,11 +4091,19 @@ class Listener:
                 # The snapshot itself failed, so there is no image to
                 # attach — but the operator still gets an alert: a dead
                 # camera must not silently leave the print unmonitored.
+                # Throttled like the Bambu watch: a dead camera never moves
+                # the snapshot baseline, so probes keep coming; the alert
+                # goes out at most once per periodic interval per print.
                 try:
                     from . import print_alert_buttons as pab
+                    last = self.visual_watch.camera_failure_alert_at
                     if await asyncio.to_thread(pab.visual_muted, filename, identity):
                         log(f"visual alert suppressed for muted print {filename!r}")
+                    elif last is not None and _watch_now() - last < self.visual_watch.profile["periodic_s"]:
+                        log(f"visual camera-failure alert suppressed for {filename!r}: "
+                            "already alerted within the periodic interval")
                     else:
+                        self.visual_watch.camera_failure_alert_at = _watch_now()
                         await asyncio.to_thread(
                             _visual_alert_text, filename,
                             f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
@@ -4151,7 +4187,7 @@ class Listener:
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
-            if reason_due and _vision_ready():
+            if reason_due and self._watch_ready():
                 self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
         if old is not None and old != "printing" and new_state == "printing":
             # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
@@ -4413,7 +4449,7 @@ class Listener:
                 return
             if policy.print_started(time.time()) != "turn_on":
                 return
-            if not _vision_ready():
+            if not self._watch_ready():
                 return
             target = await self._light_target_object()
             if not target:
@@ -4450,7 +4486,7 @@ class Listener:
             now = time.time()
             if not policy.should_check(now):
                 return
-            if not _vision_ready():
+            if not self._watch_ready():
                 policy.note_check(now)
                 return
             target = await self._light_target_object()
@@ -4515,7 +4551,7 @@ class Listener:
             return
         if not next_plate_offer.due():
             return
-        if not _vision_ready():
+        if not self._watch_ready():
             next_plate_offer.observe(None)
             return
         image = await asyncio.to_thread(_camera_snapshot_bytes)
@@ -4718,15 +4754,29 @@ class Listener:
         layer = _visual_layer(self.last_stats)
         reason = self.visual_watch.tick(layer, time.time() if now is None else now,
                                         elapsed_s=_print_elapsed(self.last_stats))
-        if reason and _vision_ready():
+        if reason and self._watch_ready():
             if layer is None:
                 self._note_layerless_watch()
             self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
             return reason
         return None
 
+    def _watch_ready(self):
+        """The listener's camera-check gate: a camera exists and a frame can be judged.
+
+        With no camera configured the watch is off for this printer: no
+        check is scheduled, so a missing camera never posts an alert per
+        cadence (the print-start notice names it instead).
+        """
+        if _camera_missing_reason():
+            return False
+        return _vision_ready()
+
     def _watch_unavailable_reason(self):
         """Why the camera watch cannot run for this printer, in plain words; "" when it can."""
+        camera = _camera_missing_reason()
+        if camera:
+            return camera
         if _vision_ready():
             return ""
         try:
@@ -4868,7 +4918,7 @@ class Listener:
                             if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
                                 layer = _visual_layer(self.last_stats)
                                 reason_due = self.visual_watch.due(layer, time.time())
-                                if reason_due and _vision_ready():
+                                if reason_due and self._watch_ready():
                                     self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
                     elif method == "notify_gcode_response":
                         for line in msg.get("params") or []:
