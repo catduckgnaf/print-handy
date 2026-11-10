@@ -8,9 +8,9 @@
 
 For first-time setup, follow [Pinning the image](#pinning-the-image), configure persistent storage and services, and start the container. Then use the [First-run configuration](#first-run-configuration) checklist. Detailed runtime and implementation notes follow below.
 
-## Combined runtime for 2.1.2
+## Combined runtime
 
-The 2.1.2 candidate replaces separate bot, listener and Spoolman services with ONE runtime container. Published 2.1.1 remains unchanged. Pin the immutable digest from a successful publication run; candidate source is not a published image.
+One runtime container replaces the separate bot, listener and Spoolman services. Pin the immutable digest from a successful publication run; source on `main` is not a published image.
 
 Tini owns orphan reaping and process-group signals. The supervisor waits for the bundled API before starting the Moonraker listener and Discord bot. Any required child exit ends the container nonzero, including an unexpected clean exit. SIGTERM stops children with a bounded grace period. Docker restart reacts to process exit, not healthcheck failures alone.
 
