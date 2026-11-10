@@ -146,8 +146,9 @@ EXEMPTIONS = {
     ("timelapse", "vertical_short"): (frozenset({"webui"}), "#657"),
     ("timelapse", "vertical_short_mode"): (frozenset({"webui"}), "#657"),
     ("timelapse", "vertical_short_overlay"): (frozenset({"webui"}), "#657"),
-    # #1002 retired the LLM roast model (kept in OPTIONAL_KEYS so existing configs load).
-    ("vision", "roast_model"): (frozenset({"webui", "consumer"}), "#1002"),
+    # ("vision", "roast_model") was removed outright in #1146: the LLM roast
+    # model retired by #1002 is no longer a setting at all, so it needs no
+    # exemption here; a config still carrying it gets the unknown-setting warning.
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
     # webui.require_auth, webui.controls_enabled and webui.cookie_secure
     # carried webui-surface exemptions until the first-boot parity program's

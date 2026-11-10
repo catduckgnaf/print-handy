@@ -186,7 +186,9 @@ def test_each_sender_delivers_the_rendered_text_within_its_limit(archive, monkey
     assert "<@" not in text
 
     # The Discord send carries the classifier's decision (#1095): the
-    # text stays mention-free, the one allowed ping rides the payload.
+    # rendered text stays mention-free, and the Discord sender puts the one
+    # allowed ping in the posted content (allowed_mentions alone notifies
+    # nobody) with allowed_mentions restricted to that user.
     from print_handy.hermes import starter_pings
     monkeypatch.setattr(starter_pings, "STATE", archive.parent / "pings.json")
     mention = starter_pings.ping_for("complete", job_key="plate.gcode")
@@ -194,7 +196,7 @@ def test_each_sender_delivers_the_rendered_text_within_its_limit(archive, monkey
     discord = _DiscordOpener()
     ok, _ = rest.send("tok", "123", text, opener=discord,
                       mention_user_id=mention)
-    assert ok and [p["content"] for p in discord.payloads] == [text]
+    assert ok and [p["content"] for p in discord.payloads] == [f"<@{STARTER}> {text}"]
     assert discord.payloads[0]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
 
     telegram_stub = _TelegramOpener()

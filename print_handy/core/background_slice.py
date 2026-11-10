@@ -179,12 +179,18 @@ class BackgroundSlice:
         target = Path(self.job_path)
         current = json.loads(target.read_text()) if target.exists() else {}
         updated = copy.deepcopy(slice_job_data)
-        for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions'):
+        for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions',
+                      'filament_warning_acknowledgement', 'filament_warnings', 'filament_warnings_pending'):
             if field in current:
                 if (field == 'support_decision' and isinstance(current[field], dict)
                         and current[field].get('by') == 'speculative_intake'):
                     continue  # the speculative slice's temporary decision is not the operator's
                 updated[field] = current[field]
+        if 'filament_warning_acknowledgement' not in current:
+            # A slicing run consumed the acceptance (slice_job consumes a
+            # used acceptance so a reslice re-presents the warnings); the
+            # pre-slice snapshot must not resurrect it.
+            updated.pop('filament_warning_acknowledgement', None)
         if 'support_decision' not in updated and default_supports is not None:
             updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}
         target.write_text(json.dumps(updated, indent=2) + "\n")

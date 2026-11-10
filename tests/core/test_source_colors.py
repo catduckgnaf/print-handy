@@ -95,11 +95,14 @@ class FilamentStatsTests(unittest.TestCase):
             'unknown': {'usage_known': False, 'usage_unknown_reason': 'source has no slicer usage metadata'}}}}
         sc.validate_plate_usage_if_present(manifest)
 
-    def test_optional_source_usage_fails_closed_when_claimed_invalid(self):
+    def test_optional_source_usage_warns_when_claimed_invalid(self):
+        # Owner ruling (catduck, 2026-11-10): a damaged filament usage claim
+        # is a warning the operator can accept, never a hard refusal.
         manifest = {'filament_stats': {'plates': {
             '7': {'usage_known': False, 'usage_unknown_reason': 'invalid source filament usage record'}}}}
-        with self.assertRaisesRegex(RuntimeError, 'plate 7'):
-            sc.validate_plate_usage_if_present(manifest)
+        warnings = sc.validate_plate_usage_if_present(manifest)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('plate 7', warnings[0])
 
         path = Path(self.dir) / "unsliced.3mf"
         with zipfile.ZipFile(path, "w") as z:
@@ -154,7 +157,7 @@ class MalformedUsageAmountTests(unittest.TestCase):
 
     def test_non_numeric_used_g_marks_the_plate_unknown_not_absent(self):
         # A usage CLAIM with a malformed amount must mark the plate unknown so
-        # the gate fails closed; it must not abandon parsing and make the
+        # the gate can warn about it; it must not abandon parsing and make the
         # archive look like it never claimed usage at all.
         path = self.dir / "malformed.3mf"
         xml = """<config><plate><metadata key="index" value="4"/>
@@ -166,8 +169,9 @@ class MalformedUsageAmountTests(unittest.TestCase):
         plate = manifest["filament_stats"]["plates"]["4"]
         self.assertFalse(plate["usage_known"])
         self.assertEqual(plate["usage_unknown_reason"], sc.USAGE_INVALID)
-        with self.assertRaisesRegex(RuntimeError, 'plate 4'):
-            sc.validate_plate_usage_if_present(manifest)
+        warnings = sc.validate_plate_usage_if_present(manifest)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('plate 4', warnings[0])
 
     def _stats(self, xml, filaments=()):
         path = self.dir / "usage.3mf"
@@ -177,13 +181,14 @@ class MalformedUsageAmountTests(unittest.TestCase):
         sc._append_filament_stats(path, manifest)
         return manifest
 
-    def test_malformed_usage_file_fails_closed(self):
+    def test_malformed_usage_file_warns(self):
         manifest = self._stats("<config><plate>")
         plate = manifest["filament_stats"]["plates"]["unreadable"]
         self.assertFalse(plate["usage_known"])
         self.assertEqual(plate["usage_unknown_reason"], sc.USAGE_UNREADABLE)
-        with self.assertRaisesRegex(RuntimeError, 'could not be read'):
-            sc.validate_plate_usage_if_present(manifest)
+        warnings = sc.validate_plate_usage_if_present(manifest)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('could not be read', warnings[0])
 
     def test_plate_without_usage_records_does_not_refuse(self):
         manifest = self._stats("""<config>
@@ -207,7 +212,7 @@ class MalformedUsageAmountTests(unittest.TestCase):
         self.assertNotIn(5, plate["extruders"])
         sc.validate_plate_usage_if_present(manifest)
 
-    def test_invalid_record_refuses_whatever_else_is_on_the_plate(self):
+    def test_invalid_record_warns_whatever_else_is_on_the_plate(self):
         rows = ('<filament id="bad" used_g="1" used_m="1"/>', '<filament id="5" used_g="1" used_m="1"/>')
         for ordered in (rows, rows[::-1], rows[:1]):
             xml = ('<config><plate><metadata key="index" value="1"/>'
@@ -216,14 +221,16 @@ class MalformedUsageAmountTests(unittest.TestCase):
                 manifest = self._stats(xml, filaments=[1])
                 self.assertEqual(manifest["filament_stats"]["plates"]["1"]["usage_unknown_reason"],
                                  sc.USAGE_INVALID)
-                with self.assertRaisesRegex(RuntimeError, 'plate 1'):
-                    sc.validate_plate_usage_if_present(manifest)
+                warnings = sc.validate_plate_usage_if_present(manifest)
+                self.assertEqual(len(warnings), 1)
+                self.assertIn('plate 1', warnings[0])
 
     def test_gate_checks_only_the_plates_it_is_given(self):
         manifest = self._stats("""<config>
         <plate><metadata key="index" value="1"/><filament id="1" used_g="2" used_m="1"/></plate>
         <plate><metadata key="index" value="2"/><filament id="bad" used_g="2" used_m="1"/></plate>
         </config>""", filaments=[1])
-        sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[1])
-        with self.assertRaisesRegex(RuntimeError, 'plate 2'):
-            sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[2])
+        self.assertEqual(sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[1]), [])
+        warnings = sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[2])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('plate 2', warnings[0])

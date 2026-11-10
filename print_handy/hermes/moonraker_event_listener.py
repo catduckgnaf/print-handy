@@ -3942,6 +3942,9 @@ class Listener:
         the watch died with no log. An overrun is abandoned, logged and
         counted in ``visual_timeouts``. Never raises.
         """
+        filename = self.filename
+        identity = self._visual_identity()
+        watch = self.visual_watch
         try:
             await asyncio.wait_for(self._visual_check_once(reason, layer), VISUAL_CHECK_DEADLINE_S)
         except asyncio.TimeoutError:
@@ -3949,6 +3952,23 @@ class Listener:
             log(f"visual check timed out file={self.filename!r} reason={reason} after "
                 f"{VISUAL_CHECK_DEADLINE_S:.0f}s (timeouts so far: {self.visual_timeouts}); "
                 "the camera or the vision endpoint did not answer")
+            # Do not send an old print's timeout to a replacement print.
+            if self.filename != filename or self._visual_identity() != identity or self.visual_watch is not watch:
+                return
+            try:
+                from . import print_alert_buttons as pab
+                last = watch.camera_failure_alert_at
+                if await asyncio.to_thread(pab.visual_muted, filename, identity):
+                    return
+                if last is not None and _watch_now() - last < watch.profile["periodic_s"]:
+                    return
+                watch.camera_failure_alert_at = _watch_now()
+                await asyncio.to_thread(
+                    _visual_alert_text, filename,
+                    "Camera watch check timed out; this print is unmonitored while the watch retries. "
+                    "Check the camera and vision endpoint.", identity=identity)
+            except Exception as alert_exc:
+                log(f"visual timeout alert failed file={filename!r}: {alert_exc!r}")
 
     async def _visual_check_once(self, reason, layer):
         """Capture and classify a print frame; notify humans only, never actuate.

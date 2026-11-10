@@ -186,6 +186,14 @@ def test_watchdog_alerts_on_a_suspicious_verdict_with_the_snapshot():
     assert "layer2" in reason and "spaghetti" in reason
 
 
+def test_empty_bed_during_print_alerts_without_controlling_printer():
+    monitor, alerts, _clock = _watch_monitor(verdict=("empty_idle", "bed appears empty"))
+    monitor.poll_active(st("printing", layer=2))
+    assert len(alerts) == 1
+    assert "empty_idle" in alerts[0][2]
+    assert not hasattr(monitor, "control")
+
+
 def test_watchdog_stays_quiet_on_a_healthy_verdict():
     monitor, alerts, _clock = _watch_monitor(verdict=("ok", "plastic on the bed"))
     monitor.poll_active(st("printing", layer=2))
