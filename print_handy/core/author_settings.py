@@ -209,13 +209,13 @@ def conversion_provenance(source, target, process, author_process, author_notes,
     if not isinstance(project_values, dict):
         project_values = author_process
     source_preset = _source_preset_settings(source, raw)
+    # different_settings_to_system is Bambu Studio / OrcaSlicer preset
+    # bookkeeping. PrusaSlicer has no such option and never writes it (none of
+    # the PrusaSlicer fixtures or corpus projects carry it), and a PrusaSlicer
+    # project embeds no exact source preset either, so its intent is UNKNOWN:
+    # a line of that name in a Slic3r_PE.config is not evidence to read.
     changed = (source_settings.get('different_settings_to_system')
-               if isinstance(source_settings, dict) else
-               [line.partition('=')[1].strip() for line in source_settings.splitlines()
-                if line.strip().startswith('; different_settings_to_system =')]
-               if isinstance(source_settings, str) else None)
-    if isinstance(source_settings, str) and isinstance(changed, list):
-        changed = changed[0].split(';') if changed else None
+               if isinstance(source_settings, dict) else None)
     if isinstance(changed, list):
         explicit = {key for row in changed if isinstance(row, str)
                     for key in row.split(';') if key}

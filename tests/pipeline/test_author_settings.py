@@ -483,6 +483,19 @@ def test_slice_provenance_records_prusa_rules_and_source_version_for_a_prusa_pro
     assert record["source_profile_version_status"] == "not_recorded_by_source"
 
 
+def test_prusa_project_intent_is_unknown_never_read_from_a_settings_line(tmp_path):
+    # PrusaSlicer does not write different_settings_to_system; a line of that
+    # name was once parsed as the "=" sign, which read as "intent known, every
+    # key inherited". A PrusaSlicer project's intent is UNKNOWN, line or not.
+    for extra in ("", "; different_settings_to_system = perimeters;fill_density\n"):
+        source = prusa_project(tmp_path / f"prusa{len(extra)}.3mf", PRUSA_CONFIG + extra)
+        author = author_settings.read(source)
+        result = author_settings.conversion_provenance(source, TEMPLATE, author, author, [])
+        assert result["intent_status"] == "unknown"
+        assert result["settings"]["wall_loops"]["origin"] == "unknown"
+        assert {row["origin"] for row in result["settings"].values()} == {"unknown"}
+
+
 def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
     source = tmp_path / "unchanged.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
