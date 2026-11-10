@@ -126,8 +126,29 @@ FIT_CHECK_STEPS = frozenset({"fit_options", "orca_plate_capacity", "per_part_fit
 def load_case(folder):
     folder = Path(folder)
     data = tomllib.loads((folder / "case.toml").read_text())
-    return S(name=folder.name, dir=folder, model=find_model(folder), data=data,
-             clicks=data.get("click", []), expect=data.get("expect", {}))
+    entry = data.get("entry") or {}
+    # A typed-entry case still carries a generated model file (the generator inventory
+    # covers every case folder); its runner simply never drops it.
+    model = find_model(folder)
+    return S(name=folder.name, dir=folder, model=model, data=data,
+             clicks=data.get("click", []), expect=data.get("expect", {}), entry=entry)
+
+
+def text_event(text):
+    """What the bot hands the dispatch hooks for one typed chat message (no attachment)."""
+    source = S(platform=S(value="discord"), profile="3dprinting", user_id="corpus-user", chat_id="corpus-chat",
+               thread_id=None, is_bot=False, profile_route_rejected=False)
+    return S(source=source, text=text, media_urls=[], message_id=f"corpus-typed-{uuid.uuid4().hex[:8]}",
+             metadata={}, internal=False)
+
+
+def dispatch_text(plugin, adapter, text):
+    """Run one typed message through the real Router (all dispatch hooks, in order)."""
+    from print_handy.bot.router import Router
+    gateway = S(_is_user_authorized_for_source=lambda s: True,
+                _session_key_for_source=lambda s: "corpus-session",
+                _delivery_adapter_for=lambda s: adapter)
+    return asyncio.run(Router(plugin).dispatch(text_event(text), gateway))
 
 
 # ----------------------------------------------------------------------------- fake Discord
@@ -299,6 +320,27 @@ def model_capacity(real_multi_plate, source_triangles, plate_count):
 
 # ----------------------------------------------------------------------------- the run
 
+def _latest_plan_id(work):
+    """The plan the setup flow of a print-next entry case wrote under the patched PLANS_DIR."""
+    plans = sorted((Path(work) / "plans").glob("*.json"))
+    if not plans:
+        raise AssertionError("the setup flow wrote no print-next plan")
+    return json.loads(plans[-1].read_text())["plan_id"]
+
+
+def _print_next_followups(work):
+    """The typed /print-next for the plate that is next once the setup flow's first
+    plate is recorded complete — credited through print_records, the same write the
+    listener makes when that print finishes, so resolve_next targets the next plate."""
+    from print_handy.hermes import print_records
+    plan_path = sorted((Path(work) / "plans").glob("*.json"))[-1]
+    plan = json.loads(plan_path.read_text())
+    first = plan["parts"][0]
+    print_records.update_multipart_plan({"multipart_plan_id": plan["plan_id"], "success": True,
+                                         "part_id": first["id"], "completed_quantity": 1})
+    return [f"/print-next {plan['plan_id']}"]
+
+
 def _stub_print_now(folder):
     stub = Path(folder) / "print-now-stub"
     stub.write_text('#!/bin/sh\necho "started $2"\n')
@@ -351,14 +393,17 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         state_file, spoolman = spool_fixture.build_state(
             Path(work) / "built-state", skeleton, spools=spool_fixture.SPOOLS[:overrides.get("slots", len(spool_fixture.SPOOLS))])
     spoolman_calls_built = len(spoolman.calls) if spoolman else 0
+    entry = getattr(case, "entry", None) or {}
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
     from print_handy.hermes import _config, print_next, print_records
 
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stub = _stub_print_now(work)
-    model_copy = work / case.model.name
-    model_copy.write_bytes(case.model.read_bytes())
+    model_copy = None
+    if case.model is not None:
+        model_copy = work / case.model.name
+        model_copy.write_bytes(case.model.read_bytes())
     events = TimedEvents()
     adapter = FakeAdapter(case.clicks, events)
     starts = []
@@ -414,6 +459,11 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         archive = (WORK / f"{case.name}-{uuid.uuid4().hex[:8]}") if real_slicer else work / "archive"
         archive.mkdir(parents=True, exist_ok=True)
         patch(model_job, "ARCHIVE", archive)
+        if entry.get("kind") == "print-next":
+            # resolve_next checks the plan's job against print_next.ARCHIVE, a module constant
+            # bound from config at import time; in the corpus it must be the same patched
+            # archive model_job gets, or every plan reads as foreign.
+            patch(print_next, "ARCHIVE", archive)
         patch(print_records, "PLANS_DIR", work / "plans")
         patch(model_job, "START_CLAIMS", work / "claims.json")
         patch(model_job, "CONTEXT", work / "context.json")
@@ -457,8 +507,36 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
                   model_capacity(orca_adapter._multi_plate_capacity, orca_adapter.source_triangles,
                                  orca_adapter._source_plate_count))
         plugin = load_plugin()
-        if transport == "standalone":
-            adapter, outcome = _run_standalone(case, work, model_copy, plugin, events, patch, auto=auto)
+        entry_kind = entry.get("kind")
+        wall_s = None
+        segment = None
+        run_events = events
+        if entry_kind == "typed":
+            # A scripted chat conversation instead of a file drop (#1142): the typed-message
+            # path through the dispatch hooks (direct) or the bot core (standalone).
+            if transport == "standalone":
+                adapter, outcome, wall_s = _run_standalone_typed(case, work, plugin, events, patch, auto=auto)
+            else:
+                from print_handy.core import prompts as _prompts
+                _real_wait = _prompts.wait_for_response
+                patch(_prompts, "wait_for_response",
+                      lambda cid, timeout=None: _real_wait(cid, 10 if timeout is None else min(timeout, 10)))
+                t0 = time.monotonic()
+                outcome = None
+                for text in entry.get("texts", []):
+                    outcome = dispatch_text(plugin, adapter, text)
+                wall_s = time.monotonic() - t0
+        elif transport == "standalone":
+            # A print-next entry case: the drop flow is the untimed setup, the typed
+            # /print-next follow-up is the timed segment (its plan id exists only once
+            # the setup has run, so the follow-up text is built lazily inside).
+            followups = (lambda: _print_next_followups(work)) if entry_kind == "print-next" else ()
+            adapter, outcome, segment = _run_standalone(
+                case, work, model_copy, plugin, events, patch, auto=auto,
+                followup_texts=followups, starts=starts)
+            if segment is not None:
+                run_events = segment.events
+                wall_s = segment.wall_s
         else:
             from print_handy.core import prompts as _prompts
             _real_wait = _prompts.wait_for_response
@@ -468,6 +546,17 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
                         _delivery_adapter_for=lambda s: adapter)
             event = drop_event(model_copy, case.name)
             outcome = asyncio.run(plugin.model_link_dispatch(event, gateway))
+            if entry_kind == "print-next":
+                # The setup flow is untimed; only the typed /print-next segment is the case.
+                seg_events = TimedEvents()
+                adapter.events = seg_events
+                run_events = seg_events
+                q0, s0, sent0 = len(adapter.questions), len(starts), len(adapter.sent)
+                t0 = time.monotonic()
+                outcome = dispatch_text(plugin, adapter, _print_next_followups(work)[0])
+                segment = S(wall_s=time.monotonic() - t0, starts=len(starts) - s0,
+                            questions=adapter.questions[q0:], sends=adapter.sent[sent0:])
+                wall_s = segment.wall_s
         state_root = plugin._state_dir()
         receipts = sorted((state_root / "model-link-intakes").glob("*.json"))
         receipt = json.loads(receipts[-1].read_text()) if receipts else {}
@@ -475,15 +564,15 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         state = printer_state.load()
         if spoolman is not None:
             assert not network_attempts, f"corpus attempted unexpected network I/O: {network_attempts}"
-    return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=events,
+    return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=run_events,
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
              spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file,
-             real_slicer=real_slicer)
+             real_slicer=real_slicer, wall_s=wall_s, segment=segment)
 
 
-def _run_standalone(case, work, model, plugin, events, patch, *, auto=True):
-    """Drop the model in a fake Discord channel and let the standalone bot handle the message."""
+def _standalone_core(case, work, plugin, events, patch, *, auto=True):
+    """The standalone bot (print_handy.bot) on a fake discord.py client, as _run_standalone sets it up."""
     import copy
     from print_handy.bot.router import Router
     from print_handy.bot.runtime import BotCore
@@ -508,16 +597,52 @@ def _run_standalone(case, work, model, plugin, events, patch, *, auto=True):
         return wait_for_response(cid, 10 if timeout is None else min(timeout, 10))
 
     patch(prompts, "wait_for_response", short_wait)
-    core = BotCore(discord.client, cfg, router=Router(plugin))
+    return discord, BotCore(discord.client, cfg, router=Router(plugin))
+
+
+async def _handle(core, discord, message):
+    outcome = await core.handle_message(message)
+    if discord.pending:
+        await asyncio.gather(*discord.pending)
+    return outcome
+
+
+def _run_standalone(case, work, model, plugin, events, patch, *, auto=True,
+                    followup_texts=(), starts=None):
+    """Drop the model in a fake Discord channel and let the standalone bot handle the message.
+
+    With followup_texts (a print-next entry case), the drop flow is the untimed setup: the
+    returned segment covers only the typed follow-ups, timed and event-logged separately
+    (its TimedEvents starts when the segment does, so its phases are segment-relative)."""
+    from . import fake_discord
+
+    discord, core = _standalone_core(case, work, plugin, events, patch, auto=auto)
     message = discord.message(attachments=[fake_discord.FakeAttachment(model, f"{case.name}{Path(model).suffix.lower()}")])
+    outcome = asyncio.run(_handle(core, discord, message))
+    segment = None
+    if callable(followup_texts):
+        followup_texts = followup_texts()
+    if followup_texts:
+        q0, s0, sent0 = len(discord.questions), len(starts) if starts is not None else 0, len(discord.sent)
+        seg_events = TimedEvents()
+        discord.events = seg_events
+        t0 = time.monotonic()
+        for text in followup_texts:
+            outcome = asyncio.run(_handle(core, discord, discord.message(content=text)))
+        segment = S(wall_s=time.monotonic() - t0, events=seg_events,
+                    starts=(len(starts) - s0) if starts is not None else None,
+                    questions=discord.questions[q0:], sends=discord.sent[sent0:])
+    return discord, outcome, segment
 
-    async def go():
-        outcome = await core.handle_message(message)
-        if discord.pending:
-            await asyncio.gather(*discord.pending)
-        return outcome
 
-    return discord, asyncio.run(go())
+def _run_standalone_typed(case, work, plugin, events, patch, *, auto=True):
+    """A typed-entry case on the standalone bot: scripted chat messages, no attachment."""
+    discord, core = _standalone_core(case, work, plugin, events, patch, auto=auto)
+    t0 = time.monotonic()
+    outcome = None
+    for text in case.entry.get("texts", []):
+        outcome = asyncio.run(_handle(core, discord, discord.message(content=text)))
+    return discord, outcome, time.monotonic() - t0
 
 
 # ----------------------------------------------------------------------------- inspecting a run
@@ -615,8 +740,37 @@ def check_refusal(case, run):
     assert not run.starts, "a refused case must never start a print"
 
 
+def _check_entry_expectations(case, run):
+    """Assert an entry case's [expect] table (typed conversation / print-next segment)."""
+    want = case.expect
+    assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)
+    assert not getattr(run.adapter, "errors", None), run.adapter.errors
+    if case.entry.get("kind") == "typed":
+        sent = " \n".join(str(s) for s in run.adapter.sent).casefold()
+        for text in want.get("sends_contain", []):
+            assert text.casefold() in sent, f"never told the operator {text!r}\n{_transcript(run)}"
+        asked = " || ".join(q["question"] for q in run.adapter.questions)
+        for text in want.get("prompts", []):
+            assert text.casefold() in asked.casefold(), f"never asked about {text!r}\n{_transcript(run)}"
+        assert len(run.starts) == int(want.get("starts", 0)), run.starts
+        return
+    # print-next: the setup flow's receipt must show the first plate started, and the
+    # timed segment must ask its prompt and start exactly the expected number of plates.
+    assert run.receipt.get("status") == want.get("status", "STARTED"), (
+        f"setup receipt status {run.receipt.get('status')!r}: {run.receipt.get('error')}\n{_transcript(run)}")
+    seg = run.segment
+    assert seg is not None, "the print-next segment did not run"
+    assert seg.starts == int(want.get("segment_starts", 1)), f"segment starts {seg.starts}\n{_transcript(run)}"
+    asked = " || ".join(q["question"] for q in seg.questions) + " " + " ".join(str(s) for s in seg.sends)
+    for text in want.get("segment_prompts", []):
+        assert text.casefold() in asked.casefold(), f"segment never asked about {text!r}\n{_transcript(run)}"
+
+
 def check_expectations(case, run):
     """Assert the case's [expect] table. Returns nothing; raises AssertionError with the difference."""
+    if getattr(case, "entry", None):
+        _check_entry_expectations(case, run)
+        return
     want = case.expect
     receipt = run.receipt
     assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)

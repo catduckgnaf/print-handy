@@ -3,6 +3,11 @@
   "assembly-2c-tight/direct": {
    "first_prompt_s": 0.25,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.0,
+    "wall_s": 0.38
+   },
    "raised_from": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
@@ -14,6 +19,11 @@
   "assembly-2c-tight/standalone": {
    "first_prompt_s": 0.36,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.31,
+    "fit_check_s": 0.0,
+    "wall_s": 0.4
+   },
    "raised_from": {
     "first_prompt_s": 0.31,
     "fit_check_s": 0.0,
@@ -25,6 +35,11 @@
   "assembly-3c-tight/direct": {
    "first_prompt_s": 0.23,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.0,
+    "wall_s": 0.23
+   },
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
@@ -36,6 +51,11 @@
   "assembly-3c-tight/standalone": {
    "first_prompt_s": 0.23,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.18,
+    "fit_check_s": 0.0,
+    "wall_s": 0.23
+   },
    "raised_from": {
     "first_prompt_s": 0.18,
     "fit_check_s": 0.0,
@@ -47,6 +67,11 @@
   "assembly-four-color-tight/direct": {
    "first_prompt_s": 0.25,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.0,
+    "wall_s": 0.25
+   },
    "raised_from": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
@@ -58,6 +83,11 @@
   "assembly-four-color-tight/standalone": {
    "first_prompt_s": 0.26,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.19,
+    "fit_check_s": 0.0,
+    "wall_s": 0.26
+   },
    "raised_from": {
     "first_prompt_s": 0.19,
     "fit_check_s": 0.0,
@@ -69,6 +99,11 @@
   "assembly-small-tower/direct": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.16,
+    "fit_check_s": 0.0,
+    "wall_s": 0.21
+   },
    "raised_from": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
@@ -80,6 +115,11 @@
   "assembly-small-tower/standalone": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.0,
+    "wall_s": 0.22
+   },
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
@@ -91,6 +131,11 @@
   "assembly-three-color-no-room/direct": {
    "first_prompt_s": 0.28,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.22,
+    "fit_check_s": 0.0,
+    "wall_s": 0.28
+   },
    "raised_from": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
@@ -102,6 +147,11 @@
   "assembly-three-color-no-room/standalone": {
    "first_prompt_s": 0.27,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.22,
+    "fit_check_s": 0.0,
+    "wall_s": 0.26
+   },
    "raised_from": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
@@ -113,6 +163,11 @@
   "assembly-two-color-roomy/direct": {
    "first_prompt_s": 0.08,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.07,
+    "fit_check_s": 0.0,
+    "wall_s": 0.13
+   },
    "raised_from": {
     "first_prompt_s": 0.07,
     "fit_check_s": 0.0,
@@ -124,6 +179,11 @@
   "assembly-two-color-roomy/standalone": {
    "first_prompt_s": 0.08,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.07,
+    "fit_check_s": 0.0,
+    "wall_s": 0.14
+   },
    "raised_from": {
     "first_prompt_s": 0.07,
     "fit_check_s": 0.0,
@@ -135,6 +195,11 @@
   "copies-multiple-plates/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "raised_from": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
@@ -146,35 +211,69 @@
   "copies-multiple-plates/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "core-basematerials-parts/direct": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
    "wall_s": 0.1
   },
   "core-basematerials-parts/standalone": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
    "wall_s": 0.1
   },
   "core-colorgroup-items/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "core-colorgroup-items/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "core-cyclic-components/direct": {
+   "original": {
+    "wall_s": 0.01
+   },
    "wall_s": 0.01
   },
   "core-cyclic-components/standalone": {
+   "original": {
+    "wall_s": 0.01
+   },
    "wall_s": 0.01
   },
   "core-dangling-build-item/direct": {
+   "original": {
+    "wall_s": 0.01
+   },
    "raised_from": {
     "wall_s": 0.01
    },
@@ -182,46 +281,89 @@
    "wall_s": 0.02
   },
   "core-dangling-build-item/standalone": {
+   "original": {
+    "wall_s": 0.01
+   },
    "wall_s": 0.01
   },
   "core-inch-nested-assembly/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-inch-nested-assembly/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-multiproperties-texture/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-multiproperties-texture/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-one-color/direct": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "core-one-color/standalone": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.09
+   },
    "wall_s": 0.09
   },
   "core-prefixed-namespace/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-prefixed-namespace/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -233,16 +375,31 @@
   "core-triangle-colors/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "core-triangle-colors/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "duplicate-part-names/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -254,21 +411,41 @@
   "duplicate-part-names/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "wall_s": 0.06
   },
   "five-colors-over-slots/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "five-colors-over-slots/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "foreign-bambu-profile-split/direct": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.01,
+    "wall_s": 0.26
+   },
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
@@ -280,6 +457,11 @@
   "foreign-bambu-profile-split/standalone": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.01,
+    "wall_s": 0.26
+   },
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
@@ -291,6 +473,11 @@
   "foreign-bambu-profile/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "raised_from": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
@@ -302,21 +489,41 @@
   "foreign-bambu-profile/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "four-colors-one-plate/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "four-colors-one-plate/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "height-color-changes/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -328,6 +535,11 @@
   "height-color-changes/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -339,16 +551,38 @@
   "islands-144-four-color/direct": {
    "first_prompt_s": 0.2,
    "fit_check_s": 0.03,
+   "original": {
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.03,
+    "wall_s": 0.77
+   },
    "wall_s": 0.77
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.17,
-   "fit_check_s": 0.05,
-   "wall_s": 0.75
+   "first_prompt_s": 0.2,
+   "fit_check_s": 0.04,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.05,
+    "wall_s": 0.75
+   },
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.05,
+    "wall_s": 0.75
+   },
+   "reason": "Wall time 0.75s -> 0.85s (median of 3, CI run 42883041795). CI medians of main show #1165 sped this case up (0.68s at 42861430542), then a step back to 0.83s by f0a238df (window: #1172, #1174, #1177, #1179, #1181); the cause inside that window was not isolated, no per-commit bisect was run.",
+   "wall_s": 0.85
   },
   "loose-2c-tight/direct": {
    "first_prompt_s": 0.07,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.11
+   },
    "raised_from": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
@@ -360,6 +594,11 @@
   "loose-2c-tight/standalone": {
    "first_prompt_s": 0.07,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.13
+   },
    "raised_from": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
@@ -371,6 +610,11 @@
   "loose-3c-tight/direct": {
    "first_prompt_s": 0.1,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.08,
+    "fit_check_s": 0.0,
+    "wall_s": 0.15
+   },
    "raised_from": {
     "first_prompt_s": 0.08,
     "fit_check_s": 0.0,
@@ -382,6 +626,11 @@
   "loose-3c-tight/standalone": {
    "first_prompt_s": 0.1,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.09,
+    "fit_check_s": 0.0,
+    "wall_s": 0.15
+   },
    "raised_from": {
     "first_prompt_s": 0.09,
     "fit_check_s": 0.0,
@@ -393,6 +642,11 @@
   "loose-4c-tight/direct": {
    "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.13
+   },
    "raised_from": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
@@ -404,6 +658,11 @@
   "loose-4c-tight/standalone": {
    "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.12
+   },
    "raised_from": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
@@ -415,26 +674,51 @@
   "many-parts/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "many-parts/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "missing-plate-metadata/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "missing-plate-metadata/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "multiplate-select/direct": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.16,
+    "fit_check_s": 0.0,
+    "wall_s": 0.23
+   },
    "raised_from": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
@@ -446,6 +730,11 @@
   "multiplate-select/standalone": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.16,
+    "fit_check_s": 0.0,
+    "wall_s": 0.24
+   },
    "raised_from": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
@@ -457,6 +746,11 @@
   "must-shrink/direct": {
    "first_prompt_s": 0.38,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.3,
+    "fit_check_s": 0.01,
+    "wall_s": 0.36
+   },
    "raised_from": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
@@ -468,6 +762,11 @@
   "must-shrink/standalone": {
    "first_prompt_s": 0.4,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.3,
+    "fit_check_s": 0.01,
+    "wall_s": 0.38
+   },
    "raised_from": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
@@ -479,6 +778,11 @@
   "needs-supports/direct": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
    "raised_from": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
@@ -490,53 +794,93 @@
   "needs-supports/standalone": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
    "wall_s": 0.1
   },
   "parts-512-four-color/direct": {
    "first_prompt_s": 1.0,
    "fit_check_s": 0.2,
-   "raised_from": {
-    "first_prompt_s": 0.73,
-    "fit_check_s": 0.18,
-    "wall_s": 3.77
+   "original": {
+    "first_prompt_s": 0.68,
+    "fit_check_s": 0.01,
+    "wall_s": 4.74
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
+   "raised_from": {
+    "first_prompt_s": 0.68,
+    "fit_check_s": 0.01,
+    "wall_s": 4.74
+   },
+   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.74 s (2026-11-03); the 2.2.5 re-record raised it to 5.35 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.68 s to 1.05 s, fit_check 0.01 s to 0.24 s on this 512-part job); 2.2.6 measured 5.20 s and 2.2.7 kept it. The 3.77 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
    "wall_s": 5.2
   },
   "parts-512-four-color/standalone": {
    "first_prompt_s": 0.99,
    "fit_check_s": 0.19,
-   "raised_from": {
-    "first_prompt_s": 0.73,
-    "fit_check_s": 0.16,
-    "wall_s": 3.79
+   "original": {
+    "first_prompt_s": 0.67,
+    "fit_check_s": 0.01,
+    "wall_s": 4.75
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
+   "raised_from": {
+    "first_prompt_s": 0.67,
+    "fit_check_s": 0.01,
+    "wall_s": 4.75
+   },
+   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.75 s (2026-11-03); the 2.2.5 re-record raised it to 5.50 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.67 s to 1.08 s, fit_check 0.01 s to 0.21 s on this 512-part job); 2.2.6 measured 5.21 s and 2.2.7 kept it. The 3.79 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
    "wall_s": 5.21
   },
   "parts-one-plate/direct": {
    "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.1
+   },
    "wall_s": 0.1
   },
   "parts-one-plate/standalone": {
    "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.12
+   },
    "wall_s": 0.12
   },
   "plates-multicolor/direct": {
    "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.14
+   },
    "wall_s": 0.14
   },
   "plates-multicolor/standalone": {
    "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.11
+   },
    "wall_s": 0.11
   },
   "prime-tower-clearance/direct": {
    "first_prompt_s": 0.16,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.13,
+    "fit_check_s": 0.0,
+    "wall_s": 0.26
+   },
    "raised_from": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
@@ -548,6 +892,11 @@
   "prime-tower-clearance/standalone": {
    "first_prompt_s": 0.15,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.13,
+    "fit_check_s": 0.0,
+    "wall_s": 0.24
+   },
    "raised_from": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
@@ -556,9 +905,30 @@
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "wall_s": 0.26
   },
+  "print-next-second-plate/direct": {
+   "first_prompt_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.0,
+    "wall_s": 0.01
+   },
+   "wall_s": 0.01
+  },
+  "print-next-second-plate/standalone": {
+   "first_prompt_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.0,
+    "wall_s": 0.0
+   },
+   "wall_s": 0.0
+  },
   "prusa-mmu-project/direct": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -570,11 +940,21 @@
   "prusa-mmu-project/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "wall_s": 0.06
   },
   "rotation-fit/direct": {
    "first_prompt_s": 0.11,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.09,
+    "fit_check_s": 0.01,
+    "wall_s": 0.14
+   },
    "raised_from": {
     "first_prompt_s": 0.09,
     "fit_check_s": 0.01,
@@ -586,6 +966,11 @@
   "rotation-fit/standalone": {
    "first_prompt_s": 0.12,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.1,
+    "fit_check_s": 0.01,
+    "wall_s": 0.15
+   },
    "raised_from": {
     "first_prompt_s": 0.1,
     "fit_check_s": 0.01,
@@ -597,11 +982,21 @@
   "single-part/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "single-part/standalone": {
    "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -613,6 +1008,11 @@
   "split-plan/direct": {
    "first_prompt_s": 0.2,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.16,
+    "fit_check_s": 0.01,
+    "wall_s": 0.25
+   },
    "raised_from": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.01,
@@ -624,6 +1024,11 @@
   "split-plan/standalone": {
    "first_prompt_s": 0.21,
    "fit_check_s": 0.01,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.01,
+    "wall_s": 0.25
+   },
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
@@ -635,42 +1040,83 @@
   "stl-ascii/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "wall_s": 0.04
   },
   "stl-ascii/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "stl-degenerate-zero-volume/direct": {
+   "original": {
+    "wall_s": 0.01
+   },
    "wall_s": 0.01
   },
   "stl-degenerate-zero-volume/standalone": {
+   "original": {
+    "wall_s": 0.01
+   },
    "wall_s": 0.01
   },
   "stl-inverted-normals/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "wall_s": 0.06
   },
   "stl-inverted-normals/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
    "wall_s": 0.06
   },
   "stl-large-plate/direct": {
    "first_prompt_s": 0.05,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.05,
+    "fit_check_s": 0.0,
+    "wall_s": 0.09
+   },
    "wall_s": 0.09
   },
   "stl-large-plate/standalone": {
    "first_prompt_s": 0.05,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.05,
+    "fit_check_s": 0.0,
+    "wall_s": 0.09
+   },
    "wall_s": 0.09
   },
   "stl-must-shrink/direct": {
    "first_prompt_s": 0.37,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.29,
+    "fit_check_s": 0.0,
+    "wall_s": 0.33
+   },
    "raised_from": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
@@ -682,6 +1128,11 @@
   "stl-must-shrink/standalone": {
    "first_prompt_s": 0.37,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.29,
+    "fit_check_s": 0.0,
+    "wall_s": 0.35
+   },
    "raised_from": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
@@ -693,21 +1144,41 @@
   "stl-needs-supports/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "stl-needs-supports/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
    "wall_s": 0.08
   },
   "stl-open-thin-wall/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "wall_s": 0.07
   },
   "stl-open-thin-wall/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -719,6 +1190,11 @@
   "stl-single-part/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -730,11 +1206,21 @@
   "stl-single-part/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "stl-tall/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -746,16 +1232,31 @@
   "stl-tall/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "stl-text-solid-header/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "stl-text-solid-header/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -767,21 +1268,41 @@
   "stl-thin-footprint/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "wall_s": 0.04
   },
   "stl-thin-footprint/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "wall_s": 0.04
   },
   "stl-tiny/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "wall_s": 0.04
   },
   "stl-tiny/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
@@ -793,32 +1314,88 @@
   "stl-very-thin-wall/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
    "wall_s": 0.04
   },
   "stl-very-thin-wall/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
+  },
+  "typed-setup-walkthrough/direct": {
+   "original": {
+    "wall_s": 0.01
+   },
+   "wall_s": 0.01
+  },
+  "typed-setup-walkthrough/standalone": {
+   "original": {
+    "wall_s": 0.0
+   },
+   "wall_s": 0.0
   },
   "unicode-part-extra-plate/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "unicode-part-extra-plate/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
    "wall_s": 0.05
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.38,
+   "first_prompt_s": 0.42,
    "fit_check_s": 0.13,
-   "wall_s": 1.12
+   "original": {
+    "first_prompt_s": 0.38,
+    "fit_check_s": 0.13,
+    "wall_s": 1.12
+   },
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.38,
+    "fit_check_s": 0.13,
+    "wall_s": 1.12
+   },
+   "reason": "Wall time 1.12s -> 1.30s (median of 3, CI run 42883041795). Main CI medians: 1.11s after #1165, 1.24s at f0a238df, 1.30s on this head; the step lies in #1172/#1174/#1177/#1179/#1181 plus the later filament warn-and-accept change (#1190); the cause was not isolated, no per-commit bisect was run.",
+   "wall_s": 1.3
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 0.4,
+   "first_prompt_s": 0.45,
    "fit_check_s": 0.12,
-   "wall_s": 1.16
+   "original": {
+    "first_prompt_s": 0.4,
+    "fit_check_s": 0.12,
+    "wall_s": 1.16
+   },
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.4,
+    "fit_check_s": 0.12,
+    "wall_s": 1.16
+   },
+   "reason": "Wall time 1.16s -> 1.61s (median of 3, CI run 42883041795; repeats read 1.89, 1.61, 1.27s, so noisy). Main CI medians: 1.06s after #1165, 1.25s at f0a238df; the rest of the rise is within runner noise or from #1190, cause not isolated, no per-commit bisect was run. Sits at +39% over the first recording, in the drift warning band.",
+   "wall_s": 1.61
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
@@ -835,7 +1412,7 @@
   "stl-tall/direct",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 42464271849 (bc4c7ab43e3c2e0eda109d70087c87c639214851), artifact discord-timing, median of 3",
+ "recorded_from": "CI run 42464271849 (bc4c7ab43e3c2e0eda109d70087c87c639214851), artifact discord-timing, median of 3; except islands-144-four-color/standalone, witch-ghost-cults3d/direct, witch-ghost-cults3d/standalone and the print-next-second-plate and typed-setup-walkthrough cases: CI run 42883041795 (2c76bcdd97a9f1b375c02ff44fdb9c34ab5b6f3b), median of 3",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
