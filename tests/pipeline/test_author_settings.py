@@ -353,21 +353,53 @@ def test_slice_model_provenance_targets_the_destination_template(tmp_path):
                for row in conflicts)
 
 
-def test_conversion_provenance_empty_changed_list_is_unknown_intent(tmp_path):
-    # different_settings_to_system present but EMPTY names no deliberate key;
-    # intent stays unknown (the docs have always said "unknown otherwise").
+def test_conversion_provenance_empty_changed_list_is_known_and_inherited(tmp_path):
+    # different_settings_to_system present with an EMPTY print entry is
+    # metadata saying nothing differs from the system preset: intent is
+    # KNOWN and every row inherited (#1110 requirement 1). The status and the
+    # rows must agree; they once said "unknown" over all-"inherited" rows.
     source = tmp_path / "empty-changed.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],
               project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
     result = author_settings.conversion_provenance(
         source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert result["intent_status"] == "known"
+
+
+def test_conversion_provenance_reads_only_the_print_presets_changed_list(tmp_path):
+    # The list is per preset: print first, then each filament, then the
+    # printer. A key a filament or printer preset changed is not the
+    # designer's process choice.
+    source = tmp_path / "per-preset.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "sparse_infill_density": "25%",
+                             "different_settings_to_system": ["sparse_infill_density", "wall_loops", "wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_density": "15%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"}, [])
+    assert result["settings"]["sparse_infill_density"]["origin"] == "designer"
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert [row["key"] for row in result["unresolved_conflicts"]] == ["sparse_infill_density"]
+    assert result["intent_status"] == "known"
+
+
+def test_conversion_provenance_without_metadata_status_agrees_with_rows(tmp_path):
+    source = tmp_path / "no-metadata.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "4"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "unknown"
     assert result["intent_status"] == "unknown"
 
 
 def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
-    # A present changed list proves the LISTED keys deliberate; an unlisted key
-    # with no preset evidence is unknown, not "inherited", and its reason agrees.
+    # A present changed list is complete for the print preset: it proves the
+    # LISTED keys deliberate and every unlisted key inherited.
     source = tmp_path / "unlisted.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],

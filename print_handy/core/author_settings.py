@@ -216,13 +216,16 @@ def conversion_provenance(source, target, process, author_process, author_notes,
     # a line of that name in a Slic3r_PE.config is not evidence to read.
     changed = (source_settings.get('different_settings_to_system')
                if isinstance(source_settings, dict) else None)
+    # The list holds one ';'-joined entry per preset: the print (process)
+    # preset first, then each filament preset, then the printer preset. Only
+    # the print entry speaks about process keys; merging the others in would
+    # label a key some filament preset changed as the designer's process
+    # choice. Present metadata (even an empty print entry) is evidence: it
+    # says which keys differ from the system preset and that the rest do not.
     if isinstance(changed, list):
-        explicit = {key for row in changed if isinstance(row, str)
-                    for key in row.split(';') if key}
-    elif isinstance(changed, str):
-        explicit = {key for key in changed.split(';') if key}
-    else:
-        explicit = None
+        changed = changed[0] if changed else None
+    explicit = ({key.strip() for key in changed.split(';') if key.strip()}
+                if isinstance(changed, str) else None)
     entries = {}
     conflicts = []
     for key in sorted(set(author_process) | set(target_settings)):
@@ -233,11 +236,11 @@ def conversion_provenance(source, target, process, author_process, author_notes,
                       (source_value != preset_value if key in source_preset and source_value is not None else None))
         selected = process.get(key)
         origin = ('designer' if deliberate is True else 'inherited' if deliberate is False else 'unknown')
-        reason = ('different_settings_to_system' if deliberate is True and explicit is not None else
-                  'project value matches exact source preset' if deliberate is False and key in source_preset else
-                  'not in different_settings_to_system; inherited from the source preset'
-                  if deliberate is False and explicit is not None else
+        reason = (('different_settings_to_system' if deliberate else
+                   'not in different_settings_to_system; inherited from the source preset')
+                  if explicit is not None else
                   'project differs from exact source preset' if deliberate is True else
+                  'project value matches exact source preset' if deliberate is False else
                   'exact source preset comparison unavailable; intent unknown')
         entries[key] = {'source_preset_value': preset_value, 'project_value': source_value,
                         'target_value': target_value, 'selected_value': selected,
@@ -267,7 +270,11 @@ def conversion_provenance(source, target, process, author_process, author_notes,
             'destination_profile_name': profile.get('name'),
             'registry_version': compat_registry.REGISTRY_VERSION,
             'governing_rules': list(governing_rules or ()),
-            'intent_status': 'known' if explicit else 'unknown',
+            # Agrees with the rows by construction: known only when every
+            # recorded setting's origin is established (designer or inherited).
+            'intent_status': ('known' if (entries or explicit is not None)
+                              and all(row['origin'] != 'unknown' for row in entries.values())
+                              else 'unknown'),
             'settings': entries, 'unresolved_conflicts': conflicts,
             'conversion_notes': list(author_notes or [])}
 
