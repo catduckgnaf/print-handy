@@ -318,7 +318,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "data_enabled", "data_enabled_explicit", "wrapped_ai_video",
+                          "wrapped_enabled", "data_enabled", "data_enabled_explicit", "wrapped_video",
                           "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
@@ -470,6 +470,41 @@ class OverrideTests(unittest.TestCase):
     def test_ifs_slots_alias_value_is_validated_under_the_new_name(self):
         with self.assertRaisesRegex(settings.SettingsError, "filament_slots must be 1"):
             settings.load(local=self.toml('[printer]\nmodel = "klipper.generic"\nifs_slots = 2\n'),
+                          environ={})
+
+    def test_wrapped_ai_video_alias_in_local_file_loads_as_wrapped_video(self):
+        # #1157: the pre-rename key is a deprecated alias, not an unknown
+        # setting; the compile is local and never used an AI model.
+        data = settings.load(local=self.toml("[timelapse]\nwrapped_ai_video = true\n"), environ={})
+        self.assertIs(data["timelapse"]["wrapped_video"], True)
+        self.assertNotIn("wrapped_ai_video", data["timelapse"])
+
+    def test_wrapped_video_wins_when_both_spellings_are_in_one_file(self):
+        data = settings.load(
+            local=self.toml("[timelapse]\nwrapped_ai_video = true\nwrapped_video = false\n"),
+            environ={})
+        self.assertIs(data["timelapse"]["wrapped_video"], False)
+
+    def test_wrapped_ai_video_alias_in_environment(self):
+        data = settings.load(local=False,
+                             environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_AI_VIDEO": "true"})
+        self.assertIs(data["timelapse"]["wrapped_video"], True)
+        self.assertNotIn("wrapped_ai_video", data["timelapse"])
+
+    def test_wrapped_video_environment_wins_over_wrapped_ai_video(self):
+        environ = {"PRINT_HANDY__TIMELAPSE__WRAPPED_AI_VIDEO": "true",
+                   "PRINT_HANDY__TIMELAPSE__WRAPPED_VIDEO": "false"}
+        data = settings.load(local=False, environ=environ)
+        self.assertIs(data["timelapse"]["wrapped_video"], False)
+
+    def test_wrapped_ai_video_legacy_env_name_still_loads(self):
+        data = settings.load(local=False,
+                             environ={"PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": "true"})
+        self.assertIs(data["timelapse"]["wrapped_video"], True)
+
+    def test_wrapped_ai_video_alias_value_is_validated_under_the_new_name(self):
+        with self.assertRaisesRegex(settings.SettingsError, "wrapped_video should be like"):
+            settings.load(local=self.toml("[timelapse]\nwrapped_ai_video = \"sometimes\"\n"),
                           environ={})
 
     def test_secure_cookie_alias_in_local_file_loads_as_cookie_secure(self):

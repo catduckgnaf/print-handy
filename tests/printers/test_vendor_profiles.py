@@ -42,7 +42,7 @@ def without_added(data):
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
         data.get("timelapse", {}).pop(key, None)
     data.get("timelapse", {}).pop("mode_explicit", None)  # added by the P2-261 fix (Codex backlog burn-down), after capture
-    for key in ("wrapped_enabled", "wrapped_ai_video",
+    for key in ("wrapped_enabled", "wrapped_video",
                 "wrapped_tts_engine", "wrapped_music_file"):  # added by #956 / #981 step 4, after capture
         data.get("timelapse", {}).pop(key, None)
     data.get("timelapse", {}).pop("data_enabled", None)  # added by the Data/Wrapped split (settings restructure stage 5), after capture

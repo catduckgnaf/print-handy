@@ -38,7 +38,7 @@ step) serving:
   :mod:`print_handy.webui.data`), behind ``[timelapse]
   wrapped_enabled``; ``POST /wrapped/video`` compiles the Wrapped
   video from the Wrapped page's form under the same form-token rule,
-  additionally behind ``[timelapse] wrapped_ai_video``;
+  additionally behind ``[timelapse] wrapped_video``;
   ``POST /wrapped/share`` exports the Wrapped static share bundle
   (#981) from the Wrapped page's form under the same form-token rule
   and the same ``wrapped_enabled`` gate;
