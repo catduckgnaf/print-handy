@@ -57,6 +57,35 @@ CHANGE_LABEL = "Change it"
 CANCEL_LABEL = "Cancel"
 CHOICES = (SLICE_LABEL, CHANGE_LABEL, CANCEL_LABEL)
 
+# Typed twins of the three buttons (#1206). Whole-message matches only, so
+# "cancel the hole" or "slice it thinner" stay design changes. Slice words
+# only hand the STL to prepared intake, which still asks before printing.
+_TYPED_CHOICES = {
+    SLICE_LABEL: {"slice", "slice it", "slice this", "slice that", "print it", "print this"},
+    CHANGE_LABEL: {"change", "change it"},
+    CANCEL_LABEL: {"cancel", "cancel it", "stop", "never mind", "nevermind", "abort",
+                   "forget it"},
+}
+
+
+def typed_choice(text):
+    """The button a typed reply to "What next for this design?" names, or None.
+
+    Case and trailing punctuation are ignored, and a bare number picks that
+    button (Discord and Telegram users type them too, not only Matrix).
+    Anything else is a change to the design, and the caller runs it as one.
+    """
+    value = " ".join(str(text or "").casefold().strip().rstrip(".!").split())
+    if not value:
+        return None
+    if value.isdigit():
+        index = int(value) - 1
+        return CHOICES[index] if 0 <= index < len(CHOICES) else None
+    for label, words in _TYPED_CHOICES.items():
+        if value == label.casefold() or value in words:
+            return label
+    return None
+
 _FORBIDDEN = (
     ("import", re.compile(r"\bimport\s*\(", re.I)),
     ("include", re.compile(r"\binclude\s*[<(]", re.I)),
