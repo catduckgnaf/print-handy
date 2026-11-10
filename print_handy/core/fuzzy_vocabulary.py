@@ -16,8 +16,11 @@ Deterministic, fully offline, dependency-free.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PHRASE_FORMS: dict[tuple[str, str], tuple[str, ...]] = {
     ('adaptive', 'layers'): ('adaptivelayers',),
@@ -4731,9 +4734,15 @@ for _cat, _vocab in DOMAIN_CATEGORIES.items():
         _DOMAIN_ALIAS_TO_TERM[_term] = _term
         _DOMAIN_ALIAS_TO_CATEGORY[_term] = _cat
 
-if _DICT_PATH.is_file():
+def _load_dictionary_file(path, alias_to_term, alias_to_category):
+    """Merge one dictionary file's terms into the alias maps.
+
+    A file that cannot be read or parsed is not fatal (#1146): the load is
+    logged once and the caller falls back to the built-in vocabulary alone,
+    instead of a bare ``except`` swallowing the failure silently.
+    """
     try:
-        with open(_DICT_PATH, encoding="utf-8") as _f:
+        with open(path, encoding="utf-8") as _f:
             _raw_dict = json.load(_f)
         for _cat, _items in _raw_dict.get("categories", {}).items():
             if _cat in DOMAIN_CATEGORIES:
@@ -4741,20 +4750,25 @@ if _DICT_PATH.is_file():
                     _term = _item.get("term", "").strip().lower()
                     if not _term:
                         continue
-                    _DOMAIN_ALIAS_TO_TERM[_term] = _term
-                    _DOMAIN_ALIAS_TO_CATEGORY[_term] = _cat
+                    alias_to_term[_term] = _term
+                    alias_to_category[_term] = _cat
                     for _alias in _item.get("aliases", []):
                         _clean_a = _alias.strip().lower()
-                        if _clean_a and _clean_a not in _DOMAIN_ALIAS_TO_TERM:
-                            _DOMAIN_ALIAS_TO_TERM[_clean_a] = _term
-                            _DOMAIN_ALIAS_TO_CATEGORY[_clean_a] = _cat
+                        if _clean_a and _clean_a not in alias_to_term:
+                            alias_to_term[_clean_a] = _term
+                            alias_to_category[_clean_a] = _cat
                     for _typo in _item.get("typos", []):
                         _clean_t = _typo.strip().lower()
-                        if _clean_t and _clean_t not in _DOMAIN_ALIAS_TO_TERM:
-                            _DOMAIN_ALIAS_TO_TERM[_clean_t] = _term
-                            _DOMAIN_ALIAS_TO_CATEGORY[_clean_t] = _cat
+                        if _clean_t and _clean_t not in alias_to_term:
+                            alias_to_term[_clean_t] = _term
+                            alias_to_category[_clean_t] = _cat
     except Exception:
-        pass
+        logger.warning("could not load the domain dictionary at %s; "
+                       "falling back to the built-in vocabulary", path, exc_info=True)
+
+
+if _DICT_PATH.is_file():
+    _load_dictionary_file(_DICT_PATH, _DOMAIN_ALIAS_TO_TERM, _DOMAIN_ALIAS_TO_CATEGORY)
 
 
 def classify_domain_term(term: str) -> str | None:

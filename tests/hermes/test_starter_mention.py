@@ -184,6 +184,9 @@ def test_rest_send_allows_only_the_named_user_to_ping():
     assert ok
     payload = json.loads(opener.requests[0].data)
     assert payload["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    # Discord's allowed_mentions only filters mentions present in the
+    # content: the ping must be in the posted text or nobody is notified.
+    assert payload["content"] == f"<@{STARTER}> Done"
 
 
 def test_rest_send_without_a_mention_pings_nobody():
@@ -192,14 +195,45 @@ def test_rest_send_without_a_mention_pings_nobody():
     assert ok
     payload = json.loads(opener.requests[0].data)
     assert payload["allowed_mentions"] == {"parse": []}
+    assert payload["content"] == "Done"
 
 
-def test_rest_send_ignores_a_non_numeric_mention_user_id():
+@pytest.mark.parametrize("value", ["garbage", "<@1>", "１２３", "²", "", "12 3"])
+def test_rest_send_ignores_a_non_numeric_mention_user_id(value):
     opener = _Opener()
-    ok, _ = rest.send("tok", "123", "Done", opener=opener, mention_user_id="garbage")
+    ok, _ = rest.send("tok", "123", "Done", opener=opener, mention_user_id=value)
     assert ok
     payload = json.loads(opener.requests[0].data)
     assert payload["allowed_mentions"] == {"parse": []}
+    assert payload["content"] == "Done"
+
+
+HOSTILE_TITLE = "Print complete: @everyone @here <@&999> <@777888999000111222> widget"
+
+
+def test_a_hostile_title_cannot_ping_anyone_but_the_starter():
+    """A title or filename carrying @everyone, a role or another user's
+    mention reaches the content as typed, but allowed_mentions lets only
+    the starter's own mention through and parses nothing else."""
+    opener = _Opener()
+    ok, _ = rest.send("tok", "123", HOSTILE_TITLE, opener=opener, mention_user_id=STARTER)
+    assert ok
+    payload = json.loads(opener.requests[0].data)
+    assert payload["content"].startswith(f"<@{STARTER}> ")
+    assert payload["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    opener = _Opener()
+    rest.send("tok", "123", HOSTILE_TITLE, opener=opener)
+    payload = json.loads(opener.requests[0].data)
+    assert payload["allowed_mentions"] == {"parse": []}
+
+
+def test_the_mention_survives_a_long_post_and_rides_only_the_first_chunk():
+    opener = _Opener()
+    ok, _ = rest.send("tok", "123", "line\n" * 1000, opener=opener, mention_user_id=STARTER)
+    assert ok and len(opener.requests) > 1
+    contents = [json.loads(r.data)["content"] for r in opener.requests]
+    assert contents[0].startswith(f"<@{STARTER}> ")
+    assert all("<@" not in c for c in contents[1:])
 
 
 def test_listener_discord_post_threads_the_decided_mention(monkeypatch):
@@ -421,7 +455,19 @@ def test_button_post_allows_only_the_named_user_to_ping(monkeypatch, tmp_path):
     assert pab.post_with_buttons("tok", "42", "stopped", "shutdown", "plate.gcode",
                                  mention_user_id=STARTER)
     assert seen[-1]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    assert seen[-1]["content"] == f"<@{STARTER}> stopped"
     assert pab.post_with_buttons("tok", "42", "paused", "paused", "plate.gcode")
     assert seen[-1]["allowed_mentions"] == {"parse": []}
+    assert seen[-1]["content"] == "paused"
     assert pab.post_with_buttons("tok", "42", "x", "shutdown", "plate.gcode", mention_user_id="<@1>")
     assert seen[-1]["allowed_mentions"] == {"parse": []}
+    assert seen[-1]["content"] == "x"
+    # A hostile filename in the alert text pings nobody but the starter.
+    assert pab.post_with_buttons("tok", "42", HOSTILE_TITLE, "shutdown", "plate.gcode",
+                                 mention_user_id=STARTER)
+    assert seen[-1]["content"].startswith(f"<@{STARTER}> ")
+    assert seen[-1]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    assert pab.post_visual_text_alert("tok", "42", "camera down", "plate.gcode",
+                                      mention_user_id=STARTER)
+    assert seen[-1]["content"] == f"<@{STARTER}> camera down"
+    assert seen[-1]["allowed_mentions"] == {"parse": [], "users": [STARTER]}

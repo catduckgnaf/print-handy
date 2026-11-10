@@ -151,6 +151,66 @@ def test_invalid_entries_are_refused_by_name_and_valid_ones_still_load(tmp_path)
     assert "no stable id" in problems
 
 
+def _house_lines(count):
+    words = ["anvil", "badger", "copper", "dynamo", "ember", "falcon", "garnet", "harbor",
+             "indigo", "jasper", "kettle", "lantern", "marble", "nickel", "orchid", "pepper"]
+    lines = []
+    for n in range(count):
+        a, b, c = words[n % 16], words[(n // 16) % 16], words[(n // 256) % 16]
+        lines.append({"id": f"custom-house-{n}", "family": "custom-house",
+                      "text": f"House {a} {b} {c} number {n} salutes {{title}} today."})
+    return lines
+
+
+def test_a_large_custom_bank_validates_quickly(tmp_path):
+    """300 entries took about 11 s with the all-pairs difflib check, inside
+    the print-completion post. The indexed check must stay well under that."""
+    import time
+    path = write_bank(tmp_path, {"entries": _house_lines(300)})
+    started = time.monotonic()
+    entries, _problems = roast.load_custom_bank(
+        path, shipped_texts=[t for rows in roast.load_corpus()["banks"].values() for _i, t in rows])
+    assert time.monotonic() - started < 3
+    assert entries  # distinct lines load (near-duplicates of each other are refused)
+
+
+def test_the_near_duplicate_index_agrees_with_the_plain_rule():
+    """The length and word prefilters never change the verdict of the
+    corpus gate's difflib rule, on shipped lines and close variants."""
+    import difflib
+    shipped = [t for rows in roast.load_corpus()["banks"].values() for _i, t in rows][:120]
+    index = roast._NearDuplicateIndex(shipped)
+    variants = []
+    for text in shipped[:30]:
+        variants += [text.rstrip(".") + "!", text.upper(), text[:-6], "Totally new " + text[10:],
+                     text.replace(" ", "  ", 1), text[::-1]]
+
+    def plain(candidate):
+        folded = candidate.casefold()
+        return any(difflib.SequenceMatcher(None, folded, other.casefold()).ratio()
+                   > roast.NEAR_DUPLICATE_RATIO for other in shipped)
+
+    for candidate in variants:
+        assert index.matches(candidate) == plain(candidate), candidate
+
+
+def test_an_oversized_custom_file_is_refused_by_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(roast, "MAX_CUSTOM_BANK_BYTES", 1024)
+    path = write_bank(tmp_path, {"entries": _house_lines(40)})
+    entries, problems = roast.load_custom_bank(path)
+    assert entries == []
+    assert len(problems) == 1 and "KiB limit" in problems[0] and str(path) in problems[0]
+
+
+def test_a_custom_bank_over_the_entry_limit_is_truncated_with_a_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(roast, "MAX_CUSTOM_ENTRIES", 5)
+    path = write_bank(tmp_path, {"entries": _house_lines(12)})
+    entries, problems = roast.load_custom_bank(path)
+    assert len(entries) <= 5
+    assert any("12 entries is over the 5-entry limit" in problem for problem in problems)
+    assert not any(eid == "custom-house-5" for eid, _f, _t in entries)
+
+
 def test_custom_entries_render_against_a_full_print(tmp_path):
     # A template that only fills when every fact is known still loads:
     # the gates fill it against a fully populated sample print, exactly

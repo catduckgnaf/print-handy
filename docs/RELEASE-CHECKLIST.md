@@ -156,6 +156,13 @@ Template: `docs/RELEASE-NOTES-TEMPLATE.md`.
   documented, not synced; touch the CA repo only for big changes or
   when something is actually wrong, and record the parity verdict on
   the checklist issue either way (audit A5).
+- [ ] CA template pinned tag: the CA template's `Repository` tag and
+  first `Branch` tag name the release just published (the parity test
+  in `tests/test_docker_release.py` checks them against the current
+  release named in `docs/DOCKER.md`). When they lag, bump them in the
+  CA repo and refresh the checked-in snapshot
+  (`tests/fixtures/unraid/README.md`) — a release-time exception to
+  the verify-only restraint above (#1143).
 - [ ] Codecov: uploads are report-only. If tokenless uploads are
   rejected, the remaining step is catduck activating the repo on
   codecov.io — record it, never gate the release on it (audit A8).

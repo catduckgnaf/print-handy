@@ -356,6 +356,21 @@ class BasePlatformAdapter:
                     self.name, user_id, self.approval_refusal_reason(user_id))
         return True
 
+    def _prompt_initiator(self, clarify_id):
+        """The user id a prompt was asked of, from its session key, else None.
+
+        Session keys are "platform:chat:thread:user" (bot.runtime), with a
+        ":printer:<id>" suffix on shared-channel prompts (#536); the user is
+        the fourth segment either way. A key without one names nobody.
+        """
+        key = self.registry.session_key(clarify_id)
+        if not key:
+            return None
+        parts = str(key).split(":")
+        if len(parts) < 4 or not parts[3]:
+            return None
+        return parts[3]
+
     async def answer_typed(self, session_key, text, user_id=None):
         """A typed reply to the open question of this session.
 
@@ -387,6 +402,19 @@ class BasePlatformAdapter:
             logger.info("refused approval button press from %s user %s: %s",
                         self.name, user_id, self.approval_refusal_reason(user_id))
             return None
+        if user_id is not None and not prompts.is_approval(clarify_id):
+            # A prompt's buttons belong to the person who was asked (#1146):
+            # any other allowed user pressing them — Cancel included — would
+            # answer a question meant for someone else. The initiator or an
+            # approver may press; a prompt whose session key records no
+            # initiator (older flows) keeps the channel-access rule above.
+            initiator = self._prompt_initiator(clarify_id)
+            if initiator is not None and str(user_id) != initiator \
+                    and not self.may_approve_id(user_id):
+                logger.info("refused button press from %s user %s: prompt %s "
+                            "belongs to its initiator or an approver",
+                            self.name, user_id, clarify_id)
+                return None
         with _prompts_guard(self):
             row = self._prompts.get(str(clarify_id))
         labels = row["choices"] if row else (self.registry.choices(clarify_id) or [])

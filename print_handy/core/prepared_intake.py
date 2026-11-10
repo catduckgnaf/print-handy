@@ -1378,15 +1378,93 @@ IN_PROGRESS_STATUSES = frozenset({'INSPECTING_SOURCE', 'AWAITING_COLOR', 'COLORS
 INTERRUPTED_MAX_AGE_S = 24 * 3600  # older receipts are history, not a conversation someone is waiting in
 
 
-async def announce_interrupted(root, adapter, now=None):
+import os  # noqa: E402  the receipt-owner liveness lock below
+try:  # noqa: E402
+    import fcntl
+except ImportError:  # non-POSIX platform: no liveness lock, the platform check still applies
+    fcntl = None
+
+_OWNER_LOCK = None  # this process's held liveness lock beside the receipts (an fd), once claimed
+_OWNER_ID = re.compile(r'[0-9a-f]{32}')
+
+
+def _owner_lock_path(root, owner):
+    return Path(root) / '.owners' / f'{owner}.lock'
+
+
+def claim_receipt_owner(root):
+    """Hold this process's liveness lock beside the intake receipts, for the life of the process.
+
+    The web chat runs BotCore in the Web UI process while the chat bot runs in its own, and both
+    write receipts into the same folder. A receipt's ``owner`` names the process that wrote it; the
+    lock tells another process whether that owner is still running. An OS file lock is released by
+    the kernel when its holder dies, so a crash or a restart frees it and a reused PID cannot fake
+    it. Where file locks are unavailable nothing is held, and the owner reads as gone (the
+    platform check in ``announce_interrupted`` still keeps processes off each other's receipts).
+    """
+    global _OWNER_LOCK
+    if _OWNER_LOCK is not None or fcntl is None:
+        return
+    fd = None
+    try:
+        path = _owner_lock_path(root, owned_worker._OWNER)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _OWNER_LOCK = fd
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+
+
+def _owner_alive(root, owner):
+    """True while the process that wrote a receipt still holds its liveness lock."""
+    if fcntl is None or not _OWNER_ID.fullmatch(str(owner or '')):
+        return False
+    path = _owner_lock_path(root, owner)
+    try:
+        fd = os.open(path, os.O_RDWR)
+    except OSError:
+        return False  # no lock file: an owner from before liveness locks, or one long gone
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True  # held: that process is running
+        with contextlib.suppress(OSError):
+            path.unlink()  # its holder is gone; the file is litter
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _receipt_platform_matches(receipt, platform):
+    """Whether this process's platform announces this receipt.
+
+    A receipt names the chat platform it was written for. A receipt from before that field existed
+    belongs to the chat bot, never to web chat: the web chat process only ever announces its own.
+    """
+    written = receipt.get('platform')
+    if written:
+        return str(written) == str(platform)
+    return str(platform) != 'webui'
+
+
+async def announce_interrupted(root, adapter, now=None, platform=None):
     """Tell each chat whose intake a restart stranded, once. Returns the intake ids announced.
 
-    Only receipts this version wrote (they carry chat_id and owner), written by another Print Handy
-    process, still in an in-progress status and recent. The receipt is marked INTERRUPTED before the post,
-    so a failing post or another restart never repeats it. Nothing is resumed: no approval survives.
+    Only receipts this version wrote (they carry chat_id and owner) for this process's own platform
+    (``platform``, by default the adapter's name), written by another Print Handy process that is no
+    longer running, still in an in-progress status and recent. The web chat and the chat bot run in
+    separate processes over the same receipt folder, so starting one never touches the other's live
+    intake. The receipt is marked INTERRUPTED before the post, so a failing post or another restart
+    never repeats it. Nothing is resumed: no approval survives.
     """
     root = Path(root)
     now = time.time() if now is None else now
+    platform = platform or getattr(adapter, 'name', None) or 'discord'
+    claim_receipt_owner(root)
     announced = []
     try:
         paths = sorted(root.glob('*.json'))
@@ -1401,7 +1479,9 @@ async def announce_interrupted(root, adapter, now=None):
             continue
         if (not isinstance(receipt, dict) or receipt.get('status') not in IN_PROGRESS_STATUSES
                 or not receipt.get('chat_id') or receipt.get('owner') in (None, owned_worker._OWNER)
-                or receipt.get('interrupted_notified') or age > INTERRUPTED_MAX_AGE_S):
+                or receipt.get('interrupted_notified') or age > INTERRUPTED_MAX_AGE_S
+                or not _receipt_platform_matches(receipt, platform)
+                or _owner_alive(root, receipt.get('owner'))):
             continue
         receipt.update(status='INTERRUPTED', interrupted_notified=True, interrupted_from=receipt['status'])
         try:
@@ -2533,7 +2613,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     receipt = {'intake_id': iid, 'url': origin, 'status': 'INSPECTING_SOURCE',
                'sliced': False, 'uploaded': False, 'started': False,
                'chat_id': str(source.chat_id), 'thread_id': str(source.thread_id) if source.thread_id else None,
-               'owner': owned_worker._OWNER}
+               'owner': owned_worker._OWNER,
+               'platform': getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}
+    claim_receipt_owner(root)  # announce_interrupted elsewhere reads this process as alive
     try:
         with receipt_path.open('x') as f:
             json.dump(receipt, f)
@@ -4707,6 +4789,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 slice_warnings.record_unsupported_cantilever_override(
                     jp.parent, finding, source_file=sliced.get('downloaded_file'))
             if pick == 0:
+                # The reslice replaces the artifact: a clearance
+                # acknowledgement pending from the Ready menu was given for
+                # the artifact sliced before it, so it is invalidated here
+                # and never recorded against the new one (#1151). The new
+                # artifact's low-clearance finding is asked again below.
+                clearance_ack_pending = False
                 latest = json.loads(jp.read_text())
                 recipe_sha = binding_sha256(slice_binding(latest, decisions['source_sha256']))
                 receipt['slice_approval']['recipe_sha256'] = recipe_sha
@@ -4731,12 +4819,25 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                and not cov_result['ok'] else None)
                 unverified_result = (cov_result if cov_result is not None and cov_result.get('unverified')
                                      else None)
-                if cov_failure is not None or unverified_result is not None:
-                    if not await _support_override(cov_failure, False, resliced=True,
+                # The resliced artifact owes its own low-clearance waiver:
+                # the acknowledgement for the previous artifact was
+                # invalidated above, and a "with supports" slice does not
+                # waive a sub-1.0 mm gap (#922 gap 2, #1151).
+                report = sliced.get('support_clearance') or clearance
+                low_clearance = False
+                if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                       for f in (report or {}).get('findings') or []):
+                    ack = sliced.get('clearance_acknowledgement') or {}
+                    low_clearance = (not ack.get('acknowledged')
+                                     or ack.get('via', 'print_anyway')
+                                     not in ('print_anyway', 'geometry_repair'))
+                if cov_failure is not None or low_clearance or unverified_result is not None:
+                    if not await _support_override(cov_failure, low_clearance, resliced=True,
                                                    unverified_result=unverified_result):
                         return {'action': 'skip',
                                 'reason': ('support coverage verification failed' if cov_failure is not None
-                                           else 'support coverage unverified')}
+                                           else 'support coverage unverified' if unverified_result is not None
+                                           else 'low clearance not waived for the resliced artifact')}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         if clearance_ack_pending:
             # The selected variant's artifact is installed now: bind the

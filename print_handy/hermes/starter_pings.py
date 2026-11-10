@@ -7,9 +7,12 @@ the starter ping them too, and the decision lives here instead: a send
 path hands this module a post *kind* and the job (or a job key to
 resolve), and gets back the one Discord user ID the post may ping — or
 "" for nobody. Callers never build ``<@id>`` lines, and the rendered
-text of a post never carries a mention on any platform; the ping rides
-``allowed_mentions`` on the Discord send, restricted to that single
-user, exactly as the #1029 transport already enforced.
+text of a post never carries a mention on any platform: the Discord
+send path (``bot.rest.starter_mention``) puts the one ``<@id>`` at the
+front of the posted content — Discord's ``allowed_mentions`` only
+filters mentions present in the content, so without it nobody is
+notified — and restricts ``allowed_mentions`` to that single user, so
+no other mention in a title or filename can ping.
 
 Ping set (catduck, 2026-11-08: "it pings on issues, errors, pasta cam,
 and completion, not picking the number of bag clips"):
