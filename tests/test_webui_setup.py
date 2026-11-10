@@ -438,7 +438,7 @@ class UnclaimedFlowTests(unittest.TestCase):
 
         def broken():
             raise RuntimeError("secret detail /home/someone/token=abc")
-        httpd.snapshot_func = broken
+        httpd.api_snapshot_func = broken
         with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
             code, _, body = self.request(port, "GET", "/api/status")
         self.assertEqual(code, 500)

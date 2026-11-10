@@ -48,8 +48,14 @@ def _drive(monkeypatch, transitions):
 
 
 def _terminal_posts(posted):
-    """Everything after the start post: the terminal notification sequence."""
-    return posted[1:]
+    """Terminal notices by kind, independent of start/resume post counts."""
+    return [p for p in posted if p.startswith(("Print cancelled:", "Print stopped with an error:",
+                                               "Print complete:"))]
+
+
+def test_terminal_posts_excludes_start_notices_without_hiding_duplicates():
+    cancel = "Print cancelled: charm"
+    assert _terminal_posts(["Print started: charm", "Print started: charm", cancel, cancel]) == [cancel, cancel]
 
 
 def test_paused_then_standby_posts_cancelled_notice_once_and_retires_prompt(monkeypatch):

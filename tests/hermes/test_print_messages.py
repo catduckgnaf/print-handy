@@ -983,12 +983,17 @@ def test_pasta_roast_is_gated_on_a_spaghetti_verdict():
     """The spaghetti bank rides only a confirmed spaghetti verdict: the
     visual check's alert block calls the status-roast helper inside the
     verdict == "spaghetti" branch, not for risk flags (uncertain, air)."""
+    import ast
     import inspect
-    source = inspect.getsource(mel.Listener.visual_check)
-    gate = source.index('verdict == "spaghetti"')
-    call = source.index("_with_status_roast")
-    assert gate < call
-    assert source.count("_with_status_roast") == 1
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(mel.Listener._visual_check_once)))
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == "_with_status_roast"]
+    assert len(calls) == 1
+    gates = [node for node in ast.walk(tree) if isinstance(node, ast.If)
+             and ast.unparse(node.test) == "verdict == 'spaghetti'"]
+    assert len(gates) == 1
+    assert calls[0] in [node for stmt in gates[0].body for node in ast.walk(stmt)]
 
 
 def test_history_facts_flow_into_roast_generation(monkeypatch, tmp_path):
