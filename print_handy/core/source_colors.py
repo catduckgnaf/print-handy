@@ -843,6 +843,18 @@ def _plate_usage(path, manifest):
     if not grouped:
         return {}
     designated = manifest.get('support_filaments') or {}
+    # The recorded support_filaments are clamped to the palette when the
+    # manifest is built (an out-of-palette designation records as None),
+    # which would erase exactly the designations the invalid-designation
+    # check below exists for. Read the raw designations from the source
+    # project as well; range-checking them against the palette is this
+    # function's job (see author_settings.support_designation).
+    from . import author_settings
+    raw_designation = author_settings.support_designation(path)
+    designated = {field: (raw_designation.get(field)
+                          if raw_designation.get(field) is not None
+                          else designated.get(field))
+                  for field in ('base', 'interface')}
     prusa_roles = _prusa_role_extruders(path)
     range_extruders, range_unknown = _height_range_extruders(path, object_plate)
     palette_ids = {int(row['source_extruder']) for row in manifest.get('filaments') or []
