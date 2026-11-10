@@ -43,6 +43,23 @@ def split_media(text):
     return body, files
 
 
+def starter_mention(content, mention_user_id):
+    """(content, allowed_mentions) for one Discord post that may ping one user.
+
+    Discord's ``allowed_mentions`` only filters the mentions already in the
+    content: a user listed there and not mentioned in the text is never
+    notified. So a post meant to ping the print's starter carries a real
+    ``<@id>`` at the front, and ``allowed_mentions`` lets exactly that user
+    through (``parse`` stays empty), so an ``@everyone``, a role or another
+    user's mention inside a model title or filename still pings nobody.
+    Anything but a plain ASCII digit string names nobody.
+    """
+    user_id = "" if mention_user_id is None else str(mention_user_id)
+    if user_id.isascii() and user_id.isdigit():
+        return f"<@{user_id}> {content}", {"parse": [], "users": [user_id]}
+    return content, {"parse": []}
+
+
 def chunks(text, limit=LIMIT):
     """Discord's 2000 character limit: split on line breaks where possible."""
     text = str(text or "")
@@ -89,17 +106,16 @@ def send(token, channel_id, text, *, opener=None, timeout=30, mention_user_id=No
 
     Mentions never ping by default (``allowed_mentions`` parses nothing).
     ``mention_user_id`` is the one exception: that single user — the person
-    who started a finished print, named by the listener from the post's own
-    starter-mention line — is allowed to be pinged, and nobody else is.
+    who started the print, decided by the starter pings classifier — is
+    mentioned at the front of the post and allowed to be pinged, and nobody
+    else is (``starter_mention``).
     """
     if not token:
         return False, "no Discord bot token"
     if not channel_id:
         return False, "discord.chat_id is not configured"
-    allowed = {"parse": []}
-    if mention_user_id is not None and str(mention_user_id).isdigit():
-        allowed = {"parse": [], "users": [str(mention_user_id)]}
     body, files = split_media(text)
+    body, allowed = starter_mention(body, mention_user_id)
     pieces = chunks(body)
     first = None
     try:
