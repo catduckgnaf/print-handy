@@ -6756,6 +6756,17 @@ def _baseline_heaters_off(baseline):
         return False
 
 
+def _baseline_heats(baseline):
+    """True only when a readable baseline shows a heater target above 0."""
+    for name in ("extruder", "heater_bed"):
+        try:
+            if float(((baseline or {}).get(name) or {}).get("target")) > 0:
+                return True
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return False
+
+
 def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     """Pure function classifying printer status after submission.
 
@@ -7710,38 +7721,6 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _consume_approval(job_path, job, g, reprint=reprint)
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
-        if len(slots_used) > 1:
-            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
-            cleared = _clear_active_spool(st)
-            if cleared.get('spoolman_pending') and job_path is not None:
-                # The clear could not be written: Moonraker may keep charging
-                # the stale spool during this print. Record which spool that
-                # is in the job record for later reconciliation; recording
-                # must never block the launch (#387).
-                job['spoolman_usage_pending'] = {
-                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
-                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
-        else:
-            _routed = _recorded_printer_id(job)
-            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
-                    else _sync_active_spool(st, slots_used[0]))
-            if sync.get('spoolman_pending') and job_path is not None:
-                # Usage could not be pointed at this job's spool (#387):
-                # record it as pending in the job record for later
-                # reconciliation. Recording must never block the launch.
-                job['spoolman_usage_pending'] = {
-                    'spool_id': sync.get('spool_id'), 'slot': slots_used[0],
-                    'reason': 'Spoolman unavailable at print start; usage not yet reported',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
         _timing(job_path, 'upload_begin')
         uploaded = subprocess.run([str(MOONRAKERCTL), 'upload', str(upload_path), remote, upload_sha],
                                   text=True, capture_output=True, timeout=300, env=_moonrakerctl_env(st))
@@ -7778,20 +7757,55 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
         try: claim_start_announcement(remote)
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        _announce_print_name(st, job, slots_used, g)
-        _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
         # #836: the idle guard proved every heater target was 0 before an upload that can take
-        # minutes. Re-read the targets immediately before the one start POST: a preheat tapped on
-        # HelixScreen during the upload is not this job's preparation, and a printer someone else
-        # is heating must not be started over. An unreadable read (None) proves nothing either
-        # way: the start still goes out, but with no proven-off baseline, so heater targets after
-        # a lost POST response are never credited to this job.
+        # minutes. Re-read the targets after the upload: a preheat tapped on HelixScreen during the
+        # upload is not this job's preparation, and a printer someone else is heating must not be
+        # started over. An unreadable read (None) proves nothing either way: the start still goes
+        # out, but with no proven-off baseline, so heater targets after a lost POST response are
+        # never credited to this job. This read comes BEFORE every side effect of the start (the
+        # active spool, the display message, the Home Assistant job card), so a refusal here leaves
+        # none of them behind; the status baseline read immediately before the POST re-checks the
+        # targets for the lost-response evidence.
         pre_start_evidence = _preparation_evidence(st)
         heaters_were_off = pre_start_evidence is False
         if pre_start_evidence is True:
             raise SystemExit("REFUSED: the printer's heaters are already on before the start was sent, "
                              "so this start was not sent; a preheat or other work is heating the printer. "
                              "Check the printer or HelixScreen, then try again. Nothing started.")
+        if len(slots_used) > 1:
+            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
+            cleared = _clear_active_spool(st)
+            if cleared.get('spoolman_pending') and job_path is not None:
+                # The clear could not be written: Moonraker may keep charging
+                # the stale spool during this print. Record which spool that
+                # is in the job record for later reconciliation; recording
+                # must never block the launch (#387).
+                job['spoolman_usage_pending'] = {
+                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
+                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
+        else:
+            _routed = _recorded_printer_id(job)
+            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
+                    else _sync_active_spool(st, slots_used[0]))
+            if sync.get('spoolman_pending') and job_path is not None:
+                # Usage could not be pointed at this job's spool (#387):
+                # record it as pending in the job record for later
+                # reconciliation. Recording must never block the launch.
+                job['spoolman_usage_pending'] = {
+                    'spool_id': sync.get('spool_id'), 'slot': slots_used[0],
+                    'reason': 'Spoolman unavailable at print start; usage not yet reported',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
+        _announce_print_name(st, job, slots_used, g)
+        _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
@@ -7801,6 +7815,10 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     # What the printer shows just before the one POST. A reprint's remote name is the previous run's
     # (state complete, same file, axes homed), so only a change from this counts as this start's evidence.
     start_baseline = _start_baseline(st, native=True)
+    if _baseline_heats(start_baseline):
+        # A heater came on after the re-read above (during the spool and display steps): the
+        # start still goes out, but such heat is never this job's evidence after a lost response.
+        heaters_were_off = False
     lease.submitting()
     # #848: capture the gcode-store watermark immediately before the one POST, so a `!!` line
     # the store gains afterwards is attributable to this submission by position — a line that
