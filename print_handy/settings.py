@@ -142,7 +142,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("printer", "zmod_delivery_format"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
-                 ("vision", "roast_model"): str,
                  ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
@@ -1506,9 +1505,10 @@ def _validate_vision(data):
     line per print on the completion post, one on the failure and cancel
     posts and on a confirmed-spaghetti camera alert, and on request in
     chat ("roast my last print"), on every platform. Set it false to turn
-    roasts off without touching the camera watchdog. ``roast_model`` is kept so older
-    configs load unchanged; roasts no longer read it. Absent in an older
-    config means the default (on).
+    roasts off without touching the camera watchdog. The retired
+    ``roast_model`` key is gone (#1146): a config still carrying it loads
+    with the usual unknown-setting warning and the value is dropped.
+    Absent in an older config means the default (on).
     """
     vision = data.setdefault("vision", {})
     enabled = vision.setdefault("roast_enabled", True)
