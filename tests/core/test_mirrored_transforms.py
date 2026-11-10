@@ -85,3 +85,28 @@ def test_transform_mirrors_is_the_sign_of_the_composed_determinant():
     assert orca_adapter.transform_mirrors([mx]) is True
     assert orca_adapter.transform_mirrors([mx, scale]) is True
     assert orca_adapter.transform_mirrors([mx, mx]) is False
+
+
+@pytest.mark.parametrize('painted', [False, True])
+@pytest.mark.parametrize('kw', [dict(item_tf=MIRROR_X), dict(comp_tf=MIRROR_X),
+                               dict(item_tf=MIRROR_X, comp_tf=MIRROR_X)])
+def test_color_export_mirrors_are_outward_or_explicitly_refused(tmp_path, painted, kw):
+    from print_handy.core import source_colors
+    src = _write(tmp_path / 'source.3mf', **kw)
+    if painted:
+        with zipfile.ZipFile(src) as archive:
+            xml = archive.read('3D/3dmodel.model').replace(b'<triangle ', b'<triangle paint_color="8" ')
+        with zipfile.ZipFile(src, 'w') as archive:
+            archive.writestr('3D/3dmodel.model', xml)
+    manifest = source_colors.inventory(src)
+    choices = {row['key']: {'slot': 1} for row in source_colors.canonical_prompts(manifest)}
+    decisions = {'mode': 'per_part', 'source_sha256': manifest['source_sha256'], 'choices': choices}
+    out = tmp_path / 'out.3mf'
+    reflected = len(kw) == 1
+    if painted and reflected:
+        with pytest.raises(RuntimeError, match='mirrored painted geometry'):
+            color_geometry.export_color_geometry(src, out, decisions)
+        assert not out.exists()
+    else:
+        color_geometry.export_color_geometry(src, out, decisions)
+        assert sum(_volume(leaf['tris']) for leaf in support_clearance.leaves(str(out))) == pytest.approx(6000)

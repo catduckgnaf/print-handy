@@ -619,17 +619,21 @@ def finite_triangles(triangles):
 def lay_flat_rotation(triangles):
     """The rotation that puts the largest face of a mesh on the build plate.
 
-    Picks the largest-area triangle's face normal (grouped by direction)
-    and returns (matrix, result_dims) rotating that normal to -Z, or
-    None when the mesh is empty.
+    Picks the direction with the largest area on its outermost supporting
+    plane and returns (matrix, result_dims) rotating that normal to -Z, or
+    None when the mesh is empty. Parallel terraces away from that plane
+    cannot contribute bed contact.
     """
     from . import geometry_layout
     described = geometry_layout.describe_triangles(triangles)
     if not described.get("faces"):
         return None
-    # Sum triangle areas per rounded normal direction; the winner is the
-    # largest flat face's direction.
-    totals = {}
+    # Group nearly equal directions, then count only triangles on the
+    # supporting plane. A large recessed face never reaches the bed.
+    groups = {}
+    normals = {}
+    import numpy as np
+    points = np.asarray(triangles, dtype=float).reshape(-1, 3)
     for tri in triangles:
         (ax, ay, az), (bx, by, bz), (cx, cy, cz) = tri
         ux, uy, uz = bx - ax, by - ay, bz - az
@@ -639,10 +643,20 @@ def lay_flat_rotation(triangles):
         if length == 0:
             continue
         key = tuple(round(v / length, 2) for v in (nx, ny, nz))
-        totals[key] = totals.get(key, 0.0) + length / 2
+        groups.setdefault(key, []).append((tri, length / 2))
+        normals.setdefault(key, (nx / length, ny / length, nz / length))
+    totals = {}
+    for key, faces in groups.items():
+        normal = normals[key]
+        support = float((points @ normal).max())
+        area = sum(area for tri, area in faces
+                   if all(abs(sum(normal[i] * p[i] for i in range(3)) - support) <= 0.01
+                          for p in tri))
+        if area > 0:
+            totals[key] = area
     if not totals:
         return None
-    nx, ny, nz = max(totals, key=totals.get)
+    nx, ny, nz = normals[max(totals, key=totals.get)]
     length = math.sqrt(nx * nx + ny * ny + nz * nz)
     nx, ny, nz = nx / length, ny / length, nz / length
     if abs(nz + 1) < 1e-9:
