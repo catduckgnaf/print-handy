@@ -146,7 +146,8 @@ _REGISTRY = _Registry()
 
 
 def _discover():
-    """Compatibility hook returning the fully validated vendor and model tables."""
+    """Re-scan and validate all vendor and model modules (compatibility hook)."""
+    _REGISTRY.complete = False
     _REGISTRY.scan()
     return _REGISTRY.vendors, _REGISTRY.models
 
