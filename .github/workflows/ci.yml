@@ -529,6 +529,7 @@ jobs:
 
   standalone-no-hermes:
     # #73: the standalone bot installs from the runtime dependencies alone (pip install .), loads every handler and imports no Hermes module.
+    # The setup checks run from the checkout, so they test the checkout; the installed wheel is tested by the known-gap step.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:3.12-slim-trixie
@@ -539,6 +540,32 @@ jobs:
         run: |
           python -m venv "/tmp/clean"
           "/tmp/clean/bin/python" -m pip install .
+      # KNOWN GAP, deliberately non-blocking. The checks below run `python -m print_handy.bot check` with
+      # the checkout as the working directory, so Python imports the checkout's print_handy, not the
+      # wheel installed above: they prove the runtime dependencies and the standalone code path, not the
+      # package a user gets from pip. This step runs from outside the checkout and so tests the installed
+      # wheel. It fails today because the wheel ships only print_handy/: config/home.toml (settings.ROOT
+      # is the parent of the package) and plugins/print-feedback (the command handlers, bot/router.py)
+      # are not packaged. Fix the packaging, then delete continue-on-error so this step blocks.
+      - name: Installed wheel check from outside the checkout (known gap, not blocking)
+        id: wheel-check
+        continue-on-error: true
+        env:
+          PRINT_HANDY__BOT__MODE: standalone
+          PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
+          PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
+          DISCORD_BOT_TOKEN: not-a-real-token
+          PRINT_HANDY__PATHS__HERMES_HOME: /tmp/print-handy-wheel
+        run: |
+          mkdir -p /tmp/outside && cd /tmp/outside
+          "/tmp/clean/bin/python" -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
+          "/tmp/clean/bin/python" -m print_handy.bot check
+      - name: Say plainly that the wheel check failed
+        if: steps.wheel-check.outcome == 'failure'
+        run: >-
+          echo "::warning title=standalone-no-hermes::The installed wheel cannot run the bot check from outside
+          the checkout (it lacks config/ and plugins/print-feedback). The checks below test the checkout, not the
+          wheel. Known gap, not a pass."
       - name: Standalone bot setup check
         env:
           PRINT_HANDY__BOT__MODE: standalone
