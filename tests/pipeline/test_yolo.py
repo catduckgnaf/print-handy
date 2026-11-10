@@ -17,8 +17,10 @@ print_next = external("print_next")
 # ---------------------------------------------------------------- yolo.py
 
 @pytest.mark.parametrize('text, want', [
-    ('yolo', True), ('YOLO print it', True), ('https://x/y yolo', True), ('yolo!', True),
-    ('yolomode', False), ('no-yolo-here', False), ('', False), ('print it', False),
+    ('yolo', True), ('YOLO print it', True), ('https://x/y yolo', False), ('yolo!', False),
+    ('yolo https://x/y', True), ('yolo! print it', False), ('This is a yolo print', False),
+    ('I said yolo earlier', False), ('yolomode', False), ('no-yolo-here', False),
+    ('', False), ('print it', False),
 ])
 def test_requested_is_a_whole_word(text, want):
     assert yolo.requested(text) is want
