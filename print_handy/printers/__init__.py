@@ -83,23 +83,32 @@ class _Registry:
         with self.lock:
             if self.complete:
                 return
-            vendors, found = dict(self.vendors), dict(self.models)
-            for brand in pkgutil.iter_modules(__path__):
-                if not brand.ispkg:
-                    continue
-                vendor = vendors.get(brand.name) or _vendor(brand.name)
-                vendors[vendor.key] = vendor
-                package = importlib.import_module(f"{__name__}.{brand.name}")
-                for module in pkgutil.iter_modules(package.__path__):
-                    if module.ispkg:
-                        continue
-                    key = f"{brand.name}.{module.name}"
-                    model = found.get(key) or _model(vendor, module.name)
-                    if model is not None:
-                        found[key] = model
-            self.vendors = dict(sorted(vendors.items()))
-            self.models = dict(sorted(found.items()))
+            self.vendors, self.models = self._scan_tables()
             self.complete = True
+
+    def _scan_tables(self):
+        """A full validated scan, seeded from the objects already loaded.
+
+        Every vendor package and printer module is listed and checked;
+        objects loaded earlier by key are reused, so identity is stable.
+        Returns fresh sorted (vendors, models) dicts; the caller decides
+        whether they become the live tables.
+        """
+        vendors, found = dict(self.vendors), dict(self.models)
+        for brand in pkgutil.iter_modules(__path__):
+            if not brand.ispkg:
+                continue
+            vendor = vendors.get(brand.name) or _vendor(brand.name)
+            vendors[vendor.key] = vendor
+            package = importlib.import_module(f"{__name__}.{brand.name}")
+            for module in pkgutil.iter_modules(package.__path__):
+                if module.ispkg:
+                    continue
+                key = f"{brand.name}.{module.name}"
+                model = found.get(key) or _model(vendor, module.name)
+                if model is not None:
+                    found[key] = model
+        return dict(sorted(vendors.items())), dict(sorted(found.items()))
 
     def vendor(self, name):
         """One vendor by key, loading only its package. None when unknown (after a full scan)."""
@@ -146,9 +155,16 @@ _REGISTRY = _Registry()
 
 
 def _discover():
-    """Compatibility hook returning the fully validated vendor and model tables."""
-    _REGISTRY.scan()
-    return _REGISTRY.vendors, _REGISTRY.models
+    """Compatibility hook returning the fully validated vendor and model tables.
+
+    Always a fresh full scan, even when the lazy tables are already
+    complete: callers use this hook to discover (and validate) modules
+    dropped into a vendor package after an earlier scan ran, so the
+    memoized scan-once fast path must not answer for it. The live tables
+    are left untouched, as the eager discovery this hook replaces did.
+    """
+    with _REGISTRY.lock:
+        return _REGISTRY._scan_tables()
 
 
 class _Table(MutableMapping):
