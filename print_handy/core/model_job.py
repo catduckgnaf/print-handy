@@ -6030,6 +6030,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     except RuntimeError as exc:
         # Preserve the legacy safety contract for malformed, thumbnail-less
         # multi-plate archives before surfacing component-reference errors.
+        has_thumbnails = False
         if src.suffix.lower() == ".3mf":
             with zipfile.ZipFile(src) as archive:
                 names = archive.namelist()
@@ -6042,9 +6043,29 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                 has_thumbnails = any(re.fullmatch(r"Metadata/plate_\d+\.png", name) for name in names)
             if len(plate_ids) > 1 and not has_thumbnails:
                 raise RuntimeError("multi-plate 3MF source has no plate thumbnails; no slicing attempted") from exc
-        if multi_plate:
+        # Owner ruling (catduck, 2026-11-10): unknown filament usage never
+        # blocks a print; the job proceeds to the slicer. A plates-only
+        # source — the archive carries its plates as thumbnails, the job's
+        # audit accounts for every one of them, and the audit records no
+        # build parts — has nothing for inventory to resolve: parts and
+        # usage stay UNKNOWN and the slicer's output is authoritative.
+        # The refusal below stands for the rest: a stale audit that hides
+        # plates, and build parts the inventory cannot assign to plates,
+        # are safety facts about the job record, not usage gaps.
+        plates_only_unknown = (
+            multi_plate and has_thumbnails
+            and int(ad.get("plates", 0) or 0) == len(actual_plates)
+            and not int(ad.get("build_items", 0) or 0))
+        if plates_only_unknown:
+            manifest = {'source_sha256': file_sha256(src), 'parts': [], 'filaments': [],
+                        'painted': False, 'requires_choices': False,
+                        'layer_changes': [], 'layer_extras': [], 'plate_usage': {}}
+            from .source_colors import _append_filament_stats
+            _append_filament_stats(src, manifest)
+        elif multi_plate:
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
-        raise
+        else:
+            raise
     selected_plates = job.get('selected_plates') or None
     if multi_plate and selected_plates and job.get('color_decisions'):
         # The user selected exact source plates, so validate their usage and

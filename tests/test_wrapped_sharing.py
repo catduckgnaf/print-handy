@@ -325,7 +325,11 @@ class SharePanelAndRouteTests(unittest.TestCase):
                     "&year=2025&visibility=public&destination=GitHub+Pages")
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         # Since #1168 a claimed install's form token alone
+                         # no longer authorizes a POST: the request needs
+                         # the access header (or a session-bound token).
+                         server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200, raw[:400])
             self.assertIn("wrapped-2025", raw)
             self.assertTrue((vault / "wrapped" / "exports" /
@@ -339,7 +343,10 @@ class SharePanelAndRouteTests(unittest.TestCase):
             body = "_csrf=" + httpd.form_token + "&year=2025&visibility=public"
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         # Authenticate like test_share_post_route_creates_bundle:
+                         # the wrapped_enabled refusal must be what answers.
+                         server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 403)
             self.assertIn("wrapped_enabled", raw)
 
