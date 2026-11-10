@@ -6459,7 +6459,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
             manifest['source_sha256'] = file_sha256(src)
         slice_decisions_in, fallback_warnings = filament_fallbacks(
             manifest, job.get('color_decisions'), selected_plates, st, position_limit(adapter),
-            choices_needed=bool(manifest['requires_choices'] or multi_plate))
+            choices_needed=bool(manifest['requires_choices']))
     if multi_plate and selected_plates and slice_decisions_in:
         # The user selected exact source plates, so validate their usage and
         # mappings before slicing. Whole-source imports without source usage
@@ -6508,6 +6508,15 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
+    if fallback_warnings and not filament_gate_ran:
+        # Present the fallbacks before the decisions are validated: the
+        # operator sees the named slot first, and a fallback slot that the
+        # record cannot resolve (no loaded-slot information) refuses only
+        # after acceptance, as the slot check it is.
+        _enforce_filament_warnings(job, fallback_warnings + usage_warnings,
+                                   manifest.get('source_sha256'), selected_plates,
+                                   job_folder=Path(job_path).parent, via_slice=True)
+        filament_gate_ran = True
     decisions = None if (generic and not multi_tool and not layered_single) else slice_decisions_in
     if decisions is not None:
         decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection,

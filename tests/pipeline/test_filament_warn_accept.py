@@ -31,13 +31,8 @@ STATE = {'bed_mm': [220, 220], 'max_print_height_mm': 250,
          'nozzle': {'diameter_mm': 0.4},
          'spool': {'name': 'PLA', 'material': 'PLA', 'density': 1.24},
          'temps_c': {'nozzle': 210, 'bed': 60},
-         # Verified slots (#1189): a source with no color choices now slices
-         # single-color from the first loaded slot, which the slot check
-         # verifies like any recorded one-color choice.
-         'filament_slots': {'1': {'color': 'white', 'material': 'PLA', 'spoolman_id': 10,
-                                  'physical_color_verified': True},
-                            '2': {'color': 'black', 'material': 'PLA', 'spoolman_id': 11,
-                                  'physical_color_verified': True}}}
+         'filament_slots': {'1': {'color': 'white', 'material': 'PLA', 'spoolman_id': 10},
+                            '2': {'color': 'black', 'material': 'PLA', 'spoolman_id': 11}}}
 
 
 def _unknown_usage_manifest(work):
@@ -255,10 +250,7 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             with self.assertRaises(mj.FilamentWarningPending) as caught:
                 mj.slice_job(job_path)
             self.assertTrue(any('plate 1' in w for w in caught.exception.warnings))
-            # Since #1189 the same round also names the one-color fallback:
-            # this job has no color choices, which slice_multi_plate refused.
-            self.assertTrue(any('color choices were never made' in w
-                                for w in caught.exception.warnings))
+
             slicer.assert_not_called()
             mj.record_filament_warning_acknowledgement(job_path)
             result = mj.slice_job(job_path)
