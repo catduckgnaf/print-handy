@@ -143,7 +143,7 @@ python3 -m print_handy.bot check
 ```
 
 This does not log into Discord or contact a printer. It checks mode, token presence (not validity),
-channel, allowed users, discord.py, loaded handlers, absence of host modules and writable state.
+channel, allowed users, discord.py, loaded handlers and writable state.
 It creates the state directory and briefly writes a probe file there. Expect exit 0 and `ok` lines;
 resolve each `FAIL` before proceeding. A valid configuration is not proof the token can log in.
 Do not use `python3 -m print_handy.doctor` as this offline check: doctor can contact configured services.

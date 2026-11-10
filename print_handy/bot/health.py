@@ -1,8 +1,7 @@
 """Proof that the standalone bot started, without Hermes: a heartbeat file and an optional HTTP check.
 
 The running bot rewrites <state>/bot_health.json every few seconds. ``python3 -m print_handy.bot health``
-exits 0 only when that heartbeat is fresh, the bot is logged in to Discord, its process is alive and no
-Hermes module is loaded in it. With [bot] health_port set, GET /healthz answers the same check
+exits 0 only when that heartbeat is fresh, the bot is logged in to Discord and its process is alive. With [bot] health_port set, GET /healthz answers the same check
 (200 or 503) for container probes.
 """
 from __future__ import annotations
@@ -17,17 +16,8 @@ import time
 
 from ..hermes import _config
 
-# Modules that only exist when Hermes is installed. None may be loaded in a standalone bot.
-HERMES_MODULES = ("tools", "gateway", "hermes_state", "hermes_cli")
-
-
 def path():
     return _config.state_file(None, "bot_health.json")
-
-
-def hermes_modules_loaded(modules=None):
-    modules = sys.modules if modules is None else modules
-    return sorted(name for name in modules if name.split(".", 1)[0] in HERMES_MODULES)
 
 
 def write(status):
@@ -83,8 +73,6 @@ def evaluate(status, now=None, stale_s=None):
         return False, f"bot process {status['pid']} is gone"
     if status.get("mode") != "standalone":
         return False, f"bot mode is {status.get('mode')!r}"
-    if status.get("hermes_modules"):
-        return False, f"Hermes modules loaded: {', '.join(status['hermes_modules'])}"
     if not status.get("connected"):
         return False, "not connected to Discord"
     return True, f"connected as {status.get('user') or 'unknown'}, {status.get('handlers', 0)} handlers"

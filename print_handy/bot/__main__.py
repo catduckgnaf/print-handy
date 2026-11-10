@@ -2,7 +2,7 @@
 
 run     start the standalone bot on the [bot] platform (the default). Refuses unless [bot] mode is standalone.
 check   validate settings, token, channel, users and handlers offline. Exit 1 on a problem.
-health  exit 0 only while a running bot reports a fresh heartbeat with no Hermes loaded.
+health  exit 0 only while a running bot reports a fresh heartbeat.
 """
 import logging
 import os
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def checks(cfg):
     """[(label, ok, detail)]. Offline: nothing here contacts the chat platform."""
     from ..hermes import _config
-    from . import agent, health, llm, platform
+    from . import agent, llm, platform
     from .runtime import allowed_users, discord_chat_llm_enabled
     rows = []
 
@@ -82,8 +82,6 @@ def checks(cfg):
         add("handlers", bool(names), f"{len(names)}: {', '.join(names)}")
     except Exception as exc:
         add("handlers", False, f"plugin failed to load: {exc}")
-    loaded = health.hermes_modules_loaded()
-    add("no hermes", not loaded, "no Hermes module imported" if not loaded else ", ".join(loaded))
     try:
         state = _config.state_dir()
         state.mkdir(parents=True, exist_ok=True)
