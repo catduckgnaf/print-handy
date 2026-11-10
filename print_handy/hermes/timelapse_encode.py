@@ -446,17 +446,64 @@ def named_copy(video, name):
         return Path(video)
 
 
-def caption_with_number(text, job_key, filename=None) -> str:
-    """Add the print number to a post caption when the record has one and the text lacks it."""
+def coverage_note(manifest) -> str:
+    """One caption line about how much of the print a capture covers, or "".
+
+    A capture that ended at its byte cap covers only the start of the
+    print: say how much (frames kept times the interval in effect). A
+    capture that was halved to cover a long print says it was sampled
+    thinly. A plain complete capture needs no line.
+    """
+    manifest = manifest if isinstance(manifest, dict) else {}
     try:
-        if "Print #" in text:
-            return text
-        record = _record_for(job_key, filename)
-        number = record.get("print_number")
-        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
-            return f"{text}\nPrint #{number}"
+        interval = float(manifest.get("interval_s") or 0)
+        frames = int(manifest.get("frames") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if manifest.get("capped"):
+        if interval > 0 and frames:
+            hours = frames * interval / 3600
+            span = f"{hours:.1f} hours" if hours >= 1 else f"{round(frames * interval / 60)} minutes"
+            return (f"Timelapse note: capture hit its storage limit, so this clip covers "
+                    f"only the first {span} of the print.")
+        return ("Timelapse note: capture hit its storage limit, so this clip covers "
+                "only the first part of the print.")
+    if int(manifest.get("decimations") or 0) and interval > 0:
+        return (f"Timelapse note: this was a long print, so the clip uses one frame "
+                f"every {interval:g} seconds to cover all of it.")
+    return ""
+
+
+def capture_coverage_note(job_key, *, data=None) -> str:
+    """:func:`coverage_note` for a job's finished capture. Never raises."""
+    try:
+        directory = find_capture(job_key, data=data)
+        if directory is None:
+            return ""
+        return coverage_note(timelapse_capture.read_manifest(directory))
+    except Exception:
+        return ""
+
+
+def caption_with_number(text, job_key, filename=None) -> str:
+    """Add the print number, and any capture-coverage note, to a post caption.
+
+    The number goes in when the record has one and the text lacks it. For a
+    job with an in-container capture that was cut short by its storage
+    limit, or thinned to fit a long print, one more line says so.
+    """
+    try:
+        if "Print #" not in text:
+            record = _record_for(job_key, filename)
+            number = record.get("print_number")
+            if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+                text = f"{text}\nPrint #{number}"
     except Exception:
         pass
+    if job_key and "Timelapse note:" not in text:
+        note = capture_coverage_note(job_key)
+        if note:
+            text = f"{text}\n{note}"
     return text
 
 
