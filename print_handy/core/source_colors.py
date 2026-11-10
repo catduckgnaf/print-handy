@@ -451,7 +451,7 @@ def inventory(path):
         # Non-3MF sources have no palette, but every decision is still bound to the file bytes.
         res = {'source_sha256': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
                'parts': [], 'filaments': [], 'painted': False, 'requires_choices': False,
-               'layer_changes': [], 'layer_extras': []}
+               'layer_changes': [], 'layer_extras': [], 'plate_usage': {}}
         _append_filament_stats(path, res)
         return res
     parts, filaments, painted, cutters = [], [], False, []
@@ -577,6 +577,7 @@ def inventory(path):
     if support['base'] or support['interface']:
         res['support_filaments'] = support
     _append_filament_stats(path, res)
+    res['plate_usage'] = _plate_usage(path, res)
     return res
 
 
@@ -647,6 +648,411 @@ def require_plate_usage_known(manifest, selected_plate_ids=None):
                 raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted') from None
             if ext_id < 1 or not math.isfinite(grams) or not math.isfinite(meters) or grams < 0 or meters < 0:
                 raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted')
+
+
+# ---------------------------------------------------------------------------
+# Per-plate filament usage analysis (#1110 Phase B).
+#
+# The slicer-reported totals above say how much of each filament a plate
+# consumed, but not WHY: which assignments make the plate use that filament.
+# This analysis derives each plate's used source filaments from the source
+# itself, one usage class at a time, and every class carries its evidence.
+# A class is 'known' when the source determines it, 'unknown' when the source
+# should carry the fact but it cannot be determined (never guessed, never
+# silently zero), and 'not_carried_by_format' when the source format names no
+# such assignment at all — a named limitation, not a hidden filament. Logical
+# source filament IDs are retained end to end; loaded slots and physical
+# nozzles are destination concepts and never appear in a usage record.
+
+_USAGE_CLASSES = ('objects', 'painting', 'layer_changes', 'height_ranges',
+                  'wall', 'infill', 'support', 'interface', 'tower')
+
+# Prompt label for a filament a plate uses only through one usage class.
+_CLASS_LABELS = {'height_ranges': 'height-range', 'wall': 'wall', 'infill': 'infill',
+                 'tower': 'prime tower', 'painting': 'painted-region',
+                 'layer_changes': 'layer-change', 'support': 'support',
+                 'interface': 'support interface', 'objects': 'object'}
+
+
+def _usage_row(status, filaments=(), evidence=None, reason=None):
+    row = {'status': status, 'source_filaments': sorted({int(f) for f in filaments if f}),
+           'evidence': evidence}
+    if reason:
+        row['reason'] = reason
+    return row
+
+
+def _plate_membership(path, manifest):
+    """({plate_id: [part, ...]}, {object_id: plate_id}) from the source's own plate assignments.
+
+    Prefers model_job.plate_manifest (plater_id identity, the same identity
+    slice_info usage records use); falls back to the inventory's per-part
+    plate annotation, then to one implicit plate holding every part.
+    """
+    parts = list(manifest.get('parts') or [])
+    try:
+        from . import model_job as _mj
+        plates = _mj.plate_manifest(path)['plates']
+    except Exception:
+        plates = None
+    if plates:
+        object_plate = {str(oid): str(plate['id']) for plate in plates for oid in plate['object_ids']}
+        grouped = {str(plate['id']): [] for plate in plates}
+        for part in parts:
+            plate_id = object_plate.get(str(part.get('object_id')))
+            if plate_id is not None:
+                grouped[plate_id].append(part)
+        return grouped, object_plate
+    if any(part.get('plate') is not None for part in parts):
+        grouped, object_plate = {}, {}
+        for part in parts:
+            if part.get('plate') is None:
+                continue
+            plate_id = str(part['plate'])
+            grouped.setdefault(plate_id, []).append(part)
+            object_plate[str(part.get('object_id'))] = plate_id
+        return grouped, object_plate
+    return ({'1': parts} if parts else {}), {str(p.get('object_id')): '1' for p in parts}
+
+
+def _prusa_role_extruders(path):
+    """Per-feature extruders a PrusaSlicer config names ({} for other formats).
+
+    perimeter_extruder / infill_extruder / solid_infill_extruder are the
+    PrusaSlicer spellings of the wall and infill assignments; 0 or an absent
+    key means the object's own extruder, which is no distinct assignment.
+    """
+    out = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if 'Metadata/Slic3r_PE.config' not in archive.namelist():
+                return out
+            data = archive.read('Metadata/Slic3r_PE.config').decode('utf-8', 'replace')
+    except Exception:
+        return out
+    values = {}
+    for line in data.splitlines():
+        line = line.strip()
+        if line.startswith(';') and '=' in line:
+            key, _, value = line[1:].partition('=')
+            values[key.strip()] = value.strip()
+    for key in ('perimeter_extruder', 'infill_extruder', 'solid_infill_extruder'):
+        try:
+            number = int(str(values.get(key) or '').strip())
+        except ValueError:
+            number = None
+        if number and number > 0:
+            out[key] = number
+    return out
+
+
+def _height_range_extruders(path, object_plate):
+    """({plate_id: set(extruders)}, unknown_reason) from layer_config_ranges.xml.
+
+    A height range with opt_key 'extruder' assigns a filament to an object's
+    layers between min_z and max_z. An absent member is known-empty; a member
+    that cannot be parsed, or a range whose extruder value is not a valid
+    source filament ID, makes the class unknown — never absent.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if 'Metadata/layer_config_ranges.xml' not in archive.namelist():
+                return {}, None
+            data = archive.read('Metadata/layer_config_ranges.xml')
+    except Exception as exc:
+        return {}, f'layer_config_ranges.xml could not be read: {exc}'
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return {}, 'layer_config_ranges.xml could not be parsed'
+    out = {}
+    for obj in root.iter():
+        if obj.tag.split('}')[-1] != 'object':
+            continue
+        plate_id = object_plate.get(str(obj.get('id')))
+        if plate_id is None:
+            continue
+        for option in obj.iter():
+            if option.tag.split('}')[-1] != 'option' or option.get('opt_key') != 'extruder':
+                continue
+            try:
+                extruder = int(str(option.text or '').strip())
+                if extruder < 1:
+                    raise ValueError
+            except ValueError:
+                return {}, (f"height range for object {obj.get('id')} names an invalid "
+                            f"extruder {option.text!r}")
+            out.setdefault(plate_id, set()).add(extruder)
+    return out, None
+
+
+def _painting_usage(path, manifest, plate_parts):
+    """The painting class row for one plate's parts (painted_geometry states).
+
+    State N >= 1 is source filament N; state 0 and unpainted triangles print
+    the part's base extruder. PrusaSlicer mmu_segmentation paint is decoded
+    per state by painted_geometry with the same TriangleSelector decoding as
+    paint_color (Phase C, #1110 criterion 4), so its states count exactly.
+    """
+    if not manifest.get('painted'):
+        return _usage_row('known', evidence='source carries no paint_color/mmu_segmentation attributes')
+    from . import painted_geometry
+    used, mmu = set(), False
+    model_bytes = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            for part in plate_parts:
+                states = painted_geometry.leaf_states(path, part)
+                base = part.get('source_extruder')
+                needs_base = bool(states.get('unpainted')) or 0 in (states.get('states') or {})
+                for state, count in (states.get('states') or {}).items():
+                    if count:
+                        used.add(int(state) if state else base)
+                if needs_base:
+                    used.add(base)
+                model_path = part['ancestry'][-1][0] if part.get('ancestry') else '3D/3dmodel.model'
+                if model_path in names and model_path not in model_bytes:
+                    model_bytes[model_path] = archive.read(model_path)
+                if b'mmu_segmentation=' in model_bytes.get(model_path, b''):
+                    mmu = True
+    except Exception as exc:
+        return _usage_row('unknown', reason=f'paint states could not be decoded: {exc}')
+    if None in used:
+        return _usage_row('unknown', reason='a painted part has no base extruder for its '
+                                             'unpainted or base-state triangles')
+    if mmu:
+        return _usage_row('known', used, evidence='mmu_segmentation triangle states decoded per '
+                                                  'part (same selector decoding as paint_color)')
+    return _usage_row('known', used, evidence='paint_color triangle states decoded per part')
+
+
+def _plate_usage(path, manifest):
+    """{plate_id: usage entry} for a 3MF source; {} when it has no plates/parts.
+
+    Merges the source analysis with the slicer-reported per-plate totals in
+    filament_stats: where both exist and name different filament sets, the
+    plate's usage is UNKNOWN with the disagreement recorded — neither claim
+    is dropped or averaged. See the section comment above for class status
+    semantics.
+    """
+    parts = manifest.get('parts') or []
+    if not parts:
+        return {}
+    grouped, object_plate = _plate_membership(path, manifest)
+    if not grouped:
+        return {}
+    designated = manifest.get('support_filaments') or {}
+    prusa_roles = _prusa_role_extruders(path)
+    range_extruders, range_unknown = _height_range_extruders(path, object_plate)
+    palette_ids = {int(row['source_extruder']) for row in manifest.get('filaments') or []
+                   if row.get('source_extruder') is not None}
+    invalid_designations = {name: ext for name, ext in designated.items()
+                            if ext is not None and ext not in palette_ids}
+    stats_plates = ((manifest.get('filament_stats') or {}).get('plates')) or {}
+    unreadable = 'unreadable' in stats_plates
+    out = {}
+    for plate_id, plate_parts in grouped.items():
+        classes = {}
+        # Object/part assignments.
+        assigned = {p.get('source_extruder') for p in plate_parts}
+        if None in assigned:
+            classes['objects'] = _usage_row(
+                'unknown', reason='a part on this plate has no source extruder assignment')
+        else:
+            classes['objects'] = _usage_row(
+                'known', assigned,
+                evidence='object/part extruder assignments in the source model settings '
+                         '(Metadata/model_settings.config or Metadata/Slic3r_PE_model.config)')
+        # Triangle painting.
+        classes['painting'] = _painting_usage(path, manifest, plate_parts)
+        # Layer changes (per-layer tool changes pinned to this plate).
+        layer_rows = [r for r in manifest.get('layer_changes') or []
+                      if str(r.get('plate')) == str(plate_id)]
+        if any(r.get('source_extruder') is None for r in layer_rows):
+            classes['layer_changes'] = _usage_row(
+                'unknown', reason='a per-layer tool change on this plate names no extruder')
+        else:
+            classes['layer_changes'] = _usage_row(
+                'known', {r.get('source_extruder') for r in layer_rows},
+                evidence='Metadata/custom_gcode_per_layer.xml tool changes for this plate')
+        # Height ranges.
+        if range_unknown:
+            classes['height_ranges'] = _usage_row('unknown', reason=range_unknown)
+        else:
+            classes['height_ranges'] = _usage_row(
+                'known', range_extruders.get(str(plate_id), ()),
+                evidence='Metadata/layer_config_ranges.xml extruder ranges for this plate')
+        # Wall / infill: only the PrusaSlicer format names per-feature
+        # extruders; a Bambu/Orca project carries no distinct assignment.
+        if prusa_roles:
+            wall = {prusa_roles['perimeter_extruder']} if 'perimeter_extruder' in prusa_roles else set()
+            infill = {prusa_roles[k] for k in ('infill_extruder', 'solid_infill_extruder')
+                      if k in prusa_roles}
+            classes['wall'] = _usage_row('known', wall or (assigned - {None}),
+                                         evidence='perimeter_extruder in Metadata/Slic3r_PE.config')
+            classes['infill'] = _usage_row('known', infill or (assigned - {None}),
+                                           evidence='infill_extruder in Metadata/Slic3r_PE.config')
+        else:
+            classes['wall'] = _usage_row(
+                'not_carried_by_format',
+                reason='the source project format names no separate wall filament; walls print '
+                       'with the object filament and no distinct wall assignment is carried')
+            classes['infill'] = _usage_row(
+                'not_carried_by_format',
+                reason='the source project format names no separate infill filament; infill prints '
+                       'with the object filament and no distinct infill assignment is carried')
+        # Support / interface: an invalid explicit designation is an unknown
+        # usage claim, not permission to silently omit that filament.
+        base, interface = designated.get('base'), designated.get('interface')
+        invalid_here = {name: ext for name, ext in invalid_designations.items()
+                        if (name == 'base' and base is not None) or
+                           (name == 'interface' and interface is not None)}
+        if invalid_here:
+            reason = 'support designation names source filament outside project palette: ' + \
+                     ', '.join(f'{name}={ext}' for name, ext in sorted(invalid_here.items()))
+            classes['support'] = _usage_row('unknown', reason=reason)
+            classes['interface'] = _usage_row('unknown', reason=reason)
+        elif base:
+            classes['support'] = _usage_row(
+                'known', {base}, evidence='support filament designated in the source project settings')
+            classes['interface'] = _usage_row(
+                'known', {interface or base},
+                evidence='support interface filament designated in the source project settings'
+                if interface else 'support interface prints with the designated support filament')
+        else:
+            classes['support'] = _usage_row(
+                'known', evidence='no dedicated support filament designated; supports print '
+                                  'with the object filament')
+            classes['interface'] = _usage_row(
+                'known', evidence='no dedicated support interface filament designated; the interface '
+                                  'prints with the object filament')
+        # Tower: neither source format names a distinct tower filament.
+        classes['tower'] = _usage_row(
+            'not_carried_by_format',
+            reason='the source project format names no wipe/prime tower filament; the tower prints '
+                   'with the filaments in play and no distinct tower assignment is carried')
+        used, filament_classes = set(), {}
+        for name in _USAGE_CLASSES:
+            row = classes[name]
+            if row['status'] == 'known':
+                for ext in row['source_filaments']:
+                    used.add(ext)
+                    filament_classes.setdefault(str(ext), []).append(name)
+        unknown = [name for name in _USAGE_CLASSES if classes[name]['status'] == 'unknown']
+        entry = {'plate': str(plate_id), 'part_keys': [p['key'] for p in plate_parts],
+                 'classes': classes, 'source_filaments': sorted(used),
+                 'filament_classes': filament_classes, 'unknown_classes': unknown,
+                 'not_carried_classes': [n for n in _USAGE_CLASSES
+                                         if classes[n]['status'] == 'not_carried_by_format'],
+                 'usage_known': not unknown, 'slicer_reported': None, 'disagreement': None}
+        # Merge the slicer-reported totals for this plate, where they exist.
+        if unreadable:
+            entry['slicer_unknown_reason'] = USAGE_UNREADABLE
+            entry['usage_known'] = False
+        elif str(plate_id) in stats_plates:
+            reported = stats_plates[str(plate_id)]
+            entry['slicer_reported'] = {
+                'extruders': reported.get('extruders') or {},
+                'usage_known': reported.get('usage_known'),
+                'usage_unknown_reason': reported.get('usage_unknown_reason')}
+            if reported.get('usage_known'):
+                slicer_set = {int(k) for k in (reported.get('extruders') or {})}
+                if slicer_set != used:
+                    entry['disagreement'] = (
+                        f'slicer-reported filaments {sorted(slicer_set)} disagree with the source '
+                        f'analysis filaments {sorted(used)} for plate {plate_id}')
+                    entry['usage_known'] = False
+            elif reported.get('usage_unknown_reason') == USAGE_INVALID:
+                entry['usage_known'] = False
+        out[str(plate_id)] = entry
+    return out
+
+
+def used_source_filaments(manifest, plate_id):
+    """The source filament IDs one plate uses, per its usage analysis ([] when unanalyzed)."""
+    entry = (manifest.get('plate_usage') or {}).get(str(plate_id)) or {}
+    return list(entry.get('source_filaments') or [])
+
+
+def plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capacity=None):
+    """Named reasons automated readiness must block for the selected plates.
+
+    A selected plate blocks when a usage class for it is unknown, when the
+    slicer-reported and analyzed filament sets disagree, or when a filament
+    the plate uses has no validated slot mapping in the source-bound
+    decisions. An unselected plate never contributes a problem. Mappings are
+    validated against the destination's loaded-slot capacity when given: a
+    shared nozzle (AD5X) does not add slots, so a mapping naming a slot past
+    the capacity, however many nozzles share the path, is not validated.
+    Logical source filament IDs, loaded slots and nozzles stay distinct:
+    decisions map source IDs to slots, and only slots are capacity-checked.
+    """
+    problems = []
+    selected = [str(p) for p in (selected_plate_ids or [])]
+    if not selected:
+        return ['no plate is selected; per-plate filament usage cannot be validated']
+    usage = manifest.get('plate_usage') or {}
+    if not isinstance(decisions, dict) or decisions.get('source_sha256') != manifest.get('source_sha256'):
+        problems.append('color decisions are not bound to this source; no filament mapping is validated')
+        decisions = {}
+    mode = decisions.get('mode')
+    choices = decisions.get('choices') if isinstance(decisions.get('choices'), dict) else {}
+    selection = decisions.get('selection') if isinstance(decisions.get('selection'), dict) else {}
+    parts_by_plate = {}
+    for part in manifest.get('parts') or []:
+        parts_by_plate.setdefault(str(part.get('key')), part)
+    mapped_slots = set()
+    for plate_id in selected:
+        entry = usage.get(plate_id)
+        if entry is None:
+            problems.append(f'plate {plate_id}: per-plate filament usage is unknown (no usage '
+                            'analysis for this plate); its color mapping cannot be validated')
+            continue
+        for name in entry.get('unknown_classes') or []:
+            reason = (entry['classes'].get(name) or {}).get('reason') or 'usage cannot be determined'
+            problems.append(f'plate {plate_id}: {name} filament usage is unknown ({reason}); '
+                            'its color mapping cannot be validated')
+        if entry.get('disagreement'):
+            problems.append(f"plate {plate_id}: {entry['disagreement']}; "
+                            'its color mapping cannot be validated')
+        if not entry.get('usage_known') and not entry.get('unknown_classes') \
+                and not entry.get('disagreement'):
+            reason = entry.get('slicer_unknown_reason') or 'slicer-reported usage could not be validated'
+            problems.append(f'plate {plate_id}: per-plate filament usage is unknown ({reason}); '
+                            'its color mapping cannot be validated')
+        plate_parts = [parts_by_plate[k] for k in entry.get('part_keys') or [] if k in parts_by_plate]
+        for ext in entry.get('source_filaments') or []:
+            slots = set()
+            if mode == 'single_color' and selection.get('slot') is not None:
+                slots = {selection['slot']}
+            elif mode == 'per_part':
+                row = choices.get(f'filament:{ext}')
+                if isinstance(row, dict) and row.get('slot') is not None:
+                    slots = {row['slot']}
+                else:
+                    holders = [p for p in plate_parts if p.get('source_extruder') == ext]
+                    picked = [choices.get('part:' + p['key']) for p in holders]
+                    if holders and all(isinstance(c, dict) and c.get('slot') is not None for c in picked):
+                        slots = {c['slot'] for c in picked}
+            if not slots:
+                problems.append(f'plate {plate_id}: source filament {ext} is used but has no '
+                                'validated slot mapping')
+            mapped_slots |= {s for s in slots if isinstance(s, int) and not isinstance(s, bool)}
+    if slot_capacity is not None:
+        for slot in sorted(mapped_slots):
+            if slot < 1 or slot > slot_capacity:
+                problems.append(f'slot {slot} is named by a filament mapping but the destination '
+                                f'has only {slot_capacity} loaded slots; a shared nozzle does '
+                                'not add slots or spools')
+    return problems
+
+
+def require_plate_readiness(manifest, decisions, selected_plate_ids, slot_capacity=None):
+    """Raise with the named reasons when a selected plate is not ready to print."""
+    problems = plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capacity)
+    if problems:
+        raise RuntimeError('print readiness blocked: ' + '; '.join(problems))
 
 
 def _append_filament_stats(path, manifest):
@@ -871,29 +1277,87 @@ def _palette_rows(manifest, canonical=False):
     return rows
 
 
-def prompts(manifest):
+def _selected_scope(manifest, selected_plate_ids):
+    """(part_keys, filaments, conservative) a selected-plate print is scoped to.
+
+    None when no selection is given (the whole source is in scope). The
+    filaments come from the per-plate usage analysis; when a selected plate's
+    usage is partly unknown the scope is conservative — filament questions
+    are not dropped on a guess, and readiness (plate_readiness_problems) is
+    what blocks. Without an analysis (a hand-built manifest), part plate
+    annotations, layer changes and support designations scope as far as they
+    reach.
+    """
+    if selected_plate_ids is None:
+        return None
+    selected = {str(p) for p in selected_plate_ids}
+    usage = manifest.get('plate_usage') or {}
+    part_keys, filaments, conservative = set(), set(), False
+    if usage:
+        for plate_id in selected:
+            entry = usage.get(plate_id)
+            if entry is None:
+                conservative = True
+                continue
+            part_keys |= set(entry.get('part_keys') or [])
+            filaments |= set(entry.get('source_filaments') or [])
+            if entry.get('unknown_classes') or entry.get('disagreement'):
+                conservative = True
+        return part_keys, filaments, conservative
+    parts = manifest.get('parts') or []
+    if parts and all(p.get('plate') is None for p in parts) and len(selected) == 1:
+        part_keys = {p['key'] for p in parts}  # one implicit plate holds every part
+    else:
+        part_keys = {p['key'] for p in parts
+                     if p.get('plate') is not None and str(p['plate']) in selected}
+    filaments = {p.get('source_extruder') for p in parts if p['key'] in part_keys}
+    filaments |= {r.get('source_extruder') for r in manifest.get('layer_changes') or []
+                  if str(r.get('plate')) in selected}
+    filaments |= {e for e in (manifest.get('support_filaments') or {}).values() if e}
+    if manifest.get('painted'):
+        filaments |= {f.get('source_extruder') for f in manifest.get('filaments') or []}
+    return part_keys, {f for f in filaments if f}, conservative
+
+
+def prompts(manifest, selected_plate_ids=None):
     """Legacy presentation retains part and palette prompts for old JOB schemas."""
+    scope = _selected_scope(manifest, selected_plate_ids)
     rows = [{'key': 'part:' + p['key'], 'question': f"Choose slot/color/material for {_prompt_name(p)}",
-             'source_extruder': p['source_extruder']} for p in manifest['parts']]
+             'source_extruder': p['source_extruder']} for p in manifest['parts']
+            if scope is None or p['key'] in scope[0]]
     if manifest['painted'] or len(manifest['filaments']) > 1:
-        rows += _palette_rows(manifest)
+        palette = _palette_rows(manifest)
+        if scope is not None and not scope[2]:
+            palette = [row for row in palette
+                       if row.get('source_extruder') in scope[1]
+                       or row['key'] == 'painted:unknown']
+        rows += palette
     if len({row['key'] for row in rows}) != len(rows):
         raise ValueError('duplicate part/color selection key')
     return rows
 
 
-def canonical_prompts(manifest):
+def canonical_prompts(manifest, selected_plate_ids=None):
     """Geometry slots are authoritative; unused author palette rows are not choices.
 
     Triangle-painted regions override object extruders and use their palette.
+    With selected_plate_ids, the questions cover only the colors the selected
+    plates actually use (per the plate usage analysis): an unselected plate's
+    parts and colors never prompt.
     """
+    scope = _selected_scope(manifest, selected_plate_ids)
     if manifest['painted']:
-        return _palette_rows(manifest, canonical=True)
+        rows = _palette_rows(manifest, canonical=True)
+        if scope is not None and not scope[2]:
+            rows = [row for row in rows if row.get('source_extruder') in scope[1]]
+        return rows
     stats = manifest.get('filament_stats', {})
     ext_stats = stats.get('extruders', {})
 
     rows = []
     for p in manifest['parts']:
+        if scope is not None and p['key'] not in scope[0]:
+            continue  # an unselected plate's parts never prompt
         ext = p.get('source_extruder')
         # No per-part grams here: an extruder total shown on every part read as N x the real usage.
         stat_suffix = ''
@@ -903,7 +1367,11 @@ def canonical_prompts(manifest):
     # Height-based color changes (#870): an extruder the per-layer tool
     # changes switch to is a color question in its own right, alongside the
     # part colors. An extruder a part already asks about needs no second row.
-    covered = {p.get('source_extruder') for p in manifest['parts']}
+    # Scoped to a selected-plate print, only the parts actually asked about
+    # cover their extruder; an extruder used only on an unselected plate is
+    # not covered here (and its layer rows below are scoped out too).
+    covered = {p.get('source_extruder') for p in manifest['parts']
+               if scope is None or p['key'] in scope[0]}
     # Extruders that already have a filament:<ext> question of their own (a
     # height-change row). A support designation dedups against these only:
     # its question is keyed the same way and asks for that extruder's spool.
@@ -911,6 +1379,8 @@ def canonical_prompts(manifest):
     filaments = {f.get('source_extruder'): f for f in manifest.get('filaments') or []}
     for row in manifest.get('layer_changes') or []:
         ext = row.get('source_extruder')
+        if scope is not None and str(row.get('plate')) not in {str(p) for p in selected_plate_ids}:
+            continue  # a layer change on an unselected plate never prompts
         if not ext or ext in covered:
             continue
         covered.add(ext)
@@ -928,7 +1398,8 @@ def canonical_prompts(manifest):
         except Exception:
             name = color
         heights = sorted({r['top_z'] for r in manifest['layer_changes']
-                          if r.get('source_extruder') == ext and r.get('top_z') is not None})
+                          if r.get('source_extruder') == ext and r.get('top_z') is not None
+                          and (scope is None or str(r.get('plate')) in {str(p) for p in selected_plate_ids})})
         where = f" at {' and '.join(f'{z:g} mm' for z in heights)}" if heights else ''
         rows.append({'key': f'filament:{ext}',
                      'question': f"Choose the loaded color/material for the height-based color change to "
@@ -946,6 +1417,8 @@ def canonical_prompts(manifest):
         ext = designated.get(field)
         if not ext or ext in filament_rows:
             continue
+        if scope is not None and not scope[2] and ext not in scope[1]:
+            continue  # no selected plate uses this designated filament
         filament_rows.add(ext)
         filament = filaments.get(ext) or {}
         color = str(filament.get('color') or '').strip()
@@ -960,6 +1433,35 @@ def canonical_prompts(manifest):
                                  f"{name.title() if name else 'the designated filament'} "
                                  f"({color or 'unknown color'}, {material})",
                      'source_extruder': ext})
+    # Filaments a plate uses only through a usage class with no row of its
+    # own yet (a height-range extruder assignment, a PrusaSlicer wall or
+    # infill extruder): the plate cannot print until that filament is mapped,
+    # so it is asked about like any other source color, named by its class.
+    usage = manifest.get('plate_usage') or {}
+    relevant = usage if scope is None else {pid: usage[pid] for pid in
+                                            (str(p) for p in selected_plate_ids) if pid in usage}
+    for plate_id in sorted(relevant, key=str):
+        entry = relevant[plate_id]
+        for ext in entry.get('source_filaments') or []:
+            if ext in covered or ext in filament_rows:
+                continue
+            covered.add(ext)
+            filament_rows.add(ext)
+            filament = filaments.get(ext) or {}
+            color = str(filament.get('color') or '').strip()
+            material = str(filament.get('material') or 'unknown material').strip()
+            try:
+                from . import part_translator
+                name = part_translator.named_color(color)
+            except Exception:
+                name = color
+            classes = (entry.get('filament_classes') or {}).get(str(ext)) or ['objects']
+            label = _CLASS_LABELS.get(classes[0], 'source')
+            rows.append({'key': f'filament:{ext}',
+                         'question': f"Choose the loaded color/material for the {label} filament "
+                                     f"{name.title() if name else 'the designated filament'} "
+                                     f"({color or 'unknown color'}, {material})",
+                         'source_extruder': ext})
     if manifest['painted'] and not manifest['parts']:
         palette = manifest['filaments']
         labels = [(str(f.get('color') or '').strip(), str(f.get('material') or 'unknown material').strip())
@@ -1011,6 +1513,10 @@ def distinct_source_colours(manifest):
              if row.get('source_extruder')}
     # A designated support filament prints the supports, in its own color (#867).
     used |= {ext for ext in (manifest.get('support_filaments') or {}).values() if ext}
+    # Filaments a plate uses only through another usage class (height ranges,
+    # per-feature extruders) print too (#1110 Phase B analysis).
+    for entry in (manifest.get('plate_usage') or {}).values():
+        used |= {ext for ext in entry.get('source_filaments') or [] if ext}
     if manifest.get('painted'):
         used |= {ext for ext in filaments if ext}
     colours = set()
@@ -1103,18 +1609,22 @@ def part_families(manifest):
     return out
 
 
-def grouped_prompts(manifest):
+def grouped_prompts(manifest, selected_plate_ids=None):
     """canonical_prompts with numbered part families collapsed into one question.
 
     Each row carries 'keys' (decision keys it answers). Painted filament rows
-    are never grouped.
+    are never grouped. With selected_plate_ids, families are formed over the
+    selected plates' parts only, so an unselected plate never prompts.
     """
-    rows = canonical_prompts(manifest)
+    rows = canonical_prompts(manifest, selected_plate_ids=selected_plate_ids)
     if manifest['painted']:
         return [{**row, 'keys': [row['key']]} for row in rows]
     by_key = {row['key']: row for row in rows}
+    scope = _selected_scope(manifest, selected_plate_ids)
+    family_manifest = manifest if scope is None else {
+        **manifest, 'parts': [p for p in manifest['parts'] if p['key'] in scope[0]]}
     out = []
-    for fam in part_families(manifest):
+    for fam in part_families(family_manifest):
         keys = ['part:' + k for k in fam['keys']]
         if len(keys) == 1:
             out.append({**by_key[keys[0]], 'keys': keys})
@@ -1125,7 +1635,7 @@ def grouped_prompts(manifest):
     return out
 
 
-def validate_decisions(manifest, decisions, state, resolve):
+def validate_decisions(manifest, decisions, state, resolve, selected_plate_ids=None):
     if not isinstance(decisions, dict) or decisions.get('source_sha256') != manifest['source_sha256']:
         raise ValueError('color decisions must bind the exact source SHA256')
     schema = decisions.get('schema')
@@ -1147,7 +1657,9 @@ def validate_decisions(manifest, decisions, state, resolve):
         return out
     if mode != 'per_part':
         raise ValueError('choose single_color explicitly or supply per_part/filament selections')
-    expected = {p['key'] for p in (canonical_prompts(manifest) if schema == 'part_slots_v1' else prompts(manifest))}
+    expected = {p['key'] for p in (canonical_prompts(manifest, selected_plate_ids=selected_plate_ids)
+                                   if schema == 'part_slots_v1'
+                                   else prompts(manifest, selected_plate_ids=selected_plate_ids))}
     choices = decisions.get('choices')
     if not isinstance(choices, dict) or set(choices) != expected or 'painted:unknown' in expected:
         raise ValueError('every part and source filament requires an explicit selection')

@@ -170,7 +170,14 @@ def test_adopt_keeps_per_filament_list_shape_and_layer_range_intent(tmp_path):
     assert out["name"] == "project_settings" and out["from"] == "project"  # preset bookkeeping untouched
     # Multi-extruder variant bookkeeping stays: its filament half is not the machine's to remove.
     assert out["printer_extruder_variant"] == ["Direct Drive Standard"] and out["nozzle_volume_type"] == ["Standard"]
-    assert 'opt_key="extruder">2<' in ranges_out and 'opt_key="layer_height">0.12<' in ranges_out
+    # Deliberate change (Phase C, #1110 criterion 4): this test used to pin the
+    # ranges extruder option carried verbatim (">2<"). A height-range extruder
+    # is a filament reference: the adopted copy describes the job's one-filament
+    # numbering, so the option is remapped to filament 1 (clamped to the job's
+    # filament count, registry rule height-range-extruder-remap) instead of
+    # surviving past the palette. The option itself and the range's other
+    # intent (layer_height) are preserved, as are the list shapes above.
+    assert 'opt_key="extruder">1<' in ranges_out and 'opt_key="layer_height">0.12<' in ranges_out
     assert "outer_wall_speed" not in ranges_out and "bogus" not in ranges_out
     assert changed["default_jerk"] == ["9", None]
     # A second pass has nothing left to change.
