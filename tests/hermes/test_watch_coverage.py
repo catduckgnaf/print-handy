@@ -307,3 +307,55 @@ def test_local_escalation_needs_spaced_changed_views():
     assert streak.positives == 1
     verdict, detail = streak.note(weak, now=1100.0, signature=c)
     assert verdict == "spaghetti" and "2 consecutive checks" in detail
+
+
+# -- 3. a watch that is on but cannot run says so, once per print ------------
+
+
+def _start_print(monkeypatch, *, ready, reason="the local failure detector is not ready: x"):
+    posts = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
+    monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
+    monkeypatch.setattr(mel, "start_claimed", lambda name: True)
+    monkeypatch.setattr(mel, "announce_warmup_done", lambda name: None)
+    monkeypatch.setattr(mel, "post_exclude_objects", lambda name: None)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "_vision_ready", lambda: ready)
+    monkeypatch.setattr(vw, "watch_unavailable_reason", lambda api_key: reason)
+    listener = mel.Listener()
+
+    async def noop(*a, **k):
+        return None
+
+    for name in ("_begin_capture", "light_print_started", "_slot_self_check"):
+        monkeypatch.setattr(listener, name, noop)
+    monkeypatch.setattr(listener, "_settle_launch_lease", lambda: None)
+
+    async def run():
+        for state in ("standby", "printing", "paused", "printing"):
+            await listener.on_status({"state": state, "filename": "watched.gcode"}, "test")
+        await asyncio.gather(*listener.background_tasks)
+
+    asyncio.run(run())
+    return [p for p in posts if "Camera watch" in p]
+
+
+def test_print_start_posts_why_the_watch_is_not_running(monkeypatch):
+    notices = _start_print(monkeypatch, ready=False)
+    # One notice for the print; the resume after a pause is not a new start.
+    assert len(notices) == 1
+    assert "not running" in notices[0] and "local failure detector is not ready" in notices[0]
+
+
+def test_print_start_is_quiet_when_the_watch_runs(monkeypatch):
+    assert _start_print(monkeypatch, ready=True) == []
+
+
+def test_reason_names_the_misconfigured_source(monkeypatch):
+    from print_handy.hermes import local_vision as lv
+    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    monkeypatch.setattr(lv, "watch_source", lambda cfg=None: "endpoint")
+    monkeypatch.setattr(vw._config, "service_url", lambda key: "")
+    monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda route: False)
+    monkeypatch.setattr(vw.local_empty, "reference_ready", lambda: False)
+    assert "watch_source is endpoint" in vw.watch_unavailable_reason(lambda: "")

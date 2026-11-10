@@ -33,9 +33,13 @@ Fail-soft discipline (#387): a missing runtime, a missing or corrupt
 model, a failed download or an inference error raises
 :class:`LocalVisionError`, which the caller turns into an ``uncertain``
 verdict (which alerts) with the real error logged — never a crash, never
-a silent pass, never a blocked print. A failure is remembered for the
-life of the process so a broken setup logs once instead of retrying a
-202 MB download on every camera check.
+a silent pass, never a blocked print. A failure is remembered for a
+while (FAILURE_RETRY_BASE_S, doubling per repeat up to
+FAILURE_RETRY_MAX_S), so a broken setup does not retry a 202 MB
+download on every camera check, but a transient one (a network blip
+during the first download) recovers without a restart. The model is
+fetched off the check path (:func:`prefetch_model`, a background
+thread with an overall deadline), never inside a camera check.
 
 Temporal escalation (later stage): a single frame is weak evidence, so
 a print watch can feed its frames through a :class:`FailureStreak` —
@@ -100,6 +104,12 @@ ESCALATE_AFTER = 2
 STREAK_CAP = 100
 
 DOWNLOAD_TIMEOUT_S = 180
+# The whole download, not one read: a slow-drip server cannot hold it open
+# for ever. 202 MB in 20 minutes needs about 170 KB/s.
+DOWNLOAD_DEADLINE_S = 1200
+# A remembered failure is retried after this long, doubling per repeat.
+FAILURE_RETRY_BASE_S = 60.0
+FAILURE_RETRY_MAX_S = 3600.0
 
 
 class LocalVisionError(Exception):
@@ -152,14 +162,18 @@ def _is_default_path(path: Path, cfg=None) -> bool:
         and path.name == MODEL_FILENAME
 
 
-# --- Runtime / session caches (per process; failures are sticky) --------------
+# --- Runtime / session caches (per process; failures expire and retry) --------
 
 _lock = threading.Lock()
+_file_lock = threading.Lock()  # model file preparation; never held by a session load
+_prefetch_lock = threading.Lock()
+_prefetching: dict[str, threading.Thread] = {}
 _ort = None
 _ort_error: Exception | None = None
 _sessions: dict[str, object] = {}
 _active_providers: dict[str, str] = {}
-_failures: dict[str, str] = {}
+# key -> (message, monotonic retry time, consecutive failures)
+_failures: dict[str, tuple[str, float, int]] = {}
 _verified_files: set[str] = set()
 
 
@@ -181,12 +195,32 @@ def _runtime():
 
 
 def _remembered_failure(key: str) -> str | None:
-    return _failures.get(key)
+    """The remembered failure message for ``key`` while it is still current.
+
+    Once its retry time has passed it reads as None, so the next attempt
+    runs; the repeat count is kept so a failure that recurs backs off
+    further (:func:`_fail`).
+    """
+    entry = _failures.get(key)
+    if not entry:
+        return None
+    message, retry_at, _count = entry
+    if time.monotonic() >= retry_at:
+        return None
+    return message
 
 
 def _fail(key: str, message: str) -> LocalVisionError:
-    _failures[key] = message
+    previous = _failures.get(key)
+    count = (previous[2] if previous else 0) + 1
+    delay = min(FAILURE_RETRY_BASE_S * (2 ** (count - 1)), FAILURE_RETRY_MAX_S)
+    _failures[key] = (message, time.monotonic() + delay, count)
+    logger.warning("local detector: %s (retrying in %ds)", message, int(delay))
     return LocalVisionError(message)
+
+
+def _clear_failure(key: str) -> None:
+    _failures.pop(key, None)
 
 
 # --- Model file ----------------------------------------------------------------
@@ -219,12 +253,21 @@ def _download_model(path: Path) -> None:
     # one shared .part file, and publication stays one atomic replace.
     part = path.with_name(f"{path.name}.{os.getpid()}.part")
     digest = hashlib.sha256()
+    deadline = time.monotonic() + DOWNLOAD_DEADLINE_S
+    received = 0
     try:
         request = urllib.request.Request(
             MODEL_URL, headers={"User-Agent": "print-handy-local-vision"})
         with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_S) as response, \
                 part.open("wb") as out:
             for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                received += len(chunk)
+                if received > MODEL_SIZE_BYTES + 1024 * 1024:
+                    raise ValueError(f"the download is larger than the pinned model "
+                                     f"({MODEL_SIZE_BYTES} bytes)")
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"the download did not finish within "
+                                       f"{DOWNLOAD_DEADLINE_S}s")
                 digest.update(chunk)
                 out.write(chunk)
     except Exception as exc:  # noqa: BLE001 - turned into a verdict-level failure
@@ -258,7 +301,7 @@ def _ensure_model_file(path: Path, cfg=None) -> None:
     # a peer's download reuses the published file instead of downloading
     # over it (or failing its replace and remembering that race as a
     # permanent failure).
-    with _lock:
+    with _file_lock:
         remembered = _remembered_failure(key)
         if remembered:
             raise LocalVisionError(remembered)
@@ -286,6 +329,57 @@ def _ensure_model_file(path: Path, cfg=None) -> None:
         except Exception as exc:  # noqa: BLE001 - an unreadable model dir degrades the same way
             raise _fail(key, f"the local detector model at {path} could not be "
                              f"prepared: {exc}") from exc
+        _clear_failure(key)
+
+
+def _prefetch_worker(path: Path, cfg) -> None:
+    try:
+        _ensure_model_file(path, cfg)
+    except LocalVisionError as exc:
+        logger.warning("local detector model download failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - a background thread must never die loudly
+        logger.warning("local detector model download failed: %r", exc)
+
+
+def prefetching(cfg=None) -> bool:
+    """True while the background model download for the configured path runs."""
+    try:
+        thread = _prefetching.get(str(model_path(cfg)))
+    except Exception:  # noqa: BLE001 - status helpers must never raise
+        return False
+    return bool(thread and thread.is_alive())
+
+
+def prefetch_model(cfg=None, *, wait=False) -> bool:
+    """Fetch the model in the background when the watch will need it. Never raises.
+
+    Runs only when the watchdog uses the detector, the model file is
+    missing and no failure is waiting out its retry time. The fetch is the
+    SHA-256-verified download of :func:`_ensure_model_file`, on its own
+    daemon thread with an overall deadline, so a camera check never waits
+    on it. Returns True when a download is running (started now or before).
+    ``wait`` joins it (tests, a one-shot command).
+    """
+    try:
+        cfg = _config.cfg() if cfg is None else cfg
+        if not watch_uses_detector(cfg):
+            return False
+        path = model_path(cfg)
+        if path.is_file() or _remembered_failure(f"file:{path}"):
+            return False
+        with _prefetch_lock:
+            thread = _prefetching.get(str(path))
+            if thread is None or not thread.is_alive():
+                thread = threading.Thread(target=_prefetch_worker, args=(path, cfg),
+                                          name="local-detector-download", daemon=True)
+                _prefetching[str(path)] = thread
+                thread.start()
+        if wait:
+            thread.join()
+        return True
+    except Exception as exc:  # noqa: BLE001 - starting a download must never break a caller
+        logger.warning("local detector model download could not start: %r", exc)
+        return False
 
 
 # --- Execution providers ---------------------------------------------------------
@@ -422,6 +516,7 @@ def _session(path: Path):
             raise _fail(key, f"the local detector model at {path} could not be "
                              f"loaded: {exc}") from exc
         _sessions[key] = session
+        _clear_failure(key)
         try:
             active = (session.get_providers() or ["CPUExecutionProvider"])[0]
         except Exception:  # noqa: BLE001 - a session that cannot name its providers still judges frames
@@ -493,6 +588,14 @@ def detect(image: bytes, cfg=None):
     infrastructure failure (runtime, model, inference)."""
     cfg = _config.cfg() if cfg is None else cfg
     path = model_path(cfg)
+    if not path.is_file():
+        # Never download inside a camera check: start (or keep) the
+        # background fetch and fail this check soft.
+        remembered = _remembered_failure(f"file:{path}")
+        prefetch_model(cfg)
+        raise LocalVisionError(remembered or (
+            f"the local detector model is not downloaded yet; it is downloading in the "
+            f"background into {path}"))
     _ensure_model_file(path, cfg)
     session = _session(path)
     spec = session.get_inputs()[0]
@@ -689,8 +792,13 @@ def detector_status(cfg=None) -> tuple[str, str]:
             suffix += f" ({hint})"
     if path.is_file():
         return "ready", f"{MODEL_NAME} present at {path}{suffix}"
-    return "ready", (f"model downloads on first use (~{MODEL_SIZE_BYTES // 1_000_000} MB "
-                     f"from the pinned source, SHA-256 verified) into {path}{suffix}")
+    if prefetching(cfg):
+        return "unavailable", (f"the model is downloading in the background "
+                               f"(~{MODEL_SIZE_BYTES // 1_000_000} MB from the pinned source, "
+                               f"SHA-256 verified) into {path}")
+    return "unavailable", (f"the model is not downloaded yet; the camera watch downloads it in "
+                           f"the background (~{MODEL_SIZE_BYTES // 1_000_000} MB from the pinned "
+                           f"source, SHA-256 verified) into {path}{suffix}")
 
 
 def detector_ready(cfg=None) -> bool:
