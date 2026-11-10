@@ -514,13 +514,19 @@ In Compose, the settings are environment entries with their documented defaults 
 
 ### Upgrading from the older multi-path template
 
-The older template mapped the account tokens and Web UI settings to a host folder named `dot-config`. The single-path layout reads `.config` inside the same Appdata folder, so after switching templates those tokens and settings look lost while the data is still on disk. Stop the container, then rename the folder:
+Stop the container, then migrate the folder without replacing any existing `.config` contents:
 
 ```bash
 cd /mnt/user/appdata/print-handy
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
 mv dot-config .config
 chown -R 1000:1000 .config
 ```
+
+If both folders exist, compare their contents and merge the needed files deliberately before changing either; do not let `mv` nest one directory inside the other or overwrite existing settings.
 
 ### Recovery: installed the single-path template while the image declared volumes
 

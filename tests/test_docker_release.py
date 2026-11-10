@@ -540,7 +540,26 @@ class ContainerTimezoneTests(unittest.TestCase):
             self.assertIn("not a known IANA timezone", invalid.stderr)
 
 
-class UnraidTemplateTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def configs(self, root, kind):
         return {c.get("Target"): c for c in root.findall("Config") if c.get("Type") == kind}
 
