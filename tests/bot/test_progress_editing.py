@@ -86,7 +86,8 @@ def test_matrix_edit_message_posts_an_m_replace_relation():
     result = run(adapter.edit_message(chat_id=ROOM, message_id="$evt5", content="Still slicing (30 s)."))
     assert result.success and result.message_id == "$evt5"  # edits keep targeting the original event
     [body] = stub.bodies()
-    assert body["m.new_content"] == {"msgtype": "m.text", "body": "Still slicing (30 s)."}
+    assert body["m.new_content"] == {"msgtype": "m.text", "body": "Still slicing (30 s).",
+                                     "m.mentions": {}}
     assert body["m.relates_to"] == {"rel_type": "m.replace", "event_id": "$evt5"}
 
 

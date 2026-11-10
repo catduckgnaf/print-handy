@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
 
-from .rest import chunks, split_media
+from .rest import chunks, outgoing
 
 CLIENT = "/_matrix/client/v3"
 MEDIA_CLIENT = "/_matrix/client/v1"
@@ -109,10 +110,36 @@ def typing(homeserver, token, room_id, user_id, *, typing_ms=10000, opener=None,
                     {"typing": True, "timeout": int(typing_ms)}, timeout=timeout, opener=opener)
 
 
-def send_message(homeserver, token, room_id, text, *, txn_id=None, opener=None, timeout=30):
-    """One m.room.message text event. Returns the event id, or ''."""
+_MATRIX_USER = re.compile(r"@[a-z0-9._=/+-]+:[A-Za-z0-9.-]+(?::\d{1,5})?")
+
+
+def mention_content(text, mention_user_id=None):
+    """(body, m.mentions) for one text event (intentional mentions, Matrix 1.7).
+
+    An event that carries ``m.mentions`` is the only signal a
+    mentions-aware homeserver uses to notify: the legacy rules that match
+    ``@room`` or a member's display name anywhere in the body are skipped.
+    So every post sends an explicit empty object, and an ``@room`` or a
+    display name inside a model title or filename notifies nobody. A post
+    meant to ping one person names a well-formed Matrix user ID: it leads
+    the body and is the only ID listed.
+    """
+    user_id = "" if mention_user_id is None else str(mention_user_id)
+    if _MATRIX_USER.fullmatch(user_id):
+        return f"{user_id} {text}", {"user_ids": [user_id]}
+    return str(text), {}
+
+
+def send_message(homeserver, token, room_id, text, *, txn_id=None, opener=None, timeout=30,
+                 mention_user_id=None):
+    """One m.room.message text event. Returns the event id, or ''.
+
+    Mentions nobody unless ``mention_user_id`` names one Matrix user
+    (``mention_content``)."""
+    body, mentions = mention_content(text, mention_user_id)
     sent = send_event(homeserver, token, room_id, "m.room.message",
-                      {"msgtype": "m.text", "body": str(text)}, txn_id, opener=opener, timeout=timeout)
+                      {"msgtype": "m.text", "body": body, "m.mentions": mentions},
+                      txn_id, opener=opener, timeout=timeout)
     return str((sent or {}).get("event_id") or "")
 
 
@@ -123,8 +150,9 @@ def edit_message(homeserver, token, room_id, event_id, text, *, txn_id=None, ope
     place of the original event; the fallback body keeps the '* ' prefix
     convention for clients that do not understand edits.
     """
-    content = {"msgtype": "m.text", "body": f"* {text}",
-               "m.new_content": {"msgtype": "m.text", "body": str(text)},
+    # Empty m.mentions on both halves: an edit never notifies anyone.
+    content = {"msgtype": "m.text", "body": f"* {text}", "m.mentions": {},
+               "m.new_content": {"msgtype": "m.text", "body": str(text), "m.mentions": {}},
                "m.relates_to": {"rel_type": "m.replace", "event_id": str(event_id)}}
     sent = send_event(homeserver, token, room_id, "m.room.message", content,
                       txn_id, opener=opener, timeout=timeout)
@@ -155,7 +183,8 @@ def send_file(homeserver, token, room_id, path, *, txn_id=None, opener=None, tim
         msgtype = "m.video"
     else:
         msgtype = "m.file"
-    content = {"msgtype": msgtype, "body": path.name, "url": uri,
+    # The body is the file name: an @room in it must not notify the room.
+    content = {"msgtype": msgtype, "body": path.name, "url": uri, "m.mentions": {},
                "info": {"size": path.stat().st_size,
                         "mimetype": mimetypes.guess_type(path.name)[0] or "application/octet-stream"}}
     sent = send_event(homeserver, token, room_id, "m.room.message", content, txn_id,
@@ -181,22 +210,31 @@ def download_media(homeserver, token, mxc_url, *, opener=None, timeout=60):
         return resp.read()
 
 
-def send(homeserver, token, room_id, text, *, opener=None, timeout=120):
-    """Post text (and any MEDIA files) to a room. Returns (ok, first event id or error text)."""
+def send(homeserver, token, room_id, text, *, opener=None, timeout=120, mention_user_id=None,
+         files=None):
+    """Post text (and ``files``, plus any attachable MEDIA line) to a room.
+
+    Returns (ok, first event id or error text).
+
+    Every event carries an explicit ``m.mentions``: empty, or on the first
+    text event only, the one user ``mention_user_id`` names."""
     if not token:
         return False, "no Matrix access token"
     if not homeserver:
         return False, "matrix.homeserver_url is not configured"
     if not room_id:
         return False, "matrix.room_id is not configured"
-    body, files = split_media(text)
+    body, files = outgoing(text, files)
     pieces = chunks(body, LIMIT)
     first = None
+    mention = mention_user_id
     try:
         for piece in pieces:
             if not piece and files:
                 continue
-            sent = send_message(homeserver, token, room_id, piece, opener=opener, timeout=timeout)
+            sent = send_message(homeserver, token, room_id, piece, opener=opener, timeout=timeout,
+                                mention_user_id=mention)
+            mention = None
             first = first or sent
         for path in files:
             sent = send_file(homeserver, token, room_id, path, opener=opener, timeout=timeout)

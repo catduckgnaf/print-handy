@@ -172,6 +172,67 @@ def test_llm_overlapping_asks_for_one_session_keep_both_turns_in_order(llm_cfg):
                       ("user", "second question"), ("assistant", "Second answer")]
 
 
+def test_llm_history_is_bounded_by_session_count_and_age(llm_cfg, monkeypatch):
+    """The process-local history forgets the least recently used sessions
+    past the cap, and any session idle past the time-to-live; the lock
+    store shrinks with it."""
+    monkeypatch.setattr(llm, "MAX_SESSIONS", 3)
+    clock = [1000.0]
+    monkeypatch.setattr(llm.time, "monotonic", lambda: clock[0])
+    opener = FakeLLM("ok")
+    for n in range(10):
+        llm.ask(f"q{n}", "help", session=f"discord:{n}", cfg=llm_cfg, opener=opener)
+    assert list(llm._HISTORY) == ["discord:7", "discord:8", "discord:9"]
+    assert set(llm._HISTORY_LOCKS) <= set(llm._HISTORY)
+    llm.ask("fresh", "help", session="discord:fresh", cfg=llm_cfg, opener=opener)
+    clock[0] += llm.HISTORY_TTL_S + 1
+    llm.ask("again", "help", session="discord:fresh", cfg=llm_cfg, opener=opener)
+    # The expired turn is not in the context of the next ask.
+    assert [m["content"] for m in opener.requests[-1]["messages"][1:]] == ["again"]
+    assert list(llm._HISTORY) == ["discord:fresh"]
+
+
+def test_clearing_history_never_drops_a_held_session_lock(llm_cfg):
+    """clear_history used to pop the session's lock while an ask held it, so
+    the next ask took a fresh lock and ran beside the one in flight."""
+    in_flight = threading.Event()
+    release = threading.Event()
+    overlap = threading.Event()
+    active = []
+
+    class Gated:
+        def __call__(self, req, timeout=None):
+            active.append(1)
+            if len(active) > 1:
+                overlap.set()
+            user = json.loads(req.data)["messages"][-1]["content"]
+            if user == "first":
+                in_flight.set()
+                assert release.wait(timeout=30)
+            active.pop()
+            content = json.dumps({"reply": "ok", "command": None})
+            return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+    opener = Gated()
+    first = threading.Thread(target=lambda: llm.ask("first", "help", session="discord:held",
+                                                    cfg=llm_cfg, opener=opener))
+    first.start()
+    assert in_flight.wait(timeout=10)
+    llm.clear_history("discord:held")
+    llm.clear_history()
+    assert "discord:held" in llm._HISTORY_LOCKS  # held: kept
+    second = threading.Thread(target=lambda: llm.ask("second", "help", session="discord:held",
+                                                     cfg=llm_cfg, opener=opener))
+    second.start()
+    assert not overlap.wait(timeout=0.5)  # the second ask waits for the first
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not overlap.is_set()
+    llm.clear_history()
+    assert llm._HISTORY_LOCKS == {}  # nobody holds it now: cleared
+
+
 def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
     """A command the LLM names is dispatched with the message's attachments
     (bonus, same defect as P2-222): dropping the dropped .scad made design
