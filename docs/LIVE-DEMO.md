@@ -17,9 +17,11 @@ no build step and no backend.
   buttons, sees a slice summary and the confirm-before-print card,
   watches compressed simulated progress, and sees a terminal post
   that mentions the visitor who started the simulated print.
-- Journeys: a happy path, a too-big refusal with the biggest size
-  that fits offered, a spools query, and unmatched free text, which
-  gets the command list only.
+- Journeys: a happy path, a too-big refusal with the shrink size
+  that fits offered, a spools query, a help journey that shows the
+  command list, and unmatched free text, which gets the real bot's
+  short did-not-understand reply and a pointer to `/print-help` —
+  not the command list.
 - A Reset button restarts the session clean.
 - Uploads are theatre only: a picked or dropped file shows its name
   and size, and the demo does not parse it. The playable set is the
@@ -29,10 +31,13 @@ no build step and no backend.
   loading its own scenario file.
 
 Scenario wording tracks the real bot's wording where the corpus
-flows pin it (for example the color, copies and "Slice and print"
-confirmation questions, and the loaded-filament command). Some lines
-are shortened or adapted for the demo; the demo is a simulation, not
-a recording of a real print.
+flows pin it (for example the color and copies questions, the
+"Ready to slice" confirmation with its "Slice and print now (bed
+is clear)" button, the fit refusal, and the loaded-filament
+command). The command list, the help heading and the unmatched
+reply are the production bot's own text. Some lines are shortened
+or adapted for the demo; the demo is a simulation, not a recording
+of a real print.
 
 ## Run it locally
 
@@ -59,6 +64,9 @@ dedicated demo mode, talking to a fake printer through the
 existing platform layer, with per-visitor ephemeral sessions,
 model fetching off, and a mock slicer only.
 
-A follow-up can generate or check the scenario data from corpus
-harness snapshots of the real bot's messages, so wording changes in
-the real bot fail the demo check instead of drifting silently.
+The scenario data is checked against the real bot by the contract
+tests in `tests/test_live_demo.py`: the command list and the
+unmatched reply are compared with the production bot's own table
+and reply text, and the confirmation and fit-refusal wording is
+pinned, so wording changes in the real bot fail the demo check
+instead of drifting silently.
