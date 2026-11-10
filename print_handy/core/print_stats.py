@@ -262,6 +262,20 @@ def years_available(records, tz=None):
                    and (parsed := _parse_started(r.get("started_at"))) is not None})
 
 
+def plural(count, word):
+    """``1 print`` / ``2 prints``: the count with the word agreeing."""
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def hours_text(hours):
+    """Hours as the copy says them: ``1 hour``, ``9.1 hours``."""
+    value = float(hours)
+    if value == int(value):
+        return plural(int(value), "hour")
+    shown = f"{value:.1f}"
+    return "1 hour" if shown == "1.0" else f"{shown} hours"
+
+
 def _empty_breakdown():
     return {"count": 0, "filament_used_g": 0.0, "print_duration_seconds": 0.0}
 
@@ -530,7 +544,16 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     canceled = counts_by_status.get("canceled", 0) + counts_by_status.get("cancelled", 0)
     in_progress = counts_by_status.get("printing", 0)
     finished = completed + failed + canceled
-    success_rate = round(completed / finished, 4) if finished else None
+    # The success rate is out of prints that ran to a verdict: finished or
+    # failed. A print the user stopped (canceled) is not a failure of the
+    # printer or the model, so it stays out of both sides and is counted
+    # on its own as "stopped".
+    decided = completed + failed
+    success_rate = round(completed / decided, 4) if decided else None
+    undated = len([r for r in records if _parse_started(r.get("started_at")) is None])
+    completed_grams = float(sum(
+        v for r in rows if _status(r) == "completed"
+        and (v := _num(r.get("filament_used_g"))) is not None))
 
     durations = [v for r in rows if (v := _num(r.get("print_duration_seconds"))) is not None]
     total_seconds = float(sum(durations))
@@ -701,8 +724,16 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
         "canceled": canceled,
         "in_progress": in_progress,
         "finished": finished,
+        "decided": decided,
         "success_rate": success_rate,
-        "failure_rate": round(failed / finished, 4) if finished else None,
+        "success_rate_note": ("Finished prints out of prints that finished or "
+                              "failed; prints you stopped are not counted "
+                              "either way."),
+        "failure_rate": round(failed / decided, 4) if decided else None,
+        # Records with no usable start time cannot be placed in a year or
+        # month: a year view leaves them out and says how many.
+        "undated_prints": undated,
+        "completed_filament_used_g": completed_grams,
         "total_print_duration_seconds": total_seconds,
         "total_hours": round(total_seconds / 3600, 2),
         "average_print_seconds": round(total_seconds / len(durations), 1) if durations else None,
@@ -795,8 +826,10 @@ def _top_label(table):
 
 def _failure_streak(records):
     """The longest run of failed/canceled prints, in started_at order."""
+    # Sorted on the parsed instant: the raw strings differ in offset and
+    # precision ("...Z" against "+02:00") and do not order by time.
     ordered = sorted((r for r in records if _parse_started(r.get("started_at")) is not None),
-                     key=lambda r: str(r.get("started_at")))
+                     key=lambda r: _parse_started(r.get("started_at")))
     best = current = 0
     for record in ordered:
         if _status(record) in ("failed", "canceled", "cancelled"):
@@ -835,16 +868,18 @@ def _archetype(stats, highlights, rows):
     if isinstance(pasta, (int, float)) and pasta >= 3:
         return {"name": "Spaghetti Magnet",
                 "fact": f"{int(pasta)} pasta events were recorded this year."}
-    finished = stats["finished"]
-    if (finished >= 20 and stats["success_rate"] is not None
+    decided = stats["decided"]
+    if (decided >= 20 and stats["success_rate"] is not None
             and stats["success_rate"] >= 0.95):
         return {"name": "The Perfectionist",
                 "fact": f"{round(stats['success_rate'] * 100):g}% success across "
-                        f"{finished} finished prints."}
+                        f"{decided} finished or failed prints."}
     reprints = stats["repeats"]["reprint_count"]
-    if finished and reprints and reprints / finished >= 0.25:
+    all_prints = stats["total_prints"]
+    # Out of every print in the year, so the share can never pass 100%.
+    if all_prints and reprints and reprints / all_prints >= 0.25:
         return {"name": "Reprint Machine",
-                "fact": f"{reprints} of {finished} finished prints were reprints."}
+                "fact": f"{reprints} of {plural(all_prints, 'print')} were reprints."}
     durations = sorted(v for r in rows
                        if (v := _num(r.get("print_duration_seconds"))) is not None)
     longest = stats["longest_print"]
@@ -853,7 +888,7 @@ def _archetype(stats, highlights, rows):
             (durations[len(durations) // 2 - 1] + durations[len(durations) // 2]) / 2
         if median and longest["seconds"] >= 3 * median and longest["seconds"] >= 7200:
             return {"name": "Marathoner",
-                    "fact": f"Your longest print ran {longest['seconds'] / 3600:.1f} hours, "
+                    "fact": f"Your longest print ran {hours_text(longest['seconds'] / 3600)}, "
                             f"at least three times your median print."}
     timed = sum(stats["by_hour"].values())
     if timed and stats["night_prints"] / timed >= 0.30:
@@ -864,9 +899,9 @@ def _archetype(stats, highlights, rows):
     if highlights["top_color"] and total and highlights["top_color_prints"] / total > 0.5:
         return {"name": "One-Color Loyalist",
                 "fact": f"{highlights['top_color']} covered "
-                        f"{highlights['top_color_prints']} of {total} prints."}
+                        f"{highlights['top_color_prints']} of {plural(total, 'print')}."}
     return {"name": "The Regular",
-            "fact": f"A steady year: {total} prints, no single habit took over."}
+            "fact": f"A steady year: {plural(total, 'print')}, no single habit took over."}
 
 
 def build_wrapped(records, year, tz=None, events=None, enrichments=None):
@@ -963,7 +998,10 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
                 "pasta_state": stats["outcomes"]["pasta_state"],
                 "success_rate": stats["success_rate"], "total_hours": stats["total_hours"],
                 "total_filament_used_g": stats["total_filament_used_g"],
-                "total_filament_used_kg": stats["total_filament_used_kg"]},
+                "total_filament_used_kg": stats["total_filament_used_kg"],
+                "completed_filament_used_g": stats["completed_filament_used_g"],
+                "decided": stats["decided"],
+                "undated_prints": stats["undated_prints"]},
             "highlights": highlights, "script": script,
             "archetype": highlights["archetype"],
             "years_available": stats["years_available"]}
@@ -977,17 +1015,20 @@ def _script(year, stats, highlights, tz=None):
     if not total:
         return [f"Print Handy Wrapped {year}: no prints were recorded this year. "
                 "The printer rested. Respect."]
-    lines.append(f"Print Handy Wrapped {year}: you made {total} print"
-                 f"{'s' if total != 1 else ''}. The printer did the work, "
-                 "but you get the recap.")
+    lines.append(f"Print Handy Wrapped {year}: you made {plural(total, 'print')}. "
+                 "The printer did the work, but you get the recap.")
     hours = stats["total_hours"]
     if hours >= 1:
-        lines.append(f"You spent {hours:g} hours printing this year. "
+        lines.append(f"You spent {hours_text(hours)} printing this year. "
                      "That is a part-time job with no paycheck, only parts.")
     grams = stats["total_filament_used_g"]
     if grams > 0:
-        lines.append(f"You turned {grams:g} g of filament into objects "
-                     f"({stats['total_filament_used_kg']:g} kg). Some of it even stayed on the bed.")
+        done_grams = stats.get("completed_filament_used_g") or 0
+        kept = (f" {done_grams:g} g of it went into prints that finished."
+                if 0 < done_grams < grams else "")
+        lines.append(f"You ran {grams:g} g of filament through the printer "
+                     f"({stats['total_filament_used_kg']:g} kg), failed and stopped "
+                     f"prints included.{kept} Some of it even stayed on the bed.")
     top_color = highlights["top_color"]
     if top_color and total and highlights["top_color_prints"] / total > 0.5:
         lines.append(f"Your top color was {top_color}, in "
@@ -998,7 +1039,8 @@ def _script(year, stats, highlights, tz=None):
     if highlights["top_material"]:
         lines.append(f"Your top material was {highlights['top_material']}. It knows the way to the bed by now.")
     if highlights["top_printer"]:
-        lines.append(f"Your hardest-working printer was {highlights['top_printer']}. It has earned a nozzle check.")
+        lines.append(f"Your busiest printer, by number of prints, was {highlights['top_printer']}. "
+                     "It has earned a nozzle check.")
     most_reprinted = highlights.get("most_reprinted")
     if most_reprinted and most_reprinted["count"] >= 3:
         lines.append(f"You printed {most_reprinted['title']} {most_reprinted['count']} times. "
@@ -1009,14 +1051,14 @@ def _script(year, stats, highlights, tz=None):
                      "keeps your hours now.")
     failed = stats["failed"]
     if failed > 0:
-        lines.append(f"{failed} print{'s' if failed != 1 else ''} failed this year. "
+        lines.append(f"{plural(failed, 'print')} failed this year. "
                      "The spaghetti was not always dinner.")
     elif stats["finished"]:
         lines.append("Zero failed prints this year. Wrapped does not believe it either, "
                      "but the records say so.")
     pasta = (stats.get("outcomes") or {}).get("pasta")
     if isinstance(pasta, (int, float)) and pasta > 0:
-        lines.append(f"{int(pasta)} print{'s' if pasta != 1 else ''} turned into pasta "
+        lines.append(f"{plural(int(pasta), 'print')} turned into pasta "
                      "this year, caught by the camera watchdog and written down "
                      "this time. The count covers events recorded since "
                      "watchdog event recording began.")
@@ -1030,24 +1072,22 @@ def _script(year, stats, highlights, tz=None):
         lines.append(f"Your worst run was {highlights['worst_failure_streak']} failed or "
                      "canceled prints in a row. Character building, technically.")
     if stats["risk_flagged"] > 0:
-        lines.append(f"{stats['risk_flagged']} print"
-                     f"{'s' if stats['risk_flagged'] != 1 else ''} started with a risk flag. "
+        lines.append(f"{plural(stats['risk_flagged'], 'print')} started with a risk flag. "
                      "The slicer findings and support checks raised a hand before "
                      "those prints ever started.")
     if highlights["night_prints"] > 0:
         when = "between midnight and 5 a.m. your time" if local_tz else \
             "between midnight and 5 a.m. UTC"
-        lines.append(f"{highlights['night_prints']} print"
-                     f"{'s' if highlights['night_prints'] != 1 else ''} started "
+        lines.append(f"{plural(highlights['night_prints'], 'print')} started "
                      f"{when}. Sleep was also an option.")
     longest = stats["longest_print"]
     if longest and longest.get("seconds"):
         title = longest.get("title") or "your longest print"
         lines.append(f"Your longest print, {title}, ran "
-                     f"{longest['seconds'] / 3600:.1f} hours. Commitment, or a very long nap.")
+                     f"{hours_text(longest['seconds'] / 3600)}. Commitment, or a very long nap.")
     if highlights["busiest_month"]:
         lines.append(f"Your busiest month was {highlights['busiest_month']} with "
-                     f"{highlights['busiest_month_prints']} prints. The printer remembers.")
+                     f"{plural(highlights['busiest_month_prints'], 'print')}. The printer remembers.")
     if highlights["top_spool"] and highlights.get("top_spool"):
         spool_count = 0
         row = stats["breakdowns"]["by_spool"].get(highlights["top_spool"]) or {}
@@ -1062,6 +1102,6 @@ def _script(year, stats, highlights, tz=None):
     return lines
 
 
-__all__ = ["UNKNOWN", "aggregate", "display_title", "build_wrapped", "load_records",
+__all__ = ["UNKNOWN", "aggregate", "display_title", "hours_text", "plural", "build_wrapped", "load_records",
            "load_records_from_dir", "load_watchdog_events", "prints_dir",
            "record_key", "records_in_year", "watchdog_events_path", "years_available"]

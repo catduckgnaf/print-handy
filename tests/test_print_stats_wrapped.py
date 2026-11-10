@@ -99,7 +99,9 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["failed"], 1)
         self.assertEqual(stats["canceled"], 1)
         self.assertEqual(stats["in_progress"], 1)
-        self.assertEqual(stats["success_rate"], 0.5)  # printing excluded
+        # Out of the three prints that finished or failed; the stopped one and
+        # the one still printing are on neither side.
+        self.assertEqual(stats["success_rate"], round(2 / 3, 4))
         self.assertEqual(stats["total_print_duration_seconds"], 14199.0)
         self.assertEqual(stats["total_hours"], 3.94)
         self.assertEqual(stats["longest_print"]["title"], "Bracket")

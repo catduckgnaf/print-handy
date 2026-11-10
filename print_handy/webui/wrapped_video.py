@@ -55,6 +55,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core import print_stats
+
 MAX_CLIPS = 6
 # Of the MAX_CLIPS slots, up to this many are reserved for clips of
 # failed or pasta prints when the name join proves them — the failures
@@ -437,26 +439,27 @@ def build_slides(wrapped):
     slides = [_slide("hook", "WRAPPED", f"Print Handy Wrapped {year}",
                      "Your year in plastic, counted honestly.", HOOK_SECONDS)]
     if headline.get("total_prints"):
-        slides.append(_slide("volume", "VOLUME", f"{headline['total_prints']} prints",
+        slides.append(_slide("volume", "VOLUME", print_stats.plural(headline['total_prints'], "print"),
                              "Every print you started this year.", SLIDE_SECONDS))
     if headline.get("total_hours"):
-        slides.append(_slide("volume", "VOLUME", f"{headline['total_hours']:g} hours printing",
+        slides.append(_slide("volume", "VOLUME", f"{print_stats.hours_text(headline['total_hours'])} printing",
                              "Time the printer spent making things.", SLIDE_SECONDS))
     if headline.get("total_filament_used_g"):
         kg = headline.get("total_filament_used_kg")
         if kg is None:
             kg = headline["total_filament_used_g"] / 1000.0
         slides.append(_slide("volume", "VOLUME", f"{kg:g} kg of filament",
-                             "Plastic turned into finished objects.", SLIDE_SECONDS))
+                             "Plastic you ran through the printer, failed prints included.",
+                             SLIDE_SECONDS))
     if headline.get("success_rate") is not None:
         slides.append(_slide("success", "OUTCOMES",
                              f"Success rate {round(headline['success_rate'] * 100):g}%",
-                             "Finished prints out of prints decided.", SHORT_SECONDS))
+                             "Finished prints out of prints finished or failed.", SHORT_SECONDS))
     longest = highlights.get("longest_print") or {}
     if longest.get("title"):
         hours = (longest.get("seconds") or 0) / 3600.0
         slides.append(_slide("top", "TOP PRINT", _words(longest["title"], 6),
-                             f"Your longest print, {hours:.1f} hours on the bed.",
+                             f"Your longest print, {print_stats.hours_text(hours)} on the bed.",
                              SLIDE_SECONDS))
     most_reprinted = highlights.get("most_reprinted") or {}
     if most_reprinted.get("count"):
@@ -474,7 +477,7 @@ def build_slides(wrapped):
     if highlights.get("busiest_month"):
         slides.append(_slide("top", "BUSIEST MONTH",
                              f"Busiest month {highlights['busiest_month']}",
-                             f"{highlights.get('busiest_month_prints', 0)} prints in your biggest month.",
+                             f"{print_stats.plural(highlights.get('busiest_month_prints', 0), 'print')} in your biggest month.",
                              SHORT_SECONDS))
     script = [str(line) for line in (wrapped.get("script") or []) if str(line).strip()]
     if script:
@@ -511,9 +514,9 @@ def build_slides(wrapped):
         slides.append(_slide("failures", "FAILURES", hero, " ".join(bits), SLIDE_SECONDS))
     summary_bits = []
     if headline.get("total_prints"):
-        summary_bits.append(f"{headline['total_prints']} prints")
+        summary_bits.append(print_stats.plural(headline['total_prints'], "print"))
     if headline.get("total_hours"):
-        summary_bits.append(f"{headline['total_hours']:g} hours")
+        summary_bits.append(print_stats.hours_text(headline['total_hours']))
     if headline.get("total_filament_used_g"):
         kg = headline.get("total_filament_used_kg")
         if kg is None:

@@ -75,6 +75,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core.print_stats import hours_text, plural
+
 VISIBILITIES = ("public", "link-only", "private")
 # Link-only exports each get a new unguessable folder; older ones for the
 # same year are removed past this many so they do not pile up.
@@ -278,7 +280,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
         f"<style>{_PAGE_CSS}</style>\n</head>\n<body>",
         f'<section class="wrapped-hero"><p class="eyebrow">Print Handy Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
-        f"<p>{headline.get('total_prints', 0)} prints. Scroll the year.</p></section>",
+        f"<p>{plural(headline.get('total_prints', 0), 'print')}. Scroll the year.</p></section>",
     ]
     cards = "".join(
         f'<section class="card"><p class="eyebrow">{_esc(label)}</p>'
@@ -291,7 +293,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
     sections.append(f"<h2>By the numbers</h2><div class=\"cards\">{cards}</div>")
     facts = []
     for label, key in (("Top color", "top_color"), ("Top material", "top_material"),
-                       ("Top printer", "top_printer"), ("Top vendor", "top_vendor")):
+                       ("Busiest printer (by prints)", "top_printer"), ("Top vendor", "top_vendor")):
         if highlights.get(key):
             facts.append(f"<li>{label}: {_esc(highlights[key])}</li>")
     sections.append(
@@ -303,7 +305,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
     time_facts = []
     if highlights.get("busiest_month"):
         time_facts.append(f"<li>Busiest month: {_esc(highlights['busiest_month'])} "
-                          f"({highlights.get('busiest_month_prints', 0)} prints)</li>")
+                          f"({plural(highlights.get('busiest_month_prints', 0), 'print')})</li>")
     if highlights.get("peak_weekday"):
         time_facts.append(f"<li>Busiest weekday: {_esc(highlights['peak_weekday'])}</li>")
     if highlights.get("peak_hour") is not None:
@@ -357,8 +359,8 @@ def render_share_page(payload, *, visibility="public", video_name=None):
             '<section class="card share-card"><p class="eyebrow">'
             f"Print Handy Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
-            f"<p>{headline.get('total_prints', 0)} prints · "
-            f"{headline.get('total_hours', 0):g} hours · "
+            f"<p>{plural(headline.get('total_prints', 0), 'print')} · "
+            f"{hours_text(headline.get('total_hours', 0))} · "
             f"{headline.get('total_filament_used_kg', 0):g} kg · "
             f"success rate {_rate(headline.get('success_rate'))} · "
             f"top color {_esc(highlights.get('top_color') or 'unknown')}</p></section>")
@@ -403,8 +405,8 @@ def render_share_card_png(payload, path, *, vertical=False):
                   fill=(242, 239, 233))
         y += 110
     stats_lines = [
-        f"{headline.get('total_prints', 0)} prints",
-        f"{headline.get('total_hours', 0):g} hours printing",
+        plural(headline.get('total_prints', 0), 'print'),
+        f"{hours_text(headline.get('total_hours', 0))} printing",
         f"{headline.get('total_filament_used_kg', 0):g} kg of filament",
         f"Success rate {_rate(headline.get('success_rate'))}",
         f"Top color {highlights.get('top_color') or 'unknown'}",

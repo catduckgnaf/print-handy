@@ -560,6 +560,11 @@ def _breakdown_table(title, table):
             f"{rows}</table></div>")
 
 
+def _undated_text(count):
+    return (f"{print_stats.plural(count, 'print')} without a date "
+            f"{'was' if count == 1 else 'were'} left out of this year.")
+
+
 def _rate(rate):
     return "unknown" if rate is None else f"{round(rate * 100):g}%"
 
@@ -619,7 +624,10 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     ])]
     parts.append(
         f"<p>Completed {stats['completed']} · failed {stats['failed']} · "
-        f"canceled {stats['canceled']} · in progress {stats['in_progress']}.</p>")
+        f"canceled {stats['canceled']} · in progress {stats['in_progress']}. "
+        f"{_esc(stats.get('success_rate_note') or '')}</p>")
+    if stats.get("year") is not None and stats.get("undated_prints"):
+        parts.append(f'<p class="note">{_undated_text(stats["undated_prints"])}</p>')
     if stats.get("totals_caveat"):
         parts.append(
             f"<p>{_esc(stats['totals_caveat'])} Hours cover "
@@ -944,10 +952,13 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     parts = [
         f'<section class="wrapped-hero"><p class="eyebrow">Print Handy Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
-        f"<p>{headline['total_prints']} prints. Scroll the year.</p></section>",
+        f"<p>{print_stats.plural(headline['total_prints'], 'print')}. Scroll the year.</p></section>",
         f'<form method="get" action="/wrapped"><label>Year '
         f'<select name="year">{options}</select></label> '
         '<button type="submit">Show</button></form>']
+    undated = headline.get("undated_prints") or 0
+    if undated:
+        parts.append(f'<p class="note">{_undated_text(undated)}</p>')
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
@@ -960,7 +971,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     ]))
     color_facts = []
     for label, key in (("Top color", "top_color"), ("Top material", "top_material"),
-                       ("Top printer", "top_printer"), ("Top vendor", "top_vendor")):
+                       ("Busiest printer (by prints)", "top_printer"), ("Top vendor", "top_vendor")):
         if highlights.get(key):
             color_facts.append(f"<li>{label}: {_esc(highlights[key])}</li>")
     parts.append(f"<h2>Colors and materials</h2><ul>{''.join(color_facts)}</ul>"
@@ -971,7 +982,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     time_facts = []
     if highlights.get("busiest_month"):
         time_facts.append(f"<li>Busiest month: {_esc(highlights['busiest_month'])} "
-                          f"({highlights['busiest_month_prints']} prints)</li>")
+                          f"({print_stats.plural(highlights['busiest_month_prints'], 'print')})</li>")
     if highlights.get("peak_weekday"):
         time_facts.append(f"<li>Busiest weekday: {_esc(highlights['peak_weekday'])}</li>")
     if highlights.get("peak_hour") is not None:
@@ -1109,8 +1120,8 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             '<section class="card share-card"><p class="eyebrow">'
             f"Print Handy Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
-            f"<p>{headline['total_prints']} prints · "
-            f"{headline['total_hours']:g} hours · "
+            f"<p>{print_stats.plural(headline['total_prints'], 'print')} · "
+            f"{print_stats.hours_text(headline['total_hours'])} · "
             f"{headline['total_filament_used_kg']:g} kg · "
             f"success rate {_rate(headline['success_rate'])} · "
             f"top color {share_top}</p></section>")
