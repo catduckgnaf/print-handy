@@ -16,6 +16,8 @@ values it always used, so Discord sessions, sources and replies are unchanged.
 from __future__ import annotations
 
 import asyncio
+import collections
+import contextlib
 import logging
 import os
 import re
@@ -101,6 +103,71 @@ def unmatched_text(bot_name="Print Handy"):
 # Stage 0 report's; the labels are the whole contract — a press (or a typed
 # "yes") is the only thing that can turn a suggestion into a dispatch.
 SUGGESTION_TIMEOUT_S = 60
+# How often an event-loop prompt wait looks for its answer. A press resolves
+# the shared registry from wherever it arrives (a button, a typed reply, a
+# session cancel), so the wait checks it on the loop instead of parking a
+# worker thread on the registry's blocking wait.
+PROMPT_POLL_S = 0.1
+
+
+async def await_prompt(registry, clarify_id, timeout, poll=None):
+    """The answer to an open prompt, or None on timeout — without a worker thread.
+
+    The same contract as ``registry.wait_for_response`` (the prompt is closed
+    either way, so a late press finds nothing), but the wait itself is an
+    ``asyncio.sleep`` loop on the running event loop, so any number of open
+    prompts cost no threads. Only the timeout edge goes to a thread: a prompt
+    whose answer is reserved mid-commit (Matrix posts its close-out note
+    first) gets the registry's bounded grace there, exactly as before.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, float(timeout))
+    step = PROMPT_POLL_S if poll is None else poll
+    while registry.is_open(clarify_id):
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return await asyncio.to_thread(registry.wait_for_response, clarify_id, 0)
+        await asyncio.sleep(min(step, remaining))
+    return registry.wait_for_response(clarify_id, 0)
+
+
+class SessionTurns:
+    """Per-session ordering on the event loop, with a bounded lock store.
+
+    ``turn(key)`` is an async context: turns for one key run one at a time
+    in arrival order (asyncio locks are FIFO), different keys run
+    concurrently, and a waiting turn holds no thread. The store keeps at
+    most ``max_sessions`` idle locks and drops the least recently used
+    first; a lock that is held or has turns waiting on it is never dropped,
+    so a key can never end up with two locks and two concurrent turns.
+    """
+
+    def __init__(self, max_sessions=256):
+        self.max_sessions = int(max_sessions)
+        self._locks = collections.OrderedDict()  # key -> [asyncio.Lock, users]
+
+    def __len__(self):
+        return len(self._locks)
+
+    @contextlib.asynccontextmanager
+    async def turn(self, key):
+        key = str(key or "")
+        entry = self._locks.pop(key, None) or [asyncio.Lock(), 0]
+        self._locks[key] = entry  # most recently used last
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            self._evict()
+
+    def _evict(self):
+        while len(self._locks) > self.max_sessions:
+            idle = next((k for k, (_lock, users) in self._locks.items() if users == 0), None)
+            if idle is None:
+                return  # every lock is in use: nothing may be dropped
+            del self._locks[idle]
 SUGGEST_YES_LABEL = "Yes — run it"
 SUGGEST_NO_LABEL = "No"
 SUGGEST_NONE_LABEL = "None of these"
@@ -673,6 +740,9 @@ class BotCore:
         # platforms (P1-109): the tasks are tracked so they are never
         # garbage-collected mid-wait and their failures are logged.
         self._suggestion_tasks: set[asyncio.Task] = set()
+        # Per-session ordering for the model lane, on the event loop: a
+        # queued ask waits on an asyncio lock, not in a worker thread.
+        self._lane_turns = SessionTurns()
         self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
         # Help is a platform surface: a platform that cannot run the live
         # command does not advertise it (P2-123).
@@ -879,9 +949,14 @@ class BotCore:
             return {"action": "skip", "reason": "agent reply"}
         if allow_llm and self.use_llm and llm.configured(self.cfg):
             try:
-                reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help,
-                                                         session=session_key(source), cfg=self.cfg,
-                                                         opener=self.llm_opener)
+                # One turn per session at a time, queued on the loop: the
+                # blocking HTTP call alone runs in a worker thread, so asks
+                # waiting behind it hold no thread (llm.ask's own session
+                # lock is then never contended from here).
+                async with self._lane_turns.turn(session_key(source)):
+                    reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help,
+                                                             session=session_key(source), cfg=self.cfg,
+                                                             opener=self.llm_opener)
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
             else:
@@ -984,11 +1059,17 @@ class BotCore:
         return clarify_id
 
     async def _wait_suggestion(self, clarify_id):
-        """(answer, delivered): wait out an open prompt, then close its row."""
+        """(answer, delivered): wait out an open prompt, then close its row.
+
+        The wait runs on the event loop (``await_prompt``), not in a worker
+        thread: each open did-you-mean prompt used to hold a default-pool
+        thread for up to SUGGESTION_TIMEOUT_S, and on a small container a
+        handful of them starved every other background call.
+        """
         registry = prompts.gateway()
         answer, delivered = None, True
         try:
-            answer = await asyncio.to_thread(registry.wait_for_response, clarify_id, SUGGESTION_TIMEOUT_S)
+            answer = await await_prompt(registry, clarify_id, SUGGESTION_TIMEOUT_S)
         except Exception:
             logger.warning("did-you-mean suggestion failed; sending the unmatched reply", exc_info=True)
             delivered = False
