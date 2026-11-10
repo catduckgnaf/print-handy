@@ -754,7 +754,7 @@ class MultipartSafetyTests(unittest.TestCase):
             with mock.patch.object(model_job, "ARCHIVE", work), \
                  mock.patch.object(model_job.printer_state, "load", return_value=state), \
                  mock.patch.object(model_job, "slice_multi_plate") as slice_multi:
-                with self.assertRaisesRegex(RuntimeError, "missing root model"):
+                with self.assertRaisesRegex(RuntimeError, "unresolved 3MF root model; no slicing attempted"):
                     model_job.slice_job(job_path)
             slice_multi.assert_not_called()
 
