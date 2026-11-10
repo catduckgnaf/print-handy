@@ -698,6 +698,28 @@ class MultipartSafetyTests(unittest.TestCase):
                     model_job.slice_job(job_path)
                 run.assert_not_called()
 
+    def test_whole_source_multiplate_unknown_usage_reaches_slicer(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            source = work / "multi.3mf"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("Metadata/plate_1.png", b"png")
+                archive.writestr("Metadata/plate_2.png", b"png")
+            job_path = work / "JOB.json"
+            job_path.write_text(json.dumps({"downloaded_file": str(source), "audit": {
+                "size_x": "100", "size_y": "100", "size_z": "10", "plates": 2},
+                "title": "Unknown source usage"}))
+            state = {"bed_mm": [220, 220], "max_print_height_mm": 250,
+                     "nozzle": {"diameter_mm": 0.4}, "spool": {"name": "PLA", "material": "PLA", "density": 1.24},
+                     "temps_c": {"nozzle": 210, "bed": 60}}
+            with mock.patch.object(model_job, "ARCHIVE", work), \
+                 mock.patch.object(model_job.printer_state, "load", return_value=state), \
+                 mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
+                 mock.patch.object(model_job, "slice_multi_plate", return_value=Path("result.gcode")) as slice_multi:
+                result = model_job.slice_job(job_path)
+            self.assertEqual(result, Path("result.gcode"))
+            slice_multi.assert_called_once()
+
     def test_multiplate_archive_cannot_bypass_guard_with_stale_audit(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
@@ -2280,3 +2302,36 @@ def test_shared_extruder_total_is_split_across_parts_and_checked_against_model_p
     del job['selected_source']
     assert abs(mj.filament_usage_by_selection(job)[0][1] - 247.8) < 0.01  # never N x the total
     assert mj.source_site_estimate({'plates': [{'prediction_s': 3600, 'weight_g': 100}]}) == (3600.0, 100.0)
+
+
+def test_plates_without_model_instances_still_count_as_separate_beds(tmp_path, monkeypatch):
+    # An exporter that names plates (plater_id) but writes no <model_instance>
+    # and no thumbnails still describes separate beds. slice_job's own plate
+    # count must see two plates even without the intake audit's count, so the
+    # project never slices onto one bed as a single plate.
+    import re as _re
+    from print_handy.core import source_colors
+    from tests.corpus.make_models import box, write_3mf
+    source = tmp_path / 'two-plates.3mf'
+    write_3mf(source, [('A', 1, box(20, 20, 10), (40, 40)), ('B', 1, box(20, 20, 10), (300, 40))],
+              [('Plate 1', [0]), ('Plate 2', [1])], [('#FFFFFF', 'PLA')])
+    with zipfile.ZipFile(source) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    entries['Metadata/model_settings.config'] = _re.sub(
+        rb'<model_instance>.*?</model_instance>', b'', entries['Metadata/model_settings.config'])
+    with zipfile.ZipFile(source, 'w') as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    assert model_job.audit(source)['plates'] == 2
+    manifest = tmp_path / 'JOB.json'
+    manifest.write_text(json.dumps({'downloaded_file': str(source), 'audit': {}, 'title': 'Two plates'}))
+    monkeypatch.setattr(model_job.printer_state, 'load', _slice_state)
+
+    class MultiPlate(Exception):
+        pass
+
+    def seen_as_multi_plate(_manifest, _selected_plates=None):
+        raise MultiPlate()
+    monkeypatch.setattr(source_colors, 'validate_plate_usage_if_present', seen_as_multi_plate)
+    with pytest.raises(MultiPlate):
+        model_job.slice_job(manifest)

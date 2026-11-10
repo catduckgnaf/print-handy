@@ -21,6 +21,7 @@ tables from the rule parameters below, so the registry and the behavior cannot d
 (tests/pipeline/test_compat_registry.py asserts the parity).
 """
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 REGISTRY_VERSION = 1
 
@@ -47,6 +48,22 @@ class Rule:
     evidence_tests: tuple = ()
     evidence_docs: tuple = ()
     parameters: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        # The converter builds its live tables from these parameters, so they are frozen
+        # (read-only mappings, tuples) and never shared: no caller can change a rule.
+        object.__setattr__(self, 'parameters', _freeze(self.parameters))
+
+
+def _freeze(value):
+    """A deeply read-only copy: dicts become read-only mappings, lists and tuples tuples."""
+    if isinstance(value, (dict, MappingProxyType)):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(value)
+    return value
 
 
 def parse_version_spec(spec):
@@ -259,9 +276,11 @@ RULES = (
          "the fallback feeds the enumeration check like any other value.",
          (_TA + "::test_bad_enum_never_reaches_the_slice_profile",), (_FOREIGN,),
          {"key": "gap_fill_target", "default": "everywhere"}),
-    Rule("imported-auto-sentinel-normalization", "sentinel_normalization", "orca", "any", "orca", _ORCA,
+    Rule("imported-auto-sentinel-normalization", "sentinel_normalization", "any", "any", "orca", _ORCA,
          "Orca writes -1 for two 'automatic' values that its own CLI then rejects on an imported project; "
-         "exactly those two named keys are normalized from -1 to 0, and no other negative value is touched.",
+         "exactly those two named keys are normalized from -1 to 0, and no other negative value is touched. "
+         "It runs on every adopted project copy, which is Orca-format by then (a PrusaSlicer plate is "
+         "translated and seeded first), so it applies to any source.",
          (_TS + "::test_only_known_rejected_auto_sentinels_are_normalized",
           _TS + "::test_unknown_negative_and_unrejected_values_are_not_normalized"), (_REGISTRY_DOC,),
          {"sentinels": {'raft_first_layer_expansion': '-1', 'tree_support_wall_count': '-1'},
@@ -322,16 +341,20 @@ RULES = (
          (_TF + "::test_adopt_keeps_per_filament_list_shape_and_layer_range_intent",
           _TF + "::test_plugin_keys_are_stripped_from_plate_overrides"), (_FOREIGN,),
          {"structural_meta": ('name', 'extruder', 'matrix'), "exempt_prefix": "source_"}),
-    Rule("orca-percent-line-width-to-bambu-mm", "unit_conversion", "orca", _ORCA, "bambu_studio", "any",
+    Rule("orca-percent-line-width-to-bambu-mm", "unit_conversion", "any", "any", "bambu_studio", "any",
          "Bambu Studio reads Orca's percentage line widths as absolute millimeters. Orca percentages are "
          "relative to the destination machine's nozzle diameter, so each *_line_width value ending in % is "
          "converted with that diameter; the conversion fails closed when the diameter cannot be read, so "
-         "no percentage width reaches Bambu unconverted.",
+         "no percentage width reaches Bambu unconverted. The converted values are the job's own "
+         "Orca-named process (the destination templates plus carried author keys), whatever slicer made "
+         "the source project, so the rule applies to any source.",
          (_TO + "::test_bambu_fallback_converts_percent_line_widths",), (_EVIDENCE, _REGISTRY_DOC),
          {"key_suffix": "_line_width", "percent_marker": "%", "basis": "destination_nozzle_diameter"}),
-    Rule("orca-range-error-clamp", "value_clamp", "orca", _ORCA, "orca", _ORCA,
+    Rule("orca-range-error-clamp", "value_clamp", "any", "any", "orca", _ORCA,
          "Post-failure recovery only: a key Orca itself names in a range error is clamped to the bounds "
-         "Orca stated in that error. No key absent from the log is touched and nothing is pre-normalized.",
+         "Orca stated in that error. No key absent from the log is touched and nothing is pre-normalized. "
+         "The error comes from the destination Orca on the job's own private project copy, so the rule "
+         "applies to any source and its version range is the destination's.",
          (_TS + "::test_range_recovery_clamps_only_named_keys", _TS + "::test_list_values_clamped"),
          (_REGISTRY_DOC,), {"source": "orca_range_error_log"}),
     Rule("support-filament-designation", "designation_carry", "any", "any", "orca", _ORCA,
@@ -349,6 +372,84 @@ RULES = (
          "for every non-bookkeeping key it lacks, and both Prusa members are removed from the copy.",
          (_TP + "::test_derived_plate_from_a_prusa_project_is_rewritten",), (_FOREIGN,),
          {"seed_excludes": "preset_meta"}),
+    Rule("mmu-segmentation-paint-translation", "paint_translation", "prusaslicer", "any", "orca", _ORCA,
+         "PrusaSlicer's slic3rpe:mmu_segmentation triangle attribute carries the same TriangleSelector "
+         "encoding and state numbering as Orca's paint_color (the corpus prusa-mmu-project fixture's "
+         "\"8\" is state 2 in both), and the Orca destination reads paint_color, so a remap decodes the "
+         "Prusa states, remaps them through the same paint table, writes them as paint_color and drops "
+         "the Prusa attribute. A state with no slot choice refuses, exactly as an uncovered paint_color "
+         "state does; the states are never carried verbatim (they would print in the base slot).",
+         ("tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_states_are_decoded_per_part",
+          "tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_export_translates_paint_to_the_chosen_tools"),
+         ("docs/3MF-REMAP-INVENTORY.md#prusa-mmu-segmentation-paint-translation",),
+         {"source_attribute": "slic3rpe:mmu_segmentation", "destination_attribute": "paint_color",
+          "encoding": "triangleselector"}),
+    Rule("per-filament-array-permutation", "array_permutation", "any", "any", "orca", _ORCA,
+         "A filament remap permutes the project palette and every per-filament array by the same "
+         "mapping, so destination filament M carries source filament N's entries wherever the mapping "
+         "sends N to M; a one-filament collapse keeps the used source filament's entries (not entry "
+         "1's), because a plate that uses filament 2 must not inherit filament 1's temperatures, "
+         "density or profile id. An array whose length matches neither the palette nor a known shape "
+         "refuses the remap.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
+          "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
+         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         {"order": "destination_order_of_mapped_sources"}),
+    Rule("flush-matrix-permutation", "purge_permutation", "any", "any", "orca", _ORCA,
+         "flush_volumes_matrix is the palette-count-squared row-major matrix of purge volumes between "
+         "ordered filament pairs (the shape orca_adapter.ifs_purge_settings generates), so a remap "
+         "permutes its rows and columns by the same mapping and the diagonal stays zero; a matrix "
+         "whose size is not the palette count squared refuses.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",),
+         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         {"key": "flush_volumes_matrix", "layout": "row_major_ordered_pairs"}),
+    Rule("flush-vector-unestablished-refusal", "refusal", "any", "any", "orca", _ORCA,
+         "The layout semantics of flush_volumes_vector are not established from this repository (only "
+         "\"two entries per filament\" in one synthetic fixture), so no honest permutation of it "
+         "exists: a remap that would have to permute the vector refuses and names the key. The "
+         "identity mapping needs no permutation and passes it through; a one-filament collapse keeps "
+         "the used filament's own pair, the one slice of the layout the fixture does establish.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_the_unestablished_flush_vector",
+          "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
+         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         {"key": "flush_volumes_vector", "on_nonidentity_remap": "refuse"}),
+    Rule("support-designation-remap", "designation_remap", "any", "any", "orca", _ORCA,
+         "Inside a remapped package, a support designation (support_filament / "
+         "support_interface_filament, and the Prusa support_material_extruder pair) is rewritten "
+         "through the filament mapping like any other reference. A designation whose filament the "
+         "remap removes falls back to 0 — the object's own filament, which on the remapped plate is "
+         "the mapped filament — and the fallback is named in the remap report; a designation never "
+         "survives pointing past the new palette.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
+          "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
+         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         {"keys": ("support_filament", "support_interface_filament"),
+          "prusa_keys": ("support_material_extruder", "support_material_interface_extruder"),
+          "removed_filament_fallback": 0}),
+    Rule("height-range-extruder-remap", "range_remap", "any", "any", "orca", _ORCA,
+         "A height range's opt_key=\"extruder\" option is a filament reference keyed by object id. A "
+         "remap that knows the mapping translates the value (and the object id, when the remap "
+         "renumbers objects — package remaps preserve ids unless given an explicit object map) and "
+         "refuses a value or object it does not know. At slice-time adoption, where the plate was "
+         "already renumbered by its export, a value past the job's filament count clamps to the "
+         "job's last filament, the _prusa_model_settings precedent; the option and the range's other "
+         "intent are preserved, never carried verbatim past the palette.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
+          _TF + "::test_adopt_keeps_per_filament_list_shape_and_layer_range_intent"),
+         ("docs/3MF-REMAP-INVENTORY.md#height-ranges-and-object-ids",),
+         {"member": "Metadata/layer_config_ranges.xml", "option_key": "extruder",
+          "adopt_behavior": "clamp_to_job_filament_count"}),
+    Rule("remap-member-classification", "member_classification", "any", "any", "orca", _ORCA,
+         "Every member of a package being remapped is classified before any byte is written: a member "
+         "that can carry a filament reference is rewritten by the mapping, a member with no known "
+         "filament reference (thumbnails, relationship parts, vendor records, Auxiliaries/) is "
+         "preserved byte-for-byte, embedded plate G-code refuses (bare G-code is never rewritten and "
+         "its tool commands would contradict the new numbering), and any member with no classification "
+         "refuses the remap by name rather than be carried stale or dropped silently.",
+         ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_unclassified_and_embedded_gcode_members",
+          "tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members"),
+         ("docs/3MF-REMAP-INVENTORY.md#member-classification-and-the-object-id-policy",),
+         {"on_unclassified": "refuse", "on_embedded_gcode": "refuse"}),
 )
 
 _BY_ID = {rule.id: rule for rule in RULES}

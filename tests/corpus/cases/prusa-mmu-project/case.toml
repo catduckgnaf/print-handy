@@ -30,8 +30,10 @@ parts = ["Banner"]
 prompts = ["Red regions (#E74C3C", "Blue regions (#2980B9"]
 gcodes = 1
 supports = false
-# The painted half currently reaches the G-code on the base slot only; the
-# region-to-slot split for slic3rpe paint is tracked as a follow-up to #717.
+# The painted half used to reach the G-code on the base slot only; since
+# Phase C of the #1110 program the slic3rpe:mmu_segmentation states are
+# decoded and remapped like paint_color, so each region prints in the slot
+# picked for it.
 
 [model]
 format = "prusa-mmu-3mf"

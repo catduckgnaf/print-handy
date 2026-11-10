@@ -4567,6 +4567,9 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
     path = Path(job_path)
     job = json.loads(path.read_text())
     manifest = inventory(job['downloaded_file'])
+    # A job that records a plate selection asks only about the selected
+    # plates' colors and validates decisions against that scope (#1110 B).
+    selected_plates = job.get('selected_plates') or None
     if not manifest.get('source_sha256'):
         manifest['source_sha256'] = file_sha256(job['downloaded_file'])
     adapter = _job_adapter(job)
@@ -4585,7 +4588,13 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
             layered_only = (bool(manifest.get('layer_changes')) and len(manifest['parts']) <= 1
                             and not manifest['painted'])
             if layered_only and job.get('color_decisions'):
-                validate_decisions(manifest, job['color_decisions'], state, resolve_filament_selection)
+                validated = validate_decisions(manifest, job['color_decisions'], state,
+                                               resolve_filament_selection,
+                                               selected_plate_ids=selected_plates)
+                if selected_plates:
+                    from .source_colors import require_plate_readiness
+                    require_plate_readiness(manifest, validated, selected_plates,
+                                            slot_capacity=position_limit(adapter))
                 return True
             if layered_only:
                 raise MultiColorUnsupported(
@@ -4596,7 +4605,9 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
                 f"{adapter.label} has a single extruder; this source has several parts or colors that need a "
                 "slot choice. Slice a single-color model or use a multi-slot printer")
         return True
-    questions = canonical_prompts(manifest) if job.get('color_schema') == 'part_slots_v1' else prompts(manifest)
+    questions = (canonical_prompts(manifest, selected_plate_ids=selected_plates)
+                 if job.get('color_schema') == 'part_slots_v1'
+                 else prompts(manifest, selected_plate_ids=selected_plates))
     available = []
     for slot, label in sorted(state.get('filament_slots', {}).items()):
         selection = resolve_filament_selection(state, dict(label, slot=int(slot)))
@@ -4609,7 +4620,13 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
     if not manifest['requires_choices']:
         return True
     if mode is None and job.get('color_decisions'):
-        validate_decisions(manifest, job['color_decisions'], state, resolve_filament_selection)
+        validated = validate_decisions(manifest, job['color_decisions'], state,
+                                       resolve_filament_selection,
+                                       selected_plate_ids=selected_plates)
+        if selected_plates:
+            from .source_colors import require_plate_readiness
+            require_plate_readiness(manifest, validated, selected_plates,
+                                    slot_capacity=position_limit(adapter))
         return True
     packet = {'status': 'COLOR_CHOICES_REQUIRED', 'job_json': str(path),
               'source_sha256': manifest['source_sha256'],
@@ -4655,7 +4672,13 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
         decisions['selection'] = selections[0]
     else:
         decisions['choices'] = {row['key']: selection for row, selection in zip(rows, selections)}
-    set_color_decisions(job, validate_decisions(manifest, decisions, state, resolve_filament_selection))
+    validated = validate_decisions(manifest, decisions, state, resolve_filament_selection,
+                                   selected_plate_ids=selected_plates)
+    if selected_plates:
+        from .source_colors import require_plate_readiness
+        require_plate_readiness(manifest, validated, selected_plates,
+                                slot_capacity=position_limit(adapter))
+    set_color_decisions(job, validated)
     write_job(path.parent, job)
     return True
 
@@ -5984,15 +6007,13 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         with zipfile.ZipFile(src) as archive:
             actual_plates = {int(match.group(1)) for name in archive.namelist()
                              if (match := re.fullmatch(r"Metadata/plate_(\d+)\.(?:png|gcode)", name))}
-            has_slicer_plate_metadata = False
             if "Metadata/model_settings.config" in archive.namelist():
                 try:
                     settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
-                    source_plates = [plate for plate in settings.iter("plate")
-                                     if any(m.get("key") == "plater_id" for m in plate.iter("metadata"))
-                                     and bool(plate.findall('.//model_instance'))]
-                    has_slicer_plate_metadata = bool(source_plates)
-                    for plate in source_plates:
+                    # Every plate with a plater_id counts, with or without a <model_instance>:
+                    # an exporter that omits instances (and thumbnails) still names separate
+                    # beds, which must never be merged onto one (the same rule as audit()).
+                    for plate in settings.iter("plate"):
                         for metadata in plate.iter("metadata"):
                             if metadata.get("key") == "plater_id":
                                 plate_id = metadata.get("value")
@@ -6024,12 +6045,22 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         if multi_plate:
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
+    selected_plates = job.get('selected_plates') or None
+    if multi_plate and selected_plates and job.get('color_decisions'):
+        # The user selected exact source plates, so validate their usage and
+        # mappings before slicing. Whole-source imports without source usage
+        # metadata remain unknown until Orca provides authoritative output.
+        from .source_colors import require_plate_readiness
+        require_plate_readiness(manifest, job.get('color_decisions'), selected_plates,
+                                slot_capacity=position_limit(adapter))
     if multi_plate:
         # Source usage is evidence, not a prerequisite for slicing an unsliced
         # project. Validate claims when present; absent metadata stays UNKNOWN
-        # and the destination slicer's output becomes authoritative.
+        # and the destination slicer's output becomes authoritative. A job
+        # with a plate selection validates only the selected plates' claims:
+        # an unselected plate never blocks (#1110 Phase B).
         from .source_colors import validate_plate_usage_if_present
-        validate_plate_usage_if_present(manifest)
+        validate_plate_usage_if_present(manifest, selected_plates)
     # A height-color-only source (#870) is not a multi-color source: its parts
     # share one extruder and the recorded single-color decision carries the
     # operator's pause-or-one-color choice, which a single-extruder printer
@@ -6053,13 +6084,22 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     # STL has no source palette; bind decisions to the exact file bytes, as intake does.
     if not manifest.get('source_sha256'):
         manifest['source_sha256'] = file_sha256(src)
-    job['color_manifest'], job['color_prompts'] = manifest, prompts(manifest)
+    job['color_manifest'], job['color_prompts'] = manifest, prompts(manifest, selected_plate_ids=selected_plates)
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
     decisions = None if (generic and not multi_tool and not layered_single) else job.get('color_decisions')
     if decisions is not None:
-        decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection)
+        decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection,
+                                       selected_plate_ids=selected_plates)
+        if selected_plates:
+            # Automated readiness for a selected-plate print: a selected
+            # plate whose used colors cannot be validated against the
+            # decisions blocks here, before any slicing; unselected plates
+            # contribute nothing (#1110 Phase B, criterion 6).
+            from .source_colors import require_plate_readiness
+            require_plate_readiness(manifest, decisions, selected_plates,
+                                    slot_capacity=position_limit(adapter))
     if manifest['requires_choices'] and not decisions:
         raise RuntimeError('part/color choices required; run color-plan and color-select before slicing')
     if copies and int(copies) > 1 and not generic and not copies_supported(job, multi_plate):
@@ -6640,10 +6680,50 @@ def _reference_manifest(job, manifest):
     return flat, True
 
 
+def _selected_plate_stats(manifest, selected):
+    """A manifest copy whose filament totals cover only the selected plates.
+
+    Uses the slicer-reported per-plate records; returns None when any
+    selected plate lacks a validated record, so the caller keeps the
+    whole-source totals rather than presenting a partial sum as the total.
+    """
+    stats = (manifest or {}).get('filament_stats') or {}
+    plates = stats.get('plates') if isinstance(stats, dict) else None
+    if not isinstance(plates, dict):
+        return None
+    extruders, total_g, total_m = {}, 0.0, 0.0
+    for plate_id in selected:
+        row = plates.get(str(plate_id))
+        if not isinstance(row, dict) or row.get('usage_known') is not True:
+            return None
+        for ext, amounts in (row.get('extruders') or {}).items():
+            entry = extruders.setdefault(int(ext), {'g': 0.0, 'm': 0.0})
+            entry['g'] += float(amounts['g'])
+            entry['m'] += float(amounts['m'])
+            total_g += float(amounts['g'])
+            total_m += float(amounts['m'])
+    scoped = {**stats, 'extruders': extruders, 'total_g': round(total_g, 1),
+              'total_m': round(total_m, 1)}
+    scoped.pop('estimated', None)
+    return {**manifest, 'filament_stats': scoped}
+
+
 def filament_usage_by_selection(job, manifest=None):
     """Aggregate source estimates by confirmed selection, without duplicating multi-color totals."""
     manifest = manifest or (job or {}).get('color_manifest') or {}
-    manifest, _ = _reference_manifest(job, manifest)
+    selected = (job or {}).get('selected_plates')
+    if selected:
+        # A selected-plate print spends only the selected plates' filament:
+        # scope the totals to those plates' validated slicer records (#1110
+        # Phase B). The reference-manifest flattening must not run on the
+        # scoped totals (unselected plates' extruders are absent by design).
+        scoped = _selected_plate_stats(manifest, selected)
+        if scoped is not None:
+            manifest = scoped
+        else:
+            manifest, _ = _reference_manifest(job, manifest)
+    else:
+        manifest, _ = _reference_manifest(job, manifest)
     decisions = (job or {}).get('color_decisions') or {}
     if decisions.get('mode') == 'single_color':
         selection = decisions.get('selection') or (job or {}).get('filament_selection')

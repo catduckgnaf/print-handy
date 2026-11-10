@@ -364,3 +364,51 @@ def test_timing_variance_leave_one_out(tmp_path):
     out = timing_variance.measure(runs, {"tolerance": 0.10, "slack_s": 1.0, "cases": {}}, "test")
     assert out["leave_one_out_at_baseline"]["failing_pairings"] == 2
     assert out["spread"]["single-part/direct wall_s"]["max"] == 9.0
+
+
+# ----------------------------------------------------------------------------- #1142: drift printed on every raise
+
+def test_summary_lists_cumulative_drift_for_every_raised_entry_not_only_the_warning_band():
+    from tests.corpus.timing_gate import summary
+    base = {"tolerance": 0.10, "slack_s": 0.5,
+            "cases": {"tiny/direct": {"wall_s": 1.1, "original": {"wall_s": 1.0},
+                                      "raised_from": {"wall_s": 1.0},
+                                      "reason": "A long enough reason for this raise."}}}
+    text = summary([small(1.1)], base, [])
+    assert "Cumulative drift" in text and "tiny/direct" in text and "+10%" in text
+
+
+def test_summary_without_any_raise_lists_no_cumulative_drift():
+    from tests.corpus.timing_gate import summary
+    base = {"tolerance": 0.10, "slack_s": 0.5,
+            "cases": {"tiny/direct": {"wall_s": 1.0, "original": {"wall_s": 1.0}}}}
+    assert "Cumulative drift" not in summary([small(1.0)], base, [])
+
+
+def test_record_prints_cumulative_drift_for_a_raise_and_stdout_stays_pure_json(tmp_path, capsys):
+    import json
+    from tests.corpus.timing_gate import main
+    old = {"tolerance": 0.10, "slack_s": 0.5,
+           "cases": {"tiny/direct": {"wall_s": 1.0, "original": {"wall_s": 1.0}}}}
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps(old))
+    run = tmp_path / "run.json"
+    run.write_text(json.dumps({"rows": [small(1.1)]}))
+    assert main([str(run), "--baseline", str(base), "--record"]) == 0
+    out, err = capsys.readouterr()
+    json.loads(out)  # CI redirects stdout to proposed-baseline.json; drift must not corrupt it
+    assert "tiny/direct" in err and "wall_s" in err and "+10%" in err and "first recorded 1.00s" in err
+
+
+def test_record_without_a_raise_prints_no_drift(tmp_path, capsys):
+    import json
+    from tests.corpus.timing_gate import main
+    old = {"tolerance": 0.10, "slack_s": 0.5,
+           "cases": {"tiny/direct": {"wall_s": 1.0, "original": {"wall_s": 1.0}}}}
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps(old))
+    run = tmp_path / "run.json"
+    run.write_text(json.dumps({"rows": [small(1.0)]}))
+    assert main([str(run), "--baseline", str(base), "--record"]) == 0
+    _, err = capsys.readouterr()
+    assert err == ""

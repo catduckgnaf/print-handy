@@ -39,7 +39,8 @@ recorded before this field existed). A median over
 
 fails the gate even when each individual raise was small and explained (+50%). Past the lower
 CUMULATIVE_WARN_TOLERANCE (+25%) the gate only reports a "timing drift" warning and a summary note, so the
-trend is visible before it blocks. The blocking limit is +50% because the checked-in mock baseline already
+trend is visible before it blocks. Every summary and every --record proposal also prints the cumulative
+drift of every raised entry, however small, so a raise never hides its own total (#1142). The blocking limit is +50% because the checked-in mock baseline already
 sits at +38% over its earliest recorded values for the two parts-512-four-color cases (3.77 s -> 5.20 s and
 3.79 s -> 5.21 s wall_s, via their "raised_from"), so a +25% hard limit would fail unchanged main today;
 those two cases therefore show the warning on every run until someone fixes the slowdown or re-baselines
@@ -146,6 +147,25 @@ def drift_notes(rows, baseline):
                 notes.append(f"{key(row)}: {metric} {got:.2f}s is {(got - first) / first:+.0%} over the first "
                              f"recorded {first:.2f}s (warns past {warn:.2f}s, fails past {hard:.2f}s)")
     return notes
+
+
+def drift_lines(baseline):
+    """Every case/metric whose recorded baseline sits above its first recording, with the drift.
+
+    Printed in every gate summary and on every --record proposal (stderr there, so the proposal
+    on stdout stays pure JSON for the CI redirect), not only past the warning tolerance: a raise
+    is exactly where the cumulative drift has to be visible (#1142)."""
+    lines = []
+    for k, entry in sorted(baseline.get("cases", {}).items()):
+        first_all = original_of(entry)
+        for metric in METRICS:
+            base, first = entry.get(metric), first_all.get(metric)
+            if base is None or first is None or not first or base <= first:
+                continue
+            lines.append(f"{k}: {metric} baseline {base:.2f}s vs first recorded {first:.2f}s "
+                         f"({(base - first) / first:+.0%} cumulative, blocking past "
+                         f"+{CUMULATIVE_TOLERANCE:.0%})")
+    return lines
 
 
 def check(rows, baseline, absolute_slack=False):
@@ -260,6 +280,10 @@ def summary(rows, baseline, problems, title="Timing gate", absolute_slack=False,
                          f"{change}{flag} |")
     if notes:
         lines += ["", "Timing drift (warning, over the first recorded value):", ""] + [f"- {n}" for n in notes]
+    drift = drift_lines(baseline)
+    if drift:
+        lines += ["", "Cumulative drift from the first recording (every raised entry):", ""] + \
+                 [f"- {d}" for d in drift]
     if problems:
         lines += ["", "Problems:", ""] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"
@@ -284,7 +308,12 @@ def main(argv=None):
     path = Path(args.baseline)
     baseline = json.loads(path.read_text()) if path.exists() else {}
     if args.record:
-        print(json.dumps(record(rows, baseline, args.recorded_from), indent=1, sort_keys=True))
+        proposed = record(rows, baseline, args.recorded_from)
+        print(json.dumps(proposed, indent=1, sort_keys=True))
+        # The reviewer of a re-record sees the cumulative drift of every raised entry with the
+        # proposal, on stderr so stdout stays the pure JSON the CI step redirects to a file.
+        for line in drift_lines(proposed):
+            print(f"cumulative drift: {line}", file=sys.stderr)
         return 0
     problems = check(rows, baseline, args.absolute_slack)
     notes = [] if args.absolute_slack else drift_notes(rows, baseline)

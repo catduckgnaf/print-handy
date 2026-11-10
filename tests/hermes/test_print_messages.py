@@ -757,6 +757,47 @@ def test_slice_summary_reports_only_consequential_conversion_provenance(job):
     assert 'project_value' not in text
 
 
+def test_slice_summary_references_provenance_artifact_and_stays_concise(job):
+    # A large provenance record (many settings, many conflicts) still yields
+    # one short Conversion line: counts plus the artifact's name, never the
+    # record's keys or values.
+    job.data['provenance'] = {'conversion_provenance': {
+        'intent_status': 'unknown',
+        'artifact': 'conversion_provenance.json',
+        'unresolved_conflicts': [{'key': f'setting_{n}', 'source_value': 'x' * 40,
+                                  'target_value': 'y' * 40, 'selected_value': 'z' * 40}
+                                 for n in range(30)],
+        'settings': {f'setting_{n}': {'project_value': 'x' * 40, 'source_preset_value': 'p' * 40,
+                                      'target_value': 'y' * 40, 'selected_value': 'z' * 40,
+                                      'origin': 'designer', 'reason': 'r' * 80}
+                     for n in range(30)},
+    }}
+    text = summary.format_slice_summary(job.data)
+    conversion_lines = [line for line in text.splitlines() if line.startswith('Conversion:')]
+    assert len(conversion_lines) == 1
+    assert 'conversion_provenance.json' in conversion_lines[0]
+    assert '30 designer setting conflict(s)' in conversion_lines[0]
+    assert len(conversion_lines[0]) < 220
+    assert 'setting_0' not in text and 'x' * 40 not in text
+
+
+def test_slice_summary_survives_a_missing_or_failed_plate_provenance_record():
+    # The slicer adapter stores None when building the record raised; a
+    # derived plate with that None (or any non-dict) must not kill the whole
+    # "Sliced:" summary.
+    for record in (None, 'broken', [], 7):
+        text = summary.format_slice_summary(
+            {'title': 'x', 'derived_plates': [{'provenance': {'conversion_provenance': record}}]})
+        assert text.startswith('Sliced: x') and 'Conversion:' not in text
+    text = summary.format_slice_summary(
+        {'title': 'x', 'provenance': {'conversion_provenance': None},
+         'derived_plates': [{'provenance': None},
+                            {'provenance': {'conversion_provenance': None}},
+                            {'provenance': {'conversion_provenance': {
+                                'intent_status': 'known', 'unresolved_conflicts': [{'key': 'k'}]}}}]})
+    assert 'Conversion: 1 designer setting conflict(s)' in text
+
+
 def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
     job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
     assert 'Conversion:' not in summary.format_slice_summary(job.data)

@@ -142,6 +142,12 @@ def remap(xml_bytes, tool_map, z_scale=1.0):
     pointing at a tool the sliced job does not have; pauses and custom
     entries are dropped too — only the height color changes are carried, and
     the caller reports the rest from the inventory. Returns (bytes, report).
+
+    A kept entry's `color` attribute rides verbatim: it is display metadata
+    (tool selection comes from the `extruder` attribute), and Orca's 3MF
+    loader requires the attribute — a build that stripped it got Orca -6
+    ("the input model file can not be parsed") for every height-color slice
+    in real-slicer CI (PR #1133). Never strip it.
     """
     def convert(node):
         if kind_of(dict(node.attrib)) != 'tool_change':
@@ -158,42 +164,6 @@ def remap(xml_bytes, tool_map, z_scale=1.0):
     data, kept, dropped = _rewrite(xml_bytes, convert, z_scale)
     return data, {'kept': kept, 'dropped': dropped,
                   'remapped': {str(src): tool for src, tool in sorted(tool_map.items())}}
-
-
-def remap_archive(source, target, tool_map, z_scale=1.0):
-    """Atomically remap only per-layer tool changes in a copied 3MF archive.
-
-    Reject an archive with a source tool lacking an explicit destination mapping;
-    never silently discard a designer-authored layer change. Other ZIP members
-    are copied byte-for-byte. The source is never modified.
-    """
-    source, target = Path(source), Path(target)
-    with zipfile.ZipFile(source) as archive:
-        names = archive.namelist()
-        if MEMBER not in names:
-            raise RuntimeError('3MF has no per-layer G-code member to remap')
-        original = archive.read(MEMBER)
-        entries = parse(original)
-        unresolved = sorted({row['source_extruder'] for row in entries
-                             if row['kind'] == 'tool_change' and row['source_extruder'] not in tool_map})
-        if unresolved:
-            raise RuntimeError(f'unmapped source layer tool(s): {unresolved}')
-        converted, report = remap(original, tool_map, z_scale=z_scale)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + '.tmp')
-        try:
-            with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
-                for name in names:
-                    out.writestr(name, converted if name == MEMBER else archive.read(name))
-            # Validate output before atomic replacement.
-            with zipfile.ZipFile(tmp) as check:
-                if check.testzip() is not None or parse(check.read(MEMBER)) is None:
-                    raise RuntimeError('remapped 3MF archive failed validation')
-            tmp.replace(target)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
-    return report
 
 
 def as_pauses(xml_bytes, z_scale=1.0):
