@@ -147,9 +147,15 @@ _REGISTRY = _Registry()
 
 def _discover():
     """Re-scan and validate all vendor and model modules (compatibility hook)."""
-    _REGISTRY.complete = False
-    _REGISTRY.scan()
-    return _REGISTRY.vendors, _REGISTRY.models
+    # A forced validation must not reuse previously validated models: their
+    # module metadata may have changed. Publish only after a complete scan.
+    with _REGISTRY.lock:
+        fresh = _Registry()
+        fresh.scan()
+        _REGISTRY.vendors = fresh.vendors
+        _REGISTRY.models = fresh.models
+        _REGISTRY.complete = True
+        return _REGISTRY.vendors, _REGISTRY.models
 
 
 class _Table(MutableMapping):

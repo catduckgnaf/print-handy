@@ -330,6 +330,23 @@ def test_a_model_naming_another_vendor_is_refused(tmp_path, monkeypatch):
         sys.modules.pop("print_handy.printers.bambulab.zz_wrong_vendor", None)
 
 
+def test_forced_discovery_revalidates_cached_models(monkeypatch):
+    from dataclasses import replace
+
+    original = printers.MODELS["bambulab.a1"]
+    module = sys.modules["print_handy.printers.bambulab.a1"]
+    registry = printers._REGISTRY
+    previous_models = registry.models
+    with monkeypatch.context() as scoped:
+        scoped.setattr(module, "MODEL", replace(original, vendor=printers.VENDORS["klipper"]))
+        with pytest.raises(RuntimeError, match="must be the bambulab package VENDOR"):
+            printers._discover()
+        assert registry.models is previous_models
+        assert printers.MODELS[original.key] is original
+    printers._discover()
+    assert printers.MODELS[original.key].vendor.key == "bambulab"
+
+
 # ----------------------------------------------------------------------------- start code
 
 def test_klipper_and_zmod_start_code_never_passes_for_bambu():
