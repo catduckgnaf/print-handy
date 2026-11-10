@@ -344,7 +344,8 @@ def test_forced_discovery_revalidates_cached_models(monkeypatch):
         assert registry.models is previous_models
         assert printers.MODELS[original.key] is original
     printers._discover()
-    assert printers.MODELS[original.key].vendor.key == "bambulab"
+    assert printers.MODELS[original.key] is original
+    assert printers.MODELS[original.key].vendor == printers.VENDORS["bambulab"]
 
 
 # ----------------------------------------------------------------------------- start code

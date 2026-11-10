@@ -152,6 +152,13 @@ def _discover():
     with _REGISTRY.lock:
         fresh = _Registry()
         fresh.scan()
+        # Validation constructs inherited-vendor models anew. Keep stable
+        # identities for unchanged metadata, but only after validating it.
+        fresh.models = {
+            key: _REGISTRY.models[key]
+            if key in _REGISTRY.models and _REGISTRY.models[key] == model else model
+            for key, model in fresh.models.items()
+        }
         _REGISTRY.vendors = fresh.vendors
         _REGISTRY.models = fresh.models
         _REGISTRY.complete = True
