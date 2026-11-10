@@ -192,6 +192,32 @@ def test_a_preheat_during_the_upload_refuses_before_the_start_is_sent(ad5x, tmp_
     assert leases() == [] and model_job._read_claims() == {}
 
 
+@pytest.mark.parametrize("hold_s", [HOLD_S, 0])
+def test_a_reprint_the_printer_never_shows_is_not_reported_started(ad5x, tmp_path, monkeypatch, hold_s):
+    """A reprint's remote name is the previous run's (it comes from the file hash), and the recorded
+    idle AD5X keeps its axes homed. A start the printer never acted on, whether its POST response was
+    lost (held past the timeout) or answered, used to read that leftover state=complete as preparing."""
+    real_upload = model_job.subprocess.run
+
+    def upload_onto_the_previous_run(cmd, *args, **kwargs):
+        result = real_upload(cmd, *args, **kwargs)
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            with ad5x.lock:  # the previous run of this same artifact finished: complete, same name
+                ad5x.status["print_stats"].update(state="complete", filename=reported_name(cmd[3]),
+                                                  total_duration=612.0, print_duration=600.0)
+        return result
+    monkeypatch.setattr(model_job.subprocess, "run", upload_onto_the_previous_run)
+    ad5x.script_hook = printer_ignores_start(hold_s)
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job, wait_s=1)
+
+    status, _message = intake_outcome(ok, tail)
+    assert status == "START_PENDING", tail
+    assert [row["phase"] for row in leases()] == ["uncertain"]  # the duplicate guard holds
+    assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1  # never resubmitted
+
+
 def test_a_bang_bang_receipt_with_http_200_is_a_refusal(ad5x, tmp_path):
     """#836: Klipper answers a failed macro with HTTP 200 and a `!!` line in the console history.
     That is a refusal naming the `!!` text, not a pending start."""

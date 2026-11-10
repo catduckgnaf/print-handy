@@ -104,13 +104,57 @@ def test_classify_preparing_heating_bed():
     assert rb.evidence["heating"]["heater_bed"] == 60.0
 
 
-def test_classify_preparing_homing():
-    snap = {
-        "toolhead": {"homed_axes": "xyz"},
-    }
-    rb = classify_start_readback(snap)
-    assert rb.outcome == "preparing"
-    assert rb.evidence["homing"] == "xyz"
+def test_classify_homed_axes_alone_are_not_preparing():
+    """Klipper keeps the axes homed between prints (the recorded idle AD5X reports homed_axes xyz),
+    so homed axes alone say nothing about a new start."""
+    rb = classify_start_readback({"toolhead": {"homed_axes": "xyz"}})
+    assert rb.outcome == "unconfirmed"
+
+
+def test_classify_axes_homed_since_the_baseline_are_preparing():
+    rb = classify_start_readback({"toolhead": {"homed_axes": "xyz"}, "print_stats": {"state": "standby"}},
+                                 baseline={"toolhead": {"homed_axes": ""}, "print_stats": {"state": "standby"}})
+    assert rb.outcome == "preparing" and rb.evidence["homing"] == "xyz"
+
+
+# A reprint: remote names come from the artifact hash, so the previous run left exactly this name behind.
+LEFTOVER = {"print_stats": {"state": "complete", "filename": "X.gcode", "total_duration": 612.0},
+            "toolhead": {"homed_axes": "xyz"}, "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0},
+            "idle_timeout": {"state": "Idle"}, "virtual_sdcard": {"is_active": False, "file_path": None}}
+
+
+def test_a_reprints_leftover_complete_state_is_not_preparing():
+    """REPRODUCED before the fix: a leftover state=complete with the same filename read as preparing."""
+    assert classify_start_readback({"print_stats": {"state": "complete", "filename": "X.gcode"}}).outcome == "unconfirmed"
+    assert classify_start_readback(LEFTOVER).outcome == "unconfirmed"
+    assert classify_start_readback(LEFTOVER, baseline=LEFTOVER).outcome == "unconfirmed"
+
+
+@pytest.mark.parametrize("leftover", ["complete", "cancelled", "standby", "error"])
+def test_an_unchanged_leftover_state_is_unconfirmed_never_preparing_or_failed(leftover):
+    snap = {**LEFTOVER, "print_stats": {**LEFTOVER["print_stats"], "state": leftover}}
+    rb = classify_start_readback(snap, baseline=snap)
+    assert rb.outcome == "unconfirmed", rb
+
+
+def test_an_unreadable_baseline_proves_no_change():
+    snap = {**LEFTOVER, "extruder": {"target": 220.0}, "print_stats": {"state": "cancelled", "filename": "X.gcode"}}
+    assert classify_start_readback(snap, baseline={}).outcome == "unconfirmed"
+
+
+def test_changes_from_the_baseline_are_this_starts_evidence():
+    heating = {**LEFTOVER, "extruder": {"target": 220.0}, "idle_timeout": {"state": "Printing"}}
+    rb = classify_start_readback(heating, baseline=LEFTOVER)
+    assert rb.outcome == "preparing" and rb.evidence["heating"] == {"extruder": 220.0}
+    reloaded = {**LEFTOVER, "print_stats": {"state": "standby", "filename": "X.gcode", "total_duration": 0.0}}
+    assert classify_start_readback(reloaded, baseline=LEFTOVER).evidence == {"new_job": "X.gcode"}
+    failed = {**LEFTOVER, "print_stats": {"state": "error", "filename": "X.gcode", "total_duration": 0.0}}
+    assert classify_start_readback(failed, baseline=LEFTOVER).outcome == "failed"
+
+
+def test_heaters_already_on_in_the_baseline_are_not_this_starts_evidence():
+    warm = {**LEFTOVER, "extruder": {"target": 220.0}}
+    assert classify_start_readback(warm, baseline=warm).outcome == "unconfirmed"
 
 
 def test_classify_preparing_virtual_sdcard():
@@ -159,3 +203,28 @@ def test_classify_unconfirmed_idle_ready():
     assert rb.outcome == "unconfirmed"
     assert rb.evidence is None
     assert rb.message == "submitted, awaiting confirmation"
+
+
+# --- the start primitive's own idle check (any caller, not only the chat path) ---
+
+@pytest.mark.parametrize("state, busy, refused", [
+    ("standby", "Ready", False), ("complete", "Idle", False), ("cancelled", "Idle", False),
+    ("paused", "Idle", True), ("error", "Idle", True), ("printing", "Printing", True),
+    ("standby", "Printing", True)])
+def test_require_idle_mirrors_the_chat_paths_live_idle_check(monkeypatch, state, busy, refused):
+    from print_handy.core import model_job
+    monkeypatch.setattr(model_job, "_printer_phase", lambda st: (state, "x.gcode", busy))
+    if refused:
+        with pytest.raises(SystemExit, match="REFUSED"):
+            model_job._require_idle({"display_off": 1})
+    else:
+        assert model_job._require_idle({"display_off": 1})[0] == state
+
+
+def test_require_idle_and_live_idle_check_share_one_idle_set():
+    import inspect
+    from print_handy.core import model_job
+    from print_handy.hermes import print_next
+    spelled = "(" + ", ".join(f'"{s}"' for s in model_job.IDLE_PRINT_STATES) + ")"
+    source = inspect.getsource(print_next.live_idle_check)
+    assert source.count(f"not in {spelled}") == 2  # the routed and the configured-printer branch

@@ -802,6 +802,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._data_route(path)
             elif path == "/wrapped/video-file":
                 self._wrapped_video_file_route()
+            elif path == "/api/wrapped/video-status":
+                self._wrapped_video_status_route()
             elif path == "/readyz":
                 # Readiness per component (Spoolman, slicer, each printer),
                 # behind the same auth as /api/status; /healthz stays the
@@ -958,7 +960,56 @@ class _Handler(BaseHTTPRequestHandler):
                              "reason": "no compiled Wrapped video for that year. "
                                        "Compile it from the Wrapped page first."})
             return
-        self._send(200, target.read_bytes(), "video/mp4")
+        self._stream_file(target, "video/mp4")
+
+    VIDEO_CHUNK = 256 * 1024
+
+    def _stream_file(self, target, content_type):
+        """Send a file in chunks, honoring one ``Range`` (206) so a browser
+        can seek; the whole file is never held in memory."""
+        try:
+            handle = open(target, "rb")
+        except OSError:
+            self._json(404, {"ok": False, "reason": "the Wrapped video could not be read."})
+            return
+        with handle:
+            size = os.fstat(handle.fileno()).st_size
+            wanted = data_module.parse_byte_range(self.headers.get("Range"), size)
+            if wanted == "unsatisfiable":
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            start, end = wanted if wanted else (0, size - 1)
+            length = max(0, end - start + 1)
+            self.send_response(206 if wanted else 200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(length))
+            if wanted:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.end_headers()
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(self.VIDEO_CHUNK, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def _wrapped_video_status_route(self):
+        """GET /api/wrapped/video-status?year=<year>: the compile's state
+        (idle, queued, running with a step count, done, failed with a
+        short reason), polled by the Wrapped page while a video compiles."""
+        year, error = self._year_param()
+        if error or year is None:
+            self._json(*(error or (400, {"ok": False, "reason":
+                                         "year must be a whole number. Nothing shown."})))
+            return
+        code, payload = data_module.video_status(self.server.settings_data, year)
+        self._json(code, payload)
 
     def _wrapped_video_post(self):
         """POST /wrapped/video (#956): the Wrapped page's video form.
@@ -982,16 +1033,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_refusal(400, "year must be a whole number. Nothing was compiled.",
                                "/wrapped")
             return
+        # The compile runs as a background job: this starts it (or joins the
+        # one already running for the year) and goes back to the page, which
+        # shows the progress and then the finished video.
         code, payload = data_module.make_video(
             self.server.settings_data, year,
             export_silent=bool((form.get("export_silent") or [""])[0]))
-        if code != 200:
+        if code not in (200, 202):
             self._html_refusal(code, payload.get("reason", "the video compile failed"),
                                "/wrapped")
             return
-        self._send(200, data_module.render_video_result(
-            self.server.settings_data, payload, theme=self._theme()),
-            "text/html; charset=utf-8")
+        self._redirect(f"/wrapped?year={year}")
 
     def _wrapped_share_post(self):
         """POST /wrapped/share (#981): the Wrapped page's share form.
@@ -1016,11 +1068,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_refusal(400, "year must be a whole number. Nothing was exported.",
                                "/wrapped")
             return
+        # The share form posts what to include as checkboxes (an unticked
+        # box is simply absent); a post without the options marker keeps
+        # the safe defaults: titles and printer names in, footage out.
+        explicit = (form.get("options") or [""])[0] == "explicit"
+
+        def ticked(name, default):
+            return bool((form.get(name) or [""])[0]) if explicit else default
+
         code, payload = data_module.export_share(
             self.server.settings_data, year,
-            (form.get("visibility") or ["public"])[0],
+            (form.get("visibility") or ["link-only"])[0],
             destination_note=(form.get("destination") or [""])[0],
-            passphrase=(form.get("passphrase") or [None])[0])
+            passphrase=(form.get("passphrase") or [None])[0],
+            include_titles=ticked("include_titles", True),
+            include_printers=ticked("include_printers", True),
+            include_video=ticked("include_video", False))
         if code != 200:
             self._html_refusal(code, payload.get("reason", "the export failed"),
                                "/wrapped")

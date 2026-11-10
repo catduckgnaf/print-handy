@@ -3636,8 +3636,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                               {'copies': copies} if copies and int(copies) > 1 else {})))
                         await early.started.wait()
                         continue
-                    matrix, _dims = found
-                    latest['orientation'] = {'rotation': matrix}
+                    matrix, dims = found
+                    # The rotated (unscaled) envelope goes with the rotation,
+                    # as every other orientation writer records it: without
+                    # it the bed pre-check and "make it N mm tall" measure the
+                    # authored pose, not the one that prints.
+                    latest['orientation'] = {'rotation': matrix,
+                                             **({'dims_full_mm': [round(float(v), 4) for v in dims]}
+                                                if dims else {})}
                     latest.pop('support_decision', None)
                     latest.pop('clearance_acknowledgement', None)
                     # The cached report describes the pose as authored;

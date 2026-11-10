@@ -88,6 +88,26 @@ def table(heading):
 
 
 class SettingsParityTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def setUp(self):
         self.inventory = inventory()
         self.rows = dict(re.findall(r"^\| `([a-z_]+\.(?:[a-z_]+|<[a-zA-Z]+>))` \| ([^|]+) \|", DOCS, re.M))
@@ -540,7 +560,26 @@ class ContainerTimezoneTests(unittest.TestCase):
             self.assertIn("not a known IANA timezone", invalid.stderr)
 
 
-class UnraidTemplateTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def configs(self, root, kind):
         return {c.get("Target"): c for c in root.findall("Config") if c.get("Type") == kind}
 
@@ -562,9 +601,10 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(UNRAID.findtext("Name"), "print-handy")
         self.assertFalse(UNRAID.findtext("PostArgs"))
         self.assertNotIn("command", self.service)
-        # The template ships no ExtraParams: the healthcheck is the Compose
-        # service's own, not a template --health-cmd flag.
-        self.assertEqual(self.params, [])
+        # The template's only docker-run flag is --shm-size, equal to
+        # Compose's shm_size; the healthcheck is the Compose service's
+        # own, not a template --health-cmd flag.
+        self.assertEqual(self.params, [f"--shm-size={self.service['shm_size']}"])
         self.assertEqual(self.service["healthcheck"]["test"],
                          ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         publish = (ROOT / ".github" / "workflows" / "docker-publish.yml").read_text()
@@ -602,10 +642,12 @@ class UnraidTemplateTests(unittest.TestCase):
 
     def test_hardening_and_limits_live_in_compose_not_the_template(self):
         service = self.service
-        # The template adds no docker-run flags at all: ExtraParams ships
-        # empty, so nothing in it can drift from the runtime contract.
-        self.assertEqual(self.params, [])
-        self.assertEqual(self.flags, {})
+        # The one docker-run flag the template adds is --shm-size, and it
+        # must equal Compose's value: Unraid's Docker default of 64 MB
+        # starves OrcaSlicer under xvfb. Nothing else in ExtraParams, so
+        # nothing else can drift from the runtime contract.
+        self.assertEqual(self.params, ["--shm-size=256m"])
+        self.assertEqual(service["shm_size"], "256m")
         # The hardening the flags used to duplicate stays in Compose, where
         # it is expressed as service keys instead of CLI flags.
         self.assertEqual(service["user"], "1000:1000")
@@ -641,12 +683,7 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(paths["/data/timelapses"].text,
                          "/mnt/user/appdata/print-handy/timelapses")
         self.assertEqual(paths["/data/timelapses"].get("Required"), "false")
-        # The single Appdata mount covers every volume target Compose
-        # names: each is /data itself or a folder under it.
-        for volume in self.service["volumes"]:
-            target = volume.split(":")[-1]
-            with self.subTest(volume=target):
-                self.assertTrue(target == "/data" or target.startswith("/data/"))
+        self.assertEqual(UNRAID.findtext("Category"), "Tools:Utilities Productivity:")
         variables = self.configs(UNRAID, "Variable")
         self.assertEqual(set(variables), UNRAID_VARIABLES)
         self.assertEqual(set(self.configs(UNRAID, "Port")), {"8088"})
@@ -669,6 +706,24 @@ class UnraidTemplateTests(unittest.TestCase):
         # the template no longer carries it.
         self.assertEqual(compose_env["PRINT_HANDY_ORCA_CHANNEL"], "${PRINT_HANDY_ORCA_CHANNEL:-stable}")
         self.assertRegex(ENV_EXAMPLE, r"(?m)^PRINT_HANDY_ORCA_CHANNEL=stable$")
+
+    def test_dockerfile_volume_paths_are_mounted_exactly_by_every_shipped_deployment(self):
+        """A Dockerfile VOLUME makes Docker create an anonymous volume for each
+        declared path a run does not mount exactly, so a template that binds
+        only the parent /data silently sends that data to hidden volumes
+        (confirmed with a real docker create). Being "under /data" is not
+        persistence. Every VOLUME path must be a target that Compose and the
+        Unraid template both mount exactly; the image declares none today."""
+        declared = []
+        for match in re.finditer(r"(?m)^VOLUME\s+(.+)$", DOCKERFILE):
+            raw = match.group(1).strip()
+            declared += json.loads(raw) if raw.startswith("[") else raw.split()
+        compose_targets = {v.split(":")[1] for v in self.service["volumes"]}
+        unraid_targets = set(self.configs(UNRAID, "Path"))
+        for path in declared:
+            with self.subTest(volume=path):
+                self.assertIn(path, compose_targets)
+                self.assertIn(path, unraid_targets)
 
     def test_unraid_gpu_entries_are_optional_and_in_advanced_view(self):
         """#455: the GPU passthrough entries survive the template slimming
@@ -693,7 +748,11 @@ class UnraidTemplateTests(unittest.TestCase):
         devices = self.configs(UNRAID, "Device")
         self.assertEqual(devices["/dev/dri"].get("Required"), "false")
         self.assertEqual(devices["/dev/dri"].get("Display"), "advanced")
-        self.assertEqual(devices["/dev/dri"].text, "/dev/dri")
+        # Default names the device, the value is empty: a host without an
+        # iGPU has no /dev/dri and docker run fails when it is passed.
+        self.assertEqual(devices["/dev/dri"].get("Default"), "/dev/dri")
+        self.assertFalse((devices["/dev/dri"].text or "").strip())
+        self.assertIn("render group", devices["/dev/dri"].get("Description"))
         self.assertIn("video", UNRAID_GPU_VARS["NVIDIA_DRIVER_CAPABILITIES"].split(","))
         self.assertIn(f"ENV NVIDIA_DRIVER_CAPABILITIES={UNRAID_GPU_VARS['NVIDIA_DRIVER_CAPABILITIES']}",
                       dockerfile)

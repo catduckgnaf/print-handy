@@ -264,7 +264,7 @@ AMD's AMF encoders are not in Debian's ffmpeg build and need AMD's proprietary r
 Intel iGPU or AMD GPU:
 
 1. In the Unraid terminal, check the device exists and note its group: `ls -l /dev/dri` and `stat -c %g /dev/dri/renderD128`. On an Intel iGPU with no `/dev/dri`, install the **Intel GPU TOP** plugin (it loads the `i915` driver). AMD GPUs normally load `amdgpu` by themselves, or use the **Radeon TOP** plugin.
-2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry already maps `/dev/dri` — keep it — and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
+2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry ships with an empty value so hosts without an iGPU still start: set its value to `/dev/dri` (its default) and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
 3. Apply, then check from the Unraid terminal: `docker exec print-handy vainfo --display drm --device /dev/dri/renderD128`. It should list an H.264 `VAEntrypointEncSlice` (or `…EncSliceLP`) line.
 4. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
 
@@ -358,7 +358,7 @@ This is the edit. It is not applied by installing this repository.
 <Repository>ghcr.io/catduckgnaf/print-handy@sha256:36d44e6c3bfd285deb671508217e0296fcf8d26e39fc17bd5f6e69414b762a48</Repository>
 ```
 
-3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
+3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: every appdata path and any extra mounts (account tokens, timelapse archive) stay.
 4. Apply the template through DockerMan so the container is recreated from the same paths. Do not run `docker compose down -v` and do not delete `/mnt/user/appdata/print-handy`.
 5. After it is up, `docker inspect print-handy --format '{{.Config.Image}}'` must print the digest above, and the health check must be healthy.
 
@@ -487,11 +487,20 @@ printer warnings recorded before the stop".
 
 ## Unraid DockerMan
 
-Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template carries only the install-time surface: the Web UI port (8088), a single **Appdata** path mounting all of `/data`, a **Timelapse Archive** path whose default folder sits inside Appdata, the bundled/external Spoolman choice, the container timezone and the GPU passthrough entries — both paths under `/mnt/user/appdata/print-handy` by default, the Appdata path owned by UID/GID 1000:1000. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port beyond the Web UI's; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
+Use `docker/unraid/print-handy.xml` (the Community Applications listing is the same install surface). One entry runs all required processes; leave PostArgs empty. Its only Extra Parameters value is `--shm-size=256m`, the same shared-memory size Compose sets: Docker's 64 MB default is too small for OrcaSlicer's slicing. The template carries only the install-time surface: the Web UI port (8088), a single **Appdata** path mounting all of `/data`, a **Timelapse Archive** path whose default folder sits inside Appdata, the bundled/external Spoolman choice, the container timezone and the GPU passthrough entries — both paths under `/mnt/user/appdata/print-handy` by default, the Appdata path owned by UID/GID 1000:1000.
+
+Before the first start, make the Appdata folder writable by the container user (UID 1000; Unraid creates folders as 99:100). In the Unraid terminal:
+
+```bash
+mkdir -p /mnt/user/appdata/print-handy
+chown -R 1000:1000 /mnt/user/appdata/print-handy
+```
+
+All data lives in that one folder. A chat bot token goes in `state/.env` inside it (for example `DISCORD_BOT_TOKEN=...` or `TELEGRAM_BOT_TOKEN=...`) before the first start; create the file as UID 1000 or run the `chown` again afterwards. Then open the Web UI on port 8088 to finish setup. The Web UI is open to anyone who can reach the port until you set a password there. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port beyond the Web UI's; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
 
 The runtime selector `PRINT_HANDY_ORCA_CHANNEL` (Compose and `.env.example`) defaults to `stable`, the one bundled OrcaSlicer; `preview` and its pre-#600 name `alpha` also start on that single build with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops container startup.
 
-The container timezone `TZ` (Compose, `.env.example` and the template) defaults to `America/New_York` and takes any IANA name, for example `Europe/London`. It sets the container's local time: log timestamps, scheduled and timed features, and the bundled Spoolman's timestamps. The image ships the timezone database and points `/etc/localtime` at the default zone; a `TZ` set at runtime overrides it for every process, and an unknown name is logged at startup while the default is used instead. Print Handy's chat display times keep following `discord.timezone`, a separate setting.
+The container timezone `TZ` (Compose, `.env.example` and the template) defaults to `America/New_York` and takes any IANA name, for example `Europe/London`. It sets the container's local time: log timestamps, scheduled and timed features, and the bundled Spoolman's timestamps. It does not change how Print Handy shows times in chat. The image ships the timezone database and points `/etc/localtime` at the default zone; a `TZ` set at runtime overrides it for every process, and an unknown name is logged at startup while the default is used instead. Print Handy's chat display times keep following `discord.timezone`, a separate setting.
 
 The Compose environment also carries the feature-enabling variables — the ones that turn a feature on, as opposed to tuning settings, which stay in a mounted YAML pointed to by `PRINT_HANDY_CONFIG`:
 
@@ -502,6 +511,32 @@ The Compose environment also carries the feature-enabling variables — the ones
 - **Discord and LLM:** `PRINT_HANDY__DISCORD__APPROVAL_USER_ID`, `PRINT_HANDY__DISCORD__TIMEZONE`, `PRINT_HANDY__LLM__CHAT_URL`, `PRINT_HANDY__LLM__MODEL` and the `LLM_API_KEY` secret.
 
 In Compose, the settings are environment entries with their documented defaults and the secrets reach the container through the `.env` file, like `DISCORD_BOT_TOKEN`. The Unraid template carries none of them: on Unraid the same settings are made in the mounted config file or the Web UI, and secrets go in the profile `.env` inside the Appdata path (or in a variable added by hand in the container editor, masked). Leaving every one of them at its default or empty changes nothing about a running install.
+
+### Upgrading from the older multi-path template
+
+Stop the container, then migrate the folder without replacing any existing `.config` contents:
+
+```bash
+cd /mnt/user/appdata/print-handy
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+chown -R 1000:1000 .config
+```
+
+If both folders exist, compare their contents and merge the needed files deliberately before changing either; do not let `mv` nest one directory inside the other or overwrite existing settings.
+
+### Recovery: installed the single-path template while the image declared volumes
+
+Images released before this was fixed (2.2.7 and earlier) declared `VOLUME` for `/data/state`, `/data/hermes`, `/data/archive`, `/data/records`, `/data/cache` and `/data/spoolman`. With a template that binds only `/data`, Docker stores those six folders in anonymous volumes instead of the Appdata folder, so the host folder stays nearly empty and the data survives only as long as the container is not removed. Images built after the declaration was removed do not do this. If you installed the single-path template on an older image, move the data out before you recreate the container:
+
+1. Stop the container (do not remove it yet).
+2. List what it uses: `docker inspect print-handy --format '{{range .Mounts}}{{.Type}} {{.Destination}} {{.Name}} {{.Source}}{{"\n"}}{{end}}'`. Rows of type `volume` with a long hexadecimal name and a destination under `/data` are the anonymous volumes. `docker volume ls` lists them by name.
+3. Copy each one into the matching folder under Appdata, keeping ownership, for example: `cp -a /var/lib/docker/volumes/<name>/_data/. /mnt/user/appdata/print-handy/state/`. The Source column of step 2 gives the path to copy from. Do the same for `hermes`, `archive`, `records`, `cache` and `spoolman`.
+4. Run `chown -R 1000:1000 /mnt/user/appdata/print-handy`, then update to an image that no longer declares the volumes (or add a **Path** entry for each folder, host folder `/mnt/user/appdata/print-handy/<name>`, container path `/data/<name>`), and recreate the container.
+5. Once it runs correctly, remove the leftover anonymous volumes with `docker volume rm <name>`.
 
 This source template does not prove a Community Applications listing or an exercised Unraid installation. The host owner verifies deployment and final network mapping.
 
@@ -580,7 +615,11 @@ The scheduled `.github/workflows/upstream-watch.yml` (Mondays 13:37 UTC, or on d
 
 Every `docker-publish` dispatch starts with the **release surfaces gate** (the `surfaces-gate` job, running `scripts/check_release_surfaces.py`). The gate checks that the README and the `print_handy` package version match the version being published, that the README's links resolve, and that the GitHub Pages site (`catduckgnaf/print-handy-docs`) has no drift against `docs/` at the release ref — drift as defined by the docs repo's own Docs sync check (`scripts/check-sync.sh` there), including removed pages. In candidate mode (`publish=false`) stale surfaces are only reported as warnings. With `publish=true` the gate fails the run before any image is built or pushed until the surfaces are current. The remedy is the **Docs auto-sync** workflow in `print-handy-docs` (`gh workflow run docs-auto-sync.yml --repo catduckgnaf/print-handy-docs -f ref=<version>`): it opens a sync PR there; merge it, then re-dispatch the publish. Publishing the GitHub release also triggers that sync automatically via `repository_dispatch` when the `DOCS_SYNC_TOKEN` secret is configured on this repo (a token with contents + pull-requests write on `print-handy-docs`); without it, the post-release surfaces checklist issue records the skip and the manual link. The gate applies to version releases only: nightly is a separate workflow (`.github/workflows/nightly.yml`) and is never gated.
 
-The manual `.github/workflows/docker-publish.yml` covers the whole matrix in one dispatch. Its build job runs both legs (amd64 and arm64) on native runners; each leg builds its platform image, runs the headless slicer smoke and the offline runtime acceptance for that arch. Only with `publish=true`, and only after that leg's acceptance succeeded, does a leg log in and push — by digest only, never by tag. A final manifest job (publication dispatches only, after every leg succeeded) combines the pushed digests with `docker buildx imagetools create` into the two tags `:VERSION` and `:latest`, and writes the manifest digests to the step summary and the uploaded evidence. With `publish=false` (candidate mode) every leg still builds and must pass acceptance, and nothing is pushed and no manifest is created. Candidate inputs for the next release are `version=<next MAJOR.MINOR.PATCH>`, `publish=false`. Preserve every existing tag (2.1.1, 2.1.2, 2.1.3 era tags included); never overwrite or republish an existing tag.
+The manual `.github/workflows/docker-publish.yml` covers the whole matrix in one dispatch. Its build job runs both legs (amd64 and arm64) on native runners; each leg builds its platform image, runs the headless slicer smoke and the offline runtime acceptance for that arch. Only with `publish=true`, and only after that leg's acceptance succeeded, does a leg log in and push — by digest only, never by tag. A final manifest job (publication dispatches only, after every leg succeeded) combines the pushed digests with `docker buildx imagetools create` into the tag `:VERSION` and, when the guard says this is the highest released version, `:latest`, and writes the manifest digests to the step summary and the uploaded evidence. With `publish=false` (candidate mode) every leg still builds and must pass acceptance, and nothing is pushed and no manifest is created. Candidate inputs for the next release are `version=<next MAJOR.MINOR.PATCH>`, `publish=false`. Preserve every existing tag (2.1.1, 2.1.2, 2.1.3 era tags included); never overwrite or republish an existing tag.
+
+A publication dispatch (`publish=true`) is also checked by the **publish ref guard** (`scripts/check_publish_ref.py`, the first step of the same `surfaces-gate` job), which fails the run before anything is built unless all of these hold: the dispatched ref is the release tag (select the tag, not a branch, in the "Use workflow from" box, and the tag name must equal the version); the tagged commit is reachable from `main`; the `CI` workflow concluded successfully on that exact commit; and the `Release checklist: X.Y.Z` issue exists and is closed. Candidate runs (`publish=false`) are never blocked and work from any ref. `:latest` moves only when the version being published is the highest released version (a plain `MAJOR.MINOR.PATCH` tag reachable from `main`); publishing an older patch updates only `:VERSION`.
+
+**Repairing `:latest`.** If `:latest` ever points at the wrong image, run the manual **Retag latest to an existing release** workflow (`.github/workflows/retag-latest.yml`): Actions tab, pick that workflow, "Run workflow", enter the version `:latest` should point at (for example `2.2.7`), or `gh workflow run retag-latest.yml -f version=2.2.7`. It builds nothing: it copies the existing `:VERSION` manifest to `:latest` by digest with `docker buildx imagetools create`, checks the result has the same digest, and refuses a version whose git tag is missing or not reachable from `main`. It never runs on its own.
 
 Each build leg has a 350 minute timeout. Buildx uses a `docker-container` builder: the publishing legs push by digest, which the Docker driver does not implement — nightly run 40330775729 proved it the hard way, with every leg passing acceptance and then failing at the push step with exactly that error (the no-push validation workflow still uses the Docker driver, which is fine because it never pushes). Runtime fixtures must remain isolated, use dummy credentials and clean up owned containers. Evidence is retained 30 days. No live Discord, printer, Home Assistant or household Spoolman endpoints are permitted. Native tests prove lifecycle logic, not image startup, migration or slicing. Report actual workflow evidence and immutable identities separately.
 

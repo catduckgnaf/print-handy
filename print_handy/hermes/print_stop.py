@@ -56,9 +56,52 @@ def _lan_adapter(printer_id: str | None = None):
     return adapter if getattr(adapter, "transport", None) == "bambulab_lan" else None
 
 
+NO_CONTROL = "not connected"  # the status state of a printer Print Handy has no control connection to
+
+
+def _family(printer_id: str | None = None):
+    """(control, adapter) for a printer that is neither Moonraker nor Bambu LAN.
+
+    OctoPrint, PrusaLink, Elegoo SDCP and stock Flashforge stop through their own adapter's
+    control (family_control.FamilyControl, the path the alert buttons and the Web UI already use);
+    Moonraker URLs mean nothing to them. (None, adapter) for a printer with no control connection
+    at all (offline); (None, None) for Moonraker, which keeps the path below. The printer is the one
+    the caller chose (printer_id), or the configured printer.
+    """
+    from . import family_control
+    try:
+        adapter = family_control.adapter_for(printer_id)
+    except Exception:
+        if printer_id:
+            raise
+        return None, None  # no adapter resolvable for the configured printer: the Moonraker path, as before
+    connection = family_control.connection_of(adapter)
+    if connection in (None, "moonraker", "bambulab_lan"):
+        return None, None
+    if connection in family_control.FAMILY_CONNECTIONS:
+        return family_control.FamilyControl(adapter), adapter
+    return None, adapter
+
+
+def _unconnected_text(adapter) -> str:
+    label = getattr(adapter, "label", None) or "This printer"
+    return (f"{label} has no live connection in Print Handy, so it cannot be stopped from here. "
+            "Stop it on the printer itself. Nothing sent.")
+
+
 def status(printer_id: str | None = None) -> dict[str, Any]:
     """state, filename, layer, total_layer, progress (0..1), print_duration."""
     adapter = _lan_adapter() if printer_id is None else _lan_adapter(printer_id)
+    if adapter is None:
+        control, family_adapter = _family(printer_id)
+        if control is not None:
+            live = control.status()
+            return {"state": str(live.get("state") or "unknown"), "filename": live.get("filename") or "",
+                    "layer": live.get("layer"), "total_layer": live.get("total_layer"),
+                    "progress": live.get("progress"), "print_duration": live.get("print_duration")}
+        if family_adapter is not None:
+            return {"state": NO_CONTROL, "filename": "", "layer": None, "total_layer": None,
+                    "progress": None, "print_duration": None}
     if adapter is not None:
         if not adapter.lan_configured():
             raise RuntimeError("Bambu LAN status is not configured ([bambu] lan_host and lan_serial plus the access code)")
@@ -99,7 +142,17 @@ def where_text(st: dict[str, Any]) -> str:
 
 def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
            printer_id: str | None = None) -> tuple[bool, str]:
-    """One cancel, only if the same file is still printing or paused. Returns (sent, truthful text)."""
+    """One cancel, only if the same file is still printing or paused. Returns (sent, truthful text).
+
+    Moonraker cancels with one /printer/print/cancel and Bambu with one LAN stop; every other family
+    stops through its own adapter control (FamilyControl.cancel, the same discipline), and a printer
+    with no control connection says so instead of erroring."""
+    if (_lan_adapter() if printer_id is None else _lan_adapter(printer_id)) is None:
+        control, family_adapter = _family(printer_id)
+        if control is not None:
+            return control.cancel(expected_filename, wait_s=wait_s, poll_s=poll_s)
+        if family_adapter is not None:
+            return False, _unconnected_text(family_adapter)
     before = status(printer_id)
     if before["state"] not in ACTIVE:
         return False, f"Nothing to stop: printer is {before['state']}. Nothing sent."

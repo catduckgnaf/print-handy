@@ -40,12 +40,29 @@ jobs:
     name: Release surfaces gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    outputs:
+      move_latest: ${{ steps.guard.outputs.move_latest }}
     env:
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
       PUBLISH_VERSION: ${{ inputs.version }}
       PUBLISH: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # The guard needs main and every tag to test reachability.
+          fetch-depth: 0
+      - name: Publish ref guard (tag on main, CI green, checklist closed)
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          python3 scripts/check_publish_ref.py
       - name: Clone the docs site for the drift comparison
         run: |
           set -euo pipefail
@@ -241,7 +258,7 @@ jobs:
     name: Publish multi-arch manifests
     # Runs only for a real publication and only when every build leg succeeded;
     # a leg succeeds only when its own acceptance passed before its digest push.
-    needs: build
+    needs: [build, surfaces-gate]
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -249,6 +266,8 @@ jobs:
       IMAGE: ghcr.io/catduckgnaf/print-handy
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
       PUBLISH_VERSION: ${{ inputs.version }}
+      # Set by the publish ref guard: true only for the highest released version.
+      MOVE_LATEST: ${{ needs.surfaces-gate.outputs.move_latest }}
     steps:
       - name: Download the pushed per-arch digests
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
@@ -286,12 +305,18 @@ jobs:
           # One image (#353): the version tag and the floating latest tag.
           docker buildx imagetools create -t "$IMAGE:$PUBLISH_VERSION" \
             "$IMAGE@$full_amd64" "$IMAGE@$full_arm64" 2>&1 | tee evidence/manifest-version.log
-          docker buildx imagetools create -t "$IMAGE:latest" \
-            "$IMAGE@$full_amd64" "$IMAGE@$full_arm64" 2>&1 | tee evidence/manifest-latest.log
+          tags="$PUBLISH_VERSION"
+          if [[ "$MOVE_LATEST" == "true" ]]; then
+            docker buildx imagetools create -t "$IMAGE:latest" \
+              "$IMAGE@$full_amd64" "$IMAGE@$full_arm64" 2>&1 | tee evidence/manifest-latest.log
+            tags="$PUBLISH_VERSION latest"
+          else
+            echo ":latest not moved: $PUBLISH_VERSION is not the highest released version" | tee evidence/manifest-latest.log
+          fi
           {
             echo "### GHCR multi-arch manifests published"
             echo
-            for tag in "$PUBLISH_VERSION" latest; do
+            for tag in $tags; do
               manifest_digest="sha256:$(docker buildx imagetools inspect --raw "$IMAGE:$tag" | sha256sum | cut -d ' ' -f 1)"
               echo "- \`$IMAGE:$tag\` manifest digest: \`$manifest_digest\`"
               echo "$tag=$manifest_digest"

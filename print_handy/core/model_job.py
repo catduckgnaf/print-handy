@@ -6712,7 +6712,62 @@ class StartReadback(NamedTuple):
     message: str
 
 
-def classify_start_readback(status_snapshot) -> StartReadback:
+START_READBACK_QUERY = ("/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard"
+                        "&idle_timeout&webhooks&toolhead")
+
+
+def _readback_status(snapshot):
+    """The Klipper object map inside a Moonraker query reply (or a bare map); {} for anything else."""
+    if not isinstance(snapshot, dict):
+        return {}
+    if isinstance(snapshot.get("result"), dict) and isinstance(snapshot["result"].get("status"), dict):
+        return snapshot["result"]["status"]
+    if isinstance(snapshot.get("status"), dict):
+        return snapshot["status"]
+    return snapshot
+
+
+def _same_job(now, before):
+    """Whether two print_stats reads show the same job: a new load resets state, file and durations.
+    State and file are always compared; a duration only where both reads carry it."""
+    keys = ["state", "filename"] + [k for k in ("total_duration", "print_duration") if k in now and k in before]
+    return all(now.get(k) == before.get(k) for k in keys)
+
+
+def _start_baseline(st, *, native=True):
+    """The printer's status immediately before the one start request: what the readback is compared with.
+
+    Remote names are derived from the artifact hash, so a reprint reports the same file name the previous
+    run left behind (state complete, the axes still homed). Only a change from this baseline is evidence
+    of the new start. {} when unreadable: an unreadable baseline proves no change, so then only a
+    printing state counts."""
+    try:
+        status = _readback_status(_mr(st, START_READBACK_QUERY + ("&zmod_ifs" if native else "")))
+    except Exception:
+        return {}
+    return status if isinstance(status.get("print_stats"), dict) else {}
+
+
+def _baseline_heaters_off(baseline):
+    """_preparation_evidence(st) is False, from an already-read baseline: every heater target read 0."""
+    try:
+        return all(float((baseline.get(k) or {}).get("target")) == 0 for k in ("extruder", "heater_bed"))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _baseline_heats(baseline):
+    """True only when a readable baseline shows a heater target above 0."""
+    for name in ("extruder", "heater_bed"):
+        try:
+            if float(((baseline or {}).get(name) or {}).get("target")) > 0:
+                return True
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return False
+
+
+def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
     """Pure function classifying printer status after submission.
 
     Outcomes:
@@ -6720,17 +6775,33 @@ def classify_start_readback(status_snapshot) -> StartReadback:
     - 'printing': state printing.
     - 'failed': error or cancelled.
     - 'unconfirmed': no evidence.
+
+    `baseline` is the status read immediately before the start request (_start_baseline). With one,
+    only what CHANGED counts: a print_stats job identity (state, file, durations) equal to the
+    baseline's is the previous run's leftover, so its complete/cancelled/error state and file name say
+    nothing about this start; heater targets count only where the baseline proved them 0. An empty
+    baseline (unreadable) proves no change at all. Without a baseline (None) the live signals count as
+    before, but a file name or homed axes alone never do: a reprint of the same artifact reports the
+    same name, and Klipper keeps axes homed between prints.
     """
-    if not isinstance(status_snapshot, dict):
-        status = {}
-    elif "result" in status_snapshot and isinstance(status_snapshot["result"], dict) and "status" in status_snapshot["result"]:
-        status = status_snapshot["result"]["status"]
-    elif "status" in status_snapshot and isinstance(status_snapshot["status"], dict):
-        status = status_snapshot["status"]
-    else:
-        status = status_snapshot
+    status = _readback_status(status_snapshot)
+    has_base = baseline is not None
+    base = _readback_status(baseline) if has_base else {}
+
+    def obj(source, name):
+        value = source.get(name)
+        return value if isinstance(value, dict) else {}
+
+    def fresh(name, key, value):
+        """Evidence counts with no baseline (legacy callers), or when it differs from a readable one."""
+        if not has_base:
+            return True
+        return bool(base) and obj(base, name).get(key) != value
 
     ps = status.get("print_stats") if isinstance(status.get("print_stats"), dict) else {}
+    base_ps = obj(base, "print_stats")
+    # A new job identity: the printer loaded a job since the baseline (only provable from a readable one).
+    new_job = bool(base_ps) and bool(ps) and not _same_job(ps, base_ps)
     ext = status.get("extruder") if isinstance(status.get("extruder"), dict) else {}
     bed = status.get("heater_bed") if isinstance(status.get("heater_bed"), dict) else {}
     vsd = status.get("virtual_sdcard") if isinstance(status.get("virtual_sdcard"), dict) else {}
@@ -6741,10 +6812,12 @@ def classify_start_readback(status_snapshot) -> StartReadback:
     raw_state = ps.get("state") or status.get("state")
     state = raw_state.lower() if isinstance(raw_state, str) else None
 
-    # 1. Failed
+    # 1. Failed. Klipper shut down is failure whatever ran before; an error or cancelled print_stats is
+    # this start's only when it is not the previous job's leftover (same identity as the baseline).
     hook_state = (hooks.get("state") or "").lower() if isinstance(hooks.get("state"), str) else ""
-    if state in ("error", "cancelled") or hook_state in ("error", "shutdown"):
-        fail_state = state or hook_state or "error"
+    job_failed = state in ("error", "cancelled") and (not has_base or new_job)
+    if job_failed or hook_state in ("error", "shutdown"):
+        fail_state = state if job_failed else hook_state
         return StartReadback(
             outcome="failed",
             evidence={"state": fail_state},
@@ -6802,16 +6875,26 @@ def classify_start_readback(status_snapshot) -> StartReadback:
     # 3. Preparing
     prep_evidence = {}
     heater_targets = {}
-    for name, obj in (("extruder", ext), ("heater_bed", bed)):
-        t = obj.get("target")
-        if t is not None:
+
+    def proven_off(name):
+        """Without a baseline any target counts (legacy); with one, only where it read exactly 0."""
+        if not has_base:
+            return True
+        try:
+            return float(obj(base, name).get("target")) == 0
+        except (TypeError, ValueError):
+            return False
+
+    for name, heater in (("extruder", ext), ("heater_bed", bed)):
+        t = heater.get("target")
+        if t is not None and proven_off(name):
             try:
                 if float(t) > 0:
                     heater_targets[name] = float(t)
             except (ValueError, TypeError):
                 pass
     for name, key in (("extruder", "extruder_target"), ("heater_bed", "heater_bed_target")):
-        if key in status:
+        if key in status and proven_off(name):
             try:
                 if float(status[key]) > 0:
                     heater_targets[name] = float(status[key])
@@ -6820,26 +6903,33 @@ def classify_start_readback(status_snapshot) -> StartReadback:
     if heater_targets:
         prep_evidence["heating"] = heater_targets
 
+    # Klipper keeps the axes homed between prints, so homed axes are evidence only when the baseline
+    # showed them unhomed; a homing-in-progress flag is live.
     homed = toolhead.get("homed_axes") or status.get("homed_axes")
-    if homed:
+    if homed and has_base and base and not obj(base, "toolhead").get("homed_axes"):
         prep_evidence["homing"] = homed
     elif toolhead.get("homing") or status.get("homing"):
         prep_evidence["homing"] = True
 
-    if vsd.get("is_active") is True or vsd.get("file_path"):
+    if (vsd.get("is_active") is True and fresh("virtual_sdcard", "is_active", True)) \
+            or (vsd.get("file_path") and fresh("virtual_sdcard", "file_path", vsd.get("file_path"))):
         prep_evidence["virtual_sdcard"] = vsd.get("file_path") or True
-    if idle.get("state") == "Printing" or status.get("idle_state") == "Printing":
+    if (idle.get("state") == "Printing" and fresh("idle_timeout", "state", "Printing")) \
+            or status.get("idle_state") == "Printing":
         prep_evidence["idle_timeout"] = "Printing"
-    if hook_state == "printing":
+    if hook_state == "printing" and fresh("webhooks", "state", hooks.get("state")):
         prep_evidence["webhooks"] = "Printing"
-    if ps.get("filename"):
-        prep_evidence["filename"] = ps.get("filename")
+    if new_job and ps.get("filename") and state not in ("error", "cancelled"):
+        # The printer loaded a job since the baseline (state, file or durations changed): the
+        # caller has already matched the file to this upload. A name alone is never evidence.
+        prep_evidence["new_job"] = ps.get("filename")
     if status.get("preparation_evidence") is True or status.get("prep") is True:
         prep_evidence["preparation_evidence"] = True
     if status.get("ifs_loading") or status.get("ifs_load"):
         prep_evidence["ifs_loading"] = True
     ifs_obj = status.get("zmod_ifs") if isinstance(status.get("zmod_ifs"), dict) else {}
-    if ifs_obj.get("state") or ifs_obj.get("feed") or ifs_obj.get("action"):
+    if (ifs_obj.get("state") or ifs_obj.get("feed") or ifs_obj.get("action")) \
+            and (not has_base or (bool(base) and obj(base, "zmod_ifs") != ifs_obj)):
         prep_evidence["zmod_ifs"] = ifs_obj
 
     if prep_evidence:
@@ -6868,24 +6958,33 @@ def _preparation_evidence(st):
     return any(v > 0 for v in targets)
 
 
-def _wait_printing(st, remote, wait_s, prep_check=None):
+def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
     """Wait until print_stats is printing, or the start sequence settles without printing.
 
     prep_check (native mapped starts): heater targets set by the printer's own preparation prove
     acceptance only provisionally (#836). Once seen, keep watching: preparation that ends with
     the heaters cold and print_stats still standby was a start the printer abandoned (an IFS load
-    fault, say), so return "abandoned" then instead of reporting the early heat as a started print."""
+    fault, say), so return "abandoned" then instead of reporting the early heat as a started print.
+
+    baseline (_start_baseline): print_stats as it was just before the request. An error or cancelled
+    state that is still the previous job's (same state and file) is not this start ending, and a
+    printer back cold on that unchanged leftover (a reprint's state complete, same file) abandoned
+    the start just as one back at standby did."""
+    base_ps = (baseline or {}).get("print_stats") if isinstance((baseline or {}).get("print_stats"), dict) else {}
+    leftover = (base_ps.get("state"), base_ps.get("filename")) if base_ps else None
     t0=time.monotonic(); state=None; prep_seen=False
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
+        unchanged = leftover is not None and (state, fn) == leftover
         # A ZMod .gcode.3mf prints as 3mf_print/X.gcode; an exact compare never matched and sat out wait_s.
         if state=="printing" and launch_state.same_remote(fn, remote): return "printing"
-        if state in ("error","cancelled"): return state
+        if state in ("error","cancelled") and not unchanged: return state
         if prep_check and time.monotonic()-t0 > 2:
             try:
                 prep = prep_check(st)
                 if prep is True: prep_seen=True
-                elif prep is False and prep_seen and state == "standby": return "abandoned"  # prep ended, never printed
+                elif prep is False and prep_seen and (state == "standby" or unchanged):
+                    return "abandoned"  # prep ended, never printed
             except Exception: pass
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
@@ -7024,19 +7123,19 @@ def _moonraker_started_files(st):
         return []
 
 
-def _read_start_readback(st, remote, *, native=True):
+def _read_start_readback(st, remote, *, native=True, baseline=None):
     """(readable, readback): one status read after a start request that did not answer cleanly.
 
     The readback is classified only when print_stats names this exact upload (never another job's);
     it is None when the printer shows a different file, and `readable` is False when it could not be read.
+    `baseline` (_start_baseline, read just before the request) makes only a change count as evidence.
     """
     try:
-        query = "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead"
-        snap = _mr(st, query + ("&zmod_ifs" if native else ""))  # generic Klipper has no ZMod objects
+        snap = _mr(st, START_READBACK_QUERY + ("&zmod_ifs" if native else ""))  # generic Klipper has no ZMod objects
         ps = (snap.get("result", {}).get("status", {}) or {}).get("print_stats") or {}
         if not _native_file_matches(ps.get("filename"), remote):
             return True, None
-        return True, classify_start_readback(snap)
+        return True, classify_start_readback(snap, baseline)
     except Exception:
         return False, None
 
@@ -7046,7 +7145,7 @@ def _reconcile_native_submission(st, remote):
     return _read_start_readback(st, remote)[1]
 
 
-def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True):
+def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True, baseline=None):
     """What the printer says about one start request whose response was lost or rejected.
 
     Shared by the mapped native path (#688) and the generic Moonraker path. Evidence, in order: the printer
@@ -7058,7 +7157,7 @@ def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True):
     True only when the printer was readable, does not report this file and has no heater target, which is
     what lets an HTTP 4xx answer be treated as "definitely not started".
     """
-    readable, readback = _read_start_readback(st, remote, native=native)
+    readable, readback = _read_start_readback(st, remote, native=native, baseline=baseline)
     heating = _preparation_evidence(st) if readback is None else None
     quiet = readable and readback is None and heating is False
     if readback is None and heaters_were_off and heating is True:
@@ -7103,7 +7202,8 @@ def _start_rejection(exc):
     return f"HTTP {exc.code}: {' '.join(str(detail or exc.reason or 'rejected').split())}"[:300]
 
 
-def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_command=True, native=True):
+def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_command=True, native=True,
+                       baseline=None):
     """Settle a start request that raised `exc`: returns (out, rejection).
 
     Anything but a clean 4xx on the first command leaves the lease uncertain (never released by guessing)
@@ -7118,7 +7218,7 @@ def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_
     # Moonraker answers 400 when a macro errors partway, heaters left on: after a rejection only a
     # readback naming this exact file may say started; heater targets alone are never evidence.
     verdict = _reconcile_lost_start(st, remote, heaters_were_off=heaters_were_off and rejection is None,
-                                    native=native)
+                                    native=native, baseline=baseline)
     quiet = verdict.pop('quiet')
     if rejection is not None:
         if quiet:
@@ -7621,38 +7721,6 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _consume_approval(job_path, job, g, reprint=reprint)
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
-        if len(slots_used) > 1:
-            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
-            cleared = _clear_active_spool(st)
-            if cleared.get('spoolman_pending') and job_path is not None:
-                # The clear could not be written: Moonraker may keep charging
-                # the stale spool during this print. Record which spool that
-                # is in the job record for later reconciliation; recording
-                # must never block the launch (#387).
-                job['spoolman_usage_pending'] = {
-                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
-                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
-        else:
-            _routed = _recorded_printer_id(job)
-            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
-                    else _sync_active_spool(st, slots_used[0]))
-            if sync.get('spoolman_pending') and job_path is not None:
-                # Usage could not be pointed at this job's spool (#387):
-                # record it as pending in the job record for later
-                # reconciliation. Recording must never block the launch.
-                job['spoolman_usage_pending'] = {
-                    'spool_id': sync.get('spool_id'), 'slot': slots_used[0],
-                    'reason': 'Spoolman unavailable at print start; usage not yet reported',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
         _timing(job_path, 'upload_begin')
         uploaded = subprocess.run([str(MOONRAKERCTL), 'upload', str(upload_path), remote, upload_sha],
                                   text=True, capture_output=True, timeout=300, env=_moonrakerctl_env(st))
@@ -7689,26 +7757,68 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
         try: claim_start_announcement(remote)
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        _announce_print_name(st, job, slots_used, g)
-        _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
         # #836: the idle guard proved every heater target was 0 before an upload that can take
-        # minutes. Re-read the targets immediately before the one start POST: a preheat tapped on
-        # HelixScreen during the upload is not this job's preparation, and a printer someone else
-        # is heating must not be started over. An unreadable read (None) proves nothing either
-        # way: the start still goes out, but with no proven-off baseline, so heater targets after
-        # a lost POST response are never credited to this job.
+        # minutes. Re-read the targets after the upload: a preheat tapped on HelixScreen during the
+        # upload is not this job's preparation, and a printer someone else is heating must not be
+        # started over. An unreadable read (None) proves nothing either way: the start still goes
+        # out, but with no proven-off baseline, so heater targets after a lost POST response are
+        # never credited to this job. This read comes BEFORE every side effect of the start (the
+        # active spool, the display message, the Home Assistant job card), so a refusal here leaves
+        # none of them behind; the status baseline read immediately before the POST re-checks the
+        # targets for the lost-response evidence.
         pre_start_evidence = _preparation_evidence(st)
         heaters_were_off = pre_start_evidence is False
         if pre_start_evidence is True:
             raise SystemExit("REFUSED: the printer's heaters are already on before the start was sent, "
                              "so this start was not sent; a preheat or other work is heating the printer. "
                              "Check the printer or HelixScreen, then try again. Nothing started.")
+        if len(slots_used) > 1:
+            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
+            cleared = _clear_active_spool(st)
+            if cleared.get('spoolman_pending') and job_path is not None:
+                # The clear could not be written: Moonraker may keep charging
+                # the stale spool during this print. Record which spool that
+                # is in the job record for later reconciliation; recording
+                # must never block the launch (#387).
+                job['spoolman_usage_pending'] = {
+                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
+                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
+        else:
+            _routed = _recorded_printer_id(job)
+            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
+                    else _sync_active_spool(st, slots_used[0]))
+            if sync.get('spoolman_pending') and job_path is not None:
+                # Usage could not be pointed at this job's spool (#387):
+                # record it as pending in the job record for later
+                # reconciliation. Recording must never block the launch.
+                job['spoolman_usage_pending'] = {
+                    'spool_id': sync.get('spool_id'), 'slot': slots_used[0],
+                    'reason': 'Spoolman unavailable at print start; usage not yet reported',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
+        _announce_print_name(st, job, slots_used, g)
+        _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
         if checkpoint_data is not None:
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
         raise
+    # What the printer shows just before the one POST. A reprint's remote name is the previous run's
+    # (state complete, same file, axes homed), so only a change from this counts as this start's evidence.
+    start_baseline = _start_baseline(st, native=True)
+    if _baseline_heats(start_baseline):
+        # A heater came on after the re-read above (during the spool and display steps): the
+        # start still goes out, but such heat is never this job's evidence after a lost response.
+        heaters_were_off = False
     lease.submitting()
     # #848: capture the gcode-store watermark immediately before the one POST, so a `!!` line
     # the store gains afterwards is attributable to this submission by position — a line that
@@ -7732,7 +7842,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # are never attribution evidence. heaters_were_off is the re-read taken immediately before
         # this POST above, not the idle guard's pre-upload proof (#836).
         out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data,
-                                            heaters_were_off=heaters_were_off)
+                                            heaters_were_off=heaters_were_off, baseline=start_baseline)
         if out is None:
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
             recorder.finish('refused', rejection=rejection)
@@ -7778,7 +7888,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
            'lease_token': lease.token}
     try:
         return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                                     recorder=recorder)
+                                     recorder=recorder, baseline=start_baseline)
     except Exception as exc:
         # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
         # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
@@ -7791,8 +7901,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
 
 
 def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                          recorder=start_recorder.NULL):
-    """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle."""
+                          recorder=start_recorder.NULL, baseline=None):
+    """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle.
+
+    `baseline` is the status read just before the request (_start_baseline): a readback equal to it is
+    the previous run's leftover, never this start's evidence."""
     # Number at submission, not at "printing": native preparation can outlast the readback
     # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
     try:
@@ -7808,7 +7921,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
-    state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence)
+    state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence, baseline=baseline)
     if state == 'abandoned':
         # #848 review: the printer heated for this start (targets proven off just before the POST),
         # then went back to standby cold without ever printing it. Nothing is printing, so the
@@ -7822,10 +7935,10 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         raise SystemExit(_rejected_start_message(reason))
     readback = None
     try:
-        snap = _mr(st, "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead")
+        snap = _mr(st, START_READBACK_QUERY)
         ps = snap.get('result', {}).get('status', {}).get('print_stats', {})
         if _native_file_matches(ps.get('filename'), remote):
-            readback = classify_start_readback(snap)
+            readback = classify_start_readback(snap, baseline)
     except Exception:
         pass
 
@@ -8551,6 +8664,9 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     return out
 
 
+IDLE_PRINT_STATES = ("standby", "complete", "cancelled")  # print_next.live_idle_check's idle set
+
+
 def _require_idle(st):
     try:
         state,fn,busy=_printer_phase(st)
@@ -8562,12 +8678,15 @@ def _require_idle(st):
         raise SystemExit("REFUSED: printer is offline/unreachable. Nothing uploaded or started.")
     if state == "printing" or busy == "Printing":
         raise SystemExit(f"REFUSED: printer is busy ({state}, {fn}). Nothing uploaded or started.")
-    if st.get("display_off") == 0 and state not in ("standby", "complete", "cancelled", "error"):
-        raise SystemExit(f"REFUSED: native printer state is {state!r} for {fn}; nothing uploaded or started.")
+    # The idle set is print_next.live_idle_check's, exactly: a paused job (or an errored one the
+    # operator has not cleared) still owns the printer, whichever caller asks for a start.
+    if state not in IDLE_PRINT_STATES:
+        raise SystemExit(f"REFUSED: printer is not idle ({state}, {fn}). Finish or cancel that job "
+                         "on the printer first. Nothing uploaded or started.")
     return state,fn,busy
 
 
-def _confirm_generic_start(st, remote, wait_s, lease):
+def _confirm_generic_start(st, remote, wait_s, lease, baseline=None):
     """Wait for the one accepted start to show as printing: (out, readback, state).
 
     Only a readback naming THIS file counts (launch_state.same_remote): printing, or preparing (lease
@@ -8575,10 +8694,10 @@ def _confirm_generic_start(st, remote, wait_s, lease):
     SystemExit). Anything else, including a still-idle printer, a stale previous filename or an unreadable
     status, leaves the lease uncertain and frees the claim for the listener: after a 200 the printer may
     still be starting. `out` is None when printing. A readback exception propagates to the caller, which
-    settles it as uncertain.
+    settles it as uncertain. `baseline` (_start_baseline) keeps a reprint's leftover state from counting.
     """
-    state = _wait_printing(st, remote, wait_s)
-    readable, readback = _read_start_readback(st, remote, native=False)
+    state = _wait_printing(st, remote, wait_s, baseline=baseline)
+    readable, readback = _read_start_readback(st, remote, native=False, baseline=baseline)
     if state == "printing" or (readback and readback.outcome == "printing"):
         return None, readback, state
     if readback and readback.outcome == "preparing":
@@ -9107,7 +9226,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         raise
     # Baseline for the lost-response reconcile: heater targets seen later prove this start only if every
     # heater was off before it. Read-only; unreadable counts as not proven.
-    heaters_were_off = _preparation_evidence(st) is False
+    # The same read is the readback baseline: a reprint's remote name is the previous run's (state
+    # complete, same file), so only a change from the status just before the request is evidence.
+    start_baseline = _start_baseline(st, native=False)
+    heaters_were_off = _baseline_heaters_off(start_baseline)
     lease.submitting()
     # #843/#842: the opt-in read-only start recording (PRINT_HANDY_RECORD_STARTS=1); a no-op when off.
     recorder = start_recorder.begin(st, remote, command=f"print/start {remote}", method="print/start",
@@ -9132,7 +9254,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # answer to the first command is a refusal and ends as REFUSED with the printer's message.
         out, rejection = _settle_lost_start(lease, st, remote, exc, heaters_were_off=heaters_were_off,
                                             first_command=sent == 0, native=False,
-                                            base={"file": remote, "method": "print/start"})
+                                            base={"file": remote, "method": "print/start"},
+                                            baseline=start_baseline)
         if out is None:
             recorder.finish("refused", rejection=rejection)
             raise SystemExit(_rejected_start_message(rejection)) from exc
@@ -9152,7 +9275,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     print("START REQUEST ACCEPTED " + json.dumps({"file": remote, "printing_confirmed": False}), flush=True)
     method="print/start"
     try:
-        out, readback, state = _confirm_generic_start(st, remote, wait_s, lease)
+        out, readback, state = _confirm_generic_start(st, remote, wait_s, lease, baseline=start_baseline)
     except SystemExit:
         recorder.finish("failed", phase="failed")  # the printer reported this file's start failed
         raise

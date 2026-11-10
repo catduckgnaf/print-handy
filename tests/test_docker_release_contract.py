@@ -510,7 +510,8 @@ class DockerReleaseContract(unittest.TestCase):
         manifest = workflow["jobs"]["manifest"]
         # Publication only, gated on every build leg (each leg is itself
         # acceptance-gated before its digest push).
-        self.assertEqual(manifest["needs"], "build")
+        # It also reads the publish ref guard's move_latest output.
+        self.assertEqual(manifest["needs"], ["build", "surfaces-gate"])
         self.assertEqual(manifest["if"], "inputs.publish")
         create = next(step for step in manifest["steps"]
                       if step.get("name") == "Create and push the multi-arch manifests")
