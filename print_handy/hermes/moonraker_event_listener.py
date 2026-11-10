@@ -2951,6 +2951,30 @@ def _visual_layer(stats):
     return value if isinstance(value, int) else None
 
 
+def _print_elapsed(stats):
+    """Printing time so far (print_stats.print_duration), or None when unknown.
+
+    Klipper counts print_duration only from the first extrusion, so heat-up
+    and pauses are excluded: the clock the layerless camera watch runs on.
+    """
+    value = stats.get("print_duration") if isinstance(stats, dict) else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+        return float(value)
+    return None
+
+
+def _layerless_notice_text(filename, periodic_s, early):
+    """The once-per-print notice that the camera watch runs on a timer (no layer info)."""
+    minutes = max(1, round(periodic_s / 60))
+    cadence = f"about every {minutes} minutes"
+    if early:
+        cadence += ", more often during the early part of this risky print"
+    return _with_printer_name(
+        f"Camera watch: {clean(filename)} reports no layer numbers (it was sliced without "
+        "layer info), so I'm checking the camera on a timer instead, "
+        f"{cadence}. Stall detection needs layer numbers and is off for this print.")
+
+
 def _with_printer_name(text):
     """Append the serving printer's name on a multi-printer roster (#536).
 
@@ -4655,11 +4679,27 @@ class Listener:
             # the early-layer schedule instead of staying on normal cadence.
             self._apply_watch_mode()
         layer = _visual_layer(self.last_stats)
-        reason = self.visual_watch.tick(layer, time.time() if now is None else now)
+        reason = self.visual_watch.tick(layer, time.time() if now is None else now,
+                                        elapsed_s=_print_elapsed(self.last_stats))
         if reason and _vision_ready():
+            if layer is None:
+                self._note_layerless_watch()
             self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
             return reason
         return None
+
+    def _note_layerless_watch(self):
+        """Post, once per print, that the watch runs on a timer: the print reports no layers."""
+        watch = self.visual_watch
+        if watch.layerless_noticed:
+            return
+        watch.layerless_noticed = True
+        text = _layerless_notice_text(self.filename, watch.profile["periodic_s"],
+                                      watch.mode == _visual_watch.WATCH_MODE_EARLY)
+        log(f"camera watch file={self.filename!r}: no layer numbers reported; checking on a timer")
+        task = asyncio.create_task(asyncio.to_thread(post, text))
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
 
     async def _visual_timer(self, sleep=None):
         """Run camera-watch beats every VISUAL_TIMER_S until cancelled (disconnect)."""
