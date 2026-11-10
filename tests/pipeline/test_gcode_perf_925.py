@@ -22,6 +22,7 @@ The three optimizations pinned here:
 Motion bounds (the parse inside ``verify_gcode_offline``) get the same
 treatment: outputs and refusal messages must match the original semantics.
 """
+import copy
 import hashlib
 import re
 import zipfile
@@ -186,9 +187,15 @@ class _CountingAdapter:
         return []
 
 
-def _verified_job(path, sha=None):
+RIG_STATE = {'temps_c': {'nozzle': 210, 'bed': 60},
+             'spool': {'material': 'PLA', 'spoolman_id': 7},
+             'nozzle': {'diameter_mm': 0.4, 'type': 'hardened_steel'}}
+
+
+def _verified_job(path, sha=None, state=RIG_STATE):
     digest = sha if sha is not None else hashlib.sha256(Path(path).read_bytes()).hexdigest()
-    return {'gcode': str(path), 'gcode_verified': True, 'gcode_full_verified_sha256': digest,
+    return {'gcode': str(path), 'gcode_verified': True,
+            'gcode_full_verified_sha256': model_job._full_verified_marker(digest, state),
             'artifact_binding': {'gcode_sha256': digest}}
 
 
@@ -200,10 +207,7 @@ def skip_rig(tmp_path, monkeypatch):
     monkeypatch.setattr(printer_state, 'gcode_temperatures',
                         lambda state, materials, fetch=None, text=None: {'nozzle': 210, 'bed': 60})
     adapter = _CountingAdapter()
-    state = {'temps_c': {'nozzle': 210, 'bed': 60},
-             'spool': {'material': 'PLA', 'spoolman_id': 7},
-             'nozzle': {'diameter_mm': 0.4, 'type': 'hardened_steel'}}
-    return path, adapter, state
+    return path, adapter, copy.deepcopy(RIG_STATE)
 
 
 def test_routed_verify_skips_body_parse_for_a_verified_unchanged_artifact(skip_rig):
@@ -244,7 +248,7 @@ def test_routed_verify_skip_supports_a_split_job_plate_hash(skip_rig):
     path, adapter, state = skip_rig
     sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     job = {'gcode': '/elsewhere/first.gcode', 'gcode_verified': True,
-           'gcode_full_verified_sha256': sha,
+           'gcode_full_verified_sha256': model_job._full_verified_marker(sha, state),
            'derived_plates': [{'gcode': str(path), 'slot': 1}],
            'artifact_binding': {'gcode_sha256': {'1': sha}}}
     result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
@@ -264,9 +268,47 @@ def test_routed_verify_reparses_a_legacy_job_without_the_full_verify_marker(skip
     assert 'skipped_reparse' not in result
     assert adapter.calls == 1
     # The full pass records the marker, so the next launch may skip.
-    assert job['gcode_full_verified_sha256'] == hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    assert job['gcode_full_verified_sha256'] == model_job._full_verified_marker(
+        hashlib.sha256(Path(path).read_bytes()).hexdigest(), state)
     result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
     assert result.get('skipped_reparse') is True
+    assert adapter.calls == 1
+
+
+def test_routed_verify_reparses_a_bare_digest_marker(skip_rig):
+    # A marker written before it was bound to the hardware facts is the bare
+    # artifact digest: it proves nothing about the printer now, so no skip.
+    path, adapter, state = skip_rig
+    job = _verified_job(path)
+    job['gcode_full_verified_sha256'] = job['artifact_binding']['gcode_sha256']
+    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    assert 'skipped_reparse' not in result
+    assert adapter.calls == 1
+
+
+@pytest.mark.parametrize('change', [
+    lambda st: st['nozzle'].update(diameter_mm=0.6),               # nozzle swap
+    lambda st: st['nozzle'].update(type='brass'),                  # softer nozzle, lower heater max
+    lambda st: st.update(axis_limits_mm={'x': [0, 100], 'y': [0, 100], 'z': [0, 100]}),  # smaller bed
+    lambda st: st.update(max_print_height_mm=50),
+])
+def test_routed_verify_reparses_after_a_hardware_change(skip_rig, change):
+    # Item 5: the skip was bound to the G-code digest only, so a nozzle swap
+    # or a bed-limit change after slicing skipped the re-check.
+    path, adapter, state = skip_rig
+    job = _verified_job(path, state=state)
+    change(state)
+    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    assert 'skipped_reparse' not in result
+    assert adapter.calls == 1
+
+
+def test_routed_verify_reparses_after_a_bounds_parser_upgrade(skip_rig, monkeypatch):
+    path, adapter, state = skip_rig
+    job = _verified_job(path, state=state)
+    monkeypatch.setattr(model_job, 'BOUNDS_PARSER_VERSION', model_job.BOUNDS_PARSER_VERSION + 1)
+    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    assert 'skipped_reparse' not in result
     assert adapter.calls == 1
 
 

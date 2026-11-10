@@ -3418,7 +3418,41 @@ def _recorded_temperatures(job, gcode_path):
     return temps if isinstance(temps, dict) else None
 
 
-def _already_verified_artifact(job, gcode_path):
+def _verification_facts_digest(state):
+    """Digest of the hardware facts a full verification was checked against.
+
+    The nozzle diameter and type (the embedded nozzle check and the heater
+    limit), the axis limits and print height (the bounds check) and the
+    bounds parser version. A change to any of them after slicing means the
+    earlier verdict says nothing about the printer as it is now.
+    """
+    state = state or {}
+    nozzle = state.get("nozzle") or {}
+    facts = {"nozzle_diameter_mm": nozzle.get("diameter_mm"), "nozzle_type": nozzle.get("type"),
+             "axis_limits_mm": state.get("axis_limits_mm"),
+             "max_print_height_mm": state.get("max_print_height_mm"),
+             "bounds_parser": BOUNDS_PARSER_VERSION}
+    return hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _full_verified_marker(gcode_sha, state):
+    """The gcode_full_verified_sha256 value: the artifact digest bound to the
+    hardware facts it was verified against (``<sha>+<facts digest>``)."""
+    return f"{gcode_sha}+{_verification_facts_digest(state)}"
+
+
+def _verify_state(state, printer_id):
+    """The hardware record verify_gcode checks against on this route, or None
+    when it cannot be read (then no skip is taken and no marker is written)."""
+    try:
+        if printer_id:
+            return state if state is not None else printer_state.load(printer_id)
+        return printer_state.load()
+    except Exception:
+        return None
+
+
+def _already_verified_artifact(job, gcode_path, state=None):
     """True only when the full verification already passed on these bytes (#925).
 
     The evidence is threefold: ``gcode_verified`` must be true, the
@@ -3426,7 +3460,11 @@ def _already_verified_artifact(job, gcode_path):
     ``artifact_binding.gcode_sha256`` (the plain digest for a single
     artifact, or this plate's entry of the per-plate digest map for a
     split job), and ``gcode_full_verified_sha256`` must name that same
-    digest. The marker is recorded only by _verify_routed after the full
+    digest bound to the current hardware facts (_full_verified_marker:
+    nozzle, axis limits, parser version), so a nozzle swap, a changed bed
+    limit or a parser upgrade after slicing forces the full verification
+    again; a marker written before the facts were bound (a bare digest)
+    never matches. The marker is recorded only by _verify_routed after the full
     verify_gcode — including its first-layer and line-width checks — has
     passed on the artifact; slice paths that run only the offline verify
     set ``gcode_verified`` without it, so their artifacts still get the
@@ -3435,7 +3473,7 @@ def _already_verified_artifact(job, gcode_path):
     changed file) is not evidence and returns False, so the caller runs
     the full verification exactly as before.
     """
-    if not isinstance(job, dict) or job.get('gcode_verified') is not True:
+    if not isinstance(job, dict) or job.get('gcode_verified') is not True or not isinstance(state, dict):
         return False
     binding = job.get('artifact_binding')
     if not isinstance(binding, dict):
@@ -3452,7 +3490,7 @@ def _already_verified_artifact(job, gcode_path):
                 break
     if not isinstance(stored, str) or not stored:
         return False
-    if job.get('gcode_full_verified_sha256') != stored:
+    if job.get('gcode_full_verified_sha256') != _full_verified_marker(stored, state):
         return False
     try:
         return file_sha256(gcode_path) == stored
@@ -3512,7 +3550,8 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     same bytes can take the skip; callers that persist the job (slice,
     remap) persist the marker with it.
     """
-    if _already_verified_artifact(job, gcode_path):
+    facts_state = _verify_state(state, printer_id) if isinstance(job, dict) else None
+    if _already_verified_artifact(job, gcode_path, facts_state):
         _run_live_printer_check(adapter, state, printer_id)
         connection = getattr(adapter, 'connection', None) or 'offline'
         return {'offline': True, 'connection': connection, 'skipped_reparse': True}
@@ -3522,9 +3561,9 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
     else:
         result = verify_gcode(gcode_path, **kw)
-    if isinstance(job, dict):
+    if isinstance(job, dict) and isinstance(facts_state, dict):
         try:
-            job['gcode_full_verified_sha256'] = file_sha256(gcode_path)
+            job['gcode_full_verified_sha256'] = _full_verified_marker(file_sha256(gcode_path), facts_state)
         except OSError:
             pass
     return result
