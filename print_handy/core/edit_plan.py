@@ -657,17 +657,24 @@ def lay_flat_rotation(triangles):
         if raw[key] < best:
             break
         normal = normals[key]
-        support = float((points @ normal).max())
-        area = sum(area for tri, area in groups[key]
-                   if all(abs(sum(normal[i] * p[i] for i in range(3)) - support) <= 0.01
-                          for p in tri))
-        if area > 0:
-            totals[key] = area
-            best = max(best, area)
+        projected = points @ normal
+        # Faces on the far plane along their normal touch the bed when that
+        # normal points down. An inside-out (inward-wound) mesh puts its
+        # faces on the near plane instead, so its contact direction is the
+        # reverse normal. Winding must not cost a mesh its lay-flat answer.
+        for sign, plane in ((1.0, float(projected.max())), (-1.0, float(projected.min()))):
+            area = sum(area for tri, area in groups[key]
+                       if all(abs(sum(normal[i] * p[i] for i in range(3)) - plane) <= 0.01
+                              for p in tri))
+            if area > 0:
+                totals[(key, sign)] = area
+                best = max(best, area)
     if not totals:
         return None
-    # Ties resolve in mesh order, exactly as a full scan would.
-    nx, ny, nz = normals[max((key for key in groups if key in totals), key=totals.get)]
+    # Ties resolve in mesh order (far plane first), as a full scan would.
+    key, sign = max((cand for key in groups for cand in ((key, 1.0), (key, -1.0)) if cand in totals),
+                    key=totals.get)
+    nx, ny, nz = (sign * v for v in normals[key])
     length = math.sqrt(nx * nx + ny * ny + nz * nz)
     nx, ny, nz = nx / length, ny / length, nz / length
     if abs(nz + 1) < 1e-9:
