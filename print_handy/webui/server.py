@@ -84,12 +84,12 @@ from the first request, and a credential exists only once one is
 deliberately set (the #708 setup gate is reversed). The token or
 password is never rendered, logged, or included in any response.
 
-POSTs additionally accept the per-server form token the config pages
-embed (``pages.CSRF_FIELD``) instead of the header — that is how a
-browser form posts — and on loopback with no access token configured
-the form token is still required, so a cross-origin page in the
-operator's browser cannot change settings. The form token is generated
-at server start, kept only in memory, and is not the access token.
+Form POSTs carry ``pages.CSRF_FIELD``. While access is open the
+per-server form token (generated at start, memory only, never the
+access token) is that guard on its own, so a cross-origin page cannot
+change settings. On a claimed install the form token is not a
+credential: a POST needs the header, or a live session plus the
+``_csrf`` value bound to that session (``session_form_token``).
 
 Browser login: a browser cannot send the ``X-WebUI-Token`` header, so
 ``GET /login`` (reachable without auth — it is the entry point) renders
@@ -99,8 +99,8 @@ SameSite=Strict). An unauthenticated browser navigation (a GET for a
 non-API page with ``Accept: text/html``) redirects to ``/login``
 instead of returning the JSON 401 (#440); API requests keep the JSON
 401. A valid, unexpired session cookie authorises GETs
-exactly like the header; it never authorises a config POST on its own
-(those still need the header or the form token, so login cannot be
+exactly like the header; it never authorises a form POST on its own
+(those also need the session-bound form token, so login cannot be
 turned into a CSRF path). Plain sessions live only in server memory
 with a ``SESSION_TTL_S`` lifetime — a restart signs them out. Ticking
 "Keep me signed in on this browser" on the login form instead mints a
@@ -157,6 +157,21 @@ from . import walkthrough as walkthrough_module
 log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "X-WebUI-Token"
+# Sent on every response. No Web UI route is meant to be framed (the
+# Discord Activity is its own server, print_handy.live_activity), so
+# framing is refused everywhere.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "same-origin"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", "frame-ancestors 'none'"),
+)
+# Per-connection socket timeout (seconds without progress on a read or
+# write) and the most requests handled at once: a slow or stalled
+# client cannot hold a thread forever, nor spawn threads without bound.
+REQUEST_TIMEOUT_S = 30
+MAX_HANDLER_THREADS = 64
+INTERNAL_ERROR_REASON = "internal error; the Web UI log has the details"
 LOOPBACK_NAMES = frozenset({"localhost"})
 # Browser login sessions: the cookie carries only an opaque id; the
 # id -> expiry map lives in server memory (see make_server), so nothing
@@ -194,10 +209,44 @@ def _access_stamp(data):
         return None
 
 
+def session_form_token(server, session_id):
+    """The ``_csrf`` value bound to one login session on ``server``: an
+    HMAC-SHA256 of the session id under the server's in-memory secret
+    (rotated with every access-rule change)."""
+    secret = getattr(server, "csrf_secret", None)
+    if secret is None:
+        secret = server.csrf_secret = secrets.token_bytes(32)
+    return hmac.new(secret, session_id.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+_BROKEN_LOG_LOCK = threading.Lock()
+
+
+def _log_broken_access(server):
+    """Log a broken login file once per distinct problem (not per request)."""
+    access = getattr(server, "access", None)
+    if not getattr(access, "broken", False):
+        return
+    key = (access.problem, access._broken_path)
+    with _BROKEN_LOG_LOCK:
+        if getattr(server, "broken_access_logged", None) == key:
+            return
+        server.broken_access_logged = key
+    log.error("webui: refusing all requests: %s (file: %s)", access.problem,
+              access._broken_path)
+
+
 def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
     lock = getattr(server, "remembered_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def _claim_lock(server):
+    """The server's walkthrough-write lock (serializes login claims), or a
+    no-op context when the server object predates it."""
+    lock = getattr(server, "claim_lock", None)
     return lock if lock is not None else contextlib.nullcontext()
 
 
@@ -319,6 +368,19 @@ def is_loopback(host):
         return False
 
 
+def allowed_hosts(bind_host, access):
+    """The Host names an open loopback bind answers to, or None.
+
+    The DNS-rebinding guard (_Handler._host_refused): only an open
+    loopback bind relies on the form token alone, so only it checks Host
+    against this list. Computed from the access in force on every
+    request, never once at start: removing a claim on a loopback bind
+    must turn the Host check back on at once."""
+    if is_loopback(bind_host) and not access.required:
+        return {"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
+    return None
+
+
 def access_token(data, environ=None):
     """The configured access token's *value* from the environment ("" if unset).
 
@@ -429,7 +491,8 @@ def _job_block(job):
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
-                       unclaimed=False, loopback=False):
+                       unclaimed=False, loopback=False, open_reason="",
+                       credential_ignored=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -534,6 +597,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
     if unclaimed:
+        open_reason = access_module.OPEN_UNCLAIMED
+    if open_reason == access_module.OPEN_UNCLAIMED:
         reach = ('It listens only on this machine, so only someone using this '
                  'machine can reach it. Set a login in the walkthrough if you '
                  'want one.' if loopback else
@@ -541,6 +606,22 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                  'walkthrough, or leave it open on a network you trust.')
         banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
                    '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
+    elif open_reason:
+        # Open for a reason other than "nothing set yet": say which, so
+        # an open Web UI is never mistaken for a protected one.
+        reach = ("only someone using this machine can reach it" if loopback
+                 else "anyone who can reach it can use it")
+        if open_reason == access_module.OPEN_AUTH_OFF:
+            why = ("This Web UI is open: login is turned off by "
+                   "<code>[webui] require_auth = false</code>, so " + reach + ".")
+            if credential_ignored:
+                why += (" A saved login or access token exists but is ignored until "
+                        "that setting is back on.")
+        else:
+            why = ("This Web UI is open: a login was removed in the walkthrough "
+                   "(the leave-it-open choice), so " + reach + ".")
+        banner += (f'<div class="banner"><span>{why}</span>'
+                   '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + f'<table class="rows">{main_rows}</table>'
@@ -552,9 +633,39 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     return shell.page("status", body, path="/", theme=theme, banner=banner, nav=nav)
 
 
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with at most ``max_threads`` requests in flight.
+
+    The accept loop waits for a free slot instead of starting a new
+    thread per connection without bound; with the handler's socket
+    timeout, a stalled client gives its slot back."""
+
+    max_threads = MAX_HANDLER_THREADS
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(self.max_threads)
+
+    def process_request(self, request, client_address):
+        self._slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "PrintHandyWebUI/1"
     protocol_version = "HTTP/1.1"
+    # StreamRequestHandler applies this to the connection's socket.
+    timeout = REQUEST_TIMEOUT_S
 
     # -- plumbing ---------------------------------------------------------
     def log_message(self, *args):  # keep stdout clean; errors still surface as 500s
@@ -578,7 +689,7 @@ class _Handler(BaseHTTPRequestHandler):
         Origin must be the same host, which also refuses cross-site posts.
         Re-read per request: finishing setup replaces server.access.
         """
-        allowed = self.server.allowed_hosts
+        allowed = allowed_hosts(self.server.bind_host, self.server.access)
         open_lan = not is_loopback(self.server.bind_host) and not self.server.access.required
         if allowed is None and not open_lan:
             return False
@@ -605,11 +716,33 @@ class _Handler(BaseHTTPRequestHandler):
                    "text/plain; charset=utf-8")
         return True
 
+    def _broken_refused(self, path):
+        """True (and a 503 sent) while the saved login file is broken.
+
+        Only /healthz still answers, so the container stays observable.
+        The reason is logged once per distinct problem, with the file's
+        full path; the response names only the file."""
+        access = self.server.access
+        if not getattr(access, "broken", False) or path == "/healthz":
+            return False
+        _log_broken_access(self.server)
+        self._send(503, access.problem + "\n", "text/plain; charset=utf-8",
+                   headers=[("Retry-After", "30")])
+        return True
+
     def _send(self, code, body, content_type, headers=()):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        named = {name.lower() for name, _value in headers}
+        if content_type.startswith("text/html") and "cache-control" not in named:
+            # Pages embed a form token (and show settings): never let a
+            # browser or proxy cache keep a copy.
+            self.send_header("Cache-Control", "no-store")
+        for name, value in SECURITY_HEADERS:
+            if name.lower() not in named:
+                self.send_header(name, value)
         for name, value in headers:
             self.send_header(name, value)
         self.end_headers()
@@ -690,27 +823,51 @@ class _Handler(BaseHTTPRequestHandler):
         pruned on sight; unknown or expired cookies are simply
         unauthenticated. Both stores count: the ephemeral in-memory
         map (raw id) and the remembered map (SHA-256 of the id)."""
+        return bool(self._valid_session_id())
+
+    def _valid_session_id(self):
+        """The caller's session id when it names a live session, else ""."""
         session_id = self._session_id()
         if not session_id:
-            return False
+            return ""
         now = time.time()
         expiry = self.server.sessions.get(session_id)
         if expiry is not None:
             if expiry <= now:
-                del self.server.sessions[session_id]
-                return False
-            return True
+                self.server.sessions.pop(session_id, None)
+                return ""
+            return session_id
         remembered = getattr(self.server, "remembered_sessions", None) or {}
         digest = _session_digest(session_id)
         expiry = remembered.get(digest)
         if expiry is None:
-            return False
+            return ""
         if expiry <= now:
             with _remember_lock(self.server):
                 if remembered.pop(digest, None) is not None:
                     _save_remembered_sessions(self.server)
-            return False
-        return True
+            return ""
+        return session_id
+
+    def _session_form_token(self, session_id):
+        """The form token bound to one session: an HMAC of its id under a
+        per-process secret, so a token copied from one signed-in browser
+        is worthless with another session or none."""
+        return session_form_token(self.server, session_id)
+
+    def _form_token(self):
+        """The ``_csrf`` value to embed in a page served to this request.
+
+        While access is open (unclaimed, or deliberately left open) it
+        is the per-process form token, as before. On a claimed install a
+        signed-in browser gets the token bound to its session; a header
+        client (which posts with its header, not a form) gets the
+        process token, which authorizes nothing there on its own."""
+        if self.server.access.required:
+            session_id = self._valid_session_id()
+            if session_id:
+                return self._session_form_token(session_id)
+        return self.server.form_token
 
     def _browser_navigation(self, path):
         """True for a browser page navigation: a GET for a non-API page
@@ -733,13 +890,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _config_html(self, field_values, **kwargs):
         return pages.render_config_page(
             field_values, data=self.server.settings_data,
-            form_token=self.server.form_token, **kwargs)
+            form_token=self._form_token(), **kwargs)
 
     # -- routes -----------------------------------------------------------
     def do_GET(self):
         try:
             path = urlparse(self.path).path
             self._sync_access()
+            if self._broken_refused(path):
+                return
             if path != "/healthz" and self._host_refused():
                 return
             if path == "/healthz":
@@ -786,9 +945,11 @@ class _Handler(BaseHTTPRequestHandler):
                     return
                 snap = self.server.snapshot_func()
                 self._send(200, render_status_html(
-                    snap, form_token=self.server.form_token, theme=self._theme(),
+                    snap, form_token=self._form_token(), theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     unclaimed=self.server.access.unclaimed,
+                    open_reason=getattr(self.server.access, "open_reason", ""),
+                    credential_ignored=getattr(self.server.access, "credential_ignored", False),
                     loopback=is_loopback(self.server.bind_host),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
@@ -837,7 +998,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._chat_page()
             elif path == "/upload":
                 self._send(200, upload_module.render_upload_page(
-                    self.server.settings_data, form_token=self.server.form_token,
+                    self.server.settings_data, form_token=self._form_token(),
                     theme=self._theme(),
                     nav=data_module.nav_for(self.server.settings_data)),
                     "text/html; charset=utf-8")
@@ -873,13 +1034,14 @@ class _Handler(BaseHTTPRequestHandler):
                                            "/api/printers/<id>/spools, "
                                            "/healthz, /readyz, /config, /designs, /layers, /spools, "
                                            "/walkthrough or /login"})
-        except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
+        except Exception:  # a broken snapshot is a 500, never a dropped connection
+            # The response never echoes the exception (it can carry paths,
+            # URLs or settings values); the log keeps it (log_message is silenced).
+            log.exception("Web UI GET %s failed", path)
             if self._browser_navigation(path):
-                # The page hides the exception text, so keep it in the log (log_message is silenced).
-                log.exception("Web UI page %s failed", path)
                 self._html_refusal(500, "Something went wrong rendering this page.", "/")
             else:
-                self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+                self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
     def _year_param(self):
@@ -1223,7 +1385,7 @@ class _Handler(BaseHTTPRequestHandler):
         """GET /printers: the roster with actions and Add a printer (#875)."""
         done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
         self._send(code, printers_page.render(
-            settings.printers(self._walkthrough_data()), form_token=self.server.form_token,
+            settings.printers(self._walkthrough_data()), form_token=self._form_token(),
             notice=notice or done or None, error=error, theme=self._theme()),
             "text/html; charset=utf-8")
 
@@ -1263,7 +1425,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
         self._send(200, spools_module.render_spools_page(
-            view, form_token=self.server.form_token, theme=self._theme(),
+            view, form_token=self._form_token(), theme=self._theme(),
             notice=done or None,
             purchase_ready=spools_module.purchase_available(),
             printers=settings.printers(self.server.settings_data)),
@@ -1315,7 +1477,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send(code if code != 200 else 200,
                    spools_module.render_spools_page(
-                       view, form_token=self.server.form_token, theme=self._theme(),
+                       view, form_token=self._form_token(), theme=self._theme(),
                        notice=payload.get("detail") if code == 200 else None,
                        error=payload.get("reason") if code != 200 else None,
                        proposed=proposed,
@@ -1390,11 +1552,15 @@ class _Handler(BaseHTTPRequestHandler):
         server = self.server
         if not hasattr(server, "access_stamp"):
             return
-        if _access_stamp(server.settings_data) == server.access_stamp:
+        # A broken login file is re-read on every request: fixing its
+        # ownership or mode changes no mtime, and the fix must apply
+        # without a restart.
+        broken = getattr(server.access, "broken", False)
+        if not broken and _access_stamp(server.settings_data) == server.access_stamp:
             return
         with server.access_sync_lock:
             stamp = _access_stamp(server.settings_data)
-            if stamp == server.access_stamp:
+            if stamp == server.access_stamp and not server.access.broken:
                 return
             server.access_stamp = stamp
             new_access = access_module.resolve(
@@ -1424,6 +1590,7 @@ class _Handler(BaseHTTPRequestHandler):
         that made the change is signed in with a session, and every
         page it loads next carries the new token."""
         self.server.form_token = secrets.token_urlsafe(32)
+        self.server.csrf_secret = secrets.token_bytes(32)
 
     def _revoke_remembered_sessions(self):
         """Revoke every remembered session and delete its store file.
@@ -1467,7 +1634,7 @@ class _Handler(BaseHTTPRequestHandler):
             walkthrough_module.reopen_at_login(data)
         self._send(200, walkthrough_module.render_page(
             data, self._field_values(),
-            form_token=self.server.form_token, theme=self._theme(),
+            form_token=self._form_token(), theme=self._theme(),
             environ=self.server.webui_environ,
             loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
 
@@ -1478,19 +1645,78 @@ class _Handler(BaseHTTPRequestHandler):
         if error:
             self._html_refusal(error[0], error[1], "/walkthrough")
             return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
-            return
+        # One walkthrough POST at a time, authorized inside the lock: two
+        # browsers racing to claim an unclaimed install cannot both win.
+        # The first claim rotates the form token (and makes a session
+        # required), so the second is refused here instead of silently
+        # replacing the first one's password.
+        with _claim_lock(self.server):
+            self._sync_access()
+            if not self._post_authorized(form):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
+                return
+            if self._login_change_refused(form):
+                return
+            self._walkthrough_apply(form)
+
+    def _login_change_refused(self, form):
+        """True (the step re-rendered with the reason) when a claimed
+        install's login would change without the current credential.
+
+        Changing or removing the password needs the password (or the
+        access token) in force now, typed into the Login step: a signed-
+        in session that was left open, or a stolen page, is not enough to
+        lock the owner out. Wrong entries count toward the login form's
+        per-address backoff. An open install has no current credential,
+        so nothing is asked there (the unclaimed design)."""
+        access = self.server.access
+        data = self._walkthrough_data()
+        if not access.required or not walkthrough_module.login_change_requested(data, form):
+            return False
+        address = self.client_address[0]
+        throttle = self.server.login_throttle
+        wait = throttle.retry_after(address)
+        current = (form.get(walkthrough_module.CURRENT_PASSWORD_FIELD) or [""])[0]
+        if not wait and current and access.matches(current):
+            throttle.record_success(address)
+            return False
+        if wait:
+            message = f"Too many failed attempts. Try again in {wait} seconds."
+        elif current:
+            throttle.record_failure(address)
+            message = "The current password was not accepted, so the login was not changed."
+        else:
+            message = "Enter the current password to change or remove the login."
+        self._send(403, walkthrough_module.render_page(
+            data, self._field_values(), form_token=self._form_token(), theme=self._theme(),
+            environ=self.server.webui_environ,
+            submitted={"username": (form.get(pages.SETUP_USER_FIELD) or [""])[0]},
+            general_error=message, step_index=walkthrough_module._LOGIN_INDEX,
+            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
+        return True
+
+    def _walkthrough_apply(self, form):
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
-            self._field_values(), form_token=self.server.form_token,
+            self._field_values(), form_token=self._form_token(),
             theme=self._theme(), loopback=is_loopback(self.server.bind_host))
         if kind == "access":
             # The Login step saved a new rule: apply it now, and keep the
-            # person who chose it signed in on this browser.
+            # person who chose it signed in on this browser. A password
+            # saved under require_auth = false turned that setting back on
+            # in the settings file; tightening applies at once (loosening
+            # still waits for a restart), so the password is enforced now.
+            webui = self.server.settings_data.get("webui")
+            if isinstance(webui, dict) and not webui.get("require_auth", True) and \
+                    self._walkthrough_data()["webui"].get("require_auth", True):
+                webui["require_auth"] = True
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
             self.server.access_stamp = _access_stamp(self.server.settings_data)
+            # Every session issued under the old rule ends — an intruder's
+            # live session must not survive the owner changing the
+            # password. The browser that made the change gets a fresh one.
+            self.server.sessions.clear()
             self._rotate_form_token()
             self._revoke_remembered_sessions()
             self._redirect(payload, headers=[self._start_session()]
@@ -1625,18 +1851,37 @@ class _Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
         return parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True), None
 
+    # Pages another module renders with the process form token (the
+    # Wrapped page's forms): on a claimed install their POSTs still need
+    # a live session, but accept the process token beside it until that
+    # page embeds the session-bound one.
+    _PROCESS_TOKEN_POSTS = frozenset({"/wrapped/video", "/wrapped/share"})
+
     def _post_authorized(self, form):
-        """A config POST needs the access-token header (stage 2's rule) or
-        the form token embedded in the page. With no access token set the
-        header authorizes nothing, so the form token is always required
-        then — a cross-origin page cannot mint one. A login session
-        cookie deliberately does NOT authorise a POST on its own: the
-        form token is the CSRF guard, and a cookie-authenticated user
-        reaches it through GET /config like any browser."""
-        if self.server.access.required and self._header_authorized():
-            return True
+        """Whether a state-changing form POST may proceed.
+
+        While access is open (unclaimed or deliberately left open) the
+        per-process form token embedded in the page is the guard, exactly
+        as before: a cross-origin page cannot read one.
+
+        On a claimed install (a password or token is required) the form
+        token is no longer a credential on its own: the request needs the
+        access-token header, or a live login session AND the ``_csrf``
+        value bound to that session (see _session_form_token). A session
+        cookie alone never authorizes a POST, and a page token copied
+        from one browser authorizes nothing for another."""
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
-        return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
+        if not self.server.access.required:
+            return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
+        if self._header_authorized():
+            return True
+        session_id = self._valid_session_id()
+        if not (session_id and provided):
+            return False
+        if hmac.compare_digest(provided, self._session_form_token(session_id)):
+            return True
+        return (urlparse(self.path).path in self._PROCESS_TOKEN_POSTS
+                and hmac.compare_digest(provided, self.server.form_token))
 
     def _config_form(self):
         """(form, field_values) for an authorized config POST, else None
@@ -1654,6 +1899,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             self._sync_access()
+            if self._broken_refused(path):
+                return
             if self._host_refused(post=True):
                 return
             if path.startswith("/u/"):
@@ -1694,8 +1941,9 @@ class _Handler(BaseHTTPRequestHandler):
                     self._printer_control_route(rest)
             else:
                 self._read_only()
-        except Exception as exc:  # a broken write is a 500, never a dropped connection
-            self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # a broken write is a 500, never a dropped connection
+            log.exception("Web UI POST %s failed", path)
+            self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
 
     # -- web chat -------------------------------------------------------------
 
@@ -1735,7 +1983,7 @@ class _Handler(BaseHTTPRequestHandler):
                 nav=data_module.nav_for(self.server.settings_data)),
                 "text/html; charset=utf-8")
             return
-        ft = self.server.form_token
+        ft = self._form_token()
         self._send(200, chat_module.render_chat_page(
             self._chat_service(), form_token=ft, notice=notice, error=error,
             theme=self._theme(),
@@ -1861,7 +2109,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._html_refusal(400, reason, "/upload")
                 return
             self._send(200, upload_module.render_upload_page(
-                self.server.settings_data, form_token=self.server.form_token,
+                self.server.settings_data, form_token=self._form_token(),
                 notice=f"{saved.name} is in the inbox. Pick it up in chat "
                        "to slice and print it.",
                 theme=self._theme(),
@@ -1890,7 +2138,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             error_text = "unknown upload action"
         self._send(200, upload_module.render_upload_page(
-            self.server.settings_data, form_token=self.server.form_token,
+            self.server.settings_data, form_token=self._form_token(),
             notice=notice, error=error_text, theme=self._theme(),
             nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8")
@@ -1979,7 +2227,7 @@ class _Handler(BaseHTTPRequestHandler):
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token, theme=self._theme(),
+            entries, submitted, form_token=self._form_token(), theme=self._theme(),
             warnings=self._preview_warnings(changes),
             section=(form.get(pages.SECTION_FIELD) or [None])[0],
             reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
@@ -2092,7 +2340,7 @@ class _Handler(BaseHTTPRequestHandler):
         its current state stay on screen instead of a JSON dump."""
         snap = self.server.snapshot_func()
         self._send(400, render_status_html(
-            snap, form_token=self.server.form_token, theme=self._theme(),
+            snap, form_token=self._form_token(), theme=self._theme(),
             walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
             job=_overall_job(self.server.settings_data), error=message),
             "text/html; charset=utf-8")
@@ -2126,7 +2374,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     bind_host = cfg_host if host is None else host
     bind_port = cfg_port if port is None else int(port)
     try:
-        server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
+        server = _BoundedThreadingHTTPServer((bind_host, bind_port), _Handler)
     except OSError as exc:
         # A bind failure (port already in use, address not available) is a
         # start refusal like the ones check_start raises: name it the same
@@ -2139,23 +2387,25 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.settings_data = data
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
+    _log_broken_access(server)
     server.access_stamp = _access_stamp(data)
     server.access_sync_lock = threading.Lock()
+    # Walkthrough POSTs (the Login step's claim above all) run one at a time.
+    server.claim_lock = threading.Lock()
     server.bind_host = bind_host
     # Web chat's service, built lazily under this lock on the first
     # /chat request (see _Handler._chat_service).
     server.chat_service = None
     server.chat_service_lock = threading.Lock()
-    # DNS-rebinding guard (see _Handler._host_refused): only an open
-    # loopback bind relies on the form token alone, so only it checks Host.
-    server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
-                            if is_loopback(bind_host) and not server.access.required else None)
     # The config page reads and writes through the same environment the
     # settings were loaded with (PRINT_HANDY_CONFIG resolution included).
     server.webui_environ = environ
     # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
     # here, kept only in memory, never the access token.
     server.form_token = secrets.token_urlsafe(32)
+    # The key session-bound form tokens are derived from on a claimed
+    # install (_Handler._session_form_token); memory only, like the token.
+    server.csrf_secret = secrets.token_bytes(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs these out; nothing about them is persisted.
     server.sessions = {}

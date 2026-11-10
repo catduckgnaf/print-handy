@@ -21,6 +21,7 @@ names the camera URL (it can carry credentials), only the error type.
 """
 from __future__ import annotations
 
+import urllib.parse
 import urllib.request
 
 from .. import go2rtc, printers, settings
@@ -37,9 +38,34 @@ class CameraError(Exception):
         self.reason = reason
 
 
+_SCHEMES = ("http", "https")
+
+
+def _web_url(url):
+    """True for an http or https address; anything else (file://,
+    ftp://, data:) is never fetched for a camera still."""
+    return urllib.parse.urlsplit(str(url or "").strip()).scheme.lower() in _SCHEMES
+
+
+class _WebOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to http or https (urllib also allows ftp)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _web_url(newurl):
+            raise ValueError("camera redirected to a non-http address")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_WebOnlyRedirects)
+
+
 def fetch_jpeg(url, timeout=_TIMEOUT_S):
-    """One bounded JPEG from ``url`` (the listener's _fetch_snapshot rule)."""
-    with urllib.request.urlopen(urllib.request.Request(url), timeout=timeout) as response:
+    """One bounded JPEG from ``url`` (the listener's _fetch_snapshot rule).
+
+    Only http and https are fetched, redirects included."""
+    if not _web_url(url):
+        raise ValueError("camera address is not http or https")
+    with _OPENER.open(urllib.request.Request(url), timeout=timeout) as response:
         image = response.read(MAX_BYTES + 1)
     if len(image) > MAX_BYTES or not image.startswith(_JPEG_MAGIC):
         raise ValueError("camera response is not a bounded JPEG snapshot")
@@ -67,6 +93,9 @@ def _still(adapter, view, is_default, fetch, fanout_url):
     if not direct:
         raise CameraError(404, "no camera is configured for this printer "
                                "(camera_snapshot_url is empty)")
+    if not _web_url(direct):
+        raise CameraError(400, "camera_snapshot_url must be an http or https address; "
+                               "nothing was fetched")
     return fetch(direct)
 
 
