@@ -282,7 +282,7 @@ Per the W3C Secure Contexts specification, modern browsers (Chrome, Safari, Fire
 - Any `https://` origin.
 - Loopback addresses (`http://localhost` or `http://127.0.0.1`).
 
-Connecting to a non-loopback LAN IP over plain HTTP (for example `http://192.168.1.100:8765`) is explicitly not a secure context; browsers will run the Web UI normally but will suppress Service Worker registration and the install prompt.
+Connecting to a non-loopback LAN IP over plain HTTP (for example `192.0.2.10:8765`) is explicitly not a secure context; browsers will run the Web UI normally but will suppress Service Worker registration and the install prompt.
 
 ### Supported HTTPS deployment paths
 
@@ -293,7 +293,7 @@ Because the Print Handy Web UI does not embed a TLS stack of its own, external H
    Set `cookie_secure = true` (`PRINT_HANDY__WEBUI__COOKIE_SECURE=true`) so session cookies carry the `Secure` flag. Ensure `X-Forwarded-Proto: https` is forwarded.
    Example Caddy configuration:
    ```caddyfile
-   printhandy.internal.domain {
+   printhandy.example.com {
        reverse_proxy 127.0.0.1:8765
    }
    ```
