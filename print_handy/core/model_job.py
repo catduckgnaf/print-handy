@@ -1753,6 +1753,18 @@ def file_sha256(path):
         return hashlib.file_digest(source,"sha256").hexdigest()
 
 
+def _text_like_read_text(raw, errors=None):
+    """``raw`` decoded exactly as ``Path.read_text(errors=errors)`` decodes the file holding it.
+
+    Same default encoding and the same universal-newline translation, so a
+    caller that already read the bytes gets the identical text without a
+    second read.
+    """
+    import io
+    with io.TextIOWrapper(io.BytesIO(raw), encoding=io.text_encoding(None), errors=errors) as stream:
+        return stream.read()
+
+
 def zmod_md5_valid(path):
     """Validate ZMod preprocess format: first-line digest covers remaining bytes."""
     data = Path(path).read_bytes()
@@ -9040,14 +9052,18 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
         _gate("G-code safety checks", _verify_routed, g, adapter, st, printer_id, job=job)
         _timing(job_path, 'preflight_verify_done')
+        # Read once: the tool-map/multicolor checks, the upload SHA and the job card all
+        # use these bytes, so the SHA Moonraker checks is the SHA of the bytes checked here.
+        gcode_raw = g.read_bytes()
+        gcode_text = _text_like_read_text(gcode_raw)  # strict, like the g.read_text() it replaces
         if adapter.multi_slot:
             embedded_mapping = adapter.native.embedded_mapping
             normalize_mapping = adapter.native.normalize_mapping
-            raw_mapping = _gate("slot mapping", embedded_mapping, g.read_text(), st)
+            raw_mapping = _gate("slot mapping", embedded_mapping, gcode_text, st)
             mapping = (_gate("slot mapping", normalize_mapping, raw_mapping, st)
                        if raw_mapping is not None else None)
         else:
-            _gate("multicolor", _refuse_multicolor, g.read_text())
+            _gate("multicolor", _refuse_multicolor, gcode_text)
     except (RuntimeError, MultiColorUnsupported) as exc:
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
     if mapping is not None:
@@ -9057,8 +9073,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     except RuntimeError as exc:
         if adapter.multi_slot: raise
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-    sha=file_sha256(g); remote=remote_name(g, sha, job)
-    text=g.read_text(errors="ignore")
+    sha=hashlib.sha256(gcode_raw).hexdigest(); remote=remote_name(g, sha, job)
+    text=gcode_text  # the strict decode succeeded, so errors="ignore" would give the same text
     if mesh.get('display_off') in (0, 1):
         try:
             validate_saved_mesh_start(text, mesh)
