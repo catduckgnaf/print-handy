@@ -781,6 +781,23 @@ def test_slice_summary_references_provenance_artifact_and_stays_concise(job):
     assert 'setting_0' not in text and 'x' * 40 not in text
 
 
+def test_slice_summary_survives_a_missing_or_failed_plate_provenance_record():
+    # The slicer adapter stores None when building the record raised; a
+    # derived plate with that None (or any non-dict) must not kill the whole
+    # "Sliced:" summary.
+    for record in (None, 'broken', [], 7):
+        text = summary.format_slice_summary(
+            {'title': 'x', 'derived_plates': [{'provenance': {'conversion_provenance': record}}]})
+        assert text.startswith('Sliced: x') and 'Conversion:' not in text
+    text = summary.format_slice_summary(
+        {'title': 'x', 'provenance': {'conversion_provenance': None},
+         'derived_plates': [{'provenance': None},
+                            {'provenance': {'conversion_provenance': None}},
+                            {'provenance': {'conversion_provenance': {
+                                'intent_status': 'known', 'unresolved_conflicts': [{'key': 'k'}]}}}]})
+    assert 'Conversion: 1 designer setting conflict(s)' in text
+
+
 def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
     job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
     assert 'Conversion:' not in summary.format_slice_summary(job.data)
