@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release check: fail closed on the mistakes past releases actually made.
 
-Run before a version is tagged (see docs/RELEASE-CHECKLIST.md). It checks
+Run before a version is tagged (see docs/history/RELEASE-CHECKLIST.md). It checks
 the surfaces that have shipped stale before:
 
 - version consistency: ``print_handy/__init__.py``, the README's

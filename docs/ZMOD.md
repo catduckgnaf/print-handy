@@ -47,7 +47,7 @@ Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
 above, so neither is in any ZMod version Print Handy has audited, and
 neither has a version floor Print Handy can read yet. Both need the
 native screen off (`DISPLAY_OFF`). The evaluation below is the answer
-to [](https://github.com/catduckgnaf/print-handy/issues/851):
+to [#851](https://github.com/catduckgnaf/print-handy/issues/851):
 reasons why and reasons why not for each, then a verdict, every claim
 tied to the code or the wiki as its source. Print Handy never gates
 printing on a ZMod version, and this evaluation does not change that.
@@ -132,7 +132,7 @@ ships in release payloads, not in that repo.
   deletes key `lane2`). A vanished spool-bearing record is what the
   watcher converges as an unload, so that collision can unload a
   spool that is still loaded. The watcher guards that
-  ([](https://github.com/catduckgnaf/print-handy/issues/852)):
+  ([#852](https://github.com/catduckgnaf/print-handy/issues/852)):
   once it has seen a key-colliding writer, a vanished spool-bearing
   record only converges to an unload when the printer's own slot
   presence (`zmod_color` screenless, native `/detail` otherwise) reads

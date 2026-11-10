@@ -166,7 +166,7 @@ Never put the token value in YAML. If Print Handy runs under systemd or another 
 
 ## Enable it with Docker Compose
 
-The container path is covered in [Docker](DOCKER.md#web-ui-optional-286). The container serves the Web UI on `0.0.0.0:8088` by default and `docker-compose.yml` publishes that port by default, so there is nothing to enable: `docker compose up` and open the Web UI. Optionally set an access token in `.env` if you want a login from the very first visit (otherwise the Web UI is open and offers the walkthrough; you can set a password there instead):
+The container path is covered in [Docker](DOCKER.md#web-ui-optional). The container serves the Web UI on `0.0.0.0:8088` by default and `docker-compose.yml` publishes that port by default, so there is nothing to enable: `docker compose up` and open the Web UI. Optionally set an access token in `.env` if you want a login from the very first visit (otherwise the Web UI is open and offers the walkthrough; you can set a password there instead):
 
 ```dotenv
 WEBUI_ACCESS_TOKEN=<choose-a-long-random-token>
