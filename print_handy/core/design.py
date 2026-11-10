@@ -1189,7 +1189,7 @@ class DesignEngine:
                 "source": source, "authored": authored, "info": info, "hash": digest}, ""
 
     def _commit(self, session, attempt, *, instruction=None, findings=(), attempts=1,
-                reverted_to=None):
+                reverted_to=None, declared=True):
         """Make one rendered attempt the session's new turn (files, preview, history)."""
         folder = _session_path(self.root, session["id"])
         turn = session["turns"] + 1
@@ -1229,7 +1229,7 @@ class DesignEngine:
         history.append({"turn": turn, "hash": attempt["hash"], "scad": scad_path.name,
                         "stl": stl_path.name, "body": body_name,
                         "instruction": (str(instruction)[:300] if instruction else None),
-                        "reverted_to": reverted_to})
+                        "reverted_to": reverted_to, "declared": bool(declared)})
         session["history"] = history[-MAX_TURNS:]
         _save(self.root, session)
         return {"session": session, "scad_path": scad_path, "stl_path": stl_path,
@@ -1252,7 +1252,7 @@ class DesignEngine:
         findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
                                 cfg=self.cfg, declared=False)
         return self._commit(session, attempt, instruction=instruction,
-                            findings=findings), ""
+                            findings=findings, declared=False), ""
 
     def _make_preview(self, session, stl_path, turn, info=None):
         if self.preview is not None:
@@ -1371,7 +1371,7 @@ class DesignEngine:
                 self._refuse_unprintable(session, findings)
                 result = await asyncio.to_thread(
                     lambda: self._commit(session, attempt, instruction=instruction,
-                                         findings=findings))
+                                         findings=findings, declared=False))
                 result["param_changes"] = changes
                 return result
         old_params = scad_params(previous) if previous and not mesh else {}
@@ -1467,9 +1467,19 @@ class DesignEngine:
         """
         history = list(session.get("history") or [])
         if target == "previous":
-            if len(history) < 2:
+            # Undo is a stack (#1206): a revert entry stands for the version
+            # it restored, so undo steps back from there. Taking the entry
+            # before the newest one made a second undo go forward again.
+            by_turn = {e.get("turn"): e for e in history}
+            index = len(history) - 1
+            seen = set()
+            while index >= 0 and history[index].get("reverted_to") in by_turn \
+                    and index not in seen:
+                seen.add(index)
+                index = history.index(by_turn[history[index]["reverted_to"]])
+            if index < 1:
                 raise DesignError("there is no earlier version of this design to go back to")
-            entry = history[-2]
+            entry = history[index - 1]
         else:
             entry = next((e for e in history if e.get("turn") == target), None)
             if entry is None:
@@ -1486,10 +1496,13 @@ class DesignEngine:
         if attempt is None:
             self._discard_attempts(session)
             raise DesignError(f"version {entry.get('turn')} could not be rendered again: {error}")
+        # Checked the way the version was checked when it was made: a
+        # parameter edit's Size line is stale by design.
+        declared = entry.get("declared", True)
         findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
-                                cfg=self.cfg)
+                                cfg=self.cfg, declared=declared)
         result = self._commit(session, attempt, instruction=instruction, findings=findings,
-                              attempts=0, reverted_to=entry.get("turn"))
+                              attempts=0, reverted_to=entry.get("turn"), declared=declared)
         if session.get("edit_mode") != "mesh" and current:
             result["param_changes"] = param_changes(scad_params(current), scad_params(source))
         return result

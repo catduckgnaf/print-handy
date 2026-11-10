@@ -19,7 +19,8 @@ dimensions. You then choose:
   any parameters the rewrite changed, so silent drift is visible.
   "Undo" (or "go back", "go back to the first one", "go back to version
   2") returns to an earlier version of the same design without a model
-  call, reusing that version's render. A model-written change is shown the
+  call, reusing that version's render. Each further "undo" steps back one
+  more version, until there is none left. A model-written change is shown the
   last few change requests, so "the other side" or "like before" resolve
   against the same conversation.
 - **Cancel** — the design session ends.
