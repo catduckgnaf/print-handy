@@ -638,6 +638,8 @@ def _record_snapshot_requests(monkeypatch, fanout, fail_urls=()):
     seen = []
 
     class Response:
+        sent = False
+
         def __enter__(self):
             return self
 
@@ -645,6 +647,10 @@ def _record_snapshot_requests(monkeypatch, fanout, fail_urls=()):
             return False
 
         def read(self, _n=-1):
+            # One frame, then end of stream, like a real HTTP body.
+            if self.sent:
+                return b""
+            self.sent = True
             return _jpeg()
 
     def fake_open(req, timeout=0):
@@ -774,7 +780,9 @@ def _record_snapshot_frames(monkeypatch, fanout, frames):
             return False
 
         def read(self, _n=-1):
-            return self._body
+            # The body once, then end of stream, like a real HTTP response.
+            body, self._body = self._body, b""
+            return body
 
     def fake_open(req, timeout=0):
         seen.append(req.full_url)

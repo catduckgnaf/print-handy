@@ -423,3 +423,115 @@ def test_no_camera_turns_the_watch_off_instead_of_alerting(monkeypatch):
     assert listener._visual_timer_tick(now=5000.0) is None
     assert listener.last_visual_task is None
     assert listener._watch_unavailable_reason() == "no camera snapshot URL is configured"
+
+
+# -- 5. deadlines --------------------------------------------------------------
+
+
+def test_a_hung_check_times_out_and_frees_the_timer(monkeypatch):
+    import threading
+    release = threading.Event()
+    lines = []
+
+    def hung_camera():
+        release.wait(5)
+        raise OSError("gave up")
+
+    monkeypatch.setattr(mel, "VISUAL_CHECK_DEADLINE_S", 0.2)
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", hung_camera)
+    monkeypatch.setattr(mel, "log", lines.append)
+    listener = mel.Listener()
+    listener.filename = "slow.gcode"
+    listener.state = "printing"
+
+    async def run():
+        task = asyncio.create_task(listener.visual_check("periodic", 7))
+        listener.last_visual_task = task
+        await asyncio.wait_for(task, 3)
+        return task.done()
+
+    try:
+        assert asyncio.run(run()) is True
+    finally:
+        release.set()
+    assert listener.visual_timeouts == 1
+    assert any("timed out" in line for line in lines)
+
+
+def test_camera_io_never_runs_on_the_default_pool(monkeypatch):
+    import threading
+    seen = []
+
+    def snapshot():
+        seen.append(threading.current_thread().name)
+        raise OSError("no camera")
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", snapshot)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "_visual_alert_text", lambda *a, **k: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    listener = mel.Listener()
+    listener.filename = "x.gcode"
+    asyncio.run(listener.visual_check("periodic", 3))
+    assert seen and seen[0].startswith("camera-watch")
+
+
+class _Drip:
+    """A camera that answers every read in time but never finishes the frame."""
+
+    def __init__(self, clock):
+        self.clock = clock
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, size=-1):
+        self.clock[0] += 5
+        return b"\xff\xd8" + b"x" * 100
+
+
+def test_snapshot_has_a_total_time_budget(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(mel.urllib.request, "urlopen", lambda request, timeout=None: _Drip(clock))
+    with pytest.raises(TimeoutError):
+        mel._fetch_snapshot("http://cam/snap", budget_s=15, clock=lambda: clock[0])
+    assert clock[0] <= 25
+
+
+def test_snapshot_size_cap(monkeypatch):
+    class Big(_Drip):
+        def read(self, size=-1):
+            return b"\xff\xd8" + b"x" * (size - 2)
+
+    monkeypatch.setattr(mel, "SNAPSHOT_MAX_BYTES", 200 * 1024)
+    monkeypatch.setattr(mel.urllib.request, "urlopen", lambda request, timeout=None: Big([0.0]))
+    with pytest.raises(ValueError, match="bounded"):
+        mel._fetch_snapshot("http://cam/snap")
+
+
+def test_heartbeat_stamps_even_when_the_default_pool_is_busy(monkeypatch):
+    """The supervisor reads loop lag from the stamp; a starved pool must not stop it."""
+    import threading
+    block = threading.Event()
+    monkeypatch.setattr(mel.debug_mode, "poll", lambda: block.wait(5))
+    monkeypatch.setattr(mel.healthcheck, "HEARTBEAT_S", 0.05)
+    listener = mel.Listener()
+    stamps = []
+
+    async def run():
+        task = asyncio.create_task(listener.heartbeat())
+        for _ in range(5):
+            await asyncio.sleep(0.06)
+            stamps.append(listener._loop_tick)
+        block.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    try:
+        asyncio.run(run())
+    finally:
+        block.set()
+    assert len(set(stamps)) >= 4
