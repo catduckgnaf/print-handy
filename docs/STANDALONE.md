@@ -113,12 +113,9 @@ The bot writes its heartbeat to `<paths.hermes_home>/state/bot_health.json` ever
 
 ```json
 {"mode": "standalone", "connected": true, "user": "Print Handy#1234", "handlers": 15,
- "hermes_modules": [], "heartbeat_at": 1792727951.3, "pid": 7, "chat_id": "123...", "allowed_users": 2,
+ "heartbeat_at": 1792727951.3, "pid": 7, "chat_id": "123...", "allowed_users": 2,
  "llm": false, "open_prompts": 0, "started_at": 1792727900.1}
 ```
-
-`hermes_modules` lists any loaded module from a host application (`tools`, `gateway`, `hermes_state`, `hermes_cli`). It must
-be empty; the check fails otherwise. That is the proof the bot runs on its own.
 
 ### systemd
 

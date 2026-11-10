@@ -32,8 +32,7 @@ services:
 
 def _heartbeat():
     return {"heartbeat_at": time.time(), "pid": 1, "mode": "standalone",
-            "connected": True, "user": "printhandy#0001", "handlers": 1,
-            "hermes_modules": []}
+            "connected": True, "user": "printhandy#0001", "handlers": 1}
 
 
 def _ok_probe(url):

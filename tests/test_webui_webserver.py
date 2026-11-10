@@ -78,8 +78,7 @@ def spools_view(printer_id):
 def fresh_heartbeat(**overrides):
     record = {"heartbeat_at": time.time(), "pid": os.getpid(),
               "mode": "standalone",
-              "connected": True, "user": "printhandy#0001", "handlers": 12,
-              "hermes_modules": []}
+              "connected": True, "user": "printhandy#0001", "handlers": 12}
     record.update(overrides)
     return record
 

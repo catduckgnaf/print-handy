@@ -1,4 +1,4 @@
-# ZMod firmware command and macro registry. See firmware/README.md for the schema.
+# ZMod firmware command and macro registry. See README.md in this folder for the schema.
 #
 # Covers the ZMod firmware set for the Flashforge AD5X family as Print Handy
 # registers it today. Entries are verified from the sources each entry's notes
@@ -13,10 +13,10 @@
 # behind the existing guarded print-control flows and their confirmation buttons.
 #
 # kind is one of: command, macro, error.
-# printers lists the registered printer model keys (printers/registry/) the entry
+# printers lists the registered printer model keys (print_handy/data/printers-registry/) the entry
 # is known to apply to, or ["*"] when it applies to every printer on that firmware.
 # pack is optional: it names a macro pack that rides on this firmware (absent = the
-# firmware's stock set). No entry carries one yet; see firmware/README.md.
+# firmware's stock set). No entry carries one yet; see README.md in this folder.
 
 [[entry]]
 id = "zmod.start-print"
