@@ -12,6 +12,19 @@ class FeatureClearanceTests(unittest.TestCase):
                  'resolved_hop_types': ['Normal Lift'],
                  'brim_policy': {'type': 'outer_only', 'width_mm': 2}}
         self.assertEqual(oa.required_feature_edge(state), 2)
+        for brim_type in ('outer_only', 'brim_ears', 'outer_and_inner', 'inner_only'):
+            self.assertEqual(oa.required_feature_edge(
+                {'brim_policy': {'type': brim_type, 'width_mm': 2}}), 2)
+        self.assertEqual(oa.required_feature_edge(
+            {'brim_policy': {'type': 'no_brim', 'width_mm': 2}}), 0)
+        from print_handy.core.split_fit import _declared_exclusions
+        from unittest.mock import patch
+        fake_fact = type('Fact', (), {'value': ((0, 0), (10, 0), (10, 20), (0, 20))})()
+        fake_model = type('Model', (), {'adapter': type('Adapter', (), {
+            'facts': {'bed_exclude_area': fake_fact}})})()
+        with patch('print_handy.core.split_fit.settings.current', return_value={'printer': {'model': 'x'}}), \
+             patch('print_handy.printers.MODELS', {'x': fake_model}):
+            self.assertEqual(_declared_exclusions(), [(0, 0, 10, 20)])
         self.assertEqual(oa._usable(state), (214.0, 214.0, 220.0))
         self.assertEqual(oa._usable(state, single=False), (210.0, 210.0, 220.0))
 

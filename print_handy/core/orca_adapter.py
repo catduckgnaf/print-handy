@@ -2616,10 +2616,17 @@ def _source_plate_count(source) -> int:
 
 def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_margin: float = 1.0) -> int:
     """Check if all plates in a multi-plate 3MF fit the bed bounds at `scale`."""
+    bed = state.get('bed_mm', BED)
+    bed_x, bed_y = float(bed[0]), float(bed[1])
+    exclusion_polygon = ()
+    try:
+        from .split_fit import _declared_exclusions
+        exclusion_polygon = tuple(_declared_exclusions())
+    except Exception as exc:
+        raise RuntimeError(f'cannot resolve printer bed exclusions for multi-plate fit: {exc}') from exc
     try:
         from . import model_job as mj
         from . import color_geometry as cg
-        bed = state.get('bed_mm', BED)
         max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
         eff_w = float(bed[0]) - 2 * single_margin
         eff_d = float(bed[1]) - 2 * single_margin
@@ -2646,6 +2653,12 @@ def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_
                 fits = (dx <= eff_w and dy <= eff_d) or (dy <= eff_w and dx <= eff_d)
                 if not fits:
                     return 0
+                if exclusion_polygon:
+                    from .split_fit import _exclusion_rectangles, _placement
+                    zones = _exclusion_rectangles(exclusion_polygon)
+                    if _placement((dx, dy), float(bed[0]), float(bed[1]), single_margin, zones) is None \
+                            and _placement((dy, dx), float(bed[0]), float(bed[1]), single_margin, zones) is None:
+                        return 0
         return 1
     except Exception as exc:
         # An uninspectable plate is unknown, not "fits once": callers treat raises as probe failures.
@@ -2675,6 +2688,11 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
     bed = state.get('bed_mm', BED)
     bed_x, bed_y = float(bed[0]), float(bed[1])
     max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
+    from .split_fit import _declared_exclusions
+    try:
+        exclusion_polygon = tuple(_declared_exclusions())
+    except Exception as exc:
+        raise RuntimeError(f'cannot resolve printer bed exclusions for fit probe: {exc}') from exc
     multi_margin = MULTI_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     single_margin = SINGLE_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     if brim_policy is not None:
@@ -2763,6 +2781,9 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
             m_tmpl = dict(m_base)
             m_tmpl['printable_area'] = [f"{edge}x{edge}", f"{bed_x - edge}x{edge}",
                                         f"{bed_x - edge}x{bed_y - edge}", f"{edge}x{bed_y - edge}"]
+            if exclusion_polygon:
+                # Orca's native machine exclusion format is a polygon chain.
+                m_tmpl['bed_exclude_area'] = [f'{float(x):g}x{float(y):g}' for x, y in exclusion_polygon]
             path = tmp / f'machine_{edge}.json'
             path.write_text(json.dumps(m_tmpl, indent=2))
             return path
@@ -3166,7 +3187,10 @@ def resolved_travel_sweep(state):
 def required_feature_edge(state, brim_policy=None):
     """Edge budget = explicit brim extent + resolved travel sweep."""
     policy = brim_policy or state.get('brim_policy') or {}
-    brim = float(policy.get('width_mm', 0)) if policy.get('type') in ('outer_only', 'brim_ears') else 0.0
+    # Orca brim_type options include brim_ears and outer_and_inner; both
+    # create a brim whose declared width consumes bed clearance.
+    brim = float(policy.get('width_mm', 0)) if policy.get('type') in (
+        'outer_only', 'brim_ears', 'outer_and_inner', 'inner_only') else 0.0
     return brim + resolved_travel_sweep(state)
 
 
