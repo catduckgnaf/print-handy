@@ -21,6 +21,7 @@ tables from the rule parameters below, so the registry and the behavior cannot d
 (tests/pipeline/test_compat_registry.py asserts the parity).
 """
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 REGISTRY_VERSION = 1
 
@@ -47,6 +48,22 @@ class Rule:
     evidence_tests: tuple = ()
     evidence_docs: tuple = ()
     parameters: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        # The converter builds its live tables from these parameters, so they are frozen
+        # (read-only mappings, tuples) and never shared: no caller can change a rule.
+        object.__setattr__(self, 'parameters', _freeze(self.parameters))
+
+
+def _freeze(value):
+    """A deeply read-only copy: dicts become read-only mappings, lists and tuples tuples."""
+    if isinstance(value, (dict, MappingProxyType)):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(value)
+    return value
 
 
 def parse_version_spec(spec):
