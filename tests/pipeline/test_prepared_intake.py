@@ -421,8 +421,15 @@ def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch
 def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkeypatch):
     from print_handy.core import orca_adapter
 
+    probes = []
+
     def capacity(path, st, **kw):
-        if abs(float(kw.get('scale') or 1.0) - 1.1) < 1e-9:
+        scale = float(kw.get('scale') or 1.0)
+        probes.append(scale)
+        if len(probes) == 1:
+            assert scale == 1.0
+            return 1  # initial authored-layout check succeeds
+        if abs(scale - 1.1) < 1e-9:
             return 0  # the asked-for 110% is refused normally
         raise RuntimeError('orca aborted')  # every search probe fails
 
