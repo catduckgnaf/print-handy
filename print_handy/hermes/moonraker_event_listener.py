@@ -4595,15 +4595,43 @@ class Listener:
             return
         self._light_idle_task = asyncio.create_task(self.light_idle_tick())
 
+    def _schedule_next_plate_offer(self):
+        """Run the next-plate bed look as a task, off the receive loop.
+
+        Its snapshot and vision round trip can take about a minute; awaited
+        inline it held every status event behind it. Single-flight, like
+        the idle light check; the look revalidates the printer state before
+        it acts, so a print that started meanwhile voids it.
+        """
+        task = getattr(self, "_next_plate_task", None)
+        if task is not None and not task.done():
+            return
+        self._next_plate_task = asyncio.create_task(self._next_plate_offer_task())
+
+    async def _next_plate_offer_task(self):
+        try:
+            await self.offer_next_plate_if_clear()
+        except Exception as exc:
+            log(f"next plate offer failed: {exc!r}")
+
     async def offer_next_plate_if_clear(self):
         """One empty-bed look for a queued plate. Posts an offer. Starts nothing.
 
         Uses the same snapshot and verdict words as the auto-light check (#516).
         No camera, a dark frame, or no queued plate: no offer and no invented bed.
+        A print that starts (or a file change) while the look is in flight
+        voids it: the frame shows the bed as it was, not as it is.
         """
         from . import next_plate_offer
         if self.state not in _AUTO_LIGHT_IDLE_STATES:
             return
+        filename = self.filename
+
+        def voided():
+            if self.state in _AUTO_LIGHT_IDLE_STATES and self.filename == filename:
+                return False
+            log(f"next plate bed check voided: the printer is {self.state} now")
+            return True
         if not next_plate_offer.due():
             return
         if not self._watch_ready():
@@ -4622,6 +4650,8 @@ class Listener:
             local = await _watch_io(_local_empty.idle_verdict, image)
             if local is not None:
                 verdict, detail = local
+        if voided():
+            return
         log(f"next plate bed check verdict={verdict} detail={detail!r}")
         choice = next_plate_offer.observe(verdict)
         if not isinstance(choice, dict):
@@ -5033,7 +5063,7 @@ class Listener:
                     except Exception as exc:
                         log(f"auto light idle tick failed: {exc!r}")
                     try:
-                        await self.offer_next_plate_if_clear()
+                        self._schedule_next_plate_offer()
                     except Exception as exc:
                         log(f"next plate offer failed: {exc!r}")
                 if time.monotonic() - self.maintenance_last_check >= 3600:

@@ -535,3 +535,63 @@ def test_heartbeat_stamps_even_when_the_default_pool_is_busy(monkeypatch):
     finally:
         block.set()
     assert len(set(stamps)) >= 4
+
+
+# -- 6. the next-plate offer runs as a task ----------------------------------
+
+
+def _next_plate_listener(monkeypatch, verdict_fn):
+    from print_handy.hermes import next_plate_offer
+    observed = []
+    monkeypatch.setattr(next_plate_offer, "due", lambda: True)
+    monkeypatch.setattr(next_plate_offer, "observe", lambda verdict: observed.append(verdict))
+    monkeypatch.setattr(mel, "_vision_ready", lambda: True)
+    monkeypatch.setattr(mel, "_camera_missing_reason", lambda: "")
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", _frame_for_plate)
+    monkeypatch.setattr(mel, "_visual_verdict", verdict_fn)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    listener = mel.Listener()
+    listener.state = "complete"
+    listener.filename = "done.gcode"
+    return listener, observed
+
+
+def _frame_for_plate():
+    return _frame(11)
+
+
+def test_next_plate_offer_does_not_block_and_is_single_flight(monkeypatch):
+    import threading
+    gate = threading.Event()
+
+    def slow_verdict(image, prompt, idle=False):
+        gate.wait(5)
+        return ("empty_idle", "clear")
+
+    listener, observed = _next_plate_listener(monkeypatch, slow_verdict)
+
+    async def run():
+        listener._schedule_next_plate_offer()
+        first = listener._next_plate_task
+        listener._schedule_next_plate_offer()  # still running: no second look
+        assert listener._next_plate_task is first
+        await asyncio.sleep(0.05)
+        assert not first.done()  # the caller was not held
+        gate.set()
+        await asyncio.wait_for(first, 5)
+
+    asyncio.run(run())
+    assert observed == ["empty_idle"]
+
+
+def test_a_print_starting_mid_look_voids_the_offer(monkeypatch):
+    holder = {}
+
+    def verdict_while_a_print_starts(image, prompt, idle=False):
+        holder["listener"].state = "printing"
+        return ("empty_idle", "clear")
+
+    listener, observed = _next_plate_listener(monkeypatch, verdict_while_a_print_starts)
+    holder["listener"] = listener
+    asyncio.run(listener.offer_next_plate_if_clear())
+    assert observed == []
