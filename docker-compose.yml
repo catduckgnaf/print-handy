@@ -175,7 +175,6 @@ services:
     # inside the container and the mapping answers nothing. The API is
     # unauthenticated: LAN only, never forward it from a router.
     #   - "7912:8000"
-    user: "1000:1000"
     # Optional GPU passthrough for hardware timelapse encoding (#246): opt-in
     # only — the container runs fine with no GPU and falls back to CPU
     # encoding. To grant an Intel/AMD iGPU, uncomment the two blocks below
@@ -202,21 +201,32 @@ services:
     #           count: 1
     #           capabilities: [gpu, video]
     init: true
-    # Docker creates absent bind sources as root; the rootless entrypoint cannot
-    # create its data subdirectories beneath them. Initialize only these paths,
-    # then drop privileges before starting the normal entrypoint.
-    user: "0:0"
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$path" && chown 1000:1000 "$path"; done; exec runuser -u handy -- /usr/bin/tini -g -- /app/docker/entrypoint.sh /usr/local/bin/print-handy-supervise'
-    cap_drop: [ALL]
-    cap_add: [CHOWN]
-    security_opt: [no-new-privileges:true]
+    depends_on:
+      print-handy-init:
+        condition: service_completed_successfully
     shm_size: 256m
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: "3"}
+  # Docker creates absent bind sources as root. Initialize only application data
+  # directories once, then keep the long-running service rootless.
+  print-handy-init:
+    image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
+    user: "0:0"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$path" && chown 1000:1000 "$path"; done'
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ${PRINT_HANDY_DATA:-./data}/state:/data/state
+      - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
+      - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
+      - ${PRINT_HANDY_DATA:-./data}/records:/data/records
+      - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
+      - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
     healthcheck:
       test: [CMD, python3, /usr/local/bin/print-handy-healthcheck]
       interval: 30s
