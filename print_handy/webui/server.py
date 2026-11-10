@@ -147,6 +147,7 @@ from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
 from . import printers_page
+from . import pwa as pwa_module
 from . import shell
 from . import sources as sources_module
 from . import spools as spools_module
@@ -907,6 +908,35 @@ class _Handler(BaseHTTPRequestHandler):
                 # token, but liveness must not depend on that).
                 code, body = healthz(self.server.settings_data)
                 self._json(code, body)
+                return
+            if path in ("/manifest.webmanifest", "/manifest.json"):
+                self._send(200, pwa_module.manifest_json(), "application/manifest+json; charset=utf-8",
+                           headers=[("Cache-Control", "public, max-age=86400")])
+                return
+            if path == "/sw.js":
+                self._send(200, pwa_module.SW_SCRIPT, "application/javascript; charset=utf-8",
+                           headers=[("Service-Worker-Allowed", "/"), ("Cache-Control", "no-cache")])
+                return
+            if path == "/offline":
+                self._send(200, pwa_module.render_offline_page(theme=self._theme()), "text/html; charset=utf-8",
+                           headers=[("Cache-Control", "public, max-age=86400")])
+                return
+            if path == "/favicon.ico":
+                res = pwa_module.resolve_static_file("favicon.ico")
+                if res:
+                    ctype, data = res
+                    self._send(200, data, ctype, headers=[("Cache-Control", "public, max-age=86400")])
+                    return
+                self._json(404, {"ok": False, "reason": "favicon not found"})
+                return
+            if path.startswith("/static/"):
+                file_name = path[len("/static/"):]
+                res = pwa_module.resolve_static_file(file_name)
+                if res:
+                    ctype, data = res
+                    self._send(200, data, ctype, headers=[("Cache-Control", "public, max-age=86400")])
+                    return
+                self._json(404, {"ok": False, "reason": "static file not found"})
                 return
             if path == "/setup":
                 self._redirect("/")

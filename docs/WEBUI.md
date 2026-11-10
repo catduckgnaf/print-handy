@@ -272,6 +272,49 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 
 `cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
 
+## Progressive Web App (PWA) and HTTPS serving
+
+Print Handy provides a Progressive Web App (PWA) foundation (#450 Phase 1) that allows the Web UI to be installed to the home screen or desktop application dock with a native app-like experience, offline status fallback, and branded icons.
+
+### Secure Context requirement
+
+Per the W3C Secure Contexts specification, modern browsers (Chrome, Safari, Firefox, Edge) permit Service Worker registration and PWA installation prompts only within a **Secure Context**:
+- Any `https://` origin.
+- Loopback addresses (`http://localhost` or `http://127.0.0.1`).
+
+Connecting to a non-loopback LAN IP over plain HTTP (for example `http://192.168.1.100:8765`) is explicitly not a secure context; browsers will run the Web UI normally but will suppress Service Worker registration and the install prompt.
+
+### Supported HTTPS deployment paths
+
+Because the Print Handy Web UI does not embed a TLS stack of its own, external HTTPS termination should be placed in front of it:
+
+1. **HTTPS reverse proxy (recommended for LAN / homelab):**
+   Run Caddy, Nginx, or Traefik with automated Let's Encrypt or internal CA certificates terminating TLS, forwarding HTTP to Print Handy.
+   Set `cookie_secure = true` (`PRINT_HANDY__WEBUI__COOKIE_SECURE=true`) so session cookies carry the `Secure` flag. Ensure `X-Forwarded-Proto: https` is forwarded.
+   Example Caddy configuration:
+   ```caddyfile
+   printhandy.internal.domain {
+       reverse_proxy 127.0.0.1:8765
+   }
+   ```
+2. **Tailscale Serve (recommended for zero-config remote & local access):**
+   If using Tailscale, run Tailscale Serve directly on the host:
+   ```bash
+   tailscale serve --https 443 http://127.0.0.1:8765
+   ```
+   Tailscale provisions a valid TLS certificate for your node name within your tailnet, instantly creating a secure context without opening firewall ports.
+3. **Local development & loopback testing:**
+   Navigating to `http://localhost:8765` or `http://127.0.0.1:8765` is classified as a Secure Context by all major browsers, enabling full PWA installation and service worker testing without requiring certificates.
+
+### Security-conscious caching policy
+
+The service worker (`/sw.js`) enforces a strict, zero-trust caching model:
+- **Never cached:** Authenticated sessions, API endpoints (`/api/*`), printer controls (pause, resume, cancel, temperatures, emergency stop, G-code), camera snapshots, token uploads (`/u/*`), settings forms, and login screens are never stored in client caches. Non-GET requests (such as control POSTs) always bypass the service worker entirely.
+- **Network-only navigation:** Navigating to HTML pages executes over the live network. Dynamic pages containing sensitive printer states or settings are never persisted in the service worker cache.
+- **Offline shell fallback:** If a navigation request fails because the server or network is completely unreachable, the service worker renders the pre-cached `/offline` shell with instructions and a reconnect button.
+- **Static assets only:** Caching is strictly limited to immutable install assets (`/manifest.webmanifest`, `/favicon.ico`, `/offline`, and branding icons under `/static/`).
+
+
 ## Use the configuration page
 
 Open `/config`, or follow the **configuration page** link from the status page. The groups are side sub-tabs: one group shows at a time (pick from the tab row, or link straight to one with `/config?section=<group>`), and the form is built from the Web UI field catalog and is grouped as:

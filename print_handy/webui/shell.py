@@ -277,6 +277,30 @@ SUBMIT_SCRIPT = (
     ".forEach(function(h){h.remove();});});"
     "</script>")
 
+PWA_HEAD_TAGS = (
+    '<meta name="mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
+    '<meta name="apple-mobile-web-app-title" content="Print Handy">'
+    '<meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">'
+    '<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">'
+    '<link rel="manifest" href="/manifest.webmanifest">'
+    '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
+    '<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">'
+    '<link rel="icon" type="image/png" sizes="16x16" href="/static/icon-16.png">'
+    '<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">'
+)
+
+SW_REGISTER_SCRIPT = (
+    "<script>"
+    "if('serviceWorker' in navigator){"
+    "window.addEventListener('load',function(){"
+    "navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});"
+    "});"
+    "}"
+    "</script>"
+)
+
 
 def _esc(value):
     return html.escape(str(value), quote=True)
@@ -343,6 +367,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     theme_attr = ' data-theme="light"' if theme == "light" else ""
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
+             f"{PWA_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
              f"<style>{CSS}</style></head><body>"]
     if chrome:
@@ -367,11 +392,12 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
                  f'<a href="{_esc(SOURCE_URL)}/tree/{_esc(__version__)}" rel="noopener">'
                  'Source for this version</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
+    parts.append(SW_REGISTER_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
-    "page", "theme_cookie_header", "theme_from_cookies",
+    "CSS", "DEFAULT_THEME", "NAV", "PWA_HEAD_TAGS", "SUBMIT_SCRIPT", "SW_REGISTER_SCRIPT",
+    "THEME_COOKIE", "THEMES", "page", "theme_cookie_header", "theme_from_cookies",
 ]

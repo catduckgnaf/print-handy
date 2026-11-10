@@ -58,7 +58,7 @@ include = ["print_handy*"]
 # bundle); ship every one of them in the wheel, not just the .py files.
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.toml", "*.pem", "*.js"]
-print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json"]
+print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json", "webui/static/*"]
 # Registry data inside subpackages (root cleanup PR-3): the knowledge
 # registry TOMLs and their schema README ride in knowledge/data/.
 "print_handy.knowledge" = ["data/*.toml", "data/*.md"]

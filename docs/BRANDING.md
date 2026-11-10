@@ -93,7 +93,7 @@ All in [`assets/branding/`](../assets/branding/):
 | `social-preview.png` | 1280 x 640 | GitHub social preview, link preview cards (`og:image`) |
 | `logo-lockup.png` / `logo-lockup-dark.png` | 2240 x 1120 | README header and docs (light and dark backgrounds) |
 | `avatar-1024.png` | 1024 x 1024 | Bot avatars (Discord, Telegram, Matrix), Unraid and store icons |
-| `icon-master.png`, `icon-16` to `icon-512.png`, `favicon.ico` | various | Favicons, app icons, the Web UI |
+| `icon-master.png`, `icon-16` to `icon-512.png`, `icon-512-maskable.png`, `favicon.ico` | various | Favicons, app icons, PWA manifest, the Web UI |
 
 ## Where the copy lives
 
