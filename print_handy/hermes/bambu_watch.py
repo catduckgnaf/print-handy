@@ -689,7 +689,8 @@ class BambuPrintMonitor:
             suspicious = verdict in _vw.VISUAL_SUSPICIOUS_VERDICTS
             if reason == "stalled_layers" and changed is False:
                 suspicious = not (watch.profile["vision_veto"] and verdict in _vw.VISUAL_HEALTHY_VERDICTS)
-            if verdict == "uncertain":
+            if verdict in {"uncertain", "empty_idle"}:
+                # A supposedly empty idle bed is not healthy during a print.
                 suspicious = True
             log(f"bambu visual check file={self.filename!r} reason={reason} layer={layer} "
                 f"changed={changed} verdict={verdict} detail={detail!r}")
