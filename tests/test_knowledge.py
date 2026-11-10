@@ -719,3 +719,13 @@ def test_lookup_fuzzy_hit_cannot_outrank_a_substring_match(registry):
     assert hits[0].item.id == "klipper.set-print-stats-info"
     by_id = {h.item.id: h.score for h in hits}
     assert by_id["klipper.print-start"] < by_id["klipper.set-print-stats-info"]
+
+
+def test_firmware_command_files_cite_paths_that_exist():
+    """The header comments name the registry and schema README; both must be real paths."""
+    folder = ROOT / "print_handy/data/firmware-commands"
+    assert (ROOT / "print_handy/data/printers-registry").is_dir() and (folder / "README.md").is_file()
+    for path in sorted(folder.glob("*.toml")):
+        text = path.read_text(encoding="utf-8")
+        assert "printers/registry/" not in text.replace("data/printers-registry/", ""), path.name
+        assert "firmware/README.md" not in text, path.name
