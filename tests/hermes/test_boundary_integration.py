@@ -317,7 +317,8 @@ def test_matrix_post_reaches_the_room(chat, monkeypatch):
     method, path, headers, body = fake.requests[0]
     assert method == "PUT" and "/rooms/%21room%3Atest/send/m.room.message/" in path
     assert headers["Authorization"] == f"Bearer {TOKEN}"
-    assert json.loads(body) == {"msgtype": "m.text", "body": "Print paused"}
+    # Intentional mentions: an explicit empty m.mentions notifies nobody.
+    assert json.loads(body) == {"msgtype": "m.text", "body": "Print paused", "m.mentions": {}}
 
 
 @pytest.mark.parametrize("platform", ["discord", "telegram", "matrix"])
