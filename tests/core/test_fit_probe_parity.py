@@ -84,6 +84,18 @@ def test_multi_probe_uses_polygon_rectangle_cover_once(probe, monkeypatch, tmp_p
     assert oa._multi_plate_capacity(source, {'bed_mm': [220, 220]}) == 0
 
 
+def test_multi_probe_reserves_feature_clearance_at_exclusions(probe, monkeypatch, tmp_path):
+    source = tmp_path / 'multi.3mf'
+    with zipfile.ZipFile(source, 'w'):
+        pass
+    monkeypatch.setattr(oa, '_fit_exclusion_polygon', lambda: ((0, 0), (110, 0), (110, 220), (0, 220)))
+    monkeypatch.setattr(model_job, 'plate_manifest', lambda *a: {'plates': [{'object_ids': ['1']}]})
+    monkeypatch.setattr(color_geometry, '_world_bounds', lambda *a: [[(0, 100), (0, 100), (0, 10)]])
+    # 100 mm model + 5 mm feature on both sides needs 110 mm of the
+    # 110 mm remaining strip, but still owes the 1 mm bed edge margin.
+    assert oa._multi_plate_capacity(source, {'bed_mm': [220, 220]}, single_margin=6) == 0
+
+
 def test_active_printer_exclusion_reader_returns_points_not_rectangles(monkeypatch):
     polygon = ((0, 0), (18, 0), (18, 28), (0, 28))
     model = SimpleNamespace(adapter=SimpleNamespace(facts={'bed_exclude_area': SimpleNamespace(value=polygon)}))

@@ -2667,7 +2667,9 @@ def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_
                     return 0
                 if exclusion_polygon:
                     from .split_fit import _exclusion_rectangles, _placement
-                    zones = _exclusion_rectangles(exclusion_polygon)
+                    feature = max(0.0, single_margin - SINGLE_COPY_EDGE_MM)
+                    zones = [(x0 - feature, y0 - feature, x1 + feature, y1 + feature)
+                             for x0, y0, x1, y1 in _exclusion_rectangles(exclusion_polygon)]
                     if _placement((dx, dy), float(bed[0]), float(bed[1]), single_margin, zones) is None \
                             and _placement((dy, dx), float(bed[0]), float(bed[1]), single_margin, zones) is None:
                         return 0
@@ -2941,18 +2943,16 @@ def _confirm_scale(fits, bound, window=0.03):
 
     Tries the bound first (usually right), then bisects the window below it
     (~5 probes), then falls back to coarse 1% steps down to 50%. Orca occasionally
-    aborts on a specific scale (boost bad_rational); after one retry such a point
-    counts as not fitting, which can only lower the reported maximum.
+    aborts on a specific scale (boost bad_rational); retry once, then
+    propagate failure rather than interpreting an unknown probe as no fit.
     """
-    errors = []
-
     def safe(scale):
-        for _ in range(2):
+        for attempt in range(2):
             try:
                 return fits(scale)
-            except RuntimeError as exc:
-                errors.append(exc)
-        return False
+            except RuntimeError:
+                if attempt:
+                    raise
 
     hi = int(bound * 1000)
     if hi < 500:
@@ -2968,8 +2968,6 @@ def _confirm_scale(fits, bound, window=0.03):
                 break
             step -= 10
         else:
-            if errors and len(errors) >= 4:
-                raise errors[-1]  # Orca is broken, not the model: never report "does not fit".
             return None
     while hi - lo > 1:  # invariant: lo fits, hi does not
         middle = (lo + hi) // 2

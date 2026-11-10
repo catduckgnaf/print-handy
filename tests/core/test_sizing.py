@@ -294,6 +294,17 @@ class ConfirmScaleTests(unittest.TestCase):
             return True
         self.assertEqual(oa._confirm_scale(flaky, 0.8), 0.8)
 
+    def test_repeated_failure_at_only_one_scale_is_still_unknown(self):
+        calls = []
+        def isolated_failure(scale):
+            calls.append(scale)
+            if scale == 0.9:
+                raise RuntimeError('isolated probe failure')
+            return scale <= 0.88
+        with self.assertRaisesRegex(RuntimeError, 'isolated probe failure'):
+            oa._confirm_scale(isolated_failure, 0.9)
+        self.assertEqual(calls, [0.9, 0.9])
+
     def test_broken_orca_is_not_reported_as_does_not_fit(self):
         def broken(scale):
             raise RuntimeError("orca died")
