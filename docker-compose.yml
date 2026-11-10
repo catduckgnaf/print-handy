@@ -202,7 +202,16 @@ services:
     #           count: 1
     #           capabilities: [gpu, video]
     init: true
+    # Docker creates absent bind sources as root; the rootless entrypoint cannot
+    # create its data subdirectories beneath them. Initialize only these paths,
+    # then drop privileges before starting the normal entrypoint.
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$path" && chown 1000:1000 "$path"; done; exec runuser -u handy -- /usr/bin/tini -g -- /app/docker/entrypoint.sh /usr/local/bin/print-handy-supervise'
     cap_drop: [ALL]
+    cap_add: [CHOWN]
     security_opt: [no-new-privileges:true]
     shm_size: 256m
     logging:
