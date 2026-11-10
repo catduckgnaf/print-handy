@@ -145,6 +145,12 @@ def _is_child(path, name, *, package):
 _REGISTRY = _Registry()
 
 
+def _discover():
+    """Compatibility hook returning the fully validated vendor and model tables."""
+    _REGISTRY.scan()
+    return _REGISTRY.vendors, _REGISTRY.models
+
+
 class _Table(MutableMapping):
     """A dict-like view of one registry table (VENDORS or MODELS)."""
 
