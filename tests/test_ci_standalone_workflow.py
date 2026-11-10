@@ -45,6 +45,20 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertIn('"/tmp/clean/bin/python" -m pip install .', runs)
         self.assertNotIn("[test]", runs)
 
+    def test_installed_wheel_is_checked_from_outside_the_checkout_and_the_gap_is_labeled(self):
+        """The other steps run from the checkout and so test the checkout. This one runs where the checkout's
+        print_handy cannot be imported. While the wheel lacks config/ and plugins/print-feedback it cannot
+        pass, so it is non-blocking and named a known gap; when packaging is fixed, drop continue-on-error
+        (and this assertion) so it blocks."""
+        steps = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])
+        step = steps["Installed wheel check from outside the checkout (known gap, not blocking)"]
+        self.assertEqual(step["continue-on-error"], "true")
+        self.assertIn("cd /tmp/outside", step["run"])
+        self.assertIn('"/tmp/clean/bin/python" -m print_handy.bot check', step["run"])
+        self.assertIn("'/tmp/clean/' in print_handy.__file__", step["run"])
+        names = [s.get("name") for s in load_workflow()["jobs"]["standalone-no-hermes"]["steps"]]
+        self.assertIn("Say plainly that the wheel check failed", names)
+
     def test_bot_check_runs_for_discord(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
             "Standalone bot setup check"]

@@ -25,7 +25,7 @@ from pathlib import Path
 from .compact_geometry import CompactTriangles, IndexedTriangles, transform_vertices_array
 from .mesh_fast import archive_tables, bounds_and_volume
 from .model_job import mesh_topology
-from .orca_adapter import _hull, read_stl_triangles
+from .orca_adapter import _hull, read_stl_triangles, transform_mirrors
 from .painted_geometry import paint_census
 from .source_colors import cutter_ids, inventory as color_inventory
 from .threemf_canonical import UNIT_TO_MM
@@ -323,6 +323,9 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                 transforms = list(chain)
                 if mm_factor != 1.0:
                     transforms.append([mm_factor, 0, 0, 0, mm_factor, 0, 0, 0, mm_factor, 0, 0, 0])
+                import numpy as np
+                # A mirroring chain reverses the winding (orca_adapter.transform_mirrors).
+                order = [0, 2, 1] if transform_mirrors(chain) else [0, 1, 2]
                 if tables is not None:
                     table = tables.get(object_id)
                     if table is not None:
@@ -331,9 +334,8 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                         # keep the faces as indices; never expand per-face
                         # point tuples.
                         verts = transform_vertices_array(table.vertices, transforms, apply)
-                        tris.extend_indexed(verts, table.triangles)
+                        tris.extend_indexed(verts, np.asarray(table.triangles).reshape((-1, 3))[:, order])
                 else:
-                    import numpy as np
                     verts = [
                         (float(v.attrib['x']), float(v.attrib['y']), float(v.attrib['z']))
                         for v in mesh.findall('c:vertices/c:vertex', NS)
@@ -348,7 +350,7 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                         face_array = np.where(face_array < 0, face_array + count, face_array)
                         verts = transform_vertices_array(
                             np.array(verts, dtype=np.float64).reshape((-1, 3)), transforms, apply)
-                        tris.extend_indexed(verts, face_array)
+                        tris.extend_indexed(verts, face_array[:, order])
             for comp in obj.findall('c:components/c:component', NS):
                 comp_oid = comp.get('objectid')
                 if (object_id, comp_oid) in cutters:

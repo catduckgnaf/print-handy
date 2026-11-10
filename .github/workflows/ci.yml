@@ -35,8 +35,8 @@ jobs:
       matrix:
         shard: [0, 1, 2]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -73,8 +73,8 @@ jobs:
       PRINT_HANDY_EDIT_CORPUS: "1"
       PRINT_HANDY_EDIT_SHARD: "${{ matrix.shard }}/3"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -85,7 +85,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
       - name: Cache the pinned OrcaSlicer bundle and runtime
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
@@ -114,7 +114,7 @@ jobs:
         run: |
           command -v git || { apt-get update -q && apt-get install -y -q git; }
           git --version
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Normalize checkout ownership for Git subprocesses
         # checkout's safe.directory lives in its temporary HOME, not the test process HOME.
         run: |
@@ -221,7 +221,7 @@ jobs:
           gpg --version | head -n 1
       - name: Upload coverage to Codecov (report-only)
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: coverage.xml
           flags: offline-tests
@@ -270,7 +270,7 @@ jobs:
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build the bounds-build stage
         run: docker build --target bounds-build -t bounds-build:ci .
       - name: The wheel carries the extension where the runtime stage extracts it
@@ -306,7 +306,7 @@ jobs:
       matrix:
         runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Free runner disk
         run: |
           df -h /
@@ -337,8 +337,8 @@ jobs:
       matrix:
         python-version: ["3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -372,13 +372,14 @@ jobs:
 
   discord-timing:
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
-    # tests/corpus/timing_baseline.json (+10% +0.5 s, #734). Raising a baseline needs a "reason".
+    # tests/corpus/timing_baseline.json (+10% + max(0.35 s, 10% of the baseline), #734). Raising a baseline needs
+    # a fresh "reason", and the total drift from the first recording is limited (tests/corpus/timing_gate.py).
     # The baseline is re-recorded from this job's artifact on every release (tests/README.md, Slicing-speed gate).
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 on 2026-10-19
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -398,7 +399,7 @@ jobs:
           python -m tests.corpus.timing_gate timing/run-*.json --record
           --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
           > timing/proposed-baseline.json || true
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: discord-timing
@@ -428,8 +429,8 @@ jobs:
         --case single-part --case stl-single-part --case plates-multicolor
         --case witch-ghost-cults3d --case rotation-fit --case stl-large-plate
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -440,7 +441,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
       - name: Cache the pinned OrcaSlicer bundle and runtime
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
@@ -478,7 +479,7 @@ jobs:
       - name: Compare with the real-slicer baseline (warnings only)
         run: >-
           python -m tests.corpus.timing_gate slicer-timing/run-1.json slicer-timing/run-2.json slicer-timing/run-3.json
-          --baseline tests/corpus/timing_baseline_real_slicer.json --warn-only
+          --baseline tests/corpus/timing_baseline_real_slicer.json --warn-only --absolute-slack
           --summary "$GITHUB_STEP_SUMMARY" --title "Slicer timing (real Orca, reporting only)"
       - name: Proposed baseline from this runner (for review, never applied automatically)
         if: always()
@@ -504,7 +505,7 @@ jobs:
           else
             echo "No standalone timing data from this runner: no slicer-timing/standalone-run-*.json files, so no proposed standalone baseline was written."
           fi
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: slicer-timing-real
@@ -516,8 +517,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -528,16 +529,43 @@ jobs:
 
   standalone-no-hermes:
     # #73: the standalone bot installs from the runtime dependencies alone (pip install .), loads every handler and imports no Hermes module.
+    # The setup checks run from the checkout, so they test the checkout; the installed wheel is tested by the known-gap step.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:3.12-slim-trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Clean venv with runtime dependencies only
         run: |
           python -m venv "/tmp/clean"
           "/tmp/clean/bin/python" -m pip install .
+      # KNOWN GAP, deliberately non-blocking. The checks below run `python -m print_handy.bot check` with
+      # the checkout as the working directory, so Python imports the checkout's print_handy, not the
+      # wheel installed above: they prove the runtime dependencies and the standalone code path, not the
+      # package a user gets from pip. This step runs from outside the checkout and so tests the installed
+      # wheel. It fails today because the wheel ships only print_handy/: config/home.toml (settings.ROOT
+      # is the parent of the package) and plugins/print-feedback (the command handlers, bot/router.py)
+      # are not packaged. Fix the packaging, then delete continue-on-error so this step blocks.
+      - name: Installed wheel check from outside the checkout (known gap, not blocking)
+        id: wheel-check
+        continue-on-error: true
+        env:
+          PRINT_HANDY__BOT__MODE: standalone
+          PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
+          PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
+          DISCORD_BOT_TOKEN: not-a-real-token
+          PRINT_HANDY__PATHS__HERMES_HOME: /tmp/print-handy-wheel
+        run: |
+          mkdir -p /tmp/outside && cd /tmp/outside
+          "/tmp/clean/bin/python" -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
+          "/tmp/clean/bin/python" -m print_handy.bot check
+      - name: Say plainly that the wheel check failed
+        if: steps.wheel-check.outcome == 'failure'
+        run: >-
+          echo "::warning title=standalone-no-hermes::The installed wheel cannot run the bot check from outside
+          the checkout (it lacks config/ and plugins/print-feedback). The checks below test the checkout, not the
+          wheel. Known gap, not a pass."
       - name: Standalone bot setup check
         env:
           PRINT_HANDY__BOT__MODE: standalone
@@ -593,8 +621,8 @@ jobs:
       ORCA_FLATPAK_APP_ID: com.orcaslicer.OrcaSlicer
       PRINT_HANDY_REAL_SLICER: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -605,7 +633,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
       - name: Cache the pinned OrcaSlicer bundle and runtime
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
@@ -651,8 +679,8 @@ jobs:
       PRINT_HANDY_REAL_SLICER: "1"
       PRINT_HANDY_REAL_BAMBU: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -663,7 +691,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
       - name: Cache slicer bundles and flatpak installs
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
@@ -695,7 +723,7 @@ jobs:
       image: python:3.12-slim-trixie
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: python -m pip install ".[test]"
       - name: Install Debian tools and pinned Spoolman server
         run: |
@@ -749,8 +777,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -778,8 +806,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -804,7 +832,7 @@ jobs:
               f"Browser gate refused: tests={tests}, skipped={skipped}, failed={failed}")
           print(f"All {tests} real-browser tests executed with no skips.")
           PY
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: webui-browser-smoke
@@ -820,10 +848,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Save the PR description for the spelling scan

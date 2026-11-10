@@ -319,6 +319,28 @@ def _components(leaf, cell, z, w):
     return np.unique(lab, return_inverse=True)[1]
 
 
+def _thin_strip(cells, w, cell, width_mm):
+    """True when a region's ray cells form a strip no wider than ``width_mm``.
+
+    A strip n cells across disappears after ceil(n / 2) four-neighbor
+    erosions, so the region is thin when it is gone after
+    floor(width_mm / (2 * cell)) of them. A wide surface keeps its interior
+    cells however small its rise is. Diagonal strips erode more slowly
+    under four-neighbor erosion, which only makes this stricter.
+    """
+    cur = np.unique(np.asarray(cells, np.int64))
+    for _ in range(int(width_mm // (2 * cell))):
+        if not len(cur):
+            break
+        keep = np.ones(len(cur), bool)
+        for d in (-1, 1, -w, w):
+            nb = cur + d
+            pos = np.clip(np.searchsorted(cur, nb), 0, len(cur) - 1)
+            keep &= cur[pos] == nb
+        cur = cur[keep]
+    return not len(cur)
+
+
 def _sha256(path):
     h = hashlib.sha256()
     with open(path, 'rb') as fh:
@@ -489,9 +511,19 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
         # L-shaped edge (a bottom chamfer) says nothing about how wide the
         # strip is. On a sloped face the rise over the slope gives the real
         # width across the strip.
+        # The rise alone is not enough: a wide faceted underside (a sawtooth
+        # or ribbed bottom) has a small rise and a steep median facet, so its
+        # rise width is tiny however wide the surface is. The across-slope
+        # width is accepted only when the region's cells really form a thin
+        # strip (they erode away within half the wedge width), so a wide
+        # surface is never looser than the bounding width it had before.
         nz = r['slope_nz']
         rise_width = (r['z_mm']['max'] - r['z_mm']['min']) * nz / math.sqrt(max(1.0 - nz * nz, 1e-6))
-        if (r['sloped'] and min(r['width_mm'], rise_width) < WEDGE_WIDTH_MM
+        strip_width = r['width_mm']
+        if (strip_width >= WEDGE_WIDTH_MM and rise_width < WEDGE_WIDTH_MM
+                and _thin_strip(cells, w, cell, WEDGE_WIDTH_MM)):
+            strip_width = rise_width
+        if (r['sloped'] and strip_width < WEDGE_WIDTH_MM
                 and WEDGE_COS_MIN <= r['slope_nz'] <= WEDGE_COS_MAX and anchored):
             r['kind'] = 'sloped_wedge_root'
             report['regions'].append(r)
