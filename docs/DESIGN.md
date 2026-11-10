@@ -19,15 +19,20 @@ dimensions. You then choose:
   any parameters the rewrite changed, so silent drift is visible.
   "Undo" (or "go back", "go back to the first one", "go back to version
   2") returns to an earlier version of the same design without a model
-  call, reusing that version's render. A model-written change is shown the
+  call, reusing that version's render. Each further "undo" steps back one
+  more version, until there is none left. A model-written change is shown the
   last few change requests, so "the other side" or "like before" resolve
   against the same conversation.
 - **Cancel** — the design session ends.
 
 You do not have to press **Change it** first: while the question is open,
 just type the change ("make the holes 5 mm") and it runs as the next turn
-of the same design. Typing a choice (or its number on Matrix) answers the
-question the same as the button.
+of the same design. Typing a choice answers the question the same as the
+button: "slice it" or "print it" for **Slice it**, "cancel", "stop" or
+"never mind" for **Cancel**, or the choice's number on any platform. The
+same words work after **Change it**, so "never mind" there cancels instead
+of becoming a change. Any other message from you while the question is open
+is a change to the design, never an edit of an earlier print job.
 
 ## Turning it on
 

@@ -22,6 +22,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from .. import credential_binding
 from .rest import chunks, outgoing
 
 CLIENT = "/_matrix/client/v3"
@@ -34,11 +35,20 @@ PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm"}
 
 
+def _headers(homeserver, token):
+    """The request headers; the token only when the homeserver is the host it is bound to (#1192)."""
+    headers = {"User-Agent": "PrintHandy (standalone, 1.0)"}
+    token = credential_binding.key_for("matrix.homeserver_url", homeserver, token)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _request(homeserver, token, method, path, payload=None, *, raw=None, content_type=None,
              timeout=30, opener=None):
     """One Client-Server API call. Returns parsed JSON ({} for an empty body)."""
     url = str(homeserver).rstrip("/") + path
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": "PrintHandy (standalone, 1.0)"}
+    headers = _headers(homeserver, token)
     data = raw
     if payload is not None:
         data = json.dumps(payload).encode()
@@ -203,9 +213,7 @@ def download_media(homeserver, token, mxc_url, *, opener=None, timeout=60):
     path = (f"{MEDIA_CLIENT}/media/download/{urllib.parse.quote(server, safe='')}"
             f"/{urllib.parse.quote(media_id, safe='')}")
     url = str(homeserver).rstrip("/") + path
-    req = urllib.request.Request(url, method="GET",
-                                 headers={"Authorization": f"Bearer {token}",
-                                          "User-Agent": "PrintHandy (standalone, 1.0)"})
+    req = urllib.request.Request(url, method="GET", headers=_headers(homeserver, token))
     with (opener or urllib.request.urlopen)(req, timeout=timeout) as resp:
         return resp.read()
 

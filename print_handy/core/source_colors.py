@@ -598,7 +598,10 @@ USAGE_UNREADABLE = 'source slicer usage metadata could not be read'
 # Unknown, but not a claim that failed: a project sliced for only some of its
 # plates has no records for the rest, and a filament used only for supports
 # need not appear in the source palette. The slicer's own output is
-# authoritative for these, so they never refuse a slice.
+# authoritative for these, so they never refuse a slice. An unmapped record
+# still makes that plate's usage analysis unknown (_plate_usage, #1155), so
+# it warns once through the readiness warnings; the filament it names is
+# never counted as used (#1184).
 _USAGE_NOT_A_FAILED_CLAIM = frozenset({USAGE_ABSENT, USAGE_NO_RECORDS, USAGE_UNMAPPED})
 
 
@@ -702,11 +705,14 @@ def _usage_row(status, filaments=(), evidence=None, reason=None):
 
 
 def _plate_membership(path, manifest):
-    """({plate_id: [part, ...]}, {object_id: plate_id}) from the source's own plate assignments.
+    """({plate_id: [part, ...]}, {object_id: [plate_id, ...]}) from the source's own plate assignments.
 
     Prefers model_job.plate_manifest (plater_id identity, the same identity
     slice_info usage records use); falls back to the inventory's per-part
-    plate annotation, then to one implicit plate holding every part.
+    plate annotation, then to one implicit plate holding every part. An
+    object with instances on several plates belongs to every one of them:
+    each of those plates prints its filaments (#1155), never only the last
+    plate listed.
     """
     parts = list(manifest.get('parts') or [])
     try:
@@ -715,23 +721,41 @@ def _plate_membership(path, manifest):
     except Exception:
         plates = None
     if plates:
-        object_plate = {str(oid): str(plate['id']) for plate in plates for oid in plate['object_ids']}
+        object_plates = {}
+        for plate in plates:
+            for oid in plate['object_ids']:
+                held = object_plates.setdefault(str(oid), [])
+                if str(plate['id']) not in held:
+                    held.append(str(plate['id']))
         grouped = {str(plate['id']): [] for plate in plates}
         for part in parts:
-            plate_id = object_plate.get(str(part.get('object_id')))
-            if plate_id is not None:
+            for plate_id in object_plates.get(str(part.get('object_id')), ()):
                 grouped[plate_id].append(part)
-        return grouped, object_plate
+        return grouped, object_plates
     if any(part.get('plate') is not None for part in parts):
-        grouped, object_plate = {}, {}
+        grouped, object_plates = {}, {}
         for part in parts:
             if part.get('plate') is None:
                 continue
             plate_id = str(part['plate'])
             grouped.setdefault(plate_id, []).append(part)
-            object_plate[str(part.get('object_id'))] = plate_id
-        return grouped, object_plate
-    return ({'1': parts} if parts else {}), {str(p.get('object_id')): '1' for p in parts}
+            held = object_plates.setdefault(str(part.get('object_id')), [])
+            if plate_id not in held:
+                held.append(plate_id)
+        return grouped, object_plates
+    return ({'1': parts} if parts else {}), {str(p.get('object_id')): ['1'] for p in parts}
+
+
+def _project_settings(path):
+    """The Bambu/Orca project_settings.config dict ({} when absent or not a JSON object)."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if 'Metadata/project_settings.config' not in archive.namelist():
+                return {}
+            project = json.loads(archive.read('Metadata/project_settings.config'))
+    except Exception:
+        return {}
+    return project if isinstance(project, dict) else {}
 
 
 def _prusa_role_extruders(path):
@@ -786,7 +810,7 @@ def _prusa_explicit_extruder_keys(path, parts):
             if volume.get('extruder') or entry['extruder']}
 
 
-def _prusa_role_usage(path, plate_parts, prusa_roles):
+def _prusa_role_usage(path, plate_parts, prusa_roles, palette_ids=None):
     """(wall filaments, infill filaments) for one plate of a PrusaSlicer project.
 
     A real PrusaSlicer config always writes perimeter_extruder and
@@ -797,56 +821,225 @@ def _prusa_role_usage(path, plate_parts, prusa_roles):
     color question) from the print-wide defaults (#1155).
     """
     explicit = _prusa_explicit_extruder_keys(path, plate_parts)
-    wall, infill = set(), set()
+    wall, infill, taken = set(), set(), set()
     for part in plate_parts:
         own = part.get('source_extruder')
         if part['key'] in explicit:
             wall.add(own)
             infill.add(own)
             continue
-        wall.add(prusa_roles.get('perimeter_extruder', own))
-        infill |= {prusa_roles[k] for k in ('infill_extruder', 'solid_infill_extruder')
-                   if k in prusa_roles} or {own}
+        role_wall = prusa_roles.get('perimeter_extruder', own)
+        role_infill = {prusa_roles[k] for k in ('infill_extruder', 'solid_infill_extruder')
+                       if k in prusa_roles} or {own}
+        wall.add(role_wall)
+        infill |= role_infill
+        taken |= ({role_wall} | role_infill) - {own}
+    if palette_ids is not None:
+        outside = sorted(e for e in taken if e is not None and e not in palette_ids)
+        if outside:
+            # Never a used filament (#1184): the slicer would clamp it to
+            # filament 1, which is a guess, so the usage is unknown.
+            raise _UsageUnknown('Metadata/Slic3r_PE.config names role extruder(s) '
+                                f'{outside} outside the project palette')
     return wall - {None}, infill - {None}
 
 
-def _height_range_extruders(path, object_plate):
+class _UsageUnknown(Exception):
+    """A usage class the source should determine but does not; the message is the reason."""
+
+
+def _unasked_is_unknown(row, asked, what):
+    """A known per-feature row whose filament no color question maps becomes unknown usage.
+
+    Per-feature filaments (#1155) were read as absent before; counting one
+    that no part or color row of the source already asks about would add a
+    new color question to an existing job and invalidate its saved
+    decisions. Such a filament is surfaced instead as unknown usage, which
+    warns and may be accepted (#1189); it is never added to the used set.
+    """
+    if row.get('status') != 'known':
+        return row
+    extra = sorted(set(row['source_filaments']) - set(asked))
+    if not extra:
+        return row
+    return _usage_row('unknown', reason=f'{what} names filament(s) {extra}, which no color question '
+                                        'of this source maps')
+
+
+# OrcaSlicer per-feature filament keys (project_settings.config and per-object /
+# per-part metadata). Bambu Studio writes none of them; a project that names
+# none keeps these classes 'not_carried_by_format'.
+_ORCA_FEATURE_KEYS = {'wall': ('wall_filament',),
+                      'infill': ('sparse_infill_filament', 'solid_infill_filament')}
+
+
+def _orca_feature_usage(path, plate_parts, project, palette_ids):
+    """{class: set(filaments)} for wall/infill from OrcaSlicer's per-feature keys, or None.
+
+    None when the project names no per-feature filament anywhere (a Bambu
+    Studio project). OrcaSlicer applies them in this order, each step
+    overriding the last: the print-wide value, the object's extruder (a
+    non-zero object extruder sets its wall and infill filaments), the
+    object's own feature keys, the part's extruder, the part's own feature
+    keys. A part whose object and part name no extruder has unknown object
+    usage already; the print-wide values are not added for it, so an
+    ordinary project gains no filament (and no question) from them. A value
+    outside the project palette, or one that is not a number, makes the
+    class unknown and is never counted as a used filament (#1184).
+    """
+    keys = [k for names in _ORCA_FEATURE_KEYS.values() for k in names]
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            settings = (ET.fromstring(archive.read('Metadata/model_settings.config'))
+                        if 'Metadata/model_settings.config' in names else None)
+    except Exception as exc:
+        raise _UsageUnknown(f'per-feature filament settings could not be read: {exc}')
+    levels = {}
+    if settings is not None:
+        for obj in settings.findall('object'):
+            obj_meta = {m.get('key'): m.get('value') for m in obj.findall('metadata')}
+            for part in obj.findall('part') or [obj]:
+                part_meta = ({m.get('key'): m.get('value') for m in part.findall('metadata')}
+                             if part is not obj else {})
+                levels[(str(obj.get('id')), str(part.get('id')))] = (obj_meta, part_meta)
+    carried = any(k in project for k in keys) or any(
+        k in meta for obj_meta, part_meta in levels.values() for meta in (obj_meta, part_meta)
+        for k in keys)
+    if not carried:
+        return None
+
+    def number(value, where):
+        try:
+            parsed = int(str(value).strip())
+            if parsed < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise _UsageUnknown(f'{where} is not a filament number: {value!r}') from None
+        if parsed and parsed not in palette_ids:
+            raise _UsageUnknown(f'{where} names filament {parsed}, outside the project palette')
+        return parsed
+
+    out = {name: set() for name in _ORCA_FEATURE_KEYS}
+    for part in plate_parts:
+        own = part.get('source_extruder')
+        obj_meta, part_meta = levels.get((str(part.get('object_id')), str(part.get('part_id'))), ({}, {}))
+        for name, feature_keys in _ORCA_FEATURE_KEYS.items():
+            for key in feature_keys:
+                # Starts at the part's own filament: the print-wide value
+                # applies only to a part with no extruder anywhere, whose
+                # object usage is already unknown, and is not added.
+                value = own
+                for level, meta in (('object', obj_meta), ('part', part_meta)):
+                    if meta.get('extruder') not in (None, '', '0'):
+                        value = own  # a non-zero extruder sets this level's features
+                    if key in meta:
+                        chosen = number(meta[key], f'{key} for {level} {part.get("object_id")}')
+                        if chosen:  # 0 names no override
+                            value = chosen
+                if value is not None:
+                    out[name].add(value)
+    return out
+
+
+def _orca_tower_usage(project, palette_ids, plate_filaments):
+    """The tower class row for an OrcaSlicer project, or None when the format names no tower filament.
+
+    wipe_tower_filament 0 means the tower prints with the filaments in play;
+    a non-zero value is a used filament only on a plate that prints a prime
+    tower at all (prime tower enabled and more than one filament on it), so
+    a single-color plate never gains a tower filament or a question.
+    """
+    if 'wipe_tower_filament' not in project:
+        return None
+    raw = project.get('wipe_tower_filament')
+    if isinstance(raw, list):
+        raw = raw[0] if raw else None
+    try:
+        tower = int(str(raw).strip())
+        if tower < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return _usage_row('unknown', reason=f'wipe_tower_filament is not a filament number: {raw!r}')
+    enabled = str(project.get('enable_prime_tower', '')).strip().lower() in ('1', 'true')
+    if not tower or not enabled or len(plate_filaments) < 2:
+        return _usage_row('known', evidence='no distinct tower filament prints on this plate '
+                                            '(wipe_tower_filament 0, no prime tower, or one filament)')
+    if tower not in palette_ids:
+        return _usage_row('unknown', reason=f'wipe_tower_filament names filament {tower}, '
+                                            'outside the project palette')
+    return _usage_row('known', {tower}, evidence='wipe_tower_filament in the project settings')
+
+
+def _height_range_extruders(path, object_plates, parts, palette_ids):
     """({plate_id: set(extruders)}, unknown_reason) from layer_config_ranges.xml.
 
     A height range with opt_key 'extruder' assigns a filament to an object's
-    layers between min_z and max_z. An absent member is known-empty; a member
-    that cannot be parsed, or a range whose extruder value is not a valid
-    source filament ID, makes the class unknown — never absent.
+    layers between min_z and max_z. Bambu Studio and OrcaSlicer key each
+    <object> by its 1-based model-object index (the order of the objects in
+    Metadata/model_settings.config), not by its 3MF resource id (#1155).
+    Extruder 0 is the object's own filament. An absent member is
+    known-empty; a member that cannot be parsed, a range whose object index
+    names no object, or a range whose extruder is not a filament of the
+    project palette makes the class unknown — never absent, and an
+    out-of-palette value is never counted as a used filament.
     """
     try:
         with zipfile.ZipFile(path) as archive:
-            if 'Metadata/layer_config_ranges.xml' not in archive.namelist():
+            names = archive.namelist()
+            if 'Metadata/layer_config_ranges.xml' not in names:
                 return {}, None
             data = archive.read('Metadata/layer_config_ranges.xml')
+            settings = (archive.read('Metadata/model_settings.config')
+                        if 'Metadata/model_settings.config' in names else None)
     except Exception as exc:
         return {}, f'layer_config_ranges.xml could not be read: {exc}'
     try:
         root = ET.fromstring(data)
+        object_order = ([str(obj.get('id')) for obj in ET.fromstring(settings).findall('object')]
+                        if settings is not None else None)
     except ET.ParseError:
         return {}, 'layer_config_ranges.xml could not be parsed'
+    if object_order is None:
+        return {}, ('layer_config_ranges.xml keys its ranges by model-object index, but the '
+                    'source has no Metadata/model_settings.config object list to resolve them')
+    own = {}
+    for part in parts:
+        own.setdefault(str(part.get('object_id')), set()).add(part.get('source_extruder'))
     out = {}
     for obj in root.iter():
         if obj.tag.split('}')[-1] != 'object':
             continue
-        plate_id = object_plate.get(str(obj.get('id')))
-        if plate_id is None:
+        options = [option for option in obj.iter()
+                   if option.tag.split('}')[-1] == 'option' and option.get('opt_key') == 'extruder']
+        if not options:
             continue
-        for option in obj.iter():
-            if option.tag.split('}')[-1] != 'option' or option.get('opt_key') != 'extruder':
-                continue
+        try:
+            index = int(str(obj.get('id')).strip())
+            if not 1 <= index <= len(object_order):
+                raise ValueError
+        except ValueError:
+            return {}, (f"height range names object index {obj.get('id')!r}, which is not an "
+                        'object of this project')
+        object_id = object_order[index - 1]
+        plate_ids = object_plates.get(object_id) or []
+        for option in options:
             try:
                 extruder = int(str(option.text or '').strip())
-                if extruder < 1:
+                if extruder < 0:
                     raise ValueError
             except ValueError:
-                return {}, (f"height range for object {obj.get('id')} names an invalid "
+                return {}, (f"height range for object {object_id} names an invalid "
                             f"extruder {option.text!r}")
-            out.setdefault(plate_id, set()).add(extruder)
+            if extruder == 0:
+                filaments = own.get(object_id) or set()  # the object's own filament
+            elif extruder in palette_ids:
+                filaments = {extruder}
+            else:
+                return {}, (f'height range for object {object_id} names filament {extruder}, '
+                            'outside the project palette')
+            for plate_id in plate_ids:
+                out.setdefault(plate_id, set()).update(f for f in filaments if f)
     return out, None
 
 
@@ -903,7 +1096,7 @@ def _plate_usage(path, manifest):
     parts = manifest.get('parts') or []
     if not parts:
         return {}
-    grouped, object_plate = _plate_membership(path, manifest)
+    grouped, object_plates = _plate_membership(path, manifest)
     if not grouped:
         return {}
     designated = manifest.get('support_filaments') or {}
@@ -914,15 +1107,24 @@ def _plate_usage(path, manifest):
     # project as well; range-checking them against the palette is this
     # function's job (see author_settings.support_designation).
     from . import author_settings
-    raw_designation = author_settings.support_designation(path)
+    raw_designation, designation_problem = author_settings.support_designation_status(path)
     designated = {field: (raw_designation.get(field)
                           if raw_designation.get(field) is not None
                           else designated.get(field))
                   for field in ('base', 'interface')}
     prusa_roles = _prusa_role_extruders(path)
-    range_extruders, range_unknown = _height_range_extruders(path, object_plate)
     palette_ids = {int(row['source_extruder']) for row in manifest.get('filaments') or []
                    if row.get('source_extruder') is not None}
+    range_extruders, range_unknown = _height_range_extruders(path, object_plates, parts, palette_ids)
+    project = _project_settings(path)
+    # The filaments a color question of this source already maps (part rows,
+    # height-change rows, support rows, the palette of a painted source).
+    asked = {p.get('source_extruder') for p in parts}
+    asked |= {r.get('source_extruder') for r in manifest.get('layer_changes') or []}
+    asked |= {e for e in (manifest.get('support_filaments') or {}).values() if e}
+    if manifest.get('painted'):
+        asked |= palette_ids
+    asked.discard(None)
     invalid_designations = {name: ext for name, ext in designated.items()
                             if ext is not None and ext not in palette_ids}
     stats_plates = ((manifest.get('filament_stats') or {}).get('plates')) or {}
@@ -959,17 +1161,40 @@ def _plate_usage(path, manifest):
             classes['height_ranges'] = _usage_row(
                 'known', range_extruders.get(str(plate_id), ()),
                 evidence='Metadata/layer_config_ranges.xml extruder ranges for this plate')
-        # Wall / infill: only the PrusaSlicer format names per-feature
-        # extruders; a Bambu/Orca project carries no distinct assignment.
+        # Wall / infill: PrusaSlicer names per-feature extruders in its
+        # config, OrcaSlicer in its per-feature filament keys; a Bambu Studio
+        # project carries no distinct assignment (not_carried_by_format).
+        orca_features = None
         if prusa_roles:
-            wall, infill = _prusa_role_usage(path, plate_parts, prusa_roles)
-            classes['wall'] = _usage_row('known', wall,
-                                         evidence='perimeter_extruder in Metadata/Slic3r_PE.config, '
-                                                  'for parts whose object names no extruder')
-            classes['infill'] = _usage_row('known', infill,
-                                           evidence='infill_extruder in Metadata/Slic3r_PE.config, '
-                                                    'for parts whose object names no extruder')
+            try:
+                wall, infill = _prusa_role_usage(path, plate_parts, prusa_roles, palette_ids)
+            except _UsageUnknown as exc:
+                classes['wall'] = _usage_row('unknown', reason=str(exc))
+                classes['infill'] = _usage_row('unknown', reason=str(exc))
+            else:
+                classes['wall'] = _usage_row('known', wall,
+                                             evidence='perimeter_extruder in Metadata/Slic3r_PE.config, '
+                                                      'for parts whose object names no extruder')
+                classes['infill'] = _usage_row('known', infill,
+                                               evidence='infill_extruder in Metadata/Slic3r_PE.config, '
+                                                        'for parts whose object names no extruder')
         else:
+            try:
+                orca_features = _orca_feature_usage(path, plate_parts, project, palette_ids)
+            except _UsageUnknown as exc:
+                classes['wall'] = _usage_row('unknown', reason=str(exc))
+                classes['infill'] = _usage_row('unknown', reason=str(exc))
+                orca_features = False
+        if orca_features:
+            classes['wall'] = _unasked_is_unknown(_usage_row(
+                'known', orca_features['wall'],
+                evidence='wall_filament (project, object and part settings) over the object filament'),
+                asked, 'wall_filament')
+            classes['infill'] = _unasked_is_unknown(_usage_row(
+                'known', orca_features['infill'],
+                evidence='sparse_infill_filament / solid_infill_filament (project, object and part '
+                         'settings) over the object filament'), asked, 'the infill filament settings')
+        elif orca_features is None and not prusa_roles:
             classes['wall'] = _usage_row(
                 'not_carried_by_format',
                 reason='the source project format names no separate wall filament; walls print '
@@ -984,7 +1209,10 @@ def _plate_usage(path, manifest):
         invalid_here = {name: ext for name, ext in invalid_designations.items()
                         if (name == 'base' and base is not None) or
                            (name == 'interface' and interface is not None)}
-        if invalid_here:
+        if designation_problem:
+            classes['support'] = _usage_row('unknown', reason=designation_problem)
+            classes['interface'] = _usage_row('unknown', reason=designation_problem)
+        elif invalid_here:
             reason = 'support designation names source filament outside project palette: ' + \
                      ', '.join(f'{name}={ext}' for name, ext in sorted(invalid_here.items()))
             classes['support'] = _usage_row('unknown', reason=reason)
@@ -996,6 +1224,15 @@ def _plate_usage(path, manifest):
                 'known', {interface or base},
                 evidence='support interface filament designated in the source project settings'
                 if interface else 'support interface prints with the designated support filament')
+        elif interface:
+            # An interface-only designation (#1155): the support body prints
+            # with the object filament, the interface with the named one.
+            classes['support'] = _usage_row(
+                'known', evidence='no dedicated support filament designated; supports print '
+                                  'with the object filament')
+            classes['interface'] = _usage_row(
+                'known', {interface},
+                evidence='support interface filament designated in the source project settings')
         else:
             classes['support'] = _usage_row(
                 'known', evidence='no dedicated support filament designated; supports print '
@@ -1003,11 +1240,17 @@ def _plate_usage(path, manifest):
             classes['interface'] = _usage_row(
                 'known', evidence='no dedicated support interface filament designated; the interface '
                                   'prints with the object filament')
-        # Tower: neither source format names a distinct tower filament.
-        classes['tower'] = _usage_row(
-            'not_carried_by_format',
-            reason='the source project format names no wipe/prime tower filament; the tower prints '
-                   'with the filaments in play and no distinct tower assignment is carried')
+        # Tower: only an OrcaSlicer project names a distinct tower filament.
+        in_play = set()
+        for name in _USAGE_CLASSES[:-1]:
+            if classes[name]['status'] == 'known':
+                in_play |= set(classes[name]['source_filaments'])
+        tower_row = None if prusa_roles else _orca_tower_usage(project, palette_ids, in_play)
+        classes['tower'] = (tower_row and _unasked_is_unknown(tower_row, asked, 'wipe_tower_filament')) \
+            or _usage_row(
+                'not_carried_by_format',
+                reason='the source project format names no wipe/prime tower filament; the tower prints '
+                       'with the filaments in play and no distinct tower assignment is carried')
         used, filament_classes = set(), {}
         for name in _USAGE_CLASSES:
             row = classes[name]
@@ -1039,8 +1282,13 @@ def _plate_usage(path, manifest):
                         f'slicer-reported filaments {sorted(slicer_set)} disagree with the source '
                         f'analysis filaments {sorted(used)} for plate {plate_id}')
                     entry['usage_known'] = False
-            elif reported.get('usage_unknown_reason') == USAGE_INVALID:
+            elif reported.get('usage_unknown_reason') in (USAGE_INVALID, USAGE_UNMAPPED):
+                # A damaged record, or one naming a filament outside the
+                # palette (#1155): the plate's usage is unknown. The unmapped
+                # filament is never added to the used set (#1184).
                 entry['usage_known'] = False
+                if reported.get('usage_unknown_reason') == USAGE_UNMAPPED:
+                    entry['slicer_unknown_reason'] = USAGE_UNMAPPED
         out[str(plate_id)] = entry
     return out
 

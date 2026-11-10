@@ -40,7 +40,9 @@ def ask(text, session_key, *, cfg=None, opener=None):
     the caller falls back to the honest agent-unavailable line.
     """
     agent = (cfg or _config.cfg())["agent"]
-    key = os.environ.get(str(agent.get("api_key_env") or "")) or ""
+    from .. import credential_binding
+    key = credential_binding.key_for("agent.chat_url", agent["chat_url"],
+                                     os.environ.get(str(agent.get("api_key_env") or "")) or "")
     headers = {"Content-Type": "application/json", SESSION_HEADER: str(session_key)}
     if key:
         headers["Authorization"] = f"Bearer {key}"
