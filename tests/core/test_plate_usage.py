@@ -203,6 +203,7 @@ class PlateUsageAnalysisTests(unittest.TestCase):
                             project_extra={"enable_support": "1", "support_filament": "3",
                                            "support_interface_filament": "9"})
         manifest = sc.inventory(path)
+        self.assertEqual(manifest["support_filaments"], {"base": 3, "interface": 9})
         for plate in ("1", "2"):
             entry = manifest["plate_usage"][plate]
             self.assertFalse(entry["usage_known"])

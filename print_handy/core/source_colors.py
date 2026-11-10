@@ -569,11 +569,11 @@ def inventory(path):
            'requires_choices': painted or len(parts) > 1 or len(filaments) > 1 or bool(layer_changes)}
     # A dedicated support filament (#867): the author named a filament for the
     # supports (and optionally another for the interface) that no part prints
-    # with. Recorded only when the designation names a real palette filament.
+    # with. Preserve out-of-palette designations so _plate_usage can mark
+    # their usage unknown rather than treating them as absent/default.
     from . import author_settings
     designation = author_settings.support_designation(path)
-    support = {field: (ext if ext and 1 <= ext <= len(filaments) else None)
-               for field, ext in designation.items()}
+    support = dict(designation)
     if support['base'] or support['interface']:
         res['support_filaments'] = support
     _append_filament_stats(path, res)
