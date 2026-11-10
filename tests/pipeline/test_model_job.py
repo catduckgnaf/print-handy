@@ -181,6 +181,27 @@ G1 X2 Y4 Z1e0
         with self.assertRaisesRegex(RuntimeError, "no bounded XYZ motion"):
             model_job.gcode_motion_bounds("G90\nG1 E10\n")
 
+    def test_firmware_syntax_the_old_regex_missed_is_read_like_the_firmware(self):
+        # S4: each of these was invisible to the API 2 parser.
+        base = "G90\nG1 X10 Y1 Z1\n"
+        self.assertEqual(model_job.gcode_motion_bounds(base + "G91;rel\nG1 X100\nG1 X100\nG1 X100\n")["x"],
+                         (10.0, 310.0))
+        self.assertEqual(model_job.gcode_motion_bounds(base + "G1X400\n")["x"], (10.0, 400.0))
+        self.assertEqual(model_job.gcode_motion_bounds(base + "N10 G1 X400\n")["x"], (10.0, 400.0))
+        with self.assertRaisesRegex(RuntimeError, "inch units"):
+            model_job.gcode_motion_bounds("G20;inch\n" + base)
+        with self.assertRaisesRegex(RuntimeError, "arc motion"):
+            model_job.gcode_motion_bounds(base + "G2;arc X50 Y50 I1 J1\n")
+
+    def test_offset_commands_are_refused_by_name(self):
+        base = "G90\nG1 X10 Y1 Z1\n"
+        for line in ("SET_GCODE_OFFSET X=300", "M206 X300", "M428", "G10 L2 P1 X300", "G54", "G59.1",
+                     "RESTORE_GCODE_STATE NAME=start"):
+            with self.subTest(line=line), self.assertRaisesRegex(RuntimeError, "^line 3: "):
+                model_job.gcode_motion_bounds(base + line + "\n")
+        # Firmware retraction and a bare M206 report do not shift coordinates.
+        self.assertEqual(model_job.gcode_motion_bounds(base + "G10\nG11\nM206\n")["x"], (10.0, 10.0))
+
     def test_homing_is_refused_as_unmodeled_motion(self):
         with self.assertRaisesRegex(RuntimeError, "unsupported motion-affecting command G28"):
             model_job.gcode_motion_bounds("G28\nG90\nG1 X10 Y10 Z1\n")

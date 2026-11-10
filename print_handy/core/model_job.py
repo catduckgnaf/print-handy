@@ -2069,60 +2069,97 @@ def show(job):
 NUMBER=r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?'
 
 
-_GCODE_LINE_RE = re.compile(r'(?im)^[ \t]*(G90|G91|G0?0|G0?1|G0?2|G0?3|G92|G28|G53|G20|FORCE_MOVE|MANUAL_STEPPER|STEPPER_BUZZ|SET_KINEMATIC_POSITION)(?=\s|$)([^;\r\n]*)')
+# One G-code line as Klipper and Marlin tokenize it (API 3, S4): optional
+# leading whitespace, an optional N<digits> line number, then either a
+# letter-number command word (G1, G01, G 1, G92.1; the parameters may be
+# glued on: G1X400) or a Klipper extended command name (SET_GCODE_OFFSET).
+# The words run to the first ';' (both firmwares end the command there) or
+# the end of the line. A '*checksum' needs no handling: it is not an axis
+# word. Parenthesised comments are deliberately NOT stripped: Klipper has
+# none and stock Marlin builds leave PAREN_COMMENTS off, so an axis word
+# inside parentheses is counted, which can only widen the bounds.
+_GCODE_LINE_RE = re.compile(
+    r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?'
+    r'(?:([GM])[^\S\n]*([0-9]+)(?:\.([0-9]+))?|([A-Z_][A-Z0-9_]*))'
+    r'([^;\n]*)')
 _GCODE_XYZ_RE = re.compile(r'([XYZ])\s*('+NUMBER+r')')
-_GCODE_SUPPORTED = {"G0", "G00", "G1", "G01"}
-_GCODE_FORBIDDEN = {"G28", "G53", "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"}
+# G10 sets work or tool offsets when it carries an L word or an axis word
+# (RepRapFirmware, Marlin CNC builds); bare G10 is firmware retraction.
+_GCODE_G10_OFFSET_RE = re.compile(r'[LXYZ]\s*' + NUMBER, re.I)
+# A carriage return followed by more text on the same line: Marlin ends
+# the line there, Klipper does not, so the two disagree on what runs.
+_GCODE_STRAY_CR_RE = re.compile(r'\r[^\S\n]*[^\s]')
+_GCODE_FORBIDDEN_NAMES = frozenset({"FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"})
+# Commands that change what later coordinates mean. The verifier cannot
+# model them, so they refuse by name (RESTORE_GCODE_STATE restores saved
+# offsets and the G90/G91 mode).
+_GCODE_OFFSET_NAMES = frozenset({"SET_GCODE_OFFSET", "RESTORE_GCODE_STATE"})
+# G numbers (leading zeros stripped) that refuse outright: homing, machine
+# coordinates, curves the verifier does not trace, direct stepper moves,
+# probing moves, and the work coordinate systems.
+_GCODE_G_FORBIDDEN = frozenset({"28", "53", "5", "6", "38"})
+_GCODE_G_WORK_OFFSETS = frozenset({"54", "55", "56", "57", "58", "59"})
+# G numbers the verifier interprets; any of them with a subcode (G92.1,
+# G91.1, G1.5) refuses, because firmwares disagree on what it means.
+_GCODE_G_KNOWN = frozenset({"0", "1", "2", "3", "5", "6", "10", "20", "28", "38", "53", "90", "91", "92"}
+                           | _GCODE_G_WORK_OFFSETS)
 
 
 _GCODE_XYZ_RE_I = re.compile(r'([XYZ])\s*(' + NUMBER + r')', re.I)
-_FAST_COMMANDS = frozenset({"G0", "G00", "G1", "G01", "G90", "G91", "G92"})
 
 
 def _gcode_motion_bounds_python(text):
     """Return fail-closed XYZ bounds for ordinary slicer G-code.
 
-    Same single finditer pass and same outcomes as the original scan
-    (#925), with the per-line overhead cut: the command is uppercased only
-    when it is not already a common uppercase spelling, the axis scan runs
-    case-insensitively over the line's words instead of over an uppercased
-    copy of them, and the position/bounds state lives in locals instead of
-    dicts. Every refusal keeps its original message and line number.
+    One finditer pass over the line-start commands (#925), with the
+    position/bounds state in locals. API 3 (S4) reads lines the way the
+    firmware does: a ';' ends the command even with no space before it
+    (``G91;rel``), parameters may be glued to the command (``G1X400``), an
+    ``N<digits>`` line number may lead, the command number may carry
+    leading zeros, and commands that shift later coordinates
+    (SET_GCODE_OFFSET, M206, M428, G10 L/axis, G54-G59) refuse by name.
     """
+    if "\r" in text:
+        stray = _GCODE_STRAY_CR_RE.search(text)
+        if stray is not None:
+            lineno = text.count("\n", 0, stray.start()) + 1
+            raise RuntimeError(f"line {lineno}: carriage return inside a line; firmwares split it "
+                               "differently, so bounds are ambiguous")
     absolute = True
     pos_x = pos_y = pos_z = float("nan")
     low_x = low_y = low_z = float("inf")
     high_x = high_y = high_z = float("-inf")
     recognized = 0
     for match in _GCODE_LINE_RE.finditer(text):
-        command = match.group(1)
-        if command not in _FAST_COMMANDS:
-            command = command.upper()
-        if command == "G90":
-            absolute = True
-        elif command == "G91":
-            absolute = False
-        elif command in _GCODE_FORBIDDEN:
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: unsupported motion-affecting command {command}")
-        elif command in ("G2", "G02", "G3", "G03"):
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: arc motion is unsupported by the bounds verifier")
-        elif command == "G20":
-            # Inch coordinates read as millimetres would shrink every bound
-            # about 25x and pass a print that cannot fit (#952 phase 2).
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: inch units (G20) are unsupported by the bounds verifier")
-        elif command == "G92":
-            if _GCODE_XYZ_RE.search(match.group(2).upper()):
+        letter, number, sub, name, words = match.groups()
+        if letter is None:
+            name = name.upper()
+            if name in _GCODE_FORBIDDEN_NAMES:
                 lineno = text.count("\n", 0, match.start()) + 1
-                raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
-        elif command in _GCODE_SUPPORTED:
+                raise RuntimeError(f"line {lineno}: unsupported motion-affecting command {name}")
+            if name in _GCODE_OFFSET_NAMES:
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: {name} changes coordinate offsets; bounds are ambiguous")
+            continue
+        if number[0] == "0" and len(number) > 1:
+            number = number.lstrip("0") or "0"
+        if letter == "M" or letter == "m":
+            # Marlin dispatches on the number alone, whatever the subcode.
+            if (number == "428" or number == "206" and _GCODE_XYZ_RE_I.search(words)):
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: M{number} changes coordinate offsets; bounds are ambiguous")
+            continue
+        if sub is not None:
+            if number in _GCODE_G_KNOWN:
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: unsupported motion-affecting command G{number}.{sub}")
+            continue
+        if number == "1" or number == "0":
             found = False
-            for xyz_match in _GCODE_XYZ_RE_I.finditer(match.group(2)):
-                axis, number = xyz_match.groups()
+            for xyz_match in _GCODE_XYZ_RE_I.finditer(words):
+                axis, value_text = xyz_match.groups()
                 found = True
-                value = float(number)
+                value = float(value_text)
                 if axis == "X" or axis == "x":
                     if absolute:
                         pos_x = value
@@ -2161,6 +2198,28 @@ def _gcode_motion_bounds_python(text):
                         high_z = pos_z
             if found:
                 recognized += 1
+        elif number == "90":
+            absolute = True
+        elif number == "91":
+            absolute = False
+        elif number == "92":
+            if _GCODE_XYZ_RE.search(words.upper()):
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
+        elif number == "2" or number == "3":
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: arc motion is unsupported by the bounds verifier")
+        elif number == "20":
+            # Inch coordinates read as millimetres would shrink every bound
+            # about 25x and pass a print that cannot fit (#952 phase 2).
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: inch units (G20) are unsupported by the bounds verifier")
+        elif number in _GCODE_G_FORBIDDEN:
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: unsupported motion-affecting command G{number}")
+        elif number in _GCODE_G_WORK_OFFSETS or number == "10" and _GCODE_G10_OFFSET_RE.search(words):
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: G{number} changes coordinate offsets; bounds are ambiguous")
     if not recognized:
         raise RuntimeError("no bounded XYZ motion found")
     missing = [axis for axis, low in (("X", low_x), ("Y", low_y), ("Z", low_z)) if low == float("inf")]
@@ -2188,13 +2247,27 @@ def _gcode_motion_bounds_python(text):
 # A native refusal (BoundsRefusal, a RuntimeError) propagates unchanged.
 # Any other native error falls back to the Python parser for that input,
 # is logged, and disables the native path for the rest of the process.
-_BOUNDS_NATIVE_API_VERSION = 2  # 2: G20 refused (#952 phase 2)
+# The bounds semantics version. It is the native API version (a native
+# build of any other version is never used) and part of the bounds cache
+# key and the full-verification marker, so a verdict reached by an older
+# parser is never reused. Bump it on any semantic change.
+# 2: G20 refused (#952 phase 2). 3: firmware tokenization (';' ends a
+# command, glued parameters, N line numbers) and offset commands refused (S4).
+BOUNDS_PARSER_VERSION = 3
+_BOUNDS_NATIVE_API_VERSION = BOUNDS_PARSER_VERSION
 _BOUNDS_SELF_CHECK_OK = (
     ("G90\nG1 X1 Y2 Z3\n", {"x": (1.0, 1.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
     ("G90\nG1 X-5 Y2 Z3\nG91\nG1 X5\n", {"x": (-5.0, 0.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
+    # API 3: ';' ends a command, glued parameters, line numbers.
+    ("G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nN7 G1X100*12\n",
+     {"x": (10.0, 210.0), "y": (1.0, 1.0), "z": (1.0, 1.0)}),
 )
-_BOUNDS_SELF_CHECK_REFUSAL = (
-    "G90\nG2 X1 Y1\n", "line 2: arc motion is unsupported by the bounds verifier")
+_BOUNDS_SELF_CHECK_REFUSALS = (
+    ("G90\nG2 X1 Y1\n", "line 2: arc motion is unsupported by the bounds verifier"),
+    ("G90\nG1 X1 Y1 Z1\nSET_GCODE_OFFSET X=300\n",
+     "line 3: SET_GCODE_OFFSET changes coordinate offsets; bounds are ambiguous"),
+    ("G20;inch\nG1 X1 Y1 Z1\n", "line 1: inch units (G20) are unsupported by the bounds verifier"),
+)
 _native_bounds_module = None
 _native_bounds_broken = False
 # A Rust panic inside the extension reaches Python as PyO3's
@@ -2228,14 +2301,14 @@ def _load_native_bounds():
         for text, expected in _BOUNDS_SELF_CHECK_OK:
             if module.parse_bounds(text) != expected:
                 raise ValueError(f"native bounds self-check mismatch for {text!r}")
-        text, message = _BOUNDS_SELF_CHECK_REFUSAL
-        try:
-            module.parse_bounds(text)
-        except module.BoundsRefusal as refusal:
-            if str(refusal) != message:
-                raise ValueError(f"native bounds self-check refusal mismatch: {refusal}")
-        else:
-            raise ValueError("native bounds self-check refusal did not raise")
+        for text, message in _BOUNDS_SELF_CHECK_REFUSALS:
+            try:
+                module.parse_bounds(text)
+            except module.BoundsRefusal as refusal:
+                if str(refusal) != message:
+                    raise ValueError(f"native bounds self-check refusal mismatch: {refusal}")
+            else:
+                raise ValueError(f"native bounds self-check refusal did not raise for {text!r}")
     except BaseException as exc:
         if isinstance(exc, _BOUNDS_NEVER_SWALLOW):
             raise

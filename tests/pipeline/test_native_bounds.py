@@ -32,7 +32,7 @@ import pytest
 from print_handy.core import model_job
 from tests.pipeline.native_bounds_corpus import CASES, EXPECTED
 
-assert len(CASES) == len(EXPECTED) == 112
+assert len(CASES) == len(EXPECTED) == 162
 
 
 def _outcome(fn, text):
@@ -274,6 +274,20 @@ def test_self_check_failure_falls_back(monkeypatch):
     assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
 
+def test_a_native_build_with_the_old_tokenizer_is_never_used(monkeypatch):
+    """S4: a native module that claims the current API but still misses
+    ``G91;rel`` (the API 2 tokenizer) fails the golden self-check, so the
+    dispatcher keeps the stricter Python reading instead of trusting it."""
+    def old_tokenizer(text):
+        # API 2 read "G91;rel" as no command: emulate by dropping it.
+        return _fake_module().parse_bounds(text.replace("G91;rel\n", ""))
+
+    _install_fake(monkeypatch, _fake_module(parse_bounds=old_tokenizer))
+    text = "G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nG1 X100\nG1 X100\n"
+    assert model_job.gcode_motion_bounds(text)["x"] == (10.0, 310.0)
+    assert model_job._native_bounds_broken
+
+
 def test_mid_parse_internal_error_falls_back_and_sticks(monkeypatch):
     fake = _fake_module()
     real = fake.parse_bounds
@@ -300,16 +314,22 @@ def test_mid_parse_internal_error_falls_back_and_sticks(monkeypatch):
 
 def test_refusal_propagates_from_the_native_path(monkeypatch):
     fake = _fake_module()
+    real = fake.parse_bounds
+    calls = []
 
     def refusing(text):
-        if "G2" in text:
+        calls.append(text)
+        if text.startswith("G90\nG2 "):
             raise _FakeRefusal("line 2: arc motion is unsupported by the bounds verifier")
-        return model_job._gcode_motion_bounds_python(text)
+        return real(text)
 
     fake.parse_bounds = refusing
     _install_fake(monkeypatch, fake)
     with pytest.raises(RuntimeError, match="arc motion is unsupported"):
-        model_job.gcode_motion_bounds("G90\nG2 X1 Y1\n")
+        model_job.gcode_motion_bounds("G90\nG2 X1 Y3\n")
+    # The refusal came from the verified native path, not from a fallback.
+    assert "G90\nG2 X1 Y3\n" in calls
+    assert not model_job._native_bounds_broken
 
 
 def test_malformed_native_result_falls_back(monkeypatch):
