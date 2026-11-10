@@ -9,6 +9,7 @@ import importlib.util
 import inspect
 import logging
 import sys
+from pathlib import Path
 
 from .. import settings
 
@@ -21,6 +22,16 @@ MODULE_NAME = "print_handy_print_feedback"
 def load_plugin(path=PLUGIN, name=MODULE_NAME):
     if name in sys.modules:
         return sys.modules[name]
+    if not Path(path).is_file():
+        # The handlers live outside the package (plugins/print-feedback), so
+        # an install that ships only the wheel has no command handlers at
+        # all. Fail loudly and name what is missing (#1146) instead of
+        # surfacing a bare FileNotFoundError from the import machinery.
+        raise RuntimeError(
+            f"the print-feedback command handlers were not found at {path}: "
+            "this install is missing plugins/print-feedback/__init__.py, so "
+            "no chat commands can be served. Run from a source checkout or "
+            "an image that includes the plugins folder.")
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
