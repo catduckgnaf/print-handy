@@ -185,4 +185,4 @@ Draft pull requests describe pending work, not installed or released capabilitie
 
 ## License
 
-Print Handy is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). Version 2.2.7 and earlier were released under the MIT License; [NOTICE](NOTICE) keeps those terms for the code carried forward.
+Print Handy is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). Version 2.2.7 and earlier were released under the MIT License; [NOTICE](NOTICE) keeps those terms for the code carried forward. The third-party components the image and the wheel ship, with the license each ships under, are listed in [docs/COMPONENTS.md](docs/COMPONENTS.md).

@@ -21,6 +21,13 @@ two plain links to ``GET /theme`` (see server.py), which sets the cookie
 and redirects back — no script is involved anywhere in the theme flow.
 The cookie is a browser presentation preference only; it is not a
 setting and no environment variable mirrors it.
+
+Every page also carries a source footer (#1158): Print Handy is
+AGPL-3.0-only, and section 13 of that license expects a user
+interacting over a network to be offered the corresponding source.
+The footer names the running version and links the source tree at
+that version's tag. It renders on bare (``chrome=False``) pages too —
+the login page is the first page a network user reaches.
 """
 from __future__ import annotations
 
@@ -33,6 +40,11 @@ from .. import __version__
 THEME_COOKIE = "ph-theme"
 THEMES = ("dark", "light")
 DEFAULT_THEME = "dark"
+
+# The public source repository. Releases are tagged with the bare
+# version (for example "2.2.7"), so the source tree for the running
+# version is SOURCE_REPO + "/tree/" + __version__.
+SOURCE_REPO = "https://github.com/catduckgnaf/print-handy"
 
 # The surfaces the header navigates to: only pages that exist. (The
 # Spools page arrived with #789 while this shell was being built; the
@@ -126,6 +138,11 @@ nav.pills a.active { background: var(--color-ink); color: var(--color-bg); }
   color: var(--color-muted); text-decoration: none; font-size: 0.875rem;
 }
 .theme-toggle a.active { background: var(--color-ink); color: var(--color-bg); }
+footer.source-footer {
+  border-top: 1px solid var(--color-line);
+  padding: 1rem 0 2rem; color: var(--color-muted); font-size: 0.85rem;
+}
+footer.source-footer a { color: var(--color-accent); }
 main .wrap { padding-top: 1.5rem; padding-bottom: 3rem; }
 h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 1rem; }
 h2 { font-size: 1.125rem; font-weight: 600; margin: 1.75rem 0 0.75rem; }
@@ -309,6 +326,22 @@ def _header(path, theme, nav=None):
             "</div></div></header>")
 
 
+def _footer():
+    """The source offer every page carries (#1158).
+
+    Links the source tree at the running version's tag and the license
+    text beside it, so a network user can get the corresponding source
+    for the exact version serving them (AGPL section 13).
+    """
+    return ('<footer class="source-footer"><div class="wrap">'
+            f"Print Handy {_esc(__version__)} is free software under the "
+            f'<a href="{SOURCE_REPO}/blob/{_esc(__version__)}/LICENSE">'
+            "AGPL-3.0-only</a> license. "
+            f'<a href="{SOURCE_REPO}/tree/{_esc(__version__)}">'
+            "Get the source for this version</a>."
+            "</div></footer>")
+
+
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
          eyebrow="", banner="", nav=None):
     """One full HTML document in the shared shell.
@@ -321,7 +354,8 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     above the heading. ``nav`` overrides the header navigation for this
     page only (the Data/Wrapped pages pass the extended nav when that
     feature is on, #956); the default is :data:`NAV`, unchanged for
-    every existing page. Every interpolated value here is escaped by
+    every existing page. The source footer (#1158) is appended on every
+    page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
     theme_attr = ' data-theme="light"' if theme == "light" else ""
@@ -342,12 +376,13 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
         parts.append(f"<h1>{_esc(heading)}</h1>")
     parts.append(body)
     parts.append("</div></main>")
+    parts.append(_footer())
     parts.append(SUBMIT_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
+    "CSS", "DEFAULT_THEME", "NAV", "SOURCE_REPO", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]
