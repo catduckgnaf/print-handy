@@ -11,7 +11,7 @@
 
 Discord is optional too: the same bot runs on Telegram or Matrix, and the local Web UI covers status, settings and spools on the machine itself. AI extras are add-ons, never the price of entry.
 
-Current release: **2.2.7**
+Current release: **2.2.9**
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -70,8 +70,8 @@ Docker is the easy route: one container, everything inside. You need a 64-bit Li
 
 ```bash
 mkdir print-handy && cd print-handy
-curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.7/docker-compose.yml
-curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.7/.env.example -o .env
+curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/docker-compose.yml
+curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/.env.example -o .env
 mkdir -p data/state data/hermes data/archive data/records data/cache data/spoolman
 sudo chown -R 1000:1000 data    # the container runs as uid 1000
 ```
