@@ -579,3 +579,39 @@ def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
     # wall_loops was carried by the author: kept. brim_width / skirt_loops are
     # template values identical in target and selected, never carried: dropped.
     assert set(result["settings"]) == {"wall_loops"}
+
+
+def test_a_plain_stl_slice_records_no_designer_intent_and_attributes_selected_values(tmp_path):
+    # A plain STL has no designer metadata at all: its record must not say
+    # "designer intent unknown"; values the operator or the job set are
+    # attributed to them, not to an unknown designer.
+    from print_handy.hermes import discord_print_summary as summary
+    from tests.corpus.make_models import write_stl
+    stl = tmp_path / "part.stl"
+    write_stl(stl, box(20, 20, 10))
+    state = copy.deepcopy(model_job.printer_state.load())
+    with patch.object(orca_adapter.subprocess, "run", side_effect=fake_slice):
+        _out, provenance, _configs = orca_adapter.slice_model(stl, tmp_path / "out", state, brim=7)
+    record = provenance["conversion_provenance"]
+    assert record["intent_status"] == "not_applicable"
+    assert record["unresolved_conflicts"] == []
+    assert {row["origin"] for row in record["settings"].values()} == {"not_applicable"}
+    assert "unknown" not in {row["origin"] for row in record["settings"].values()}
+    brim = record["settings"]["brim_width"]
+    assert brim["selected_value"] == "7" and brim["selected_reason"] == "operator"
+    if "gap_fill_target" in record["settings"]:
+        assert record["settings"]["gap_fill_target"]["selected_reason"] == "compatibility_fallback"
+    assert "unattributed" not in {row["selected_reason"] for row in record["settings"].values()}
+    text = summary.format_slice_summary({"title": "x", "provenance": provenance})
+    assert "Conversion:" not in text
+
+
+def test_a_foreign_slice_attributes_designer_and_operator_values(tmp_path):
+    source = bambu_project(tmp_path / "carried.3mf", {"wall_loops": "4",
+                                                      "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source, brim=3, supports=False)
+    rows = provenance["conversion_provenance"]["settings"]
+    assert rows["wall_loops"]["selected_reason"] == "designer" and rows["wall_loops"]["origin"] == "designer"
+    assert rows["brim_width"]["selected_reason"] == "operator"
+    assert rows["enable_support"]["selected_reason"] == "operator"
+    assert "unattributed" not in {row["selected_reason"] for row in rows.values()}

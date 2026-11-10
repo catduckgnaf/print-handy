@@ -1499,31 +1499,50 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Gap fill falls back to 'everywhere' below, never to the templates' 'none' (not an Orca value).
     carried, author_notes = author_settings.carry(author, {**process, compat_registry.get_rule('gap-fill-default').parameters['key']: compat_registry.get_rule('gap-fill-default').parameters['default']}, PROCESS_KEYS)
     process.update(carried)
+    # Who set each process value that differs from the destination template, recorded where it is
+    # set (last writer wins), for the conversion provenance's selected_reason (#1110).
+    selected_by = {key: 'designer' if author.get(key) == value else 'compatibility_fallback'
+                   for key, value in carried.items()}
+
+    def _selected(reason, keys):
+        selected_by.update(dict.fromkeys(keys, reason))
     if 'wall_sequence' in carried:
         process.pop('wall_infill_order', None)  # the template's legacy spelling would override the author's order
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
     process['brim_type'] = json.loads((templates / 'process.json').read_text())['brim_type']
+    selected_by.pop('brim_type', None)
     process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', compat_registry.get_rule('gap-fill-default').parameters['default']),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})
+    _selected('job', ['filter_out_gap_fill'])
+    if 'gap_fill_target' not in carried:
+        _selected('compatibility_fallback', ['gap_fill_target'])
+    _selected('designer' if 'enable_support' in author else 'job', ['enable_support'])
+    _selected('operator' if brim is not None else 'designer' if 'brim_width' in author else 'job', ['brim_width'])
     if brim_policy is not None:
         process['brim_type'] = brim_policy.get('type', 'no_brim')
         process['brim_width'] = str(brim_policy.get('width_mm', 0))
+        _selected('job', ['brim_type', 'brim_width'])
     _painted = compat_registry.get_rule('painted-supports-enable-generation').parameters
     if (supports is None and not first_layer and str(process[_painted['key']]) != _painted['on_value']
             and author_settings.painted_supports(source)):
         # Painted support enforcers do nothing while generation is off (ForgeBridge rule): turn it on,
         # unless the operator decided supports for this job.
         process['enable_support'] = '1'
+        _selected('designer', ['enable_support'])
         author_notes.append('supports turned on: the model has painted support enforcers')
     if supports is not None:
         process.update({'enable_support': '1' if supports else '0'})
-        if supports:
-            process.setdefault('support_type', 'tree(auto)')
+        _selected('operator', ['enable_support'])
+        if supports and 'support_type' not in process:
+            process['support_type'] = 'tree(auto)'
+            _selected('operator', ['support_type'])
     if first_layer:
         process.update({'layer_height': '0.2', 'initial_layer_print_height': '0.2', 'wall_loops': '2',
                         'brim_width': '0', 'brim_type': 'no_brim', 'initial_layer_speed': '20',
                         'initial_layer_infill_speed': '20', 'enable_support': '0'})
+        _selected('job', ['layer_height', 'initial_layer_print_height', 'wall_loops', 'brim_width', 'brim_type',
+                          'initial_layer_speed', 'initial_layer_infill_speed', 'enable_support'])
     mesh = start_mesh_profile(state)
     machine['machine_start_gcode'] = printer.machine_start_gcode(machine['machine_start_gcode'], mesh)
     machine['machine_end_gcode'] = printer.machine_end_gcode(machine.get('machine_end_gcode', ''))
@@ -1550,15 +1569,20 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         process['line_width'] = str(tuned_profile.line_width)
         process['initial_layer_line_width'] = str(tuned_profile.initial_layer_line_width)
         process['internal_solid_infill_line_width'] = str(tuned_profile.line_width)
+        _selected('job', ['layer_height', 'initial_layer_print_height', 'line_width', 'initial_layer_line_width',
+                          'internal_solid_infill_line_width'])
     if author.get('wall_generator') == 'arachne' and not first_layer and not mapping:
         # The designer chose variable-width walls: treat it as a thin/print-in-place model
         # and use the flex profile so moving gaps are not fused (AD5X Flexy Ring guide).
         process.update(FLEX_PROFILE)
+        _selected('compatibility_fallback', FLEX_PROFILE)
         if supports:
             process.update({'enable_support': '1'})
+            _selected('operator', ['enable_support'])
         if brim_policy is not None:
             process['brim_type'] = brim_policy.get('type', 'no_brim')
             process['brim_width'] = str(brim_policy.get('width_mm', 0))
+            _selected('job', ['brim_type', 'brim_width'])
         geometry['thin_feature_profile'] = 'arachne flex (designer asked for arachne walls)'
     if edits and not first_layer:
         # Chat edit plans (#903): the operator's confirmed choices outrank
@@ -1566,26 +1590,33 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # against. (A first-layer test slice keeps its own fixed recipe.)
         if edits.get('support_type'):
             process['support_type'] = 'tree(auto)' if edits['support_type'] == 'tree' else 'normal(auto)'
+            _selected('operator', ['support_type'])
         if edits.get('support_plate_only') is not None:
             process['support_on_build_plate_only'] = '1' if edits['support_plate_only'] else '0'
+            _selected('operator', ['support_on_build_plate_only'])
         if edits.get('layer_height') is not None:
             process['layer_height'] = str(edits['layer_height'])
+            _selected('operator', ['layer_height'])
         if edits.get('infill_percent') is not None:
             process['sparse_infill_density'] = f"{edits['infill_percent']:g}%"
+            _selected('operator', ['sparse_infill_density'])
         if edits.get('label_objects'):
             # The copies probe slice (#903): the shipped AD5X profiles turn
             # object labels off, so the probe turns them on to count copies.
             process['gcode_label_objects'] = '1'
+            _selected('job', ['gcode_label_objects'])
         for key, value in (edits.get('profile') or {}).items():
             # Job-level profile settings (#978): only the allowlisted
             # process keys in edit_plan.PROFILE_SETTINGS are applied.
             from .edit_plan import PROFILE_SETTINGS as _PROFILE_KEYS
             if key in _PROFILE_KEYS:
                 process[key] = str(value)
+                _selected('operator', [key])
         geometry['edit_plan'] = json.dumps({k: v for k, v in edits.items() if k != 'mirror'},
                                            sort_keys=True)
     tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None
     if tree_note:
+        _selected('compatibility_fallback', ['support_style'])
         author_notes.append(tree_note)
     from .nozzle import get_nozzle_type_adjustments
     adj = get_nozzle_type_adjustments(nozzle_type)
@@ -1756,6 +1787,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         pointers = support_tool_pointers(manifest, color_decisions, mapping, multi_tool)
         for key, tool in pointers.items():
             process[key] = str(tool + 1)
+        _selected('designer', pointers)
         if pointers:
             geometry['support_filament'] = (
                 'the project named its own support filament; the spool picked for it is loaded '
@@ -1789,6 +1821,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                   flush=True)
             speed = float(cap)
         process['outer_wall_speed'] = str(round(speed, 1))
+        _selected('material_profile', ['outer_wall_speed'])
     configs = []
     for name, data in zip(('machine', 'process', 'filament'), (machine, process, filament)):
         path = folder / f'{name}.json'
@@ -1844,11 +1877,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         process.update({'enable_prime_tower': '1', **purge_process})
+        _selected('job', ['enable_prime_tower', *purge_process])
         if tower_mm:  # a towerless plan keeps the template's width; Orca range-checks it even when off
             process['prime_tower_width'] = '%g' % tower_mm
+            _selected('job', ['prime_tower_width'])
         if geometry.get('prime_tower_xy_mm'):
             tower_x, tower_y = geometry['prime_tower_xy_mm']
             process.update({'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y)})
+            _selected('job', ['wipe_tower_x', 'wipe_tower_y'])
         if purge_plan is not None and purge_plan.zmod:
             geometry['purge_plan'] = purge_plan.as_dict()
         if purge_mode == 0:
@@ -2075,11 +2111,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # retry that dropped them would approve an unsupported print (P2-65).
         resolved_support = process.get('enable_support')
         resolved_brim = (process.get('brim_type'), process.get('brim_width'))
+        resolved_by = dict(selected_by)
         process.update(FLEX_PROFILE)
+        _selected('compatibility_fallback', FLEX_PROFILE)
         if supports is not None:
             process['enable_support'] = resolved_support
+            selected_by['enable_support'] = resolved_by.get('enable_support', 'operator')
         if brim is not None or brim_policy is not None:
             process['brim_type'], process['brim_width'] = resolved_brim
+            for key in ('brim_type', 'brim_width'):
+                if key in resolved_by:
+                    selected_by[key] = resolved_by[key]
+                else:
+                    selected_by.pop(key, None)
         geometry['thin_feature_profile'] = 'arachne flex (AD5X Flexy Ring guide)'
         configs[1].write_text(json.dumps(process, indent=2) + '\n')
         if input_path.suffix.lower() == '.3mf':
@@ -2096,6 +2140,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         tried = [list(geometry['prime_tower_xy_mm'])]
         for tower_x, tower_y in geometry.get('prime_tower_candidates_mm', [])[1:]:
             process.update({'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y)})
+            _selected('job', ['wipe_tower_x', 'wipe_tower_y'])
             configs[1].write_text(json.dumps(process, indent=2) + '\n')
             output.unlink(missing_ok=True)
             (folder / 'result.json').unlink(missing_ok=True)
@@ -2357,7 +2402,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             destination_profile=author_settings.destination_profile_identity(
                 destination_process, templates),
             governing_rules=_governing_rules,
-            rules_outside_declared_versions=_rules_outside)
+            rules_outside_declared_versions=_rules_outside,
+            selected_reasons=selected_by)
     except Exception:
         _conversion_provenance = None
     if _conversion_provenance is not None:

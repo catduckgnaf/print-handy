@@ -209,8 +209,17 @@ def version_conflict_problems(outside):
 
 def conversion_provenance(source, target, process, author_process, author_notes, *,
                           destination_slicer_version=None, destination_profile=None,
-                          governing_rules=(), rules_outside_declared_versions=()):
+                          governing_rules=(), rules_outside_declared_versions=(),
+                          selected_reasons=None):
     """Build a per-slice record without guessing intent when source preset evidence is absent.
+
+    Designer intent only exists for a foreign slicer project. A plain STL or a
+    native job carries no designer settings, so its rows and intent_status say
+    'not_applicable' rather than 'unknown'. Each row's selected_reason names
+    who set the selected value: `selected_reasons` maps keys to the layer that
+    set them ('job', 'operator', 'material_profile', 'compatibility_fallback',
+    'designer'); an unmapped key whose selected value equals the target is
+    'destination_profile', and any other unmapped key is 'unattributed'.
 
     Version fields record only what a real source states: the source slicer
     and profile versions come from the source 3MF's own project and embedded
@@ -246,25 +255,31 @@ def conversion_provenance(source, target, process, author_process, author_notes,
         changed = changed[0] if changed else None
     explicit = ({key.strip() for key in changed.split(';') if key.strip()}
                 if isinstance(changed, str) else None)
+    foreign = raw['format'] != 'unknown'
+    selected_reasons = selected_reasons if isinstance(selected_reasons, dict) else {}
     entries = {}
     conflicts = []
-    for key in sorted(set(author_process) | set(target_settings)):
+    for key in sorted(set(author_process) | set(target_settings) | set(selected_reasons)):
         source_value = project_values.get(key)
         target_value = target_settings.get(key)
         preset_value = source_preset.get(key)
         deliberate = ((key in explicit) if explicit is not None else
                       (source_value != preset_value if key in source_preset and source_value is not None else None))
         selected = process.get(key)
-        origin = ('designer' if deliberate is True else 'inherited' if deliberate is False else 'unknown')
-        reason = (('different_settings_to_system' if deliberate else
+        origin = ('not_applicable' if not foreign else
+                  'designer' if deliberate is True else 'inherited' if deliberate is False else 'unknown')
+        reason = ('the source is not a slicer project; it carries no designer settings' if not foreign else
+                  ('different_settings_to_system' if deliberate else
                    'not in different_settings_to_system; inherited from the source preset')
                   if explicit is not None else
                   'project differs from exact source preset' if deliberate is True else
                   'project value matches exact source preset' if deliberate is False else
                   'exact source preset comparison unavailable; intent unknown')
+        selected_reason = selected_reasons.get(key) or (
+            'destination_profile' if selected == target_value else 'unattributed')
         entries[key] = {'source_preset_value': preset_value, 'project_value': source_value,
                         'target_value': target_value, 'selected_value': selected,
-                        'origin': origin, 'reason': reason}
+                        'selected_reason': selected_reason, 'origin': origin, 'reason': reason}
         if deliberate is True and source_value is not None and target_value is not None and source_value != target_value:
             conflicts.append({'key': key, 'source_value': source_value,
                               'target_value': target_value, 'selected_value': selected})
@@ -293,7 +308,8 @@ def conversion_provenance(source, target, process, author_process, author_notes,
             'rules_outside_declared_versions': [dict(row) for row in rules_outside_declared_versions or ()],
             # Agrees with the rows by construction: known only when every
             # recorded setting's origin is established (designer or inherited).
-            'intent_status': ('known' if (entries or explicit is not None)
+            'intent_status': ('not_applicable' if not foreign else
+                              'known' if (entries or explicit is not None)
                               and all(row['origin'] != 'unknown' for row in entries.values())
                               else 'unknown'),
             'settings': entries, 'unresolved_conflicts': conflicts,
