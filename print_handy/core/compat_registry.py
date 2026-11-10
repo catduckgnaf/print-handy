@@ -259,9 +259,11 @@ RULES = (
          "the fallback feeds the enumeration check like any other value.",
          (_TA + "::test_bad_enum_never_reaches_the_slice_profile",), (_FOREIGN,),
          {"key": "gap_fill_target", "default": "everywhere"}),
-    Rule("imported-auto-sentinel-normalization", "sentinel_normalization", "orca", "any", "orca", _ORCA,
+    Rule("imported-auto-sentinel-normalization", "sentinel_normalization", "any", "any", "orca", _ORCA,
          "Orca writes -1 for two 'automatic' values that its own CLI then rejects on an imported project; "
-         "exactly those two named keys are normalized from -1 to 0, and no other negative value is touched.",
+         "exactly those two named keys are normalized from -1 to 0, and no other negative value is touched. "
+         "It runs on every adopted project copy, which is Orca-format by then (a PrusaSlicer plate is "
+         "translated and seeded first), so it applies to any source.",
          (_TS + "::test_only_known_rejected_auto_sentinels_are_normalized",
           _TS + "::test_unknown_negative_and_unrejected_values_are_not_normalized"), (_REGISTRY_DOC,),
          {"sentinels": {'raft_first_layer_expansion': '-1', 'tree_support_wall_count': '-1'},
@@ -322,16 +324,20 @@ RULES = (
          (_TF + "::test_adopt_keeps_per_filament_list_shape_and_layer_range_intent",
           _TF + "::test_plugin_keys_are_stripped_from_plate_overrides"), (_FOREIGN,),
          {"structural_meta": ('name', 'extruder', 'matrix'), "exempt_prefix": "source_"}),
-    Rule("orca-percent-line-width-to-bambu-mm", "unit_conversion", "orca", _ORCA, "bambu_studio", "any",
+    Rule("orca-percent-line-width-to-bambu-mm", "unit_conversion", "any", "any", "bambu_studio", "any",
          "Bambu Studio reads Orca's percentage line widths as absolute millimeters. Orca percentages are "
          "relative to the destination machine's nozzle diameter, so each *_line_width value ending in % is "
          "converted with that diameter; the conversion fails closed when the diameter cannot be read, so "
-         "no percentage width reaches Bambu unconverted.",
+         "no percentage width reaches Bambu unconverted. The converted values are the job's own "
+         "Orca-named process (the destination templates plus carried author keys), whatever slicer made "
+         "the source project, so the rule applies to any source.",
          (_TO + "::test_bambu_fallback_converts_percent_line_widths",), (_EVIDENCE, _REGISTRY_DOC),
          {"key_suffix": "_line_width", "percent_marker": "%", "basis": "destination_nozzle_diameter"}),
-    Rule("orca-range-error-clamp", "value_clamp", "orca", _ORCA, "orca", _ORCA,
+    Rule("orca-range-error-clamp", "value_clamp", "any", "any", "orca", _ORCA,
          "Post-failure recovery only: a key Orca itself names in a range error is clamped to the bounds "
-         "Orca stated in that error. No key absent from the log is touched and nothing is pre-normalized.",
+         "Orca stated in that error. No key absent from the log is touched and nothing is pre-normalized. "
+         "The error comes from the destination Orca on the job's own private project copy, so the rule "
+         "applies to any source and its version range is the destination's.",
          (_TS + "::test_range_recovery_clamps_only_named_keys", _TS + "::test_list_values_clamped"),
          (_REGISTRY_DOC,), {"source": "orca_range_error_log"}),
     Rule("support-filament-designation", "designation_carry", "any", "any", "orca", _ORCA,

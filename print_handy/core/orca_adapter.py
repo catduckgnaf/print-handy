@@ -2292,6 +2292,50 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                            kind='guard')
     if baseline_gate.warnings:
         post_gate.warn(*baseline_gate.warnings)
+    # Which registry rules this slice applied, for the conversion provenance's
+    # governing rules (#1110): decided here, before the post-slice verdict, so a
+    # rule outside its declared versions can refuse readiness.
+    _source_family, _source_slicer_version, _source_format = author_settings.source_identity(source)
+    _candidates = set()
+    if _source_format != 'unknown':
+        # The carry and the process assembly run for every project source.
+        _candidates.update(('author-intent-allowlist', 'orca-enum-fallback',
+                            'designer-lowered-speed-carry', 'gap-fill-default'))
+    if _source_family == 'prusaslicer':
+        # read() translates a PrusaSlicer project through each of these.
+        _candidates.update(('prusa-key-translation', 'prusa-value-translation',
+                            'prusa-support-threshold-zero-drop', 'prusa-ironing-translation',
+                            'prusa-support-style-translation', 'prusa-wall-sequence-translation'))
+    if _project_copy_converted:
+        _candidates.update(('imported-auto-sentinel-normalization', 'imported-template-override',
+                            'settings-id-validation', 'wipe-tower-bed-clamp',
+                            'foreign-machine-key-removal', 'bed-type-replacement',
+                            'preset-bookkeeping-clearing', 'override-restriction'))
+        if _source_family == 'prusaslicer':
+            _candidates.add('prusa-plate-adoption-seeding')
+    if geometry.get('thin_feature_profile'):
+        _candidates.add('arachne-flex-profile')
+    if any('Tree Hybrid' in note for note in author_notes):
+        _candidates.add('organic-tree-hybrid-conversion')
+    if any('painted support' in note for note in author_notes):
+        _candidates.add('painted-supports-enable-generation')
+    if _range_clamped:
+        _candidates.add('orca-range-error-clamp')
+    if _bambu_widths_converted:
+        _candidates.add('orca-percent-line-width-to-bambu-mm')
+    _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
+                           'Flash Studio': 'flash_studio'}.get(slicer)
+    _destination_slicer_version = sg.slicer_version(generator)
+    _governing_rules, _rules_outside = author_settings.governing_rules(
+        _candidates, _source_family, _source_slicer_version,
+        _destination_family, _destination_slicer_version)
+    if _source_format != 'unknown':
+        # #1110 requirements 5 and 6: a foreign project converted by a rule
+        # whose declared versions do not cover this slice (an unknown version
+        # included) is an unsupported combination, refused like any other
+        # post-slice block. A plain STL or native job is never refused here.
+        for problem in author_settings.version_conflict_problems(_rules_outside):
+            post_gate.block(problem)
     if post_gate.status == 'blocked':
         raise SliceFailure('Post-slice guard blocked: ' + '; '.join(post_gate.blocked), kind='guard')
     warnings = gate.warnings + post_gate.warnings + baseline_gate.warnings
@@ -2307,46 +2351,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Provenance is a record about the slice, never a reason to lose it:
     # malformed or unexpected project data must not fail a finished slice.
     try:
-        _source_family, _source_slicer_version, _source_format = author_settings.source_identity(source)
-        _candidates = set()
-        if _source_format != 'unknown':
-            # The carry and the process assembly run for every project source.
-            _candidates.update(('author-intent-allowlist', 'orca-enum-fallback',
-                                'designer-lowered-speed-carry', 'gap-fill-default'))
-        if _source_family == 'prusaslicer':
-            # read() translates a PrusaSlicer project through each of these.
-            _candidates.update(('prusa-key-translation', 'prusa-value-translation',
-                                'prusa-support-threshold-zero-drop', 'prusa-ironing-translation',
-                                'prusa-support-style-translation', 'prusa-wall-sequence-translation'))
-        if _project_copy_converted:
-            _candidates.update(('imported-auto-sentinel-normalization', 'imported-template-override',
-                                'settings-id-validation', 'wipe-tower-bed-clamp',
-                                'foreign-machine-key-removal', 'bed-type-replacement',
-                                'preset-bookkeeping-clearing', 'override-restriction'))
-            if _source_family == 'prusaslicer':
-                _candidates.add('prusa-plate-adoption-seeding')
-        if geometry.get('thin_feature_profile'):
-            _candidates.add('arachne-flex-profile')
-        if any('Tree Hybrid' in note for note in author_notes):
-            _candidates.add('organic-tree-hybrid-conversion')
-        if any('painted support' in note for note in author_notes):
-            _candidates.add('painted-supports-enable-generation')
-        if _range_clamped:
-            _candidates.add('orca-range-error-clamp')
-        if _bambu_widths_converted:
-            _candidates.add('orca-percent-line-width-to-bambu-mm')
-        _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
-                               'Flash Studio': 'flash_studio'}.get(slicer)
-        _destination_slicer_version = sg.slicer_version(generator)
-        _governing_rules = author_settings.governing_rule_ids(
-            _candidates, _source_family, _source_slicer_version,
-            _destination_family, _destination_slicer_version)
         _conversion_provenance = author_settings.conversion_provenance(
             source, destination_process, process, author, author_notes,
             destination_slicer_version=_destination_slicer_version,
             destination_profile=author_settings.destination_profile_identity(
                 destination_process, templates),
-            governing_rules=_governing_rules)
+            governing_rules=_governing_rules,
+            rules_outside_declared_versions=_rules_outside)
     except Exception:
         _conversion_provenance = None
     if _conversion_provenance is not None:

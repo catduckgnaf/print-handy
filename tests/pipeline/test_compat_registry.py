@@ -87,7 +87,8 @@ def test_converter_tables_are_the_registry_tables():
 
 def test_percent_line_width_parity_with_registry():
     rule = compat_registry.get_rule("orca-percent-line-width-to-bambu-mm")
-    assert rule.source_family == "orca" and rule.destination_family == "bambu_studio"
+    # The converted values are the job's own Orca-named process, whatever made the source.
+    assert rule.source_family == "any" and rule.destination_family == "bambu_studio"
     out = orca_adapter.convert_percent_line_widths(
         {"inner_wall_line_width": "110%", "outer_wall_line_width": "100%", "layer_height": "0.2"}, 0.4)
     assert out == {"inner_wall_line_width": "0.44", "outer_wall_line_width": "0.4", "layer_height": "0.2"}
@@ -120,3 +121,43 @@ def test_hardware_only_key_protection_parity_with_registry(tmp_path):
 def test_registry_lookup_refuses_an_unknown_id():
     with pytest.raises(KeyError):
         compat_registry.get_rule("no-such-rule")
+
+
+def _shipped_orca_version():
+    text = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
+    versions = set(re.findall(r"^\s*version=([0-9][0-9.]*)\s*$", text, re.M))
+    assert len(versions) == 1, versions  # one bundled OrcaSlicer
+    return versions.pop()
+
+
+def test_the_shipped_orca_is_inside_every_rules_declared_versions():
+    # A foreign project converted by a rule whose declared versions do not
+    # cover the producing slicer is refused (author_settings.governing_rules):
+    # a slicer bump that leaves any rule's range must fail here first, so the
+    # rule is re-verified and its range widened deliberately.
+    shipped = _shipped_orca_version()
+    for rule in compat_registry.RULES:
+        if rule.destination_family in ("orca", "any"):
+            assert compat_registry.applies(rule.destination_versions, shipped), (rule.id, shipped)
+        if rule.source_family == "orca":
+            assert compat_registry.applies(rule.source_versions, shipped), (rule.id, shipped)
+
+
+def test_governing_rules_records_every_applied_rule_and_lists_version_mismatches():
+    applied = {"author-intent-allowlist", "orca-percent-line-width-to-bambu-mm", "prusa-key-translation"}
+    ids, outside = author_settings.governing_rules(applied, "orca", "01.09.00.70", "orca", "3.1.0")
+    # Every applied rule is recorded, in registry order, whatever its range says.
+    assert ids == [rule.id for rule in compat_registry.RULES if rule.id in applied]
+    rows = {(row["rule"], row["side"]) for row in outside}
+    # Orca 3.1 is outside the Orca rules' declared destination range; the
+    # Prusa rule also ran on a non-Prusa source. The line-width rule is not
+    # checked on its destination side (no Bambu Studio ran) and accepts any source.
+    assert rows == {("author-intent-allowlist", "destination"), ("prusa-key-translation", "destination"),
+                    ("prusa-key-translation", "source")}
+    # An unknown destination version is outside every restricted range.
+    _ids, outside = author_settings.governing_rules({"author-intent-allowlist"}, "orca", None, "orca", None)
+    assert [(row["rule"], row["side"], row["version"]) for row in outside] ==         [("author-intent-allowlist", "destination", None)]
+    # Inside the range: nothing outside.
+    assert author_settings.governing_rules(applied - {"prusa-key-translation"}, "orca", None, "orca", "2.5.0") ==         (["author-intent-allowlist", "orca-percent-line-width-to-bambu-mm"], [])
+    with pytest.raises(KeyError):
+        author_settings.governing_rules({"no-such-rule"}, None, None, "orca", "2.5.0")

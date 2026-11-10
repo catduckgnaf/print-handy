@@ -159,37 +159,57 @@ def destination_profile_identity(template, templates_dir=None):
     return {'name': template.get('name'), 'version': version}
 
 
-def governing_rule_ids(candidates, source_family, source_version,
-                       destination_family, destination_version):
-    """The registry ids, in registry order, that governed a conversion.
+def governing_rules(applied, source_family, source_version,
+                    destination_family, destination_version):
+    """(rule ids, rules outside their declared versions) for a conversion.
 
-    `candidates` names the rules whose decision points the conversion actually
-    reached (the caller knows its own path); a candidate is recorded only when
-    the registry's own applicability check accepts it for the recorded
-    source/destination pair. A rule whose destination family is not the
-    producing slicer's family (a conversion to Orca profiles whose output a
-    fallback slicer then wrote) is checked on its source side only: its
-    decision governed the profile conversion either way.
+    `applied` names the rules whose decision points the conversion actually
+    reached (the caller sets a flag where each decision runs). Every applied
+    rule is recorded, in registry order: the converter applies a rule
+    whatever its declared versions say, so dropping one would make the record
+    understate what happened. A rule whose declared family or version range
+    does not cover the recorded source or destination (an unknown version
+    included) is listed again in the second value, one row per side, so the
+    caller can refuse readiness for it. A rule whose destination family is
+    not the producing slicer's (Orca-named profile values a Bambu Studio
+    fallback then read) is not checked on its destination side: no slicer of
+    its declared family ran.
     """
-    wanted = set(candidates or ())
-    out = []
+    wanted = set(applied or ())
+    unknown = wanted - {rule.id for rule in compat_registry.RULES}
+    if unknown:
+        raise KeyError(f'unknown compatibility rule id(s): {sorted(unknown)}')
+    ids, outside = [], []
     for rule in compat_registry.RULES:
         if rule.id not in wanted:
             continue
-        if source_family is not None and rule.source_family not in ('any', source_family):
-            continue
-        if not compat_registry.applies(rule.source_versions, source_version):
-            continue
-        if destination_family is not None and rule.destination_family in ('any', destination_family):
-            if not compat_registry.applies(rule.destination_versions, destination_version):
-                continue
-        out.append(rule.id)
-    return out
+        ids.append(rule.id)
+        if rule.source_family not in ('any', source_family) or not compat_registry.applies(
+                rule.source_versions, source_version):
+            outside.append({'rule': rule.id, 'side': 'source', 'family': source_family,
+                            'version': source_version, 'declared_family': rule.source_family,
+                            'declared_versions': rule.source_versions})
+        if destination_family is None or rule.destination_family in ('any', destination_family):
+            if rule.destination_family not in ('any', destination_family) or not compat_registry.applies(
+                    rule.destination_versions, destination_version):
+                outside.append({'rule': rule.id, 'side': 'destination', 'family': destination_family,
+                                'version': destination_version, 'declared_family': rule.destination_family,
+                                'declared_versions': rule.destination_versions})
+    return ids, outside
+
+
+def version_conflict_problems(outside):
+    """One readiness refusal per rule that ran outside its declared versions (#1110 req. 5, 6)."""
+    return [f"compatibility rule {row['rule']} is declared for {row['declared_family']} "
+            f"{row['declared_versions']} but the {row['side']} is "
+            f"{row['family'] or 'an unknown slicer'} {row['version'] or '(version unknown)'}; "
+            'this foreign project conversion is not verified for automated printing'
+            for row in outside]
 
 
 def conversion_provenance(source, target, process, author_process, author_notes, *,
                           destination_slicer_version=None, destination_profile=None,
-                          governing_rules=()):
+                          governing_rules=(), rules_outside_declared_versions=()):
     """Build a per-slice record without guessing intent when source preset evidence is absent.
 
     Version fields record only what a real source states: the source slicer
@@ -270,6 +290,7 @@ def conversion_provenance(source, target, process, author_process, author_notes,
             'destination_profile_name': profile.get('name'),
             'registry_version': compat_registry.REGISTRY_VERSION,
             'governing_rules': list(governing_rules or ()),
+            'rules_outside_declared_versions': [dict(row) for row in rules_outside_declared_versions or ()],
             # Agrees with the rows by construction: known only when every
             # recorded setting's origin is established (designer or inherited).
             'intent_status': ('known' if (entries or explicit is not None)
