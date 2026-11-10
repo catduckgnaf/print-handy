@@ -91,6 +91,14 @@ def _isolated_launch_state(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_credential_bindings(tmp_path, monkeypatch):
+    """Each test's service-key host bindings (#1192) live in its own file, starting empty."""
+    from print_handy import credential_binding
+    monkeypatch.setenv(credential_binding.PATH_ENV, str(tmp_path / "credential-bindings.json"))
+    credential_binding._warned.clear()
+
+
+@pytest.fixture(autouse=True)
 def _head_sensor_unknown(request, monkeypatch):
     """Resume's toolhead-sensor gate reads 'unknown' (no extra printer calls) unless a test opts in
     with @pytest.mark.real_head_sensor to exercise the sensor read itself."""

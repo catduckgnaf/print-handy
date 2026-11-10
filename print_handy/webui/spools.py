@@ -63,7 +63,7 @@ import json
 import logging
 from urllib.parse import quote
 
-from .. import settings
+from .. import credential_binding, settings
 from ..hermes import purchase_intake, spool_sync
 from . import controls as controls_module
 from . import shell
@@ -557,6 +557,7 @@ def _default_ai_call():
         body = {"model": listener._VISION_MODEL, "temperature": 0, "max_tokens": 800,
                 "messages": [{"role": "user", "content": full}]}
         headers = {"Content-Type": "application/json"}
+        key = credential_binding.key_for("services.vision_chat_url", url, key)
         if key:
             headers["Authorization"] = f"Bearer {key}"
         req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)

@@ -2233,7 +2233,10 @@ class _Handler(BaseHTTPRequestHandler):
             entries, submitted, form_token=self._form_token(), theme=self._theme(),
             warnings=self._preview_warnings(changes),
             section=(form.get(pages.SECTION_FIELD) or [None])[0],
-            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
+            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
+            rebinds=config_api.pending_rebinds(
+                {field.id: value for field, value in changes.items()},
+                environ=self.server.webui_environ)),
             "text/html; charset=utf-8")
 
     def _request_is_https(self):
@@ -2286,7 +2289,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             changed, warnings = config_api.write_changes_reporting(
                 {field.id: value for field, value in changes.items()},
-                environ=self.server.webui_environ)
+                environ=self.server.webui_environ,
+                rebind=form.get(pages.REBIND_FIELD) or ())
         except config_api.WebUIConfigError as exc:
             field_errors, general = pages.attribute_error(
                 str(exc), changes, environ=self.server.webui_environ)

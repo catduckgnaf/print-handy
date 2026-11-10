@@ -27,6 +27,7 @@ honesty as the setup wizard's merge.
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import re
 import shutil
@@ -36,9 +37,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .. import printers, settings
+from .. import credential_binding, printers, settings
 from ..setup_wizard import _atomic_write
 from .catalog import CATALOG, Field, field_by_id
+
+log = logging.getLogger(__name__)
 
 # Provenance labels for a field's effective value.
 MODEL_DEFAULT = "model_default"
@@ -677,7 +680,36 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     return [("printers", printer_id)]
 
 
-def _write_changes(changes, *, config_path, home, environ, timestamp):
+def _old_values(target, *, home, environ):
+    """(effective settings, {field id: value}) before a save; ({}, {}) when the
+    current files do not load (the save's own validation reports that)."""
+    try:
+        data = settings.load(home=home, local=target, environ=environ)
+    except Exception:
+        return {}, {}
+    return data, {field.id: (data.get(field.section) or {}).get(field.key) for field in CATALOG}
+
+
+def pending_rebinds(changes, *, config_path=None, home=None, environ=None):
+    """[credential_binding.Rebind] for the ``{field: value}`` changes that
+    would move a stored service key to a new host (#1192). The preview asks
+    the operator to confirm each one; a save without that confirmation is
+    refused."""
+    environ = os.environ if environ is None else environ
+    target = Path(config_path) if config_path is not None else settings_file_path(environ)
+    by_id = {}
+    for raw_field, value in dict(changes or {}).items():
+        field = field_by_id(raw_field)
+        if field is not None:
+            by_id[field.id] = value
+    if not any(field_id in credential_binding.SLOTS for field_id in by_id):
+        return []
+    data, old = _old_values(target, home=home, environ=environ)
+    return credential_binding.pending_rebinds(by_id, old, data, environ)
+
+
+def _write_changes(changes, *, config_path, home, environ, timestamp,
+                   rebind=(), credential_check=True):
     """The write_changes core: the write itself, returning
     ``(changed, warnings)`` — the ``(section, key)`` pairs written, in
     the order given, and the tolerated closed-table violations this
@@ -721,6 +753,14 @@ def _write_changes(changes, *, config_path, home, environ, timestamp):
         section[field.key] = value
     if not changed:
         return [], _note_noop_write(target, home=home, environ=environ)
+    moves = []
+    if credential_check:
+        # A stored key never follows an address to a new host unconfirmed (#1192).
+        moves = pending_rebinds({field.id: value for field, value in items},
+                                config_path=target, home=home, environ=environ)
+        refused = [move for move in moves if move.setting not in set(rebind or ())]
+        if refused:
+            raise WebUIConfigError(" ".join(move.refusal for move in refused))
     for field, value in items:
         check = _CONTENT_CHECKS.get(field.id)
         if check is not None:
@@ -730,26 +770,36 @@ def _write_changes(changes, *, config_path, home, environ, timestamp):
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
     _write_settings_file(target, text)
+    values = {field.id: value for field, value in items}
+    for move in moves:
+        credential_binding.rebind(move.setting, values[move.setting])
+        log.info("the stored %s key now goes to %s (confirmed on save)", move.service, move.new_host)
     return changed, _note_tolerated(target, tolerated)
 
 
-def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None,
+                  rebind=(), credential_check=True):
     """Apply ``{field: value}`` changes to the settings file and return the
     changed ``(section, key)`` pairs, in the order given.
 
     ``field`` may be a catalog Field, a ``(section, key)`` pair or a
     ``"section.key"`` string. Only catalog fields may change. Refuses —
     writing nothing — when a field is unknown, is currently overridden by
-    the environment, the target is a legacy TOML file, or the merged
-    result fails the real settings validation.
+    the environment, the target is a legacy TOML file, the merged
+    result fails the real settings validation, or a change would send a
+    stored service key to a new host (#1192) and its field id is not in
+    ``rebind``, the operator's confirmations. ``credential_check=False``
+    skips that last check; only validation against a throwaway copy uses it.
     """
     changed, _warnings = _write_changes(changes, config_path=config_path,
                                         home=home, environ=environ,
-                                        timestamp=timestamp)
+                                        timestamp=timestamp, rebind=rebind,
+                                        credential_check=credential_check)
     return changed
 
 
-def write_changes_reporting(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+def write_changes_reporting(changes, *, config_path=None, home=None, environ=None, timestamp=None,
+                            rebind=()):
     """write_changes, returning ``(changed, warnings)``: the changed
     pairs and the tolerated closed-table violations this save itself
     left in the settings file, as ``"[section] key"`` names.
@@ -762,4 +812,4 @@ def write_changes_reporting(changes, *, config_path=None, home=None, environ=Non
     The names returned here are captured from this save's own
     validation and cannot be replaced."""
     return _write_changes(changes, config_path=config_path, home=home,
-                          environ=environ, timestamp=timestamp)
+                          environ=environ, timestamp=timestamp, rebind=rebind)
