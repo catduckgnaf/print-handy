@@ -439,6 +439,10 @@ class UnclaimedFlowTests(unittest.TestCase):
         def broken():
             raise RuntimeError("secret detail /home/someone/token=abc")
         httpd.snapshot_func = broken
+        # /api/status reads through the SnapshotCache bound to the builder
+        # at startup (api_snapshot_func), so break that seam too: replacing
+        # snapshot_func alone no longer reaches the route.
+        httpd.api_snapshot_func = broken
         with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
             code, _, body = self.request(port, "GET", "/api/status")
         self.assertEqual(code, 500)

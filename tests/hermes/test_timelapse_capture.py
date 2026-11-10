@@ -768,7 +768,10 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(listener.state, "printing")
                 self.assertIsNotNone(listener.capture_session)
                 listener.light_print_started.assert_awaited_once()
-                post.assert_not_called()
+                # No duplicate start post; the one post allowed is the
+                # camera-watch notice (#1169) for a watch that cannot run.
+                for call in post.call_args_list:
+                    self.assertIn("Camera watch is on but not running", call.args[0])
                 warmup.assert_not_called()
                 listener._capture_end("complete")
 

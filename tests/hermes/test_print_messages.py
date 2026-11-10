@@ -95,7 +95,11 @@ def _drive_listener(monkeypatch, filename, transitions, *, claimed=False):
             await listener.on_status({"state": state, "filename": filename}, "test")
         await asyncio.gather(*listener.background_tasks)  # the cancel report posts in the background
     asyncio.run(run())
-    return posted
+    # The camera-watch coverage notice (#1169: one post at a print start
+    # when the watch is on but cannot run) is not a print-lifecycle post;
+    # it has its own tests in test_watch_coverage.py. These tests count
+    # lifecycle posts, so drop the notice whatever order it landed in.
+    return [p for p in posted if "Camera watch is on but not running" not in p]
 
 
 def test_start_claim_matches_exact_moonraker_filename(tmp_path, monkeypatch, job):
@@ -982,7 +986,9 @@ def test_pasta_roast_is_gated_on_a_spaghetti_verdict():
     visual check's alert block calls the status-roast helper inside the
     verdict == "spaghetti" branch, not for risk flags (uncertain, air)."""
     import inspect
-    source = inspect.getsource(mel.Listener.visual_check)
+    # visual_check is the deadline wrapper; the check itself (and its
+    # alert block) lives in _visual_check_once since #1169.
+    source = inspect.getsource(mel.Listener._visual_check_once)
     gate = source.index('verdict == "spaghetti"')
     call = source.index("_with_status_roast")
     assert gate < call

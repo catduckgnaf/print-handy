@@ -247,6 +247,11 @@ def test_visual_verdict_print_watch_never_consults_the_reference(cfg, monkeypatc
 
 def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     calibrate(cfg)
+    # Since #1169 the detector never downloads its model inside a check:
+    # the background prefetch must have landed first, as it does in
+    # production once the watch reports ready.
+    from print_handy.hermes import local_vision
+    assert local_vision.prefetch_model(cfg, wait=True)
     monkeypatch.setattr(vw, "_vision_answer",
                         lambda *a, **k: {"verdict": "ok", "reason": "part there"})
     monkeypatch.setattr(vw, "_local_verdict",
@@ -262,6 +267,11 @@ def test_visual_verdict_idle_part_present_falls_through_to_detector(
     """A frame the reference cannot call empty is not forced empty: the
     normal route's answer (here the detector's) stands."""
     calibrate(cfg)
+    # Since #1169 the detector never downloads its model inside a check:
+    # the background prefetch must have landed first, as it does in
+    # production once the watch reports ready.
+    from print_handy.hermes import local_vision
+    assert local_vision.prefetch_model(cfg, wait=True)
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("ok", "detector: no failure"))
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
