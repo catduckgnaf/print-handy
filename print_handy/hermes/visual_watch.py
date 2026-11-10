@@ -383,58 +383,69 @@ def chat_key_ready(api_key) -> bool:
     return bool(api_key())
 
 
-def vision_ready(api_key, log=None):
-    """True when a frame can actually be judged: PRINT_VISION_URL, vision_chat_url with
-    its key, or the built-in local failure detector (#455).
+def watch_unavailable_reason(api_key):
+    """Why no frame can be judged right now, in plain words; "" when one can.
 
-    ``vision.watch_source`` narrows what counts (#455): "local" counts
-    the detector (plus a calibrated plate reference for the idle checks,
-    as below), "endpoint" counts only the endpoint routes, and
-    "auto" (the default) counts any of them.
-
-    Without one, every verdict degrades to "uncertain", and "uncertain"
-    alerts, so the watch would post a false alert at every check. The
-    watch stays off instead, as docs/DOCKER.md describes, and says so once.
+    The judging routes are PRINT_VISION_URL, vision_chat_url with its key,
+    or the built-in local failure detector (#455). ``vision.watch_source``
+    narrows what counts (#455): "local" counts the detector (plus a
+    calibrated plate reference for the idle checks), "endpoint" counts
+    only the endpoint routes, and "auto" (the default) counts any of them.
+    When the detector would be the route and its model is missing, this
+    also starts the background model download (local_vision.prefetch_model),
+    so the download never happens inside a camera check.
     """
-    global _vision_missing_logged
     source = local_vision.watch_source()
     if source == "local":
         if local_vision.detector_ready():
-            return True
+            return ""
         if local_empty.reference_ready():
             # Stage 1 (#455): a calibrated plate reference can answer the
             # idle checks the idle consumers gate on here, even when the
             # detector is not ready; the in-print watch under "local"
             # still judges with the detector only.
-            return True
-        if log is not None and not _vision_missing_logged:
-            _vision_missing_logged = True
-            log("camera watch skipped: vision.watch_source is local but the local "
-                "failure detector is not ready (see the local detector row in "
-                "bot check)")
-        return False
+            return ""
+        local_vision.prefetch_model()
+        return ("vision.watch_source is local but the local failure detector is not "
+                f"ready: {local_vision.detector_status()[1]}")
     if os.environ.get("PRINT_VISION_URL"):
-        return True
+        return ""
     if (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
-        return True
+        return ""
     if source == "auto" and local_vision.detector_ready():
-        return True
+        return ""
     if local_empty.reference_ready():
         # Stage 1 (#455): a calibrated plate reference can answer idle
         # plate checks, which is what the idle consumers gate on here.
+        return ""
+    if source == "endpoint":
+        return ("vision.watch_source is endpoint but no vision endpoint is configured "
+                "(set services.vision_chat_url with CLIPROXY_API_KEY, which a local or "
+                "LAN endpoint does not need, or PRINT_VISION_URL)")
+    if local_vision.enabled():
+        local_vision.prefetch_model()
+        return f"the local failure detector is not ready: {local_vision.detector_status()[1]}"
+    return ("no vision endpoint (set services.vision_chat_url with CLIPROXY_API_KEY, which a "
+            "local or LAN endpoint does not need, or PRINT_VISION_URL, or enable the local "
+            "detector with vision.local_detector_enabled)")
+
+
+def vision_ready(api_key, log=None):
+    """True when a frame can actually be judged (see :func:`watch_unavailable_reason`).
+
+    Without a route, every verdict degrades to "uncertain", and "uncertain"
+    alerts, so the watch would post a false alert at every check. The
+    watch stays off instead, as docs/DOCKER.md describes, and says so once
+    per outage: the log line repeats only after the watch was ready again.
+    """
+    global _vision_missing_logged
+    reason = watch_unavailable_reason(api_key)
+    if not reason:
+        _vision_missing_logged = False
         return True
     if log is not None and not _vision_missing_logged:
         _vision_missing_logged = True
-        if source == "endpoint":
-            log("camera watch skipped: vision.watch_source is endpoint but no vision "
-                "endpoint is configured (set services.vision_chat_url with "
-                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
-                "PRINT_VISION_URL)")
-        else:
-            log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
-                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
-                "PRINT_VISION_URL, or enable the local detector with "
-                "vision.local_detector_enabled)")
+        log(f"camera watch skipped: {reason}")
     return False
 
 

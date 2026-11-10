@@ -36,6 +36,7 @@ def _fresh_detector_state(monkeypatch):
     monkeypatch.setattr(lv, "_sessions", {})
     monkeypatch.setattr(lv, "_active_providers", {})
     monkeypatch.setattr(lv, "_failures", {})
+    monkeypatch.setattr(lv, "_prefetching", {})
     monkeypatch.setattr(lv, "_verified_files", set())
     monkeypatch.setattr(lv, "_ort", None)
     monkeypatch.setattr(lv, "_ort_error", None)
@@ -209,6 +210,11 @@ def test_missing_model_downloads_once_and_verifies(monkeypatch, tmp_path):
     monkeypatch.setattr(lv, "MODEL_SHA256", FIXTURE_SHA256)
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     cfg = cfg_with(local_model_path=str(target))
+    # The download never runs inside a camera check: the check fails soft
+    # and the fetch runs on its own background thread.
+    with pytest.raises(lv.LocalVisionError, match="downloading in the background"):
+        lv.local_verdict(frame(235), cfg)
+    lv._prefetching[str(target)].join(timeout=10)
     verdict, _ = lv.local_verdict(frame(235), cfg)
     assert verdict == "spaghetti"
     assert target.read_bytes() == FIXTURE.read_bytes()
@@ -222,6 +228,7 @@ def test_download_with_wrong_checksum_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr("urllib.request.urlopen",
                         lambda request, timeout=None: _FakeResponse(FIXTURE.read_bytes()))
     cfg = cfg_with(local_model_path=str(target))  # real MODEL_SHA256 stays: mismatch
+    assert lv.prefetch_model(cfg, wait=True) is True
     with pytest.raises(lv.LocalVisionError, match="SHA-256"):
         lv.local_verdict(frame(235), cfg)
     assert not target.exists() and not target.with_name("detector.onnx.part").exists()
@@ -330,10 +337,81 @@ def test_failed_download_is_not_retried_every_check(monkeypatch, tmp_path):
 
     monkeypatch.setattr("urllib.request.urlopen", failing_urlopen)
     cfg = cfg_with(local_model_path=str(target))
+    lv.prefetch_model(cfg, wait=True)
     for _ in range(2):
         with pytest.raises(lv.LocalVisionError, match="network is down"):
             lv.local_verdict(frame(235), cfg)
+        assert lv.prefetch_model(cfg, wait=True) is False  # waiting out its retry time
     assert len(calls) == 1
+
+
+def test_failed_download_is_retried_after_its_backoff(monkeypatch, tmp_path):
+    """A network blip during the first download must not disable the detector until restart."""
+    target = tmp_path / "detector.onnx"
+    clock = [1000.0]
+    answers = [OSError("network is down"), OSError("still down")]
+
+    def flaky_urlopen(request, timeout=None):
+        if answers:
+            raise answers.pop(0)
+        return _FakeResponse(FIXTURE.read_bytes())
+
+    monkeypatch.setattr(lv.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(lv, "MODEL_SHA256", FIXTURE_SHA256)
+    monkeypatch.setattr("urllib.request.urlopen", flaky_urlopen)
+    cfg = cfg_with(local_model_path=str(target))
+    lv.prefetch_model(cfg, wait=True)
+    assert lv.detector_status(cfg)[0] == "unavailable"
+    clock[0] += lv.FAILURE_RETRY_BASE_S - 1
+    assert lv.prefetch_model(cfg, wait=True) is False
+    clock[0] += 1
+    assert lv.prefetch_model(cfg, wait=True) is True  # retried: fails again
+    clock[0] += lv.FAILURE_RETRY_BASE_S  # the second failure backs off twice as long
+    assert lv.prefetch_model(cfg, wait=True) is False
+    clock[0] += lv.FAILURE_RETRY_BASE_S
+    assert lv.prefetch_model(cfg, wait=True) is True
+    assert target.is_file()
+    assert lv._remembered_failure(f"file:{target}") is None
+    assert lv.detector_status(cfg)[0] == "ready"
+    assert lv.local_verdict(frame(235), cfg)[0] == "spaghetti"
+
+
+def test_download_has_an_overall_deadline(monkeypatch, tmp_path):
+    """A slow-drip server (each read in time, the whole never done) is cut off."""
+    target = tmp_path / "detector.onnx"
+    clock = [0.0]
+
+    class Drip(_FakeResponse):
+        def read(self, size=-1):
+            clock[0] += 60
+            return b"x" * 1024
+
+    monkeypatch.setattr(lv.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout=None: Drip(b""))
+    with pytest.raises(lv.LocalVisionError, match="did not finish"):
+        lv._download_model(target)
+    assert list(tmp_path.glob("*.part")) == []
+
+
+def test_download_is_capped_at_the_pinned_size(monkeypatch, tmp_path):
+    target = tmp_path / "detector.onnx"
+    monkeypatch.setattr(lv, "MODEL_SIZE_BYTES", 1024)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda request, timeout=None: _FakeResponse(b"x" * (3 * 1024 * 1024)))
+    with pytest.raises(lv.LocalVisionError, match="larger than the pinned"):
+        lv._download_model(target)
+
+
+def test_prefetch_only_when_the_watch_uses_the_detector(monkeypatch, tmp_path):
+    started = []
+    monkeypatch.setattr(lv, "_ensure_model_file", lambda path, cfg=None: started.append(path))
+    off = cfg_with(local_detector_enabled=False, local_model_path=str(tmp_path / "m.onnx"))
+    assert lv.prefetch_model(off, wait=True) is False
+    present = cfg_with()  # the fixture model exists
+    assert lv.prefetch_model(present, wait=True) is False
+    missing = cfg_with(local_model_path=str(tmp_path / "m.onnx"))
+    assert lv.prefetch_model(missing, wait=True) is True
+    assert started == [tmp_path / "m.onnx"]
 
 
 def test_preexisting_default_model_must_match_the_pinned_checksum(monkeypatch, tmp_path):
@@ -360,10 +438,10 @@ def test_status_ready_with_model_present():
     assert state == "ready" and "present" in detail
 
 
-def test_status_ready_model_downloads_on_first_use(tmp_path):
+def test_status_unavailable_until_the_model_is_downloaded(tmp_path):
     cfg = cfg_with(local_model_path=str(tmp_path / "not-yet.onnx"))
     state, detail = lv.detector_status(cfg)
-    assert state == "ready" and "downloads on first use" in detail
+    assert state == "unavailable" and "not downloaded yet" in detail
 
 
 # --------------------------------------------------------------- settings
@@ -907,7 +985,9 @@ def test_vision_ready_local_unavailable_stays_off(monkeypatch, process_cfg):
     monkeypatch.setattr(vw, "_vision_missing_logged", False)
     lines = []
     assert vw.vision_ready(lambda: "", lines.append) is False
-    assert len(lines) == 1 and "vision.local_detector_enabled" in lines[0]
+    # The detector is switched on, so the line names why it is not ready.
+    assert len(lines) == 1 and "local failure detector is not ready" in lines[0]
+    assert "onnxruntime is not available" in lines[0]
 
 
 # --------------------------------------------------------------- GPU visible, CPU-only build (#455)

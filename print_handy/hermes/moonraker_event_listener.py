@@ -4141,6 +4141,7 @@ class Listener:
             self.visual_watch.reset()
             self.local_streak.reset()
             self._apply_watch_mode()
+            self._note_watch_not_running()
             # #516: auto light-on at a fresh print start (a resume is not
             # a start; the light never went off during a pause).
             await self.light_print_started()
@@ -4724,6 +4725,41 @@ class Listener:
             return reason
         return None
 
+    def _watch_unavailable_reason(self):
+        """Why the camera watch cannot run for this printer, in plain words; "" when it can."""
+        if _vision_ready():
+            return ""
+        try:
+            reason = _visual_watch.watch_unavailable_reason(
+                lambda: _profile_env_value("CLIPROXY_API_KEY"))
+        except Exception as exc:
+            reason = f"the vision route could not be checked ({exc})"
+        return reason or "no vision route is ready"
+
+    def _note_watch_not_running(self):
+        """At a print start: one chat notice when the watch is switched on but cannot run.
+
+        A watch that silently does nothing reads as a watched print; the
+        operator hears once per print why it is not watched. Never raises.
+        """
+        try:
+            if not _config.cfg()["visual_watch"]["enabled"]:
+                return None
+            reason = self._watch_unavailable_reason()
+            if not reason:
+                return None
+            log(f"camera watch not running for {self.filename!r}: {reason}")
+            text = _with_printer_name(
+                f"Camera watch is on but not running for {clean(self.filename)}: {reason}. "
+                "This print is not being watched; nothing was sent to the printer.")
+            task = asyncio.create_task(asyncio.to_thread(post, text))
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
+            return reason
+        except Exception as exc:
+            log(f"camera watch status notice failed: {exc!r}")
+            return None
+
     def _note_layerless_watch(self):
         """Post, once per print, that the watch runs on a timer: the print reports no layers."""
         watch = self.visual_watch
@@ -5078,6 +5114,9 @@ def main():
     route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
     logs.configure()
     _install_stack_dump_handler()
+    # The local detector's model is fetched now, in the background, so the
+    # first print's first camera check never waits on a 202 MB download.
+    _local_vision.prefetch_model()
     log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route} model={_VISION_MODEL}")
     asyncio.run(Listener().forever())
 
