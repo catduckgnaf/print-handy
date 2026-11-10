@@ -505,7 +505,7 @@ class PowerActionTests(unittest.TestCase):
         send = Recorder()
         with tempfile.TemporaryDirectory() as tmp:
             data = enabled(tmp)
-            code, _ = controls.power_action(data, PRINTER, "emergency_stop", {"confirm": True},
+            code, _ = controls.power_action(data, PRINTER, "firmware_restart", {"confirm": True},
                                             read=unreachable, send=send)
             self.assertEqual(code, 502)
             code, _ = controls.power_action(data, "ghost", "emergency_stop", {"confirm": True},
@@ -526,15 +526,54 @@ class PowerActionTests(unittest.TestCase):
         self.assertEqual(body["from_state"], "unknown")
         self.assertEqual(send.sent, [("power", "server_restart")])
 
-    def test_other_power_actions_still_require_a_readable_printer(self):
+    def test_firmware_restart_still_requires_a_readable_printer(self):
         send = Recorder()
         with tempfile.TemporaryDirectory() as tmp:
-            data = enabled(tmp)
-            for action in ("emergency_stop", "firmware_restart"):
-                code, _ = controls.power_action(data, PRINTER, action, {"confirm": True},
-                                                read=unreachable, send=send)
-                self.assertEqual(code, 502, action)
+            code, _ = controls.power_action(enabled(tmp), PRINTER, "firmware_restart",
+                                            {"confirm": True}, read=unreachable, send=send)
+            self.assertEqual(code, 502)
         self.assertEqual(send.sent, [])
+
+    def test_emergency_stop_is_never_blocked_by_a_status_read(self):
+        """A hung controller is when the stop is needed: no status read is
+        made at all (a read that would fail or hang is never called), and
+        the stop is sent."""
+        def must_not_read(adapter, view):
+            raise AssertionError("emergency stop must not wait on a status read")
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.power_action(enabled(tmp), PRINTER, "emergency_stop",
+                                               {"confirm": True}, read=must_not_read, send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["sent"], "emergency_stop")
+        self.assertEqual(send.sent, [("power", "emergency_stop")])
+
+    def test_emergency_stop_falls_back_to_m112_and_says_so(self):
+        sent = []
+
+        def endpoint_down(adapter, view, command):
+            sent.append(command)
+            if command[0] == "power":
+                raise OSError("timed out")
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.power_action(enabled(tmp), PRINTER, "emergency_stop",
+                                               {"confirm": True}, read=unreachable,
+                                               send=endpoint_down)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["sent"], "M112")
+        self.assertIn("M112 was sent", body["detail"])
+        self.assertEqual(sent, [("power", "emergency_stop"), ("gcode", "M112")])
+
+    def test_emergency_stop_reports_both_failures_truthfully(self):
+        def all_down(adapter, view, command):
+            raise OSError("connection refused")
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.power_action(enabled(tmp), PRINTER, "emergency_stop",
+                                               {"confirm": True}, read=unreachable,
+                                               send=all_down)
+        self.assertEqual(code, 502)
+        self.assertIn("M112 fallback failed", body["reason"])
+        self.assertIn("cut its power", body["reason"])
 
     def test_moonraker_paths(self):
         posts = []

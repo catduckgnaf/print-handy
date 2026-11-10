@@ -16,8 +16,10 @@ The ha-print-handy #1 routes add, under the same guard:
   ``/server_restart`` — Moonraker's ``/printer/emergency_stop``,
   ``/printer/firmware_restart`` and ``/server/restart`` (the endpoints
   the chat panic ladder in ``hermes/panic.py`` uses). Each needs
-  ``{"confirm": true}``. Emergency stop has NO state gate: it is the
-  panic button, so it sends from any state the printer can be read in.
+  ``{"confirm": true}``. Emergency stop has NO state gate and no status
+  read at all: it is the panic button, and a hung controller is when it
+  is needed, so it sends at once and falls back to ``M112`` through the
+  script endpoint when the emergency-stop call itself fails.
   No other family exposes a verified stop or restart capability in its
   adapter or client code, so every other family refuses with a named
   501 — no behavior is invented for them. This deliberately reverses
@@ -442,15 +444,51 @@ def _dispatch(send, adapter, view, command, label):
                                 f"({type(exc).__name__}: {exc})") from None
 
 
+def _emergency_stop(entry, adapter, view, send):
+    """Send the emergency stop without waiting on any status read.
+
+    A hung or unreachable controller is exactly when the stop is
+    needed, so nothing is read first: the stop goes out at once. When
+    the primary endpoint call fails (the transport, not a family that
+    has no stop at all), the firmware's own G-code emergency command
+    ``M112`` is tried through the script endpoint. The answer says
+    truthfully what was sent: 200 only when one of the two was accepted,
+    otherwise a 502 naming both failures and telling the operator to cut
+    power."""
+    try:
+        send(adapter, view, ("power", "emergency_stop"))
+    except ControlError:
+        raise  # 501: this family has no stop path; nothing was sent
+    except Exception as primary:
+        first = f"{type(primary).__name__}: {primary}"
+        try:
+            send(adapter, view, ("gcode", "M112"))
+        except Exception as fallback:
+            second = (fallback.reason if isinstance(fallback, ControlError)
+                      else f"{type(fallback).__name__}: {fallback}")
+            raise ControlError(502, f"emergency stop could not be delivered: the emergency-stop "
+                                    f"endpoint failed ({first}) and the M112 fallback failed "
+                                    f"({second}). The printer may still be running: cut its "
+                                    "power.") from None
+        return 200, {"ok": True, "id": entry["id"], "action": "emergency_stop",
+                     "from_state": "unknown", "sent": "M112",
+                     "detail": f"the emergency-stop endpoint failed ({first}), so M112 was "
+                               "sent through the G-code endpoint instead; check the "
+                               "printer's status for the result."}
+    return 200, {"ok": True, "id": entry["id"], "action": "emergency_stop",
+                 "from_state": "unknown", "sent": "emergency_stop",
+                 "detail": "emergency_stop sent without waiting for a status read; "
+                           "check the printer's status for the result."}
+
+
 def power_action(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):
     """(code, body) for POST /api/printers/<id>/emergency_stop|firmware_restart|server_restart.
 
     All three need ``{"confirm": true}``. There is deliberately no state
-    gate — least of all on emergency stop, which must send from whatever
-    state the printer can be read in (printing included, exactly like
-    the chat panic ladder). The printer is still read first, so an
-    unreachable printer is an explicit 502 rather than a blind send —
-    except ``server_restart``, whose read is best-effort: Moonraker
+    gate. Emergency stop is not even read first (see _emergency_stop):
+    it sends at once, with an ``M112`` fallback. Firmware restart reads
+    the printer first, so an unreachable printer is an explicit 502
+    rather than a blind send — and ``server_restart``, whose read is best-effort: Moonraker
     rejects the status query while Klippy is disconnected, and server
     restart is the recovery control for exactly that failure, so the
     restart POST itself decides reachability there.
@@ -465,6 +503,8 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
         entry, view = _resolve(data, printer_id)
         _require_confirm(body, action)
         adapter = adapter or printers.get(entry["model"], view)
+        if action == "emergency_stop":
+            return _emergency_stop(entry, adapter, view, send)
         if action == "server_restart":
             # Best-effort read only: Moonraker rejects the objects query
             # while Klippy is disconnected, but /server/restart does not
