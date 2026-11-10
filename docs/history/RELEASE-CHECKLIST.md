@@ -131,7 +131,7 @@ Don't:
 - Never list an unshipped or open-PR item as shipped.
 - Never bury an upgrade action; existing installs read Upgrade first.
 
-Template: `docs/RELEASE-NOTES-TEMPLATE.md`.
+Template: `docs/history/RELEASE-NOTES-TEMPLATE.md`.
 
 ## 6. Post-release verification
 

@@ -90,7 +90,7 @@ into a project reprint.
 **Not implemented yet:** a dedicated project run id recorded on reprint
 records, collecting across multiple chat messages, ZIP importing, project
 management in Web UI, and full AI-produced multi-part assemblies. Those
-remain acceptance criteria of [](https://github.com/catduckgnaf/print-handy/issues/1008);
+remain acceptance criteria of [#1008](https://github.com/catduckgnaf/print-handy/issues/1008);
 the CAD generator itself is [#998](https://github.com/catduckgnaf/print-handy/issues/998).
 
 ## Safety and verification

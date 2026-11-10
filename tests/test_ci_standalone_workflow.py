@@ -54,10 +54,33 @@ class StandaloneWorkflowContract(unittest.TestCase):
         step = steps["Installed wheel check from outside the checkout (known gap, not blocking)"]
         self.assertEqual(step["continue-on-error"], "true")
         self.assertIn("cd /tmp/outside", step["run"])
-        self.assertIn('"/tmp/clean/bin/python" -m print_handy.bot check', step["run"])
+        self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
         self.assertIn("'/tmp/clean/' in print_handy.__file__", step["run"])
         names = [s.get("name") for s in load_workflow()["jobs"]["standalone-no-hermes"]["steps"]]
         self.assertIn("Say plainly that the wheel check failed", names)
+
+    def test_setup_checks_run_against_the_installed_wheel_not_the_checkout(self):
+        """#1196: every platform check runs isolated (-I) from outside the checkout, after a step
+        that proves print_handy resolves into the venv and the checkout is not on sys.path, so a
+        file missing from the wheel's print_handy/ fails the job."""
+        job = load_workflow()["jobs"]["standalone-no-hermes"]
+        steps = steps_by_name(job)
+        layout = steps["Lay config and plugins beside the installed wheel"]["run"]
+        self.assertIn("case \"$root\" in /tmp/clean/*)", layout)
+        self.assertIn("print_handy.__file__.startswith('/tmp/clean/')", layout)
+        self.assertIn("$GITHUB_WORKSPACE", layout)
+        names = [step.get("name") for step in job["steps"]]
+        self.assertLess(names.index("Lay config and plugins beside the installed wheel"),
+                        names.index("Standalone bot setup check"))
+        for name in ("Standalone bot setup check", "Standalone bot setup check (Telegram)",
+                     "Standalone bot setup check (Matrix)"):
+            with self.subTest(step=name):
+                run = steps[name]["run"]
+                self.assertIn("cd /tmp/outside", run)
+                self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', run)
+                self.assertNotIn("continue-on-error", steps[name])
+        runs = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertNotIn('"/tmp/clean/bin/python" -m print_handy.bot', runs)
 
     def test_bot_check_runs_for_discord(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
@@ -65,7 +88,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertEqual(step["env"]["PRINT_HANDY__BOT__MODE"], "standalone")
         self.assertNotIn("PRINT_HANDY__BOT__PLATFORM", step["env"])
         self.assertIn("DISCORD_BOT_TOKEN", step["env"])
-        self.assertIn('"/tmp/clean/bin/python" -m print_handy.bot check', step["run"])
+        self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
 
     def test_bot_check_runs_for_telegram(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
@@ -77,7 +100,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertIn("TELEGRAM_BOT_TOKEN", step["env"])
         self.assertRegex(step["env"]["PRINT_HANDY__TELEGRAM__CHAT_ID"], r"^-\d+$")
         self.assertRegex(step["env"]["PRINT_HANDY__TELEGRAM__ALLOWED_USER_IDS"], r"^\d+$")
-        self.assertIn('"/tmp/clean/bin/python" -m print_handy.bot check', step["run"])
+        self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
 
     def test_bot_check_runs_for_matrix(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[
@@ -92,7 +115,7 @@ class StandaloneWorkflowContract(unittest.TestCase):
         self.assertTrue(step["env"]["PRINT_HANDY__MATRIX__ROOM_ID"].startswith("!"))
         self.assertRegex(step["env"]["PRINT_HANDY__MATRIX__ALLOWED_USER_IDS"],
                          r"^@[^:]+:[^:]+$")
-        self.assertIn('"/tmp/clean/bin/python" -m print_handy.bot check', step["run"])
+        self.assertIn('"/tmp/clean/bin/python" -I -m print_handy.bot check', step["run"])
 
 
 class OfflineTestsWorkflowContract(unittest.TestCase):

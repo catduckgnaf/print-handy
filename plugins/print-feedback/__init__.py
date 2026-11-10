@@ -819,7 +819,17 @@ async def design_dispatch(event, gateway, **kwargs):
         if _design_command_args(text) is None and text.startswith('/'):
             return None  # another command: not design's to refuse
         if _DESIGN_BUSY.get(owner) == 'prompt' and _design_command_args(text) is None:
-            return None  # the answer to the open design question
+            # The answer to the open design question. Answer it here, the
+            # way the bot core's typed-answer route would: returning None
+            # let a later hook (edit_dispatch) claim "make it 5 mm taller"
+            # or "undo" first and apply it to the channel's job (#1206).
+            adapter = _adapter_for(gateway, source)
+            answer_typed = getattr(adapter, 'answer_typed', None)
+            if text and answer_typed is not None and await answer_typed(
+                    gateway._session_key_for_source(source), text,
+                    user_id=getattr(source, 'user_id', None)):
+                return {'action': 'skip', 'reason': 'typed answer to the design question'}
+            return None
         from print_handy.core import design as _design
         if _design_command_args(text) is None and not _design.find_session_for_owner(
                 _design_root(_config.cfg()), owner):
@@ -953,6 +963,22 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     try:
         kind, instruction, file_path, link_url = intent
         if kind == "revision":
+            # After Change it, a typed button word is that button, not a
+            # change to send to the model (#1206): "never mind" cancels and
+            # "slice it" hands the current version to intake.
+            chosen = design.typed_choice(text)
+            current_stl = (root / session['id'] / session['stl']) if session.get('stl') else None
+            if chosen == design.CANCEL_LABEL:
+                engine.cancel(session)
+                await say('Design cancelled. The files stay in the session folder for a while; '
+                          'nothing was sliced or started.')
+                return {'action': 'skip', 'reason': 'design cancelled'}
+            if chosen == design.SLICE_LABEL and current_stl is not None and current_stl.is_file():
+                engine.mark_handed_off(session)
+                return await _design_handoff(event, gateway, adapter, session, current_stl)
+            if chosen == design.CHANGE_LABEL:
+                await say('Say the change in your next message — e.g. "make it 5 mm taller".')
+                return {'action': 'skip', 'reason': 'design awaiting revision'}
             result = await _run_design_turn(engine, session, text, adapter, source, metadata)
         elif kind == "ask":
             await say('Drop the file you want to work on, paste its model link, or tell me '
@@ -1055,6 +1081,10 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         finally:
             if owner_phase_key in _DESIGN_BUSY:
                 _DESIGN_BUSY[owner_phase_key] = 'turn'
+        if isinstance(answer, str) and answer not in design.CHOICES:
+            # A typed "cancel", "slice it" or "2" is that button (#1206);
+            # only other text is a change.
+            answer = design.typed_choice(answer) or answer
         if answer == design.SLICE_LABEL:
             engine.mark_handed_off(session)
             return await _design_handoff(event, gateway, adapter, session, result['stl_path'])

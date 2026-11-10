@@ -20,7 +20,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:X.Y.Z, also 
 - <actual checks and results; name unrun checks and owed live passes plainly>
 
 <!--
-Drafting rules (docs/RELEASE-CHECKLIST.md §2 and §5):
+Drafting rules (docs/history/RELEASE-CHECKLIST.md §2 and §5):
 - Cover every merged PR in the tag range; the list comes from
   `git log <last-tag>..HEAD`, never from memory.
 - Run scripts/check_release.py against this file before publishing.

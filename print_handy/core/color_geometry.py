@@ -1,5 +1,6 @@
 """Source-bound, instance-preserving multipart core 3MF for Orca."""
 import io
+import logging
 import copy
 import json
 import math
@@ -14,6 +15,8 @@ from . import source_colors
 from .source_colors import inventory
 from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest, transform_mirrors
 from .threemf_canonical import require_millimeter
+
+_LOG = logging.getLogger(__name__)
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -213,11 +216,13 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     points.append(point)
                 if not points:
                     raise RuntimeError('empty part geometry')
-                # A painted triangle's paint code subdivides along its own
-                # vertex order, so painted leaves keep their order (a known
-                # limit for mirrored painted sources); every other mirrored
-                # leaf is rewound so it does not come out inside-out.
-                if transform_mirrors(chain) and not painted:
+                # Paint subdivision trees depend on triangle vertex order.
+                # Refuse rather than emit an inside-out solid or guess a
+                # paint-tree permutation when flattening a reflected leaf.
+                if transform_mirrors(chain):
+                    if painted:
+                        raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
+                                           'export an unmirrored source or a geometry-only model')
                     mesh = _rewound(mesh)
                 leaves.append((key, mesh, points))
                 return
@@ -1644,7 +1649,21 @@ def _declare_one_filament(project, keep_index=1):
             elif key == 'different_settings_to_system' and len(value) == count + 2:
                 settings[key] = [value[0], value[1], value[-1]]
             elif _PER_FILAMENT_KEYS.fullmatch(key):
-                settings[key] = [value[keep]] if len(value) == count else value[:1]
+                if len(value) == count:
+                    settings[key] = [value[keep]]
+                elif len(value) > 1:
+                    # Never refuse on filament data (owner ruling, #1190): use the
+                    # entry at the declared filament's own index when the array has
+                    # one, else the first entry, and log which and why.
+                    index = keep if keep < len(value) else 0
+                    _LOG.warning(
+                        'per-filament project array %s has %d entries for a %d-filament palette; '
+                        'kept entry %d (%s)', key, len(value), count, index + 1,
+                        "the declared filament's own index" if index == keep
+                        else 'the first entry, as the array has none at that index')
+                    settings[key] = [value[index]]
+                else:
+                    settings[key] = value[:1]
         matrix = settings.get('flush_volumes_matrix')
         if isinstance(matrix, list) and len(matrix) == count * count:
             settings['flush_volumes_matrix'] = [matrix[keep * count + keep]]

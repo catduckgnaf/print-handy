@@ -1,5 +1,8 @@
 """Generic atomic 3MF package remapping (#1110 criterion 4, Phase C).
 
+Status: remap_package is EXPERIMENTAL and has no production caller; only
+write_package_atomically is used by the live exporters (#1155).
+
 The geometry exporters in color_geometry rebuild or collapse a package for a
 specific job. This module is the mapping-driven package remapper the Phase C
 audit called for: given an explicit filament mapping {source extruder:
@@ -18,7 +21,7 @@ package and nothing else:
 - triangle paint: paint_color states are remapped and mmu_segmentation
   states are translated to paint_color (see painted_geometry);
 - per-layer tool changes (an unmapped one refuses, as in
-  layer_gcode.remap_archive), height-range extruder options and — when the
+  layer_gcode.remap), height-range extruder options and — when the
   caller supplies an object map — the object ids those ranges key on, and
   sliced usage filament ids in slice_info.config.
 
@@ -47,7 +50,7 @@ Fail closed, by name, rather than guess:
   records, Auxiliaries/) carry no filament reference the repository knows
   and are preserved byte-for-byte.
 
-Atomicity (the C1 shell, on layer_gcode.remap_archive's pattern): the whole
+Atomicity (the C1 shell, on the staged-write pattern): the whole
 mapping is validated before any byte is written; the new package is written
 to a staging file beside the target, validated (zip integrity plus a
 cross-reference consistency re-read: every filament reference in the staged
@@ -57,7 +60,9 @@ destination bytes identical, and preserves unrelated members byte-for-byte
 on success.
 """
 import json
+import os
 import re
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -154,6 +159,10 @@ def permute_project_settings(settings, mapping, *, source_count=None):
     if missing:
         raise RuntimeError(f'filament mapping does not cover source filament(s) {missing} '
                            'named by the project palette')
+    beyond = sorted(n for n in mapping if n > count)
+    if beyond:
+        raise RuntimeError(f'filament mapping names source filament(s) {beyond}, past the '
+                           f'{count}-filament project palette')
     order = [source for source, _dest in sorted(mapping.items(), key=lambda kv: kv[1])]
     for key, value in list(settings.items()):
         if not isinstance(value, list):
@@ -343,29 +352,42 @@ def _validate_consistency(payload, mapping):
                                    'the destination numbering')
 
 
-def write_package_atomically(target, payload, validate=None):
-    """The C1 staged-write shell: stage, validate, replace; never partial.
+def write_package_atomically(target, payload, validate=None, *, source=None):
+    """The C1 staged-write shell: stage, validate, fsync, replace; never partial.
 
     payload is {member name: bytes} in the order they should be written.
     validate, when given, is called with the payload dict before replacing
-    and again on the staged file's re-read payload. Any failure removes the
-    staging file and leaves a pre-existing target byte-identical.
+    and again on the staged file's re-read payload. The package is staged in
+    a uniquely named temporary file in the target's directory (so concurrent
+    writers never share a staging name and the final replace stays on one
+    filesystem), flushed and fsynced, then os.replace()d onto the target.
+    Any failure removes the staging file and leaves a pre-existing target
+    byte-identical. When source is given and resolves to the same path as
+    target, the write is refused before anything is staged: the original must
+    stay immutable.
     """
     target = Path(target)
+    if source is not None and Path(source).resolve() == target.resolve():
+        raise RuntimeError(f'refusing to write the package over its own source {target}; '
+                           'the original must stay immutable')
     target.parent.mkdir(parents=True, exist_ok=True)
     if validate is not None:
         validate(payload)
-    tmp = target.with_name(target.name + '.tmp')
+    fd, tmp_name = tempfile.mkstemp(prefix=target.name + '.', suffix='.tmp', dir=target.parent)
+    tmp = Path(tmp_name)
     try:
-        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
-            for name, data in payload.items():
-                out.writestr(name, data)
+        with os.fdopen(fd, 'wb') as handle:
+            with zipfile.ZipFile(handle, 'w', zipfile.ZIP_DEFLATED) as out:
+                for name, data in payload.items():
+                    out.writestr(name, data)
+            handle.flush()
+            os.fsync(handle.fileno())
         with zipfile.ZipFile(tmp) as check:
             if check.testzip() is not None:
                 raise RuntimeError('staged 3MF package failed its integrity check')
             if validate is not None:
                 validate({name: check.read(name) for name in check.namelist()})
-        tmp.replace(target)
+        os.replace(tmp, target)
     finally:
         if tmp.exists():
             tmp.unlink()
@@ -373,6 +395,13 @@ def write_package_atomically(target, payload, validate=None):
 
 def remap_package(source, target, mapping, object_map=None):
     """Atomically remap every filament reference of a 3MF package by `mapping`.
+
+    EXPERIMENTAL: no production code path calls this function. The live
+    export paths (export_color_geometry, export_single_color_plate and
+    adopt_job_settings in color_geometry) import only write_package_atomically
+    from this module; remap_package is exercised by tests alone (see
+    docs/3MF-CONVERSION-EVIDENCE.md). Do not cite it as evidence that a
+    production export remaps a package.
 
     mapping is {source extruder: destination filament}; object_map, when
     given, is {source object id: destination object id} applied to every
@@ -441,7 +470,8 @@ def remap_package(source, target, mapping, object_map=None):
             payload[name] = _remap_model_member(data, mapping)
         if payload[name] != data:
             rewritten.append(name)
-    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping))
+    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping),
+                             source=source)
     from .orca_adapter import digest
     return {'source_sha256': digest(source), 'converted_sha256': digest(target),
             'mapping': {str(k): v for k, v in sorted(mapping.items())},

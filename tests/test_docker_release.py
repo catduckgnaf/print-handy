@@ -314,7 +314,7 @@ class OrcaBuildJobsTests(unittest.TestCase):
         self.assertEqual(self.run_jobs("auto", per_job=100).returncode, 2)
 
     def test_jobs_apply_to_the_bambu_dependencies_and_application(self):
-        build = DOCKERFILE.split("FROM debian:13-slim AS runtime")[0]
+        build = DOCKERFILE.split(" AS runtime")[0]
         self.assertIn('jobs="$(orca-build-jobs "$ORCA_BUILD_JOBS")"', build)      # Bambu Studio source build only
         self.assertIn('export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"', build)       # every dependency's own build
         self.assertIn("cmake --build deps/build --parallel 1", build)             # one dependency at a time
@@ -432,11 +432,26 @@ class OrcaPrebuiltTests(unittest.TestCase):
 class RuntimeImageTests(unittest.TestCase):
     def test_every_stage_uses_debian_stable(self):
         """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, bounds, runtime); no stock UID 1000 user, so handy takes 1000."""
-        self.assertEqual(re.findall(r"^FROM (debian:13-slim)(?: AS [\w-]+)?$", DOCKERFILE, re.M),
+        self.assertEqual(re.findall(r"^FROM (debian:13-slim)@sha256:[0-9a-f]{64}(?: AS [\w-]+)?$", DOCKERFILE, re.M),
                          ["debian:13-slim"] * 6)
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         self.assertIn("useradd --uid 1000 --create-home handy", runtime)
         self.assertNotIn("ubuntu", DOCKERFILE)
+
+    def test_every_base_image_is_pinned_by_one_digest(self):
+        """#1196: a tag moves, a digest does not. Every stage, the BuildKit
+        syntax frontend and the docker-static job container name their image
+        by digest (tag kept for reading), and the six Debian stages and the
+        job container share one digest, so a base bump is one change that
+        Renovate's dockerfile and github-actions managers make everywhere."""
+        digests = set(re.findall(r"^FROM debian:13-slim@(sha256:[0-9a-f]{64})", DOCKERFILE, re.M))
+        self.assertEqual(len(digests), 1, digests)
+        self.assertEqual(len(re.findall(r"^FROM ", DOCKERFILE, re.M)), 6)
+        self.assertRegex(DOCKERFILE.splitlines()[0],
+                         r"^# syntax=docker/dockerfile:1@sha256:[0-9a-f]{64}$")
+        static = (ROOT / ".github" / "workflows" / "docker-static.yml").read_text()
+        container = re.findall(r"^\s+image: (debian:13-slim@sha256:[0-9a-f]{64})$", static, re.M)
+        self.assertEqual(container, [f"debian:13-slim@{digests.copy().pop()}"])
 
 
 class NativeBoundsStageTests(unittest.TestCase):
@@ -446,11 +461,11 @@ class NativeBoundsStageTests(unittest.TestCase):
     ships a top-level package the dispatcher can never import."""
 
     def test_stage_stages_the_package_skeleton_and_ships_only_the_wheel(self):
-        stage = DOCKERFILE.split("FROM debian:13-slim AS bounds-build", 1)[1].split("FROM debian:13-slim AS runtime", 1)[0]
+        stage = DOCKERFILE.split(" AS bounds-build", 1)[1].split(" AS runtime", 1)[0]
         self.assertIn("COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py", stage)
         self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
         self.assertIn("maturin build --release", stage)
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         # Only the .so leaves the wheel (never its staged __init__ files).
         self.assertNotIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
         self.assertIn("python -m zipfile -e *.whl x", runtime)
@@ -483,7 +498,7 @@ class OrtFlavorStageTests(unittest.TestCase):
     must stay a literal no-op."""
 
     def runtime(self):
-        return DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        return DOCKERFILE.split(" AS runtime", 1)[1]
 
     def test_flavor_arg_defaults_to_cpu_in_the_runtime_stage(self):
         self.assertIn("ARG ORT_FLAVOR=cpu", self.runtime())
@@ -523,7 +538,7 @@ class ContainerTimezoneTests(unittest.TestCase):
     unknown name."""
 
     def test_image_installs_the_tz_database_and_defaults_tz(self):
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         self.assertIn("tzdata", runtime)
         self.assertIn("TZ=America/New_York", runtime)
         self.assertIn('ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime', runtime)

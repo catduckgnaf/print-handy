@@ -421,7 +421,7 @@ What runs:
 
 | Leg | CI job | Cases | Status |
 | --- | --- | --- | --- |
-| Mock slicer | `discord-timing` | every corpus case, `direct` and `standalone` transports | A problem fails the job. The job is not a required status check; CONTRIBUTING lists the checks the maintainers should mark required. |
+| Mock slicer | `discord-timing` | every corpus case, `direct` and `standalone` transports | A problem fails the job. The job is a required status check on `main`; CONTRIBUTING lists the required checks. |
 | Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `direct` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
 
 Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the

@@ -974,6 +974,116 @@ def test_typed_undo_goes_back_without_a_model_call(design_env, fake_render):
     assert len(fake.calls) == 1
 
 
+# ------------------------------------------- typed answers reach the design, not later hooks (#1206)
+
+class TypedAdapter(FakeAdapter):
+    """FakeAdapter with the platform adapter's typed-answer route."""
+
+    async def answer_typed(self, session_key, text, user_id=None):
+        cid = core_prompts.open_prompt_for(session_key)
+        return bool(cid) and core_prompts.resolve_gateway_clarify(cid, str(text))
+
+
+def test_design_hook_runs_before_the_edit_hook():
+    hooks = list(plugin._DISPATCH_HOOKS)
+    assert hooks.index(plugin.design_dispatch) < hooks.index(plugin.edit_dispatch)
+
+
+def test_a_typed_change_at_the_open_question_is_claimed_by_the_design(design_env, tmp_path):
+    """#1206 finding 1: returning None let edit_dispatch (later in the hook
+    order) claim "make it 5 mm taller" before the bot core's typed-answer
+    route ran, so the change went to the channel's job, not the design.
+    design_dispatch must answer its own open question and claim the message."""
+    instructions = []
+
+    async def fake_run_turn(self, session, instruction):
+        instructions.append(instruction)
+        result = _fake_result(session, tmp_path)
+        session["turns"] = len(instructions)
+        return result
+
+    async def scenario():
+        adapter = TypedAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(scripted([GOOD]), "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+            task = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a plate"), _gateway(adapter)))
+            for _ in range(300):
+                cid = core_prompts.open_prompt_for("session-key")
+                if cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid
+            typed = await plugin.design_dispatch(_event("make it 5 mm taller"), _gateway(adapter))
+            assert typed == {"action": "skip", "reason": "typed answer to the design question"}
+            for _ in range(300):
+                cid2 = core_prompts.open_prompt_for("session-key")
+                if cid2 and cid2 != cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid2 and cid2 != cid
+            assert (await plugin.design_dispatch(_event("cancel"), _gateway(adapter)))["reason"] \
+                == "typed answer to the design question"
+            return await asyncio.wait_for(task, 10)
+
+    out = asyncio.run(scenario())
+    assert instructions == ["a plate", "make it 5 mm taller"]
+    assert out["reason"] == "design cancelled"
+
+
+@pytest.mark.parametrize("word", ["cancel", "Cancel.", "stop", "never mind", "3"])
+def test_typed_cancel_words_at_the_question_cancel_without_a_model_call(design_env, fake_render, word):
+    """#1206 finding 2: only the exact label cancelled; "cancel" ran a paid revision."""
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    answers = iter([word, design.CANCEL_LABEL])
+    with mock.patch.object(plugin, "_design_transport", return_value=(fake, "http")), \
+            mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+            mock.patch.object(core_prompts, "wait_for_response",
+                              side_effect=lambda *a, **k: next(answers)):
+        out = asyncio.run(plugin.design_dispatch(_event("/print-design a hook"), _gateway(adapter)))
+    assert out["reason"] == "design cancelled"
+    assert len(fake.calls) == 1
+    assert sum("Design turn" in (c or "") for c in adapter.sent) == 1
+
+
+@pytest.mark.parametrize("word", ["slice it", "Slice", "print it", "1"])
+def test_typed_slice_words_at_the_question_hand_off(design_env, fake_render, word):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    with mock.patch.object(plugin, "_design_handoff",
+                           return_value={"action": "skip", "reason": "handed"}):
+        out = _dispatch("/print-design a hook", adapter, fake, word)
+    assert out["reason"] == "handed"
+    assert len(fake.calls) == 1
+
+
+def test_cancel_and_slice_words_after_change_it_are_not_revisions(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch("never mind", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert len(fake.calls) == 1
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    with mock.patch.object(plugin, "_design_handoff",
+                           return_value={"action": "skip", "reason": "handed"}) as handoff:
+        out = _dispatch("slice it", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "handed"
+    assert len(fake.calls) == 2
+    assert Path(handoff.call_args.args[4]).is_file()
+
+
+def test_typed_choice_is_narrow():
+    assert design.typed_choice("SLICE IT!") == design.SLICE_LABEL
+    assert design.typed_choice("change it") == design.CHANGE_LABEL
+    assert design.typed_choice("2") == design.CHANGE_LABEL
+    assert design.typed_choice("forget it") == design.CANCEL_LABEL
+    for text in ("make it 5 mm taller", "cancel the hole", "4", "", None, "slice it thinner"):
+        assert design.typed_choice(text) is None
+
+
 # ------------------------------------------- a long design turn is never silent (#1206)
 
 class WorkingAdapter(FakeAdapter):

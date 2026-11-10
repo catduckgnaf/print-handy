@@ -18,6 +18,8 @@ import socket
 import threading
 import urllib.request
 
+from . import credential_binding
+
 log = logging.getLogger("print_handy.notify")
 
 EVENTS = ("print_started", "paused", "runout", "watchdog_offer", "complete", "failed", "spool_added")
@@ -150,7 +152,8 @@ def _emit_mqtt(cfg, kind, payload, *, connector) -> bool:
     topic_root = str(cfg.get("mqtt_topic") or "print-handy").strip("/") or "print-handy"
     topic = f"{topic_root}/{kind}"
     username = str(cfg.get("mqtt_username") or "")
-    password = os.environ.get("MQTT_PASSWORD") or ""
+    password = credential_binding.key_for("notify.mqtt_host", host,
+                                          os.environ.get("MQTT_PASSWORD") or "")
     packet = _publish_packet(topic, payload, username=username, password=password)
     opener = connector or (lambda h, p: socket.create_connection((h, p), timeout=3))
     sock = opener(host, port)
@@ -201,7 +204,8 @@ def _emit_ntfy(cfg, kind, payload, *, http_opener) -> bool:
                     "(set ntfy_topic, or include the topic in ntfy_url)")
         return False
     headers = {"Title": f"Print Handy: {kind}", "Tags": "printer"}
-    token = os.environ.get("NTFY_ACCESS_TOKEN") or ""
+    token = credential_binding.key_for("notify.ntfy_url", url,
+                                       os.environ.get("NTFY_ACCESS_TOKEN") or "")
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, data=payload.encode("utf-8"),

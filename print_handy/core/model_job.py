@@ -4678,6 +4678,26 @@ def _enforce_filament_readiness(job, manifest, decisions, selected_plates,
                                       selected_plates, job_folder=job_folder, via_slice=via_slice)
 
 
+def _whole_source_usage_warnings(manifest):
+    """Filament warnings for every plate of a whole-source multi-plate job.
+
+    No production surface writes job['selected_plates'], so a multi-plate
+    source is sliced whole and the selected-plate readiness gate never runs
+    for it (#1155). Its usage findings over all plates (an unknown usage
+    class, a slicer/analysis disagreement, slicer usage that could not be
+    validated) are still presented: they warn and the operator may accept
+    them (owner ruling, catduck, 2026-11-10; #1189). Only the warning rows
+    are taken. The mapping rows (a used filament with no validated slot)
+    are never applied to a whole-source job: its color questions were not
+    scoped per plate, so they would refuse jobs that slice correctly today.
+    """
+    from .source_colors import filament_readiness_warnings
+    usage = manifest.get('plate_usage') or {}
+    if not isinstance(usage, dict) or not usage:
+        return []
+    return filament_readiness_warnings(manifest, {}, sorted(usage, key=str))
+
+
 def intake_color_choices(job_path, state, mode=None, slots=None, interactive=False):
     """Normal intake gate: ask per part/palette and persist exact-source choices.
 
@@ -6217,6 +6237,8 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         # contributes (#1110 Phase B).
         from .source_colors import validate_plate_usage_if_present
         usage_warnings = validate_plate_usage_if_present(manifest, selected_plates)
+        if not selected_plates:
+            usage_warnings = _whole_source_usage_warnings(manifest) + usage_warnings
     # A height-color-only source (#870) is not a multi-color source: its parts
     # share one extruder and the recorded single-color decision carries the
     # operator's pause-or-one-color choice, which a single-extruder printer
@@ -6862,12 +6884,22 @@ def _selected_plate_stats(manifest, selected):
         row = plates.get(str(plate_id))
         if not isinstance(row, dict) or row.get('usage_known') is not True:
             return None
-        for ext, amounts in (row.get('extruders') or {}).items():
-            entry = extruders.setdefault(int(ext), {'g': 0.0, 'm': 0.0})
-            entry['g'] += float(amounts['g'])
-            entry['m'] += float(amounts['m'])
-            total_g += float(amounts['g'])
-            total_m += float(amounts['m'])
+        records = row.get('extruders') or {}
+        if not isinstance(records, dict):
+            return None
+        for ext, amounts in records.items():
+            # A record missing an amount, or carrying a non-number, is not
+            # a validated record (#1155): keep the whole-source totals
+            # rather than fail the projection with a KeyError.
+            try:
+                ext_id, grams, meters = int(ext), float(amounts['g']), float(amounts['m'])
+            except (KeyError, TypeError, ValueError):
+                return None
+            entry = extruders.setdefault(ext_id, {'g': 0.0, 'm': 0.0})
+            entry['g'] += grams
+            entry['m'] += meters
+            total_g += grams
+            total_m += meters
     scoped = {**stats, 'extruders': extruders, 'total_g': round(total_g, 1),
               'total_m': round(total_m, 1)}
     scoped.pop('estimated', None)
