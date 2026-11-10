@@ -941,6 +941,98 @@ class SendGcodeTests(unittest.TestCase):
                 self.assertEqual(code, 200, (script, body))
         self.assertEqual(send.sent, [("gcode", script) for script in scripts])
 
+    # Every spelling below is one a firmware still executes as a heater
+    # command (Klipper: uppercased letter/value pairs, spaces stripped,
+    # '*' read as one more letter; Marlin: spaces skipped), so each must
+    # refuse with nothing sent. (script, word in the reason, heater label)
+    BYPASS_FORMS = (
+        ("M104 S 500", "M104", "nozzle"),
+        ("M 104 S500", "M104", "nozzle"),
+        ("M104\tS500", "M104", "nozzle"),
+        ("M104 S\t500", "M104", "nozzle"),
+        ("M104 *S500", "M104", "nozzle"),
+        ("M104S500", "M104", "nozzle"),
+        ("m104 s500", "M104", "nozzle"),
+        ("M0104 S500", "M104", "nozzle"),
+        ("N10 M104 S500*45", "M104", "nozzle"),
+        ("M104 S100 S500", "M104", "nozzle"),
+        ("M104 S200 B500", "M104", "nozzle"),
+        ("M109 R 500", "M109", "nozzle"),
+        ("M140 S 200", "M140", "bed"),
+        ("M 190 S200", "M190", "bed"),
+        ("M141 S100", "M141", "chamber"),
+        ("M191 S100", "M191", "chamber"),
+        ("M191 R100", "M191", "chamber"),
+        ("M303 E-2 S100", "M303", "chamber"),
+        ("SET_HEATER_TEMPERATURE HEATER=chamber TARGET=100",
+         "SET_HEATER_TEMPERATURE", "chamber"),
+        ("SET_HEATER_TEMPERATURE HEATER=filament_dryer TARGET=100",
+         "SET_HEATER_TEMPERATURE", "heater filament_dryer"),
+        ("PID_CALIBRATE HEATER=my_heater TARGET=100", "PID_CALIBRATE", "heater my_heater"),
+        ("PRINT_START EXTRUDER=500 BED=60", "PRINT_START EXTRUDER", "nozzle"),
+        ("PRINT_START BED=200", "PRINT_START BED", "bed"),
+        ("PRINT_START BED_TEMP=200", "PRINT_START BED_TEMP", "bed"),
+        ("print_start extruder_temp='500'", "PRINT_START EXTRUDER_TEMP", "nozzle"),
+        ("LOAD_FILAMENT TEMP=500", "LOAD_FILAMENT TEMP", "nozzle"),
+        ("START_PRINT HOTEND_TEMP=500", "START_PRINT HOTEND_TEMP", "nozzle"),
+        ("PRINT_START CHAMBER=100", "PRINT_START CHAMBER", "chamber"),
+        ("S3D_START BED=200", "S3D_START BED", "bed"),
+        ('PRINT_START BED="200', "PRINT_START BED", "bed"),  # unbalanced quote
+    )
+    # Ordinary scripts that must keep sending.
+    ALLOWED_FORMS = (
+        "M104 S 200", "M 140 S60", "M141 S40", "M191 R45", "M303 E-2 S50",
+        "PRINT_START EXTRUDER=220 BED=60 CHAMBER=40",
+        "ACTIVATE_EXTRUDER EXTRUDER=extruder1",
+        "SET_PRESSURE_ADVANCE EXTRUDER=extruder ADVANCE=0.05",
+        "MY_MACRO TEMP_OFFSET=-5",
+        "SET_HEATER_TEMPERATURE HEATER=filament_dryer TARGET=50",
+        "G1 X10 S500", "M106 S255", "M117 heating to 500",
+        "SET_FAN_SPEED FAN=part SPEED=0.5",
+        "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=200 ; TARGET=500",
+    )
+
+    def test_every_firmware_spelling_of_an_over_limit_heater_refuses(self):
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for script, word, label in self.BYPASS_FORMS:
+                with self.subTest(script=script):
+                    code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                     adapter=adapter, read=reads("idle"),
+                                                     send=send)
+                    self.assertEqual(code, 400, body)
+                    self.assertIn(word, body["reason"])
+                    self.assertIn(f"the {label} to", body["reason"])
+                    self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_ordinary_scripts_with_temperature_like_words_still_send(self):
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for script in self.ALLOWED_FORMS:
+                with self.subTest(script=script):
+                    code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                     adapter=adapter, read=reads("idle"),
+                                                     send=send)
+                    self.assertEqual(code, 200, body)
+        self.assertEqual(len(send.sent), len(self.ALLOWED_FORMS))
+
+    def test_chamber_and_unknown_heater_ceilings_come_from_one_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            view = settings.view_for(PRINTER, enabled(tmp))
+            plain = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+            heated = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110,
+                                              "max_chamber_c": 65})
+            self.assertEqual(controls.temperature_limit(plain, view, "chamber"),
+                             controls.UNKNOWN_HEATER_CEILING_C)
+            self.assertEqual(controls.temperature_limit(heated, view, "chamber"), 65)
+            self.assertEqual(controls.temperature_limit(heated, view, "other"),
+                             controls.UNKNOWN_HEATER_CEILING_C)
+
     def test_malformed_extended_heater_lines_refuse_and_send_nothing(self):
         # A SET_HEATER_TEMPERATURE / PID_CALIBRATE line the scan cannot
         # parse fails closed instead of being sent unchecked.
