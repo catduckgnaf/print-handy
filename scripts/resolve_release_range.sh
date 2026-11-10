@@ -18,7 +18,8 @@ from_ref="$input_from"
 to_ref="$head_ref"
 if [ -z "$from_ref" ]; then
   from_ref="$(previous_release "$head_ref")"
-elif [ "$from_ref" = "$version" ]; then
+fi
+if [ "$from_ref" = "$version" ]; then
   to_ref="$version^"
   from_ref="$(previous_release "$to_ref")"
 fi

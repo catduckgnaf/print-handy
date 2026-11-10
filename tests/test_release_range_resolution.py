@@ -46,7 +46,7 @@ class ReleaseRangeResolution(unittest.TestCase):
         return dict(line.split("=", 1) for line in output.splitlines())
 
     def test_unrelated_newer_tag_is_ignored_and_normal_range_uses_ancestor(self):
-        result = self.resolve("2.2.7", "2.2.7")
+        result = self.resolve("2.2.7")
         self.assertEqual(result, {"from_ref": "2.2.6", "to_ref": "2.2.7^"})
 
     def test_post_release_range_ends_before_current_release(self):
