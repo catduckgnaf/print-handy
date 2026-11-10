@@ -276,11 +276,13 @@ def test_visual_alert_send_allows_only_the_starter(monkeypatch, tmp_path):
     body = seen[-1].data
     payload = json.loads(body.split(b"\r\n\r\n", 1)[1].split(b"\r\n--")[0])
     assert payload["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    assert payload["content"] == f"<@{STARTER}> Print camera check: Widget"
     assert pab.post_visual_alert("tok", "42", "Print camera check: Widget",
                                  "plate.gcode", frame)
     body = seen[-1].data
     payload = json.loads(body.split(b"\r\n\r\n", 1)[1].split(b"\r\n--")[0])
     assert payload["allowed_mentions"] == {"parse": []}
+    assert "<@" not in payload["content"]
 
 
 # ------------------------------------------- one state file, many processes

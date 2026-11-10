@@ -1131,9 +1131,7 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
     if identity:
         extra["identity"] = str(identity)
     aid = record(kind, filename, **extra)
-    allowed: dict[str, Any] = {"parse": []}
-    if mention_user_id is not None and str(mention_user_id).isdigit():
-        allowed["users"] = [str(mention_user_id)]
+    content, allowed = rest.starter_mention(content, mention_user_id)
     body = json.dumps({"content": content[:1990], "components": components(aid, kind),
                        "allowed_mentions": allowed}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
@@ -1203,19 +1201,6 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
     return retired
 
 
-def _allowed_mentions(mention_user_id: str | None) -> dict[str, Any]:
-    """The allowed_mentions for an alert post: nobody, or the one starter.
-
-    ``mention_user_id`` is the starter pings classifier's decision
-    (#1095); a non-numeric value names nobody, exactly as in
-    ``bot.rest.send``.
-    """
-    allowed: dict[str, Any] = {"parse": []}
-    if mention_user_id is not None and str(mention_user_id).isdigit():
-        allowed["users"] = [str(mention_user_id)]
-    return allowed
-
-
 def post_visual_alert(token: str, channel_id: str, content: str, filename: str, image: Path,
                       identity: Any = None, mention_user_id: str | None = None) -> bool:
     """Post one camera image and its safe visual-review buttons in a single Discord message.
@@ -1230,8 +1215,9 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
         return False
     aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
     boundary = f"----hermes-print-{secrets.token_hex(12)}"
+    content, allowed = rest.starter_mention(content, mention_user_id)
     payload = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
-                          "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
+                          "allowed_mentions": allowed}).encode()
     try:
         frame = image.read_bytes()
         if not frame:
@@ -1268,8 +1254,9 @@ def post_visual_text_alert(token: str, channel_id: str, content: str, filename: 
     if not token or not channel_id:
         return False
     aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
+    content, allowed = rest.starter_mention(content, mention_user_id)
     body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
-                       "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
+                       "allowed_mentions": allowed}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",

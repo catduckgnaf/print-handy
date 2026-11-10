@@ -448,7 +448,8 @@ def format_event(kind, filename, now=None, archive=None, context_path=None, extr
     # No mention is appended here, for any kind (#1095): the notify emit
     # above and every chat platform get the same plain text, and whether
     # the Discord post pings the starter is decided by starter_pings at
-    # the send path, from the post kind and this job.
+    # the send path, from the post kind and this job; the Discord sender
+    # then puts the one <@id> in the posted content (bot.rest.starter_mention).
     return message
 
 
