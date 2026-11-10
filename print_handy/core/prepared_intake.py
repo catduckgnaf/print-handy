@@ -3798,8 +3798,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, state,
                                              new_scale, **probe_kw)
                 except Exception:
+                    # The slicer failed while searching: say so, never imply
+                    # that no smaller size fits.
                     logger.exception('largest fitting scale search failed')
-                    fit_scale = None
+                    await adapter.send(chat_id=source.chat_id,
+                                       content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
+                                               f'so nothing was scaled. The model stays at {_pct(current_scale)}. '
+                                               f'I could not work out the biggest size that fits because the '
+                                               f'slicer check failed.',
+                                       metadata=metadata)
+                    continue
                 planned = latest.get('full_size_split_plan') or latest.get('full_size_rearrange_plan')
                 offer = fit_scale is not None and (
                     fit_scale > current_scale + 0.0005

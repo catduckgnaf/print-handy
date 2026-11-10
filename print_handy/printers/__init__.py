@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-
+import threading
+from collections.abc import MutableMapping
 from dataclasses import replace
 
 from .base import MultiColorUnsupported, PrinterAdapter, PrinterModel, VendorProfile
@@ -30,39 +31,163 @@ LEGACY_JOB_MODEL = "flashforge.ad5x"
 VENDOR_ALIASES = {"bambu": "bambulab", "bambu_lab": "bambulab", "bambulabs": "bambulab"}
 
 
+def _vendor(name):
+    """Import and check one vendor package; None when ``name`` is not one."""
+    package = importlib.import_module(f"{__name__}.{name}")
+    if not hasattr(package, "__path__"):
+        return None
+    vendor = getattr(package, "VENDOR", None)
+    if not isinstance(vendor, VendorProfile):
+        raise RuntimeError(f"{package.__name__}: a vendor package must define VENDOR = VendorProfile(...)")
+    if vendor.key != name:
+        raise RuntimeError(f"{package.__name__}: VENDOR key {vendor.key!r} must be {name}")
+    return vendor
+
+
+def _model(vendor, name):
+    """Import and check one printer module of a vendor package; None when it defines no MODEL."""
+    module = importlib.import_module(f"{__name__}.{vendor.key}.{name}")
+    if hasattr(module, "__path__"):
+        return None
+    model = getattr(module, "MODEL", None)
+    if model is None:
+        return None
+    if model.key != f"{vendor.key}.{name}":
+        raise RuntimeError(f"{module.__name__}: MODEL key {model.key!r} must be {vendor.key}.{name}")
+    if model.vendor is None:
+        model = replace(model, vendor=vendor)  # a printer module that does not name its vendor
+    elif model.vendor != vendor:
+        raise RuntimeError(f"{module.__name__}: MODEL vendor {model.vendor.key!r} must be "
+                           f"the {vendor.key} package VENDOR")
+    return model
+
+
+class _Registry:
+    """The vendor and model tables, filled on first use instead of at import.
+
+    Importing every vendor family costs a few tenths of a second, and most
+    processes (each heavy intake worker among them) need one printer. A
+    lookup by full key loads just that vendor package and printer module;
+    iterating, measuring or editing a table runs the full scan once, with
+    the same checks and the same sorted order the eager scan had. Objects
+    loaded by key are reused by the full scan, so identity is stable.
+    """
+
+    def __init__(self):
+        self.vendors: dict[str, VendorProfile] = {}
+        self.models: dict[str, PrinterModel] = {}
+        self.complete = False
+        self.lock = threading.RLock()
+
+    def scan(self):
+        with self.lock:
+            if self.complete:
+                return
+            vendors, found = dict(self.vendors), dict(self.models)
+            for brand in pkgutil.iter_modules(__path__):
+                if not brand.ispkg:
+                    continue
+                vendor = vendors.get(brand.name) or _vendor(brand.name)
+                vendors[vendor.key] = vendor
+                package = importlib.import_module(f"{__name__}.{brand.name}")
+                for module in pkgutil.iter_modules(package.__path__):
+                    if module.ispkg:
+                        continue
+                    key = f"{brand.name}.{module.name}"
+                    model = found.get(key) or _model(vendor, module.name)
+                    if model is not None:
+                        found[key] = model
+            self.vendors = dict(sorted(vendors.items()))
+            self.models = dict(sorted(found.items()))
+            self.complete = True
+
+    def vendor(self, name):
+        """One vendor by key, loading only its package. None when unknown (after a full scan)."""
+        with self.lock:
+            if name in self.vendors or self.complete:
+                return self.vendors.get(name)
+            if _plain_name(name) and _is_child(__path__, name, package=True):
+                vendor = _vendor(name)
+                if vendor is not None:
+                    self.vendors[name] = vendor
+                    return vendor
+            self.scan()
+            return self.vendors.get(name)
+
+    def model(self, key):
+        """One model by "vendor.printer" key, loading only its module. None when unknown."""
+        with self.lock:
+            if key in self.models or self.complete:
+                return self.models.get(key)
+            head, dot, tail = str(key).partition(".") if isinstance(key, str) else ("", "", "")
+            if dot and _plain_name(tail):
+                vendor = self.vendor(head)
+                if vendor is not None and not self.complete:
+                    package = importlib.import_module(f"{__name__}.{head}")
+                    if _is_child(package.__path__, tail, package=False):
+                        model = _model(vendor, tail)
+                        if model is not None:
+                            self.models[key] = model
+                            return model
+            self.scan()
+            return self.models.get(key)
+
+
+def _plain_name(name):
+    return isinstance(name, str) and name.isidentifier() and not name.startswith("__")
+
+
+def _is_child(path, name, *, package):
+    """True when ``name`` is a module (or package) the full scan would list under ``path``."""
+    return any(info.name == name and info.ispkg == package for info in pkgutil.iter_modules(path))
+
+
+_REGISTRY = _Registry()
+
+
 def _discover():
-    vendors, found = {}, {}
-    for brand in pkgutil.iter_modules(__path__):
-        if not brand.ispkg:
-            continue
-        package = importlib.import_module(f"{__name__}.{brand.name}")
-        vendor = getattr(package, "VENDOR", None)
-        if not isinstance(vendor, VendorProfile):
-            raise RuntimeError(f"{package.__name__}: a vendor package must define VENDOR = VendorProfile(...)")
-        if vendor.key != brand.name:
-            raise RuntimeError(f"{package.__name__}: VENDOR key {vendor.key!r} must be {brand.name}")
-        vendors[vendor.key] = vendor
-        for module in pkgutil.iter_modules(package.__path__):
-            if module.ispkg:
-                continue
-            model = getattr(importlib.import_module(f"{package.__name__}.{module.name}"), "MODEL", None)
-            if model is None:
-                continue
-            if model.key != f"{brand.name}.{module.name}":
-                raise RuntimeError(f"{package.__name__}.{module.name}: MODEL key {model.key!r} must be "
-                                   f"{brand.name}.{module.name}")
-            if model.vendor is None:
-                model = replace(model, vendor=vendor)  # a printer module that does not name its vendor
-            elif model.vendor != vendor:
-                raise RuntimeError(f"{package.__name__}.{module.name}: MODEL vendor {model.vendor.key!r} must be "
-                                   f"the {brand.name} package VENDOR")
-            found[model.key] = model
-    return dict(sorted(vendors.items())), dict(sorted(found.items()))
+    """Compatibility hook returning the fully validated vendor and model tables."""
+    _REGISTRY.scan()
+    return _REGISTRY.vendors, _REGISTRY.models
 
 
-VENDORS: dict[str, VendorProfile]
-MODELS: dict[str, PrinterModel]
-VENDORS, MODELS = _discover()
+class _Table(MutableMapping):
+    """A dict-like view of one registry table (VENDORS or MODELS)."""
+
+    def __init__(self, table, one):
+        self._table, self._one = table, one
+
+    def _all(self):
+        _REGISTRY.scan()
+        return getattr(_REGISTRY, self._table)
+
+    def __getitem__(self, key):
+        found = self._one(key)
+        if found is None:
+            raise KeyError(key)
+        return found
+
+    def __contains__(self, key):
+        return self._one(key) is not None
+
+    def __iter__(self):
+        return iter(list(self._all()))
+
+    def __len__(self):
+        return len(self._all())
+
+    def __setitem__(self, key, value):
+        self._all()[key] = value
+
+    def __delitem__(self, key):
+        del self._all()[key]
+
+    def __repr__(self):
+        return repr(self._all())
+
+
+VENDORS: MutableMapping[str, VendorProfile] = _Table("vendors", _REGISTRY.vendor)
+MODELS: MutableMapping[str, PrinterModel] = _Table("models", _REGISTRY.model)
 
 
 def vendor_key(name):

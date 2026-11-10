@@ -418,6 +418,24 @@ def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch
     assert env.starts == [] and env.sliced == []
 
 
+def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkeypatch):
+    from print_handy.core import orca_adapter
+
+    def capacity(path, st, **kw):
+        if abs(float(kw.get('scale') or 1.0) - 1.1) < 1e-9:
+            return 0  # the asked-for 110% is refused normally
+        raise RuntimeError('orca aborted')  # every search probe fails
+
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
+    # Scale bigger by 10% is refused and the search fails; Cancel at the repeated question.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    assert any('110% does not fit' in text and 'stays at 100%' in text
+               and 'could not work out the biggest size that fits' in text for text in adapter.sent)
+    assert not [q for q in adapter.questions if 'biggest size that fits' in q['question']]
+    assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
+    assert env.starts == [] and env.sliced == []
+
+
 def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
     # Scale the model, back out of the amount question, back out of the
     # direction question on a second try, then Cancel the print request.

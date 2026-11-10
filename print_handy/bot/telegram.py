@@ -142,6 +142,14 @@ class StandaloneAdapter(BasePlatformAdapter):
             return SendResult(False, error=str(exc))
         return SendResult(True, message_id=str((first or {}).get("message_id") or "") or None)
 
+    async def signal_working(self, chat_id, metadata=None):
+        """sendChatAction "typing" (shown about 5 s, or until the reply)."""
+        payload = {"chat_id": str(chat_id), "action": "typing"}
+        thread = (metadata or {}).get("thread_id")
+        if thread:
+            payload["message_thread_id"] = str(thread)
+        await asyncio.to_thread(self._call, "sendChatAction", payload)
+
     def _send_file(self, chat_id, path, thread):
         suffix = Path(path).suffix.lower()
         if suffix in tg.PHOTO_EXTS:

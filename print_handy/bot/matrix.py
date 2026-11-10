@@ -144,6 +144,16 @@ class StandaloneAdapter(BasePlatformAdapter):
             return SendResult(False, error=str(exc))
         return SendResult(True, message_id=first or None)
 
+    async def signal_working(self, chat_id, metadata=None):
+        """A Matrix typing notification for the bot's own account (10 s, or until the reply)."""
+        client = self.client
+        user_id = str(getattr(client, "bot_user_id", "") or "") or str(
+            getattr(getattr(client, "user", None), "id", "") or "")
+        if not user_id:
+            return None
+        await asyncio.to_thread(mx.typing, self.homeserver, self.token, str(chat_id), user_id,
+                                opener=self.opener)
+
     async def delete_message(self, chat_id, message_id, metadata=None):
         try:
             await asyncio.to_thread(mx.redact, self.homeserver, self.token, str(chat_id),

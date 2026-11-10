@@ -958,7 +958,7 @@ class _Handler(BaseHTTPRequestHandler):
                     else None),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
-                self._json(200, self.server.snapshot_func())
+                self._json(200, self.server.api_snapshot_func())
             elif path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
                 self._data_route(path)
             elif path == "/wrapped/video-file":
@@ -996,6 +996,9 @@ class _Handler(BaseHTTPRequestHandler):
                            "text/html; charset=utf-8")
             elif path == "/chat":
                 self._chat_page()
+            elif path == "/chat/state":
+                self._json(200, chat_module.chat_state(
+                    self._chat_service() if self._web_chat_enabled() else None))
             elif path == "/upload":
                 self._send(200, upload_module.render_upload_page(
                     self.server.settings_data, form_token=self._form_token(),
@@ -2422,6 +2425,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.login_throttle = access_module.LoginThrottle()
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
+    # GET /api/status (polled by Home Assistant) reuses one snapshot for a
+    # few seconds; the status page and every control route stay live.
+    server.api_snapshot_func = status_module.SnapshotCache(server.snapshot_func).get
     # /readyz builds its components on their own (no doctor run); a
     # caller-supplied snapshot_func still drives it when no readiness_func
     # is given, so embedders and tests keep one source.

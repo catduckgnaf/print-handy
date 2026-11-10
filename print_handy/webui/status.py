@@ -35,9 +35,12 @@ and no values of the environment variables the ``*_env`` settings name
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import socket
+import threading
+import time
 import urllib.parse
 import urllib.request
 from urllib.parse import urlparse
@@ -408,6 +411,41 @@ def components(data, snap, *, slicer=None, reach=None, environ=None):
     rows = [spoolman["ok"], slicer["ok"], *(row["ok"] for row in reach.values())]
     return {"spoolman": spoolman, "slicer": slicer, "printers": reach,
             "ready": all(ok is not False for ok in rows)}
+
+
+# How long GET /api/status reuses one snapshot. Home Assistant polls that
+# route, and each snapshot runs the doctor rows (a network probe per
+# configured service) and the Spoolman probe.
+SNAPSHOT_TTL_S = 5.0
+
+
+class SnapshotCache:
+    """A snapshot reused for ``ttl`` seconds, refreshed by one caller at a time.
+
+    Single-flight: requests that arrive while a refresh runs wait for it
+    and share its result instead of starting their own doctor run. Each
+    caller gets its own deep copy, so a renderer cannot change what the
+    next caller sees. A failed refresh is not cached; it raises to the
+    caller that ran it, and the next caller tries again.
+
+    This is for read-only status display only. Nothing that gates a
+    printer action may read it: the control routes read live state.
+    """
+
+    def __init__(self, build, *, ttl=SNAPSHOT_TTL_S, clock=None):
+        self._build = build
+        self._ttl = float(ttl)
+        self._clock = clock or time.monotonic
+        self._lock = threading.Lock()
+        self._value = None
+        self._at = 0.0
+
+    def get(self):
+        with self._lock:
+            if self._value is None or self._clock() - self._at >= self._ttl:
+                value = self._build()
+                self._value, self._at = value, self._clock()
+            return copy.deepcopy(self._value)
 
 
 def snapshot_json(**kwargs):
