@@ -15,7 +15,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[test]"
 ```
 
-Use `.venv/bin/python` wherever this page says `python3` from here on, or activate the environment with `. .venv/bin/activate`. The service installer in step 4 records the interpreter it is run with, so run it from the same environment.
+Use `.venv/bin/python` wherever this page says `python3` from here on, or activate the environment with `. .venv/bin/activate`. The direct service installer in step 4 uses the system `python3` by default, so pass the virtual environment's interpreter explicitly when running it without activation.
 
 ## 2. OrcaSlicer
 
@@ -48,7 +48,7 @@ python3 -m print_handy.setup_wizard
 Or install the systemd user services directly:
 
 ```sh
-scripts/install-standalone.sh
+scripts/install-standalone.sh --python "$PWD/.venv/bin/python"
 systemctl --user enable --now print-handy-bot.service print-handy-listener.service
 ```
 
