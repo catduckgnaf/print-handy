@@ -702,7 +702,22 @@ class MultipartSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
             source = work / "multi.3mf"
+            # Unknown slicer usage is permitted; missing geometry is not.
+            # Include a closed tetrahedron instead of a thumbnails-only ZIP.
+            model = (
+                '<model unit="millimeter" '
+                'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+                '<resources><object id="1" type="model"><mesh><vertices>'
+                '<vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/>'
+                '<vertex x="0" y="10" z="0"/><vertex x="0" y="0" z="10"/>'
+                '</vertices><triangles><triangle v1="0" v2="2" v3="1"/>'
+                '<triangle v1="0" v2="1" v3="3"/>'
+                '<triangle v1="1" v2="2" v3="3"/>'
+                '<triangle v1="2" v2="0" v3="3"/></triangles></mesh>'
+                '</object></resources><build><item objectid="1"/></build></model>'
+            )
             with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("3D/3dmodel.model", model)
                 archive.writestr("Metadata/plate_1.png", b"png")
                 archive.writestr("Metadata/plate_2.png", b"png")
             job_path = work / "JOB.json"
@@ -719,6 +734,29 @@ class MultipartSafetyTests(unittest.TestCase):
                 result = model_job.slice_job(job_path)
             self.assertEqual(result, Path("result.gcode"))
             slice_multi.assert_called_once()
+            manifest = slice_multi.call_args.args[3]
+            self.assertEqual(len(manifest['parts']), 1)
+
+    def test_whole_source_multiplate_missing_geometry_never_reaches_slicer(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            source = work / "multi.3mf"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("Metadata/plate_1.png", b"png")
+                archive.writestr("Metadata/plate_2.png", b"png")
+            job_path = work / "JOB.json"
+            job_path.write_text(json.dumps({"downloaded_file": str(source), "audit": {
+                "size_x": "100", "size_y": "100", "size_z": "10", "plates": 2}}))
+            state = {"bed_mm": [220, 220], "max_print_height_mm": 250,
+                     "nozzle": {"diameter_mm": 0.4},
+                     "spool": {"name": "PLA", "material": "PLA", "density": 1.24},
+                     "temps_c": {"nozzle": 210, "bed": 60}}
+            with mock.patch.object(model_job, "ARCHIVE", work), \
+                 mock.patch.object(model_job.printer_state, "load", return_value=state), \
+                 mock.patch.object(model_job, "slice_multi_plate") as slice_multi:
+                with self.assertRaisesRegex(RuntimeError, "missing root model"):
+                    model_job.slice_job(job_path)
+            slice_multi.assert_not_called()
 
     def test_multiplate_archive_cannot_bypass_guard_with_stale_audit(self):
         with tempfile.TemporaryDirectory() as td:
