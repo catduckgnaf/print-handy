@@ -88,6 +88,26 @@ def table(heading):
 
 
 class SettingsParityTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def setUp(self):
         self.inventory = inventory()
         self.rows = dict(re.findall(r"^\| `([a-z_]+\.(?:[a-z_]+|<[a-zA-Z]+>))` \| ([^|]+) \|", DOCS, re.M))
