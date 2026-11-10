@@ -51,6 +51,13 @@ OPERATOR_MINED_2 = {
     "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
     "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
 }
+# Third mining pass: the operator typed both of these in one question on
+# 2026-11-10 asking whether they were covered — they were not (0 hits in
+# the repo, neither key in any table). Same aggregate-only rule: pairs,
+# never message text. "mispellings" is the misspelling of "misspellings".
+OPERATOR_MINED_3 = {
+    "epsecially": "especially", "mispellings": "misspellings",
+}
 # Generic high-frequency non-word misspellings: domain typos the bounded
 # edit-distance pass misses (filamet, nozel) plus classic English keyboard
 # slips (teh, recieve, definately). Suggested in a branch commit whose file
@@ -272,6 +279,7 @@ BATCH2_TITLE_TYPOS = {
     "tewre": "tower", "vsaa": "vase", "vsai": "vase",
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
+             **OPERATOR_MINED_3,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 
