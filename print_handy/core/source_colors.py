@@ -846,6 +846,10 @@ def _plate_usage(path, manifest):
     designated = manifest.get('support_filaments') or {}
     prusa_roles = _prusa_role_extruders(path)
     range_extruders, range_unknown = _height_range_extruders(path, object_plate)
+    palette_ids = {int(row['source_extruder']) for row in manifest.get('filaments') or []
+                   if row.get('source_extruder') is not None}
+    invalid_designations = {name: ext for name, ext in designated.items()
+                            if ext is not None and ext not in palette_ids}
     stats_plates = ((manifest.get('filament_stats') or {}).get('plates')) or {}
     unreadable = 'unreadable' in stats_plates
     out = {}
@@ -899,9 +903,18 @@ def _plate_usage(path, manifest):
                 'not_carried_by_format',
                 reason='the source project format names no separate infill filament; infill prints '
                        'with the object filament and no distinct infill assignment is carried')
-        # Support / interface: the author's designation, or the object filament.
+        # Support / interface: an invalid explicit designation is an unknown
+        # usage claim, not permission to silently omit that filament.
         base, interface = designated.get('base'), designated.get('interface')
-        if base:
+        invalid_here = {name: ext for name, ext in invalid_designations.items()
+                        if (name == 'base' and base is not None) or
+                           (name == 'interface' and interface is not None)}
+        if invalid_here:
+            reason = 'support designation names source filament outside project palette: ' + \
+                     ', '.join(f'{name}={ext}' for name, ext in sorted(invalid_here.items()))
+            classes['support'] = _usage_row('unknown', reason=reason)
+            classes['interface'] = _usage_row('unknown', reason=reason)
+        elif base:
             classes['support'] = _usage_row(
                 'known', {base}, evidence='support filament designated in the source project settings')
             classes['interface'] = _usage_row(

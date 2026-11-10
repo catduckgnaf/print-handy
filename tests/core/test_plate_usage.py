@@ -197,6 +197,19 @@ class PlateUsageAnalysisTests(unittest.TestCase):
             self.assertEqual(classes["interface"]["source_filaments"], [3])
             self.assertIn(3, manifest["plate_usage"][plate]["source_filaments"])
 
+    def test_support_designation_outside_palette_makes_interface_usage_unknown(self):
+        path = write_source(self.dir / "support-outside.3mf",
+                            [("Base", 1, None), ("Knob", 2, None)], [[0], [1]],
+                            project_extra={"enable_support": "1", "support_filament": "3",
+                                           "support_interface_filament": "9"})
+        manifest = sc.inventory(path)
+        for plate in ("1", "2"):
+            entry = manifest["plate_usage"][plate]
+            self.assertFalse(entry["usage_known"])
+            self.assertIn("support", entry["unknown_classes"])
+            self.assertIn("interface", entry["unknown_classes"])
+            self.assertIn("interface=9", entry["classes"]["interface"]["reason"])
+
     def test_wall_infill_tower_are_not_carried_by_an_orca_project(self):
         manifest = sc.inventory(two_plate_source(self.dir / "two.3mf"))
         classes = manifest["plate_usage"]["1"]["classes"]
