@@ -4,6 +4,7 @@ Source extruders are one based. Physical IFS slots are separate identifiers.
 Never infer a slot from RGB or flatten a painted project without consent.
 """
 import json
+import math
 import re
 import posixpath
 from pathlib import Path
@@ -579,20 +580,129 @@ def inventory(path):
     return res
 
 
+USAGE_ABSENT = 'source has no slicer usage metadata'
+USAGE_NO_RECORDS = 'plate has no validated filament usage records'
+USAGE_UNMAPPED = 'source filament usage record names a filament outside this project'
+USAGE_INVALID = 'invalid source filament usage record'
+USAGE_UNREADABLE = 'source slicer usage metadata could not be read'
+# Unknown, but not a claim that failed: a project sliced for only some of its
+# plates has no records for the rest, and a filament used only for supports
+# need not appear in the source palette. The slicer's own output is
+# authoritative for these, so they never refuse a slice.
+_USAGE_NOT_A_FAILED_CLAIM = frozenset({USAGE_ABSENT, USAGE_NO_RECORDS, USAGE_UNMAPPED})
+
+
+def _usage_claim_present(usage):
+    """Whether a plate's usage record is a claim the gate must validate."""
+    if not isinstance(usage, dict):
+        return True
+    if usage.get('usage_known') is False:
+        return usage.get('usage_unknown_reason') not in _USAGE_NOT_A_FAILED_CLAIM
+    return usage.get('extruders') != {}
+
+
+def validate_plate_usage_if_present(manifest, selected_plate_ids=None):
+    """Validate source slicer usage claims when present; absence is UNKNOWN, not invalid.
+
+    Only damaged or invalid claims refuse: an unreadable usage file, or a
+    record with bad numbers or a bad filament ID. A plate with no records
+    stays UNKNOWN and the destination slicer's output is authoritative.
+    """
+    stats = manifest.get('filament_stats')
+    plates = stats.get('plates') if isinstance(stats, dict) else None
+    if not isinstance(plates, dict) or not plates:
+        return  # No source claim. Destination slicing supplies authoritative usage.
+    wanted = (list(plates) if selected_plate_ids is None
+              else [str(plate_id) for plate_id in selected_plate_ids])
+    claimed = [plate_id for plate_id in wanted
+               if plate_id in plates and _usage_claim_present(plates[plate_id])]
+    if claimed:
+        require_plate_usage_known(manifest, claimed)
+
+
+def require_plate_usage_known(manifest, selected_plate_ids=None):
+    """Refuse readiness when selected plates lack validated usage records.
+
+    If the caller has not resolved plate selection, validate every source
+    plate conservatively. Never turn a missing plate record into zero usage.
+    """
+    plates = ((manifest.get('filament_stats') or {}).get('plates'))
+    if not isinstance(plates, dict) or not plates:
+        raise RuntimeError('per-plate filament usage is unknown; no slicing attempted')
+    selected = (list(plates) if selected_plate_ids is None
+                else [str(plate_id) for plate_id in selected_plate_ids])
+    for plate_id in selected:
+        usage = plates.get(str(plate_id))
+        if not isinstance(usage, dict) or usage.get('usage_known') is not True:
+            reason = usage.get('usage_unknown_reason') if isinstance(usage, dict) else None
+            detail = f': {reason}' if reason else ''
+            raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}{detail}; no slicing attempted')
+        if not isinstance(usage.get('extruders'), dict) or not usage['extruders']:
+            raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: no validated filament assignments; no slicing attempted')
+        for source_id, amounts in usage['extruders'].items():
+            try:
+                ext_id = int(source_id)
+                grams, meters = float(amounts['g']), float(amounts['m'])
+            except (TypeError, ValueError, KeyError):
+                raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted') from None
+            if ext_id < 1 or not math.isfinite(grams) or not math.isfinite(meters) or grams < 0 or meters < 0:
+                raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted')
+
+
 def _append_filament_stats(path, manifest):
     path = Path(path)
+    has_slice_usage = False
     stats = {'total_g': 0.0, 'total_m': 0.0, 'extruders': {}}
     if path.suffix.lower() == '.3mf':
         try:
             with zipfile.ZipFile(path) as z:
                 names = z.namelist()
                 if 'Metadata/slice_info.config' in names:
+                    # The file's presence is the claim, so a parse failure
+                    # below is a failed claim, never an absent one.
+                    has_slice_usage = True
                     root = ET.fromstring(z.read('Metadata/slice_info.config'))
-                    for plate in root.findall('.//plate'):
+                    stats['plates'] = {}
+                    expected_filaments = {int(f.get('source_extruder')) for f in manifest.get('filaments') or []
+                                          if f.get('source_extruder')}
+                    model_settings = None
+                    if 'Metadata/model_settings.config' in names:
+                        model_settings = ET.fromstring(z.read('Metadata/model_settings.config'))
+                    for plate_index, plate in enumerate(root.findall('.//plate'), 1):
+                        # Ignore metadata-only/empty plates: without assigned model
+                        # instances there is no source filament demand to validate.
+                        plate_index_node = plate.find("metadata[@key='index']")
+                        usage_plate_id = plate_index_node.get('value') if plate_index_node is not None else str(plate_index)
+                        if model_settings is not None:
+                            source_plate = next((candidate for candidate in model_settings.findall('.//plate')
+                                                 if any(m.get('key') == 'plater_id' and m.get('value') == usage_plate_id
+                                                        for m in candidate.findall('.//metadata'))), None)
+                            if source_plate is not None and not source_plate.findall('.//model_instance'):
+                                continue
+                        # Bambu's slice_info.config reports real sliced usage per plate.
+                        # Preserve its plate index and source filament IDs; do not
+                        # conflate logical source colors with loaded slots/nozzles.
+                        meta = {m.get('key'): m.get('value') for m in plate.findall('metadata')}
+                        plate_id = meta.get('index') or str(plate_index)
+                        plate_stats = {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
+                                       'usage_known': True, 'usage_unknown_reason': None}
                         for fil in plate.findall('.//filament'):
-                            g = float(fil.get('used_g', 0))
-                            m = float(fil.get('used_m', 0))
-                            ext_id = int(fil.get('id', 1))
+                            try:
+                                g = float(fil.get('used_g', 0))
+                                m = float(fil.get('used_m', 0))
+                                ext_id = int(fil.get('id'))
+                                if ext_id < 1 or not math.isfinite(g) or not math.isfinite(m) or g < 0 or m < 0:
+                                    raise ValueError
+                            except (TypeError, ValueError):
+                                plate_stats['usage_known'] = False
+                                plate_stats['usage_unknown_reason'] = USAGE_INVALID
+                                continue
+                            if expected_filaments and ext_id not in expected_filaments:
+                                # An invalid record on the same plate stays the reason.
+                                plate_stats['usage_known'] = False
+                                if plate_stats['usage_unknown_reason'] != USAGE_INVALID:
+                                    plate_stats['usage_unknown_reason'] = USAGE_UNMAPPED
+                                continue
                             if g > 0 or m > 0:
                                 # One filament can feed several plates: add them, never keep only the last plate.
                                 ext = stats['extruders'].setdefault(ext_id, {'g': 0.0, 'm': 0.0})
@@ -600,10 +710,23 @@ def _append_filament_stats(path, manifest):
                                 ext['m'] += m
                                 stats['total_g'] += g
                                 stats['total_m'] += m
+                                plate_stats['extruders'][ext_id] = {'g': g, 'm': m}
+                                plate_stats['total_g'] += g
+                                plate_stats['total_m'] += m
+                        observed = set(plate_stats['extruders'])
+                        if expected_filaments and not observed and plate_stats['usage_known']:
+                            plate_stats['usage_known'] = False
+                            plate_stats['usage_unknown_reason'] = USAGE_NO_RECORDS
+                        plate_stats['total_g'] = round(plate_stats['total_g'], 1)
+                        plate_stats['total_m'] = round(plate_stats['total_m'], 1)
+                        stats['plates'][str(plate_id)] = plate_stats
                     for ext in stats['extruders'].values():
                         ext['g'], ext['m'] = round(ext['g'], 1), round(ext['m'], 1)
         except Exception:
-            pass
+            if has_slice_usage:
+                stats['plates'] = {'unreadable': {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
+                                                  'usage_known': False,
+                                                  'usage_unknown_reason': USAGE_UNREADABLE}}
     if stats['total_g'] == 0:
         try:
             from . import model_job as _mj
@@ -622,6 +745,10 @@ def _append_filament_stats(path, manifest):
             pass
     stats['total_g'] = round(stats['total_g'], 1)
     stats['total_m'] = round(stats['total_m'], 1)
+    if path.suffix.lower() == '.3mf' and not has_slice_usage:
+        stats['plates'] = {'unknown': {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
+                                       'usage_known': False,
+                                       'usage_unknown_reason': USAGE_ABSENT}}
     manifest['filament_stats'] = stats
 
 

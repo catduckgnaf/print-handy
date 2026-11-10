@@ -72,6 +72,74 @@ def sliced_process(tmp_path, source, **kwargs):
     return json.loads(Path(configs[1]).read_text()), provenance
 
 
+def test_conversion_provenance_compares_to_exact_embedded_source_preset(tmp_path):
+    source = tmp_path / "preset.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": [""]},
+                  extra={"Metadata/filament_sequence.json": json.dumps(
+                      {"print": [{"setting": {"wall_loops": "4", "sparse_infill_pattern": "gyroid"}}]}).encode()})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_pattern": "grid"},
+        {"wall_loops": "4", "sparse_infill_pattern": "gyroid"},
+        {"wall_loops": "4", "sparse_infill_pattern": "gyroid"}, [])
+    assert result["settings"]["wall_loops"]["source_preset_value"] == "4"
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert result["settings"]["sparse_infill_pattern"]["origin"] == "inherited"
+
+
+# --- 6. PrusaSlicer settings translation ----------------------------------------------------------------
+
+
+def test_conversion_provenance_marks_intent_unknown_without_source_metadata(tmp_path):
+    source = tmp_path / "minimal.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "4"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [])
+    assert result["intent_status"] == "unknown"
+    assert result["settings"]["wall_loops"]["origin"] == "unknown"
+    assert result["settings"]["wall_loops"]["source_preset_value"] is None
+
+
+def test_conversion_provenance_records_selected_value_after_enum_fallback(tmp_path):
+    source = tmp_path / "unsupported.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={
+                  "sparse_infill_pattern": "made_up_pattern",
+                  "different_settings_to_system": ["sparse_infill_pattern"]})
+    author_value = {"sparse_infill_pattern": "made_up_pattern"}
+    converted, notes = author_settings.carry(
+        author_value, {"sparse_infill_pattern": "gyroid"}, author_value.keys())
+    result = author_settings.conversion_provenance(
+        source, {"sparse_infill_pattern": "gyroid"}, converted, author_value, notes)
+    assert result["settings"]["sparse_infill_pattern"]["project_value"] == "made_up_pattern"
+    assert result["settings"]["sparse_infill_pattern"]["selected_value"] == "gyroid"
+
+
+def test_conversion_provenance_uses_different_settings_to_system_without_guessing(tmp_path):
+    source = tmp_path / "changed.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": ["wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "2"}, {"wall_loops": "4"}, [])
+    assert result["intent_status"] == "known"
+    assert result["settings"]["wall_loops"]["origin"] == "designer"
+    assert result["settings"]["wall_loops"]["selected_value"] == "2"
+    assert result["unresolved_conflicts"] == [{"key": "wall_loops", "source_value": "4",
+                                                "target_value": "2", "selected_value": "2"}]
+
+
+def test_conversion_provenance_marks_unchanged_keys_as_inherited(tmp_path):
+    source = tmp_path / "inherited.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert result["unresolved_conflicts"] == []
+
+
 # --- 6. PrusaSlicer settings translation ----------------------------------------------------------------
 
 def test_prusa_keys_translate_to_orca_names_and_values(tmp_path):
@@ -266,3 +334,67 @@ def test_slice_model_clamps_with_the_job_tower_width(tmp_path):
     with patch.object(orca_adapter.subprocess, "run", side_effect=run):
         orca_adapter.slice_model(source, tmp_path / "out", state, preserve_layout=True)
     assert float(seen["wipe_tower_x"][0]) == pytest.approx(220 - width)
+
+
+
+def test_slice_model_provenance_targets_the_destination_template(tmp_path):
+    # Regression (five review waves): the adapter passed the final process
+    # mapping as BOTH target and process, so target_value recorded the
+    # selected value and conflicts with the destination template vanished.
+    source = tmp_path / "carried.3mf"
+    bambu_project(source, {"wall_loops": "4",
+                           "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source)
+    entry = provenance["conversion_provenance"]["settings"]["wall_loops"]
+    assert entry["target_value"] != "4"  # the author's value is not the target
+    assert entry["target_value"] == entry["selected_value"] or entry["target_value"]
+    conflicts = provenance["conversion_provenance"]["unresolved_conflicts"]
+    assert any(row["key"] == "wall_loops" and row["target_value"] == entry["target_value"]
+               for row in conflicts)
+
+
+def test_conversion_provenance_empty_changed_list_is_unknown_intent(tmp_path):
+    # different_settings_to_system present but EMPTY names no deliberate key;
+    # intent stays unknown (the docs have always said "unknown otherwise").
+    source = tmp_path / "empty-changed.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["intent_status"] == "unknown"
+
+
+def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
+    # A present changed list proves the LISTED keys deliberate; an unlisted key
+    # with no preset evidence is unknown, not "inherited", and its reason agrees.
+    source = tmp_path / "unlisted.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "sparse_infill_density": "25%",
+                             "different_settings_to_system": ["wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_density": "15%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"}, [])
+    entry = result["settings"]["sparse_infill_density"]
+    # The changed list is complete by definition: an unlisted key equals the
+    # source preset, so it is inherited — and the reason must say exactly
+    # that, never "intent unknown" on an inherited row.
+    assert entry["origin"] == "inherited"
+    assert "different_settings_to_system" in entry["reason"]
+    assert "intent unknown" not in entry["reason"]
+
+
+def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
+    source = tmp_path / "unchanged.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source,
+        {"wall_loops": "3", "brim_width": "5", "skirt_loops": "1"},
+        {"wall_loops": "3", "brim_width": "5", "skirt_loops": "1"},
+        {"wall_loops": "3"}, [])
+    # wall_loops was carried by the author: kept. brim_width / skirt_loops are
+    # template values identical in target and selected, never carried: dropped.
+    assert set(result["settings"]) == {"wall_loops"}

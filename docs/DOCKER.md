@@ -301,12 +301,12 @@ Each flavor proves itself during the build (the provider bridge library it must 
 
 ## First-run configuration
 
-2. Confirm the image reference in [Pinning the image](#pinning-the-image). `:latest`, `:develop` and `:nightly` move; prefer a verified release digest.
-3. Set a persistent data path. Mount the documented `/data` storage and check that the container user can write to it.
-4. Configure the chat platform token and printer connection details. Keep credentials out of committed files. Add account tokens only for model sites that require them.
-5. Start the container and review health and logs. Run the doctor only where its configured service checks are authorized.
-6. Open the Web UI (host port 8088) and follow its first-run walkthrough: printer, chat, camera, and a login only if you want one. The bot token itself still comes from `.env` first — chat setup can finish the rest once the bot can connect, but no chat flow can create the bot's own token.
-7. Share a model link or upload an STL/3MF, choose printer and filament, review the estimate, then approve the sliced job.
+1. Copy `.env.example` to `.env`. Set `PRINT_HANDY_IMAGE` to the verified digest from [Pinning the image](#pinning-the-image); do not use a moving tag such as `:latest`, `:develop` or `:nightly`.
+2. Set `PRINT_HANDY_DATA` to a persistent host directory. Compose creates missing bind-source directories on first start and prepares the six data directories for the non-root application user. Existing data is not recursively re-owned.
+3. Configure the chat platform token and printer connection details. Keep credentials out of committed files. Add account tokens only for model sites that require them.
+4. Start with `docker compose up -d` and review health and logs. Run the doctor only where its configured service checks are authorized.
+5. Open the Web UI (host port 8088) and follow its first-run walkthrough: printer, chat, camera, and a login only if you want one. The bot token itself still comes from `.env` first — chat setup can finish the rest once the bot can connect, but no chat flow can create the bot's own token.
+6. Share a model link or upload an STL/3MF, choose printer and filament, review the estimate, then approve the sliced job.
 
 Camera monitoring, hosted AI and in-container timelapse capture are optional. Each may require camera hardware or network access. A camera alert is not a guarantee of safe unattended printing. The details below cover implementation, supported services and troubleshooting.
 
