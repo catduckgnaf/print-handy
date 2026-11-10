@@ -13,7 +13,9 @@ tick makes no model calls and posts nothing unless a transition occurred.
 """
 
 import asyncio
+import concurrent.futures
 import contextlib
+import functools
 import io
 import json
 import logging
@@ -2772,11 +2774,31 @@ def _vision_context() -> str:
     )
 
 
-def _fetch_snapshot(url):
+# One camera still: at most SNAPSHOT_MAX_BYTES, read within SNAPSHOT_BUDGET_S
+# in total. The per-read timeout alone let a slow-drip camera (a byte every
+# few seconds) hold a watch worker for ever.
+SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024
+SNAPSHOT_BUDGET_S = 15.0
+
+
+def _fetch_snapshot(url, *, budget_s=None, clock=time.monotonic):
+    budget_s = SNAPSHOT_BUDGET_S if budget_s is None else budget_s
+    deadline = clock() + budget_s
     request = urllib.request.Request(url)
+    chunks, size = [], 0
     with urllib.request.urlopen(request, timeout=8) as response:
-        image = response.read(8 * 1024 * 1024 + 1)
-    if len(image) > 8 * 1024 * 1024 or not image.startswith(bytes((0xff, 0xd8))):
+        while True:
+            chunk = response.read(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > SNAPSHOT_MAX_BYTES:
+                break
+            if clock() > deadline:
+                raise TimeoutError(f"camera snapshot took longer than {budget_s:.0f}s")
+    image = b"".join(chunks)
+    if len(image) > SNAPSHOT_MAX_BYTES or not image.startswith(bytes((0xff, 0xd8))):
         raise ValueError("camera response is not a bounded JPEG snapshot")
     return image
 
@@ -2842,6 +2864,23 @@ def _camera_snapshot_bytes():
 # re-check and the 120 s early-layer interval, cheap when nothing is due.
 VISUAL_TIMER_S = 15
 
+# Camera and verdict I/O runs on its own small pool, never the default one:
+# a hung camera or verdict endpoint can then only tie up these workers, and
+# the listener's other thread work (announcer, posts, the heartbeat's
+# debug poll) keeps its pool. Each whole visual check has an overall
+# deadline; a check that overruns is abandoned, logged and counted, so the
+# single-flight timer is free for the next beat.
+WATCH_IO_WORKERS = 4
+VISUAL_CHECK_DEADLINE_S = 150.0
+_WATCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=WATCH_IO_WORKERS, thread_name_prefix="camera-watch")
+
+
+async def _watch_io(fn, *args, **kwargs):
+    """Run one blocking camera/verdict call on the camera-watch pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_WATCH_EXECUTOR, functools.partial(fn, *args, **kwargs))
+
 
 def _visual_verdict(image, prompt, streak=None, local_fallback=False, idle=False):
     """The shared verdict call (visual_watch.visual_verdict) with this listener's values.
@@ -2892,6 +2931,48 @@ def _auto_pause_early(filename, identity):
     from . import print_alert_buttons as pab
     alert = {"kind": "visual", "filename": filename, "identity": identity}
     return pab.handle_click("pause", alert)
+
+
+def _camera_missing_reason():
+    """Why this Moonraker printer has no camera to watch with, in plain words; "" when it has one.
+
+    Configuration only, no network: no snapshot URL and no go2rtc fan-out,
+    or a [services] camera_source pin that rules the webcam out. A camera
+    that is configured but fails is not "missing": its failed checks alert
+    (throttled). Unreadable settings read as "" so the watch keeps its
+    old behaviour.
+    """
+    try:
+        data = _config.cfg()
+        pin = go2rtc.camera_source(data)
+        if pin == "none":
+            return "camera images are off (services.camera_source is none)"
+        if pin == "bambu":
+            return ("services.camera_source is bambu, but this printer's camera is the "
+                    "Moonraker webcam")
+        if pin == "go2rtc" or _config.service_url("camera_snapshot_url"):
+            return ""
+        try:
+            fanout = go2rtc.fanout_frame_url(data)
+        except Exception:
+            fanout = None
+        return "" if fanout else "no camera snapshot URL is configured (services.camera_snapshot_url)"
+    except Exception:
+        return ""
+
+
+def _watch_now():
+    """The camera watch's wall clock (a seam: tests replace it)."""
+    return time.time()
+
+
+def _watch_printer_id():
+    """This listener's roster printer, for the auto-pause evidence; None when unknown."""
+    try:
+        from .. import listeners as _listeners
+        return _listeners.instance_printer_id()
+    except Exception:
+        return None
 
 
 def _vision_ready():
@@ -2949,6 +3030,30 @@ def _visual_layer(stats):
         return None
     value = info.get("current_layer") or info.get("layer")
     return value if isinstance(value, int) else None
+
+
+def _print_elapsed(stats):
+    """Printing time so far (print_stats.print_duration), or None when unknown.
+
+    Klipper counts print_duration only from the first extrusion, so heat-up
+    and pauses are excluded: the clock the layerless camera watch runs on.
+    """
+    value = stats.get("print_duration") if isinstance(stats, dict) else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+        return float(value)
+    return None
+
+
+def _layerless_notice_text(filename, periodic_s, early):
+    """The once-per-print notice that the camera watch runs on a timer (no layer info)."""
+    minutes = max(1, round(periodic_s / 60))
+    cadence = f"about every {minutes} minutes"
+    if early:
+        cadence += ", more often during the early part of this risky print"
+    return _with_printer_name(
+        f"Camera watch: {clean(filename)} reports no layer numbers (it was sliced without "
+        "layer info), so I'm checking the camera on a timer instead, "
+        f"{cadence}. Stall detection needs layer numbers and is off for this print.")
 
 
 def _with_printer_name(text):
@@ -3830,6 +3935,22 @@ class Listener:
         return True
 
     async def visual_check(self, reason, layer):
+        """One camera check under an overall deadline (VISUAL_CHECK_DEADLINE_S).
+
+        A camera or verdict endpoint that never answers used to hang the
+        check for ever, and the single-flight timer then skipped every beat:
+        the watch died with no log. An overrun is abandoned, logged and
+        counted in ``visual_timeouts``. Never raises.
+        """
+        try:
+            await asyncio.wait_for(self._visual_check_once(reason, layer), VISUAL_CHECK_DEADLINE_S)
+        except asyncio.TimeoutError:
+            self.visual_timeouts = getattr(self, "visual_timeouts", 0) + 1
+            log(f"visual check timed out file={self.filename!r} reason={reason} after "
+                f"{VISUAL_CHECK_DEADLINE_S:.0f}s (timeouts so far: {self.visual_timeouts}); "
+                "the camera or the vision endpoint did not answer")
+
+    async def _visual_check_once(self, reason, layer):
         """Capture and classify a print frame; notify humans only, never actuate.
 
         A configured vision endpoint that returns uncertain, or any snapshot or
@@ -3853,15 +3974,16 @@ class Listener:
         image = None
         try:
             identity = self._visual_identity()
-            image = await asyncio.to_thread(_camera_snapshot_bytes)
+            image = await _watch_io(_camera_snapshot_bytes)
+            captured_at = _watch_now()
             if stale():
                 log(f"visual check discarded file={filename!r} reason={reason}: the print changed during capture")
                 return
-            if await asyncio.to_thread(_visual_watch.frame_dark, image):
+            if await _watch_io(_visual_watch.frame_dark, image):
                 await self._dark_frame_check(reason, layer)
                 return
             prior = self.visual_frames.get(filename)
-            changed = None if prior is None else await asyncio.to_thread(_frame_changed, prior, image)
+            changed = None if prior is None else await _watch_io(_frame_changed, prior, image)
             snapshot_before = self.visual_watch.last_snapshot_layer
             stall = (reason in {"layer_progress", "periodic"} and changed is False
                      and isinstance(layer, int) and layer >= 5
@@ -3890,10 +4012,10 @@ class Listener:
             prompt = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
             early = self.visual_watch.in_early_window(layer)
             try:
-                verdict, detail = await asyncio.to_thread(
+                verdict, detail = await _watch_io(
                     _visual_verdict, image, prompt, self.local_streak, local_fallback=early)
             except TypeError:
-                verdict, detail = await asyncio.to_thread(
+                verdict, detail = await _watch_io(
                     _visual_verdict, image, prompt, self.local_streak)
             if stale():
                 log(f"visual check discarded file={filename!r} reason={reason} verdict={verdict}: "
@@ -3911,7 +4033,16 @@ class Listener:
                     self.visual_watch.note_empty_idle(time.time())
                     log(f"visual check file={filename!r} empty_idle while printing; re-check in "
                         f"{_visual_watch.EMPTY_IDLE_RECHECK_S}s")
-            streak = self.visual_watch.note_verdict(verdict, layer)
+            printer_id = _watch_printer_id()
+            signature = (await _watch_io(_visual_watch.frame_signature, image)
+                         if verdict in _visual_watch.AUTO_PAUSE_VERDICTS else None)
+            streak = self.visual_watch.note_verdict(
+                verdict, layer, printer_id=printer_id, print_identity=identity,
+                signature=signature, frame_age_s=_watch_now() - captured_at, now=_watch_now())
+            frame_counted = self.visual_watch.last_counted
+            if verdict in _visual_watch.AUTO_PAUSE_VERDICTS and early and not frame_counted:
+                log(f"visual check file={filename!r} reason={reason}: suspicious frame not counted "
+                    f"toward auto-pause: {self.visual_watch.last_evidence}")
             if reason == "stalled_layers" and changed is False:
                 # A healthy vision verdict outranks the pixel diff.
                 suspicious = verdict not in VISUAL_HEALTHY_VERDICTS
@@ -3944,8 +4075,16 @@ class Listener:
                     log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
                     event_discarded = True
                 else:
-                    pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
-                                 and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
+                    pause_now, pause_why = _visual_watch.auto_pause_decision(
+                        self.visual_watch.pause_members,
+                        enabled=_visual_watch.watch_settings(_config.cfg())["auto_pause_early"],
+                        already_paused=self.visual_watch.auto_paused,
+                        printer_id=printer_id, print_identity=identity, state=self.state,
+                        verdict=verdict, frame_counted=frame_counted,
+                        frame_age_s=_watch_now() - captured_at,
+                        mode=self.visual_watch.mode, in_early_window=early)
+                    if streak and not pause_now:
+                        log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     if pause_now:
                         # Reserve the once-per-print pause before yielding
                         # (Codex, #920): overlapping checks must not both
@@ -3956,8 +4095,8 @@ class Listener:
                             if reason == "stalled_layers" else
                             f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}")
                     if pause_now:
-                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
-                                 "in the early layers, so I am pausing the print. It is not cancelled.")
+                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {pause_why}, "
+                                 "so I am pausing the print. It is not cancelled.")
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -3968,6 +4107,15 @@ class Listener:
                                                   f"spaghetti:{identity or filename}")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity)
+                    if pause_now and (stale() or self.state != "printing"):
+                        # The alert took time; the printer must still be
+                        # printing this print when the PAUSE goes out.
+                        log(f"auto-pause not sent file={filename!r}: the printer is {self.state} "
+                            "or the print changed while the alert was posting")
+                        pause_now = False
+                        await asyncio.to_thread(post, _with_printer_name(
+                            f"Auto-pause: {clean(filename)}\nNot sent: the printer is no longer "
+                            "printing this print."))
                     event_action = "auto_pause" if pause_now else "alert"
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print
@@ -4003,11 +4151,19 @@ class Listener:
                 # The snapshot itself failed, so there is no image to
                 # attach — but the operator still gets an alert: a dead
                 # camera must not silently leave the print unmonitored.
+                # Throttled like the Bambu watch: a dead camera never moves
+                # the snapshot baseline, so probes keep coming; the alert
+                # goes out at most once per periodic interval per print.
                 try:
                     from . import print_alert_buttons as pab
+                    last = self.visual_watch.camera_failure_alert_at
                     if await asyncio.to_thread(pab.visual_muted, filename, identity):
                         log(f"visual alert suppressed for muted print {filename!r}")
+                    elif last is not None and _watch_now() - last < self.visual_watch.profile["periodic_s"]:
+                        log(f"visual camera-failure alert suppressed for {filename!r}: "
+                            "already alerted within the periodic interval")
                     else:
+                        self.visual_watch.camera_failure_alert_at = _watch_now()
                         await asyncio.to_thread(
                             _visual_alert_text, filename,
                             f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
@@ -4081,6 +4237,7 @@ class Listener:
             self.visual_watch.reset()
             self.local_streak.reset()
             self._apply_watch_mode()
+            self._note_watch_not_running()
             # #516: auto light-on at a fresh print start (a resume is not
             # a start; the light never went off during a pause).
             await self.light_print_started()
@@ -4090,7 +4247,7 @@ class Listener:
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
-            if reason_due and _vision_ready():
+            if reason_due and self._watch_ready():
                 self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
         if old is not None and old != "printing" and new_state == "printing":
             # Claimed starts already have the intake's one post; unclaimed starts (printer screen,
@@ -4352,7 +4509,7 @@ class Listener:
                 return
             if policy.print_started(time.time()) != "turn_on":
                 return
-            if not _vision_ready():
+            if not self._watch_ready():
                 return
             target = await self._light_target_object()
             if not target:
@@ -4389,19 +4546,19 @@ class Listener:
             now = time.time()
             if not policy.should_check(now):
                 return
-            if not _vision_ready():
+            if not self._watch_ready():
                 policy.note_check(now)
                 return
             target = await self._light_target_object()
             if not target:
                 policy.note_check(now)
                 return
-            image = await asyncio.to_thread(_camera_snapshot_bytes)
-            if await asyncio.to_thread(_visual_watch.frame_dark, image):
+            image = await _watch_io(_camera_snapshot_bytes)
+            if await _watch_io(_visual_watch.frame_dark, image):
                 verdict, detail = "uncertain", "camera frame completely dark"
             else:
-                verdict, detail = await asyncio.to_thread(
-                    _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
+                verdict, detail = await asyncio.wait_for(_watch_io(
+                    _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True), VISUAL_CHECK_DEADLINE_S)
             action = policy.note_verdict(verdict, time.time())
             log(f"auto light idle check verdict={verdict} detail={detail!r}")
             if action == "turn_off":
@@ -4443,33 +4600,63 @@ class Listener:
             return
         self._light_idle_task = asyncio.create_task(self.light_idle_tick())
 
+    def _schedule_next_plate_offer(self):
+        """Run the next-plate bed look as a task, off the receive loop.
+
+        Its snapshot and vision round trip can take about a minute; awaited
+        inline it held every status event behind it. Single-flight, like
+        the idle light check; the look revalidates the printer state before
+        it acts, so a print that started meanwhile voids it.
+        """
+        task = getattr(self, "_next_plate_task", None)
+        if task is not None and not task.done():
+            return
+        self._next_plate_task = asyncio.create_task(self._next_plate_offer_task())
+
+    async def _next_plate_offer_task(self):
+        try:
+            await self.offer_next_plate_if_clear()
+        except Exception as exc:
+            log(f"next plate offer failed: {exc!r}")
+
     async def offer_next_plate_if_clear(self):
         """One empty-bed look for a queued plate. Posts an offer. Starts nothing.
 
         Uses the same snapshot and verdict words as the auto-light check (#516).
         No camera, a dark frame, or no queued plate: no offer and no invented bed.
+        A print that starts (or a file change) while the look is in flight
+        voids it: the frame shows the bed as it was, not as it is.
         """
         from . import next_plate_offer
         if self.state not in _AUTO_LIGHT_IDLE_STATES:
             return
+        filename = self.filename
+
+        def voided():
+            if self.state in _AUTO_LIGHT_IDLE_STATES and self.filename == filename:
+                return False
+            log(f"next plate bed check voided: the printer is {self.state} now")
+            return True
         if not next_plate_offer.due():
             return
-        if not _vision_ready():
+        if not self._watch_ready():
             next_plate_offer.observe(None)
             return
-        image = await asyncio.to_thread(_camera_snapshot_bytes)
-        if not image or await asyncio.to_thread(_visual_watch.frame_dark, image):
+        image = await _watch_io(_camera_snapshot_bytes)
+        if not image or await _watch_io(_visual_watch.frame_dark, image):
             next_plate_offer.observe(None)
             return
-        verdict, detail = await asyncio.to_thread(
-            _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
+        verdict, detail = await asyncio.wait_for(_watch_io(
+            _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True), VISUAL_CHECK_DEADLINE_S)
         if verdict == "uncertain":
             # Stage 1 (#455): the calibrated plate reference may certify
             # the empty bed the offer waits for (see light_idle_tick).
             from . import local_empty as _local_empty
-            local = await asyncio.to_thread(_local_empty.idle_verdict, image)
+            local = await _watch_io(_local_empty.idle_verdict, image)
             if local is not None:
                 verdict, detail = local
+        if voided():
+            return
         log(f"next plate bed check verdict={verdict} detail={detail!r}")
         choice = next_plate_offer.observe(verdict)
         if not isinstance(choice, dict):
@@ -4655,11 +4842,76 @@ class Listener:
             # the early-layer schedule instead of staying on normal cadence.
             self._apply_watch_mode()
         layer = _visual_layer(self.last_stats)
-        reason = self.visual_watch.tick(layer, time.time() if now is None else now)
-        if reason and _vision_ready():
+        reason = self.visual_watch.tick(layer, time.time() if now is None else now,
+                                        elapsed_s=_print_elapsed(self.last_stats))
+        if reason and self._watch_ready():
+            if layer is None:
+                self._note_layerless_watch()
             self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
             return reason
         return None
+
+    def _watch_ready(self):
+        """The listener's camera-check gate: a camera exists and a frame can be judged.
+
+        With no camera configured the watch is off for this printer: no
+        check is scheduled, so a missing camera never posts an alert per
+        cadence (the print-start notice names it instead).
+        """
+        if _camera_missing_reason():
+            return False
+        return _vision_ready()
+
+    def _watch_unavailable_reason(self):
+        """Why the camera watch cannot run for this printer, in plain words; "" when it can."""
+        camera = _camera_missing_reason()
+        if camera:
+            return camera
+        if _vision_ready():
+            return ""
+        try:
+            reason = _visual_watch.watch_unavailable_reason(
+                lambda: _profile_env_value("CLIPROXY_API_KEY"))
+        except Exception as exc:
+            reason = f"the vision route could not be checked ({exc})"
+        return reason or "no vision route is ready"
+
+    def _note_watch_not_running(self):
+        """At a print start: one chat notice when the watch is switched on but cannot run.
+
+        A watch that silently does nothing reads as a watched print; the
+        operator hears once per print why it is not watched. Never raises.
+        """
+        try:
+            if not _config.cfg()["visual_watch"]["enabled"]:
+                return None
+            reason = self._watch_unavailable_reason()
+            if not reason:
+                return None
+            log(f"camera watch not running for {self.filename!r}: {reason}")
+            text = _with_printer_name(
+                f"Camera watch is on but not running for {clean(self.filename)}: {reason}. "
+                "This print is not being watched; nothing was sent to the printer.")
+            task = asyncio.create_task(asyncio.to_thread(post, text))
+            self.background_tasks.add(task)
+            task.add_done_callback(self.background_tasks.discard)
+            return reason
+        except Exception as exc:
+            log(f"camera watch status notice failed: {exc!r}")
+            return None
+
+    def _note_layerless_watch(self):
+        """Post, once per print, that the watch runs on a timer: the print reports no layers."""
+        watch = self.visual_watch
+        if watch.layerless_noticed:
+            return
+        watch.layerless_noticed = True
+        text = _layerless_notice_text(self.filename, watch.profile["periodic_s"],
+                                      watch.mode == _visual_watch.WATCH_MODE_EARLY)
+        log(f"camera watch file={self.filename!r}: no layer numbers reported; checking on a timer")
+        task = asyncio.create_task(asyncio.to_thread(post, text))
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
 
     async def _visual_timer(self, sleep=None):
         """Run camera-watch beats every VISUAL_TIMER_S until cancelled (disconnect)."""
@@ -4756,7 +5008,7 @@ class Listener:
                             if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
                                 layer = _visual_layer(self.last_stats)
                                 reason_due = self.visual_watch.due(layer, time.time())
-                                if reason_due and _vision_ready():
+                                if reason_due and self._watch_ready():
                                     self.last_visual_task = asyncio.create_task(self.visual_check(reason_due, layer))
                     elif method == "notify_gcode_response":
                         for line in msg.get("params") or []:
@@ -4816,7 +5068,7 @@ class Listener:
                     except Exception as exc:
                         log(f"auto light idle tick failed: {exc!r}")
                     try:
-                        await self.offer_next_plate_if_clear()
+                        self._schedule_next_plate_offer()
                     except Exception as exc:
                         log(f"next plate offer failed: {exc!r}")
                 if time.monotonic() - self.maintenance_last_check >= 3600:
@@ -4855,14 +5107,19 @@ class Listener:
         loop tick (the writer turns the gap into loop_lag_ms) and polls
         the shared debug-mode state on the same cadence.
         """
+        poll = None
         while True:
+            # Stamped directly, never behind an executor: with the default
+            # pool busy, an awaited to_thread here stopped the stamps, the
+            # writer reported a growing loop lag, and the supervisor killed
+            # a healthy listener.
             self._loop_tick = time.time()
-            try:
+            if poll is None or poll.done():
                 # Debug log mode (#478) is shared state this listener
-                # observes on its heartbeat tick, like every process.
-                await asyncio.to_thread(debug_mode.poll)
-            except Exception:
-                pass
+                # observes on its heartbeat tick, like every process;
+                # single-flight and never awaited.
+                poll = asyncio.ensure_future(asyncio.to_thread(debug_mode.poll))
+                poll.add_done_callback(lambda task: task.cancelled() or task.exception())
             await asyncio.sleep(healthcheck.HEARTBEAT_S)
 
     async def backfill_slot_colors(self):
@@ -4957,7 +5214,7 @@ class Listener:
             log(f"pending spool sync retry skipped: {exc!r}")
 
     async def forever(self):
-        delay = 5
+        delay = RECONNECT_MIN_S
         self.moonraker_connected = False
         self._start_heartbeat_writer()
         beating = asyncio.create_task(self.heartbeat())
@@ -4965,18 +5222,33 @@ class Listener:
             while True:
                 await self.backfill_slot_colors()
                 await self.reconcile_spools()
+                started = time.monotonic()
+                lost = None
                 try:
                     await self.session()
                 except Exception as exc:
-                    log(f"connection lost: {exc!r}; retry in {delay}s")
+                    lost = exc
                 finally:
                     self.moonraker_connected = False
+                if time.monotonic() - started >= HEALTHY_SESSION_S:
+                    # A session that held up was healthy: this drop is a
+                    # fresh one, not the next step of an outage.
+                    delay = RECONNECT_MIN_S
+                if lost is not None:
+                    log(f"connection lost: {lost!r}; retry in {delay}s")
                 await asyncio.sleep(delay)
-                delay = min(delay * 2, 120)
+                delay = min(delay * 2, RECONNECT_MAX_S)
         finally:
             beating.cancel()
             await asyncio.gather(beating, return_exceptions=True)
 
+
+#: Reconnect backoff: doubles per failed connection from RECONNECT_MIN_S up to
+#: RECONNECT_MAX_S, and starts again at the minimum once a session stayed up
+#: for HEALTHY_SESSION_S.
+RECONNECT_MIN_S = 5
+RECONNECT_MAX_S = 120
+HEALTHY_SESSION_S = 60
 
 #: Longest the capture start may take before the print runs without one.
 CAPTURE_BEGIN_TIMEOUT_S = 20
@@ -5002,6 +5274,9 @@ def main():
     route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
     logs.configure()
     _install_stack_dump_handler()
+    # The local detector's model is fetched now, in the background, so the
+    # first print's first camera check never waits on a 202 MB download.
+    _local_vision.prefetch_model()
     log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route} model={_VISION_MODEL}")
     asyncio.run(Listener().forever())
 
