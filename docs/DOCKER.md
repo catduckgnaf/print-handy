@@ -627,4 +627,4 @@ Upgrade: stop prior consumers, preserve source state and immutable digest, recon
 
 ## Attribution
 
-Standalone foundations originated in zaheria985/print-handy commit fba5727184dd8f0070e59c8f1fc088751142a003 and merged through #132. Docker contribution #139 commit 3bb0984250c20eb336d11ba1da06633950b45182 (MIT) informed context filtering and listener heartbeat. Original notices remain. Spoolman is MIT; slicers retain upstream licenses. [DOCKER-117-PROGRESS.md](DOCKER-117-PROGRESS.md) contains historical evidence, not acceptance of this candidate.
+Standalone foundations originated in zaheria985/print-handy commit fba5727184dd8f0070e59c8f1fc088751142a003 and merged through #132. Docker contribution #139 commit 3bb0984250c20eb336d11ba1da06633950b45182 (MIT) informed context filtering and listener heartbeat. Original notices remain. Spoolman is MIT; slicers retain upstream licenses. [DOCKER-117-PROGRESS.md](history/DOCKER-117-PROGRESS.md) contains historical evidence, not acceptance of this candidate.
