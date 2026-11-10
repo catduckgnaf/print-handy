@@ -58,6 +58,15 @@ OPERATOR_MINED_2 = {
 OPERATOR_MINED_3 = {
     "epsecially": "especially", "mispellings": "misspellings",
 }
+# Fourth operator-mined pass from actual chat messages (Nov 2026).
+# These are observed spellings, not invented lookalikes. The compound
+# "justmake" drops a space; leave correctly spelled words untouched.
+OPERATOR_MINED_4 = {
+    "justmake": "just make",
+    "suggeestions": "suggestions",
+    "tictok": "tiktok",
+}
+
 # Double-letter round (catduck, 2026-11-10, on PR #1191): more pairs
 # whose correct spelling carries a doubled ss, rr or ll — the pattern
 # behind both round-3 words ("especially", "misspellings"). Each typo
@@ -320,7 +329,7 @@ BATCH2_TITLE_TYPOS = {
     "tewre": "tower", "vsaa": "vase", "vsai": "vase",
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
-             **OPERATOR_MINED_3, **DOUBLE_LETTER_TYPOS,
+             **OPERATOR_MINED_3, **OPERATOR_MINED_4, **DOUBLE_LETTER_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 
