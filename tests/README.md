@@ -462,9 +462,20 @@ A raise is bookkeeping, not just numbers. `--record` leaves a raised entry's `re
 old one as `previous_reason`; the gate refuses a raised entry whose reason is empty, under 20 characters,
 or the previous raise's reason copied over, so every raise needs fresh words. Every entry also keeps
 `original`, the first values ever recorded for the case (seeded from `raised_from` for entries recorded
-before the field existed). Past +25% over `original` the gate prints a warning; past +50% it fails, even
+before the field existed; the #1142 review stored it explicitly on every entry, and corrected
+parts-512-four-color's seed to its first recording, 4.74 s — the 3.77 s previously carried as its
+`raised_from` appears in no recorded baseline in the file's history, and the +38% drift printed for that
+case came from the seed, not from the code). Past +25% over `original` the gate prints a warning; past +50% it fails, even
 when each individual raise was small. Every job summary and every `--record` proposal prints the cumulative
 drift of every raised entry, however small, so a re-record shows its own total before anyone merges it.
+
+Two mock-leg cases are not file drops (#1142). `typed-setup-walkthrough` (`[entry] kind = "typed"`) times a
+scripted typed-message conversation (start the guided setup, answer its first question, cancel), so the
+per-message handling cost is gated, not just the drop flows; it carries a wall baseline only, because the
+walkthrough's questions are typed replies rather than timed prompt events. `print-next-second-plate`
+(`[entry] kind = "print-next"`) runs a two-plate drop as untimed setup, credits the first plate complete
+the way the print listener does, then times only the `/print-next` segment — its prompt and its start —
+so the next-plate path is gated on its own numbers instead of hiding inside the drop flow's.
 
 The real-Orca leg keeps `slack_s` 1.0 s and stays reporting-only, because its measured runner noise is too large
 for any blocking limit in the tested range (see Real-Orca runner noise below). It runs one untimed warm-up slice first, because the first flatpak start pays

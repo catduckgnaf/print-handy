@@ -31,7 +31,7 @@ from . import health
 from . import matrix_rest as mx
 from . import routing
 from .platform import BasePlatformAdapter, SendResult, _prompts_guard, answered_note
-from .rest import chunks, split_media
+from .rest import chunks, outgoing
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +124,8 @@ class StandaloneAdapter(BasePlatformAdapter):
 
     # ------------------------------------------------------------------ delivery
 
-    async def send(self, chat_id, content, reply_to=None, metadata=None):
-        body, paths = split_media(content)
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
+        body, paths = outgoing(content, files)
         pieces = chunks(body, self.message_limit)
         first = None
         try:

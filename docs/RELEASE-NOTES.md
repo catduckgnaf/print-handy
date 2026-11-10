@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Contributing](../CONTRIBUTING.md)
 
-Release notes explain what changes for someone using Print Handy. They are not a raw commit log. Preserve [the detailed internal history](INTERNAL_RELEASE_NOTES.md); use GitHub releases for the published user-facing account of a specific release.
+Release notes explain what changes for someone using Print Handy. They are not a raw commit log. Preserve [the detailed internal history](history/INTERNAL_RELEASE_NOTES.md); use GitHub releases for the published user-facing account of a specific release.
 
 ## Order and content
 

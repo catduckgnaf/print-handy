@@ -407,6 +407,31 @@ def test_scale_past_the_bed_offers_the_biggest_size_that_fits_and_scales_to_it(e
     assert len(env.starts) == 1
 
 
+def test_scale_fit_search_probe_failure_names_the_slicer_failure(env, monkeypatch):
+    """When the biggest-fit search cannot run its probes, the operator is
+    told the slicer check failed (#1151): the direct probe of the requested
+    size ran and refused it, but every probe inside the search raises, so
+    no biggest fitting size is offered or implied either way."""
+    from print_handy.core import orca_adapter
+
+    def capacity(path, st, **kw):
+        scale = float(kw.get('scale') or 1.0)
+        if scale == 1.1:  # the requested size itself: probed, does not fit
+            return 0
+        if 1.0 < scale < 1.1:  # every probe inside the biggest-fit search fails
+            raise RuntimeError('Orca fit probe failed')
+        return 1
+
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
+    # Scale bigger by 10%; the repeated Ready question is answered with Cancel.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    assert any('could not work out the biggest size that fits because the slicer check failed' in text
+               and 'stays at 100%' in text for text in adapter.sent)
+    assert not any('biggest size that fits is' in q['question'] for q in adapter.questions)
+    assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
+    assert env.starts == [] and env.sliced == []
+
+
 def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch):
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))

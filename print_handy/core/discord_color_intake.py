@@ -25,7 +25,8 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
     from .. import printers
     from .model_job import (intake_color_choices, set_color_decisions, resolve_filament_selection,
                             write_job, decisions_digest, build_slot_labels, build_tool_labels,
-                            configured_slots, position_limit, _job_adapter)
+                            configured_slots, position_limit, _job_adapter,
+                            FilamentWarningPending, record_filament_warning_acknowledgement)
     from .source_colors import (inventory, prompts, canonical_prompts, grouped_prompts, validate_decisions,
                                 distinct_source_colours, prompt_source_colour)
     path = Path(job_path)
@@ -97,6 +98,29 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         taken[slot] = colour
         return slot
 
+    async def intake_with_warning_round(**kwargs):
+        """intake_color_choices with the filament warn-and-accept round.
+
+        Filament findings (unknown usage, a damaged usage claim) no longer
+        refuse the color flow (owner ruling, catduck, 2026-11-10): they are
+        presented once, and only an explicit acceptance — recorded bound to
+        the exact warnings, the source and the selected plates — lets the
+        same intake run again and save the choices. Cancelling the warning
+        question cancels the flow (ask raises PromptCancelled) and saves
+        nothing.
+        """
+        try:
+            intake_color_choices(path, state, **kwargs)
+        except FilamentWarningPending as pending:
+            await ask('Filament warnings for this print:\n'
+                      + '\n'.join('- ' + w for w in pending.warnings)
+                      + '\nAccept these warnings and save the color choices?',
+                      ['Accept the warnings and continue'])
+            record_filament_warning_acknowledgement(
+                path, warnings=pending.warnings, source_sha256=pending.source_sha256,
+                selected_plates=pending.selected_plates, via='discord_color_choices')
+            intake_color_choices(path, state, **kwargs)
+
     async def ask_slots():
         # Numbered siblings (Stencil 1/2/3) share one question; answers expand back to canonical order.
         taken = {}
@@ -127,7 +151,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
                 latest.get('derived_plates') != job.get('derived_plates') or
                 latest.get('gcode') != job.get('gcode')):
             raise ValueError('derived artifact changed during Discord selection; no decisions overwritten')
-        intake_color_choices(path, state, mode='per_part', slots=slots)
+        await intake_with_warning_round(mode='per_part', slots=slots)
         updated = json.loads(path.read_text())
         decisions = updated.get('color_decisions')
         validate_decisions(manifest, decisions, state, resolve_filament_selection,
@@ -164,7 +188,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         raise ValueError('source changed during Discord selection; no decisions saved')
     if latest.get('color_decisions') != job.get('color_decisions'):
         raise ValueError('concurrent color decision update; no decisions overwritten')
-    intake_color_choices(path, state, mode=mode, slots=slots)
+    await intake_with_warning_round(mode=mode, slots=slots)
     saved = json.loads(path.read_text()).get('color_decisions')
     validate_decisions(manifest, saved, state, resolve_filament_selection,
                        selected_plate_ids=selected_plates)

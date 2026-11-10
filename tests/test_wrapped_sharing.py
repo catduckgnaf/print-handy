@@ -316,6 +316,18 @@ class SharePanelAndRouteTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_process_form_token_alone_cannot_authorize_claimed_share(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_vault(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            body = ("_csrf=" + httpd.form_token +
+                    "&year=2025&visibility=public")
+            code, _ = self.request(
+                httpd.server_address[1], "POST", "/wrapped/share",
+                body=body.encode(),
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 403)
+
     def test_share_post_route_creates_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = _write_vault(tmp)

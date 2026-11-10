@@ -434,7 +434,7 @@ class ArchetypeTests(unittest.TestCase):
         time patterns, repeats, personality, pasta/failure, and the
         finale share card last. No story player is the lead view."""
         wrapped = print_stats.build_wrapped(RECORDS, 2025)
-        data = {"timelapse": {"wrapped_enabled": True, "wrapped_ai_video": False}}
+        data = {"timelapse": {"wrapped_enabled": True, "wrapped_video": False}}
         page = data_module.render_wrapped_page(
             data, {"ok": True, **wrapped, "ai_video_enabled": False})
         markers = ["wrapped-hero", "By the numbers", "Colors and materials",
@@ -447,7 +447,7 @@ class ArchetypeTests(unittest.TestCase):
     def test_share_card_and_archetype_on_wrapped_page(self):
         records = [_arch_rec(i) for i in range(1, 5)]
         wrapped = print_stats.build_wrapped(records, 2025)
-        data = {"timelapse": {"wrapped_enabled": True, "wrapped_ai_video": False}}
+        data = {"timelapse": {"wrapped_enabled": True, "wrapped_video": False}}
         page = data_module.render_wrapped_page(
             data, {"ok": True, **wrapped, "ai_video_enabled": False})
         self.assertIn("Your printing personality", page)
@@ -481,16 +481,32 @@ class SettingsTests(unittest.TestCase):
             # data_enabled follows wrapped_enabled while unset.
             self.assertIs(data["timelapse"]["wrapped_enabled"], True)
             self.assertIs(data["timelapse"]["data_enabled"], True)
-            self.assertIs(data["timelapse"]["wrapped_ai_video"], False)
+            self.assertIs(data["timelapse"]["wrapped_video"], False)
             env_data = load_settings(
                 tmp, environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_ENABLED": "true",
                               "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": "true"})
             self.assertIs(env_data["timelapse"]["wrapped_enabled"], True)
-            self.assertIs(env_data["timelapse"]["wrapped_ai_video"], True)
+            # The legacy env name still lands, under the canonical key
+            # (#1157 rename with backward-compatible alias).
+            self.assertIs(env_data["timelapse"]["wrapped_video"], True)
+            self.assertNotIn("wrapped_ai_video", env_data["timelapse"])
             bad = Path(tmp) / "bad.yaml"
             bad.write_text("timelapse:\n  wrapped_enabled: sometimes\n")
             with self.assertRaises(settings.SettingsError):
                 settings.load(local=bad, environ={})
+
+    def test_wrapped_video_catalog_field_uses_the_canonical_name(self):
+        """#1157 regression: the settings catalog exposes only the
+        renamed key — the old spelling survives solely as a settings
+        KEY_ALIASES entry, never as a second catalog field."""
+        field = catalog.field_by_id("timelapse.wrapped_video")
+        self.assertIsNotNone(field)
+        self.assertEqual(field.kind, "toggle")
+        self.assertEqual(field.group, "wrapped")
+        self.assertIsNone(catalog.field_by_id("timelapse.wrapped_ai_video"))
+        self.assertEqual(
+            settings.KEY_ALIASES[("timelapse", "wrapped_ai_video")],
+            ("timelapse", "wrapped_video"))
 
     def test_data_enabled_follows_wrapped_until_set(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -508,7 +524,7 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaises(settings.SettingsError):
                 settings.load(local=bad, environ={})
         for field_id in ("timelapse.wrapped_enabled", "timelapse.data_enabled",
-                         "timelapse.wrapped_ai_video"):
+                         "timelapse.wrapped_video"):
             field = catalog.field_by_id(field_id)
             self.assertIsNotNone(field)
             self.assertEqual(field.kind, "toggle")
@@ -830,6 +846,8 @@ class RouteTests(unittest.TestCase):
     def test_enabled_pages_api_and_nav(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
+            # Deliberately the pre-rename spelling (#1157): an existing
+            # install's config file must keep working through the alias.
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
                                     "  wrapped_ai_video: true\n")
             port = httpd.server_address[1]
@@ -865,7 +883,7 @@ class RouteTests(unittest.TestCase):
             port = httpd.server_address[1]
             code, raw = self.request(port, "GET", "/wrapped?year=2025")
             self.assertEqual(code, 200)
-            self.assertIn("wrapped_ai_video", raw)
+            self.assertIn("wrapped_video", raw)
             self.assertNotIn("Make my Wrapped video", raw)
 
     def test_wrapped_page_says_the_commentary_stays_local(self):
@@ -874,7 +892,7 @@ class RouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
-                                    "  wrapped_ai_video: true\n")
+                                    "  wrapped_video: true\n")
             port = httpd.server_address[1]
             code, raw = self.request(port, "GET", "/wrapped?year=2025")
             self.assertEqual(code, 200)
@@ -895,7 +913,7 @@ class RouteTests(unittest.TestCase):
                          # the wrapped_ai_video refusal must be what answers.
                          server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 403)
-            self.assertIn("wrapped_ai_video", raw)
+            self.assertIn("wrapped_video", raw)
 
     def test_video_file_streams_and_answers_range_requests(self):
         payload = bytes(range(256)) * 4096  # 1 MiB, more than one chunk
@@ -955,7 +973,7 @@ class RouteTests(unittest.TestCase):
                                   return_value="wrapped-no-such-ffmpeg"):
             write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
-                                    "  wrapped_ai_video: true\n")
+                                    "  wrapped_video: true\n")
             port = httpd.server_address[1]
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
             try:

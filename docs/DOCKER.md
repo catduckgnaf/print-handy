@@ -8,9 +8,9 @@
 
 For first-time setup, follow [Pinning the image](#pinning-the-image), configure persistent storage and services, and start the container. Then use the [First-run configuration](#first-run-configuration) checklist. Detailed runtime and implementation notes follow below.
 
-## Combined runtime for 2.1.2
+## Combined runtime
 
-The 2.1.2 candidate replaces separate bot, listener and Spoolman services with ONE runtime container. Published 2.1.1 remains unchanged. Pin the immutable digest from a successful publication run; candidate source is not a published image.
+One runtime container replaces the separate bot, listener and Spoolman services. Pin the immutable digest from a successful publication run; source on `main` is not a published image.
 
 Tini owns orphan reaping and process-group signals. The supervisor waits for the bundled API before starting the Moonraker listener and Discord bot. Any required child exit ends the container nonzero, including an unexpected clean exit. SIGTERM stops children with a bounded grace period. Docker restart reacts to process exit, not healthcheck failures alone.
 
@@ -530,7 +530,7 @@ If both folders exist, compare their contents and merge the needed files deliber
 
 ### Recovery: installed the single-path template while the image declared volumes
 
-Images released before this was fixed (2.2.7 and earlier) declared `VOLUME` for `/data/state`, `/data/hermes`, `/data/archive`, `/data/records`, `/data/cache` and `/data/spoolman`. With a template that binds only `/data`, Docker stores those six folders in anonymous volumes instead of the Appdata folder, so the host folder stays nearly empty and the data survives only as long as the container is not removed. Images built after the declaration was removed do not do this. If you installed the single-path template on an older image, move the data out before you recreate the container:
+Images released before this was fixed (2.2.7 and earlier) declared `VOLUME` for `/data/state`, `/data/hermes`, `/data/archive`, `/data/records`, `/data/cache` and `/data/spoolman`. With a template that binds only `/data`, Docker stores those six folders in anonymous volumes instead of the Appdata folder, so the host folder stays nearly empty and the data survives only as long as the container is not removed. Images built after the declaration was removed do not do this. If you installed the single-path template on an older image, move the data out before you recreate the container. Do not run `docker volume prune` and do not remove the container first: until the copy below is done, those anonymous volumes are the only copy of that data.
 
 1. Stop the container (do not remove it yet).
 2. List what it uses: `docker inspect print-handy --format '{{range .Mounts}}{{.Type}} {{.Destination}} {{.Name}} {{.Source}}{{"\n"}}{{end}}'`. Rows of type `volume` with a long hexadecimal name and a destination under `/data` are the anonymous volumes. `docker volume ls` lists them by name.
@@ -627,4 +627,4 @@ Upgrade: stop prior consumers, preserve source state and immutable digest, recon
 
 ## Attribution
 
-Standalone foundations originated in zaheria985/print-handy commit fba5727184dd8f0070e59c8f1fc088751142a003 and merged through #132. Docker contribution #139 commit 3bb0984250c20eb336d11ba1da06633950b45182 (MIT) informed context filtering and listener heartbeat. Original notices remain. Spoolman is MIT; slicers retain upstream licenses. [DOCKER-117-PROGRESS.md](DOCKER-117-PROGRESS.md) contains historical evidence, not acceptance of this candidate.
+Standalone foundations originated in zaheria985/print-handy commit fba5727184dd8f0070e59c8f1fc088751142a003 and merged through #132. Docker contribution #139 commit 3bb0984250c20eb336d11ba1da06633950b45182 (MIT) informed context filtering and listener heartbeat. Original notices remain. Spoolman is MIT; slicers retain upstream licenses. [DOCKER-117-PROGRESS.md](history/DOCKER-117-PROGRESS.md) contains historical evidence, not acceptance of this candidate.

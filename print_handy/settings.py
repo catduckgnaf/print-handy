@@ -86,7 +86,8 @@ LEGACY_ENV = {
     "PRINT_TIMELAPSE_LOCAL_RETENTION_DAYS": ("timelapse", "local_retention_days"),
     "PRINT_TIMELAPSE_PLAN_CLIP_RETENTION_DAYS": ("timelapse", "plan_clip_retention_days"),
     "PRINT_TIMELAPSE_WRAPPED_ENABLED": ("timelapse", "wrapped_enabled"),
-    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_ai_video"),
+    "PRINT_TIMELAPSE_WRAPPED_VIDEO": ("timelapse", "wrapped_video"),
+    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_video"),
     "PRINT_TIMELAPSE_WRAPPED_TTS_ENGINE": ("timelapse", "wrapped_tts_engine"),
     "PRINT_TIMELAPSE_WRAPPED_MUSIC_FILE": ("timelapse", "wrapped_music_file"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT": ("timelapse", "vertical_short"),
@@ -115,6 +116,10 @@ KEY_ALIASES = {
     # #1095: the starter-mention setting outgrew its completion-only name
     # when alert posts started pinging the starter too.
     ("discord", "mention_starter_on_complete"): ("discord", "mention_starter"),
+    # #1157: the Wrapped video compile is local and deterministic (the
+    # AI commentary was removed with #1003), so the key drops the "ai"
+    # it never should have promised; the old spelling stays readable.
+    ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
 }
 
 
@@ -142,7 +147,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("printer", "zmod_delivery_format"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
-                 ("vision", "roast_model"): str,
                  ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
@@ -168,7 +172,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
                  ("timelapse", "data_enabled"): bool,
-                 ("timelapse", "wrapped_ai_video"): bool,
+                 ("timelapse", "wrapped_video"): bool,
                  ("timelapse", "wrapped_tts_engine"): str,
                  ("timelapse", "wrapped_music_file"): str,
                  ("services", "camera_source"): str,
@@ -1332,7 +1336,7 @@ def _validate_timelapse(data):
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
     for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
-                         ("wrapped_enabled", True), ("wrapped_ai_video", False)):
+                         ("wrapped_enabled", True), ("wrapped_video", False)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
@@ -1506,9 +1510,10 @@ def _validate_vision(data):
     line per print on the completion post, one on the failure and cancel
     posts and on a confirmed-spaghetti camera alert, and on request in
     chat ("roast my last print"), on every platform. Set it false to turn
-    roasts off without touching the camera watchdog. ``roast_model`` is kept so older
-    configs load unchanged; roasts no longer read it. Absent in an older
-    config means the default (on).
+    roasts off without touching the camera watchdog. The retired
+    ``roast_model`` key is gone (#1146): a config still carrying it loads
+    with the usual unknown-setting warning and the value is dropped.
+    Absent in an older config means the default (on).
     """
     vision = data.setdefault("vision", {})
     enabled = vision.setdefault("roast_enabled", True)

@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from .rest import chunks, split_media
+from .rest import chunks, outgoing
 
 API = "https://api.telegram.org"
 LIMIT = 4096  # Telegram's sendMessage text limit, in characters.
@@ -105,13 +105,15 @@ def _file_call(token, chat_id, path, *, thread_id=None, opener=None, timeout=60)
     return call(token, method, payload, files=[(field, path)], timeout=timeout, opener=opener)
 
 
-def send(token, chat_id, text, *, thread_id=None, opener=None, timeout=60):
-    """Post text (and any MEDIA files) to a chat. Returns (ok, first message id or error text)."""
+def send(token, chat_id, text, *, thread_id=None, opener=None, timeout=60, files=None):
+    """Post text (and ``files``, plus any attachable MEDIA line) to a chat.
+
+    Returns (ok, first message id or error text)."""
     if not token:
         return False, "no Telegram bot token"
     if not chat_id:
         return False, "telegram.chat_id is not configured"
-    body, files = split_media(text)
+    body, files = outgoing(text, files)
     pieces = chunks(body, LIMIT)
     first = None
     try:
