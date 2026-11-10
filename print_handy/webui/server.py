@@ -833,6 +833,9 @@ class _Handler(BaseHTTPRequestHandler):
                            "text/html; charset=utf-8")
             elif path == "/chat":
                 self._chat_page()
+            elif path == "/chat/state":
+                self._json(200, chat_module.chat_state(
+                    self._chat_service() if self._web_chat_enabled() else None))
             elif path == "/upload":
                 self._send(200, upload_module.render_upload_page(
                     self.server.settings_data, form_token=self.server.form_token,

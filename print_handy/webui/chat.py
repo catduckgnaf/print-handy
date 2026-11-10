@@ -22,6 +22,32 @@ from . import shell
 _esc = shell._esc
 REFRESH_SECONDS = 3
 WORKING_TEXT = "Working on it…"
+POLL_FAST_MS = 600     # poll interval right after a message is sent
+POLL_SLOW_MS = 3000    # the interval it backs off to while the turn keeps running
+# Reload when the transcript grew or the turn ended. Only numbers and a
+# boolean come back from /chat/state; nothing from it is put on the page.
+POLL_SCRIPT = (
+    "<script>(function(){var seq=__SEQ__,wait=" + str(POLL_FAST_MS) + ";"
+    "function tick(){fetch('/chat/state',{credentials:'same-origin',cache:'no-store'})"
+    ".then(function(r){return r.ok?r.json():null;}).then(function(s){"
+    "if(s&&(s.seq!==seq||!s.pending)){location.reload();return;}"
+    "wait=Math.min(wait*1.5," + str(POLL_SLOW_MS) + ");setTimeout(tick,wait);})"
+    ".catch(function(){setTimeout(tick," + str(POLL_SLOW_MS) + ");});}"
+    "setTimeout(tick,wait);})();</script>")
+
+
+def chat_state(service):
+    """GET /chat/state: the newest transcript entry and whether a reply is pending.
+
+    The page's poll compares these with what it rendered and reloads on a
+    change. No message text is returned. ``service`` None (chat off) reads
+    as nothing pending.
+    """
+    if service is None:
+        return {"seq": 0, "pending": False}
+    entries = service.entries()
+    return {"seq": entries[-1]["seq"] if entries else 0,
+            "pending": bool(service.busy() and not service.open_prompt())}
 
 
 def render_chat_disabled_page(*, theme=shell.DEFAULT_THEME, nav=None):
@@ -52,15 +78,22 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
     # already rendered; the page can sit still for the answer).
     prompt = service.open_prompt()
     pending = service.busy() and not prompt
+    entries = service.entries()
     parts = []
     if pending:
-        parts.append(f'<meta http-equiv="refresh" content="{REFRESH_SECONDS}">')
+        # With scripts on, a small poll of /chat/state reloads the page as
+        # soon as a reply lands (the page itself is still rendered here,
+        # escaped, never built in the browser). Without scripts the timed
+        # refresh in <noscript> does the same, a little later.
+        seq = entries[-1]["seq"] if entries else 0
+        parts.append(f'<noscript><meta http-equiv="refresh" content="{REFRESH_SECONDS}"></noscript>')
+        parts.append(POLL_SCRIPT.replace("__SEQ__", str(int(seq))))
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
     body = []
-    for entry in service.entries():
+    for entry in entries:
         kind = entry.get("kind")
         if kind == "operator":
             body.append(f'<p class="chat-op"><strong>You:</strong> '
@@ -105,4 +138,4 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
                       heading="Chat", nav=nav)
 
 
-__all__ = ["REFRESH_SECONDS", "render_chat_disabled_page", "render_chat_page"]
+__all__ = ["REFRESH_SECONDS", "chat_state", "render_chat_disabled_page", "render_chat_page"]

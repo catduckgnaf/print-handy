@@ -197,3 +197,71 @@ def test_chat_requires_the_access_token_when_one_is_set(tmp_path):
         assert status == 200 and "Message" in page
     finally:
         srv.shutdown()
+
+
+def test_chat_state_reports_the_newest_entry_and_needs_auth(tmp_path):
+    import json
+    data = load_settings(tmp_path)
+    srv = webui_server.make_server(
+        data, environ={"WEBUI_ACCESS_TOKEN": "sekrit"}, port=0)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = srv.server_address[1]
+        status, _ = call(port, "GET", "/chat/state")
+        assert status != 200  # behind the same auth as /chat
+        auth = {"X-WebUI-Token": "sekrit"}
+        status, body = call(port, "GET", "/chat/state", headers=auth)
+        assert status == 200 and json.loads(body) == {"seq": 0, "pending": False}
+        form = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
+        assert call(port, "POST", "/chat", body=form, headers=auth)[0] == 303
+        deadline = time.time() + 10
+        state = {}
+        while time.time() < deadline:
+            state = json.loads(call(port, "GET", "/chat/state", headers=auth)[1])
+            if state["seq"] >= 2 and not state["pending"]:
+                break
+            time.sleep(0.05)
+        assert state["seq"] >= 2 and state["pending"] is False  # the reply landed
+        assert set(state) == {"seq", "pending"}  # numbers only, no message text
+    finally:
+        srv.shutdown()
+
+
+def test_chat_state_while_chat_is_off_builds_no_service(tmp_path):
+    import json
+    srv = webui_server.make_server(
+        load_settings(tmp_path, "  chat_enabled: false\n"), environ={}, port=0)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body = call(srv.server_address[1], "GET", "/chat/state")
+        assert status == 200 and json.loads(body) == {"seq": 0, "pending": False}
+        assert srv.chat_service is None
+    finally:
+        srv.shutdown()
+
+
+def test_pending_page_polls_fast_and_keeps_the_no_script_refresh():
+    from print_handy.webui import chat
+
+    class Service:
+        def __init__(self, busy):
+            self._busy = busy
+
+        def busy(self):
+            return self._busy
+
+        def open_prompt(self):
+            return None
+
+        def entries(self):
+            return [{"seq": 7, "kind": "operator", "content": "</script><script>x()</script>"}]
+
+    page = chat.render_chat_page(Service(True), form_token="t")
+    assert "var seq=7," in page and "fetch('/chat/state'" in page
+    assert f'<noscript><meta http-equiv="refresh" content="{chat.REFRESH_SECONDS}"></noscript>' in page
+    assert "</script><script>x()" not in page  # transcript text stays escaped
+    assert "innerHTML" not in page
+    idle = chat.render_chat_page(Service(False), form_token="t")
+    assert "/chat/state" not in idle and 'http-equiv="refresh"' not in idle
