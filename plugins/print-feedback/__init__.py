@@ -974,6 +974,13 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                     # No change asked for: show the dropped model exactly as
                     # it is, with no model call in between (#841 gap 4).
                     result = await asyncio.to_thread(engine.baseline_turn, session)
+    except design.DesignQuestion as asked:
+        # The one clarifying question a design may ask, only when the answer
+        # changes the part and cannot be assumed. The session waits; the
+        # owner's next plain message is the answer and the design runs then.
+        await say(f'{asked.question}\n(Answer in your next message — or say "you pick" and '
+                  'I will choose a sensible size and tell you what I assumed.)')
+        return {'action': 'skip', 'reason': 'design asked a question'}
     except design.DesignError as exc:
         await say(f'That design change did not work: {exc} Nothing was sliced or started.')
         return {'action': 'skip', 'reason': 'design turn failed'}
@@ -986,14 +993,14 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     while True:
         session = result['session']
-        lines = [f"**Design turn {session['turns']}** — {design.summary_text(result)}"]
+        lines = design.reply_lines(result)
         if note:
             lines.append(note)
         changes = design.format_param_changes(result.get('param_changes') or [])
         if changes:
             lines.append('Parameters changed: ' + '; '.join(changes))
-        lines.append(f"Source: `{result['scad_path'].name}` (the .scad is the design; "
-                     'the STL reaches the printer only through the normal intake after you pick Slice it).')
+        lines.append(design.change_hint(session) + ' Slice it sends it through the normal '
+                     'intake; nothing prints without the usual confirmation.')
         if result.get('preview_path'):
             lines.append(f"MEDIA:{result['preview_path']}")
         else:

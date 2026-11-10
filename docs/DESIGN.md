@@ -17,6 +17,11 @@ dimensions. You then choose:
   named variable directly, with no model call, and the reply names the
   change ("plate_z: 3 → 5"); after a model-written turn the reply lists
   any parameters the rewrite changed, so silent drift is visible.
+  "Undo" (or "go back", "go back to the first one", "go back to version
+  2") returns to an earlier version of the same design without a model
+  call, reusing that version's render. A model-written change is shown the
+  last few change requests, so "the other side" or "like before" resolve
+  against the same conversation.
 - **Cancel** — the design session ends.
 
 You do not have to press **Change it** first: while the question is open,
@@ -72,6 +77,40 @@ The model writes the part, but it never gets to run anything general:
   a repair, up to `[design] repair_attempts` times (3 by default). If it
   still fails, the turn says so and shows the last error — nothing is
   handed to intake.
+
+## How a design is made and checked
+
+The model is asked for a parametric, print-aware file: every dimension a
+named variable with a comment, millimeters, one solid lying flat on the
+bed, chamfers instead of overhangs past 45 degrees, walls of at least
+1.2 mm, 0.2-0.3 mm clearance on holes and mating parts, and a size that
+fits the configured printer. The file starts with three comment lines the
+engine reads back: `// Part:` (what it is), `// Size:` (the intended
+bounding box) and `// Assumes:` (each assumption worth knowing).
+
+Before you see anything, the rendered part is measured and checked: it
+must be a watertight, manifold solid with volume; it should be one piece,
+rest on the bed at Z=0, fit the printer's bed and build height
+(`[printer] bed_mm` and `max_print_height_mm`), and measure what its
+`Size` line says (within 0.5 mm or 3 %, in any axis order). A failed check
+goes back to the model with the measured numbers ("it measures 30 x 28 x
+45 mm, not the 30 x 31 x 45 mm on the Size line") and the model fixes it.
+Render errors and failed checks share the same `repair_attempts` budget,
+so a turn never makes more than `1 + repair_attempts` model calls; every
+attempt is logged. When the budget runs out, the attempt with the fewest
+problems is shown and the reply lists what is still off under
+"Heads-up"; a mesh that is not a printable solid is never shown or handed
+to intake.
+
+The reply says what was made, its measured size, what was assumed, the key
+named parameters and how to change it. The numbers are always measured;
+only the description and the assumptions are the model's words.
+
+Design proceeds on sensible assumptions instead of asking. It asks at most
+one question per design, and only on the first turn of a new part, when a
+missing fact would change the part and cannot be assumed (the size of the
+thing it must fit, with no standard size). Your next message is the
+answer; "you pick" lets it choose and say what it assumed. Edits never ask.
 
 ## Honest limits
 

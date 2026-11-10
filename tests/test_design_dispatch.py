@@ -900,3 +900,73 @@ def test_typed_answer_reaches_the_open_design_question_and_a_typed_change_revise
     assert instructions == ["a plate", "make it 5 mm taller"]
     assert out["reason"] == "design cancelled"
     assert sum("Design turn" in (c or "") for c in adapter.sent) == 2
+
+
+# ------------------------------------------- the reply, the one question, and undo
+
+HOOK = ("// Part: Wall hook for a 25 mm rail\n// Size: 40 x 20 x 3 mm\n"
+        "// Assumes: the rail is 25 mm wide and 3 mm thick\n"
+        "w = 40; // overall width\nd = 20; // depth\nheight = 3; // plate thickness\n"
+        "cube([w, d, height]);\n")
+
+
+def _cube_runner(cmd, **kwargs):
+    from print_handy.core.geometry_layout import write_binary_stl
+    p = design.scad_params(Path(cmd[-1]).read_text(encoding="utf-8"))
+    write_binary_stl(_box_triangles(p.get("w", 40), p.get("d", 20), p.get("height", 3)),
+                     Path(cmd[cmd.index("-o") + 1]))
+    import subprocess as _sp
+    return _sp.CompletedProcess(cmd, 0, "", "")
+
+
+@pytest.fixture
+def fake_render():
+    real_init = design.DesignEngine.__init__
+
+    def init(self, *args, **kwargs):
+        kwargs.setdefault("runner", _cube_runner)
+        kwargs.setdefault("preview", lambda stl: None)
+        real_init(self, *args, **kwargs)
+
+    with mock.patch.object(design.DesignEngine, "__init__", init):
+        yield
+
+
+def test_the_reply_says_what_was_made_assumed_and_how_to_change_it(design_env, fake_render):
+    adapter = FakeAdapter()
+    out = _dispatch("/print-design a wall hook for a 25 mm rail", adapter, scripted([HOOK]),
+                    design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "**Design turn 1** — Wall hook for a 25 mm rail." in post
+    assert "Measured: 40 × 20 × 3 mm" in post and "watertight" in post
+    assert "Assumed: the rail is 25 mm wide and 3 mm thick." in post
+    assert "Key parameters: w = 40 (overall width), d = 20 (depth), height = 3 (plate thickness)." in post
+    assert '"make it 5 mm taller"' in post and '"undo"' in post
+    assert "Heads-up" not in post  # the checks passed
+
+
+def test_one_question_is_asked_then_the_answer_designs_the_part(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted(["QUESTION: How wide is the rail?", HOOK])
+    out = _dispatch("/print-design a hook for my rail", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design asked a question"
+    assert adapter.sent[-1].startswith("How wide is the rail?")
+    assert adapter.clarified == []  # no Slice/Change/Cancel for a part that does not exist
+    out = _dispatch("25 mm", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert "The user answered: 25 mm" in fake.calls[1][1]["content"]
+    assert any("Design turn 1" in content for content in adapter.sent)
+
+
+def test_typed_undo_goes_back_without_a_model_call(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    _dispatch("make it 5 mm taller", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch("undo", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 3" in content)
+    assert "Back to version 1" in post and "40 × 20 × 3" in post
+    assert "height: 8 → 3" in post
+    assert len(fake.calls) == 1
