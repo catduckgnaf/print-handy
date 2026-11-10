@@ -35,8 +35,14 @@ def _mesh_xml(paint_state=None):
     return f"<mesh><vertices>{verts}</vertices><triangles>{''.join(tris)}</triangles></mesh>"
 
 
-def write_source(path, shapes, plates, *, project_extra=None, members=None, slice_info=None):
-    """shapes: [(name, extruder or None, paint_state or None)]; plates: [[shape indices]]."""
+def write_source(path, shapes, plates, *, project_extra=None, members=None, slice_info=None,
+                 object_meta=None):
+    """shapes: [(name, extruder or None, paint_state or None)]; plates: [[shape indices]].
+
+    object_meta: {shape index: {key: value}} extra object-level metadata
+    (per-object settings, as Orca writes them in model_settings.config); such
+    an object carries its extruder at object level only, as Orca writes a
+    single-volume object, so the part does not repeat (and override) it."""
     objects, items, settings = [], [], ["<config>"]
     for index, (name, extruder, paint_state) in enumerate(shapes):
         mesh_id, assembly = 2 * index + 2, 2 * index + 1
@@ -45,9 +51,11 @@ def write_source(path, shapes, plates, *, project_extra=None, members=None, slic
                        f'<component objectid="{mesh_id}"/></components></object>')
         items.append(f'<item objectid="{assembly}" transform="1 0 0 0 1 0 0 0 1 {20 * index} 0 0"/>')
         ext = f'<metadata key="extruder" value="{extruder}"/>' if extruder is not None else ""
-        settings.append(f'<object id="{assembly}"><metadata key="name" value="{name}"/>{ext}'
+        extra = "".join(f'<metadata key="{k}" value="{v}"/>'
+                        for k, v in (object_meta or {}).get(index, {}).items())
+        settings.append(f'<object id="{assembly}"><metadata key="name" value="{name}"/>{ext}{extra}'
                         f'<part id="{mesh_id}" subtype="normal_part">'
-                        f'<metadata key="name" value="{name}"/>{ext}</part></object>')
+                        f'<metadata key="name" value="{name}"/>{"" if extra else ext}</part></object>')
     for number, indices in enumerate(plates, 1):
         instances = "".join(f'<model_instance><metadata key="object_id" value="{2 * i + 1}"/></model_instance>'
                             for i in indices)
@@ -369,6 +377,216 @@ class PrusaQuestionSetTests(unittest.TestCase):
         manifest = sc.inventory(_prusa_source(self.dir / "prusa.3mf", None))
         self.assertEqual(manifest["plate_usage"]["1"]["source_filaments"], [1])
         self.assertEqual(len(sc.canonical_prompts(manifest)), 1)
+
+
+
+# OrcaSlicer writes every per-feature filament key into project_settings.config,
+# at its default when the author never touched it.
+_ORCA_DEFAULTS = {"wall_filament": "1", "sparse_infill_filament": "1", "solid_infill_filament": "1",
+                  "wipe_tower_filament": "0", "enable_prime_tower": "1",
+                  "support_filament": "0", "support_interface_filament": "0"}
+
+
+def _question_keys(manifest):
+    return {row["key"] for row in sc.canonical_prompts(manifest)}
+
+
+class UsageUndercountTests(unittest.TestCase):
+    """#1155 Train 2 step 1: the five under-counts and the smaller items.
+    Out-of-palette or unresolvable values become UNKNOWN usage (a warning
+    the operator may accept, #1189), never a used filament (#1184)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _parts(self, manifest):
+        return {"part:" + p["key"] for p in manifest["parts"]}
+
+    def test_interface_only_support_designation_is_counted(self):
+        path = write_source(self.dir / "iface.3mf", [("Base", 1, None), ("Knob", 2, None)], [[0], [1]],
+                            project_extra={"enable_support": "1", "support_interface_filament": "3"})
+        manifest = sc.inventory(path)
+        for plate in ("1", "2"):
+            classes = manifest["plate_usage"][plate]["classes"]
+            self.assertEqual(classes["support"]["source_filaments"], [])
+            self.assertEqual(classes["interface"]["status"], "known")
+            self.assertEqual(classes["interface"]["source_filaments"], [3])
+            self.assertIn(3, manifest["plate_usage"][plate]["source_filaments"])
+        # The interface spool was already a question of its own (#867): no new one.
+        self.assertEqual(_question_keys(manifest), self._parts(manifest) | {"filament:3"})
+
+    def test_height_range_uses_the_bambu_object_index_not_the_resource_id(self):
+        # Object index 2 is the second model object (resource id 3, the Knob
+        # on plate 2). Read as a resource id it named the Knob's mesh and
+        # the range was silently dropped.
+        ranges = ('<objects><object id="2"><range min_z="0" max_z="5">'
+                  '<option opt_key="extruder">2</option></range></object></objects>')
+        path = write_source(self.dir / "ranges.3mf", [("Base", 1, None), ("Knob", 2, None)], [[0], [1]],
+                            members={"Metadata/layer_config_ranges.xml": ranges})
+        manifest = sc.inventory(path)
+        usage = manifest["plate_usage"]
+        self.assertEqual(usage["1"]["classes"]["height_ranges"]["source_filaments"], [])
+        self.assertEqual(usage["2"]["classes"]["height_ranges"]["source_filaments"], [2])
+        self.assertTrue(usage["2"]["usage_known"])
+
+    def test_height_range_index_naming_no_object_is_unknown(self):
+        ranges = ('<objects><object id="7"><range min_z="0" max_z="5">'
+                  '<option opt_key="extruder">2</option></range></object></objects>')
+        path = write_source(self.dir / "ranges.3mf", [("Base", 1, None), ("Knob", 2, None)], [[0], [1]],
+                            members={"Metadata/layer_config_ranges.xml": ranges})
+        entry = sc.inventory(path)["plate_usage"]["1"]
+        self.assertIn("height_ranges", entry["unknown_classes"])
+        self.assertIn("object index", entry["classes"]["height_ranges"]["reason"])
+
+    def test_height_range_extruder_0_is_the_objects_own_filament(self):
+        ranges = ('<objects><object id="1"><range min_z="0" max_z="5">'
+                  '<option opt_key="extruder">0</option></range></object></objects>')
+        path = write_source(self.dir / "ranges.3mf", [("Base", 3, None), ("Knob", 2, None)], [[0], [1]],
+                            members={"Metadata/layer_config_ranges.xml": ranges})
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertTrue(entry["usage_known"])
+        self.assertEqual(entry["classes"]["height_ranges"]["source_filaments"], [3])
+        self.assertTrue(manifest["plate_usage"]["2"]["usage_known"])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+
+    def test_height_range_extruder_outside_the_palette_is_unknown_not_used(self):
+        ranges = ('<objects><object id="1"><range min_z="0" max_z="5">'
+                  '<option opt_key="extruder">9</option></range></object></objects>')
+        path = write_source(self.dir / "ranges.3mf", [("Base", 1, None)], [[0]],
+                            members={"Metadata/layer_config_ranges.xml": ranges})
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertIn("height_ranges", entry["unknown_classes"])
+        self.assertNotIn(9, entry["source_filaments"])
+        self.assertNotIn("filament:9", _question_keys(manifest))
+        self.assertNotIn(("", ""), sc.distinct_source_colours(manifest))
+
+    def test_object_with_instances_on_two_plates_counts_on_both(self):
+        path = write_source(self.dir / "copies.3mf", [("Base", 1, None), ("Knob", 2, None)],
+                            [[0], [0, 1]])
+        usage = sc.inventory(path)["plate_usage"]
+        self.assertEqual(usage["1"]["source_filaments"], [1])
+        self.assertEqual(usage["2"]["source_filaments"], [1, 2])
+
+    def test_orca_default_feature_filaments_add_no_filament_or_question(self):
+        # Every Orca project carries wall_filament = 1 and friends; objects
+        # on filaments 2 and 3 must not gain filament 1 (the #1155 Prusa
+        # regression, Orca spelling).
+        path = write_source(self.dir / "orca.3mf", [("Base", 2, None), ("Knob", 3, None)], [[0, 1]],
+                            project_extra=_ORCA_DEFAULTS)
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertEqual(entry["classes"]["wall"]["status"], "known")
+        self.assertEqual(entry["classes"]["wall"]["source_filaments"], [2, 3])
+        self.assertEqual(entry["classes"]["infill"]["source_filaments"], [2, 3])
+        self.assertEqual(entry["classes"]["tower"]["source_filaments"], [])
+        self.assertEqual(entry["source_filaments"], [2, 3])
+        self.assertTrue(entry["usage_known"])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+
+    def test_orca_object_wall_filament_override_is_counted(self):
+        path = write_source(self.dir / "orca.3mf", [("Base", 1, None), ("Knob", 3, None)], [[0], [1]],
+                            project_extra=_ORCA_DEFAULTS, object_meta={0: {"wall_filament": "3"}})
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertEqual(entry["classes"]["wall"]["source_filaments"], [3])
+        self.assertEqual(entry["classes"]["infill"]["source_filaments"], [1])
+        self.assertEqual(entry["source_filaments"], [1, 3])
+        self.assertEqual(entry["filament_classes"]["3"], ["wall"])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+
+    def test_orca_infill_override_to_an_unasked_filament_is_unknown_not_a_question(self):
+        path = write_source(self.dir / "orca.3mf", [("Base", 1, None), ("Knob", 2, None)], [[0, 1]],
+                            project_extra=_ORCA_DEFAULTS,
+                            object_meta={0: {"sparse_infill_filament": "4"}})
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertIn("infill", entry["unknown_classes"])
+        self.assertNotIn(4, entry["source_filaments"])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+        self.assertTrue(sc.filament_readiness_warnings(manifest, {}, ["1"]))
+
+    def test_orca_feature_filament_outside_the_palette_is_unknown(self):
+        path = write_source(self.dir / "orca.3mf", [("Base", 1, None)], [[0]],
+                            project_extra=_ORCA_DEFAULTS, object_meta={0: {"wall_filament": "9"}})
+        entry = sc.inventory(path)["plate_usage"]["1"]
+        self.assertIn("wall", entry["unknown_classes"])
+        self.assertIn("outside the project palette", entry["classes"]["wall"]["reason"])
+        self.assertNotIn(9, entry["source_filaments"])
+
+    def test_orca_wipe_tower_filament_counts_only_where_a_tower_prints(self):
+        path = write_source(self.dir / "tower.3mf",
+                            [("Base", 1, None), ("Lid", 2, None), ("Knob", 3, None)], [[0, 1], [2]],
+                            project_extra={**_ORCA_DEFAULTS, "wipe_tower_filament": "3"})
+        manifest = sc.inventory(path)
+        usage = manifest["plate_usage"]
+        self.assertEqual(usage["1"]["classes"]["tower"]["source_filaments"], [3])
+        self.assertEqual(usage["1"]["source_filaments"], [1, 2, 3])
+        # Plate 2 prints one filament: no prime tower, no tower filament.
+        self.assertEqual(usage["2"]["classes"]["tower"]["source_filaments"], [])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+
+    def test_bambu_project_without_feature_keys_keeps_them_not_carried(self):
+        entry = sc.inventory(two_plate_source(self.dir / "two.3mf"))["plate_usage"]["1"]
+        for name in ("wall", "infill", "tower"):
+            self.assertEqual(entry["classes"][name]["status"], "not_carried_by_format")
+
+    def test_unmapped_slice_info_filament_makes_the_plate_unknown(self):
+        slice_info = """<config>
+          <plate><metadata key="index" value="1"/><filament id="1" used_g="10" used_m="3"/><filament id="7" used_g="2" used_m="1"/></plate>
+          <plate><metadata key="index" value="2"/><filament id="2" used_g="4" used_m="1"/></plate>
+        </config>"""
+        path = write_source(self.dir / "unmapped.3mf", [("Base", 1, None), ("Knob", 2, None)], [[0], [1]],
+                            slice_info=slice_info)
+        manifest = sc.inventory(path)
+        entry = manifest["plate_usage"]["1"]
+        self.assertFalse(entry["usage_known"])
+        self.assertEqual(entry["slicer_unknown_reason"], sc.USAGE_UNMAPPED)
+        self.assertNotIn(7, entry["source_filaments"])
+        self.assertTrue(manifest["plate_usage"]["2"]["usage_known"])
+        warnings = sc.filament_readiness_warnings(manifest, {}, ["1", "2"])
+        self.assertTrue(warnings and all("plate 1" in w for w in warnings), warnings)
+        # One warning, through the readiness rows; the damaged-claim check
+        # stays silent for unmapped records (#1190), so it is not doubled.
+        self.assertEqual(sc.validate_plate_usage_if_present(manifest), [])
+        self.assertEqual(_question_keys(manifest), self._parts(manifest))
+
+    def test_unparseable_support_designation_is_unknown_not_none(self):
+        path = write_source(self.dir / "badsupport.3mf", [("Base", 1, None)], [[0]],
+                            project_extra={"support_filament": "two"})
+        entry = sc.inventory(path)["plate_usage"]["1"]
+        self.assertIn("support", entry["unknown_classes"])
+        self.assertIn("not a filament number", entry["classes"]["support"]["reason"])
+
+    def test_bad_project_json_makes_the_support_designation_unknown(self):
+        from print_handy.core import author_settings
+        path = self.dir / "bad.3mf"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("Metadata/project_settings.config", "{not json")
+        designation, problem = author_settings.support_designation_status(path)
+        self.assertEqual(designation, {"base": None, "interface": None})
+        self.assertIn("could not be read", problem)
+        self.assertEqual(author_settings.support_designation(path), {"base": None, "interface": None})
+
+    def test_prusa_role_extruder_outside_the_palette_is_unknown_not_used(self):
+        manifest = sc.inventory(_prusa_source(self.dir / "prusa.3mf", None, perimeter=5))
+        entry = manifest["plate_usage"]["1"]
+        self.assertIn("wall", entry["unknown_classes"])
+        self.assertNotIn(5, entry["source_filaments"])
+        self.assertNotIn("filament:5", _question_keys(manifest))
+
+    def test_selected_plate_stats_tolerates_a_record_missing_an_amount(self):
+        manifest = {"filament_stats": {"plates": {"1": {"usage_known": True,
+                                                        "extruders": {"1": {"g": 3.0}}}}}}
+        self.assertIsNone(mj._selected_plate_stats(manifest, ["1"]))
+        good = {"filament_stats": {"plates": {"1": {"usage_known": True,
+                                                    "extruders": {"1": {"g": 3.0, "m": 1.0}}}}}}
+        self.assertEqual(mj._selected_plate_stats(good, ["1"])["filament_stats"]["total_g"], 3.0)
 
 
 class SelectedPlatePromptTests(unittest.TestCase):
