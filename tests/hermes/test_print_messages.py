@@ -86,6 +86,8 @@ def _drive_listener(monkeypatch, filename, transitions, *, claimed=False):
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: claimed)
     monkeypatch.setattr(mel, "log", lambda line: None)
+    # These cases assert print-message sequencing, not camera readiness.
+    monkeypatch.setattr(mel.Listener, "_note_watch_not_running", lambda self: None)
     from print_handy.hermes import klipper_report
     monkeypatch.setattr(klipper_report, "report", lambda filename: "Klipper report stub")
     listener = mel.Listener()

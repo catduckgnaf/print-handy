@@ -34,6 +34,9 @@ def _drive(monkeypatch, transitions):
     monkeypatch.setattr(pab, "retire_alerts",
                         lambda token, filename, note, kinds=("paused",), headline=None:
                         retired.append((filename, kinds, headline)) or 1)
+    # Camera readiness notices are covered by the watch tests, not these
+    # terminal-transition counts. Keep that independent producer isolated.
+    monkeypatch.setattr(mel.Listener, "_note_watch_not_running", lambda self: None)
     listener = mel.Listener()
 
     async def run():
