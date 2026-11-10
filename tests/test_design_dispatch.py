@@ -465,8 +465,9 @@ def test_command_with_dropped_stl_starts_a_mesh_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "mesh"
-    assert "as a mesh" in adapter.sent[0]
-    assert "40 × 20 × 6" in adapter.sent[0]  # the doubled plate, from the render
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "as a mesh" in adapter.sent[1]
+    assert "40 × 20 × 6" in adapter.sent[1]  # the doubled plate, from the render
 
 
 @needs_scad
@@ -479,8 +480,9 @@ def test_command_with_dropped_scad_starts_a_source_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "scad"
-    assert "in source form" in adapter.sent[0]
-    assert "40 × 20 × 5" in adapter.sent[0]
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "in source form" in adapter.sent[1]
+    assert "40 × 20 × 5" in adapter.sent[1]
 
 
 @needs_scad
