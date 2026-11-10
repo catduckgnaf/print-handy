@@ -292,12 +292,6 @@ def default_clip_finder_detailed(data, year, records=None, tz=None):
     return found
 
 
-def default_clip_finder(data, year):
-    """MP4 paths under the local timelapse candidates for ``year``."""
-    return [Path(entry["path"])
-            for entry in default_clip_finder_detailed(data, year)][:MAX_CLIPS]
-
-
 def _absolute(path):
     """A path ffmpeg can open from the work folder (it runs there)."""
     text = str(path or "")
@@ -542,15 +536,6 @@ def timeline_roles(wrapped, clips=0):
                 roles.insert(roles.index(anchor), "footage")
                 break
     return roles
-
-
-def _card_texts(wrapped):
-    """Compatibility seam: the slide hero texts, in arc order.
-
-    The presentation builder is :func:`build_slides`; this keeps the
-    old card-text shape available to anything that consumed it.
-    """
-    return [slide["hero"] for slide in build_slides(wrapped)]
 
 
 def _slide_filter(slide, files):
@@ -1100,6 +1085,6 @@ __all__ = ["BED_DUCKED_VOLUME", "BED_FAILURE_VOLUME", "BED_VOLUME", "BG_FULL_MIN
            "HOOK_SECONDS", "MAX_CLIPS", "NARRATION_VOLUME", "RESERVED_FAILURE_CLIPS",
            "SAD_VOLUME", "SEGMENT_TIMESCALE", "SHORT_SECONDS", "SLIDE_SECONDS",
            "STING_VOLUME", "JOBS", "VideoJobs", "build_slides", "build_wrapped_video",
-           "clip_label", "default_clip_finder", "default_clip_finder_detailed",
+           "clip_label", "default_clip_finder_detailed",
            "parse_clip_print_number", "piper_command",
            "resolve_clip_print_number", "select_clips", "timeline_roles"]

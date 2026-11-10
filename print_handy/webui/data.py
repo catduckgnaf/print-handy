@@ -48,11 +48,8 @@ DATA_OFF_REASON = ("the Data tab is off: set "
                    "[timelapse] data_enabled = true to allow it. Nothing shown.")
 WRAPPED_OFF_REASON = ("Print Handy Wrapped is off: set "
                       "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
-# The pre-split combined reason, kept for any outside caller.
-OFF_REASON = WRAPPED_OFF_REASON
 VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_ai_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
-EXTRA_NAV = shell.NAV[:-1] + (("/data", "Data"), ("/wrapped", "Wrapped")) + shell.NAV[-1:]
 
 
 def wrapped_enabled(data) -> bool:
@@ -1183,7 +1180,7 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "wrapped share", body, path="/wrapped", theme=theme)
 
 
-__all__ = ["DATA_OFF_REASON", "EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON",
+__all__ = ["DATA_OFF_REASON", "VIDEO_OFF_REASON",
            "WRAPPED_OFF_REASON", "ai_video_enabled", "data_enabled", "data_view",
            "export_share", "make_video", "nav_for", "parse_byte_range", "render_data_page",
            "render_share_result", "render_wrapped_page", "video_status",

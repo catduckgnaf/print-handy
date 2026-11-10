@@ -285,7 +285,27 @@ def _ffmpeg():
     return name if "/" in name else (shutil.which(name) or name)
 
 
-def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
+# A hardware encoder that hangs (a wedged GPU, a bad driver) used to hold the
+# completion post for the 30-minute software limit before the CPU fallback
+# ran. A working hardware encode of a few thousand stills takes seconds, so
+# it gets a short limit that grows a little with the frame count; software
+# encoding is slower and legitimately long, so its limit scales with the
+# frames instead of being one flat half hour.
+HW_ENCODE_TIMEOUT_BASE_S = 90
+HW_ENCODE_TIMEOUT_PER_FRAME_S = 0.05
+SOFTWARE_ENCODE_TIMEOUT_BASE_S = 300
+SOFTWARE_ENCODE_TIMEOUT_PER_FRAME_S = 1.0
+
+
+def encode_timeout(vendor, frame_count) -> int:
+    """Seconds one ffmpeg assembly of ``frame_count`` stills may take with ``vendor``."""
+    frames = max(0, int(frame_count or 0))
+    if vendor == "cpu":
+        return int(SOFTWARE_ENCODE_TIMEOUT_BASE_S + SOFTWARE_ENCODE_TIMEOUT_PER_FRAME_S * frames)
+    return int(HW_ENCODE_TIMEOUT_BASE_S + HW_ENCODE_TIMEOUT_PER_FRAME_S * frames)
+
+
+def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run, frame_count=0):
     """One ffmpeg assembly of a frames directory at kbps with one vendor's codec."""
     run([str(ffmpeg), "-y", "-v", "error", *vertical_short.encoder_input_args(vendor),
          "-framerate", str(fps), "-i", str(Path(frames_dir) / "frame-%06d.jpg"),
@@ -293,7 +313,7 @@ def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
          *vertical_short.encoder_args(vendor),
          "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k",
          "-movflags", "+faststart", str(partial)],
-        capture_output=True, timeout=1800, check=True)
+        capture_output=True, timeout=encode_timeout(vendor, frame_count), check=True)
 
 
 # -- bounded playback length (#906) ---------------------------------------------------------------
@@ -583,7 +603,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
         for attempt_kbps in (kbps, int(kbps * 0.7)):
             try:
                 _encode_frames_once(frames_dir, partial, attempt_kbps, candidate.vendor,
-                                    fps=fps, ffmpeg=ffmpeg, run=run)
+                                    fps=fps, ffmpeg=ffmpeg, run=run, frame_count=len(frames))
             except Exception as exc:
                 reason = ffmpeg_failure(exc)
                 log(f"timelapse encode with {candidate.encoder} failed: {reason}")
@@ -637,7 +657,7 @@ def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, f
                      "-i", str(Path(frames_dir) / "frame-%06d.jpg"), "-an",
                      "-vf", f"scale='min({width},iw)':-2", "-c:v", "libx264", "-preset", "medium",
                      "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(partial)],
-                    capture_output=True, timeout=1800, check=True)
+                    capture_output=True, timeout=encode_timeout("cpu", len(frames)), check=True)
             except Exception as exc:
                 log(f"timelapse libx264 fallback (crf {crf}, width {width}) failed: {exc!r}")
                 return None  # software x264 itself is unusable; lower quality will not help
