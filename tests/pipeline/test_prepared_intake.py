@@ -447,8 +447,11 @@ def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkey
     from print_handy.core import orca_adapter
 
     def capacity(path, st, **kw):
-        if abs(float(kw.get('scale') or 1.0) - 1.1) < 1e-9:
+        scale = float(kw.get('scale') or 1.0)
+        if abs(scale - 1.1) < 1e-9:
             return 0  # the asked-for 110% is refused normally
+        if abs(scale - 1.0) < 1e-9:
+            return 1  # the current size fits; only the search probes fail
         raise RuntimeError('orca aborted')  # every search probe fails
 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)

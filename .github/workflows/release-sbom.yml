@@ -1,0 +1,84 @@
+name: Release SBOM
+
+# #1158: every GitHub release carries an SBOM of the image it shipped.
+# When a release is published (or a maintainer dispatches this workflow
+# for a tag), generate an SPDX SBOM of the published image at that tag
+# with Syft (the same pinned action the weekly Image inventory uses)
+# and attach it to the release as an asset. The Publish Docker run
+# also generates the same SBOM for its published image, so the
+# inventory exists even before the release page does; this workflow is
+# what puts it on the release itself.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach an SBOM to (blank = the latest release)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-sbom-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  sbom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE: ghcr.io/catduckgnaf/print-handy
+      # Inputs and event values reach the shell only as environment
+      # variables, never interpolated into scripts.
+      EVENT_TAG: ${{ github.event.release.tag_name }}
+      INPUT_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)"
+          fi
+          [ -n "$tag" ] || { echo "no release tag resolved" >&2; exit 1; }
+          echo "Release under SBOM: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: SBOM (SPDX) for the release image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attach the SBOM to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          asset="print-handy-$TAG.sbom.spdx.json"
+          cp sbom.spdx.json "$asset"
+          gh release upload "$TAG" "$asset" --repo "${{ github.repository }}" --clobber
+          {
+            echo "### Release SBOM attached"
+            echo
+            echo "- Release: \`$TAG\`"
+            echo "- Image: \`$IMAGE:$TAG\`"
+            echo "- Asset: \`$asset\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the SBOM as a run artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: release-sbom-${{ steps.tag.outputs.tag }}
+          path: sbom.spdx.json
+          retention-days: 30

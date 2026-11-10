@@ -41,6 +41,11 @@ def _drive(monkeypatch, transitions):
             await listener.on_status({"state": state, "filename": FILE}, "test")
         await asyncio.gather(*listener.background_tasks)  # the cancel report posts in the background
     asyncio.run(run())
+    # The camera-watch coverage notice (#1169: one post at a print start
+    # when the watch is on but cannot run) is not a print-lifecycle post;
+    # it has its own tests in test_watch_coverage.py. These tests count
+    # lifecycle posts, so drop the notice whatever order it landed in.
+    posted = [p for p in posted if "Camera watch is on but not running" not in p]
     return posted, alerts, retired
 
 
