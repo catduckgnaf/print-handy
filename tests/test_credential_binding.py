@@ -94,6 +94,34 @@ def test_new_host_gets_no_key_and_the_log_never_names_it(caplog):
     assert KEY not in caplog.text
 
 
+def test_https_binding_never_downgrades_to_plain_http(caplog):
+    credential_binding.key_for("notify.ntfy_url", "https://ntfy.example/a", KEY)
+    with caplog.at_level(logging.WARNING, logger="print_handy.credential_binding"):
+        assert credential_binding.key_for("notify.ntfy_url", "http://ntfy.example/a", KEY) == ""
+        assert credential_binding.key_for("notify.ntfy_url", "http://ntfy.example/b", KEY) == ""
+    assert len(caplog.records) == 1
+    assert "http://ntfy.example" in caplog.text and KEY not in caplog.text
+    assert credential_binding.key_for("notify.ntfy_url", "https://ntfy.example:8443/a", KEY) == KEY
+    credential_binding.rebind("notify.ntfy_url", "http://ntfy.example/a")
+    assert credential_binding.key_for("notify.ntfy_url", "http://ntfy.example/a", KEY) == KEY
+
+
+def test_http_binding_tightens_to_https_on_use():
+    credential_binding.key_for("notify.ntfy_url", "http://ntfy.example/a", KEY)
+    assert credential_binding.key_for("notify.ntfy_url", "https://ntfy.example/a", KEY) == KEY
+    assert credential_binding.key_for("notify.ntfy_url", "http://ntfy.example/a", KEY) == ""
+
+
+def test_pending_rebinds_refuses_a_scheme_downgrade():
+    env = {"NTFY_ACCESS_TOKEN": KEY}
+    old = {"notify.ntfy_url": "https://ntfy.example/a"}
+    [move] = credential_binding.pending_rebinds(
+        {"notify.ntfy_url": "http://ntfy.example/a"}, old, {}, env)
+    assert (move.old_host, move.new_host) == ("https://ntfy.example", "http://ntfy.example")
+    assert credential_binding.pending_rebinds(
+        {"notify.ntfy_url": "https://ntfy.example/b"}, old, {}, env) == []
+
+
 def test_rebind_sends_the_key_to_the_new_host():
     credential_binding.key_for("notify.ntfy_url", "https://ntfy.example/a", KEY)
     credential_binding.rebind("notify.ntfy_url", "https://other.example/a")
@@ -348,6 +376,17 @@ class WebUISaveTests(unittest.TestCase):
             self.assertEqual(settings.load(local=local, environ={})["notify"]["ntfy_url"],
                              "https://evil.example/topic")
             self.assertEqual(credential_binding.bound_host("notify.ntfy_url"), "evil.example")
+
+    def test_https_to_http_on_the_same_host_needs_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, {"NTFY_ACCESS_TOKEN": KEY})
+            before = local.read_bytes()
+            body, hidden = self.preview(port, environ, "http://ntfy.example/topic")
+            self.assertIn("Send my ntfy key to http://ntfy.example", body)
+            code, body = self.request(port, "POST", "/config", urlencode(hidden), FORM_HEADERS)
+            self.assertEqual(code, 400)
+            self.assertNotIn(KEY, body)
+            self.assertEqual(local.read_bytes(), before)
 
     def test_same_host_path_change_needs_no_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -20,7 +20,9 @@ The interface is three calls:
   confirms each one.
 
 Hosts compare by host name only (lowercased, trailing dot dropped), so a path
-or port change on the same host behaves as before. Keyless services are never
+or port change on the same host behaves as before. One scheme change counts
+as a host change: a key bound over https is never sent over plain http, even
+to the same host. Keyless services are never
 affected: with no key there is nothing to bind or withhold.
 """
 from __future__ import annotations
@@ -93,6 +95,36 @@ def host_of(value) -> str:
     return host.rstrip(".").lower()
 
 
+def _target(value) -> str:
+    """What a binding records: ``https://host`` or ``http://host`` for a URL, the
+    bare host for a host field; "" when there is no host."""
+    host = host_of(value)
+    if not host:
+        return ""
+    scheme = _scheme(value)
+    return f"{scheme}://{host}" if scheme in ("http", "https") else host
+
+
+def _scheme(value) -> str:
+    text = str(value or "").strip()
+    return text.split("://", 1)[0].lower() if "://" in text else ""
+
+
+def _allows(bound, url) -> bool:
+    """Whether a key bound to ``bound`` may go to ``url``: the same host, and never
+    from https down to plain http."""
+    if host_of(bound) != host_of(url):
+        return False
+    return not (_scheme(bound) == "https" and _scheme(url) == "http")
+
+
+def _shown(bound, url) -> tuple:
+    """(bound, new) for messages: host names, with the schemes when only they differ."""
+    if host_of(bound) == host_of(url):
+        return _target(bound), _target(url)
+    return host_of(bound), host_of(url)
+
+
 # ------------------------------------------------------------------ the record
 
 _lock = threading.Lock()
@@ -139,7 +171,8 @@ def _write(bindings) -> None:
 def bound_host(setting) -> str | None:
     """The host ``setting``'s key is bound to, or None when there is no record."""
     with _lock:
-        return _read().get(setting)
+        bound = _read().get(setting)
+    return None if bound is None else host_of(bound)
 
 
 def key_for(setting, url, key) -> str:
@@ -150,28 +183,32 @@ def key_for(setting, url, key) -> str:
     """
     if not key:
         return ""
-    host = host_of(url)
-    if not host:
+    target = _target(url)
+    if not target:
         return ""
     with _lock:
         bindings = _read()
         bound = bindings.get(setting)
-        if bound is None:
-            bindings[setting] = host
+        # No record binds (the upgrade path); a same-host http binding used
+        # over https is tightened to https.
+        if bound is None or (_allows(bound, url) and _scheme(url) == "https"
+                             and _scheme(bound) != "https"):
+            bindings[setting] = target
             try:
                 _write(bindings)
             except OSError as exc:
                 log.warning("could not record the %s key's host (%s); it is sent this time",
                             setting, type(exc).__name__)
             return key
-    if bound == host:
+    if _allows(bound, url):
         return key
-    if (setting, host) not in _warned:
-        _warned.add((setting, host))
+    if (setting, target) not in _warned:
+        _warned.add((setting, target))
+        shown_bound, shown_new = _shown(bound, url)
         log.warning("not sending the stored key for %s to %s: it is bound to %s. Confirm the "
-                    "new host on the Web UI settings page (or run python -m "
+                    "new address on the Web UI settings page (or run python -m "
                     "print_handy.credential_binding rebind %s <url>) to send it there.",
-                    setting, host, bound, setting)
+                    setting, shown_new, shown_bound, setting)
     return ""
 
 
@@ -183,7 +220,7 @@ def rebind(setting, url) -> str:
     with _lock:
         bindings = _read()
         if host:
-            bindings[setting] = host
+            bindings[setting] = _target(url)
         else:
             bindings.pop(setting, None)
         _write(bindings)
@@ -208,7 +245,8 @@ class Rebind:
     @property
     def refusal(self) -> str:
         return (f"{self.setting}: the stored {self.service} key is bound to {self.old_host}. "
-                f"Saving {self.new_host} would send that key to a new host, so nothing was "
+                f"Saving {self.new_host} would send that key to a new host (or over plain "
+                f"http instead of https), so nothing was "
                 f"written. To save it, tick \"{self.confirmation}\" on the Settings page review step, or "
                 f"leave the address on {self.old_host}.")
 
@@ -241,8 +279,7 @@ def pending_rebinds(changes, old_values, cfg=None, environ=None) -> list:
         slot = SLOTS.get(setting)
         if slot is None:
             continue
-        new_host = host_of(new)
-        if not new_host:
+        if not host_of(new):
             continue
         if bindings is None:
             with _lock:
@@ -253,10 +290,11 @@ def pending_rebinds(changes, old_values, cfg=None, environ=None) -> list:
             source = setting if old_values.get(setting) or not slot.inherits else slot.inherits
             bound = bindings.get(source)
             if bound is None and host_of(old) and _key_present(slot, cfg, environ):
-                bound = host_of(old)
-        if bound is None or bound == new_host:
+                bound = _target(old)
+        if bound is None or _allows(bound, new):
             continue
-        out.append(Rebind(setting, slot.service, bound, new_host))
+        shown_bound, shown_new = _shown(bound, new)
+        out.append(Rebind(setting, slot.service, shown_bound, shown_new))
     return out
 
 
@@ -272,8 +310,8 @@ def _main(argv=None) -> int:
     one.add_argument("url")
     args = parser.parse_args(argv)
     if args.command == "list":
-        for setting, host in sorted(_read().items()):
-            print(f"{setting}: {host}")
+        for setting, bound in sorted(_read().items()):
+            print(f"{setting}: {bound}")
         return 0
     host = rebind(args.setting, args.url)
     print(f"{args.setting}: {host or 'unbound (binds on next use)'}")
