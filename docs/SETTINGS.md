@@ -120,7 +120,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `design.model` | `PRINT_HANDY__DESIGN__MODEL` | empty (inherit) | Design model name; empty uses `llm.model`. Point this at a stronger model than chat if the endpoint offers one |
 | `design.api_key_env` | `PRINT_HANDY__DESIGN__API_KEY_ENV` | empty (inherit) | Environment variable holding the design endpoint's key; empty uses `llm.api_key_env` |
 | `design.timeout_s` | `PRINT_HANDY__DESIGN__TIMEOUT_S` | `180` | Design model-call timeout in seconds; also the OpenSCAD render wall-clock limit |
-| `design.repair_attempts` | `PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS` | `3` | How many times a failed render or a failed check (wrong size, separate pieces, off the bed, too big for the printer) is sent back to the model before the turn gives up; a turn makes at most this many plus one model calls |
+| `design.repair_attempts` | `PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS` | `3` | How many times a failed render, a reply with no OpenSCAD code, or a failed check (wrong size, separate pieces, off the bed, too big for the printer) is sent back to the model before the turn gives up; a turn makes at most this many plus one model calls. A value below 0 counts as 0 and a non-number as 3 |
 | `listener.tick_s` | `PRINT_HANDY__LISTENER__TICK_S` | `600` | Listener housekeeping interval |
 | `listener.ifs_presence_poll_s` | `PRINT_HANDY__LISTENER__IFS_PRESENCE_POLL_S` | `15` | IFS spool presence poll |
 | `listener.spool_nag_s` | `PRINT_HANDY__LISTENER__SPOOL_NAG_S` | `600` | Reminder interval for an unanswered spool question |
