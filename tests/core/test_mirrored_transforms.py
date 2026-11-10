@@ -7,6 +7,7 @@ a leaf, or the exported solid is inside-out (negative signed volume,
 inward normals): slicers then see holes where the part is, and our own
 normal-based overhang and contact checks read up as down.
 """
+import json
 import zipfile
 
 import numpy as np
@@ -85,3 +86,36 @@ def test_transform_mirrors_is_the_sign_of_the_composed_determinant():
     assert orca_adapter.transform_mirrors([mx]) is True
     assert orca_adapter.transform_mirrors([mx, scale]) is True
     assert orca_adapter.transform_mirrors([mx, mx]) is False
+
+
+@pytest.mark.parametrize('painted', [False, True])
+@pytest.mark.parametrize('kw', [dict(item_tf=MIRROR_X), dict(comp_tf=MIRROR_X),
+                               dict(item_tf=MIRROR_X, comp_tf=MIRROR_X)])
+def test_color_export_mirrors_are_outward_or_explicitly_refused(tmp_path, painted, kw):
+    from print_handy.core import source_colors
+    src = _write(tmp_path / 'source.3mf', **kw)
+    if painted:
+        with zipfile.ZipFile(src) as archive:
+            xml = archive.read('3D/3dmodel.model').replace(b'<triangle ', b'<triangle paint_color="8" ')
+        # A painted source carries its palette: paint state 2 ("8") is
+        # source filament 2, so the project names two filaments and the
+        # color flow asks a slot for each. Without it the export refuses
+        # earlier, as an unmapped paint state, and never reaches the
+        # mirror check under test.
+        project = {'filament_colour': ['#FF0000', '#00FF00'], 'filament_type': ['PLA', 'PLA']}
+        with zipfile.ZipFile(src, 'w') as archive:
+            archive.writestr('3D/3dmodel.model', xml)
+            archive.writestr('Metadata/project_settings.config', json.dumps(project))
+    manifest = source_colors.inventory(src)
+    choices = {row['key']: {'slot': 1} for row in source_colors.canonical_prompts(manifest)}
+    decisions = {'schema': 'part_slots_v1', 'mode': 'per_part',
+                 'source_sha256': manifest['source_sha256'], 'choices': choices}
+    out = tmp_path / 'out.3mf'
+    reflected = len(kw) == 1
+    if painted and reflected:
+        with pytest.raises(RuntimeError, match='mirrored painted geometry'):
+            color_geometry.export_color_geometry(src, out, decisions)
+        assert not out.exists()
+    else:
+        color_geometry.export_color_geometry(src, out, decisions)
+        assert sum(_volume(leaf['tris']) for leaf in support_clearance.leaves(str(out))) == pytest.approx(6000)
