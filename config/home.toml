@@ -350,7 +350,7 @@ vertical_short_overlay = true
 # Data tab's own switch is data_enabled; while unset it follows
 # wrapped_enabled.
 wrapped_enabled = true
-wrapped_ai_video = false
+wrapped_video = false
 # Wrapped narration (#981): none | piper (local, nothing sent). See home.yaml notes.
 wrapped_tts_engine = "none"
 wrapped_music_file = ""

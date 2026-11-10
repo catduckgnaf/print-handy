@@ -2,6 +2,7 @@
 import traceback
 
 from .. import diagnostics
+from .filament_warnings import FilamentWarningPending
 from .slice_failure import SliceFailure
 from .slice_refusal import SliceRefusal
 
@@ -25,6 +26,8 @@ def encode(exc):
         reply['refusal'] = exc.as_dict()
     elif isinstance(exc, SliceFailure):
         reply['slice_failure'] = exc.as_dict()
+    elif isinstance(exc, FilamentWarningPending):
+        reply['filament_warnings'] = exc.as_dict()
     else:
         # An unexplained error crossed a process boundary. Without the child's
         # traceback the parent log shows only the message (for example
@@ -41,6 +44,8 @@ def decode(reply):
         return from_dict(reply['refusal'])
     if isinstance(reply.get('slice_failure'), dict):
         return SliceFailure.from_dict(reply['slice_failure'])
+    if isinstance(reply.get('filament_warnings'), dict):
+        return FilamentWarningPending.from_dict(reply['filament_warnings'])
     # Keep the existing public behavior of these two worker errors.
     cls = {'ValueError': ValueError, 'FileNotFoundError': FileNotFoundError}.get(reply.get('type'))
     return cls(reply.get('error')) if cls else RemoteError(reply)

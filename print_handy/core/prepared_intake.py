@@ -4252,6 +4252,66 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
                                                allow_stop=True)
+        except mj.FilamentWarningPending as pending:
+            # Filament findings warn instead of refusing (owner ruling,
+            # catduck, 2026-11-10): the operator is asked once, and only an
+            # explicit acceptance — recorded bound to these warnings, this
+            # source and these plates — lets the same slice run again.
+            # Declining stops here with nothing sliced, uploaded or started.
+            await early.discard()
+            picked = await _ask(adapter, source, key,
+                                'Filament warnings for this print:\n'
+                                + '\n'.join('- ' + w for w in pending.warnings)
+                                + '\nAccept these warnings and print anyway?',
+                                ['Print anyway (accept the filament warnings)', 'No, cancel'],
+                                timeout, approval=True)
+            if picked != 0:
+                receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Filament warnings not accepted. Nothing was sliced, '
+                                           'uploaded or started.')
+                return {'action': 'skip', 'reason': 'filament warnings declined'}
+            mj.record_filament_warning_acknowledgement(
+                jp, warnings=pending.warnings, source_sha256=pending.source_sha256,
+                selected_plates=pending.selected_plates, via='print_anyway')
+            latest = json.loads(jp.read_text())
+            if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
+                    or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
+                    or slice_binding(latest, decisions['source_sha256']) != binding):
+                raise ValueError('saved job changed before the accepted re-slice; no slice started')
+            attempt = int(receipt.get('slice_attempt') or 1) + 1
+            receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
+                           slice_approval={'intake_id': iid, 'source_sha256': decisions['source_sha256'],
+                                           'decisions_sha256': mj.decisions_digest(validated), 'attempt': attempt,
+                                           'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
+            receipt.pop('slice_error', None)
+            receipt.pop('failure', None)
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            # The accepted re-slice is slice-only, like a retry: starting
+            # the new artifact requires a fresh button.
+            choice = 1
+            try:
+                if chosen_quantity and chosen_quantity > 1:
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing with the accepted filament warnings. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
+                else:
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing with the accepted filament warnings. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
+            except Exception as accepted_error:
+                logger.exception('slice after filament warning acceptance failed')
+                await early.discard()
+                from . import slice_failure
+                receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
+                               slice_error=str(accepted_error),
+                               failure=slice_failure.report(accepted_error).as_dict())
+                receipt.pop('slice_approval', None)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=slice_failure.post(accepted_error, retry_failed=True))
+                return {'action': 'skip', 'reason': 'slice after filament warning acceptance failed'}
         except Exception as slice_error:
             logger.exception('slice failed')
             # A failed attempt has no reusable slice approval or G-code. Retry is a

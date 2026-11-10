@@ -23,12 +23,9 @@ Rulings pinned here: Q2 leave-open is KEPT as an explicit saved record;
 Q4 env-token precedence stays exactly as today; Q6 the bare-metal
 [webui] enabled default flips to true (PR-1).
 
-Lane gates: scenarios whose behavior a sibling lane builds carry a
-capability probe naming that lane's branch. While the lane is unlanded
-the scenario skips with that reference — visibly, in the skip reason —
-and asserts in full the moment the capability exists. Nothing here is
-silently weakened: probes check the shipped behavior itself (what
-resolve() returns, what the defaults are), never a version string.
+Every lane this suite once probed for has landed (#1157): the scenarios
+assert the shipped behavior directly — what resolve() returns, what the
+defaults are — so a regression fails instead of skipping.
 """
 import http.client
 import json
@@ -73,11 +70,6 @@ FAKE_SNAPSHOT = {
     "doctor": [{"label": "settings", "status": "ok", "detail": "fine"}],
 }
 
-LANE_A_GATE = "Lane A PR-1 (feat/firstboot-gate-reversal) not landed: "
-LANE_A_WALKTHROUGH = "Lane A PR-3 (feat/walkthrough-first-parity) not landed: "
-LANE_B_COMPLETION = "Lane B PR-4 (feat/setup-completion-state) not landed: "
-
-
 def make_data(tmp, extra="", environ=None):
     """A settings load rooted at a temp home, LAN bind, Web UI on."""
     local = Path(tmp) / "local.yaml"
@@ -111,8 +103,11 @@ class WebUIDriver:
         self.port = self.httpd.server_address[1]
         thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         thread.start()
-        test.addCleanup(self.httpd.shutdown)
+        # addCleanup runs last-in-first-out: registering server_close
+        # first makes shutdown() run first, so the serving loop stops
+        # before its socket closes (the old order warned on Windows).
         test.addCleanup(self.httpd.server_close)
+        test.addCleanup(self.httpd.shutdown)
 
     def request(self, method, path, body=None, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
@@ -154,18 +149,12 @@ class S1FirstBootOpenEverywhere(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             data, _, _ = make_data(tmp)
             resolved = access.resolve(data, "0.0.0.0", environ={})
-            if resolved.mode == access.SETUP:
-                self.skipTest(LANE_A_GATE + "an unclaimed LAN install still "
-                              "resolves SETUP instead of OPEN")
             self.assertEqual(resolved.mode, access.OPEN)
             self.assertIsNone(saved_record(data))  # open because unclaimed
 
     def test_s1_baremetal_code_default_enables_the_webui(self):
         """Q6: no shipped config at all — the code default itself is on."""
         data = settings.load(local=False, environ={})
-        if not data["webui"]["enabled"]:
-            self.skipTest(LANE_A_GATE + "Q6 not landed: the bare-metal "
-                          "[webui] enabled code default is still false")
         self.assertTrue(data["webui"]["enabled"])
 
     def test_s1_docker_shipped_config_surface_is_on(self):
@@ -179,9 +168,7 @@ class S1FirstBootOpenEverywhere(unittest.TestCase):
     def test_s1_webui_first_boot_serves_the_walkthrough_with_no_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             driver = WebUIDriver(self, tmp)
-            if not gate_reversed(driver.data):
-                self.skipTest(LANE_A_GATE + "the first request still hits "
-                              "the setup gate instead of the Web UI")
+            self.assertTrue(gate_reversed(driver.data))
             code, headers, _ = driver.request("GET", "/", headers=HTML)
             self.assertNotEqual(headers.get("location"), "/setup")
             code, _, body = driver.request("GET", "/walkthrough", headers=HTML)
@@ -214,9 +201,7 @@ class S2ClaimPassword(unittest.TestCase):
     def test_s2_claim_password_via_webui(self):
         with tempfile.TemporaryDirectory() as tmp:
             driver = WebUIDriver(self, tmp)
-            if not gate_reversed(driver.data):
-                self.skipTest(LANE_A_GATE + "the walkthrough Login step is "
-                              "not reachable before a claim exists")
+            self.assertTrue(gate_reversed(driver.data))
             code, _, _ = driver.claim_password()
             self.assertIn(code, (200, 303))
             resolved = access.resolve(driver.data, "0.0.0.0", environ={})
@@ -244,9 +229,7 @@ class S3LeaveOpen(unittest.TestCase):
     def test_s3_leave_open_via_webui(self):
         with tempfile.TemporaryDirectory() as tmp:
             driver = WebUIDriver(self, tmp)
-            if not gate_reversed(driver.data):
-                self.skipTest(LANE_A_GATE + "the walkthrough Login step is "
-                              "not reachable before a claim exists")
+            self.assertTrue(gate_reversed(driver.data))
             code, _, _ = driver.leave_open()
             self.assertIn(code, (200, 303))
             self.assertEqual(saved_record(driver.data), {"mode": access.OPEN})
@@ -379,8 +362,7 @@ class S5IdenticalConfig(unittest.TestCase):
     def test_s5_step_sets_match_across_webui_and_chat_definitions(self):
         """Same steps reachable (plan claim 1): the canonical topics —
         printer, chat platform, camera, spoolman, login/access, review —
-        must exist in both flow definitions. Chat-side topics land with
-        Lane B PR-7; the Web UI spoolman step with Lane A PR-3."""
+        must exist in both flow definitions."""
         from print_handy.bot import guided
         webui_steps = {step_id for step_id, _ in walkthrough.STEPS}
         self.assertEqual(webui_steps,
@@ -388,28 +370,20 @@ class S5IdenticalConfig(unittest.TestCase):
                           "providers", "review"})
         webui_fields = {f for fields in walkthrough.STEP_FIELDS.values()
                         for f in fields}
-        if "services.spoolman_url" not in webui_fields:
-            self.skipTest(LANE_A_WALKTHROUGH + "the Web UI walkthrough "
-                          "has no Spoolman field yet")
+        self.assertIn("services.spoolman_url", webui_fields)
         chat_keys = {step.key for step in guided.steps()}
         # The canonical topics as the landed step keys name them:
         # platform choice, camera, and the Web UI login step.
         missing = {"platform", "camera_snapshot_url", "webui_login"} - chat_keys
-        if missing:
-            self.skipTest("Lane B PR-7 (feat/chat-setup-parity) not "
-                          f"landed: guided setup lacks steps {sorted(missing)}")
+        self.assertEqual(missing, set())
 
     def test_s5_full_walkthrough_via_webui_yields_the_reference_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             driver = WebUIDriver(self, tmp)
             webui_fields = {f for fields in walkthrough.STEP_FIELDS.values()
                             for f in fields}
-            if "services.spoolman_url" not in webui_fields:
-                self.skipTest(LANE_A_WALKTHROUGH + "the Web UI walkthrough "
-                              "has no Spoolman field yet")
-            if not gate_reversed(driver.data):
-                self.skipTest(LANE_A_GATE + "the walkthrough is not "
-                              "reachable at first boot")
+            self.assertIn("services.spoolman_url", webui_fields)
+            self.assertTrue(gate_reversed(driver.data))
             # Drive every field step with the canonical answers, using
             # the same form shape the existing walkthrough tests use.
             by_id = {item.id: item for item in
@@ -446,13 +420,9 @@ class S5IdenticalConfig(unittest.TestCase):
 
 class S7CrossSurfaceCompletion(unittest.TestCase):
     def test_s7_completion_record_is_shared(self):
-        """Finishing setup anywhere ends the offers everywhere (PR-4).
-        The shared record module is the probe; its absence is the gate."""
-        try:
-            from print_handy import setup_state  # noqa: F401
-        except ImportError:
-            self.skipTest(LANE_B_COMPLETION + "no shared setup-completion "
-                          "record exists; each surface still keeps its own")
+        """Finishing setup anywhere ends the offers everywhere (PR-4):
+        the shared record lives in print_handy.setup_state."""
+        from print_handy import setup_state  # noqa: F401
         with tempfile.TemporaryDirectory() as tmp:
             data, _, _ = make_data(tmp)
             # Web UI completion is visible to the shared record, and the

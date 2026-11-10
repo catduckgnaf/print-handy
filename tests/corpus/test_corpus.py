@@ -146,7 +146,8 @@ def test_case_folder_is_complete(case):
     if not harness.is_private_case(case.dir):
         assert case.model.stat().st_size <= 5 * 1024 * 1024
     assert case.expect, "case.toml needs an [expect] table"
-    assert case.clicks or _refused_at_intake(case), "case.toml needs [[click]] rules unless intake refuses the model"
+    assert case.clicks or _refused_at_intake(case) or case.entry, \
+        "case.toml needs [[click]] rules unless intake refuses the model or the case is an entry case"
     for rule in case.clicks:
         assert rule.get("question") and rule.get("button"), rule
     _assert_case_license(case)
@@ -165,6 +166,8 @@ def test_discord_flow(case, tmp_path):
     try:
         _assert_flow_built_state(run, case)
         harness.check_expectations(case, run)
+        if case.entry:
+            return  # entry cases (typed / print-next) assert their own segment in check_expectations
         if _refused_at_intake(case):
             _assert_refused_before_questions(case, run)
             return
@@ -416,6 +419,8 @@ def test_discord_flow_standalone(case, tmp_path):
     run = harness.run_case(case, tmp_path, transport="standalone")
     _assert_flow_built_state(run, case)
     harness.check_expectations(case, run)
+    if case.entry:
+        return  # entry cases (typed / print-next) assert their own segment in check_expectations
     if _refused_at_intake(case):
         _assert_refused_before_questions(case, run)
         return
