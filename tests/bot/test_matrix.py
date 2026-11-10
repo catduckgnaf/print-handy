@@ -153,6 +153,40 @@ def test_rest_send_uploads_media_and_posts_a_file_event(tmp_path):
     assert file_event["info"]["size"] == 5
 
 
+def test_every_post_carries_an_explicit_empty_m_mentions(tmp_path):
+    """Intentional mentions: with m.mentions present a homeserver skips the
+    legacy body rules, so an @room or a display name inside a model title
+    or filename notifies nobody."""
+    doc = tmp_path / "@room plate.gcode"
+    doc.write_bytes(b"gcode")
+    stub = HomeserverStub()
+    ok, _ = matrix_rest.send(HOMESERVER, TOKEN, ROOM,
+                             f"Print complete: @room catduck widget\nMEDIA:{doc}", opener=stub)
+    assert ok
+    events = [details["body"] for details in stub.payloads("send")]
+    assert [e["msgtype"] for e in events] == ["m.text", "m.file"]
+    assert all(e["m.mentions"] == {} for e in events)
+    matrix_rest.edit_message(HOMESERVER, TOKEN, ROOM, "$evt1", "@room edited", opener=stub)
+    edit = stub.payloads("send")[-1]["body"]
+    assert edit["m.mentions"] == {} and edit["m.new_content"]["m.mentions"] == {}
+
+
+def test_a_named_matrix_user_is_the_only_one_mentioned():
+    stub = HomeserverStub()
+    ok, _ = matrix_rest.send(HOMESERVER, TOKEN, ROOM, "x" * 20000 + " @room",
+                             opener=stub, mention_user_id=USER)
+    assert ok
+    events = [details["body"] for details in stub.payloads("send")]
+    assert events[0]["body"].startswith(f"{USER} ")
+    assert events[0]["m.mentions"] == {"user_ids": [USER]}
+    assert events[1]["m.mentions"] == {} and USER not in events[1]["body"]
+    for bad in ("catduck", "@room", "<@1>", "@a:b c", "123"):
+        stub = HomeserverStub()
+        matrix_rest.send(HOMESERVER, TOKEN, ROOM, "done", opener=stub, mention_user_id=bad)
+        event = stub.payloads("send")[0]["body"]
+        assert event == {"msgtype": "m.text", "body": "done", "m.mentions": {}}
+
+
 def test_rest_send_needs_a_token_a_homeserver_and_a_room():
     stub = HomeserverStub()
     assert matrix_rest.send(HOMESERVER, "", ROOM, "hi", opener=stub)[0] is False

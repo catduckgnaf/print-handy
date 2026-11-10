@@ -184,22 +184,56 @@ def fetch_mjpeg_frame(url, timeout=8) -> bytes:
 
 
 class IntervalTrigger:
-    """A frame every interval seconds. The first frame is due immediately."""
+    """A frame every interval seconds, on an absolute schedule.
+
+    The first frame is due immediately and anchors the schedule. Each
+    captured frame advances the next deadline by one interval from the
+    PREVIOUS deadline, not by one interval from whenever the capture
+    actually happened, so a scheduler delay (a blocked event loop, a
+    slow status poll) makes a frame late, not lost: the missed
+    deadlines stay due, are caught up one per poll, and the schedule
+    realigns to its original grid instead of drifting (#1150).
+
+    A gap far longer than a scheduler delay is not caught up: when the
+    next deadline is already more than ``_CATCH_UP_INTERVALS`` intervals
+    in the past, the missed beats are stale (a paused print, a
+    suspended process) and the schedule re-anchors to the capture that
+    ends the gap, rather than bursting through every stale deadline at
+    poll cadence.
+    """
 
     name = "interval"
+    _CATCH_UP_INTERVALS = 4
 
     def __init__(self, interval_s):
         self.interval_s = float(interval_s)
         self._last = None
+        self._next = None
 
     def due(self, now, layer_changed) -> bool:
-        return self._last is None or now - self._last >= self.interval_s
+        return self._next is None or now >= self._next
 
     def note_captured(self, now):
         self._last = now
+        if self._next is None:
+            self._next = now + self.interval_s
+            return
+        if now < self._next:
+            # A capture the interval did not call for (a layer frame in
+            # "both" mode, a direct capture_once): it does not consume
+            # an interval deadline, so the floor stays where it was.
+            return
+        self._next += self.interval_s
+        if now - self._next > self._CATCH_UP_INTERVALS * self.interval_s:
+            self._next = now + self.interval_s
 
     def scale_interval(self, factor):
         self.interval_s *= factor
+        if self._last is not None:
+            # Decimation: the next frame is due one new interval after
+            # the newest stored frame -- exactly the spacing the
+            # surviving frames now have.
+            self._next = self._last + self.interval_s
 
 
 class LayerTrigger:

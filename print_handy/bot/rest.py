@@ -1,24 +1,46 @@
 """Discord REST posts with the bot token: no gateway connection, no Hermes, no LLM.
 
 The listener posts through here; since #524 it replaces the ``hermes send`` subprocess.
-A ``MEDIA:/path`` marker in the text becomes a file attachment, the same marker convention
-``hermes send`` read.
+Attachments: callers pass ``files`` explicitly. For handler code that still returns
+marker strings, a ``MEDIA:/path`` line alone on its own line becomes a file attachment —
+only for a Print Handy output file inside the bot's own folders (``attachable``), so a
+marker smuggled in through a model title or filename can never upload a secret.
 """
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 API = "https://discord.com/api/v10"
 LIMIT = 2000
-# A marker runs to the end of its line — the path itself may contain spaces
-# (P2-40), so the capture stops only at the line ending. Some callers join it
-# with a literal backslash-n.
-MEDIA = re.compile(r"(?:\\n)?MEDIA:([^\r\n]+)")
+# A marker is a whole line: ``MEDIA:`` at the start of a line, the path to the
+# end of it. The path itself may contain spaces (P2-40), so the capture stops
+# only at the line ending. Some callers join it with a literal backslash-n,
+# which is turned into a real line break before matching. A ``MEDIA:`` in the
+# middle of a line (a model title, a printer filename, an echoed argument) is
+# never a marker.
+MEDIA = re.compile(r"^MEDIA:([^\r\n]+)$", re.M)
+# What a marker may attach: the media and print files Print Handy itself
+# produces (camera frames, previews, timelapses, sliced and packaged prints,
+# delivery zips) and the diagnostics bundle by name. Anything else — an .env,
+# a settings or state .json, a database, a key — is never attached, wherever
+# it lives.
+ATTACHABLE_SUFFIXES = frozenset({
+    ".png", ".jpg", ".jpeg", ".webp", ".gif",
+    ".mp4", ".mov", ".webm", ".mkv",
+    ".gcode", ".3mf", ".stl", ".obj", ".step", ".stp", ".zip",
+})
+# The sanitized text reports Print Handy writes: the diagnostics bundle and the
+# debug-mode log export (print_handy.debug_mode.export_name).
+ATTACHABLE_NAMES = re.compile(r"^(?:diagnostics-bundle|print-handy-debug-[\w.-]+)\.md$")
 
 
 def inert_media(text):
@@ -28,19 +50,103 @@ def inert_media(text):
     return str(text or "").replace("MEDIA:", "MEDIA​:")
 
 
+def _output_roots():
+    """The bot's own output folders, resolved: the data folders from settings
+    (state home, archive, cache, records) and the system temp folder the
+    camera snapshot and preview helpers write to. Settings that cannot be read
+    leave only the temp folder."""
+    import tempfile
+    roots = [tempfile.gettempdir()]
+    try:
+        from print_handy import settings
+        paths = settings.current().get("paths") or {}
+        roots += [paths.get(key) for key in ("hermes_home", "archive", "cache", "records_vault")]
+    except Exception:
+        pass
+    out = []
+    for root in roots:
+        if root:
+            try:
+                out.append(Path(os.path.expanduser(str(root))).resolve())
+            except (OSError, RuntimeError):
+                continue
+    return out
+
+
+def attachable(path):
+    """The resolved path when a marker may attach it, else None.
+
+    The file must exist, be one of the kinds Print Handy produces
+    (``ATTACHABLE_SUFFIXES`` / ``ATTACHABLE_NAMES``), and resolve — symlinks
+    followed — inside one of the bot's own output folders. Containment is
+    checked after resolving, so ``..`` segments and links cannot step out.
+    """
+    try:
+        resolved = Path(os.path.expanduser(str(path).strip())).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not resolved.is_file():
+        return None
+    if resolved.suffix.lower() not in ATTACHABLE_SUFFIXES and not ATTACHABLE_NAMES.match(resolved.name):
+        return None
+    if not any(resolved.is_relative_to(root) for root in _output_roots()):
+        return None
+    return resolved
+
+
 def split_media(text):
-    """(text without markers, [existing file paths]). A missing file is dropped, never sent as text."""
+    """(text without markers, [attachable file paths]) — the compatibility path.
+
+    Handler code that still returns marker strings keeps working: a marker
+    alone on its own line names a file to attach. Only a file ``attachable``
+    accepts is attached; a missing, foreign or out-of-folder file is dropped
+    with a log line, never sent as text and never uploaded. Internal callers
+    that attach a file should pass it explicitly (``outgoing``'s ``files``).
+    """
     files = []
 
     def take(match):
-        path = Path(match.group(1).strip())
-        if path.is_file():
+        raw = match.group(1).strip()
+        path = attachable(raw)
+        if path is not None:
             files.append(path)
+        elif raw:
+            logger.warning("MEDIA marker dropped: %r is not an attachable output file", raw[:200])
         return ""
 
-    body = MEDIA.sub(take, str(text or ""))
+    text = str(text or "").replace("\\nMEDIA:", "\nMEDIA:")
+    body = MEDIA.sub(take, text)
     body = "\n".join(line.rstrip() for line in body.splitlines()).strip()
     return body, files
+
+
+def outgoing(text, files=None):
+    """(body, [paths]) for one outgoing message on any platform.
+
+    ``files`` are attachments an internal caller passes explicitly; each must
+    exist (a missing one is dropped). Markers in ``text`` go through the
+    restricted compatibility path (``split_media``).
+    """
+    body, found = split_media(text)
+    explicit = [Path(f) for f in (files or ()) if f and Path(f).is_file()]
+    return body, explicit + found
+
+
+def starter_mention(content, mention_user_id):
+    """(content, allowed_mentions) for one Discord post that may ping one user.
+
+    Discord's ``allowed_mentions`` only filters the mentions already in the
+    content: a user listed there and not mentioned in the text is never
+    notified. So a post meant to ping the print's starter carries a real
+    ``<@id>`` at the front, and ``allowed_mentions`` lets exactly that user
+    through (``parse`` stays empty), so an ``@everyone``, a role or another
+    user's mention inside a model title or filename still pings nobody.
+    Anything but a plain ASCII digit string names nobody.
+    """
+    user_id = "" if mention_user_id is None else str(mention_user_id)
+    if user_id.isascii() and user_id.isdigit():
+        return f"<@{user_id}> {content}", {"parse": [], "users": [user_id]}
+    return content, {"parse": []}
 
 
 def chunks(text, limit=LIMIT):
@@ -84,22 +190,23 @@ def _request(token, method, path, payload=None, files=(), timeout=30, opener=Non
     return json.loads(body) if body else {}
 
 
-def send(token, channel_id, text, *, opener=None, timeout=30, mention_user_id=None):
-    """Post text (and any MEDIA files) to a channel. Returns (ok, first message id or error text).
+def send(token, channel_id, text, *, opener=None, timeout=30, mention_user_id=None, files=None):
+    """Post text (and ``files``, plus any attachable MEDIA line) to a channel.
+
+    Returns (ok, first message id or error text).
 
     Mentions never ping by default (``allowed_mentions`` parses nothing).
     ``mention_user_id`` is the one exception: that single user — the person
-    who started a finished print, named by the listener from the post's own
-    starter-mention line — is allowed to be pinged, and nobody else is.
+    who started the print, decided by the starter pings classifier — is
+    mentioned at the front of the post and allowed to be pinged, and nobody
+    else is (``starter_mention``).
     """
     if not token:
         return False, "no Discord bot token"
     if not channel_id:
         return False, "discord.chat_id is not configured"
-    allowed = {"parse": []}
-    if mention_user_id is not None and str(mention_user_id).isdigit():
-        allowed = {"parse": [], "users": [str(mention_user_id)]}
-    body, files = split_media(text)
+    body, files = outgoing(text, files)
+    body, allowed = starter_mention(body, mention_user_id)
     pieces = chunks(body)
     first = None
     try:
