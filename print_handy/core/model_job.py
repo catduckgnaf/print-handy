@@ -5876,15 +5876,13 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         with zipfile.ZipFile(src) as archive:
             actual_plates = {int(match.group(1)) for name in archive.namelist()
                              if (match := re.fullmatch(r"Metadata/plate_(\d+)\.(?:png|gcode)", name))}
-            has_slicer_plate_metadata = False
             if "Metadata/model_settings.config" in archive.namelist():
                 try:
                     settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
-                    source_plates = [plate for plate in settings.iter("plate")
-                                     if any(m.get("key") == "plater_id" for m in plate.iter("metadata"))
-                                     and bool(plate.findall('.//model_instance'))]
-                    has_slicer_plate_metadata = bool(source_plates)
-                    for plate in source_plates:
+                    # Every plate with a plater_id counts, with or without a <model_instance>:
+                    # an exporter that omits instances (and thumbnails) still names separate
+                    # beds, which must never be merged onto one (the same rule as audit()).
+                    for plate in settings.iter("plate"):
                         for metadata in plate.iter("metadata"):
                             if metadata.get("key") == "plater_id":
                                 plate_id = metadata.get("value")
