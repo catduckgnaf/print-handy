@@ -295,10 +295,13 @@ def resolve(data, host, environ=None):
     """The Access for this configuration, environment and bind host."""
     environ = os.environ if environ is None else environ
     webui = data["webui"]
-    if not webui.get("require_auth", True):
-        return Access(OPEN)
     token = environ.get(webui["access_token_env"]) or ""
     saved = _read_saved(access_path(data))
+    if not webui.get("require_auth", True):
+        # The explicit opt-out wins, but the Access says whether it is
+        # hiding a login the owner set, so the status page can say so.
+        ignored = bool(token) or (saved is not None and saved.mode in (PASSWORD, BROKEN))
+        return Access(OPEN, open_reason=OPEN_AUTH_OFF, credential_ignored=ignored)
     if saved is not None and saved.mode == BROKEN:
         # Fail closed, even beside an environment token: the file is the
         # owner's choice and nobody can tell what it held.
@@ -367,11 +370,11 @@ def weak_password_reason(password, username=None):
     return None
 
 
-def save_password(data, password, confirm, username=None):
-    """Store a new Web UI login (password hashed). Raises AccessError when refused.
+def check_password(password, confirm, username=None):
+    """The cleaned username for a login save_password would accept.
 
-    ``username`` is required for a new login; None keeps the old
-    password-only form (any name accepted), which older callers use."""
+    Raises AccessError exactly as save_password does, without writing,
+    so a caller can check the choice before it changes anything else."""
     if username is not None:
         username = clean_username(username)
     if len(password or "") < MIN_PASSWORD_LENGTH:
@@ -381,6 +384,15 @@ def save_password(data, password, confirm, username=None):
         raise AccessError(weak)
     if password != confirm:
         raise AccessError("The two passwords do not match.")
+    return username
+
+
+def save_password(data, password, confirm, username=None):
+    """Store a new Web UI login (password hashed). Raises AccessError when refused.
+
+    ``username`` is required for a new login; None keeps the old
+    password-only form (any name accepted), which older callers use."""
+    username = check_password(password, confirm, username)
     salt = secrets.token_bytes(16)
     payload = {"mode": PASSWORD}
     if username:

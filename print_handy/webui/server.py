@@ -446,7 +446,8 @@ def _job_block(job):
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
-                       unclaimed=False, loopback=False):
+                       unclaimed=False, loopback=False, open_reason="",
+                       credential_ignored=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -551,6 +552,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
     if unclaimed:
+        open_reason = access_module.OPEN_UNCLAIMED
+    if open_reason == access_module.OPEN_UNCLAIMED:
         reach = ('It listens only on this machine, so only someone using this '
                  'machine can reach it. Set a login in the walkthrough if you '
                  'want one.' if loopback else
@@ -558,6 +561,22 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                  'walkthrough, or leave it open on a network you trust.')
         banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
                    '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
+    elif open_reason:
+        # Open for a reason other than "nothing set yet": say which, so
+        # an open Web UI is never mistaken for a protected one.
+        reach = ("only someone using this machine can reach it" if loopback
+                 else "anyone who can reach it can use it")
+        if open_reason == access_module.OPEN_AUTH_OFF:
+            why = ("This Web UI is open: login is turned off by "
+                   "<code>[webui] require_auth = false</code>, so " + reach + ".")
+            if credential_ignored:
+                why += (" A saved login or access token exists but is ignored until "
+                        "that setting is back on.")
+        else:
+            why = ("This Web UI is open: a login was removed in the walkthrough "
+                   "(the leave-it-open choice), so " + reach + ".")
+        banner += (f'<div class="banner"><span>{why}</span>'
+                   '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
             + f'<table class="rows">{main_rows}</table>'
@@ -822,6 +841,8 @@ class _Handler(BaseHTTPRequestHandler):
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     unclaimed=self.server.access.unclaimed,
+                    open_reason=getattr(self.server.access, "open_reason", ""),
+                    credential_ignored=getattr(self.server.access, "credential_ignored", False),
                     loopback=is_loopback(self.server.bind_host),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
@@ -1461,7 +1482,14 @@ class _Handler(BaseHTTPRequestHandler):
             theme=self._theme(), loopback=is_loopback(self.server.bind_host))
         if kind == "access":
             # The Login step saved a new rule: apply it now, and keep the
-            # person who chose it signed in on this browser.
+            # person who chose it signed in on this browser. A password
+            # saved under require_auth = false turned that setting back on
+            # in the settings file; tightening applies at once (loosening
+            # still waits for a restart), so the password is enforced now.
+            webui = self.server.settings_data.get("webui")
+            if isinstance(webui, dict) and not webui.get("require_auth", True) and \
+                    self._walkthrough_data()["webui"].get("require_auth", True):
+                webui["require_auth"] = True
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
             self.server.access_stamp = _access_stamp(self.server.settings_data)

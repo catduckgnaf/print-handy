@@ -337,6 +337,56 @@ class UnclaimedFlowTests(unittest.TestCase):
         code, headers, _ = self.request(port, "GET", "/setup", headers={server.TOKEN_HEADER: TOKEN})
         self.assertEqual((code, headers.get("location")), (303, "/"))
 
+    def test_every_open_reason_shows_a_banner_naming_it(self):
+        httpd, port, data = self.start("  require_auth: false\n")
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        httpd.access = access.resolve(data, "0.0.0.0", {})
+        self.assertEqual(httpd.access.open_reason, access.OPEN_AUTH_OFF)
+        self.assertTrue(httpd.access.credential_ignored)
+        code, _, body = self.request(port, "GET", "/")
+        self.assertEqual(code, 200)
+        self.assertIn("This Web UI is open: login is turned off by", body)
+        self.assertIn("require_auth = false", body)
+        self.assertIn("A saved login or access token exists but is ignored", body)
+        # The owner's saved leave-it-open choice: open, and the page says so.
+        httpd2, port2, data2 = self.start()
+        access.save_open(data2, True)
+        httpd2.access = access.resolve(data2, "0.0.0.0", {})
+        code, _, body = self.request(port2, "GET", "/")
+        self.assertIn("This Web UI is open: a login was removed", body)
+        self.assertNotIn("No login is set", body)
+
+    def test_a_password_saved_under_require_auth_false_turns_auth_back_on(self):
+        httpd, port, data = self.start("  require_auth: false\n")
+        walkthrough.save_state(data, {"step": 3})
+        code, _, body = self.request(port, "GET", "/walkthrough")
+        self.assertIn("Saving a password here turns that setting back on", body)
+        code, headers, _ = self.login_step(
+            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            password_again=PASSWORD)
+        self.assertEqual(code, 303)
+        reloaded = settings.load(local=Path(httpd.webui_environ["PRINT_HANDY_CONFIG"]),
+                                 environ=httpd.webui_environ)
+        self.assertIs(reloaded["webui"]["require_auth"], True)
+        # Enforced now, not only after a restart.
+        self.assertEqual(httpd.access.mode, access.PASSWORD)
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 401)
+        cookie = headers["set-cookie"].split(";", 1)[0]
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": cookie})[0], 200)
+
+    def test_a_password_is_refused_when_require_auth_false_cannot_be_undone(self):
+        httpd, port, data = self.start(
+            "  require_auth: false\n",
+            environ={"PRINT_HANDY__WEBUI__REQUIRE_AUTH": "false"})
+        walkthrough.save_state(data, {"step": 3})
+        code, _, body = self.login_step(
+            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            password_again=PASSWORD)
+        self.assertEqual(code, 200)
+        self.assertIn("The password was not saved", body)
+        self.assertFalse(access.access_path(data).exists())
+
     def test_a_claimed_install_with_a_damaged_login_file_refuses_service(self):
         httpd, port, data = self.start()
         access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
