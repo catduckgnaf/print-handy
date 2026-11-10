@@ -19,6 +19,11 @@ dimensions. You then choose:
   any parameters the rewrite changed, so silent drift is visible.
 - **Cancel** — the design session ends.
 
+You do not have to press **Change it** first: while the question is open,
+just type the change ("make the holes 5 mm") and it runs as the next turn
+of the same design. Typing a choice (or its number on Matrix) answers the
+question the same as the button.
+
 ## Turning it on
 
 Design is **on automatically whenever a model endpoint is configured** —

@@ -839,3 +839,64 @@ def test_dispatch_posts_the_parametrized_dimensions_it_rendered(design_env):
     assert out["reason"] == "design cancelled"
     post = next(content for content in adapter.sent if "Design turn 1" in content)
     assert "26 × 12 × 4" in post
+
+
+# ------------------------------------------- typed answers while the design question is open
+
+def test_typed_answer_reaches_the_open_design_question_and_a_typed_change_revises(
+        design_env, tmp_path):
+    """While the Slice it / Change it / Cancel question is open, the owner's
+    plain message is the answer to it (a Matrix number, a typed choice, or a
+    change typed instead of pressing Change it). design_dispatch must let it
+    fall through to the bot core's typed-answer routing instead of refusing
+    it as "a design turn is already running", and a typed change must run as
+    the next turn of the same design, not cancel it."""
+    instructions = []
+
+    async def fake_run_turn(self, session, instruction):
+        instructions.append(instruction)
+        result = _fake_result(session, tmp_path)
+        session["turns"] = len(instructions)
+        return result
+
+    async def scenario():
+        adapter = FakeAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(scripted([GOOD]), "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+            task = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a plate"), _gateway(adapter)))
+
+            async def open_prompt():
+                for _ in range(300):
+                    cid = core_prompts.open_prompt_for("session-key")
+                    if cid:
+                        return cid
+                    await asyncio.sleep(0.01)
+                raise AssertionError("the design question never opened")
+
+            cid = await open_prompt()
+            # The typed change is not refused by the busy guard ...
+            typed = await plugin.design_dispatch(_event("make it 5 mm taller"), _gateway(adapter))
+            assert typed is None
+            assert not any("already running" in (c or "") for c in adapter.sent)
+            # ... so the bot core answers the open prompt with it.
+            assert core_prompts.resolve_gateway_clarify(cid, "make it 5 mm taller")
+            cid2 = None
+            for _ in range(300):
+                cid2 = core_prompts.open_prompt_for("session-key")
+                if cid2 and cid2 != cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid2 and cid2 != cid
+            # A design command during the open question is still refused.
+            busy = await plugin.design_dispatch(_event("/print-design a cup"), _gateway(adapter))
+            assert busy == {"action": "skip", "reason": "design turn already running"}
+            assert core_prompts.resolve_gateway_clarify(cid2, design.CANCEL_LABEL)
+            out = await asyncio.wait_for(task, 10)
+            return adapter, out
+
+    adapter, out = asyncio.run(scenario())
+    assert instructions == ["a plate", "make it 5 mm taller"]
+    assert out["reason"] == "design cancelled"
+    assert sum("Design turn" in (c or "") for c in adapter.sent) == 2
