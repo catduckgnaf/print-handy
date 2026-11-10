@@ -25,7 +25,7 @@ from types import SimpleNamespace as S
 from ..core import prompts
 from . import commands, health, telegram_rest as tg
 from .platform import BasePlatformAdapter, SendResult, _prompts_guard, custom_id, parse_custom_id
-from .rest import chunks, split_media
+from .rest import chunks, outgoing
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +118,8 @@ class StandaloneAdapter(BasePlatformAdapter):
     def _call(self, method, payload=None, files=()):
         return tg.call(self.token, method, payload, files, opener=self.opener)
 
-    async def send(self, chat_id, content, reply_to=None, metadata=None):
-        body, paths = split_media(content)
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
+        body, paths = outgoing(content, files)
         pieces = chunks(body, self.message_limit)
         thread = (metadata or {}).get("thread_id")
         first = None

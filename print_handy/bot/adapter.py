@@ -71,9 +71,9 @@ class StandaloneAdapter(BasePlatformAdapter):
             channel = await self.client.fetch_channel(int(target))
         return channel
 
-    async def send(self, chat_id, content, reply_to=None, metadata=None):
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
         import discord
-        body, paths = rest.split_media(content)
+        body, paths = rest.outgoing(content, files)
         pieces = rest.chunks(body)
         first = None
         opened = []
