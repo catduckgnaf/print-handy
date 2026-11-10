@@ -105,6 +105,7 @@ except ImportError:  # non-POSIX platform: no cross-process lock available
 __all__ = [
     "CAMERA_KINDS",
     "ENCODER_PREFERENCES",
+    "GO2RTC_LIVE_STREAM_NAME",
     "GO2RTC_STREAM_NAME",
     "TARGET_CODECS",
     "VAAPI_DEVICE",
@@ -122,6 +123,7 @@ __all__ = [
     "derive_from_snapshot_url",
     "encoder_candidates",
     "expire_empty",
+    "feed_stream_name",
     "plan_encoders",
     "pointer_text",
     "read_session_file",
@@ -152,9 +154,11 @@ GO2RTC_STREAM_NAME = "camera"
 # exactly one upstream pull and timelapse capture keeps the camera's
 # own stream — and the Activity page requests this name instead.
 GO2RTC_LIVE_STREAM_NAME = "camera-live"
-# The [live_stream] transcode values and their defaults. While all four
-# hold their defaults the live view is the raw relay; changing any one
-# engages the transcode with all four current values applied.
+# The [live_stream] transcode values and their defaults. Changing any
+# one engages the transcode with all four current values applied. At
+# the defaults an RTSP or WebRTC source is relayed as it arrives, but
+# an MJPEG or snapshot source is transcoded anyway: the Activity page
+# speaks only MSE H.264, which those sources are not.
 LIVE_TRANSCODE_DEFAULTS = {"max_height": 720, "fps": 15,
                            "max_bitrate_kbps": 2500, "encoder": "auto"}
 
@@ -794,23 +798,31 @@ def _section_value(section, key, default):
     return default if value is None else value
 
 
-def transcode_engaged(section) -> bool:
-    """True when a [live_stream] transcode value is set away from its default.
+def transcode_engaged(section, *, source_kind=None) -> bool:
+    """True when the live view must be the transcoded stream.
 
     The four values (max_height, fps, max_bitrate_kbps, encoder) act as
-    one switch: at their defaults the live view is go2rtc's relay of the
-    camera stream as it arrives; changing any one makes
-    print_handy.go2rtc publish the transcoded GO2RTC_LIVE_STREAM_NAME
-    stream with all four applied, and the Activity page plays that one.
-    Missing keys read as the defaults, like everywhere in this module.
+    one switch: changing any one makes print_handy.go2rtc publish the
+    transcoded GO2RTC_LIVE_STREAM_NAME stream with all four applied.
+    At the defaults the live view is go2rtc's relay of the camera
+    stream as it arrives — but only for a source the Activity's MSE
+    player can play (RTSP or WebRTC). An MJPEG or snapshot source is
+    not H.264, and the page speaks only MSE fMP4, so those kinds
+    engage the same transcode at the default values. ``source_kind``
+    None keeps the values-only decision for callers that have no
+    resolved source (the pointer text, the page default).
     """
-    return any(_section_value(section, key, default) != default
-               for key, default in LIVE_TRANSCODE_DEFAULTS.items())
+    if any(_section_value(section, key, default) != default
+           for key, default in LIVE_TRANSCODE_DEFAULTS.items()):
+        return True
+    return source_kind in ("mjpeg", "snapshot")
 
 
-def feed_stream_name(section) -> str:
+def feed_stream_name(section, *, source_kind=None) -> str:
     """The go2rtc stream the live Activity page plays for this section."""
-    return GO2RTC_LIVE_STREAM_NAME if transcode_engaged(section) else GO2RTC_STREAM_NAME
+    return (GO2RTC_LIVE_STREAM_NAME
+            if transcode_engaged(section, source_kind=source_kind)
+            else GO2RTC_STREAM_NAME)
 
 
 def start_problem(section):
@@ -854,12 +866,15 @@ def _duration(seconds):
 def _plan_line(section):
     """What the live feed actually is, from the section's transcode values.
 
-    At the defaults the feed is the camera stream relayed as it arrives.
-    With any transcode value changed, go2rtc publishes the transcoded
-    stream the Activity plays (print_handy.go2rtc's generated config),
-    so the plan sentence names real, applied values — it is no longer
-    a description of a plan nothing runs (the 2.2.1 audit found the old
-    wording printed the values while the relay ignored them).
+    At the defaults an RTSP or WebRTC source is relayed as it arrives.
+    An MJPEG or snapshot source is not a format the Activity's MSE
+    player can open, so that source is transcoded to H.264 at the
+    default values instead. With any transcode value changed, go2rtc
+    publishes the transcoded stream the Activity plays
+    (print_handy.go2rtc's generated config), so the plan sentence
+    names real, applied values — it is no longer a description of a
+    plan nothing runs (the 2.2.1 audit found the old wording printed
+    the values while the relay ignored them).
     """
     if transcode_engaged(section):
         return (f"Feed plan: {_section_value(section, 'encoder', 'auto')} encoder, "
@@ -868,9 +883,11 @@ def _plan_line(section):
                 f"{_section_value(section, 'max_bitrate_kbps', 2500)} kbit/s cap — "
                 "the live view is transcoded to this plan; timelapse capture "
                 "keeps the camera's own stream.")
-    return ("Feed: the camera stream is relayed to the live view as it arrives; "
-            "change the live feed height, frame rate, bitrate cap or encoder "
-            "and the live view is transcoded to those values instead.")
+    return ("Feed: the camera stream is relayed to the live view as it arrives "
+            "when it is already a stream the Activity can play (RTSP or WebRTC); "
+            "an MJPEG or snapshot camera is transcoded to H.264 at the default "
+            "feed values. Change the live feed height, frame rate, bitrate cap "
+            "or encoder and the live view is transcoded to those values instead.")
 
 
 def pointer_text(session, section):

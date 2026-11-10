@@ -556,6 +556,21 @@ def test_transcode_engages_only_away_from_the_default_feed_values():
     assert ls.GO2RTC_LIVE_STREAM_NAME == "camera-live"
 
 
+def test_mse_incompatible_source_engages_the_transcode_at_defaults():
+    # The Activity page speaks MSE (H.264 fMP4). An MJPEG or snapshot
+    # source is not that, so the default feed values must still publish
+    # the transcoded camera-live stream. An RTSP or WebRTC source at
+    # the defaults stays the raw relay.
+    for kind in ("mjpeg", "snapshot"):
+        assert ls.transcode_engaged({}, source_kind=kind) is True
+        assert ls.feed_stream_name({}, source_kind=kind) == ls.GO2RTC_LIVE_STREAM_NAME
+    for kind in ("rtsp", "webrtc", None):
+        assert ls.transcode_engaged({}, source_kind=kind) is False
+        assert ls.feed_stream_name({}, source_kind=kind) == ls.GO2RTC_STREAM_NAME
+    # A changed feed value still engages the transcode for a relayable source.
+    assert ls.transcode_engaged({"fps": 30}, source_kind="rtsp") is True
+
+
 def test_start_problem_gates_on_enabled_then_channel():
     assert "off" in ls.start_problem({})
     assert "off" in ls.start_problem({"enabled": False, "voice_channel_id": "1"})
@@ -572,6 +587,7 @@ def test_pointer_text_names_the_channel_the_activity_and_the_plan():
     # (the audit's dead-option finding); the numbers are named only
     # when a transcode value is changed and they are actually applied.
     assert "relayed to the live view as it arrives" in text
+    assert "MJPEG or snapshot camera is transcoded to H.264" in text
     section = dict(ENABLED_SECTION, activity_origin="https://pb.example")
     assert "https://pb.example" in ls.pointer_text(session, section)
     tuned = dict(ENABLED_SECTION, max_height=1080, fps=30, max_bitrate_kbps=6000)

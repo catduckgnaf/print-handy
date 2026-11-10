@@ -738,10 +738,12 @@ CATALOG = (
     _field("live_stream", "max_height", "Live feed height", "number",
            "Live feed height cap in pixels; width follows the camera's aspect. "
            "While all four feed values (height, frame rate, bitrate cap, "
-           "encoder) hold their defaults the live view is the camera stream "
-           "relayed as it arrives; changing any one makes the live view a "
-           "transcoded feed with all four applied. Timelapse capture keeps "
-           "the camera's own stream either way.",
+           "encoder) hold their defaults, an RTSP or WebRTC camera is "
+           "relayed as it arrives and an MJPEG or snapshot camera is "
+           "transcoded to H.264, because the Activity plays only MSE. "
+           "Changing any one makes the live view a transcoded feed with "
+           "all four applied. Timelapse capture keeps the camera's own "
+           "stream either way.",
            validator="settings live_stream check", minimum=144, maximum=2160),
     _field("live_stream", "fps", "Live feed frame rate", "number",
            "Live feed frame-rate cap, in frames per second; applied by the "

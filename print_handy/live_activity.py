@@ -1010,7 +1010,25 @@ class SessionPresence:
         return self._apply(time.time() if now is None else now)
 
 
-def allowlist_from_settings(data):
+def _live_source_kind(data) -> str | None:
+    """The resolved camera kind, or None when no source resolves.
+
+    The Activity page can play only MSE H.264, so the stream it asks
+    for depends on the kind (an MJPEG or snapshot source is transcoded).
+    A source that does not resolve reads as None: the page keeps the
+    values-only stream name, and the feed proxy reports the camera
+    unavailable rather than this process guessing a kind.
+    """
+    from . import go2rtc
+
+    try:
+        source = go2rtc.resolve_source(data)
+    except Exception:
+        return None
+    return None if source is None else source.kind
+
+
+def allowlist_from_settings(data) -> tuple:
     """The Activity allowlist: the Discord users the bot already trusts.
 
     ``[discord] approval_user_id`` (always allowed, like everywhere
@@ -1036,7 +1054,7 @@ def main(argv=None) -> int:
     (nothing to serve), 2 when the configuration cannot be resolved.
     """
     from . import live_gate, settings
-    from .live_stream import session_file_path
+    from .live_stream import feed_stream_name, session_file_path
 
     try:
         data = settings.load()
@@ -1067,7 +1085,8 @@ def main(argv=None) -> int:
             except Exception:
                 pass  # enforcement is bookkeeping; the feed keeps serving
 
-    stream_name = feed_stream_name(data["live_stream"])
+    stream_name = feed_stream_name(data["live_stream"],
+                                   source_kind=_live_source_kind(data))
     server = make_server(
         "127.0.0.1", config.port,
         transport=UrllibOAuthTransport(config.client_id, client_secret()),

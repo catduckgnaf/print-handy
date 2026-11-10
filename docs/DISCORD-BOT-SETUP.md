@@ -196,7 +196,9 @@ cannot send video, Discord's bot API is audio-only, so the live view is an **Act
 small web page that runs inside the voice channel, served by the *same* Discord application as
 the bot (no second bot, no second token). The page plays the container's go2rtc restream of
 the camera (MSE over WebSocket, proxied by the Activity server itself, so go2rtc stays on
-loopback and is never exposed raw).
+loopback and is never exposed raw). An MJPEG or snapshot camera is transcoded to H.264
+for that page even when the live feed values are left at their defaults; an RTSP or
+WebRTC camera is relayed as it arrives until one of those values is changed.
 
 > **Honest status, read this first.** The Stage 0 live Discord spike has **not run yet**:
 > everything below is built and covered by offline contract tests, but none of it has been

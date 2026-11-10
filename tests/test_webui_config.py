@@ -345,7 +345,13 @@ class CatalogTests(unittest.TestCase):
                 self.assertIn("exec:/nonexistent/ffmpeg", config)
         default_config = go2rtc.render_config(
             go2rtc.resolve_source(data()), transcode=go2rtc.transcode_plan(data()))
-        self.assertNotIn("camera-live", default_config)
+        # data() derives the Moonraker MJPEG stream, which the Activity
+        # cannot play, so the defaults publish the H.264 transcode.
+        self.assertIn("camera-live", default_config)
+        rtsp = data(timelapse={"capture_source_url": "rtsp://cam.example/live"})
+        rtsp_config = go2rtc.render_config(
+            go2rtc.resolve_source(rtsp), transcode=go2rtc.transcode_plan(rtsp))
+        self.assertNotIn("camera-live", rtsp_config)
 
     def test_no_secret_or_env_name_fields_in_the_catalog(self):
         for field in CATALOG:
