@@ -45,7 +45,7 @@ class ReleaseCheckBehaviour(unittest.TestCase):
         base = pathlib.Path(self.tmp.name)
         self.root = base / "repo"
         (self.root / "print_handy").mkdir(parents=True)
-        (self.root / "docs").mkdir(parents=True)
+        (self.root / "docs" / "history").mkdir(parents=True)
         self.write_tree(version="1.2.3", internal_has_section=True)
         self.notes = base / "notes.md"
         self.notes.write_text("Covers #10 and #20, in color.\n")
@@ -62,7 +62,7 @@ class ReleaseCheckBehaviour(unittest.TestCase):
             f"Current release: **{version}**\n")
         section = (f"# Version {version}\n\n- a #10\n- b #20\n"
                    if internal_has_section else "# Unreleased\n\n- x\n")
-        (self.root / "docs" / "INTERNAL_RELEASE_NOTES.md").write_text(
+        (self.root / "docs" / "history" / "INTERNAL_RELEASE_NOTES.md").write_text(
             "# Print Handy Internal Release Notes\n\n" + section)
 
     def run_cli(self, *extra):
@@ -70,7 +70,7 @@ class ReleaseCheckBehaviour(unittest.TestCase):
             [sys.executable, str(SCRIPT), "--version", "1.2.3",
              "--notes", str(self.notes), "--root", str(self.root),
              "--internal-notes",
-             str(self.root / "docs" / "INTERNAL_RELEASE_NOTES.md"),
+             str(self.root / "docs" / "history" / "INTERNAL_RELEASE_NOTES.md"),
              "--range-file", str(self.range_file), *extra],
             capture_output=True, text=True)
 

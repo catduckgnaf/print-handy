@@ -42,7 +42,7 @@ before merging; it fails closed.
 - [ ] Draft GitHub release notes cover **every** merged PR in the
   range, grouped user-first. The PR list comes from the tag range's
   ancestry (`git log`), never from dates or memory (audit A2/A12).
-- [ ] `docs/INTERNAL_RELEASE_NOTES.md` gains a `# Version X.Y.Z`
+- [ ] `docs/history/INTERNAL_RELEASE_NOTES.md` gains a `# Version X.Y.Z`
   section covering the same PRs; the `Unreleased` bullets move into it.
 - [ ] Any PR that changes behavior for existing installs gets an
   **Upgrade** line naming what changes for someone who already had the
@@ -56,7 +56,7 @@ before merging; it fails closed.
 
 - [ ] `print_handy/__init__.py`: `__version__ = "X.Y.Z"`.
 - [ ] `README.md`: the `Current release: **X.Y.Z**` line.
-- [ ] `docs/INTERNAL_RELEASE_NOTES.md`: the `# Version X.Y.Z` section,
+- [ ] `docs/history/INTERNAL_RELEASE_NOTES.md`: the `# Version X.Y.Z` section,
   dated.
 - [ ] Release check workflow green on the bump PR's exact head; all
   other required checks green; review threads resolved.
