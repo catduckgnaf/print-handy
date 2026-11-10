@@ -120,7 +120,7 @@ import shlex, sys, xml.etree.ElementTree as ET
 params = shlex.split(ET.parse(sys.argv[1]).getroot().findtext('ExtraParams') or '')
 if params:
     print('\n'.join(params))" "$template")
-# The template ships no ExtraParams, so this runs with no extra flags:
+# The template ships only --shm-size in ExtraParams, so this runs with that flag:
 # every supervised module must import under the image's own defaults.
 if output=$(timeout 300 docker run --name "$project-unraid" "${probe_args[@]}" "${extra[@]}" "$image" \
         python3 -c 'import importlib; [importlib.import_module(m) for m in ("print_handy.bot", "print_handy.hermes.moonraker_event_listener")]; print("imported bot and listener")' 2>&1); then

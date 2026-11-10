@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
-<!-- Unraid DockerMan template for the combined Print Handy container (issues #117, #214). Not published or exercised on Unraid;
-     the published Community Applications listing lives in the catduck-unraid-templates repo. This source template is the
-     in-repo reference for the same minimal install surface, digest-pinned to the current release.
+<!-- Unraid DockerMan template for the combined Print Handy container (issues #117, #214). The Community Applications listing
+     lives in the catduck-unraid-templates repo; this source template is the in-repo reference for the same
+     install surface, digest-pinned to the current release.
      One container runs the Discord bot, the Moonraker listener and the bundled Spoolman API under tini and a supervisor.
      Repository is the current release's multi-arch index digest (2.2.7), not a moving tag.
      :latest, :develop and :nightly move; a release tag is immutable only until someone republishes it.
@@ -12,8 +12,9 @@
      in the mounted config file or the Web UI (docs/DOCKER.md); secrets are supplied through the
      profile .env inside the Appdata path, or through a variable added by hand in the container
      editor — Unraid always lets you add one, and nothing here prevents it.
-     ExtraParams ships empty on purpose: the container's user, hardening and healthcheck live in
-     docker-compose.yml and the image, not in template docker-run flags.
+     ExtraParams carries one flag, a 256m shared-memory size (shm-size), the same value Compose sets: Docker's default
+     64 MB /dev/shm is too small for OrcaSlicer's slicing under xvfb. The container's user, hardening
+     and healthcheck live in docker-compose.yml and the image, not in template docker-run flags.
      GPU passthrough for hardware timelapse encoding (#246, #455) is opt-in: the /dev/dri device
      entry and the NVIDIA variables below are the whole template surface for it, and the NVIDIA
      variables grant nothing without the nvidia runtime flag in Extra Parameters and the
@@ -29,23 +30,23 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/catduckgnaf/print-handy/issues</Support>
   <Project>https://github.com/catduckgnaf/print-handy</Project>
-  <Overview>Share a model link or file in Discord, Telegram or Matrix. Choose filament, review the estimate and approve the exact job before it reaches your printer. Runs locally with no Print Handy cloud; chat providers carry what you send, and model downloads or optional hosted AI use the network. Camera monitoring and AI features are optional. A camera alert is not proof that a print is safe unattended. See the printer support guide for supported connection paths and hardware verification limits. Not affiliated with Bambu Lab. Full setup and upgrade instructions are in the Print Handy docs.</Overview>
-  <Category>Tools:</Category>
+  <Overview>Share a model link or file in Discord, Telegram or Matrix. Choose filament, review the estimate and approve the exact job before it reaches your printer. Runs locally with no Print Handy cloud; chat providers carry what you send, and model downloads or optional hosted AI use the network. Camera monitoring and AI features are optional. A camera alert is not proof that a print is safe unattended. See the printer support guide for supported connection paths and hardware verification limits. Not affiliated with Bambu Lab. Full setup and upgrade instructions are in the Print Handy docs. SETUP: all data lives in the one Appdata folder, and that folder must be writable by UID 1000 (the container user). Before the first start, run in the Unraid terminal: chown -R 1000:1000 /mnt/user/appdata/print-handy. To use a chat bot, put its token in state/.env inside that folder (for example DISCORD_BOT_TOKEN=... or TELEGRAM_BOT_TOKEN=...) before the first start. Then open the Web UI on port 8088 to finish setup. The Web UI is open to anyone on your network until you set a password there.</Overview>
+  <Category>Tools:Utilities Productivity:</Category>
   <WebUI>http://[IP]:[PORT:8088]/</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams/>
+  <ExtraParams>--shm-size=256m</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DonateText/>
   <DonateLink/>
   <Requires>Appdata path owned by UID/GID 1000. Existing Spoolman data can be copied into spoolman/ under the Appdata path before first start; nothing is migrated automatically.</Requires>
   <Config Name="Web UI Port" Target="8088" Default="8088" Mode="tcp" Description="Host port for the Print Handy Web UI. If port 8088 is already in use by another service or Docker container on your server, change this host port." Type="Port" Display="always" Required="true" Mask="false">8088</Config>
-  <Config Name="Appdata Storage" Target="/data" Default="/mnt/user/appdata/print-handy" Mode="rw" Description="Single persistent storage path for all Print Handy data. Runtime state, sliced jobs, records, cache, timelapses, config, and the bundled Spoolman database are stored under this folder." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy</Config>
+  <Config Name="Appdata Storage" Target="/data" Default="/mnt/user/appdata/print-handy" Mode="rw" Description="Single persistent storage path for all Print Handy data. Runtime state, sliced jobs, records, cache, config, account tokens (.config) and the bundled Spoolman database are stored under this folder. The folder must be owned by UID/GID 1000: chown -R 1000:1000 /mnt/user/appdata/print-handy." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy</Config>
   <Config Name="Timelapse Archive" Target="/data/timelapses" Default="/mnt/user/appdata/print-handy/timelapses" Mode="rw" Description="Finished timelapses are copied here. The default folder is inside Appdata; point this at another share (for example a media share) to keep timelapses somewhere else." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/print-handy/timelapses</Config>
-  <Config Name="Spoolman URL" Target="PRINT_HANDY__SERVICES__SPOOLMAN_URL" Default="http://127.0.0.1:8000" Mode="" Description="Bundled Spoolman API by default. To use an existing external Spoolman, set its URL here and set Bundled Spoolman to false; nothing is migrated." Type="Variable" Display="advanced" Required="false" Mask="false">http://127.0.0.1:8000</Config>
-  <Config Name="Container Timezone" Target="TZ" Default="America/New_York" Mode="" Description="IANA timezone for the container's local time (e.g. America/New_York, Europe/London, America/Chicago). Controls log timestamps, scheduled jobs, and internal timestamps." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
-  <Config Name="Hardware Acceleration (Intel / AMD)" Target="/dev/dri" Default="/dev/dri" Mode="rw" Description="OPTIONAL: Direct Rendering Infrastructure (/dev/dri) device pass-through for hardware-accelerated timelapse encoding on Intel (QuickSync / VA-API) or AMD (VA-API). Requires GPU drivers installed on Unraid." Type="Device" Display="advanced" Required="false" Mask="false">/dev/dri</Config>
+  <Config Name="Spoolman URL" Target="PRINT_HANDY__SERVICES__SPOOLMAN_URL" Default="http://127.0.0.1:8000" Mode="" Description="Bundled Spoolman API by default. To use an existing external Spoolman, set its URL here; nothing is migrated. The bundled one keeps running unless you also add a variable named PRINT_HANDY_BUNDLED_SPOOLMAN with the value false." Type="Variable" Display="advanced" Required="false" Mask="false">http://127.0.0.1:8000</Config>
+  <Config Name="Container Timezone" Target="TZ" Default="America/New_York" Mode="" Description="IANA timezone for the container's local time (e.g. America/New_York, Europe/London, America/Chicago). Sets the container's local time: log timestamps and scheduled jobs. Chat display times follow the discord.timezone setting, not this one." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="Hardware Acceleration (Intel / AMD)" Target="/dev/dri" Default="/dev/dri" Mode="rw" Description="OPTIONAL: Direct Rendering Infrastructure (/dev/dri) device pass-through for hardware-accelerated timelapse encoding on Intel (QuickSync / VA-API) or AMD (VA-API). Requires GPU drivers installed on Unraid. The entry ships empty so hosts without an iGPU still start; to enable it, set the value to /dev/dri. The container runs as UID 1000, so it also needs access to the render group: add --group-add=GID to Extra Parameters (see docs/DOCKER.md, GPU passthrough)." Type="Device" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="" Mode="" Description="OPTIONAL (NVIDIA GPUs only): GPU UUID (e.g. GPU-xxxxxxxx) or 'all' for NVENC timelapse encoding. Requires the Unraid Nvidia-Driver plugin and '--runtime=nvidia' added to Extra Parameters." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,video,utility" Mode="" Description="OPTIONAL (NVIDIA GPUs only): Driver libraries the NVIDIA runtime mounts. Default is compute,video,utility (or all)." Type="Variable" Display="advanced" Required="false" Mask="false">compute,video,utility</Config>
 </Container>

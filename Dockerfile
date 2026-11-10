@@ -292,11 +292,14 @@ ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE
 # variable; glibc, Python and Go consumers honor a runtime TZ override
 # directly, and the entrypoint validates the name against this database.
 RUN ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime && printf '%s\n' "$TZ" > /etc/timezone
-# /data/state is the state volume's neutral name since 2.2.5 (#914);
-# /data/hermes is its pre-2.2.5 name and stays a declared volume so legacy
-# mounts keep working (the entrypoint links /data/state to it when only
-# the legacy volume holds data; removal is at least two minor releases out).
-VOLUME ["/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache", "/data/spoolman"]
+# /data/state is the state volume's neutral name since 2.2.5 (#914); /data/hermes
+# is its pre-2.2.5 name and stays accepted (the entrypoint links /data/state to it
+# when only the legacy folder holds data; removal is at least two minor releases out).
+# There is deliberately no VOLUME declaration: Docker creates an anonymous volume
+# for every declared path that a run does not mount exactly, so a template that
+# binds only /data would send state, records and the Spoolman database to hidden
+# volumes instead of the host folder. Compose and the Unraid templates mount their
+# paths explicitly, and the directories below exist and are owned by handy either way.
 EXPOSE 8000 8088
 COPY docker/supervise.sh /usr/local/bin/print-handy-supervise
 COPY docker/healthcheck.py /usr/local/bin/print-handy-healthcheck
