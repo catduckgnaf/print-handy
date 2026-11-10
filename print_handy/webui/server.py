@@ -218,6 +218,13 @@ def _remember_lock(server):
     return lock if lock is not None else contextlib.nullcontext()
 
 
+def _claim_lock(server):
+    """The server's walkthrough-write lock (serializes login claims), or a
+    no-op context when the server object predates it."""
+    lock = getattr(server, "claim_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
 def _chat_lock(server):
     """The server's chat-service build lock, or a no-op context when the
     server object predates it (same rule as _remember_lock)."""
@@ -1473,9 +1480,19 @@ class _Handler(BaseHTTPRequestHandler):
         if error:
             self._html_refusal(error[0], error[1], "/walkthrough")
             return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
-            return
+        # One walkthrough POST at a time, authorized inside the lock: two
+        # browsers racing to claim an unclaimed install cannot both win.
+        # The first claim rotates the form token (and makes a session
+        # required), so the second is refused here instead of silently
+        # replacing the first one's password.
+        with _claim_lock(self.server):
+            self._sync_access()
+            if not self._post_authorized(form):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
+                return
+            self._walkthrough_apply(form)
+
+    def _walkthrough_apply(self, form):
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
@@ -1493,6 +1510,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
             self.server.access_stamp = _access_stamp(self.server.settings_data)
+            # Every session issued under the old rule ends — an intruder's
+            # live session must not survive the owner changing the
+            # password. The browser that made the change gets a fresh one.
+            self.server.sessions.clear()
             self._rotate_form_token()
             self._revoke_remembered_sessions()
             self._redirect(payload, headers=[self._start_session()]
@@ -2146,6 +2167,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     _log_broken_access(server)
     server.access_stamp = _access_stamp(data)
     server.access_sync_lock = threading.Lock()
+    # Walkthrough POSTs (the Login step's claim above all) run one at a time.
+    server.claim_lock = threading.Lock()
     server.bind_host = bind_host
     # Web chat's service, built lazily under this lock on the first
     # /chat request (see _Handler._chat_service).

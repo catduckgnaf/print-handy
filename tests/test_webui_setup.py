@@ -14,10 +14,12 @@ Offline: temp settings and state folder, the server on an ephemeral port.
 """
 import http.client
 import os
+import re
 import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -336,6 +338,68 @@ class UnclaimedFlowTests(unittest.TestCase):
                                       headers={server.TOKEN_HEADER: TOKEN})[0], 200)
         code, headers, _ = self.request(port, "GET", "/setup", headers={server.TOKEN_HEADER: TOKEN})
         self.assertEqual((code, headers.get("location")), (303, "/"))
+
+    def sign_in(self, port, password=PASSWORD):
+        code, headers, _ = self.request(port, "POST", "/login", headers=FORM,
+                                        body=urlencode({"username": USERNAME,
+                                                        "token": password}))
+        self.assertEqual(code, 303)
+        return headers["set-cookie"].split(";", 1)[0]
+
+    def test_changing_the_password_ends_every_other_live_session(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        intruder = self.sign_in(port)
+        owner = self.sign_in(port)
+        for cookie in (intruder, owner):
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={"Cookie": cookie})[0], 200)
+        walkthrough.save_state(data, {"step": 3})
+        _, _, page = self.request(port, "GET", "/walkthrough",
+                                  headers={"Cookie": owner})
+        csrf = dict(re.findall(r'name="([^"]+)" value="([^"]*)"', page))[pages.CSRF_FIELD]
+        new_password = "a different long passphrase"
+        body = urlencode({"step": "login", "action": "continue", pages.CSRF_FIELD: csrf,
+                          "username": USERNAME, "password": new_password,
+                          "password_again": new_password, "current_password": PASSWORD})
+        code, headers, _ = self.request(port, "POST", "/walkthrough", body=body,
+                                        headers={**FORM, "Cookie": owner})
+        self.assertEqual(code, 303)
+        fresh = headers["set-cookie"].split(";", 1)[0]
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": intruder})[0], 401)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": fresh})[0], 200)
+
+    def test_two_simultaneous_first_claims_cannot_both_succeed(self):
+        httpd, port, data = self.start()
+        walkthrough.save_state(data, {"step": 3})
+        token = httpd.form_token
+        real_save = access.save_password
+        barrier = threading.Barrier(2, timeout=5)
+
+        def slow_save(*args, **kwargs):
+            time.sleep(0.3)  # widen the window between the check and the write
+            return real_save(*args, **kwargs)
+        results = {}
+
+        def claim(name):
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
+            results[name] = self.login_step(port, token, username=name, password=PASSWORD,
+                                            password_again=PASSWORD)[0]
+        with mock.patch.object(access, "save_password", slow_save):
+            threads = [threading.Thread(target=claim, args=(name,))
+                       for name in ("first-owner", "second-owner")]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+        self.assertEqual(sorted(results.values()), [303, 403], results)
+        winner = next(name for name, code in results.items() if code == 303)
+        self.assertEqual(access.resolve(data, "0.0.0.0", {}).username, winner)
 
     def test_every_open_reason_shows_a_banner_naming_it(self):
         httpd, port, data = self.start("  require_auth: false\n")
