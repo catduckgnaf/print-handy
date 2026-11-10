@@ -112,6 +112,11 @@ missing fact would change the part and cannot be assumed (the size of the
 thing it must fit, with no standard size). Your next message is the
 answer; "you pick" lets it choose and say what it assumed. Edits never ask.
 
+A turn that asks the model starts with a short "Designing it now" note,
+and the chat shows the bot typing until the part is posted, because
+checking and repairing can take a minute or two. Undo and plain parameter
+changes are quick and skip the note.
+
 ## Honest limits
 
 - Each turn is a real model call plus a real render: expect seconds to a

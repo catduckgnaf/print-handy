@@ -970,3 +970,47 @@ def test_typed_undo_goes_back_without_a_model_call(design_env, fake_render):
     assert "Back to version 1" in post and "40 × 20 × 3" in post
     assert "height: 8 → 3" in post
     assert len(fake.calls) == 1
+
+
+# ------------------------------------------- a long design turn is never silent (#1206)
+
+class WorkingAdapter(FakeAdapter):
+    def __init__(self):
+        super().__init__()
+        self.typing = 0
+
+    async def signal_working(self, chat_id, metadata=None):
+        self.typing += 1
+
+
+def test_a_model_turn_is_acknowledged_and_shows_typing_until_it_posts(design_env, fake_render):
+    """#1206 finding 6: a turn can take minutes (1 + repair_attempts model
+    calls and renders) and nothing was posted until it ended."""
+    adapter = WorkingAdapter()
+    out = _dispatch("/print-design a hook", adapter, scripted([HOOK]), design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    ack = next(i for i, c in enumerate(adapter.sent) if c and c.startswith("Designing it"))
+    turn = next(i for i, c in enumerate(adapter.sent) if c and "Design turn 1" in c)
+    assert ack < turn
+    assert adapter.typing >= 1
+
+
+def test_undo_and_plain_parameter_edits_are_not_acknowledged(design_env, fake_render):
+    adapter = WorkingAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    before = sum(1 for c in adapter.sent if c and c.startswith("Designing it"))
+    _dispatch("make it 5 mm taller", adapter, fake, design.CHANGE_LABEL)
+    _dispatch("undo", adapter, fake, design.CANCEL_LABEL)
+    assert sum(1 for c in adapter.sent if c and c.startswith("Designing it")) == before == 1
+    assert len(fake.calls) == 1
+
+
+def test_will_call_model_matches_the_no_model_paths(tmp_path):
+    eng = design.DesignEngine(tmp_path, scripted([HOOK]), cfg={})
+    fresh = {"edit_mode": None}
+    assert eng.will_call_model(fresh, "a hook", previous=None)
+    assert not eng.will_call_model(fresh, "undo", previous=HOOK)
+    assert not eng.will_call_model(fresh, "make it 5 mm taller", previous=HOOK)
+    assert eng.will_call_model(fresh, "add a second hook", previous=HOOK)
+    assert eng.will_call_model({"edit_mode": "mesh"}, "make it 5 mm taller", previous="base();")

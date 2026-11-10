@@ -751,6 +751,42 @@ def _design_command_args(text):
     return None
 
 
+DESIGN_WORKING_NOTE = ('Designing it now. I check the part before I show it, so this can take '
+                       'a minute or two.')
+_DESIGN_TYPING_EVERY_S = 8  # a typing indicator lasts about 10 s on Discord and Matrix
+
+
+async def _run_design_turn(engine, session, instruction, adapter, source, metadata):
+    """engine.run_turn with the chat kept informed (#1206).
+
+    A turn can take minutes (up to 1 + repair_attempts model calls and
+    renders) and used to post nothing until it ended. A model turn is
+    acknowledged once up front, and the typing indicator is renewed until
+    the turn returns. Undo and plain parameter edits are quick and get no
+    acknowledgement. Both signals are cosmetic and never fail the turn.
+    """
+    if engine.will_call_model(session, instruction):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=DESIGN_WORKING_NOTE)
+    signal = getattr(adapter, 'signal_working', None)
+
+    async def keep_typing():
+        while True:
+            try:
+                await asyncio.wait_for(signal(source.chat_id, metadata=metadata), 10)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug('design typing indicator failed: %r', exc)
+            await asyncio.sleep(_DESIGN_TYPING_EVERY_S)
+
+    task = asyncio.create_task(keep_typing()) if signal is not None else None
+    try:
+        return await engine.run_turn(session, instruction)
+    finally:
+        if task is not None:
+            task.cancel()
+
+
 # owner -> phase: "turn" while a model call/render runs, "prompt" while the
 # Slice it / Change it / Cancel question is open and waiting for an answer.
 _DESIGN_BUSY: dict = {}
@@ -917,7 +953,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     try:
         kind, instruction, file_path, link_url = intent
         if kind == "revision":
-            result = await engine.run_turn(session, text)
+            result = await _run_design_turn(engine, session, text, adapter, source, metadata)
         elif kind == "ask":
             await say('Drop the file you want to work on, paste its model link, or tell me '
                       'what to make — e.g. "design me a 40 mm bracket with two holes". '
@@ -944,7 +980,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                 if session:
                     engine.cancel(session)  # a fresh design supersedes the old session
                 session = engine.start_session(owner, source.chat_id, instruction)
-                result = await engine.run_turn(session, instruction)
+                result = await _run_design_turn(engine, session, instruction, adapter, source,
+                                              metadata)
             else:  # edit
                 if link_url:
                     instruction = instruction.replace(link_url, '').strip(" \t—–-:,.")
@@ -969,7 +1006,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                         file_path)
                 note = design.source_note(session)
                 if instruction:
-                    result = await engine.run_turn(session, instruction)
+                    result = await _run_design_turn(engine, session, instruction, adapter, source,
+                                              metadata)
                 else:
                     # No change asked for: show the dropped model exactly as
                     # it is, with no model call in between (#841 gap 4).
@@ -1031,7 +1069,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         # A change typed instead of pressing a button ("make it 5 mm taller")
         # is the revision itself: run it as the next turn of the same design.
         try:
-            result = await engine.run_turn(session, typed)
+            result = await _run_design_turn(engine, session, typed, adapter, source, metadata)
         except design.DesignError as exc:
             engine.awaiting_revision(session)
             await say(f'That change did not work: {exc} The previous version is kept; '
