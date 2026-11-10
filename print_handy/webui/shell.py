@@ -46,6 +46,10 @@ NAV = (
     ("/config", "Settings"),
 )
 
+# The project's source repository (the same address the setup wizard
+# and the model-site guides use), linked from every page's footer.
+SOURCE_URL = "https://github.com/catduckgnaf/print-handy"
+
 CSS = """
 :root {
   --color-bg: #12110f;
@@ -136,6 +140,7 @@ p { margin: 0.5rem 0; }
   letter-spacing: 0.08em; color: var(--color-muted); margin: 0 0 0.25rem;
 }
 .muted { color: var(--color-muted); }
+.site-footer { font-size: 0.85rem; color: var(--color-muted); padding: 0 0 2rem; }
 .card {
   background: var(--color-surface); border: 1px solid var(--color-line);
   border-radius: var(--radius-card); padding: 1rem; margin: 1rem 0;
@@ -342,6 +347,11 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
         parts.append(f"<h1>{_esc(heading)}</h1>")
     parts.append(body)
     parts.append("</div></main>")
+    # The AGPL expects network users to be able to get the source: one
+    # small link on every page, the bare ones included.
+    parts.append('<footer class="site-footer"><div class="wrap">Print Handy is free '
+                 'software under the GNU AGPL v3. '
+                 f'<a href="{_esc(SOURCE_URL)}" rel="noopener">Source</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
