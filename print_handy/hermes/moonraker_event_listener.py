@@ -5214,7 +5214,7 @@ class Listener:
             log(f"pending spool sync retry skipped: {exc!r}")
 
     async def forever(self):
-        delay = 5
+        delay = RECONNECT_MIN_S
         self.moonraker_connected = False
         self._start_heartbeat_writer()
         beating = asyncio.create_task(self.heartbeat())
@@ -5222,18 +5222,33 @@ class Listener:
             while True:
                 await self.backfill_slot_colors()
                 await self.reconcile_spools()
+                started = time.monotonic()
+                lost = None
                 try:
                     await self.session()
                 except Exception as exc:
-                    log(f"connection lost: {exc!r}; retry in {delay}s")
+                    lost = exc
                 finally:
                     self.moonraker_connected = False
+                if time.monotonic() - started >= HEALTHY_SESSION_S:
+                    # A session that held up was healthy: this drop is a
+                    # fresh one, not the next step of an outage.
+                    delay = RECONNECT_MIN_S
+                if lost is not None:
+                    log(f"connection lost: {lost!r}; retry in {delay}s")
                 await asyncio.sleep(delay)
-                delay = min(delay * 2, 120)
+                delay = min(delay * 2, RECONNECT_MAX_S)
         finally:
             beating.cancel()
             await asyncio.gather(beating, return_exceptions=True)
 
+
+#: Reconnect backoff: doubles per failed connection from RECONNECT_MIN_S up to
+#: RECONNECT_MAX_S, and starts again at the minimum once a session stayed up
+#: for HEALTHY_SESSION_S.
+RECONNECT_MIN_S = 5
+RECONNECT_MAX_S = 120
+HEALTHY_SESSION_S = 60
 
 #: Longest the capture start may take before the print runs without one.
 CAPTURE_BEGIN_TIMEOUT_S = 20
