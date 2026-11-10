@@ -456,11 +456,17 @@ class UnclaimedFlowTests(unittest.TestCase):
         self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
 
     def test_every_page_links_to_the_source(self):
+        # #1158: the link names the source tree at the running version,
+        # so a network user gets the corresponding source, not just the
+        # repository's current main.
+        from print_handy import __version__
         from print_handy.webui import shell
         _httpd, port, _data = self.start()
         for route in ("/", "/config", "/walkthrough"):
             _code, _headers, body = self.request(port, "GET", route)
-            self.assertIn(f'<a href="{shell.SOURCE_URL}" rel="noopener">Source</a>', body)
+            self.assertIn(
+                f'<a href="{shell.SOURCE_URL}/tree/{__version__}" rel="noopener">'
+                "Source for this version</a>", body)
         bare = shell.page("upload", "<p>x</p>", chrome=False)
         self.assertIn(shell.SOURCE_URL, bare)
 

@@ -21,6 +21,13 @@ two plain links to ``GET /theme`` (see server.py), which sets the cookie
 and redirects back — no script is involved anywhere in the theme flow.
 The cookie is a browser presentation preference only; it is not a
 setting and no environment variable mirrors it.
+
+Every page also carries a source footer (#1158): Print Handy is
+AGPL-3.0-only, and section 13 of that license expects a user
+interacting over a network to be offered the corresponding source.
+The footer names the running version and links the source tree at
+that version's tag. It renders on bare (``chrome=False``) pages too —
+the login page is the first page a network user reaches.
 """
 from __future__ import annotations
 
@@ -48,6 +55,9 @@ NAV = (
 
 # The project's source repository (the same address the setup wizard
 # and the model-site guides use), linked from every page's footer.
+# Releases are tagged with the bare version (for example "2.2.7"), so
+# the source tree for the running version is SOURCE_URL + "/tree/" +
+# __version__.
 SOURCE_URL = "https://github.com/catduckgnaf/print-handy"
 
 CSS = """
@@ -326,7 +336,8 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     above the heading. ``nav`` overrides the header navigation for this
     page only (the Data/Wrapped pages pass the extended nav when that
     feature is on, #956); the default is :data:`NAV`, unchanged for
-    every existing page. Every interpolated value here is escaped by
+    every existing page. The source footer (#1158) is appended on every
+    page, with or without chrome. Every interpolated value here is escaped by
     the callers for body content; title and heading are escaped here.
     """
     theme_attr = ' data-theme="light"' if theme == "light" else ""
@@ -348,10 +359,13 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     parts.append(body)
     parts.append("</div></main>")
     # The AGPL expects network users to be able to get the source: one
-    # small link on every page, the bare ones included.
-    parts.append('<footer class="site-footer"><div class="wrap">Print Handy is free '
-                 'software under the GNU AGPL v3. '
-                 f'<a href="{_esc(SOURCE_URL)}" rel="noopener">Source</a></div></footer>')
+    # small footer on every page, the bare ones included, naming the
+    # running version and linking its source tree (#1158).
+    parts.append('<footer class="site-footer"><div class="wrap">'
+                 f'Print Handy {_esc(__version__)} is free software under the '
+                 'AGPL-3.0-only license. '
+                 f'<a href="{_esc(SOURCE_URL)}/tree/{_esc(__version__)}" rel="noopener">'
+                 'Source for this version</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
