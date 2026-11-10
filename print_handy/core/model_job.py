@@ -5940,6 +5940,13 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
     selected_plates = job.get('selected_plates') or None
+    if multi_plate and selected_plates and job.get('color_decisions'):
+        # The user selected exact source plates, so validate their usage and
+        # mappings before slicing. Whole-source imports without source usage
+        # metadata remain unknown until Orca provides authoritative output.
+        from .source_colors import require_plate_readiness
+        require_plate_readiness(manifest, job.get('color_decisions'), selected_plates,
+                                slot_capacity=position_limit(adapter))
     if multi_plate:
         # Source usage is evidence, not a prerequisite for slicing an unsliced
         # project. Validate claims when present; absent metadata stays UNKNOWN

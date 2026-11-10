@@ -677,6 +677,28 @@ class MultipartSafetyTests(unittest.TestCase):
                     model_job.slice_job(job_path)
                 run.assert_not_called()
 
+    def test_whole_source_multiplate_unknown_usage_reaches_slicer(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            source = work / "multi.3mf"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("Metadata/plate_1.png", b"png")
+                archive.writestr("Metadata/plate_2.png", b"png")
+            job_path = work / "JOB.json"
+            job_path.write_text(json.dumps({"downloaded_file": str(source), "audit": {
+                "size_x": "100", "size_y": "100", "size_z": "10", "plates": 2},
+                "title": "Unknown source usage"}))
+            state = {"bed_mm": [220, 220], "max_print_height_mm": 250,
+                     "nozzle": {"diameter_mm": 0.4}, "spool": {"name": "PLA", "material": "PLA", "density": 1.24},
+                     "temps_c": {"nozzle": 210, "bed": 60}}
+            with mock.patch.object(model_job, "ARCHIVE", work), \
+                 mock.patch.object(model_job.printer_state, "load", return_value=state), \
+                 mock.patch.object(model_job.printer_state, "check", return_value=(True, [], {})), \
+                 mock.patch.object(model_job, "slice_multi_plate", return_value=Path("result.gcode")) as slice_multi:
+                result = model_job.slice_job(job_path)
+            self.assertEqual(result, Path("result.gcode"))
+            slice_multi.assert_called_once()
+
     def test_multiplate_archive_cannot_bypass_guard_with_stale_audit(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
