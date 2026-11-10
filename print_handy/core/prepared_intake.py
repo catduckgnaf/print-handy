@@ -4647,6 +4647,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 slice_warnings.record_unsupported_cantilever_override(
                     jp.parent, finding, source_file=sliced.get('downloaded_file'))
             if pick == 0:
+                # The reslice replaces the artifact: a clearance
+                # acknowledgement pending from the Ready menu was given for
+                # the artifact sliced before it, so it is invalidated here
+                # and never recorded against the new one (#1151). The new
+                # artifact's low-clearance finding is asked again below.
+                clearance_ack_pending = False
                 latest = json.loads(jp.read_text())
                 recipe_sha = binding_sha256(slice_binding(latest, decisions['source_sha256']))
                 receipt['slice_approval']['recipe_sha256'] = recipe_sha
@@ -4671,12 +4677,25 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                and not cov_result['ok'] else None)
                 unverified_result = (cov_result if cov_result is not None and cov_result.get('unverified')
                                      else None)
-                if cov_failure is not None or unverified_result is not None:
-                    if not await _support_override(cov_failure, False, resliced=True,
+                # The resliced artifact owes its own low-clearance waiver:
+                # the acknowledgement for the previous artifact was
+                # invalidated above, and a "with supports" slice does not
+                # waive a sub-1.0 mm gap (#922 gap 2, #1151).
+                report = sliced.get('support_clearance') or clearance
+                low_clearance = False
+                if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                       for f in (report or {}).get('findings') or []):
+                    ack = sliced.get('clearance_acknowledgement') or {}
+                    low_clearance = (not ack.get('acknowledged')
+                                     or ack.get('via', 'print_anyway')
+                                     not in ('print_anyway', 'geometry_repair'))
+                if cov_failure is not None or low_clearance or unverified_result is not None:
+                    if not await _support_override(cov_failure, low_clearance, resliced=True,
                                                    unverified_result=unverified_result):
                         return {'action': 'skip',
                                 'reason': ('support coverage verification failed' if cov_failure is not None
-                                           else 'support coverage unverified')}
+                                           else 'support coverage unverified' if unverified_result is not None
+                                           else 'low clearance not waived for the resliced artifact')}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         if clearance_ack_pending:
             # The selected variant's artifact is installed now: bind the
