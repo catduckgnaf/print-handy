@@ -216,6 +216,23 @@ def _3mf_triangles(source):
     return hit
 
 
+def transform_mirrors(chain):
+    """True when a chain of 12-value 3MF transforms reflects (negative determinant).
+
+    A 3MF mesh is wound counterclockwise seen from outside in its own
+    coordinates. Flattened through a reflecting transform the same order
+    is clockwise, so the flattened triangles must be rewound or the solid
+    comes out inside-out (negative volume, inward normals). The sign of
+    the composed determinant is the product of the signs of each one.
+    """
+    negative = False
+    for t in chain:
+        det = (t[0] * (t[4] * t[8] - t[5] * t[7]) - t[1] * (t[3] * t[8] - t[5] * t[6])
+               + t[2] * (t[3] * t[7] - t[4] * t[6]))
+        negative ^= det < 0
+    return negative
+
+
 def _parse_3mf_triangles(source):
     with zipfile.ZipFile(source) as archive:
         models = {}
@@ -265,13 +282,14 @@ def _parse_3mf_triangles(source):
             mesh = obj.find('c:mesh', NS)
             out = IndexedTriangles()
             if mesh is not None:
+                import numpy as np
+                order = [0, 2, 1] if transform_mirrors(chain) else [0, 1, 2]
                 if name in tables:
                     table = tables[name].get(oid)
                     if table is not None:
                         out.extend_indexed(transform_vertices(table.vertices, chain),
-                                            table.triangles)
+                                            np.asarray(table.triangles).reshape((-1, 3))[:, order])
                 else:
-                    import numpy as np
                     vertices = [tuple(float(v.get(k)) for k in ('x', 'y', 'z')) for v in mesh.findall('c:vertices/c:vertex', NS)]
                     faces = [tuple(int(tri.get(i)) for i in ('v1', 'v2', 'v3')) for tri in mesh.findall('c:triangles/c:triangle', NS)]
                     if faces:
@@ -282,7 +300,7 @@ def _parse_3mf_triangles(source):
                             # vertices[a] for exactly this range.
                             raise IndexError('3MF triangle vertex index out of range')
                         face_array = np.where(face_array < 0, face_array + count, face_array)
-                        out.extend_indexed(transform_vertices(vertices, chain), face_array)
+                        out.extend_indexed(transform_vertices(vertices, chain), face_array[:, order])
             for component in obj.findall('c:components/c:component', NS):
                 external = next((v for k, v in component.attrib.items() if k.endswith('}path')), name)
                 out.extend(collect(external.lstrip('/'), component.get('objectid'),
@@ -378,10 +396,12 @@ def _object_triangles(source, object_id):
                 vertices = [tuple(float(v.get(k)) for k in ('x', 'y', 'z')) for v in vertex_nodes]
                 for t in chain:
                     vertices = [apply(p, t) for p in vertices]
+                mirrored = transform_mirrors(chain)
                 for triangles_node in children(mesh, 'triangles'):
                     for tri in children(triangles_node, 'triangle'):
                         a, b, c = (int(tri.get(i)) for i in ('v1', 'v2', 'v3'))
-                        out.append((vertices[a], vertices[b], vertices[c]))
+                        out.append((vertices[a], vertices[c], vertices[b]) if mirrored
+                                   else (vertices[a], vertices[b], vertices[c]))
             components = []
             for wrapper in children(obj, 'components'):
                 components.extend(children(wrapper, 'component'))

@@ -12,7 +12,7 @@ import zipfile
 from .. import settings
 from . import source_colors
 from .source_colors import inventory
-from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest
+from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest, transform_mirrors
 from .threemf_canonical import require_millimeter
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
@@ -29,6 +29,22 @@ def _kept_part_settings(settings):
     from . import author_settings
     return [(key, settings[key]) for key in sorted(settings)
             if key in PROCESS_KEYS and not author_settings.invalid_enum(key, settings[key])]
+
+
+def _rewound(mesh):
+    """A copy of a 3MF mesh element with every triangle's winding reversed.
+
+    Used when a leaf is flattened through a mirroring transform: the copied
+    triangles get world-space vertices, so their order must be reversed to
+    keep the solid's normals pointing outward (orca_adapter.transform_mirrors).
+    """
+    mesh = copy.deepcopy(mesh)
+    for node in mesh.iter():
+        if node.tag.split('}')[-1] == 'triangle':
+            v2, v3 = node.get('v2'), node.get('v3')
+            node.set('v2', v3)
+            node.set('v3', v2)
+    return mesh
 
 
 def _write_part_settings(pc, settings):
@@ -171,6 +187,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     points.append(point)
                 if not points:
                     raise RuntimeError('empty part geometry')
+                # A painted triangle's paint code subdivides along its own
+                # vertex order, so painted leaves keep their order (a known
+                # limit for mirrored painted sources); every other mirrored
+                # leaf is rewound so it does not come out inside-out.
+                if transform_mirrors(chain) and not painted:
+                    mesh = _rewound(mesh)
                 leaves.append((key, mesh, points))
                 return
             components = next(n for n in obj if n.tag.split('}')[-1] == 'components')
@@ -535,6 +557,10 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
                     if rotation is not None:
                         pt = _rotate(pt, rotation)
                     pts.append(tuple(c * scale for c in pt))
+                # Paint codes are dropped below, so a mirrored leaf can
+                # always be rewound to keep its normals outward.
+                if transform_mirrors(chain):
+                    mesh = _rewound(mesh)
                 leaves.append((key, item_id, mesh, pts))
                 return
             comps = next(n for n in obj if n.tag.split('}')[-1] == 'components')
