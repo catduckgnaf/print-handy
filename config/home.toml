@@ -21,6 +21,16 @@ ruby = 0.0
 tungsten_carbide = 0.0
 diamond = 0.0
 
+# Fallback temperatures in degrees C; explicit Spoolman filament settings win.
+[material_temps]
+PLA = { nozzle = 210, bed = 60 }
+PETG = { nozzle = 240, bed = 85 }
+ABS = { nozzle = 245, bed = 100 }
+ASA = { nozzle = 260, bed = 105 }
+TPU = { nozzle = 230, bed = 50 }
+PA = { nozzle = 260, bed = 90 }
+PC = { nozzle = 275, bed = 110 }
+
 # Slicing tuning per material family; a key set in your own config wins.
 [material_tuning.PLA]
 flow_ratio = 0.98
@@ -72,18 +82,18 @@ start_confirm_s = 90
 
 [paths]
 # Hermes profile the bot runs in. State files live in <hermes_home>/state.
-hermes_home = "~/.hermes/profiles/3dprinting"
+# State, logs and the .env. The key name is historical; Hermes is not required. A native install
+# that still has data in the old default (~/.hermes/profiles/3dprinting) keeps using it until
+# you set this key or move the folder.
+hermes_home = "~/.local/share/print-handy"
 archive = "~/3d-prints"
 records_vault = "~/Documents/3D Printing Records"
-cache = "~/.hermes/cache"
-hermes_bin = "~/.local/bin/hermes"
+cache = "~/.cache/print-handy"
 ffmpeg = "ffmpeg"
 piper = "piper"
 piper_model = ""
-# Hermes checkout. Added to sys.path only when hermes_state / hermes_cli must be imported.
-hermes_agent = "~/.hermes/hermes-agent"
-# Safe gateway restart helper run by bin/restart_gateway_after_print.sh (HERMES_RESTART_HELPER overrides).
-hermes_restart_helper = "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py"
+# Hermes host locations for the home install's own tooling. The standalone
+# bot never reads them; the Hermes runtime mode they served was removed.
 
 [services]
 # Addresses are machine specific: set them in config/local.toml. Empty means not configured.
@@ -104,8 +114,6 @@ stock_api_port = 8898
 chat_id = ""
 approval_user_id = ""
 upload_max_bytes = 9500000
-post_print_quiet_s = 7200
-daily_reset_hour = 4
 timezone = "America/New_York"
 # Name the bot uses for itself in the roast persona and the profile templates the installer renders.
 bot_name = "Print Handy"
@@ -156,9 +164,8 @@ bot_user_id = ""
 upload_max_bytes = 50000000
 
 [bot]
-# standalone: python3 -m print_handy.bot talks to Discord directly (the default). No Hermes, no LLM needed.
-# hermes: the Hermes gateway runs the print-feedback plugin instead.
-# Use one mode per bot token.
+# standalone: python3 -m print_handy.bot talks to Discord directly (the
+# only mode; the Hermes install and runtime mode were removed). No LLM needed.
 mode = "standalone"
 # Standalone bot only: the chat platform ([bot] platform, #164). discord is the default;
 # telegram (#164 stage 2) and matrix (stage 3) are implemented.
@@ -239,6 +246,11 @@ ifs_presence_poll_s = 15
 spool_nag_s = 600
 start_claim_ttl_s = 1800
 
+[spool]
+# Ask for the brand/vendor during the conversational new-spool walkthrough (#512). Off by
+# default: the walkthrough skips brand and the spool is created without one.
+prompt_brand = false
+
 [vision]
 model = "gemini-latest"
 # The roast itself: on by default whenever an LLM/vision endpoint is available
@@ -298,6 +310,7 @@ light_object = ""
 # The Moonraker (Klipper) watchdog never alerts on a stall when vision says "ok"/"safe", at any
 # level; the per-level "ok" rule above applies to the Bambu launched-print monitor.
 sensitivity = 3
+enabled = true
 # Early-layer mode (#913): a risky print (slicer finding, "print anyway" override or an
 # operator supports decision) is checked on every layer change for its first early_layers
 # layers, and at least every early_interval_s seconds until then. Normal prints unchanged.
@@ -333,8 +346,10 @@ vertical_short = false
 # pad = blurred background fill (default); crop = centre crop.
 vertical_short_mode = "pad"
 vertical_short_overlay = true
-# Data tab and Wrapped video (#956, local, no AI model): off by default.
-wrapped_enabled = false
+# Data tab and Wrapped (#956, local, no AI model): on by default. The
+# Data tab's own switch is data_enabled; while unset it follows
+# wrapped_enabled.
+wrapped_enabled = true
 wrapped_ai_video = false
 # Wrapped narration (#981): none | piper (local, nothing sent). See home.yaml notes.
 wrapped_tts_engine = "none"
@@ -379,11 +394,11 @@ retention_days = 14
 levels = {}
 
 [webui]
-# Optional Web UI (#286): off by default; nothing listens while disabled.
-# Port 0 means no port has been chosen yet. The access token itself never
+# Web UI (#286): on by default. Port 0 means no port has been chosen
+# yet, and nothing listens until one is. The access token itself never
 # goes in a file here; access_token_env names the environment variable
 # holding it.
-enabled = false
+enabled = true
 host = "127.0.0.1"
 port = 0
 access_token_env = "WEBUI_ACCESS_TOKEN"
@@ -399,6 +414,13 @@ controls_enabled = false
 # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
 # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
 cookie_secure = false
+# Web chat's stray-chat model switch: false runs web chat as a pure bot
+# (commands still work, no model call is made for web chat text).
+chat_llm_enabled = true
+# The Web UI chat page switch: off shows a disabled page and web chat
+# processes nothing. Separate from chat_llm_enabled above, which only
+# governs web chat's stray-chat model lane.
+chat_enabled = true
 
 [live_stream]
 # Live camera viewing in Discord (#311): off by default. The bot cannot

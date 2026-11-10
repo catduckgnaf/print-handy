@@ -64,16 +64,16 @@ bambu:
   # the start is left as uncertain (#271). An A1 can take over a minute to unpack a large package.
   start_confirm_s: 90
 paths:
-  hermes_home: ~/.hermes/profiles/3dprinting
+  # State, logs and the .env. The key name is historical; Hermes is not required. A native install
+  # that still has data in the old default (~/.hermes/profiles/3dprinting) keeps using it until
+  # you set this key or move the folder.
+  hermes_home: ~/.local/share/print-handy
   archive: ~/3d-prints
   records_vault: ~/Documents/3D Printing Records
-  cache: ~/.hermes/cache
-  hermes_bin: ~/.local/bin/hermes
+  cache: ~/.cache/print-handy
   ffmpeg: ffmpeg
   piper: piper
   piper_model: ''
-  hermes_agent: ~/.hermes/hermes-agent
-  hermes_restart_helper: ~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py
 services:
   moonraker_url: ''
   moonraker_ws_url: ''
@@ -88,8 +88,6 @@ discord:
   chat_id: ''
   approval_user_id: ''
   upload_max_bytes: 9500000
-  post_print_quiet_s: 7200
-  daily_reset_hour: 4
   timezone: America/New_York
   bot_name: Print Handy
   question_timeout_s: 1800
@@ -131,9 +129,8 @@ matrix:
   # media limit when the server reports a smaller one.
   upload_max_bytes: 50000000
 bot:
-  # standalone: python3 -m print_handy.bot talks to Discord directly (the default).
-  # hermes: the Hermes gateway runs the print-feedback plugin instead.
-  # Use one mode per bot token.
+  # standalone: python3 -m print_handy.bot talks to Discord directly (the
+  # only mode; the Hermes install and runtime mode were removed).
   mode: standalone
   platform: discord
   health_port: 0
@@ -305,10 +302,14 @@ timelapse:
   vertical_short_mode: pad
   vertical_short_overlay: true
   # Data tab and Print Handy Wrapped (#956): read-only statistics over the
-  # print records plus the once-a-year Wrapped recap in the Web UI. Off by
-  # default; while off the pages are not in the navigation and their routes
-  # refuse by name.
-  wrapped_enabled: false
+  # print records plus the once-a-year Wrapped recap in the Web UI. On by
+  # default; while off, each page is not in the navigation and its routes
+  # refuse by name. An install that set wrapped_enabled: false before the
+  # split keeps it off — the new default does not override an explicit
+  # value. The Data tab has its own switch, data_enabled: while it is
+  # unset (as here) it follows wrapped_enabled; set it to pin the Data
+  # tab independently.
+  wrapped_enabled: true
   # Wrapped video (#956): the on-demand local video compile, with the
   # local commentary (no AI model; the key keeps its original name).
   # Off by default, and it needs wrapped_enabled above on.
@@ -361,11 +362,11 @@ logging:
   # levels: { "print_handy.core.orca_adapter": "DEBUG" }
   levels: {}
 webui:
-  # Optional Web UI (#286): off by default; nothing listens while disabled.
-  # Port 0 means no port has been chosen yet. The access token itself never
+  # Web UI (#286): on by default. Port 0 means no port has been chosen
+  # yet, and nothing listens until one is. The access token itself never
   # goes in a file here; access_token_env names the environment variable
   # holding it.
-  enabled: false
+  enabled: true
   host: 127.0.0.1
   port: 0
   access_token_env: WEBUI_ACCESS_TOKEN
@@ -378,6 +379,13 @@ webui:
   # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
   # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
   cookie_secure: false
+  # Web chat's stray-chat model switch: false runs web chat as a pure bot
+  # (commands still work, no model call is made for web chat text).
+  chat_llm_enabled: true
+  # The Web UI chat page switch: off shows a disabled page and web chat
+  # processes nothing. Separate from chat_llm_enabled above, which only
+  # governs web chat's stray-chat model lane.
+  chat_enabled: true
 live_stream:
   # Live camera viewing in Discord (#311): off by default. The bot cannot
   # send video itself; /print-live starts a viewing session and points at

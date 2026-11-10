@@ -3,7 +3,6 @@ from pathlib import Path
 
 from print_handy.core import model_job
 from print_handy.hermes import print_records as records
-from print_handy.hermes import reconcile_print_log
 
 
 def test_normalize_utc_handles_various_formats():
@@ -61,21 +60,6 @@ def test_build_record_data_normalizes_timestamps():
     )
     assert data2["started_at"] == "2025-11-05T14:49:47Z"
     assert data2["completed_at"] == "2026-11-05T14:49:47Z"
-
-
-def test_reconcile_started_epoch_and_roundtrip():
-    iso_z = "2026-11-05T14:49:47Z"
-    iso_offset = "2026-11-05T09:49:47-05:00"
-
-    epoch1 = reconcile_print_log._started_epoch(iso_z)
-    epoch2 = reconcile_print_log._started_epoch(iso_offset)
-
-    assert epoch1 is not None
-    assert epoch1 == epoch2
-
-    # Round trip back to ISO-Z
-    assert records.normalize_utc(epoch1) == iso_z
-    assert reconcile_print_log.iso(epoch1) == iso_z
 
 
 def test_model_job_card_started_at_is_utc_z():

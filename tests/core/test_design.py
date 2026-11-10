@@ -168,35 +168,6 @@ def test_http_complete_without_an_endpoint_is_a_plain_error():
         design.http_complete({"design": {}, "llm": {}}, [])
 
 
-def test_hermes_complete_uses_the_print_design_task():
-    seen = {}
-
-    class FakeLlm:
-        async def acomplete(self, **kwargs):
-            seen.update(kwargs)
-            return type("R", (), {"text": "cube([1, 1, 1]);"})()
-
-    out = run(design.hermes_complete(FakeLlm(), [{"role": "user", "content": "x"}],
-                                     timeout_s=42))
-    assert out == "cube([1, 1, 1]);"
-    assert seen["task"] == "print_design" and seen["purpose"] == "print-design"
-    assert seen["timeout"] == 42
-
-
-def test_hermes_complete_trust_refusal_is_plain_words():
-    class TrustError(Exception):
-        pass
-
-    class FakeLlm:
-        async def acomplete(self, **kwargs):
-            raise TrustError("PluginLlmTrustError: operator has not granted this")
-
-    with pytest.raises(design.DesignError, match="trust gate"):
-        run(design.hermes_complete(FakeLlm(), []))
-
-
-# --------------------------------------------------------------------- sessions
-
 def test_session_store_roundtrip_and_owner_lookup(tmp_path):
     eng = engine(tmp_path, scripted([GOOD]))
     session = eng.start_session("owner-1", "chan", "a plate")
@@ -728,3 +699,67 @@ def test_engine_runs_with_a_unicode_and_space_cache_path(tmp_path):
     assert result["geometry"]["dimensions_mm"] == [40.0, 20.0, 3.0]
     assert Path(result["stl_path"]).is_file()
     assert Path(result["preview_path"]).is_file()
+
+
+# ------------------------------------------- real OpenSCAD: the self-check and repair loop
+
+HOOK_SCAD = ("// Part: Wall hook for a 25 mm rail\n// Size: 30 x 28 x 45 mm\n"
+             "// Assumes: the rail is 25 mm deep and 3 mm thick\n"
+             "rail_d = 25; // rail depth the clip wraps around\n"
+             "rail_t = 3; // rail thickness\nwall = 3; // wall thickness\n"
+             "width = 30; // hook width\nheight = 45; // overall height\n"
+             "hook_d = 20; // hook reach\n$fn = 48;\n"
+             "module profile() { union() {\n"
+             "  square([wall, height]);\n"
+             "  translate([0, height - wall]) square([rail_d + wall, wall]);\n"
+             "  translate([rail_d, height - wall - rail_t - wall]) square([wall, rail_t + wall]);\n"
+             "  square([hook_d, wall]);\n"
+             "  translate([hook_d - wall, 0]) square([wall, 10]);\n"
+             "  translate([wall, height - wall]) polygon([[0, 0], [8, 0], [0, -8]]);\n"
+             "} }\n"
+             "rotate([90, 0, 90]) linear_extrude(width) profile();\n")
+
+
+@needs_scad
+def test_real_loop_feeds_a_wrong_declared_size_back_and_keeps_the_repair(tmp_path):
+    wrong = HOOK_SCAD.replace("// Size: 30 x 28 x 45 mm", "// Size: 30 x 31 x 60 mm")
+    fake = scripted([wrong, HOOK_SCAD])
+    eng = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a wall hook for a 25 mm rail")
+    result = run(eng.run_turn(session, session["description"]))
+    assert len(fake.calls) == 2
+    assert ("it measures 30 x 28 x 45 mm, not the 30 x 31 x 60 mm on the Size line"
+            in fake.calls[1][1]["content"])
+    assert result["geometry"]["dimensions_mm"] == [30.0, 28.0, 45.0]
+    assert result["findings"] == [] and result["notes"]["part"] == "Wall hook for a 25 mm rail"
+    assert "Assumed: the rail is 25 mm deep and 3 mm thick." in design.reply_lines(result)
+
+
+@needs_scad
+def test_real_loop_repairs_floating_separate_pieces(tmp_path):
+    bad = ("// Part: Block\n// Size: 10 x 10 x 10 mm\n"
+           "translate([0, 0, 5]) cube(10);\ntranslate([30, 0, 5]) cube(5);\n")
+    good = "// Part: Block\n// Size: 10 x 10 x 10 mm\nside = 10; // edge\ncube(side);\n"
+    fake = scripted([bad, good])
+    eng = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a 10 mm block")
+    result = run(eng.run_turn(session, "a 10 mm block"))
+    feedback = fake.calls[1][1]["content"]
+    assert "2 separate pieces instead of one solid" in feedback
+    assert "lowest point is at Z=5 mm" in feedback
+    assert result["geometry"]["dimensions_mm"] == [10.0, 10.0, 10.0]
+    assert result["findings"] == []
+
+
+@needs_scad
+def test_real_undo_reuses_the_earlier_render(tmp_path):
+    fake = scripted(["// Part: Plate\n// Size: 40 x 20 x 3 mm\n"
+                     "w = 40;\nd = 20;\nheight = 3;\ncube([w, d, height]);\n"])
+    eng = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a plate")
+    run(eng.run_turn(session, "a plate"))
+    taller = run(eng.run_turn(session, "make it 5 mm taller"))
+    assert taller["geometry"]["dimensions_mm"] == [40.0, 20.0, 8.0]
+    undone = run(eng.run_turn(taller["session"], "undo"))
+    assert undone["geometry"]["dimensions_mm"] == [40.0, 20.0, 3.0]
+    assert undone["reverted_to"] == 1 and len(fake.calls) == 1

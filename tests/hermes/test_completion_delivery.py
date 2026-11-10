@@ -47,6 +47,37 @@ def test_video_success_acknowledges_pending_completion(monkeypatch, tmp_path):
     assert announcer.load_state()["announced_completion"] is True
 
 
+def test_timelapse_leg_pings_by_its_own_job_key_not_the_current_state(monkeypatch, tmp_path):
+    """The timelapse legs hold the completed print's exact job key, and
+    the completion ping must be decided from it: the announcer state's
+    job key belongs to whatever print is current when the (possibly
+    minutes-long) render finishes, so falling back to it can ping the
+    next print's starter — or nobody — for this print's completion."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    # A new print has already taken over the announcer state.
+    announcer.save_state({"job_key": "next.gcode"})
+    decided = []
+    monkeypatch.setattr(listener.starter_pings, "ping_for",
+                        lambda kind, job=None, **kw: decided.append((kind, kw.get("job_key"))) or "")
+    monkeypatch.setattr(listener, "_captured_timelapse", lambda key: "/cache/stand.mp4")
+    monkeypatch.setattr(listener, "_vertical_short_attachment", lambda video, key: None)
+    monkeypatch.setattr(listener, "post", lambda text, **kw: True)
+    listener._timelapse_post("stand.gcode", "Print complete: Stand")
+    assert decided == [("complete", "stand.gcode")]
+    decided.clear()
+    monkeypatch.setattr(listener, "_captured_timelapse", lambda key: None)
+    # The plan leg's printer-rendered archive lookup must stay a double:
+    # unstubbed it polls the (test) Moonraker host for the full render
+    # wait and the test dies on the pytest timeout instead of asserting.
+    monkeypatch.setattr(announcer, "archive_completed_timelapse",
+                        lambda key: announcer.ArchiveOutcome(announcer.ARCHIVE_OFF, ""))
+    monkeypatch.setattr(listener, "_dark_capture", lambda key: None)
+    listener._plan_timelapse_post("stand.gcode", "Print complete: Stand", ("plan1", "more", 0))
+    assert decided == [("complete", "stand.gcode")]
+
+
 def test_standby_pass_does_not_rerun_a_running_video_leg(monkeypatch, tmp_path):
     """complete -> standby re-ran the announcer while the first render was
     still running; it re-drove the pending video key and posted twice."""

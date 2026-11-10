@@ -36,6 +36,7 @@ from ..core import delivery, filament_color, launch_state, printer_clock, spool_
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
+from . import starter_pings
 from . import plan_timelapse
 from . import timelapse_capture
 from . import timelapse_encode
@@ -85,7 +86,7 @@ def _platform_name():
 
 
 def _telegram_standalone():
-    return _config.standalone() and _platform_name() == "telegram"
+    return _platform_name() == "telegram"
 
 
 def _telegram_token():
@@ -98,11 +99,11 @@ def _telegram_chat_id():
 
 
 def _matrix_standalone():
-    return _config.standalone() and _platform_name() == "matrix"
+    return _platform_name() == "matrix"
 
 
 def _buttonless_standalone():
-    """The platform name when standalone posts have no Discord buttons, else None.
+    """The platform name when the bot's posts have no Discord buttons, else None.
 
     Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
     button posts: alerts go out as plain text and the operator answers
@@ -128,15 +129,23 @@ def _matrix_room_id():
     return str(_config.cfg()["matrix"].get("room_id") or "")
 
 
-def post(message):
-    """Deliver physical print lifecycle text to the print chat only, with no agent."""
-    if _config.standalone():
-        return _post_rest(message)
-    return _post_rest_discord(message)
+def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, ping_episode=None):
+    """Deliver physical print lifecycle text to the print chat only, with no agent.
+
+    A ping for the print's starter is a send-path decision (#1095): pass
+    ``ping_kind`` (and ``ping_job_key`` naming the print) and the starter
+    pings classifier decides whether this post may ping, or pass a
+    ``mention_user_id`` a caller already decided. With neither, the post
+    pings nobody — the rendered text itself never carries a mention.
+    """
+    if mention_user_id is None and ping_kind:
+        mention_user_id = starter_pings.ping_for(
+            ping_kind, job_key=ping_job_key, episode=ping_episode) or None
+    return _post_rest(message, mention_user_id=mention_user_id)
 
 
-def _post_rest(message):
-    """Standalone mode: the configured platform's REST sender with its bot token.
+def _post_rest(message, mention_user_id=None):
+    """The configured platform's REST sender with its bot token.
 
     Works with no gateway connected. Discord is the original path; Telegram
     (#164 stage 2) posts text and MEDIA files through telegram_rest, Matrix
@@ -162,58 +171,78 @@ def _post_rest(message):
         log(f"post rest target=matrix:{room} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
             f"{'' if ok else ' ' + str(detail)[:200]}")
         return ok
-    return _post_rest_discord(message)
+    return _post_rest_discord(message, mention_user_id=mention_user_id)
 
 
-def _post_rest_discord(message):
+def _post_rest_discord(message, mention_user_id=None):
     """Discord delivery through the bot's own REST sender with its bot token (#524).
 
-    The one Discord post path in both modes: Hermes mode no longer shells
-    out to the `hermes send` CLI. The token and chat id resolve exactly as
-    the standalone path resolves them ([discord] token_env / chat_id, via
+    The one Discord post path: delivery through the bot's own REST sender,
+    never a host CLI (#524). The token and chat id resolve from
+    ([discord] token_env / chat_id, via
     the profile env). rest.send refuses honestly when either is missing —
     the failure is logged with its detail and False is returned; there is
     no silent fallback to another transport.
     """
     from print_handy.bot import rest
-    # A terminal post's starter-mention line (<@id> on its own line, written
-    # by format_event for the person who started the print) is the one ping
-    # Discord is allowed to deliver; every other post mentions nobody. The
-    # kwarg is passed only when a mention exists, so the plain send call
-    # keeps its long-standing three-argument shape.
-    mention = print_summary.mention_user_id(message)
-    kwargs = {"mention_user_id": mention} if mention else {}
+    # The one ping Discord is allowed to deliver is the starter ping the
+    # caller decided through starter_pings (#1095); every other post
+    # mentions nobody. The kwarg is passed only when a mention exists, so
+    # the plain send call keeps its long-standing three-argument shape.
+    kwargs = {"mention_user_id": mention_user_id} if mention_user_id else {}
     ok, detail = rest.send(_bot_token(), announcer.DISCORD_CHAT_ID, message, **kwargs)
     log(f"post rest target={DISCORD_TARGET} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
         f"{'' if ok else ' ' + str(detail)[:200]}")
     return ok
 
 
-def post_alert(message, kind, filename):
+def post_alert(message, kind, filename, episode=None):
     """Post with Resume/Cancel buttons; fall back to plain text if Discord refuses.
 
     On Telegram and Matrix (#164 stages 2-3) the Discord-shaped button
     posts do not apply: the alert goes out as plain text and the operator
     answers with the typed commands the text names.
     """
+    # An alert that needs a person pings the print's starter (#1095): the
+    # classifier decides from the alert kind and the job behind the
+    # filename — once per episode, so a re-posted or refreshed alert the
+    # caller sends again asks the classifier again and gets nobody. The
+    # decision is made once here and threaded to whichever transport
+    # delivers, so the button post and its plain-text fallback can never
+    # ping twice for the same alert.
+    if episode is None:
+        # A pause's episode is its cause, so a different problem on the
+        # same print pings again: the pause call sites pass theirs
+        # explicitly (they classified the pause already); the cause is
+        # read back out of the alert text for any caller that does not.
+        # Every other kind's episode is the kind itself.
+        episode = f"paused:{classify_pause(message)}" if kind == "paused" else kind
+    mention = starter_pings.ping_for(kind, job_key=filename, episode=episode) or None
+    delivered = None
     if _buttonless_standalone():
-        return post(message)
-    try:
-        from . import print_alert_buttons as pab
-        # A terminal alert with buttons (the firmware-shutdown post carries
-        # the error event text) pings its starter the way the plain REST
-        # post does (#1029); the kwarg is passed only when a starter line
-        # is present, so the call keeps its shape otherwise.
-        mention = print_summary.mention_user_id(message)
-        kwargs = {"mention_user_id": mention} if mention else {}
-        if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                 message, kind, filename, **kwargs):
-            log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
-            return True
-        log("button post failed; falling back to plain text")
-    except Exception as exc:
-        log(f"button post error: {exc!r}")
-    return post(message)
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    else:
+        try:
+            from . import print_alert_buttons as pab
+            kwargs = {"mention_user_id": mention} if mention else {}
+            from .. import listeners as _listeners
+            # The alert's buttons act on this listener's printer, not the default one (a
+            # listener with no instance is the default printer's; the alert records that).
+            if _listeners.instance_printer_id():
+                kwargs["printer_id"] = _listeners.instance_printer_id()
+            if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
+                                     message, kind, filename, **kwargs):
+                log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
+                return True
+            log("button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"button post error: {exc!r}")
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    if not delivered and mention:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a re-send of this alert can ping.
+        starter_pings.release_ping(kind, job_key=filename, episode=episode)
+    return delivered
 
 
 def post_plate_picker(plan_id):
@@ -358,7 +387,9 @@ def post_cancel_report(filename, reason=None):
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
-    return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"))
+    mention = starter_pings.ping_for("cancelled", job_key=filename) or None
+    return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"),
+                **({"mention_user_id": mention} if mention else {}))
 
 
 SCREEN_CANCEL_NATIVE = {"cancel", "cancelled"}
@@ -1268,7 +1299,7 @@ def _acknowledge_completion(completion_message):
         announcer.save_state(state)
 
 
-def _post_completion(message, completion_message):
+def _post_completion(message, completion_message, job_key=None):
     """Acknowledge only a matching pending notice after transport success.
 
     A post carrying a timelapse (a MEDIA: attachment) delivers its roast
@@ -1282,9 +1313,21 @@ def _post_completion(message, completion_message):
     timelapse post posts no roast at all, leaving it pending for the
     caller's text-only fallback post to carry inline.
     """
+    # The completion post pings the starter (#1029, kept by #1095): the
+    # classifier decides from the kind and the job — the caller's job key
+    # when it has one, else the announcer state's current job. The roast
+    # follow-up post below deliberately gets no ping decision: a roast
+    # never pings.
+    if not job_key:
+        try:
+            job_key = announcer.load_state().get("job_key")
+        except Exception:
+            job_key = None
+    mention = starter_pings.ping_for("complete", job_key=job_key) or None
+    mention_kwargs = {"mention_user_id": mention} if mention else {}
     if re.search(r"MEDIA:\S+", str(message)):
         roast = _completion_roast_line(message, completion_message)
-        delivered = post(message)
+        delivered = post(message, **mention_kwargs)
         if not delivered:
             return delivered
         _acknowledge_completion(completion_message)
@@ -1295,7 +1338,7 @@ def _post_completion(message, completion_message):
             except Exception as exc:
                 log(f"completion roast follow-up post failed: {exc!r}; the timelapse post stands")
         return delivered
-    delivered = post(_with_completion_roast(message, completion_message))
+    delivered = post(_with_completion_roast(message, completion_message), **mention_kwargs)
     if delivered:
         _acknowledge_completion(completion_message)
     return delivered
@@ -1680,7 +1723,7 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             log(f"plan timelapse clip for {job_key!r} unavailable: {exc!r}")
             clip = None
     if stage == "more":
-        _post_completion(completion_message, completion_message)
+        _post_completion(completion_message, completion_message, job_key=job_key)
         with contextlib.suppress(Exception):
             plan_timelapse.prune()  # abandoned plans never reach a final post
         return
@@ -1690,14 +1733,14 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
     partial = stage == "partial" or clip is None or (expected is not None and len(stored) < expected)
     try:
         if not stored:
-            _post_completion(completion_message, completion_message)
+            _post_completion(completion_message, completion_message, job_key=job_key)
             return
         note = f"{completion_message}\nPartial timelapse: {len(stored)} plate(s) so far." if partial else completion_message
         try:
             combined = plan_timelapse.combine(plan)
         except Exception as exc:
             log(f"timelapse combine failed for plan {plan!r}: {exc!r}")
-            _post_completion(completion_message, completion_message)
+            _post_completion(completion_message, completion_message, job_key=job_key)
             return
         try:
             announcer.archive_local_timelapse(plan, combined)
@@ -1712,9 +1755,9 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
         short = _vertical_short_attachment(video, job_key or plan)
         if short is not None:
             message += f"\nMEDIA:{short}"
-        if not _post_completion(message, completion_message):
+        if not _post_completion(message, completion_message, job_key=job_key):
             log(f"combined timelapse attach failed for plan {plan!r}; posting text only")
-            _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message)
+            _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message, job_key=job_key)
     finally:
         plan_timelapse.clear(plan)
         with contextlib.suppress(Exception):
@@ -1733,10 +1776,10 @@ def _timelapse_post(job_key, completion_message):
             short = _vertical_short_attachment(captured, job_key)
             if short is not None:
                 message += f"\nMEDIA:{short}"
-            if not _post_completion(message, completion_message):
+            if not _post_completion(message, completion_message, job_key=job_key):
                 log(f"captured timelapse attach failed for {job_key!r}; posting text only")
                 _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, captured.name)}",
-                                 completion_message)
+                                 completion_message, job_key=job_key)
             return
         if not go2rtc.rendered_active(_config.cfg()):
             # [timelapse] mode closes the printer-rendered path (2.2.2):
@@ -1750,16 +1793,16 @@ def _timelapse_post(job_key, completion_message):
             if dark:
                 _post_completion(
                     f"{completion_message}\n{timelapse_capture.dark_outcome_text(dark.get('dark_frames') or 0)}",
-                    completion_message)
+                    completion_message, job_key=job_key)
                 return
             if go2rtc.timelapse_mode(_config.cfg()) == "off":
                 log(f"no timelapse for {job_key!r}: timelapse mode is off")
-                _post_completion(completion_message, completion_message)
+                _post_completion(completion_message, completion_message, job_key=job_key)
             else:
                 log(f"no timelapse for {job_key!r}: {_capture_outcome_text()}; "
                     "printer-rendered path is off in container mode")
                 _post_completion(f"{completion_message}\nTimelapse not attached: "
-                                 f"{_capture_outcome_text()}.", completion_message)
+                                 f"{_capture_outcome_text()}.", completion_message, job_key=job_key)
             return
         outcome = announcer.archive_completed_timelapse(job_key)
         archived = outcome.path if outcome.state == announcer.ARCHIVED else None
@@ -1771,7 +1814,7 @@ def _timelapse_post(job_key, completion_message):
                 # #383 principle) instead of the generic not-rendered line.
                 _post_completion(
                     f"{completion_message}\n{timelapse_capture.dark_outcome_text(dark.get('dark_frames') or 0)}",
-                    completion_message)
+                    completion_message, job_key=job_key)
                 return
             # Name each path's actual state (#540): only ARCHIVE_NOT_RENDERED
             # means a bounded wait elapsed, so only it may be described as a
@@ -1782,19 +1825,19 @@ def _timelapse_post(job_key, completion_message):
             if outcome.state == announcer.ARCHIVE_OFF:
                 log(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
                     "is off (timelapse.archive_host / archive_dir not configured), lookup skipped")
-                _post_completion(completion_message, completion_message)
+                _post_completion(completion_message, completion_message, job_key=job_key)
             elif outcome.state == announcer.ARCHIVE_FAILED:
                 log(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
                     f"failed: {outcome.detail}")
                 _post_completion(f"{completion_message}\nTimelapse not attached: the printer's "
                                  "rendered video was found, but archiving it failed "
-                                 "(see the listener log).", completion_message)
+                                 "(see the listener log).", completion_message, job_key=job_key)
             else:
                 log(f"timelapse not rendered for {job_key!r} within the wait"
                     + (f" ({outcome.detail})" if outcome.detail else ""))
                 _post_completion(f"{completion_message}\nTimelapse not attached: the printer's "
                                  "rendered video didn't arrive within the wait "
-                                 "(see the listener log).", completion_message)
+                                 "(see the listener log).", completion_message, job_key=job_key)
             return
         local_video = announcer.materialize_archived_timelapse(archived)
         try:
@@ -1805,13 +1848,13 @@ def _timelapse_post(job_key, completion_message):
         short = _vertical_short_attachment(local_video, job_key)
         if short is not None:
             message += f"\nMEDIA:{short}"
-        if not _post_completion(message, completion_message):
+        if not _post_completion(message, completion_message, job_key=job_key):
             # Never lose the completion notice because the platform refused the attachment.
             log(f"timelapse attach failed for {job_key!r}; posting text only")
-            _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, Path(str(archived)).name)}", completion_message)
+            _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, Path(str(archived)).name)}", completion_message, job_key=job_key)
     except Exception as exc:
         log(f"timelapse postprocess failed for {job_key!r}: {exc!r}")
-        _post_completion(completion_message, completion_message)
+        _post_completion(completion_message, completion_message, job_key=job_key)
 
 
 # paths.ffmpeg: a bare name is looked up on PATH, a path is used as is.
@@ -1852,7 +1895,7 @@ def _timelapse_too_big_text(archived_name=None, *, combined=False):
     was recorded but cannot be delivered, instead of it silently never
     arriving. A failed attachment is never reported as delivered.
     """
-    platform = _platform_name() if _config.standalone() else "discord"
+    platform = _platform_name()
     if platform == "matrix":
         subject = "Combined timelapse" if combined else "Timelapse"
         return f"{subject} was recorded but is too large for this Matrix server's upload limit."
@@ -1871,7 +1914,7 @@ def _timelapse_unposted_text(archived_name=None, *, combined=False):
     only what is true: the video exists — archived under the same name —
     but could not be posted. It never names a cause that was not measured.
     """
-    platform = _platform_name() if _config.standalone() else "discord"
+    platform = _platform_name()
     if platform in ("matrix", "telegram"):
         subject = "Combined timelapse" if combined else "Timelapse"
         return f"{subject} was recorded but could not be posted."
@@ -2931,19 +2974,33 @@ def _visual_alert(filename, image, reason, identity=None):
     path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
     path.write_bytes(image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    # A watchdog alert asking for a decision pings the starter (#1095),
+    # once per episode: the decision is made once here and threaded to
+    # whichever transport delivers, button post or plain fallback.
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text + f"\n{path}\nMEDIA:{path}")
+        delivered = post(text + f"\n{path}\nMEDIA:{path}",
+                         **({"mention_user_id": mention} if mention else {}))
+        if mention and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return path
     try:
         from . import print_alert_buttons as pab
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_visual_alert(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                 text, filename, path, identity=identity):
+                                 text, filename, path, identity=identity, **kwargs):
             log(f"post visual alert {clean(filename)!r}")
             return path
         log("visual button post failed; falling back to text")
     except Exception as exc:
         log(f"visual button post error: {exc!r}")
-    post(text + f"\n{path}\nMEDIA:{path}")
+    delivered = post(text + f"\n{path}\nMEDIA:{path}",
+                     **({"mention_user_id": mention} if mention else {}))
+    if mention and not delivered:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a later alert can ping (post_alert's
+        # rule, #1095).
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
     return path
 
 
@@ -2963,19 +3020,27 @@ def _visual_alert_text(filename, reason, identity=None):
     except Exception:
         pass
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text)
+        delivered = post(text, **({"mention_user_id": mention} if mention else {}))
+        if mention and not delivered:
+            starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
         return
     try:
         from . import print_alert_buttons as pab
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_visual_text_alert(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                      text, filename, identity=identity):
+                                      text, filename, identity=identity, **kwargs):
             log(f"post visual text alert {clean(filename)!r}")
             return
         log("visual text alert button post failed; falling back to text")
     except Exception as exc:
         log(f"visual text alert post error: {exc!r}")
-    post(text)
+    delivered = post(text, **({"mention_user_id": mention} if mention else {}))
+    if mention and not delivered:
+        # Every delivery attempt failed: release the recorded ping, as
+        # post_alert does, so a later alert can ping (#1095).
+        starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
 
 
 def _visual_dark_notice(filename, identity=None):
@@ -3290,6 +3355,7 @@ class Listener:
         self.clock_sync_retry_at = 0.0
         self.last_clock_sync = 0.0
         self.last_pause_was_runout = False
+        self.last_pause_episode = None  # the starter-pings episode of the live pause's alert
         self.pause_context = None
         self.native_error_alerted = load_native_error_alerted()
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
@@ -3518,7 +3584,11 @@ class Listener:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
                     log(f"native screen error {key} file={self.filename!r}")
-                    await asyncio.to_thread(post, native_error_text(self.filename, key))
+                    mention = starter_pings.ping_for(
+                        "alert", job_key=self.filename,
+                        episode=f"native-error:{key[0]}:{key[1]}") or None
+                    await asyncio.to_thread(post, native_error_text(self.filename, key),
+                                            **({"mention_user_id": mention} if mention else {}))
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)
@@ -3717,9 +3787,13 @@ class Listener:
         """
         self.last_pause_was_runout = True
         spool_id = _mapped_spool(slot) if slot else None
+        # The upgrade re-posts the SAME pause with its cause filled in:
+        # it carries the original pause's ping episode, so the re-post
+        # does not ping a second time for the one problem (#1095).
         await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
                                                            slot=slot, spool_id=spool_id),
-                                "paused", self.filename)
+                                "paused", self.filename,
+                                episode=self.last_pause_episode or "paused:other")
         self.pause_context = await self.open_question(slot, "runout")
 
     def _visual_identity(self):
@@ -4024,6 +4098,11 @@ class Listener:
             if old == "paused":
                 log(f"resume, no start post: {self.filename!r}")
                 self.last_pause_was_runout = False
+                self.last_pause_episode = None
+                # The pause is over: its starter-ping episodes stop
+                # suppressing, so a later pause of the same print is a
+                # new problem that can ping (#1095).
+                starter_pings.clear_pause_episodes(job_key=self.filename)
             else:
                 self.slot_tracker.reset()
                 self.failover_watch.reset()
@@ -4048,21 +4127,25 @@ class Listener:
                 # facts and only safe actions; it is never auto-resumed
                 # and never folded into the runout question flow.
                 self.last_pause_was_runout = False
+                self.last_pause_episode = "paused:jam"
                 self.pause_context = None
                 facts = await asyncio.to_thread(self._jam_facts)
                 await asyncio.to_thread(post_alert, jam_message(self.filename, facts),
-                                        "paused", self.filename)
+                                        "paused", self.filename, episode="paused:jam")
             else:
                 self.last_pause_was_runout, slot = await self.classify_runout()
                 if self.last_pause_was_runout:
+                    self.last_pause_episode = "paused:runout"
                     spool_id = _mapped_spool(slot) if slot else None
                     await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
                                                                        slot=slot, spool_id=spool_id),
-                                            "paused", self.filename)
+                                            "paused", self.filename, episode="paused:runout")
                     self.pause_context = await self.open_question(slot, "runout")
                 else:
+                    self.last_pause_episode = "paused:other"
                     self.pause_context = None
-                    await asyncio.to_thread(post_alert, paused_message(self.filename), "paused", self.filename)
+                    await asyncio.to_thread(post_alert, paused_message(self.filename),
+                                            "paused", self.filename, episode="paused:other")
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
             self.last_pause_was_runout = False
             # Ended into standby gets the cancelled notice: the print stopped
@@ -4093,11 +4176,13 @@ class Listener:
                     duration = self.last_stats.get("print_duration")
                     if isinstance(duration, (int, float)) and duration > 0:
                         facts["duration_s"] = float(duration)
+                    mention = starter_pings.ping_for("error", job_key=self.filename) or None
                     await asyncio.to_thread(
                         post, _with_status_roast(
                             print_summary.format_event(new_state, self.filename),
                             self.filename, "failed",
-                            f"failed:{identity or self.filename}", facts))
+                            f"failed:{identity or self.filename}", facts),
+                        **({"mention_user_id": mention} if mention else {}))
                 else:
                     await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")

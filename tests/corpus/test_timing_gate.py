@@ -1,21 +1,23 @@
 """The Discord timing gate fails on slowdowns, missing runs and unexplained baseline raises."""
+from pathlib import Path
+
 from tests.corpus.timing_gate import check, record
 
 BASE = {"tolerance": 0.25, "slack_s": 1.0,
-        "cases": {"single-part/hermes": {"wall_s": 4.0, "first_prompt_s": 2.0}}}
+        "cases": {"single-part/direct": {"wall_s": 4.0, "first_prompt_s": 2.0}}}
 
 
 def row(wall, prompt=2.0, result="PASS"):
-    return {"case": "single-part", "transport": "hermes", "result": result,
+    return {"case": "single-part", "transport": "direct", "result": result,
             "wall_s": wall, "first_prompt_s": prompt}
 
 
 def test_within_tolerance_passes():
-    assert check([row(5.9)], BASE) == []  # limit 4 * 1.25 + 1 = 6.0
+    assert check([row(5.9)], BASE, absolute_slack=True) == []  # limit 4 * 1.25 + 1 = 6.0
 
 
 def test_slower_than_baseline_fails():
-    problems = check([row(6.1)], BASE)
+    problems = check([row(6.1)], BASE, absolute_slack=True)
     assert len(problems) == 1 and "wall_s 6.10s > limit 6.00s" in problems[0]
 
 
@@ -34,12 +36,12 @@ def test_new_case_needs_a_baseline():
 
 
 def test_raise_without_reason_is_refused_and_reason_accepts_it():
-    proposed = record([row(8.0)], BASE)
-    entry = proposed["cases"]["single-part/hermes"]
+    proposed = record([row(5.0)], BASE)
+    entry = proposed["cases"]["single-part/direct"]
     assert entry["raised_from"] == {"wall_s": 4.0, "first_prompt_s": 2.0}
-    assert any("without a reason" in p for p in check([row(8.0)], proposed))
+    assert any("without a reason" in p for p in check([row(5.0)], proposed))
     entry["reason"] = "full mesh validation added, accepted"
-    assert check([row(8.0)], proposed) == []
+    assert check([row(5.0)], proposed) == []
 
 
 def test_median_of_repeats_ignores_one_noisy_sample():
@@ -69,25 +71,25 @@ def test_fit_check_budget_applies_to_cases_without_a_baseline_entry_and_survives
 
 def test_per_case_fit_check_baseline_uses_tolerance():
     base = {"tolerance": 0.25, "slack_s": 1.0,
-            "cases": {"single-part/hermes": {"wall_s": 4.0, "first_prompt_s": 2.0, "fit_check_s": 1.0}}}
-    assert check([fit_row(2.2)], base) == []  # 1 * 1.25 + 1 = 2.25
-    assert any("fit_check_s" in p for p in check([fit_row(2.3)], base))
+            "cases": {"single-part/direct": {"wall_s": 4.0, "first_prompt_s": 2.0, "fit_check_s": 1.0}}}
+    assert check([fit_row(2.2)], base, absolute_slack=True) == []  # 1 * 1.25 + 1 = 2.25
+    assert any("fit_check_s" in p for p in check([fit_row(2.3)], base, absolute_slack=True))
 
 
 def test_fit_check_is_measured_from_the_real_intake_flow(tmp_path):
     from tests.corpus import harness, time_corpus
     case = next(harness.load_case(f) for f in harness.case_dirs() if f.name == "must-shrink")
-    row_ = time_corpus.run_one(case, "hermes", False, tmp_path)
+    row_ = time_corpus.run_one(case, "direct", False, tmp_path)
     assert row_["result"] == "PASS", row_
     assert row_["fit_check_s"] is not None and 0 <= row_["fit_check_s"] <= row_["wall_s"]
 
 
 def test_missing_fit_measurement_fails_for_required_case_only():
-    req = dict(BASE, fit_check_required=["single-part/hermes"])
+    req = dict(BASE, fit_check_required=["single-part/direct"])
     assert any("not measured" in p for p in check([row(4.0)], req))
     assert check([fit_row(0.5)], req) == []
     assert check([row(4.0)], BASE) == []  # not required: no measurement is fine
-    assert record([row(4.0)], req)["fit_check_required"] == ["single-part/hermes"]
+    assert record([row(4.0)], req)["fit_check_required"] == ["single-part/direct"]
     from tests.corpus.timing_gate import median_rows
     merged = median_rows([[fit_row(0.5)], [row(4.0)], [fit_row(0.6)]])
     assert any("not measured" in p for p in check(merged, req))
@@ -95,13 +97,17 @@ def test_missing_fit_measurement_fails_for_required_case_only():
 
 # ----------------------------------------------------------------------------- #734: +10%, reporting leg, release step
 
-def test_default_limits_are_the_issue_ten_percent_with_absolute_slack():
-    from tests.corpus.timing_gate import DEFAULT_SLACK_S, DEFAULT_TOLERANCE, limits
+def test_default_limits_are_the_issue_ten_percent_with_relative_slack():
+    from tests.corpus.timing_gate import DEFAULT_SLACK_S, DEFAULT_TOLERANCE, SLACK_FLOOR_S, SLACK_REL, limits
     assert (DEFAULT_TOLERANCE, DEFAULT_SLACK_S) == (0.10, 0.5)
-    bare = {"cases": {"single-part/hermes": {"wall_s": 10.0}}}
+    assert (SLACK_FLOOR_S, SLACK_REL) == (0.35, 0.10)
+    bare = {"cases": {"single-part/direct": {"wall_s": 10.0}}}
     assert limits(bare) == (0.10, 0.5)
-    assert check([row(11.5)], bare) == []  # 10 * 1.10 + 0.5 = 11.5
-    assert any("wall_s 11.60s > limit 11.50s" in p for p in check([row(11.6)], bare))
+    assert check([row(12.0)], bare) == []  # 10 * 1.10 + max(0.35, 10% of 10) = 12.0
+    assert any("wall_s 12.10s > limit 12.00s" in p for p in check([row(12.1)], bare))
+    # The legacy flat allowance is still available for the reporting-only real-Orca leg.
+    assert check([row(11.5)], bare, absolute_slack=True) == []  # 10 * 1.10 + 0.5
+    assert any("limit 11.50s" in p for p in check([row(11.6)], bare, absolute_slack=True))
 
 
 def test_checked_in_baselines_use_ten_percent():
@@ -120,7 +126,7 @@ def test_checked_in_baselines_use_ten_percent():
 
 def test_a_newly_measured_metric_is_not_a_raise():
     proposed = record([fit_row(0.01)], BASE)  # BASE has no fit_check_s for this case
-    assert "raised_from" not in proposed["cases"]["single-part/hermes"]
+    assert "raised_from" not in proposed["cases"]["single-part/direct"]
 
 
 def test_record_stores_provenance_and_does_not_carry_the_old_one():
@@ -146,13 +152,138 @@ def test_warn_only_reports_but_exits_zero_and_summary_lists_each_case(tmp_path, 
     base = tmp_path / "base.json"
     base.write_text(json.dumps(BASE))
     runs = _results(tmp_path, [9.0, 9.1, 9.2])  # well over 4 * 1.25 + 1
-    assert main([*runs, "--baseline", str(base)]) == 1
+    assert main([*runs, "--baseline", str(base), "--absolute-slack"]) == 1
     summary = tmp_path / "summary.md"
-    assert main([*runs, "--baseline", str(base), "--warn-only", "--summary", str(summary), "--title", "T"]) == 0
+    assert main([*runs, "--baseline", str(base), "--warn-only", "--absolute-slack",
+                 "--summary", str(summary), "--title", "T"]) == 0
     out = capsys.readouterr().out
-    assert "::warning title=Timing (reporting only)::single-part/hermes: wall_s 9.10s" in out
+    assert "::warning title=Timing (reporting only)::single-part/direct: wall_s 9.10s" in out
     text = summary.read_text()
-    assert text.startswith("### T") and "| single-part/hermes | PASS | wall_s | 9.10 | 4.00 | 6.00 | +12" in text and "% OVER |" in text
+    assert text.startswith("### T") and "| single-part/direct | PASS | wall_s | 9.10 | 4.00 | 6.00 | +12" in text and "% OVER |" in text
+
+
+# ----------------------------------------------------------------------------- relative slack, fresh reasons, drift
+
+def small(wall, case="tiny"):
+    return {"case": case, "transport": "direct", "result": "PASS", "wall_s": wall}
+
+
+TINY = {"tolerance": 0.10, "slack_s": 0.5,
+        "cases": {"tiny/direct": {"wall_s": 0.02}, "mid/direct": {"wall_s": 2.0}, "big/direct": {"wall_s": 20.0}}}
+
+
+def test_slack_is_relative_with_a_floor_and_ignores_the_flat_slack_s():
+    from tests.corpus.timing_gate import slack_for
+    assert slack_for(0.02, TINY) == 0.35  # the floor
+    assert slack_for(2.0, TINY) == 0.35
+    assert slack_for(20.0, TINY) == 2.0  # 10% of the baseline
+    assert slack_for(20.0, TINY, absolute=True) == 0.5
+    rows = lambda *w: [small(w[0], "tiny"), small(w[1], "mid"), small(w[2], "big")]  # noqa: E731
+    assert check(rows(0.37, 2.55, 24.0), TINY) == []  # 0.02*1.1+0.35, 2*1.1+0.35, 20*1.1+2.0
+    assert len(check(rows(0.38, 2.56, 24.1), TINY)) == 3
+
+
+def test_the_floor_is_wide_enough_for_the_runner_noise_measured_on_unchanged_main():
+    # Medians read on green main runs against a 0.38 s baseline (assembly-2c-tight): up to 0.75 s.
+    # 0.75 - 0.38 * 1.1 = 0.332 s of slack was needed, so the floor must cover it.
+    from tests.corpus.timing_gate import SLACK_FLOOR_S
+    assert SLACK_FLOOR_S >= 0.75 - 0.38 * 1.10
+
+
+def test_checked_in_mock_baseline_passes_its_own_gate():
+    import json
+    from pathlib import Path
+    data = json.loads((Path(__file__).parent / "timing_baseline.json").read_text())
+    rows = []
+    for k, entry in data["cases"].items():
+        case, transport = k.split("/")
+        rows.append({"case": case, "transport": transport, "result": "PASS",
+                     **{m: v for m, v in entry.items() if m in ("wall_s", "first_prompt_s", "fit_check_s")}})
+    assert check(rows, data) == []
+
+
+def raised(prev_reason="Because the intake does more work now."):
+    old = {"cases": {"tiny/direct": {"wall_s": 1.0, "reason": prev_reason}}}
+    return old, record([small(1.3)], old)
+
+
+def test_record_does_not_copy_the_previous_reason_into_a_raise():
+    old, proposed = raised()
+    entry = proposed["cases"]["tiny/direct"]
+    assert entry["raised_from"] == {"wall_s": 1.0}
+    assert entry["reason"] == ""
+    assert entry["previous_reason"] == "Because the intake does more work now."
+    assert any("without a reason" in p for p in check([small(1.3)], proposed))
+
+
+def test_a_raise_whose_reason_is_the_old_one_copied_back_fails():
+    _, proposed = raised()
+    entry = proposed["cases"]["tiny/direct"]
+    entry["reason"] = entry["previous_reason"]
+    assert any("copied over" in p for p in check([small(1.3)], proposed))
+    entry["reason"] = "x"  # too short to be an explanation
+    assert any("without a reason" in p for p in check([small(1.3)], proposed))
+    entry["reason"] = "The second pass now also validates every plate before the first prompt."
+    assert check([small(1.3)], proposed) == []
+
+
+def test_original_is_the_first_recording_and_survives_later_recordings():
+    first = record([small(1.0)], {"cases": {}})
+    assert first["cases"]["tiny/direct"]["original"] == {"wall_s": 1.0}
+    entry = first["cases"]["tiny/direct"]
+    entry["reason"] = "n/a"
+    second = record([small(1.2)], first)
+    assert second["cases"]["tiny/direct"]["original"] == {"wall_s": 1.0}
+    second["cases"]["tiny/direct"]["reason"] = "The scan now reads every part before asking."
+    third = record([small(1.5)], second)
+    assert third["cases"]["tiny/direct"]["original"] == {"wall_s": 1.0}
+    assert third["cases"]["tiny/direct"]["raised_from"] == {"wall_s": 1.2}  # one step only; original is the memory
+
+
+def test_legacy_entries_seed_original_from_raised_from():
+    legacy = {"cases": {"tiny/direct": {"wall_s": 0.9, "raised_from": {"wall_s": 0.5}, "reason": "Old raise explained."}}}
+    assert record([small(0.9)], legacy)["cases"]["tiny/direct"]["original"] == {"wall_s": 0.5}
+    assert record([small(0.4)], {"cases": {"tiny/direct": {"wall_s": 0.5}}})["cases"]["tiny/direct"]["original"] == {"wall_s": 0.5}
+
+
+def test_cumulative_drift_fails_even_when_each_step_was_small():
+    base = {"cases": {"mid/direct": {"wall_s": 3.0, "original": {"wall_s": 2.0}, "raised_from": {"wall_s": 2.6},
+                                     "reason": "A long enough reason to count as an explanation.",
+                                     "previous_reason": "Something else entirely."}}}
+    # Within +10% + slack of the baseline (3.0 -> 3.65) but past original 2.0 * 1.5 + 0.35 = 3.35.
+    problems = check([small(3.4, "mid")], base)
+    assert len(problems) == 1 and "cumulative limit 3.35s" in problems[0] and "first recorded 2.00s" in problems[0]
+    assert check([small(3.3, "mid")], base) == []
+
+
+def test_drift_past_the_warning_tolerance_is_reported_but_does_not_fail():
+    from tests.corpus.timing_gate import drift_notes
+    base = {"cases": {"mid/direct": {"wall_s": 3.0, "original": {"wall_s": 2.0}}}}
+    assert drift_notes([small(2.8, "mid")], base) == []  # under 2.0 * 1.25 + 0.35 = 2.85
+    notes = drift_notes([small(3.0, "mid")], base)
+    assert len(notes) == 1 and "+50%" in notes[0] and "warns past 2.85s" in notes[0]
+    assert check([small(3.0, "mid")], base) == []
+    assert drift_notes([small(3.4, "mid")], base) == []  # past the blocking limit it is a problem instead
+
+
+def test_the_two_parts_512_cases_are_the_known_drift_on_main():
+    import json
+    from tests.corpus.timing_gate import drift_notes
+    data = json.loads((Path(__file__).parent / "timing_baseline.json").read_text())
+    rows = [{"case": k.split("/")[0], "transport": k.split("/")[1], "result": "PASS",
+             **{m: v for m, v in e.items() if m in ("wall_s", "first_prompt_s", "fit_check_s")}}
+            for k, e in data["cases"].items()]
+    assert check(rows, data) == []
+    assert {n.split(":")[0] for n in drift_notes(rows, data)} == {
+        "parts-512-four-color/direct", "parts-512-four-color/standalone"}
+
+
+def test_main_wires_absolute_slack_only_for_the_real_orca_leg():
+    ci = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text()
+    mock = ci.split("Timing gate", 1)[1].split("- name:", 1)[0]
+    assert "--absolute-slack" not in mock
+    real = ci.split("Compare with the real-slicer baseline", 1)[1].split("- name:", 1)[0]
+    assert "--absolute-slack" in real
 
 
 def _ci_jobs():
@@ -232,4 +363,4 @@ def test_timing_variance_leave_one_out(tmp_path):
     assert timing_variance.leave_one_out(runs, 0.10, 1.0)[:2] == (2, 6)
     out = timing_variance.measure(runs, {"tolerance": 0.10, "slack_s": 1.0, "cases": {}}, "test")
     assert out["leave_one_out_at_baseline"]["failing_pairings"] == 2
-    assert out["spread"]["single-part/hermes wall_s"]["max"] == 9.0
+    assert out["spread"]["single-part/direct wall_s"]["max"] == 9.0

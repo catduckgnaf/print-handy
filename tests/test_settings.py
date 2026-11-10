@@ -117,6 +117,26 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "broken.yaml"):
             settings.load(local=path, environ={})
 
+    def test_hermes_mode_gets_the_named_refusal(self):
+        # The Hermes install method and runtime mode are removed: a config
+        # still stating the mode fails closed with a message naming the
+        # removal and the way out — never a silent fallback to standalone
+        # and never a bare unknown-value error.
+        path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
+        with self.assertRaisesRegex(
+                settings.SettingsError,
+                r"mode 'hermes' was removed.*set \[bot\] mode to 'standalone'"):
+            settings.load(local=path, environ={})
+
+    def test_hermes_mode_refusal_is_case_insensitive_and_covers_env(self):
+        with self.assertRaisesRegex(settings.SettingsError, "was removed"):
+            settings.load(local=None, environ={"PRINT_HANDY__BOT__MODE": "Hermes"})
+
+    def test_standalone_mode_still_loads(self):
+        path = self.toml("bot:\n  mode: standalone\n", "local.yaml")
+        data = settings.load(local=path, environ={})
+        self.assertEqual(data["bot"]["mode"], "standalone")
+
     def test_yaml_and_legacy_toml_local_precedence_is_yaml_first(self):
         toml_path = self.toml("[layout]\nmulti_copy_edge_mm = 4\n", "local.toml")
         yaml_path = self.toml("layout:\n  multi_copy_edge_mm: 6\n", "local.yaml")
@@ -202,12 +222,13 @@ class OverrideTests(unittest.TestCase):
         data = settings.load(home=home, local=False, environ={})
         self.assertEqual(data["bot"]["mode"], "standalone")
 
-    def test_bot_mode_explicit_hermes_is_preserved(self):
-        # An explicit hermes choice still resolves to hermes after the
-        # default flip (#524 stage 5): only an unset mode changes.
+    def test_bot_mode_explicit_hermes_is_refused(self):
+        # The hermes mode is removed: an explicit hermes choice gets the
+        # named refusal, not preservation (see also the refusal tests in
+        # the YAML loading tests above).
         path = self.toml("bot:\n  mode: hermes\n", "local.yaml")
-        data = settings.load(local=path, environ={})
-        self.assertEqual(data["bot"]["mode"], "hermes")
+        with self.assertRaisesRegex(settings.SettingsError, "mode 'hermes' was removed"):
+            settings.load(local=path, environ={})
 
     def test_yaml_home_preserves_effective_legacy_toml_values(self):
         yaml_data = settings.load(home=settings.HOME, local=False, environ={})
@@ -263,15 +284,15 @@ class OverrideTests(unittest.TestCase):
             "flashforge_stock": {"host"},
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},
-            "paths": {"hermes_home", "archive", "records_vault", "cache", "hermes_bin", "ffmpeg",
-                      "piper", "piper_model", "hermes_agent", "hermes_restart_helper"},
+            "paths": {"hermes_home", "archive", "records_vault", "cache", "ffmpeg",
+                      "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
-            "discord": {"chat_id", "approval_user_id", "upload_max_bytes", "post_print_quiet_s",
-                        "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
+            "discord": {"chat_id", "approval_user_id", "upload_max_bytes",
+                        "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
                         "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
-                        "clarify_ui", "approval_all_users", "mention_starter_on_complete"},
+                        "approval_all_users", "mention_starter"},
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
             "matrix": {"homeserver_url", "access_token_env", "room_id", "allowed_user_ids",
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},
@@ -287,7 +308,9 @@ class OverrideTests(unittest.TestCase):
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer
-            # views can re-derive a derived mode (P2-261).
+            # views can re-derive a derived mode (P2-261). The same holds
+            # for data_enabled_explicit: whether [timelapse] data_enabled
+            # was set or only follows wrapped_enabled (stage 5).
             "timelapse": {"mode", "mode_explicit", "encoder", "archive_host", "archive_dir", "ssh_key", "render_wait_s", "render_poll_s",
                           "max_bytes", "local_retention_days", "plan_clip_retention_days",
                           "vertical_short", "vertical_short_mode", "vertical_short_overlay",
@@ -295,11 +318,12 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "wrapped_ai_video",
+                          "wrapped_enabled", "data_enabled", "data_enabled_explicit", "wrapped_ai_video",
                           "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
-                      "controls_enabled", "cookie_secure"},
+                      "controls_enabled", "cookie_secure", "chat_llm_enabled",
+                      "chat_enabled"},
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
@@ -604,7 +628,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         # The multiplexed gateway runs with HERMES_HOME=~/.hermes for every profile. Reading it
         # sent the print plugin to ~/.hermes/state, where printer_hardware.json does not exist.
         data = settings.load(local=False, environ={"HERMES_HOME": "/somewhere/else/.hermes"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("~/.hermes/profiles/3dprinting").expanduser())
+        self.assertEqual(data["paths"]["hermes_home"], Path("~/.local/share/print-handy").expanduser())
         data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": "/tmp/ph-profile"})
         self.assertEqual(data["paths"]["hermes_home"], Path("/tmp/ph-profile"))
 
@@ -726,8 +750,8 @@ class RuntimeSettingsTests(unittest.TestCase):
 
     def test_paths_expand_and_state_lives_in_the_profile(self):
         data = settings.load(local=False, environ={})
-        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".hermes/profiles/3dprinting")
-        self.assertEqual(settings.state_dir(data), Path.home() / ".hermes/profiles/3dprinting/state")
+        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".local/share/print-handy")
+        self.assertEqual(settings.state_dir(data), Path.home() / ".local/share/print-handy/state")
         self.assertEqual(data["paths"]["ffmpeg"], "ffmpeg")
 
     def test_home_file_has_no_addresses_or_ids(self):
@@ -783,18 +807,20 @@ class UnknownSettingsTests(unittest.TestCase):
 
     def test_the_1058_incident_shape_warns_instead_of_exiting(self):
         # The validation environment carried the mention key onto the 2.2.6
-        # image, whose settings did not know it at all. Simulate that older
-        # build here: today the key is known only through OPTIONAL_KEYS.
+        # image, whose settings did not know it at all (the variable was
+        # PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE then; #1095
+        # renamed the key to mention_starter). Simulate that older build
+        # here: today the key is known only through OPTIONAL_KEYS.
         known = {pair: kind for pair, kind in settings.OPTIONAL_KEYS.items()
-                 if pair != ("discord", "mention_starter_on_complete")}
+                 if pair != ("discord", "mention_starter")}
         with mock.patch.object(settings, "OPTIONAL_KEYS", known):
             data = settings.load(
                 local=False,
-                environ={"PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+                environ={"PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
         # The value was not applied (the [discord] default stands) and the
         # variable is named in the warning instead of stopping the load.
-        self.assertIs(data["discord"]["mention_starter_on_complete"], True)
-        self.assertIn("MENTION_STARTER_ON_COMPLETE", settings.unknown_settings_warning())
+        self.assertIs(data["discord"]["mention_starter"], True)
+        self.assertIn("MENTION_STARTER", settings.unknown_settings_warning())
 
     def test_file_unknown_key_and_section_warn_and_are_dropped(self):
         path = self.local("pritner:\n  filament_slots: 9\n"
@@ -1110,3 +1136,80 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
     mine.write_text("printer:\n  model: klipper.generic\n")
     with pytest.raises(settings.SettingsError, match=r"\[printer\] model"):
         settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})
+
+
+@pytest.mark.parametrize("name", ["home", "docker"])
+def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
+    """The TOML files are kept for existing installs; the YAML files are canonical.
+
+    Both formats must parse to the same data, and loading either one must give the
+    same settings with no unknown-setting warnings, so the two cannot drift apart."""
+    root = settings.ROOT / "config"
+    assert settings._read(root / f"{name}.yaml") == settings._read(root / f"{name}.toml")
+    if name == "home":
+        yaml_data = settings.load(home=root / "home.yaml", local=False, environ={}, user=False)
+        yaml_unknown = settings.unknown_settings()
+        toml_data = settings.load(home=root / "home.toml", local=False, environ={}, user=False)
+    else:
+        yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
+        yaml_unknown = settings.unknown_settings()
+        toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
+    assert yaml_data == toml_data
+    assert yaml_unknown == [] and settings.unknown_settings() == []
+
+
+def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):
+    """The settings and bot no longer read these retired session-reset values.
+
+    Their old file and environment forms are ignored so existing installs
+    continue loading without restoring dead runtime knobs."""
+    defaults = settings.load(local=False, environ={}, user=False)
+    assert "post_print_quiet_s" not in defaults["discord"] and "daily_reset_hour" not in defaults["discord"]
+    old = tmp_path / "local.yaml"
+    old.write_text("discord:\n  post_print_quiet_s: 3600\n  daily_reset_hour: 6\n  bot_name: Kept\n")
+    data = settings.load(local=old, environ={}, user=False)
+    assert data["discord"]["bot_name"] == "Kept"
+    assert "post_print_quiet_s" not in data["discord"] and "daily_reset_hour" not in data["discord"]
+    assert any("daily_reset_hour" in line for line in settings.unknown_settings())
+    env = {"PRINT_HANDY__DISCORD__POST_PRINT_QUIET_S": "3600", "PRINT_HANDY__DISCORD__DAILY_RESET_HOUR": "6",
+           "DISCORD_POST_PRINT_QUIET_SECONDS": "3600", "DISCORD_DAILY_RESET_HOUR": "6"}
+    data = settings.load(local=False, environ=env, user=False)
+    assert "daily_reset_hour" not in data["discord"] and data["discord"]["bot_name"] == "Print Handy"
+
+
+def _home_at(monkeypatch, home):
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
+def test_fresh_install_defaults_to_the_neutral_data_and_cache_folders(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["cache"] == tmp_path / ".cache" / "print-handy"
+    assert settings.state_dir(data) == tmp_path / ".local" / "share" / "print-handy" / "state"
+
+
+def test_install_with_data_in_the_old_default_folders_keeps_using_them(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
+    (tmp_path / ".hermes" / "cache").mkdir()
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
+    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
+    # Only the folder that exists is kept: the cache alone does not drag the state folder back.
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").rmdir()
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
+
+
+def test_an_explicit_path_beats_the_old_folder_even_when_it_matches_the_new_default(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
+    mine = tmp_path / "local.yaml"
+    mine.write_text("paths:\n  hermes_home: ~/.local/share/print-handy\n")
+    data = settings.load(local=mine, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(tmp_path / "elsewhere")}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / "elsewhere"

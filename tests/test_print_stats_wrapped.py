@@ -6,6 +6,7 @@ no real ffmpeg, no printer.
 """
 import http.client
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -98,7 +99,9 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["failed"], 1)
         self.assertEqual(stats["canceled"], 1)
         self.assertEqual(stats["in_progress"], 1)
-        self.assertEqual(stats["success_rate"], 0.5)  # printing excluded
+        # Out of the three prints that finished or failed; the stopped one and
+        # the one still printing are on neither side.
+        self.assertEqual(stats["success_rate"], round(2 / 3, 4))
         self.assertEqual(stats["total_print_duration_seconds"], 14199.0)
         self.assertEqual(stats["total_hours"], 3.94)
         self.assertEqual(stats["longest_print"]["title"], "Bracket")
@@ -474,7 +477,10 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_validation_catalog_and_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)
-            self.assertIs(data["timelapse"]["wrapped_enabled"], False)
+            # Stage 5: Wrapped and the Data tab are on by default, and
+            # data_enabled follows wrapped_enabled while unset.
+            self.assertIs(data["timelapse"]["wrapped_enabled"], True)
+            self.assertIs(data["timelapse"]["data_enabled"], True)
             self.assertIs(data["timelapse"]["wrapped_ai_video"], False)
             env_data = load_settings(
                 tmp, environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_ENABLED": "true",
@@ -485,19 +491,77 @@ class SettingsTests(unittest.TestCase):
             bad.write_text("timelapse:\n  wrapped_enabled: sometimes\n")
             with self.assertRaises(settings.SettingsError):
                 settings.load(local=bad, environ={})
-        for field_id in ("timelapse.wrapped_enabled", "timelapse.wrapped_ai_video"):
+
+    def test_data_enabled_follows_wrapped_until_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # An explicit pre-split wrapped_enabled: false keeps the
+            # Data tab off: data_enabled follows it at load.
+            off = load_settings(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            self.assertIs(off["timelapse"]["wrapped_enabled"], False)
+            self.assertIs(off["timelapse"]["data_enabled"], False)
+            # An explicit data_enabled pins the Data tab independently.
+            pinned = load_settings(
+                tmp, "timelapse:\n  wrapped_enabled: false\n  data_enabled: true\n")
+            self.assertIs(pinned["timelapse"]["data_enabled"], True)
+            bad = Path(tmp) / "bad2.yaml"
+            bad.write_text("timelapse:\n  data_enabled: sometimes\n")
+            with self.assertRaises(settings.SettingsError):
+                settings.load(local=bad, environ={})
+        for field_id in ("timelapse.wrapped_enabled", "timelapse.data_enabled",
+                         "timelapse.wrapped_ai_video"):
             field = catalog.field_by_id(field_id)
             self.assertIsNotNone(field)
             self.assertEqual(field.kind, "toggle")
-            self.assertEqual(field.group, "timelapse")
+            self.assertEqual(field.group, "wrapped")
+
+    def test_data_enabled_explicitness_survives_the_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Unset in every layer: the loaded mapping records that the
+            # value is a followed one, not an operator choice (the
+            # mode_explicit pattern), and the Data gate keeps following
+            # wrapped_enabled on that loaded mapping — the baked value
+            # must not pin the gate after wrapped_enabled moves.
+            followed = load_settings(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            self.assertIs(followed["timelapse"]["data_enabled"], False)
+            self.assertIs(followed["timelapse"]["data_enabled_explicit"], False)
+            followed["timelapse"]["wrapped_enabled"] = True
+            self.assertTrue(data_module.data_enabled(followed))
+            # The plain default load is a followed value too.
+            default = load_settings(tmp)
+            self.assertIs(default["timelapse"]["data_enabled_explicit"], False)
+            # Explicit: the flag is set, and the gate honors the pinned
+            # value even when wrapped_enabled moves on the same mapping.
+            pinned = load_settings(
+                tmp, "timelapse:\n  wrapped_enabled: false\n  data_enabled: false\n")
+            self.assertIs(pinned["timelapse"]["data_enabled_explicit"], True)
+            pinned["timelapse"]["wrapped_enabled"] = True
+            self.assertFalse(data_module.data_enabled(pinned))
+
+
+_TEXTFILE_RE = re.compile(r"drawtext=textfile=([^:]+):expansion=none")
+
+
+def drawtext_texts(command, cwd):
+    """The texts a command's drawtext filters will draw, read from their
+    textfiles (user text never appears in the filter string itself)."""
+    texts = []
+    for part in command:
+        for match in _TEXTFILE_RE.finditer(str(part)):
+            texts.append((Path(cwd) / match.group(1)).read_text(encoding="utf-8"))
+    return texts
 
 
 class FakeRunner:
+    """Records commands and, at call time, the drawtext texts (the work
+    folder is gone by the time a test looks)."""
+
     def __init__(self):
         self.commands = []
+        self.texts = []
 
     def __call__(self, command, **kwargs):
         self.commands.append([str(part) for part in command])
+        self.texts.extend(drawtext_texts(command, kwargs.get("cwd") or "."))
         target = Path(command[-1])
         if target.suffix == ".mp4":
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -575,11 +639,7 @@ class VideoTests(unittest.TestCase):
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
                 runner=runner, find_clips=lambda year: [])
             self.assertTrue(result["ok"])
-        texts = []
-        for command in runner.commands:
-            for part in command:
-                texts.extend(re.findall(r"drawtext=text='((?:[^'\\]|\\.)*)'", part))
-        joined = " ".join(texts)
+        joined = " ".join(runner.texts)
         self.assertIn("Bracket printed 4 times", joined)
         self.assertIn("2 failed prints", joined)
         self.assertIn("1 stopped print", joined)
@@ -616,8 +676,58 @@ class VideoTests(unittest.TestCase):
             self.assertTrue(Path(result["script_path"]).is_file())
             self.assertTrue(any("ffmpeg: unavailable" in n for n in result["notes"]))
 
-    def test_drawtext_escaping(self):
-        self.assertEqual(wrapped_video.escape_drawtext("a:b'c%"), "a\\:b\\'c\\%")
+    def test_hostile_titles_never_reach_a_filter_string(self):
+        """A title with % ' : \\ , [ ] { } or a newline (50% scale cube;
+        %{...} expands as a function) is drawn from a textfile with
+        expansion=none: none of it appears in any generated argument."""
+        hostile = ["50% scale cube", "%{pts} it's: a\\b, [x] {y}",
+                   "line one\nline two", "100%%", "a;b=c"]
+        wrapped = {"year": 2025,
+                   "headline": {"total_prints": 5},
+                   "highlights": {"longest_print": {"title": hostile[0], "seconds": 7200},
+                                  "most_reprinted": {"title": hostile[1], "count": 3}},
+                   "script": [hostile[2] + " " + hostile[3] + " " + hostile[4]]}
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [])
+            self.assertTrue(result["ok"])
+        for command in runner.commands:
+            for part in command:
+                if "drawtext" not in part:
+                    continue
+                self.assertNotIn("text='", part)
+                self.assertNotIn("%{", part)
+                self.assertNotIn("50%", part)
+                self.assertEqual(part.count("drawtext="), part.count("expansion=none"))
+        joined = " | ".join(runner.texts)
+        self.assertIn("50% scale cube", joined)
+        self.assertIn("%{pts}", joined)
+        self.assertTrue(all("\n" not in text for text in runner.texts))
+        self.assertIn("line one line two", joined)
+
+    def test_text_is_named_relative_to_the_work_folder(self):
+        """No path (with its colons and brackets) is ever in a filter, and
+        ffmpeg runs in the folder the text files sit in."""
+        cwds = []
+
+        class CwdRunner(FakeRunner):
+            def __call__(self, command, **kwargs):
+                cwds.append(kwargs.get("cwd"))
+                return super().__call__(command, **kwargs)
+
+        runner = CwdRunner()
+        wrapped = print_stats.build_wrapped(RECORDS, 2025)
+        with tempfile.TemporaryDirectory() as tmp:
+            wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [])
+        self.assertTrue(cwds and all(cwds))
+        for command in runner.commands:
+            for part in command:
+                for match in re.finditer(r"textfile=([^:]+):", part):
+                    self.assertRegex(match.group(1), r"^text-\d+\.txt$")
 
     def test_card_text_is_wrapped_to_fit_the_frame(self):
         """Long commentary lines wrap: no drawtext text may be wider than
@@ -636,13 +746,10 @@ class VideoTests(unittest.TestCase):
                 runner=runner, find_clips=lambda year: [],
                 data={})
             self.assertTrue(result["ok"])
-        texts = []
-        for command in runner.commands:
-            for part in command:
-                texts.extend(re.findall(r"drawtext=text='((?:[^'\\]|\\.)*)'", part))
+        texts = runner.texts
         self.assertTrue(texts)
         self.assertTrue(all(len(text) <= 48 for text in texts), texts)
-        joined = " ".join(texts).replace("\\", "")
+        joined = " ".join(texts)
         for word in ("123 prints", "nine hours", "without pausing"):
             self.assertIn(word, joined)
 
@@ -673,19 +780,52 @@ class RouteTests(unittest.TestCase):
     def test_disabled_refusals_and_no_nav(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
-            httpd = self.start(tmp)
+            # Explicitly off (stage 5: an explicit false is never
+            # overridden by the new on-by-default), and data_enabled
+            # follows wrapped_enabled while unset.
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
             port = httpd.server_address[1]
-            for path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
+            for path, key in (("/data", "data_enabled"),
+                              ("/wrapped", "wrapped_enabled"),
+                              ("/api/data", "data_enabled"),
+                              ("/api/wrapped", "wrapped_enabled")):
                 code, raw = self.request(port, "GET", path)
                 self.assertEqual(code, 403, path)
-                self.assertIn("wrapped_enabled", raw)
+                self.assertIn(key, raw, path)
             code, raw = self.request(port, "GET", "/")
             self.assertEqual(code, 200)
             self.assertNotIn('href="/data"', raw)
             self.assertNotIn('href="/wrapped"', raw)
         self.assertNotIn("/data", [target for target, _label in shell.NAV])
-        code, payload = data_module.data_view({"timelapse": {}}, records_vault="/nope")
+        code, payload = data_module.data_view(
+            {"timelapse": {"data_enabled": False}}, records_vault="/nope")
         self.assertEqual(code, 403)
+        self.assertIn("data_enabled", payload["reason"])
+
+    def test_data_and_wrapped_switches_are_independent(self):
+        # Stage 5 split: data_enabled pins the Data tab on its own;
+        # wrapped_enabled alone no longer gates it, in either
+        # direction, and the nav carries only the links that are on.
+        data_only = {"timelapse": {"wrapped_enabled": False,
+                                   "data_enabled": True}}
+        self.assertTrue(data_module.data_enabled(data_only))
+        self.assertFalse(data_module.wrapped_enabled(data_only))
+        code, _payload = data_module.data_view(data_only, records_vault="/nope")
+        self.assertEqual(code, 200)
+        code, payload = data_module.wrapped_view(data_only, records_vault="/nope")
+        self.assertEqual(code, 403)
+        self.assertIn("wrapped_enabled", payload["reason"])
+        nav = [target for target, _label in data_module.nav_for(data_only)]
+        self.assertIn("/data", nav)
+        self.assertNotIn("/wrapped", nav)
+        wrapped_only = {"timelapse": {"wrapped_enabled": True,
+                                      "data_enabled": False}}
+        code, payload = data_module.data_view(wrapped_only, records_vault="/nope")
+        self.assertEqual(code, 403)
+        self.assertIn("data_enabled", payload["reason"])
+        # Unset data_enabled follows wrapped_enabled on a raw mapping.
+        self.assertTrue(data_module.data_enabled({"timelapse": {"wrapped_enabled": True}}))
+        self.assertFalse(data_module.data_enabled({"timelapse": {"wrapped_enabled": False}}))
 
     def test_enabled_pages_api_and_nav(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -752,6 +892,93 @@ class RouteTests(unittest.TestCase):
                 headers={"Content-Type": "application/x-www-form-urlencoded"})
             self.assertEqual(code, 403)
             self.assertIn("wrapped_ai_video", raw)
+
+    def test_video_file_streams_and_answers_range_requests(self):
+        payload = bytes(range(256)) * 4096  # 1 MiB, more than one chunk
+        with tempfile.TemporaryDirectory() as tmp:
+            write_vault(tmp)
+            (Path(tmp) / "vault" / "wrapped").mkdir()
+            (Path(tmp) / "vault" / "wrapped" / "wrapped-2025.mp4").write_bytes(payload)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            port = httpd.server_address[1]
+
+            def get(range_header=None, method="GET"):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                headers = {server.TOKEN_HEADER: TOKEN}
+                if range_header:
+                    headers["Range"] = range_header
+                try:
+                    conn.request(method, "/wrapped/video-file?year=2025", headers=headers)
+                    response = conn.getresponse()
+                    return response.status, dict(response.getheaders()), response.read()
+                finally:
+                    conn.close()
+
+            status, headers, body = get()
+            self.assertEqual((status, body), (200, payload))
+            self.assertEqual(headers["Accept-Ranges"], "bytes")
+            status, headers, body = get("bytes=100-199")
+            self.assertEqual(status, 206)
+            self.assertEqual(body, payload[100:200])
+            self.assertEqual(headers["Content-Range"], f"bytes 100-199/{len(payload)}")
+            status, headers, body = get("bytes=1048000-")
+            self.assertEqual((status, body), (206, payload[1048000:]))
+            status, headers, body = get("bytes=-50")
+            self.assertEqual((status, body), (206, payload[-50:]))
+            status, headers, body = get("bytes=999999999-")
+            self.assertEqual(status, 416)
+            self.assertEqual(headers["Content-Range"], f"bytes */{len(payload)}")
+
+    def test_parse_byte_range(self):
+        parse = data_module.parse_byte_range
+        self.assertEqual(parse("bytes=0-9", 100), (0, 9))
+        self.assertEqual(parse("bytes=90-", 100), (90, 99))
+        self.assertEqual(parse("bytes=50-500", 100), (50, 99))
+        self.assertEqual(parse("bytes=-10", 100), (90, 99))
+        self.assertEqual(parse("bytes=-500", 100), (0, 99))
+        self.assertEqual(parse("bytes=100-", 100), "unsatisfiable")
+        self.assertEqual(parse("bytes=9-3", 100), "unsatisfiable")
+        self.assertIsNone(parse(None, 100))
+        self.assertIsNone(parse("bytes=0-1,5-6", 100))
+        self.assertIsNone(parse("items=0-1", 100))
+        self.assertIsNone(parse("bytes=x-y", 100))
+
+    def test_video_post_starts_a_job_and_the_status_route_reports_it(self):
+        from unittest import mock
+        self.addCleanup(wrapped_video.JOBS._jobs.clear)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(wrapped_video, "_default_ffmpeg",
+                                  return_value="wrapped-no-such-ffmpeg"):
+            write_vault(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
+                                    "  wrapped_ai_video: true\n")
+            port = httpd.server_address[1]
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request("POST", "/wrapped/video",
+                             body=("_csrf=" + httpd.form_token + "&year=2025").encode(),
+                             headers={"Content-Type": "application/x-www-form-urlencoded",
+                                      server.TOKEN_HEADER: TOKEN})
+                response = conn.getresponse()
+                response.read()
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.getheader("Location"), "/wrapped?year=2025")
+            finally:
+                conn.close()
+            state = None
+            for _ in range(100):
+                code, raw = self.request(port, "GET", "/api/wrapped/video-status?year=2025")
+                self.assertEqual(code, 200)
+                state = json.loads(raw)
+                if state["state"] in ("done", "failed"):
+                    break
+                threading.Event().wait(0.05)
+            self.assertEqual(state["state"], "failed")
+            self.assertIn("ffmpeg", state["reason"])
+            code, raw = self.request(port, "GET", "/wrapped?year=2025")
+            self.assertIn("The last video compile failed", raw)
+            code, raw = self.request(port, "GET", "/api/wrapped/video-status")
+            self.assertEqual(code, 400)
 
 
 if __name__ == "__main__":

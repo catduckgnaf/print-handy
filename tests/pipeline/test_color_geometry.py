@@ -63,26 +63,6 @@ def test_invalid_geometry_mapping_refused(tmp_path,failure):
  assert not (tmp_path/'out.3mf').exists()
 
 
-def test_archive_layer_remap_preserves_members_and_is_atomic(tmp_path):
-    source = tmp_path / 'source.3mf'
-    target = tmp_path / 'target.3mf'
-    xml = b'<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'
-    with zipfile.ZipFile(source, 'w') as archive:
-        archive.writestr(layer_gcode.MEMBER, xml)
-        archive.writestr('Metadata/vendor.bin', b'opaque')
-    target.write_bytes(b'old target')
-    with pytest.raises(RuntimeError, match='unmapped'):
-        layer_gcode.remap_archive(source, target, {})
-    assert target.read_bytes() == b'old target'
-    original = source.read_bytes()
-    report = layer_gcode.remap_archive(source, target, {3: 1})
-    assert source.read_bytes() == original
-    with zipfile.ZipFile(source) as before, zipfile.ZipFile(target) as after:
-        assert before.read('Metadata/vendor.bin') == after.read('Metadata/vendor.bin')
-        assert layer_gcode.parse(after.read(layer_gcode.MEMBER))[0]['source_extruder'] == 1
-    assert report['kept'] == 1
-
-
 def test_layer_gcode_remaps_source_tool_to_selected_job_tool():
     source_xml = b'''<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'''
     converted, report = layer_gcode.remap(source_xml, {3: 1})
@@ -929,6 +909,22 @@ def test_tower_clears_the_whole_merged_group(tmp_path):
     assert clear_x or clear_y
     for candidate in report['prime_tower_candidates_mm']:
         assert candidate[0] >= x1 or candidate[0] + 60 <= x0 or candidate[1] >= y1 or candidate[1] + 60 <= y0
+
+
+@pytest.mark.parametrize('bed', [(220.0, 220.0), (256.0, 256.0), (350.0, 320.0)])
+def test_cutter_source_export_centers_on_the_target_bed(tmp_path, bed):
+    """export_geometry sends a cutter source through the volume-plate export.
+    It must center on the target printer's bed like the STL path does: on a
+    256 mm bed the hard-coded 110 mm center put the part 18 mm off center,
+    and the prepositioned plate is sliced with --arrange 0."""
+    from print_handy.core import orca_adapter
+    src = _cutter_source(tmp_path / 'cutter.3mf')
+    assert orca_adapter.has_cutters(src)
+    report = orca_adapter.export_geometry(src, tmp_path / 'geometry.3mf', bed=bed)
+    placed = report['placed_bounds_mm']
+    for axis in (0, 1):
+        assert (placed[axis][0] + placed[axis][1]) / 2 == pytest.approx(bed[axis] / 2)
+    assert placed[2][0] == pytest.approx(0.0)
 
 
 def test_single_item_multi_part_export_is_unchanged(tmp_path):

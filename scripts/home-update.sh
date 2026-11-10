@@ -1,8 +1,18 @@
 #!/bin/sh
-# Update the home checkout, then prove it works. Roll back if it does not.
+# Update the home checkout, then prove it still starts. Roll back if it does not.
 #
 #   scripts/home-update.sh            fast-forward to origin/main
 #   scripts/home-update.sh v2.0.2     fast-forward to a tag or branch
+#
+# The proof is a short smoke check, not the test suite: the package imports, the settings load, and the
+# bot's own `check` command passes (python3 -m print_handy.bot check). The full suite needs a slicer,
+# test-only packages and minutes of time, and one flaky test must never undo an update. The doctor
+# (python3 -m print_handy.doctor) still runs and prints, but only informs: a slicer that is not installed
+# on this machine is not a reason to roll back.
+#
+# A rollback never discards uncommitted edits to tracked files. The script refuses to start with such
+# edits, and if some appear while it is checking, the rollback keeps them (git reset --keep) and says so.
+# Re-running after a failure or a rollback is safe: it repeats the same fast-forward and checks.
 #
 # Never touches config/local.yaml or config/local.toml. If config/after-update.sh exists (gitignored), it runs after a
 # good update, for example to restart the Discord listener. A good update also removes Print Handy
@@ -10,12 +20,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 target="${1:-origin/main}"
-# Same interpreter choice as install-hermes.sh: an explicit $PYTHON wins, then the Hermes agent
-# venv (bare python3 on a Hermes host is a stripped tools interpreter without pytest), then python3.
+# An explicit $PYTHON wins, then python3.
 if [ -n "${PYTHON:-}" ]; then
     python=$PYTHON
-elif [ -x "$HOME/.hermes/hermes-agent/venv/bin/python" ]; then
-    python="$HOME/.hermes/hermes-agent/venv/bin/python"
 else
     python=python3
 fi
@@ -40,7 +47,13 @@ fi
 echo "Updated $(git rev-parse --short "$previous") -> $(git rev-parse --short HEAD). Checking..."
 update_ok=1
 hook_failed=0
-if PRINT_HANDY_UPDATE_CHECK=1 "$python" -m pytest -q -p no:cacheprovider tests && "$python" -m print_handy.doctor; then
+smoke_check() {
+    "$python" -c "import print_handy; from print_handy import settings; settings.load()" &&
+        "$python" -m print_handy.bot check
+}
+if PRINT_HANDY_UPDATE_CHECK=1 smoke_check; then
+    # Informational only: its failures are printed for the operator and never roll the update back.
+    "$python" -m print_handy.doctor || echo "The doctor reported problems (see above). The update is kept: it passed the smoke check."
     # The post-update hook is part of the proof (P2-4): if it fails — a listener
     # restart, say — the update rolls back like a failed check, so a retry
     # re-runs the hook instead of stranding the install at the new HEAD behind
@@ -57,7 +70,16 @@ if [ "$update_ok" = 1 ]; then
     "$python" -m print_handy.state_files --remove || echo "Could not check for stray state files."
     echo "Update good."
 else
-    git reset --quiet --hard "$previous"
+    # Never throw away uncommitted work: --keep refuses, rather than overwrites, a tracked file that has
+    # local edits the rollback would change.
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "Tracked files have local edits that appeared during the update. They are kept; the rollback only moves the checkout back."
+    fi
+    if ! git reset --quiet --keep "$previous"; then
+        echo "Checks failed, but rolling back would overwrite your local edits, so the checkout stays at $(git rev-parse --short HEAD)."
+        echo "Save or discard those edits, then run: git reset --hard $previous"
+        exit 1
+    fi
     echo "Checks failed. Rolled back to $(git rev-parse --short HEAD)."
     # The failed hook may have restarted services onto the new code; run it again on the restored
     # tree so they follow the rollback (2.2.5 review). Best effort: a second failure is only a warning.

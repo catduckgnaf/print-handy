@@ -199,44 +199,54 @@ class OctoPrintMonitor:
                 return None, False
             self._sleep(self._poll_s)
 
+
+    def _send(self, text):
+        """Deliver a terminal post (#1095): the production sender lets the
+        starter pings classifier decide the ping from the terminal kind
+        and this print; an injected post callable keeps its shape."""
+        if self._post is _default_post:
+            return self._post(text, ping_kind=self._terminal_kind, ping_job_key=self.filename)
+        return self._post(text)
+
     def _terminal_post(self, kind):
+        self._terminal_kind = kind
         text = print_summary.format_event(kind, self.filename)
         if kind != "complete":
-            self._post(text)
+            self._send(text)
             return kind
         movie, lookup_failed = self._await_movie()
         if movie is None:
             if lookup_failed:
-                self._post(f"{text}\nTimelapse not attached: the rendered video "
+                self._send(f"{text}\nTimelapse not attached: the rendered video "
                            "couldn't be listed (see the monitor log).")
             else:
                 log(f"no rendered timelapse listed for {self.filename!r} "
                     "(OctoPrint timelapse off or not rendered); posting the completion without it")
-                self._post(text)
+                self._send(text)
             return kind
         try:
             video = self._video_fn(movie)
         except Exception as exc:
             log(f"octoprint timelapse fetch failed for {self.filename!r}: {exc!r}; "
                 "posting the completion without it")
-            self._post(f"{text}\nTimelapse not attached: the rendered video "
+            self._send(f"{text}\nTimelapse not attached: the rendered video "
                        "couldn't be downloaded (see the monitor log).")
             return kind
         if video is None:
-            self._post(f"{text}\n{_too_big_text()}")
+            self._send(f"{text}\n{_too_big_text()}")
             return kind
         try:
             # The production sender reports a refusal as a False return,
             # not an exception (the P2-169/P2-173 contract): only an
             # explicit False means undelivered.
-            if self._post(f"{text}\nMEDIA:{video}") is False:
+            if self._send(f"{text}\nMEDIA:{video}") is False:
                 log(f"octoprint completion post with timelapse was refused for "
                     f"{self.filename!r}; posting the text only")
-                self._post(text)
+                self._send(text)
         except Exception as exc:
             log(f"octoprint completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                 "posting the text only")
-            self._post(text)
+            self._send(text)
         return kind
 
     # -- the poll loop ---------------------------------------------------------
@@ -300,9 +310,9 @@ class OctoPrintMonitor:
         return None
 
 
-def _default_post(message):
+def _default_post(message, **kwargs):
     from . import moonraker_event_listener as mel
-    return mel.post(message)
+    return mel.post(message, **kwargs)
 
 
 def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):

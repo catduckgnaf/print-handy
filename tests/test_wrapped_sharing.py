@@ -119,15 +119,15 @@ class ExporterTests(unittest.TestCase):
             kinds = {entry["name"]: entry["kind"] for entry in manifest["files"]}
             self.assertEqual(kinds["index.html"], "page")
             self.assertEqual(kinds["share-card.png"], "share-card")
-            self.assertTrue(any("no wrapped-2025.mp4" in note
-                                for note in manifest["notes"]))
+            self.assertTrue(any("left out" in note for note in manifest["notes"]))
 
     def test_video_copied_and_embedded_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "wrapped"
             out.mkdir(parents=True)
             (out / "wrapped-2025.mp4").write_bytes(b"fake-mp4-bytes")
-            result = share_export.export_bundle(_payload(), out, visibility="public")
+            result = share_export.export_bundle(_payload(), out, visibility="public",
+                                                include_video=True)
             folder = Path(result["path"])
             self.assertTrue(result["video_included"])
             self.assertEqual((folder / "wrapped-2025.mp4").read_bytes(), b"fake-mp4-bytes")
@@ -257,7 +257,8 @@ def _load_settings(tmp, extra=""):
 class SharePanelAndRouteTests(unittest.TestCase):
     def test_export_share_gated_by_wrapped_enabled(self):
         code, body = data_module.export_share(
-            {"timelapse": {}}, 2025, "public", records_vault="/nope")
+            {"timelapse": {"wrapped_enabled": False}}, 2025, "public",
+            records_vault="/nope")
         self.assertEqual(code, 403)
         self.assertIn("wrapped_enabled", body["reason"])
 
@@ -333,7 +334,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
     def test_share_post_refused_when_wrapped_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             _write_vault(tmp)
-            httpd = self.start(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
             port = httpd.server_address[1]
             body = "_csrf=" + httpd.form_token + "&year=2025&visibility=public"
             code, raw = self.request(

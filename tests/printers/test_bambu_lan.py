@@ -394,8 +394,8 @@ def test_printer_state_check_uses_telemetry_and_spoolman_but_never_moonraker(mon
 def test_wizard_collects_lan_status_as_config_plus_secret():
     answers = {"brand": "bambulab", "model": "bambulab.a1", "bambu_lan": "yes",
                "lan_host": "192.168.1.50", "lan_serial": SERIAL, "bambu_lan_password": CODE,
-               "spoolman": "skip", "camera": "no", "have_bot": "yes", "hermes": "no"}
-    plan = build_plan(Wizard(answers=answers, output=io.StringIO()), hermes_found=False)
+               "spoolman": "skip", "camera": "no", "have_bot": "yes"}
+    plan = build_plan(Wizard(answers=answers, output=io.StringIO()))
     assert plan["config"]["bambu"] == {"lan_host": "192.168.1.50", "lan_serial": SERIAL}
     assert plan["secrets"]["BAMBU_LAN_PASSWORD"] == CODE
     assert CODE not in json.dumps(plan["config"])  # the access code never lands in config
@@ -403,6 +403,6 @@ def test_wizard_collects_lan_status_as_config_plus_secret():
 
 def test_wizard_without_lan_keeps_the_offline_plan():
     answers = {"brand": "bambulab", "model": "bambulab.a1", "bambu_lan": "no",
-               "spoolman": "skip", "camera": "no", "have_bot": "yes", "hermes": "no"}
-    plan = build_plan(Wizard(answers=answers, output=io.StringIO()), hermes_found=False)
+               "spoolman": "skip", "camera": "no", "have_bot": "yes"}
+    plan = build_plan(Wizard(answers=answers, output=io.StringIO()))
     assert "bambu" not in plan["config"] and plan["secrets"]["BAMBU_LAN_PASSWORD"] == ""

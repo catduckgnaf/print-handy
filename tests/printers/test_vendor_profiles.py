@@ -45,6 +45,8 @@ def without_added(data):
     for key in ("wrapped_enabled", "wrapped_ai_video",
                 "wrapped_tts_engine", "wrapped_music_file"):  # added by #956 / #981 step 4, after capture
         data.get("timelapse", {}).pop(key, None)
+    data.get("timelapse", {}).pop("data_enabled", None)  # added by the Data/Wrapped split (settings restructure stage 5), after capture
+    data.get("timelapse", {}).pop("data_enabled_explicit", None)  # resolved-state flag stamped with the stage 5 fix, after capture
     data.pop("webui", None)  # added by #286 stage 1, after the golden files were captured
     data.pop("live_stream", None)  # added by #311 stage 3, after the golden files were captured
     data.pop("design", None)  # added by #388 stage 1, after the golden files were captured
@@ -53,7 +55,7 @@ def without_added(data):
     data.get("vision", {}).pop("roast_enabled", None)  # added by the roast switch, after capture
     data.get("vision", {}).pop("roast_custom_bank", None)  # added by #1002 Phase 4, after capture
     data.get("discord", {}).pop("clarify_ui", None)  # added by #524 stage 2, after capture
-    data.get("discord", {}).pop("mention_starter_on_complete", None)  # added with starter mentions, after capture
+    data.get("discord", {}).pop("mention_starter", None)  # added with starter mentions, after capture
     data.pop("spool", None)  # added by #512 (spool.prompt_brand), after the golden files were captured
     data.pop("telegram", None)  # added by #164 stage 2, after the golden files were captured
     data.pop("matrix", None)  # added by #164 stage 3, after the golden files were captured
@@ -163,8 +165,13 @@ def test_existing_printer_defaults_are_unchanged(key):
 
 
 @pytest.mark.parametrize("key", EXISTING)
-def test_existing_printer_loaded_settings_are_unchanged(key):
-    """model_settings.json: settings.load() for each model on main, before the vendor layer."""
+def test_existing_printer_loaded_settings_are_unchanged(key, tmp_path, monkeypatch):
+    """model_settings.json: settings.load() for each model on main, before the vendor layer.
+
+    The home folder is an empty temporary one, so the default [paths] do not depend on
+    whether the machine running the test still has the old ~/.hermes folders."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     want = json.loads((GOLDEN / "model_settings.json").read_text())[key]
     got = load({"PRINT_HANDY__PRINTER__MODEL": key})
 

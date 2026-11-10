@@ -178,6 +178,73 @@ def test_bottom_chamfer_around_a_part_is_not_a_clearance_risk(tmp_path):
     assert [r for r in rep['regions'] if r.get('kind') == 'sloped_wedge_root']
 
 
+def _outward(tris):
+    """Flip every triangle the same way so the closed mesh's signed volume is positive."""
+    import numpy as np
+    t = np.array(tris, float)
+    if np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() < 0:
+        t = t[:, ::-1]
+    return [[tuple(v) for v in tri] for tri in t]
+
+
+def sawtooth_underside_file(tmp_path, width=40.0, z_lo=0.5, amp=0.25, nz=0.9):
+    """A 40 x 40 mm part whose faceted underside floats 0.5-0.75 mm over the plate.
+
+    The facets tilt about 26 degrees from horizontal (|nz| 0.9), so the
+    region's median slope sits in the wedge band and its rise width is about
+    0.5 mm, but the surface is 40 mm across. A 2 mm foot at x < 0 touches
+    the plate, so the region is anchored.
+    """
+    half = amp * nz / math.sqrt(1 - nz * nz)
+    poly = [(-2.0, 0.0), (0.0, 0.0), (0.0, z_lo)]
+    x = 0.0
+    while x + 2 * half <= width + 1e-9:
+        poly += [(x + half, z_lo + amp), (x + 2 * half, z_lo)]
+        x += 2 * half
+    poly += [(x, 30.0), (width / 2, 30.0), (-2.0, 30.0)]
+    tris = []
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        q = [(a[0], 0.0, a[1]), (a[0], 40.0, a[1]), (b[0], 40.0, b[1]), (b[0], 0.0, b[1])]
+        tris += [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]
+    for k in range(1, len(poly) - 1):   # caps fanned from the top-center vertex, which sees every vertex
+        c, p, n = poly[-2], poly[k - 1], poly[k]
+        tris.append([(c[0], 0.0, c[1]), (n[0], 0.0, n[1]), (p[0], 0.0, p[1])])
+        tris.append([(c[0], 40.0, c[1]), (p[0], 40.0, p[1]), (n[0], 40.0, n[1])])
+    return write_3mf(tmp_path / 'sawtooth.3mf', [('SAW', _outward(tris), '', None)])
+
+
+def test_wide_faceted_underside_is_not_a_wedge_root(tmp_path):
+    # Before the fix the rise width (~0.5 mm) alone let this 1560 mm2 floating
+    # surface pass as a harmless sloped_wedge_root; before #1093 it was flagged.
+    rep = support_clearance.analyze(str(sawtooth_underside_file(tmp_path)))
+    assert not [r for r in rep['regions'] if r.get('kind') == 'sloped_wedge_root']
+    assert rep['risky'] is True
+    finding = next(f for f in rep['findings'] if f['code'] == support_clearance.CODE_CLEARANCE)
+    assert finding['trigger'] == 'area' and finding['area_mm2'] > 1000
+
+
+def test_round_bottom_chamfer_is_still_a_wedge_root(tmp_path):
+    # A 1 mm 45 degree chamfer around a 60 mm round part: the strip's bounding
+    # width is the whole part, but it is a thin ring, so #1093's exclusion holds.
+    r_out, ch, h, n = 30.0, 1.0, 10.0, 96
+    ang = [2 * math.pi * k / n for k in range(n)]
+    ring = lambda r, z: [(40 + r * math.cos(a), 40 + r * math.sin(a), z) for a in ang]  # noqa: E731
+    bottom, shoulder, top = ring(r_out - ch, 0.0), ring(r_out, ch), ring(r_out, h)
+    tris = []
+    for lo, hi in ((bottom, shoulder), (shoulder, top)):
+        for i in range(n):
+            j = (i + 1) % n
+            tris += [[lo[i], lo[j], hi[j]], [lo[i], hi[j], hi[i]]]
+    for i in range(n):
+        j = (i + 1) % n
+        tris.append([(40, 40, 0.0), bottom[j], bottom[i]])
+        tris.append([(40, 40, h), top[i], top[j]])
+    rep = support_clearance.analyze(str(write_3mf(tmp_path / 'round.3mf', [('ROUND', _outward(tris), '', None)])))
+    assert support_clearance.CODE_CLEARANCE not in support_clearance.codes(rep)
+    assert [r for r in rep['regions'] if r.get('kind') == 'sloped_wedge_root']
+
+
 def test_flat_low_underside_is_still_a_clearance_risk(tmp_path):
     shelf = box(0, 0, 0.5, 60, 34, 5.0)
     path = write_3mf(tmp_path / 'flat.3mf', [('SHELF', shelf, '', None)])

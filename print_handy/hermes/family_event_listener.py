@@ -255,6 +255,16 @@ class FamilyListener:
                                        self.connection, self._printer_id, status)
                 except Exception as exc:
                     log(f"family pause post failed file={filename!r}: {exc!r}")
+            if prev == "paused" and state == "printing" and self._current is not None:
+                # A resume ends the pause: its starter-ping episodes
+                # stop suppressing, so a later pause is a new problem
+                # that can ping (#1095).
+                try:
+                    from . import starter_pings
+                    starter_pings.clear_pause_episodes(
+                        job_key=self._current["filename"] or filename)
+                except Exception as exc:
+                    log(f"family pause episode clear failed file={filename!r}: {exc!r}")
         elif state in _TERMINAL:
             if self._current is not None:
                 # prev is active for the direct transition; an unknown

@@ -1,7 +1,7 @@
 {
  "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
- "_license": "Original to Print Handy; MIT with the project.",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": {
   "benchy": [
    {
@@ -523,11 +523,6 @@
     "id": "title-holder-title-is-dedicated-to-holding",
     "family": "title-holder",
     "text": "{title} is dedicated to holding one specific tool you will misplace in five minutes anyway."
-   },
-   {
-    "id": "title-holder-title-is-a-custom-cradle",
-    "family": "title-holder",
-    "text": "{title} is a custom cradle for an item resting on the desk fine."
    },
    {
     "id": "title-holder-title-will-faithfully-hold-its",
@@ -1612,7 +1607,7 @@
    {
     "id": "title-chute-title-will-channel-molten-plastic",
     "family": "title-chute",
-    "text": "{title} will channel molten plastic curls until an extra-wide purge purge jams the throat."
+    "text": "{title} will channel molten plastic curls until an extra-wide purge jams the throat."
    },
    {
     "id": "title-chute-behold-title-the-waste-slide",
@@ -2086,7 +2081,7 @@
    {
     "id": "title-crown-title-perches-on-your-head",
     "family": "title-crown",
-    "text": "{title} perches on your head with spiky points that dig into scalp."
+    "text": "{title} perches on your head with spiky points that dig into your scalp."
    },
    {
     "id": "title-crown-you-crowned-yourself-monarch-of",
@@ -2668,7 +2663,7 @@
    {
     "id": "title-whistle-title-will-sit-on-your",
     "family": "title-whistle",
-    "text": "{title} will sit on your emergency keychain, ready to irritate neighbors at a moment notice."
+    "text": "{title} will sit on your emergency keychain, ready to irritate neighbors at a moment's notice."
    },
    {
     "id": "title-whistle-behold-title-the-pocket-noisemaker",

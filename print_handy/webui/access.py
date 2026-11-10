@@ -1,23 +1,31 @@
-"""Who may use the Web UI, decided in one place (#708 first-run setup).
+"""Who may use the Web UI, decided in one place.
 
 The server asks an :class:`Access` whether a credential is required and
 whether a provided one matches; it never holds the secret itself. The
-rules, first match wins, keep every existing install exactly as it was:
+rules, first match wins:
 
 1. ``[webui] require_auth = false`` — open, the explicit trusted-network
    opt-out (#704). A token in the environment is ignored, as before.
-2. The access token in the environment variable ``[webui]
+2. A login saved by the walkthrough's Login step in the state folder
+   (``ACCESS_FILE``): a username and hashed password. A saved login is
+   checked before rule 3 for people signing in (#875); the environment
+   token is still accepted alongside it, so header clients keep working
+   and the token remains a way back in after a forgotten password.
+   A saved "open" choice is honored after rule 3: it does not override
+   a token.
+3. The access token in the environment variable ``[webui]
    access_token_env`` names — that token is required, as before.
-3. The choice saved by the setup page or the walkthrough's Login step in
-   the state folder (``ACCESS_FILE``): a username and hashed password, or
-   an explicit "open". A saved login is checked before rule 2 for people
-   signing in (#875); the environment token is still accepted alongside
-   it, so header clients keep working and the token remains a way back
-   in after a forgotten password. A saved "open" does not override a token.
-4. A loopback bind — open (the form token still guards writes), as before.
-5. Otherwise — ``setup``: the Web UI serves only the setup page until the
-   operator sets a password or affirmatively leaves it open. Before #708
-   this case refused to start at all, so no working install lands here.
+4. Otherwise — open and *unclaimed*: no credential exists yet, so the
+   Web UI serves everything and surfaces the unclaimed state (the
+   walkthrough is offered, with its Login step as the place to set a
+   password). A credential comes into existence only by a deliberate
+   act: the Docker variable (rule 3), the walkthrough's Login step, or
+   a chat platform writing through the same writers.
+
+This reverses the first-run setup gate from #708 (and #440 before it):
+an unclaimed install is no longer blocked behind a setup page that
+serves nothing else. The ``SETUP`` mode name is kept only so older
+imports do not break; :func:`resolve` never returns it.
 
 The password is stored only as a salted PBKDF2-SHA256 hash; the file is
 written atomically with mode 0600. Deleting it is the reset; the
@@ -28,7 +36,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import ipaddress
 import json
 import os
 import secrets
@@ -44,7 +51,6 @@ ACCESS_FILE = "webui_access.json"
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 64
 _ITERATIONS = 200_000
-_LOOPBACK_NAMES = frozenset({"localhost"})
 
 OPEN, TOKEN, PASSWORD, SETUP = "open", "token", "password", "setup"
 
@@ -53,24 +59,22 @@ class AccessError(ValueError):
     """A setup choice was refused (too short, mismatched, or not confirmed)."""
 
 
-def _is_loopback(host):
-    if host in _LOOPBACK_NAMES:
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 def _digest(secret, salt, iterations):
     return hashlib.pbkdf2_hmac("sha256", secret.encode("utf-8"), salt, iterations)
 
 
 @dataclass
 class Access:
-    """The resolved access rule. ``mode`` is one of OPEN, TOKEN, PASSWORD, SETUP."""
+    """The resolved access rule. ``mode`` is one of OPEN, TOKEN, PASSWORD.
+
+    ``unclaimed`` is true when the mode is OPEN only because nothing has
+    been set yet — no saved choice, no environment token, and
+    ``require_auth`` not turned off. It is a state the UI surfaces (a
+    "no login set" note pointing at the walkthrough's Login step), never
+    a serving block."""
 
     mode: str
+    unclaimed: bool = False
     _token: str = field(default="", repr=False)
     _salt: bytes = field(default=b"", repr=False)
     _hash: bytes = field(default=b"", repr=False)
@@ -104,7 +108,11 @@ class Access:
 
     @property
     def setup_pending(self):
-        return self.mode == SETUP
+        """Kept for older callers: nothing is ever setup-pending any more.
+
+        The gate reversal removed the setup serving block; an install
+        with no credential is OPEN and ``unclaimed`` instead."""
+        return False
 
     def matches(self, provided):
         """Constant-time check of a provided token or password."""
@@ -245,9 +253,10 @@ def resolve(data, host, environ=None):
         return Access(TOKEN, _token=token)
     if saved is not None:
         return saved
-    if _is_loopback(host):
-        return Access(OPEN)
-    return Access(SETUP)
+    # Nothing set: open on every bind, loopback or not, with the claim
+    # state exposed so the UI can offer the walkthrough and its Login
+    # step instead of gating on a setup page (the #708 reversal).
+    return Access(OPEN, unclaimed=True)
 
 
 def _write(path, payload):

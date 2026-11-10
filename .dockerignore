@@ -14,7 +14,7 @@
 data
 tests
 docs
-hermes
+!docs/COMPONENTS.md
 .claude
 config/local.yaml
 config/local.toml

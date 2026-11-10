@@ -27,6 +27,19 @@ question): ``capture_trigger`` is ``interval`` (default; a frame every
 ``capture_interval_s`` seconds), ``layer`` (a frame on each Moonraker
 layer change, moonraker-timelapse semantics) or ``both``.
 
+Long prints: a frame cap that simply stopped capturing would give a clip
+of only the first hours of a long print. Instead, when the stored frames
+reach half of ``capture_max_frames`` the session halves them (every other
+stored frame, counting back from the newest, is dropped and the rest renumbered) and doubles its capture
+interval, so the frames always cover the whole print at an even spacing and
+the cap itself is never reached by time alone. The interval in effect at
+the end, and how many times it was doubled, are recorded in the manifest
+(``interval_s``, ``decimations``); the encoder picks its playback speed
+from the frame count and the target clip length, so the clip stays a
+watchable length however many times this happened. Only the byte cap (or a
+cap too small to halve) still ends capture, and then ``capped`` is set and
+the completion post says how much of the print the clip covers.
+
 Failure posture (the #235 lesson): capture is a side feature. Every
 public entry point fails soft — a dead camera, a refused connection or a
 full disk is logged and the print, its announcements and its completion
@@ -185,6 +198,9 @@ class IntervalTrigger:
     def note_captured(self, now):
         self._last = now
 
+    def scale_interval(self, factor):
+        self.interval_s *= factor
+
 
 class LayerTrigger:
     """A frame on each layer change (and on the first layer seen)."""
@@ -214,6 +230,9 @@ class BothTrigger:
 
     def note_captured(self, now):
         self._interval.note_captured(now)
+
+    def scale_interval(self, factor):
+        self._interval.scale_interval(factor)
 
 
 _TRIGGERS = {"interval": IntervalTrigger, "layer": LayerTrigger, "both": BothTrigger}
@@ -298,6 +317,9 @@ class CaptureSession:
         self.dark_frames = 0
         self._frames = 0
         self._bytes = 0
+        self._sizes = []
+        self.decimations = 0
+        self._layer_frames_seen = 0
         self._last_layer = None
         self._started_at = None
         self._finished_at = None
@@ -367,6 +389,12 @@ class CaptureSession:
         if not self.active:
             return False
         now = self._now() if now is None else now
+        if self.decimations and getattr(self.trigger, "name", "") in ("layer", "both"):
+            # Layer-heavy sampling must remain even after decimation, even in
+            # both mode where interval samples may also be due.
+            self._layer_frames_seen += 1
+            if (self._layer_frames_seen - 1) % (2 ** self.decimations):
+                return False
         if self.max_frames and self._frames >= self.max_frames:
             return self._cap(f"frame cap ({self.max_frames})")
         try:
@@ -415,12 +443,56 @@ class CaptureSession:
             return False
         self._frames += 1
         self._bytes += len(image)
+        self._sizes.append(len(image))
         self.trigger.note_captured(now)
+        if self._should_decimate():
+            self._decimate()
         try:
             self._write_manifest()
         except Exception as exc:  # the frame is stored; the manifest is bookkeeping
             self._say(f"timelapse capture manifest write failed for {self.filename!r}: {exc!r}")
         return True
+
+    def _should_decimate(self) -> bool:
+        # A cap under four frames cannot be halved usefully; it just ends capture.
+        return self.max_frames >= 4 and self._frames >= self.max_frames // 2
+
+    def interval_s(self):
+        """The capture interval in effect now (after any doubling), or None."""
+        value = getattr(self.trigger, "interval_s", None)
+        if value is None:
+            value = getattr(getattr(self.trigger, "_interval", None), "interval_s", None)
+        return value
+
+    def _decimate(self):
+        """Keep every other stored frame, renumber, and double the interval."""
+        try:
+            frames = sorted(self.frames_dir.glob("frame-*.jpg"))
+            # Counted back from the newest frame, which is always kept: the
+            # next frame arrives one doubled interval after it, exactly the
+            # spacing the survivors now have.
+            keep = [(len(frames) - 1 - index) % 2 == 0 for index in range(len(frames))]
+            for frame, wanted in zip(frames, keep):
+                if not wanted:
+                    frame.unlink()
+            kept = [frame for frame, wanted in zip(frames, keep) if wanted]
+            for number, frame in enumerate(kept, start=1):
+                target = frame.with_name(f"frame-{number:06d}.jpg")
+                if target != frame:
+                    os.replace(frame, target)
+            self._sizes = [size for size, wanted in zip(self._sizes, keep) if wanted]
+            self._frames = len(kept)
+            self._bytes = sum(self._sizes)
+        except Exception as exc:  # keep capturing; the byte or frame cap still bounds the job
+            self._say(f"timelapse frame halving failed for {self.filename!r}: {exc!r}")
+            return
+        scale = getattr(self.trigger, "scale_interval", None)
+        if scale is not None:
+            scale(2)
+        self.decimations += 1
+        self._say(f"timelapse capture for {self.filename!r} halved to {self._frames} "
+                  f"frame(s); interval now {self.interval_s()}s "
+                  f"({self.decimations} halving(s))")
 
     def _cap(self, why) -> bool:
         self.capped = True
@@ -443,6 +515,8 @@ class CaptureSession:
             "filename": self.filename,
             "state": self.state,
             "capped": self.capped,
+            "decimations": self.decimations,
+            "interval_s": self.interval_s(),
             "trigger": getattr(self.trigger, "name", "interval"),
             "source": redact_url(self.url or ""),
             "printer_id": self.printer_id,

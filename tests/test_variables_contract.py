@@ -63,10 +63,6 @@ EXEMPTIONS = {
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
-    # The AI edit-lane gate (#902) is file-only too: who may reach the AI is
-    # an operator decision made in the settings file.
-    ("ai", "allowed_users"): (frozenset({"webui"}), "#902"),
-    ("ai", "edit_requests_per_hour"): (frozenset({"webui"}), "#902"),
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
     ("ai", "heavy"): (frozenset({"webui"}), "#818"),
     ("ai", "small"): (frozenset({"webui"}), "#818"),
@@ -82,8 +78,6 @@ EXEMPTIONS = {
     ("design", "timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "bot_name"): (frozenset({"webui"}), "#657"),
     ("discord", "cold_pull_outcome_s"): (frozenset({"webui"}), "#657"),
-    ("discord", "daily_reset_hour"): (frozenset({"webui", "consumer"}), "#524"),
-    ("discord", "post_print_quiet_s"): (frozenset({"webui", "consumer"}), "#524"),
     ("discord", "question_timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "safety_confirm_timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "token_env"): (frozenset({"webui"}), "#286"),
@@ -120,10 +114,7 @@ EXEMPTIONS = {
     # path settings have no catalog fields in this codebase.
     ("paths", "piper"): (frozenset({"webui"}), "#981"),
     ("paths", "piper_model"): (frozenset({"webui"}), "#981"),
-    ("paths", "hermes_agent"): (frozenset({"webui", "consumer"}), "#657"),
-    ("paths", "hermes_bin"): (frozenset({"webui"}), "#657"),
     ("paths", "hermes_home"): (frozenset({"webui"}), "#657"),
-    ("paths", "hermes_restart_helper"): (frozenset({"webui"}), "#657"),
     ("paths", "records_vault"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "edge_mm"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "merge_slack_mm"): (frozenset({"webui"}), "#657"),
@@ -158,15 +149,15 @@ EXEMPTIONS = {
     # #1002 retired the LLM roast model (kept in OPTIONAL_KEYS so existing configs load).
     ("vision", "roast_model"): (frozenset({"webui", "consumer"}), "#1002"),
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
-    # Deliberately not editable from the Web UI it protects: turning auth
-    # off is a file/env decision, never a click on the page it unlocks.
-    ("webui", "require_auth"): (frozenset({"webui"}), "#286"),
-    # Like require_auth: arming printer controls is a file/environment decision,
-    # not a click on the page it arms. The env sample documents the safe default.
-    ("webui", "controls_enabled"): (frozenset({"webui"}), "#708"),
-    # Like require_auth and controls_enabled: cookie transport security is an
-    # infrastructure/environment posture decision, not a click in the Web UI.
-    ("webui", "cookie_secure"): (frozenset({"webui"}), "P0 exposure"),
+    # webui.require_auth, webui.controls_enabled and webui.cookie_secure
+    # carried webui-surface exemptions until the first-boot parity program's
+    # settings-completeness pass gave all three catalog fields; the
+    # exemptions were removed with the fields, per the ratchet.
+    # Note (not an exemption): the first-boot parity plan's surface list
+    # also named the in-repo Unraid template (docker/unraid/print-handy.xml)
+    # for these keys. #1108 has since merged and slimmed that template to
+    # the CA set plus Spoolman, so it carries no Web UI settings at all and
+    # no template entry is owed for the three keys.
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 

@@ -70,11 +70,6 @@ RETRY_CUSTOM_ID = "pbretry:"
 STOP_SENDER = None
 # Set by the plugin to edit the original Uploading/Stop prompt and install Retry after a safe refusal.
 REFUSAL_EDITOR = None
-# Set by the plugin on the clarify-UI path only (#524 stage 2, S6), where the standing prompt is
-# Print Handy's own question message rather than a Stop view: async
-# (source, channel_id, message_id, text, context, raw) -> bool, editing that message by Discord
-# id into plain guidance plus Retry after a safe refusal.
-REFUSAL_EDITOR_BY_ID = None
 
 
 class Stopped(BaseException):
@@ -263,25 +258,17 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 with contextlib.suppress(Exception):
                     await stop_msg.edit(view=None)
         elif sent is not None and getattr(sent, "message_id", None):
-            # Clarify path (#524 stage 2, S6): the standing prompt is Print
+            # Clarify path (#524 stage 2): the standing prompt is Print
             # Handy's own question message — it carries a message id and
-            # there is no Stop view to retire. Complete it in place: after
-            # a confirmed pre-upload refusal it becomes the guidance-plus-
-            # Retry message (edited by id, mirroring the Stop path's
-            # outcome); otherwise its buttons are simply retired through
-            # the adapter, the same end state a click produces.
+            # there is no Stop view to retire. Complete it in place: its
+            # buttons are retired through the adapter, the same end state
+            # a click produces.
             handled = False
             if (refusal_context is not None and isinstance(result, tuple) and len(result) >= 2
                     and not result[0] and _safe_preupload_refusal(result[1])
                     and not _color_prompt_follows(refusal_context, result[1])):
                 detail = str(result[1])
                 refusal_context['start_prompt_message_id'] = str(sent.message_id)
-                if REFUSAL_EDITOR_BY_ID is not None:
-                    with contextlib.suppress(Exception):
-                        handled = bool(await REFUSAL_EDITOR_BY_ID(
-                            source, str(getattr(source, "thread_id", None) or source.chat_id),
-                            str(sent.message_id), _launch_refusal_text(detail),
-                            refusal_context, detail))
                 refusal_context['prompt_handled'] = handled
             if not handled:
                 retire = getattr(adapter, "retire_prompt", None)
@@ -3653,8 +3640,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                               {'copies': copies} if copies and int(copies) > 1 else {})))
                         await early.started.wait()
                         continue
-                    matrix, _dims = found
-                    latest['orientation'] = {'rotation': matrix}
+                    matrix, dims = found
+                    # The rotated (unscaled) envelope goes with the rotation,
+                    # as every other orientation writer records it: without
+                    # it the bed pre-check and "make it N mm tall" measure the
+                    # authored pose, not the one that prints.
+                    latest['orientation'] = {'rotation': matrix,
+                                             **({'dims_full_mm': [round(float(v), 4) for v in dims]}
+                                                if dims else {})}
                     latest.pop('support_decision', None)
                     latest.pop('clearance_acknowledgement', None)
                     # The cached report describes the pose as authored;

@@ -252,3 +252,15 @@ def test_remap_filament_choices_single_color_mode():
         job, {1: 4}, lambda sel: {**sel, 'spoolman_id': 100 + sel['slot']})
     assert changed == 1
     assert job['color_decisions']['selection'] == {'slot': 4, 'spoolman_id': 104}
+
+
+def test_single_color_remap_without_a_manifest_still_refuses_unknown_filaments():
+    # A one-color job with no source manifest prints as source filament 1;
+    # a map naming any other id is unknown, never silently accepted.
+    job = {'color_manifest': {'parts': [], 'painted': False, 'filaments': [], 'filament_stats': {}},
+           'color_decisions': {'mode': 'single_color', 'selection': {'slot': 1}}}
+    with pytest.raises(ai_fix.FixError, match='unknown source filament'):
+        ai_fix.remap_filament_choices(job, {7: 4}, lambda sel: sel)
+    assert job['color_decisions']['selection'] == {'slot': 1}
+    assert ai_fix.remap_filament_choices(job, {1: 4}, lambda sel: sel) == 1
+    assert job['color_decisions']['selection'] == {'slot': 4}

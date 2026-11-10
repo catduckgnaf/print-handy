@@ -22,6 +22,17 @@ compiled ``wrapped-<year>.mp4`` already exists in the wrapped
 outputs — the video file itself, embedded in the page with a
 ``<video>`` element in its own section.
 
+What a bundle contains is chosen before the export and shown on the
+Share panel: the year's numbers (prints, hours, kilograms, success rate,
+top color and material, busiest month and hour, outcome counts, the
+personality), the commentary lines, and, each one optional, the print
+titles that appear on the page and in the commentary, the printer name,
+and the compiled video. The video is camera footage (frames from the
+printer's camera), so it is off unless asked for. A title is never a file
+path: a title that is one is reduced to the file's base name. Leaving
+titles or printer names out also drops every commentary line that
+mentions them.
+
 Hygiene: the renderers read only the known wrapped payload fields
 (``year``, ``headline``, ``highlights``, ``stats``, ``script``,
 ``archetype``), so nothing else that rides along in a payload dict —
@@ -54,14 +65,25 @@ named note and exports still work.
 """
 from __future__ import annotations
 
+import copy
 import html
 import json
+import os
+import re
 import secrets
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core.print_stats import hours_text, plural
+
 VISIBILITIES = ("public", "link-only", "private")
+# Link-only exports each get a new unguessable folder; older ones for the
+# same year are removed past this many so they do not pile up.
+MAX_LINK_ONLY_EXPORTS = 3
+VIDEO_FOOTAGE_NOTE = ("The video contains camera footage: frames from your "
+                      "printer's camera, which can show the room, the desk "
+                      "and anyone in view. Watch it before you share it.")
 CARD_LANDSCAPE_SIZE = (1200, 630)
 CARD_VERTICAL_SIZE = (1080, 1350)
 REGISTRY_NAME = "exports.json"
@@ -101,6 +123,93 @@ def _esc(value):
 
 def _rate(rate):
     return "unknown" if rate is None else f"{round(rate * 100):g}%"
+
+
+def _title_strings(payload):
+    """Every print title (and job key) the payload carries."""
+    found = set()
+
+    def walk(value, key=None):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(v, k)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, key)
+        elif isinstance(value, str) and value.strip():
+            if key in ("title", "titles", "job_key", "job_title"):
+                found.add(value.strip())
+
+    walk(payload.get("highlights") or {})
+    walk(payload.get("stats") or {})
+    return found
+
+
+def _printer_strings(payload):
+    found = set()
+    highlights = payload.get("highlights") or {}
+    if highlights.get("top_printer"):
+        found.add(str(highlights["top_printer"]))
+    breakdowns = (payload.get("stats") or {}).get("breakdowns") or {}
+    for table in ("by_printer", "by_printer_profile"):
+        found.update(str(name) for name in (breakdowns.get(table) or {}) if name != "unknown")
+    return found
+
+
+def _mentions(line, names):
+    return any(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", line) for name in names)
+
+
+def preview(payload):
+    """What an export would carry that a viewer might not expect.
+
+    ``titles`` and ``printers`` are the exact names that would appear on
+    the page and in the commentary, so the Share panel can show them
+    before anything is written.
+    """
+    payload = payload or {}
+    return {"titles": sorted(_title_strings(payload)),
+            "printers": sorted(_printer_strings(payload))}
+
+
+def redact_payload(payload, *, include_titles=True, include_printers=True):
+    """A copy of the wrapped payload with the chosen parts removed.
+
+    Commentary lines that mention a removed title or printer are dropped
+    (they are generated text, so a name cannot be cut out of one cleanly),
+    the fields that held the names are emptied, and the records-level
+    enrichment (source links, filament selections, stop sidecars) never
+    leaves the machine in any mode.
+    """
+    out = copy.deepcopy(payload or {})
+    titles = _title_strings(out) if not include_titles else set()
+    printers = _printer_strings(out) if not include_printers else set()
+    banned = titles | printers
+    if banned:
+        out["script"] = [line for line in (out.get("script") or [])
+                         if not _mentions(str(line), banned)]
+
+    def scrub(value):
+        if isinstance(value, dict):
+            for key in list(value):
+                if key in ("enrichments", "stop_detail", "stop_detail_by_record", "per_print"):
+                    value.pop(key)
+                elif not include_titles and key in ("title", "job_key", "job_title"):
+                    value[key] = None
+                elif not include_titles and key == "titles":
+                    value[key] = []
+                elif not include_printers and key in ("top_printer", "printer"):
+                    value[key] = None
+                elif not include_printers and key in ("by_printer", "by_printer_profile"):
+                    value.pop(key)
+                else:
+                    scrub(value[key])
+        elif isinstance(value, list):
+            for item in value:
+                scrub(item)
+
+    scrub(out)
+    return out
 
 
 def _payload_parts(payload):
@@ -171,7 +280,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
         f"<style>{_PAGE_CSS}</style>\n</head>\n<body>",
         f'<section class="wrapped-hero"><p class="eyebrow">Print Handy Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
-        f"<p>{headline.get('total_prints', 0)} prints. Scroll the year.</p></section>",
+        f"<p>{plural(headline.get('total_prints', 0), 'print')}. Scroll the year.</p></section>",
     ]
     cards = "".join(
         f'<section class="card"><p class="eyebrow">{_esc(label)}</p>'
@@ -184,7 +293,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
     sections.append(f"<h2>By the numbers</h2><div class=\"cards\">{cards}</div>")
     facts = []
     for label, key in (("Top color", "top_color"), ("Top material", "top_material"),
-                       ("Top printer", "top_printer"), ("Top vendor", "top_vendor")):
+                       ("Busiest printer (by prints)", "top_printer"), ("Top vendor", "top_vendor")):
         if highlights.get(key):
             facts.append(f"<li>{label}: {_esc(highlights[key])}</li>")
     sections.append(
@@ -196,7 +305,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
     time_facts = []
     if highlights.get("busiest_month"):
         time_facts.append(f"<li>Busiest month: {_esc(highlights['busiest_month'])} "
-                          f"({highlights.get('busiest_month_prints', 0)} prints)</li>")
+                          f"({plural(highlights.get('busiest_month_prints', 0), 'print')})</li>")
     if highlights.get("peak_weekday"):
         time_facts.append(f"<li>Busiest weekday: {_esc(highlights['peak_weekday'])}</li>")
     if highlights.get("peak_hour") is not None:
@@ -250,8 +359,8 @@ def render_share_page(payload, *, visibility="public", video_name=None):
             '<section class="card share-card"><p class="eyebrow">'
             f"Print Handy Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
-            f"<p>{headline.get('total_prints', 0)} prints · "
-            f"{headline.get('total_hours', 0):g} hours · "
+            f"<p>{plural(headline.get('total_prints', 0), 'print')} · "
+            f"{hours_text(headline.get('total_hours', 0))} · "
             f"{headline.get('total_filament_used_kg', 0):g} kg · "
             f"success rate {_rate(headline.get('success_rate'))} · "
             f"top color {_esc(highlights.get('top_color') or 'unknown')}</p></section>")
@@ -296,8 +405,8 @@ def render_share_card_png(payload, path, *, vertical=False):
                   fill=(242, 239, 233))
         y += 110
     stats_lines = [
-        f"{headline.get('total_prints', 0)} prints",
-        f"{headline.get('total_hours', 0):g} hours printing",
+        plural(headline.get('total_prints', 0), 'print'),
+        f"{hours_text(headline.get('total_hours', 0))} printing",
         f"{headline.get('total_filament_used_kg', 0):g} kg of filament",
         f"Success rate {_rate(headline.get('success_rate'))}",
         f"Top color {highlights.get('top_color') or 'unknown'}",
@@ -332,10 +441,7 @@ def load_exports(outputs_dir):
     return [entry for entry in data if isinstance(entry, dict)], None
 
 
-def _append_export(outputs_dir, entry):
-    """Append one registry entry; returns a note string or None."""
-    entries, note = load_exports(outputs_dir)
-    entries.append(entry)
+def _write_registry(outputs_dir, entries, note):
     registry = Path(outputs_dir) / REGISTRY_NAME
     try:
         registry.parent.mkdir(parents=True, exist_ok=True)
@@ -347,16 +453,58 @@ def _append_export(outputs_dir, entry):
     return note
 
 
-def export_bundle(payload, outputs_dir, *, visibility="public",
-                  destination_note="", passphrase=None, now=None):
+_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{16,}")
+
+
+def _record_export(outputs_dir, entry):
+    """Record one export; returns a note string or None.
+
+    A re-export of the same folder replaces its entry instead of listing
+    it twice. Link-only exports of a year past MAX_LINK_ONLY_EXPORTS
+    lose their oldest folders (and entries), so repeated exports do not
+    pile up copies on disk.
+    """
+    entries, note = load_exports(outputs_dir)
+    entries = [e for e in entries if e.get("folder") != entry["folder"]]
+    entries.append(entry)
+    if entry["visibility"] == "link-only":
+        same = [e for e in entries if e.get("visibility") == "link-only"
+                and e.get("year") == entry["year"]]
+        same.sort(key=lambda e: str(e.get("exported_at") or ""))
+        for old in same[:-MAX_LINK_ONLY_EXPORTS]:
+            folder = str(old.get("folder") or "")
+            if _SLUG_RE.fullmatch(folder):
+                shutil.rmtree(Path(outputs_dir) / "exports" / folder, ignore_errors=True)
+            entries.remove(old)
+    return _write_registry(outputs_dir, entries, note)
+
+
+def _place_video(source, target):
+    """The video into the bundle: a hard link when the disk allows (no
+    second full copy of a large file), else a copy."""
+    target = Path(target)
+    target.unlink(missing_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copyfile(source, target)
+
+
+def export_bundle(payload, outputs_dir, *, visibility="link-only",
+                  destination_note="", passphrase=None, now=None,
+                  include_titles=True, include_printers=True, include_video=False):
     """Write one share bundle. Returns a result dict.
 
     ``outputs_dir`` is the wrapped outputs folder (the video for the
     year, when one exists, lives directly inside it); bundles land in
     ``outputs_dir / "exports" / <folder>`` and the registry in
-    ``outputs_dir / exports.json``. ``passphrase`` is accepted for the
-    private mode's future shape and is unused while private exports
-    are unavailable — it is never stored anywhere.
+    ``outputs_dir / exports.json``. ``include_titles``,
+    ``include_printers`` and ``include_video`` choose what rides along
+    (see the module docstring); the video is camera footage and is left
+    out unless asked for. Files from an earlier export of the same
+    folder that this one no longer references are removed. ``passphrase``
+    is accepted for the private mode's future shape and is unused while
+    private exports are unavailable: it is never stored anywhere.
     """
     if visibility not in VISIBILITIES:
         return {"ok": False, "reason": f"unknown visibility {visibility!r}: "
@@ -364,6 +512,8 @@ def export_bundle(payload, outputs_dir, *, visibility="public",
                                        "Nothing was exported."}
     if visibility == "private":
         return {"ok": False, "reason": PRIVATE_UNAVAILABLE_REASON}
+    payload = redact_payload(payload, include_titles=include_titles,
+                             include_printers=include_printers)
     parts = _payload_parts(payload)
     year = parts["year"]
     if not isinstance(year, int) or isinstance(year, bool):
@@ -377,13 +527,29 @@ def export_bundle(payload, outputs_dir, *, visibility="public",
     notes = []
     video_name = f"wrapped-{year}.mp4"
     video_source = outputs_dir / video_name
-    video_included = video_source.is_file()
+    # The precompiled video can contain titles and printer names in both
+    # its slides and narration. Until it can be rebuilt from the redacted
+    # payload, never attach it when either identifying category is excluded.
+    video_included = (bool(include_video) and include_titles and include_printers
+                      and video_source.is_file())
     if video_included:
-        shutil.copyfile(video_source, folder / video_name)
-    else:
+        _place_video(video_source, folder / video_name)
+        notes.append(VIDEO_FOOTAGE_NOTE)
+    elif include_video and not (include_titles and include_printers):
+        notes.append("the compiled video was left out because it may contain "
+                     "titles or printer names excluded from this export.")
+    elif include_video:
         notes.append(f"no {video_name} in the wrapped outputs, so no video "
                      "was included; compile the Wrapped video first if you "
                      "want one in the bundle.")
+    else:
+        notes.append("the video (camera footage) was left out of this export.")
+    if not include_titles:
+        notes.append("print titles were left out, with every commentary line "
+                     "that named one.")
+    if not include_printers:
+        notes.append("printer names were left out, with every commentary line "
+                     "that named one.")
     if visibility == "link-only":
         notes.append("link-only is obscurity, not privacy: anyone with the "
                      "link can open this page. The folder name is unguessable "
@@ -406,13 +572,21 @@ def export_bundle(payload, outputs_dir, *, visibility="public",
     files.append({"name": "manifest.json", "kind": "manifest"})
     manifest = {"year": year, "visibility": visibility,
                 "exported_at": exported_at, "video_included": video_included,
+                "titles_included": bool(include_titles),
+                "printer_names_included": bool(include_printers),
                 "generator": GENERATOR_NOTE, "files": files, "notes": notes}
     (folder / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    referenced = {entry["name"] for entry in files}
+    for leftover in folder.iterdir():
+        if leftover.is_file() and leftover.name not in referenced:
+            leftover.unlink(missing_ok=True)
     entry = {"folder": folder_name, "year": year, "visibility": visibility,
              "destination": str(destination_note or ""),
-             "exported_at": exported_at, "video_included": video_included}
-    registry_note = _append_export(outputs_dir, entry)
+             "exported_at": exported_at, "video_included": video_included,
+             "titles_included": bool(include_titles),
+             "printer_names_included": bool(include_printers)}
+    registry_note = _record_export(outputs_dir, entry)
     return {"ok": True, "path": str(folder), "folder": folder_name,
             "year": year, "visibility": visibility,
             "video_included": video_included, "manifest": manifest,
@@ -420,6 +594,7 @@ def export_bundle(payload, outputs_dir, *, visibility="public",
 
 
 __all__ = ["CARD_LANDSCAPE_SIZE", "CARD_VERTICAL_SIZE", "GENERATOR_NOTE",
-           "PRIVATE_UNAVAILABLE_REASON", "REGISTRY_NAME", "VISIBILITIES",
-           "export_bundle", "load_exports", "make_slug", "private_available",
-           "render_share_card_png", "render_share_page"]
+           "MAX_LINK_ONLY_EXPORTS", "PRIVATE_UNAVAILABLE_REASON", "REGISTRY_NAME",
+           "VIDEO_FOOTAGE_NOTE", "VISIBILITIES",
+           "export_bundle", "load_exports", "make_slug", "preview", "private_available",
+           "redact_payload", "render_share_card_png", "render_share_page"]

@@ -31,8 +31,6 @@
       "bot_name": "Print Handy",
       "chat_id": "",
       "cold_pull_outcome_s": 1800,
-      "daily_reset_hour": 4,
-      "post_print_quiet_s": 7200,
       "question_timeout_s": 1800,
       "safety_confirm_timeout_s": 600,
       "timezone": "America/New_York",
@@ -113,12 +111,9 @@
     },
     "paths": {
       "archive": "~/3d-prints",
-      "cache": "~/.hermes/cache",
+      "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
-      "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
+      "hermes_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -199,8 +194,6 @@
       "bot_name": "Print Handy",
       "chat_id": "",
       "cold_pull_outcome_s": 1800,
-      "daily_reset_hour": 4,
-      "post_print_quiet_s": 7200,
       "question_timeout_s": 1800,
       "safety_confirm_timeout_s": 600,
       "timezone": "America/New_York",
@@ -281,12 +274,9 @@
     },
     "paths": {
       "archive": "~/3d-prints",
-      "cache": "~/.hermes/cache",
+      "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
-      "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
+      "hermes_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -367,8 +357,6 @@
       "bot_name": "Print Handy",
       "chat_id": "",
       "cold_pull_outcome_s": 1800,
-      "daily_reset_hour": 4,
-      "post_print_quiet_s": 7200,
       "question_timeout_s": 1800,
       "safety_confirm_timeout_s": 600,
       "timezone": "America/New_York",
@@ -449,12 +437,9 @@
     },
     "paths": {
       "archive": "~/3d-prints",
-      "cache": "~/.hermes/cache",
+      "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
-      "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
+      "hermes_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -535,8 +520,6 @@
       "bot_name": "Print Handy",
       "chat_id": "",
       "cold_pull_outcome_s": 1800,
-      "daily_reset_hour": 4,
-      "post_print_quiet_s": 7200,
       "question_timeout_s": 1800,
       "safety_confirm_timeout_s": 600,
       "timezone": "America/New_York",
@@ -617,12 +600,9 @@
     },
     "paths": {
       "archive": "~/3d-prints",
-      "cache": "~/.hermes/cache",
+      "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
-      "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
+      "hermes_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {

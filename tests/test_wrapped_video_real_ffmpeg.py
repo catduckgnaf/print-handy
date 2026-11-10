@@ -82,6 +82,22 @@ class RealFfmpegPacingTests(unittest.TestCase):
             expected = sum(s["duration"] for s in wrapped_video.build_slides(wrapped))
             self.assertAlmostEqual(_duration(Path(result["path"])), expected, delta=1.5)
 
+    def test_titles_with_percent_and_filter_syntax_compile(self):
+        """A print titled "50% scale cube" (or one carrying %{...}, quotes,
+        colons, brackets) used to break every drawtext in the compile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            title = "50% scale cube %{pts} it's: [a], {b}; c=d"
+            wrapped = {"year": 2026, "headline": {"total_prints": 3},
+                       "highlights": {"longest_print": {"title": title, "seconds": 7200},
+                                      "most_reprinted": {"title": title, "count": 4}},
+                       "script": [title]}
+            result = wrapped_video.build_wrapped_video(
+                2026, wrapped, tmp / "out", ffmpeg=FFMPEG,
+                find_clips=lambda year: [])
+            self.assertTrue(result["ok"], result)
+            self.assertGreater(_duration(Path(result["path"])), 10)
+
 
 if __name__ == "__main__":
     unittest.main()

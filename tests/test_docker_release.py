@@ -5,7 +5,8 @@ is a scalar, an .env.example line; every PRINT_HANDY__ name in a deployment file
 Sanitization: public deployment files carry no LAN addresses, machine paths, IDs or credentials.
 Build: OrcaSlicer is prebuilt-only (the one bundled build pinned by version, revision and SHA256);
 bounded, validated parallelism remains only for the Bambu Studio source build. Unraid: the
-single template matches the Compose runtime contract.
+single template carries only the minimal install surface; the runtime contract itself
+lives in Compose, the mounted config file and the Web UI.
 """
 import ipaddress
 import json
@@ -46,12 +47,17 @@ SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LL
            "MYMINIFACTORY_OAUTH_TOKEN", "MAKERWORLD_TOKEN", "THINGIVERSE_TOKEN", "CULTS3D_TOKEN"}
 COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_DATA", "PRINT_HANDY_CONFIG", "TZ",
                 "DISCORD_CLIENT_ID", "CLOUDFLARED_IMAGE", "SPOOLMAN_CORS_ORIGIN"}
-# NVIDIA container-runtime variables (#455): Unraid-template-only, hidden and
-# optional. Compose picks the GPU with a deploy block instead, and the image
-# carries the NVIDIA_DRIVER_CAPABILITIES default, so they are not Compose vars.
+# NVIDIA container-runtime variables (#455): Unraid-template-only, optional,
+# in Advanced View. Compose picks the GPU with a deploy block instead, and
+# the image carries the NVIDIA_DRIVER_CAPABILITIES default, so they are not
+# Compose vars.
 UNRAID_GPU_VARS = {"NVIDIA_VISIBLE_DEVICES": "", "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility"}
 RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
-DATA_TARGETS = {"/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache"}
+# The slimmed Unraid template's whole Config surface: the Web UI port, the
+# two paths, the bundled/external Spoolman choice (advanced), TZ and the
+# GPU entries. Everything else is set in the mounted config file, the
+# Web UI, or the profile .env inside the Appdata path.
+UNRAID_VARIABLES = {"PRINT_HANDY__SERVICES__SPOOLMAN_URL", "TZ"} | set(UNRAID_GPU_VARS)
 
 
 def inventory():
@@ -82,6 +88,26 @@ def table(heading):
 
 
 class SettingsParityTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def setUp(self):
         self.inventory = inventory()
         self.rows = dict(re.findall(r"^\| `([a-z_]+\.(?:[a-z_]+|<[a-zA-Z]+>))` \| ([^|]+) \|", DOCS, re.M))
@@ -534,7 +560,26 @@ class ContainerTimezoneTests(unittest.TestCase):
             self.assertIn("not a known IANA timezone", invalid.stderr)
 
 
-class UnraidTemplateTests(unittest.TestCase):
+    def test_migration_refuses_to_nest_existing_config_directory(self):
+        script = """cd "$1"
+if [ -e .config ]; then
+  echo 'Both dot-config and .config exist. Compare and merge them before continuing.' >&2
+  exit 1
+fi
+mv dot-config .config
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dot-config").mkdir()
+            (root / "dot-config" / "bambu").mkdir()
+            (root / ".config").mkdir()
+            (root / ".config" / "print-handy").mkdir()
+            result = subprocess.run(["bash", "-c", script, "migration", str(root)],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "dot-config" / "bambu").is_dir())
+            self.assertTrue((root / ".config" / "print-handy").is_dir())
+
     def configs(self, root, kind):
         return {c.get("Target"): c for c in root.findall("Config") if c.get("Type") == kind}
 
@@ -546,19 +591,21 @@ class UnraidTemplateTests(unittest.TestCase):
 
     def test_template_runs_the_combined_compose_service(self):
         # The combined service is the template's container; the only other
-        # Compose service is the optional cloudflared sidecar (#311), which
+        # Compose services are the one-shot first-boot init service (#1144)
+        # and the optional cloudflared sidecar (#311), which
         # is profile-gated, shares the combined network namespace and is a
         # separate Unraid container there — never part of this template.
-        self.assertEqual(list(COMPOSE["services"]), ["combined", "cloudflared"])
+        self.assertEqual(list(COMPOSE["services"]), ["combined", "print-handy-init", "cloudflared"])
         sidecar = COMPOSE["services"]["cloudflared"]
         self.assertEqual(sidecar["profiles"], ["live-stream"])
         self.assertEqual(sidecar["network_mode"], "service:combined")
         self.assertEqual(UNRAID.findtext("Name"), "print-handy")
         self.assertFalse(UNRAID.findtext("PostArgs"))
         self.assertNotIn("command", self.service)
-        # The template ships no ExtraParams: the healthcheck is the Compose
-        # service's own, not a template --health-cmd flag.
-        self.assertEqual(self.params, [])
+        # The template's only docker-run flag is --shm-size, equal to
+        # Compose's shm_size; the healthcheck is the Compose service's
+        # own, not a template --health-cmd flag.
+        self.assertEqual(self.params, [f"--shm-size={self.service['shm_size']}"])
         self.assertEqual(self.service["healthcheck"]["test"],
                          ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         publish = (ROOT / ".github" / "workflows" / "docker-publish.yml").read_text()
@@ -577,27 +624,31 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertNotIn(":develop", repository)
         self.assertNotIn(":nightly", repository)
         self.assertEqual(UNRAID.findtext("Privileged"), "false")
-        # The bundled Spoolman API stays on loopback by default: Compose
-        # publishes no port at all (both mappings below are commented
-        # examples only), and the template's Port configs are the Web UI's
-        # (#286 stage 5) plus the advanced, opt-in Spoolman LAN mapping
-        # (#443) — which answers nothing while SPOOLMAN_HOST keeps its
-        # 127.0.0.1 default (see SpoolmanLanTests).
-        self.assertNotIn("ports", self.service)
+        # Compose publishes exactly one port by default: the Web UI's
+        # 8088, so a first boot is reachable from the host. The bundled
+        # Spoolman API stays on loopback by default (its mapping below is
+        # a commented example only), and the slimmed template's only Port
+        # config is the Web UI's (#286 stage 5). The #443 Spoolman LAN
+        # mapping is one an operator adds by hand; it answers nothing
+        # while SPOOLMAN_HOST keeps its 127.0.0.1 default (see
+        # SpoolmanLanTests).
+        self.assertEqual(self.service["ports"],
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertNotIn("-p", self.params)
         self.assertFalse(any(p.startswith("--publish") for p in self.params))
         ports = self.configs(UNRAID, "Port")
-        self.assertEqual(set(ports), {"8088", "8000"})
+        self.assertEqual(set(ports), {"8088"})
         self.assertEqual(ports["8088"].text, "8088")
-        self.assertEqual(ports["8000"].text, "7912")
         self.assertEqual(UNRAID.findtext("WebUI"), "http://[IP]:[PORT:8088]/")
 
     def test_hardening_and_limits_live_in_compose_not_the_template(self):
         service = self.service
-        # The template adds no docker-run flags at all: ExtraParams ships
-        # empty, so nothing in it can drift from the runtime contract.
-        self.assertEqual(self.params, [])
-        self.assertEqual(self.flags, {})
+        # The one docker-run flag the template adds is --shm-size, and it
+        # must equal Compose's value: Unraid's Docker default of 64 MB
+        # starves OrcaSlicer under xvfb. Nothing else in ExtraParams, so
+        # nothing else can drift from the runtime contract.
+        self.assertEqual(self.params, ["--shm-size=256m"])
+        self.assertEqual(service["shm_size"], "256m")
         # The hardening the flags used to duplicate stays in Compose, where
         # it is expressed as service keys instead of CLI flags.
         self.assertEqual(service["user"], "1000:1000")
@@ -617,58 +668,92 @@ class UnraidTemplateTests(unittest.TestCase):
         for key in ("pids_limit", "mem_limit", "cpus", "deploy"):
             self.assertNotIn(key, service)
 
-    def test_paths_and_variables_match_the_runtime(self):
+    def test_template_carries_only_the_install_surface(self):
+        """The slimmed template (install-surface slimming, 2026-11-08): the
+        Web UI port, one Appdata path for all of /data, the Timelapse
+        Archive path, the bundled/external Spoolman choice in Advanced
+        View, TZ and the GPU entries — and nothing else. Every setting
+        the old template carried is set in the mounted config file, the
+        Web UI, or the profile .env inside the Appdata path; every secret
+        arrives that way too (no masked template fields remain)."""
         compose_env = self.service["environment"]
         paths = self.configs(UNRAID, "Path")
-        # /data/.config (account tokens) is an optional Unraid mapping; Compose uses an override file.
-        self.assertEqual(set(paths) - {"/data/.config"}, DATA_TARGETS | {"/data/spoolman"})
-        self.assertEqual(set(paths) - {"/data/.config"}, {v.split(":")[-1] for v in self.service["volumes"]})
-        self.assertEqual(paths["/data/.config"].get("Required"), "false")
-        self.assertTrue(all(p.text.startswith("/mnt/user/appdata/print-handy/") for p in paths.values()))
+        self.assertEqual(set(paths), {"/data", "/data/timelapses"})
+        self.assertEqual(paths["/data"].text, "/mnt/user/appdata/print-handy")
+        self.assertEqual(paths["/data"].get("Required"), "true")
+        self.assertEqual(paths["/data/timelapses"].text,
+                         "/mnt/user/appdata/print-handy/timelapses")
+        self.assertEqual(paths["/data/timelapses"].get("Required"), "false")
+        self.assertEqual(UNRAID.findtext("Category"), "Tools:Utilities Productivity:")
         variables = self.configs(UNRAID, "Variable")
-        for key in ("PRINT_HANDY_CONFIG", "PRINT_HANDY__BOT__MODE", "PRINT_HANDY__SERVICES__SPOOLMAN_URL",
-                    "PRINT_HANDY_BUNDLED_SPOOLMAN"):
-            with self.subTest(variable=key):
-                self.assertEqual(variables[key].text, str(compose_env[key]).split(":-")[-1].rstrip("}"))
+        self.assertEqual(set(variables), UNRAID_VARIABLES)
+        self.assertEqual(set(self.configs(UNRAID, "Port")), {"8088"})
+        self.assertEqual(set(self.configs(UNRAID, "Device")), {"/dev/dri"})
+        # The one surviving settings variable: the bundled/external
+        # Spoolman choice, in Advanced View, still agreeing with Compose.
+        spoolman_url = variables["PRINT_HANDY__SERVICES__SPOOLMAN_URL"]
+        self.assertEqual(spoolman_url.get("Display"), "advanced")
+        self.assertEqual(spoolman_url.text,
+                         str(compose_env["PRINT_HANDY__SERVICES__SPOOLMAN_URL"]).split(":-")[-1].rstrip("}"))
+        section, key = "services", "spoolman_url"
+        self.assertIn((section, key), inventory())
+        # No secret is a template field anymore, and nothing the template
+        # still names is masked.
         for target, config in variables.items():
             with self.subTest(variable=target):
-                if target in SECRETS:
-                    self.assertEqual(config.get("Mask"), "true")
-                    self.assertFalse(config.text)
-                elif target in RUNTIME_ENV_VARS:
-                    self.assertEqual(config.text, str(compose_env[target]).split(":-")[-1].rstrip("}"))
-                elif target.startswith("PRINT_HANDY__"):
-                    section, key = target[len("PRINT_HANDY__"):].lower().split("__")
-                    self.assertIn((section, key), inventory())
-                elif target in UNRAID_GPU_VARS:
-                    pass  # pinned by test_unraid_gpu_variables_are_optional_and_hidden
-                else:
-                    self.assertIn(target, COMPOSE_VARS)
-        # The bot token may be empty: the listener and Spoolman run while the bot idles.
-        self.assertEqual(variables["DISCORD_BOT_TOKEN"].get("Required"), "false")
-        # The runtime Orca selector (#180): in the template, the Compose runtime
-        # environment and as a settable .env.example line.
-        self.assertEqual(variables["PRINT_HANDY_ORCA_CHANNEL"].text, "stable")
+                self.assertNotIn(target, SECRETS)
+                self.assertEqual(config.get("Mask"), "false")
+        # The runtime Orca selector (#180) stays a Compose/.env surface:
+        # the template no longer carries it.
         self.assertEqual(compose_env["PRINT_HANDY_ORCA_CHANNEL"], "${PRINT_HANDY_ORCA_CHANNEL:-stable}")
         self.assertRegex(ENV_EXAMPLE, r"(?m)^PRINT_HANDY_ORCA_CHANNEL=stable$")
 
-    def test_unraid_gpu_variables_are_optional_and_hidden(self):
-        """#455: the NVIDIA runtime variables ship in the template so an
-        operator only fills in a GPU UUID, but they are not required, hidden
-        behind "Show more settings", grant no GPU by default, and keep the
-        "video" capability NVENC needs (the image default). The runtime flag
-        itself stays an operator Extra Parameter: ExtraParams ships empty."""
+    def test_dockerfile_volume_paths_are_mounted_exactly_by_every_shipped_deployment(self):
+        """A Dockerfile VOLUME makes Docker create an anonymous volume for each
+        declared path a run does not mount exactly, so a template that binds
+        only the parent /data silently sends that data to hidden volumes
+        (confirmed with a real docker create). Being "under /data" is not
+        persistence. Every VOLUME path must be a target that Compose and the
+        Unraid template both mount exactly; the image declares none today."""
+        declared = []
+        for match in re.finditer(r"(?m)^VOLUME\s+(.+)$", DOCKERFILE):
+            raw = match.group(1).strip()
+            declared += json.loads(raw) if raw.startswith("[") else raw.split()
+        compose_targets = {v.split(":")[1] for v in self.service["volumes"]}
+        unraid_targets = set(self.configs(UNRAID, "Path"))
+        for path in declared:
+            with self.subTest(volume=path):
+                self.assertIn(path, compose_targets)
+                self.assertIn(path, unraid_targets)
+
+    def test_unraid_gpu_entries_are_optional_and_in_advanced_view(self):
+        """#455: the GPU passthrough entries survive the template slimming
+        (they are install-time surface — a device grant cannot be a config
+        setting), but they are optional, sit in Advanced View, grant no
+        GPU by default, and keep the "video" capability NVENC needs (the
+        image default). The /dev/dri device entry is the Intel/AMD half;
+        the NVIDIA runtime flag itself stays an operator Extra Parameter:
+        ExtraParams ships empty."""
         variables = self.configs(UNRAID, "Variable")
         dockerfile = (ROOT / "Dockerfile").read_text()
         for target, default in UNRAID_GPU_VARS.items():
             with self.subTest(variable=target):
                 config = variables[target]
                 self.assertEqual(config.get("Required"), "false")
-                self.assertEqual(config.get("Display"), "advanced-hide")
+                self.assertEqual(config.get("Display"), "advanced")
                 self.assertEqual(config.get("Mask"), "false")
                 self.assertEqual(config.get("Default"), default)
                 self.assertEqual(config.text or "", default)
-                self.assertIn("--runtime=nvidia", config.get("Description"))
+        self.assertIn("--runtime=nvidia",
+                      variables["NVIDIA_VISIBLE_DEVICES"].get("Description"))
+        devices = self.configs(UNRAID, "Device")
+        self.assertEqual(devices["/dev/dri"].get("Required"), "false")
+        self.assertEqual(devices["/dev/dri"].get("Display"), "advanced")
+        # Default names the device, the value is empty: a host without an
+        # iGPU has no /dev/dri and docker run fails when it is passed.
+        self.assertEqual(devices["/dev/dri"].get("Default"), "/dev/dri")
+        self.assertFalse((devices["/dev/dri"].text or "").strip())
+        self.assertIn("render group", devices["/dev/dri"].get("Description"))
         self.assertIn("video", UNRAID_GPU_VARS["NVIDIA_DRIVER_CAPABILITIES"].split(","))
         self.assertIn(f"ENV NVIDIA_DRIVER_CAPABILITIES={UNRAID_GPU_VARS['NVIDIA_DRIVER_CAPABILITIES']}",
                       dockerfile)
@@ -677,16 +762,17 @@ class UnraidTemplateTests(unittest.TestCase):
 
 
 class WebuiContainerTests(unittest.TestCase):
-    """#286 stages 4-5: the optional Web UI is a gated supervised child, a
-    healthcheck row, Compose opt-in variables and Unraid template fields —
-    and stays off everywhere by default."""
+    """#286 stages 4-5: the Web UI is a gated supervised child, a
+    healthcheck row, Compose variables and Unraid template fields —
+    on by default in Compose, with its port published."""
 
     def variables(self):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
 
     def test_compose_webui_variables_default_to_on_8088(self):
-        # #708: on inside the container on 8088; reachable only once the port
-        # is published, and then the first-run setup page asks for a password.
+        # On inside the container on 8088, the port published by default,
+        # and the first visit serves the Web UI and its walkthrough
+        # openly — a password exists only if one is deliberately set.
         compose_env = COMPOSE["services"]["combined"]["environment"]
         self.assertEqual(compose_env["PRINT_HANDY__WEBUI__ENABLED"],
                          "${PRINT_HANDY__WEBUI__ENABLED:-true}")
@@ -696,24 +782,45 @@ class WebuiContainerTests(unittest.TestCase):
                          "${PRINT_HANDY__WEBUI__PORT:-8088}")
         # The token is a secret: .env env_file only, never a Compose default.
         self.assertNotIn("WEBUI_ACCESS_TOKEN", compose_env)
-        # The port publication stays a commented example in the file text.
+        # The port publication is active in the file text, not a comment.
         text = (ROOT / "docker-compose.yml").read_text()
-        self.assertIn('#   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"', text)
+        self.assertIn('      - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"', text)
+        self.assertEqual(COMPOSE["services"]["combined"]["ports"],
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
 
-    def test_unraid_webui_variables_and_masked_token(self):
+    def test_compose_does_not_hard_default_the_web_chat_toggles(self):
+        """P2-88: no Compose environment entry for the web chat toggles.
+
+        A ${...:-true} entry would be applied after the mounted config
+        and silently undo a chat_enabled / chat_llm_enabled the operator
+        set false in their config file (the compose file's own P2-88
+        comment, on the visual-watch toggles, and the #1098
+        starter-mention omission are the same rule). Unset, the shipped
+        config defaults stand; set in .env, the env_file carries the
+        value into the container — the variables stay settable, just
+        never hard-defaulted here.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        self.assertNotIn("PRINT_HANDY__WEBUI__CHAT_ENABLED", compose_env)
+        self.assertNotIn("PRINT_HANDY__WEBUI__CHAT_LLM_ENABLED", compose_env)
+        # The reason is written where the next editor will look for the
+        # missing entries: the Web UI block's own comment.
+        text = (ROOT / "docker-compose.yml").read_text()
+        self.assertIn("P2-88", text)
+        self.assertIn("PRINT_HANDY__WEBUI__CHAT_ENABLED", text)
+
+    def test_unraid_template_carries_no_webui_settings(self):
+        """The slimmed template's only Web UI surface is the 8088 port
+        mapping (pinned in UnraidTemplateTests). The enablement #440 put
+        in template variables now lives in the shipped container config
+        and Compose (test_compose_webui_variables_default_to_on_8088);
+        the access token is a profile-.env secret, never a template
+        field."""
         variables = self.variables()
-        # #440: the template enables the Web UI so its WebUI link works;
-        # the gate still starts it only once the token below is set (the
-        # bind host is not loopback). Compose/code defaults stay off.
-        self.assertEqual(variables["PRINT_HANDY__WEBUI__ENABLED"].text, "true")
-        # The template binds all interfaces so the port mapping and WebUI link
-        # work once enabled; the token below is then mandatory (the gate
-        # blocks the start without it and the server refuses that bind).
-        self.assertEqual(variables["PRINT_HANDY__WEBUI__HOST"].text, "0.0.0.0")
-        self.assertEqual(variables["PRINT_HANDY__WEBUI__PORT"].text, "8088")
-        token = variables["WEBUI_ACCESS_TOKEN"]
-        self.assertEqual(token.get("Mask"), "true")
-        self.assertFalse(token.text)
+        for target in ("PRINT_HANDY__WEBUI__ENABLED", "PRINT_HANDY__WEBUI__HOST",
+                       "PRINT_HANDY__WEBUI__PORT", "WEBUI_ACCESS_TOKEN"):
+            with self.subTest(variable=target):
+                self.assertNotIn(target, variables)
 
     def test_supervisor_and_healthcheck_carry_the_gate_and_row(self):
         supervisor = (ROOT / "docker" / "supervise.sh").read_text()
@@ -733,30 +840,35 @@ class WebuiContainerTests(unittest.TestCase):
 
 
 class SpoolmanLanTests(unittest.TestCase):
-    """#443: bundled Spoolman LAN access is opt-in on both deployment
-    surfaces. The safe default is pinned everywhere: SPOOLMAN_HOST
-    127.0.0.1, no active Compose port mapping — so with no operator
-    action Spoolman stays loopback-only and unexposed."""
+    """#443: bundled Spoolman LAN access is opt-in. The safe default is
+    pinned everywhere: SPOOLMAN_HOST 127.0.0.1, no active Compose port
+    mapping — so with no operator action Spoolman stays loopback-only
+    and unexposed. On Unraid the mapping and the variable are added by
+    hand since the template slimming; Compose keeps them as comments."""
 
     def configs(self, kind):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == kind}
 
-    def test_unraid_template_carries_the_opt_in(self):
+    def test_unraid_template_leaves_the_opt_in_to_the_operator(self):
+        """The slimmed template ships no Spoolman port mapping and no
+        SPOOLMAN_HOST variable: an Unraid operator who wants LAN access
+        adds both by hand in the container editor (docs/DOCKER.md,
+        Included Spoolman). The template's one Spoolman entry is the
+        bundled/external URL choice, in Advanced View."""
         ports = self.configs("Port")
-        spoolman = ports["8000"]
-        self.assertEqual(spoolman.text, "7912")
-        self.assertEqual(spoolman.get("Default"), "7912")
-        self.assertEqual(spoolman.get("Display"), "advanced")
+        self.assertNotIn("8000", ports)
         variables = self.configs("Variable")
-        host = variables["SPOOLMAN_HOST"]
-        self.assertEqual(host.text, "127.0.0.1")
-        self.assertEqual(host.get("Display"), "advanced")
-        self.assertIn("0.0.0.0", host.get("Description"))
+        self.assertNotIn("SPOOLMAN_HOST", variables)
+        self.assertNotIn("PRINT_HANDY_BUNDLED_SPOOLMAN", variables)
+        url = variables["PRINT_HANDY__SERVICES__SPOOLMAN_URL"]
+        self.assertEqual(url.text, "http://127.0.0.1:8000")
+        self.assertEqual(url.get("Display"), "advanced")
 
     def test_compose_keeps_the_safe_default(self):
         service = COMPOSE["services"]["combined"]
-        # No active port mapping ships; the LAN mapping is a comment.
-        self.assertNotIn("ports", service)
+        # The only active port mapping is the Web UI's; the Spoolman LAN
+        # mapping stays a comment and Spoolman stays loopback by default.
+        self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertEqual(service["environment"]["SPOOLMAN_HOST"],
                          "${SPOOLMAN_HOST:-127.0.0.1}")
         text = (ROOT / "docker-compose.yml").read_text()
@@ -780,9 +892,10 @@ class SpoolmanLanTests(unittest.TestCase):
 
 class LiveContainerTests(unittest.TestCase):
     """#311 stage 4: the live-view Activity server is a gated supervised
-    child, a healthcheck row, Compose opt-in variables, an optional
-    profile-gated cloudflared sidecar and Unraid template fields — and
-    stays off everywhere by default."""
+    child, a healthcheck row, Compose opt-in variables and an optional
+    profile-gated cloudflared sidecar — and stays off everywhere by
+    default. The slimmed Unraid template carries no live fields; on
+    Unraid they are config-file and .env settings like everything else."""
 
     def variables(self):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
@@ -813,16 +926,15 @@ class LiveContainerTests(unittest.TestCase):
         self.assertNotIn(":latest", sidecar["image"])
         self.assertNotIn("ports", sidecar)
 
-    def test_unraid_live_variables_and_masked_secrets(self):
+    def test_unraid_template_carries_no_live_fields(self):
         variables = self.variables()
-        self.assertEqual(variables["PRINT_HANDY__LIVE_STREAM__ENABLED"].text, "false")
-        # The template pre-fills the fixed tunnel target port (the Web UI
-        # port precedent); the settings default itself stays 0.
-        self.assertEqual(variables["PRINT_HANDY__LIVE_STREAM__PORT"].text, "8091")
-        for secret in ("DISCORD_CLIENT_SECRET", "LIVE_STREAM_SESSION_SECRET", "TUNNEL_TOKEN"):
-            with self.subTest(secret=secret):
-                self.assertEqual(variables[secret].get("Mask"), "true")
-                self.assertFalse(variables[secret].text)
+        for target in ("PRINT_HANDY__LIVE_STREAM__ENABLED", "PRINT_HANDY__LIVE_STREAM__PORT",
+                       "PRINT_HANDY__LIVE_STREAM__VOICE_CHANNEL_ID",
+                       "PRINT_HANDY__LIVE_STREAM__ACTIVITY_ORIGIN",
+                       "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+                       "LIVE_STREAM_SESSION_SECRET", "TUNNEL_TOKEN"):
+            with self.subTest(variable=target):
+                self.assertNotIn(target, variables)
 
     def test_supervisor_and_healthcheck_carry_the_gate_and_row(self):
         supervisor = (ROOT / "docker" / "supervise.sh").read_text()
@@ -841,7 +953,9 @@ class LiveContainerTests(unittest.TestCase):
 
 class CameraWatchVisibilityTests(unittest.TestCase):
     """#248: the camera watchdog is advertised, and visual_watch sensitivity is explicit
-    and configurable in the shipped YAML/TOML Docker configs, Compose and Unraid."""
+    and configurable in the shipped YAML/TOML Docker configs and Compose. The slimmed
+    Unraid template carries no visual_watch variables, so a mounted config's watchdog
+    settings stand there exactly as written."""
 
     def test_docker_configs_carry_visual_watch_with_the_documented_defaults(self):
         docker_yaml = yaml.safe_load((ROOT / "config" / "docker.yaml").read_text())
@@ -861,7 +975,7 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertEqual(overridden["visual_watch"]["sensitivity"], 5)
         self.assertIs(overridden["visual_watch"]["enabled"], False)
 
-    def test_compose_and_unraid_defaults_agree(self):
+    def test_compose_defaults_agree_and_unraid_carries_none(self):
         compose_env = COMPOSE["services"]["combined"]["environment"]
         # P2-88: Compose must not inject watchdog defaults of its own. A
         # ${...:-true} / ${...:-3} entry is applied by the loader after the
@@ -878,12 +992,15 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertIn("# PRINT_HANDY__VISUAL_WATCH__SENSITIVITY=3", env_example)
         self.assertIn("# PRINT_HANDY__VISUAL_WATCH__ENABLED=true", env_example)
         variables = {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
-        for target, default in (("PRINT_HANDY__VISUAL_WATCH__SENSITIVITY", "3"),
-                                ("PRINT_HANDY__VISUAL_WATCH__ENABLED", "true")):
+        for target in ("PRINT_HANDY__VISUAL_WATCH__SENSITIVITY",
+                       "PRINT_HANDY__VISUAL_WATCH__ENABLED"):
             with self.subTest(variable=target):
-                # Unraid always injects its variable values explicitly, so
-                # its defaults still name the documented watchdog defaults.
-                self.assertEqual(variables[target].text, default)
+                # The slimmed template injects nothing: Unraid passes a
+                # variable's value explicitly only when the template
+                # carries it, so the shipped-config defaults above are
+                # the whole story there — the same end state the P2-88
+                # Compose fix produced.
+                self.assertNotIn(target, variables)
 
     def test_mounted_watchdog_settings_stand_without_env_overrides(self):
         """P2-88 end to end: with the watchdog variables absent from the
@@ -896,6 +1013,75 @@ class CameraWatchVisibilityTests(unittest.TestCase):
             loaded = settings.load(local=local, environ={})
         self.assertIs(loaded["visual_watch"]["enabled"], False)
         self.assertEqual(loaded["visual_watch"]["sensitivity"], 1)
+
+    def test_compose_does_not_hard_default_the_starter_mention(self):
+        """#1095 review: Compose must not inject the starter-mention default.
+
+        The ${...:-true} entry for the renamed setting was applied after
+        the .env env_file, so an existing install whose .env carries the
+        pre-#1095 spelling set to false got the new variable forced to
+        true in the container and the loader's alias never saw the
+        opt-out — the same failure shape as P2-88 above. Leaving the
+        setting out of environment: entirely keeps unspecified overrides
+        absent (the shipped default, true, stands), and an operator who
+        sets either spelling in .env still overrides via the env_file.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", compose_env)
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", compose_env)
+        # The env_file state an existing install produces: only the old
+        # spelling, set false. The alias folds it onto the renamed key.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # Neither spelling set: the documented default stands.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
+        self.assertIs(loaded["discord"]["mention_starter"], True)
+        # Both spellings set: the current name wins, in either direction.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false",
+            "PRINT_HANDY__DISCORD__MENTION_STARTER": "true"})
+        self.assertIs(loaded["discord"]["mention_starter"], True)
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "true",
+            "PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
+        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # The in-repo Unraid template no longer injects the variable at
+        # all: #1108 slimmed it to the CA set plus Spoolman, so neither
+        # spelling is forced there either — an install's value reaches
+        # the loader through its .env / container env, as above.
+        variables = {c.get("Target"): c for c in UNRAID.findall("Config")
+                     if c.get("Type") == "Variable"}
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", variables)
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", variables)
+
+    def test_compose_does_not_hard_default_the_webui_access_settings(self):
+        """P2-88: no Compose environment entry for the Web UI access settings.
+
+        require_auth, controls_enabled and cookie_secure are fields on the
+        Web UI Settings page. A ${...:-default} entry would be applied after
+        the mounted config, override what the page saved there and lock the
+        field. Unset, the mounted config's values stand; set in .env, the
+        env_file still carries the value into the container.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        for name in ("PRINT_HANDY__WEBUI__REQUIRE_AUTH",
+                     "PRINT_HANDY__WEBUI__CONTROLS_ENABLED",
+                     "PRINT_HANDY__WEBUI__COOKIE_SECURE"):
+            self.assertNotIn(name, compose_env)
+        # The env_file path still works: the loader honors each variable.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__WEBUI__REQUIRE_AUTH": "false",
+            "PRINT_HANDY__WEBUI__CONTROLS_ENABLED": "true",
+            "PRINT_HANDY__WEBUI__COOKIE_SECURE": "true"})
+        self.assertIs(loaded["webui"]["require_auth"], False)
+        self.assertIs(loaded["webui"]["controls_enabled"], True)
+        self.assertIs(loaded["webui"]["cookie_secure"], True)
+        # Nothing set: the mounted config's values stand.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
+        self.assertIs(loaded["webui"]["require_auth"], True)
+        self.assertIs(loaded["webui"]["controls_enabled"], False)
+        self.assertIs(loaded["webui"]["cookie_secure"], False)
 
     def test_watchdog_is_advertised_where_users_look(self):
         readme = (ROOT / "README.md").read_text()
@@ -923,9 +1109,8 @@ FEATURE_SETTINGS = {
     "PRINT_HANDY__LLM__CHAT_URL": "",
     "PRINT_HANDY__LLM__MODEL": "",
     # Live camera in Discord (#311): every [live_stream] setting except the
-    # port — the template pre-fills 8091 as the fixed tunnel target while
-    # the settings/Compose default stays 0 (the Web UI port precedent),
-    # pinned separately in LiveContainerTests below.
+    # port — the settings/Compose default for the port stays 0 (no port
+    # chosen), pinned separately in LiveContainerTests below.
     "PRINT_HANDY__LIVE_STREAM__ENABLED": "false",
     "PRINT_HANDY__LIVE_STREAM__VOICE_CHANNEL_ID": "",
     "PRINT_HANDY__LIVE_STREAM__AUTO_START_ON_PRINT": "false",
@@ -944,39 +1129,42 @@ FEATURE_SECRETS = {"CLIPROXY_API_KEY", "AD5X_SERIAL", "AD5X_CHECK_CODE",
 
 
 class DockerFeatureVariablesTests(unittest.TestCase):
-    """#252: the feature-enabling variables are in the Unraid template and the Compose
-    environment with agreeing defaults; their secrets are masked template fields only."""
+    """#252: the feature-enabling variables are in the Compose environment
+    with agreeing defaults; their secrets reach the container through the
+    .env file only. The Unraid template carried them until the
+    install-surface slimming; it now carries none of them — on Unraid
+    every one is set in the mounted config file, the Web UI, or the
+    profile .env inside the Appdata path."""
 
     def variables(self):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
 
-    def test_settings_are_in_template_and_compose_with_agreeing_defaults(self):
+    def test_settings_are_in_compose_with_agreeing_defaults(self):
         compose_env = COMPOSE["services"]["combined"]["environment"]
-        variables = self.variables()
         for name, default in FEATURE_SETTINGS.items():
             with self.subTest(variable=name):
                 self.assertEqual(compose_env[name], "${%s:-%s}" % (name, default))
-                self.assertEqual(variables[name].text or "", default)
                 section, key = name[len("PRINT_HANDY__"):].lower().split("__")
                 self.assertIn((section, key), inventory())
 
-    def test_secrets_are_masked_template_fields_and_stay_out_of_compose_environment(self):
+    def test_secrets_stay_out_of_compose_environment_and_the_template(self):
         compose_env = COMPOSE["services"]["combined"]["environment"]
         variables = self.variables()
         for name in sorted(FEATURE_SECRETS):
             with self.subTest(secret=name):
                 self.assertIn(name, SECRETS)  # SETTINGS.md table and .env.example line, pinned by parity tests
-                self.assertEqual(variables[name].get("Mask"), "true")
-                self.assertFalse(variables[name].text)
+                self.assertNotIn(name, variables)
                 self.assertNotIn(name, compose_env)
 
-    def test_template_model_list_names_every_supported_model(self):
-        model = self.variables()["PRINT_HANDY__PRINTER__MODEL"]
-        for name in ("flashforge.ad5x", "sovol.sv06", "klipper.generic",
-                     "octoprint.marlin", "bambulab.a1", "bambulab.p1s"):
-            with self.subTest(model=name):
-                self.assertIn(name, model.get("Default"))
-                self.assertIn(name, model.get("Description"))
+    def test_template_carries_none_of_the_feature_settings(self):
+        variables = self.variables()
+        for name in FEATURE_SETTINGS:
+            with self.subTest(variable=name):
+                self.assertNotIn(name, variables)
+        # Printer model selection likewise left the template: it is a
+        # config-file / Web UI catalog choice now, defaulting to
+        # klipper.generic in the shipped Docker config.
+        self.assertNotIn("PRINT_HANDY__PRINTER__MODEL", variables)
 
 
 class AcceptanceFixtureTests(unittest.TestCase):

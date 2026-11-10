@@ -82,15 +82,12 @@ def design_env(tmp_path):
            "discord": {"question_timeout_s": 5}}
     previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear
     _config.set_override(cfg)
-    plugin._HERMES_LLM = None
     yield cfg
     _config.set_override(previous)
-    plugin._HERMES_LLM = None
 
 
 def _dispatch(text, adapter, fake, choice, platform="discord", authorized=True):
-    # Pin the prompts gateway to the standalone module: under the full suite
-    # another test's Hermes/corpus stand-in can otherwise win gateway().
+    # Pin the prompts gateway to the core registry for the dispatch.
     with mock.patch.object(plugin, "_design_transport", return_value=(fake, "http")), \
             mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
             mock.patch.object(core_prompts, "wait_for_response", return_value=choice):
@@ -98,25 +95,14 @@ def _dispatch(text, adapter, fake, choice, platform="discord", authorized=True):
             _event(text, platform=platform), _gateway(adapter, authorized)))
 
 
-# ------------------------------------------------- transport order (#524 Stage 3)
+# ------------------------------------------------------- transport (#524 Stage 3)
 #
-# The HTTP transport ([design] inheriting [llm]) is the normal path in
-# every mode; ctx.llm is the fallback for a Hermes install with no HTTP
-# endpoint configured, and only there.
+# The HTTP transport ([design] inheriting [llm]) is the only design lane:
+# the ctx.llm fallback for endpoint-less Hermes installs is deleted with
+# the mode that needed it.
 
-class _FakeCtxLlm:
-    """A ctx.llm stand-in recording the kwargs of every acomplete call."""
-
-    def __init__(self):
-        self.calls = []
-
-    async def acomplete(self, **kwargs):
-        self.calls.append(kwargs)
-        return S(text="cube([1, 1, 1]);")
-
-
-def _transport_cfg(mode, *, http_endpoint=False):
-    return {"bot": {"mode": mode},
+def _transport_cfg(*, http_endpoint=False):
+    return {"bot": {"mode": "standalone"},
             "design": {"chat_url": "http://design.invalid/v1" if http_endpoint else "",
                        "model": "sol" if http_endpoint else "", "api_key_env": "",
                        "timeout_s": 180},
@@ -124,53 +110,27 @@ def _transport_cfg(mode, *, http_endpoint=False):
                     "timeout_s": 20}}
 
 
-def test_design_transport_prefers_http_in_hermes_mode(monkeypatch):
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
+def test_design_transport_uses_the_http_endpoint(monkeypatch):
     seen = {}
     monkeypatch.setattr(design, "http_complete",
                         lambda cfg, messages: seen.update(messages=messages) or "http reply")
-    complete, kind = plugin._design_transport(_transport_cfg("hermes", http_endpoint=True))
+    complete, kind = plugin._design_transport(_transport_cfg(http_endpoint=True))
     assert kind == "http" and complete is not None
     out = asyncio.run(complete([{"role": "user", "content": "a cube"}]))
     assert out == "http reply"
     assert seen["messages"] == [{"role": "user", "content": "a cube"}]
-    assert fake.calls == []  # the Hermes lane was not even consulted
 
 
-def test_design_transport_falls_back_to_ctx_llm_in_hermes_mode(monkeypatch):
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
-    complete, kind = plugin._design_transport(_transport_cfg("hermes"))
-    assert kind == "hermes" and complete is not None
-    out = asyncio.run(complete([{"role": "user", "content": "a cube"}]))
-    assert out == "cube([1, 1, 1]);"
-    assert fake.calls[0]["task"] == "print_design"
-
-
-def test_design_transport_llm_endpoint_counts_in_hermes_mode(monkeypatch):
-    # [design] empty but [llm] configured: the inherited endpoint resolves,
-    # so HTTP still wins over the profile pin.
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
-    cfg = _transport_cfg("hermes")
+def test_design_transport_llm_endpoint_counts(monkeypatch):
+    # [design] empty but [llm] configured: the inherited endpoint resolves.
+    cfg = _transport_cfg()
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="luna")
     complete, kind = plugin._design_transport(cfg)
     assert kind == "http" and complete is not None
-    assert fake.calls == []
 
 
-def test_design_transport_hermes_mode_without_lane_or_endpoint_is_none(monkeypatch):
-    monkeypatch.setattr(plugin, "_HERMES_LLM", None)
-    complete, kind = plugin._design_transport(_transport_cfg("hermes"))
-    assert complete is None and kind == ""
-
-
-def test_design_transport_standalone_unchanged(monkeypatch):
-    monkeypatch.setattr(plugin, "_HERMES_LLM", None)
-    complete, kind = plugin._design_transport(_transport_cfg("standalone", http_endpoint=True))
-    assert kind == "http" and complete is not None
-    complete, kind = plugin._design_transport(_transport_cfg("standalone"))
+def test_design_transport_without_an_endpoint_is_none():
+    complete, kind = plugin._design_transport(_transport_cfg())
     assert complete is None and kind == ""
 
 
@@ -879,3 +839,134 @@ def test_dispatch_posts_the_parametrized_dimensions_it_rendered(design_env):
     assert out["reason"] == "design cancelled"
     post = next(content for content in adapter.sent if "Design turn 1" in content)
     assert "26 × 12 × 4" in post
+
+
+# ------------------------------------------- typed answers while the design question is open
+
+def test_typed_answer_reaches_the_open_design_question_and_a_typed_change_revises(
+        design_env, tmp_path):
+    """While the Slice it / Change it / Cancel question is open, the owner's
+    plain message is the answer to it (a Matrix number, a typed choice, or a
+    change typed instead of pressing Change it). design_dispatch must let it
+    fall through to the bot core's typed-answer routing instead of refusing
+    it as "a design turn is already running", and a typed change must run as
+    the next turn of the same design, not cancel it."""
+    instructions = []
+
+    async def fake_run_turn(self, session, instruction):
+        instructions.append(instruction)
+        result = _fake_result(session, tmp_path)
+        session["turns"] = len(instructions)
+        return result
+
+    async def scenario():
+        adapter = FakeAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(scripted([GOOD]), "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+            task = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a plate"), _gateway(adapter)))
+
+            async def open_prompt():
+                for _ in range(300):
+                    cid = core_prompts.open_prompt_for("session-key")
+                    if cid:
+                        return cid
+                    await asyncio.sleep(0.01)
+                raise AssertionError("the design question never opened")
+
+            cid = await open_prompt()
+            # The typed change is not refused by the busy guard ...
+            typed = await plugin.design_dispatch(_event("make it 5 mm taller"), _gateway(adapter))
+            assert typed is None
+            assert not any("already running" in (c or "") for c in adapter.sent)
+            # ... so the bot core answers the open prompt with it.
+            assert core_prompts.resolve_gateway_clarify(cid, "make it 5 mm taller")
+            cid2 = None
+            for _ in range(300):
+                cid2 = core_prompts.open_prompt_for("session-key")
+                if cid2 and cid2 != cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid2 and cid2 != cid
+            # A design command during the open question is still refused.
+            busy = await plugin.design_dispatch(_event("/print-design a cup"), _gateway(adapter))
+            assert busy == {"action": "skip", "reason": "design turn already running"}
+            assert core_prompts.resolve_gateway_clarify(cid2, design.CANCEL_LABEL)
+            out = await asyncio.wait_for(task, 10)
+            return adapter, out
+
+    adapter, out = asyncio.run(scenario())
+    assert instructions == ["a plate", "make it 5 mm taller"]
+    assert out["reason"] == "design cancelled"
+    assert sum("Design turn" in (c or "") for c in adapter.sent) == 2
+
+
+# ------------------------------------------- the reply, the one question, and undo
+
+HOOK = ("// Part: Wall hook for a 25 mm rail\n// Size: 40 x 20 x 3 mm\n"
+        "// Assumes: the rail is 25 mm wide and 3 mm thick\n"
+        "w = 40; // overall width\nd = 20; // depth\nheight = 3; // plate thickness\n"
+        "cube([w, d, height]);\n")
+
+
+def _cube_runner(cmd, **kwargs):
+    from print_handy.core.geometry_layout import write_binary_stl
+    p = design.scad_params(Path(cmd[-1]).read_text(encoding="utf-8"))
+    write_binary_stl(_box_triangles(p.get("w", 40), p.get("d", 20), p.get("height", 3)),
+                     Path(cmd[cmd.index("-o") + 1]))
+    import subprocess as _sp
+    return _sp.CompletedProcess(cmd, 0, "", "")
+
+
+@pytest.fixture
+def fake_render():
+    real_init = design.DesignEngine.__init__
+
+    def init(self, *args, **kwargs):
+        kwargs.setdefault("runner", _cube_runner)
+        kwargs.setdefault("preview", lambda stl: None)
+        real_init(self, *args, **kwargs)
+
+    with mock.patch.object(design.DesignEngine, "__init__", init):
+        yield
+
+
+def test_the_reply_says_what_was_made_assumed_and_how_to_change_it(design_env, fake_render):
+    adapter = FakeAdapter()
+    out = _dispatch("/print-design a wall hook for a 25 mm rail", adapter, scripted([HOOK]),
+                    design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "**Design turn 1** — Wall hook for a 25 mm rail." in post
+    assert "Measured: 40 × 20 × 3 mm" in post and "watertight" in post
+    assert "Assumed: the rail is 25 mm wide and 3 mm thick." in post
+    assert "Key parameters: w = 40 (overall width), d = 20 (depth), height = 3 (plate thickness)." in post
+    assert '"make it 5 mm taller"' in post and '"undo"' in post
+    assert "Heads-up" not in post  # the checks passed
+
+
+def test_one_question_is_asked_then_the_answer_designs_the_part(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted(["QUESTION: How wide is the rail?", HOOK])
+    out = _dispatch("/print-design a hook for my rail", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design asked a question"
+    assert adapter.sent[-1].startswith("How wide is the rail?")
+    assert adapter.clarified == []  # no Slice/Change/Cancel for a part that does not exist
+    out = _dispatch("25 mm", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert "The user answered: 25 mm" in fake.calls[1][1]["content"]
+    assert any("Design turn 1" in content for content in adapter.sent)
+
+
+def test_typed_undo_goes_back_without_a_model_call(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    _dispatch("make it 5 mm taller", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch("undo", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 3" in content)
+    assert "Back to version 1" in post and "40 × 20 × 3" in post
+    assert "height: 8 → 3" in post
+    assert len(fake.calls) == 1

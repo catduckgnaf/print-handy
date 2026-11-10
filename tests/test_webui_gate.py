@@ -37,10 +37,11 @@ class WebuiGateDecisionTests(unittest.TestCase):
     def test_enabled_without_a_port_does_not_start(self):
         self.assertEqual(webui_gate.decide(data(True, 0)), 3)
 
-    def test_non_loopback_without_a_token_starts_in_setup(self):
-        # #440 used to block this bind; since #708 it starts and serves only
-        # the first-run setup page (print_handy.webui.access), so the gate
-        # starts it and start_blocked never blocks.
+    def test_non_loopback_without_a_token_starts_open(self):
+        # #440 used to block this bind and #708 gated it behind a setup
+        # page; since the gate reversal it starts and serves openly
+        # (print_handy.webui.access), so the gate starts it and
+        # start_blocked never blocks.
         lan = data(True, 8088, host="0.0.0.0")
         self.assertEqual(webui_gate.decide(lan, environ={}), 0)
         self.assertIsNone(webui_gate.start_blocked(
@@ -84,14 +85,14 @@ class WebuiGateCliTests(unittest.TestCase):
                                side_effect=settings.SettingsError("bad webui")):
             self.assertEqual(webui_gate.main(), 2)
 
-    def test_setup_pending_start_is_zero_and_says_so(self):
-        # #708: a LAN bind with no token and no saved choice starts in
-        # first-run setup; the log line tells the operator where to finish it.
+    def test_unclaimed_start_is_zero_and_says_so(self):
+        # An unclaimed LAN bind (no token, no saved choice) starts and
+        # serves openly; the log line says no login is set yet.
         out = io.StringIO()
-        with mock.patch.object(webui_gate, "setup_pending", return_value=True),                 contextlib.redirect_stdout(out):
+        with mock.patch.object(webui_gate, "unclaimed", return_value=True),                 contextlib.redirect_stdout(out):
             code = self.run_gate((True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", True))
         self.assertEqual(code, 0)
-        self.assertIn("first-run setup is waiting", out.getvalue())
+        self.assertIn("no login set yet", out.getvalue())
 
 
 def load_docker_healthcheck():
@@ -158,8 +159,8 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
         return mock.Mock(side_effect=_open), probed
 
     def test_lan_webui_without_a_token_is_probed(self):
-        # #708: no longer blocked (#440); it serves /healthz in setup mode,
-        # so the row probes it like any running Web UI.
+        # No longer blocked (#440) or setup-gated (#708, reversed); it
+        # serves /healthz openly, so the row probes it like any Web UI.
         module = load_docker_healthcheck()
         urlopen, probed = self.urlopen_for(200)
         with mock.patch.dict(os.environ, {}, clear=False):

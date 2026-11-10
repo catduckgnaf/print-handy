@@ -288,20 +288,35 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     mel = _mel()
     printer_id = _roster_printer_id(printer_id)
     text = paused_text(filename, status)
+    # A pause that needs a person pings the print's starter (#1095), once
+    # per episode; the decision is threaded to the delivering transport.
+    # The episode is the pause's cause, as on the Moonraker path, so a
+    # different problem on the same print pings again.
+    from . import starter_pings
+    episode = f"paused:{mel.classify_pause(text)}"
+    mention = starter_pings.ping_for("paused", job_key=filename, episode=episode) or None
+    delivered = None
     if mel._buttonless_standalone():
-        return mel.post(text)
-    try:
-        from . import moonraker_discord_announcements as announcer
-        from . import print_alert_buttons as pab
-        if pab.post_with_buttons(mel._bot_token(), announcer.DISCORD_CHAT_ID,
-                                 text, "paused", filename,
-                                 connection=connection, printer_id=printer_id):
-            log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
-            return True
-        log("family button post failed; falling back to plain text")
-    except Exception as exc:
-        log(f"family button post error: {exc!r}")
-    return mel.post(text)
+        delivered = mel.post(text, mention_user_id=mention)
+    else:
+        try:
+            from . import moonraker_discord_announcements as announcer
+            from . import print_alert_buttons as pab
+            kwargs = {"mention_user_id": mention} if mention else {}
+            if pab.post_with_buttons(mel._bot_token(), announcer.DISCORD_CHAT_ID,
+                                     text, "paused", filename,
+                                     connection=connection, printer_id=printer_id, **kwargs):
+                log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
+                return True
+            log("family button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"family button post error: {exc!r}")
+        delivered = mel.post(text, mention_user_id=mention)
+    if not delivered and mention:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a re-send of this alert can ping.
+        starter_pings.release_ping("paused", job_key=filename, episode=episode)
+    return delivered
 
 
 def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",
@@ -334,8 +349,14 @@ def retire_headline(state: str) -> str:
 
 
 def post_family_event(kind: str, filename: str) -> bool:
-    """A plain lifecycle post (start / terminal) in the shared format_event shape."""
-    return _mel().post(print_summary.format_event(kind, filename))
+    """A plain lifecycle post (start / terminal) in the shared format_event shape.
+
+    The send path carries the kind and the print, so the starter pings
+    classifier decides the ping (#1095): terminal kinds ping the
+    starter, a start post never does.
+    """
+    return _mel().post(print_summary.format_event(kind, filename),
+                       ping_kind=kind, ping_job_key=filename)
 
 
 class PauseAlerts:
@@ -373,6 +394,14 @@ class PauseAlerts:
                 self._poster(self.filename, self.connection, self.printer_id, status)
             except Exception as exc:
                 log(f"pause alert post failed file={self.filename!r}: {exc!r}")
+        elif state == "printing" and prev == "paused":
+            # A resume ends the pause: its starter-ping episodes stop
+            # suppressing, so a later pause is a new problem (#1095).
+            try:
+                from . import starter_pings
+                starter_pings.clear_pause_episodes(job_key=self.filename)
+            except Exception as exc:
+                log(f"pause episode clear failed file={self.filename!r}: {exc!r}")
         elif prev in ACTIVE and state in TERMINAL_STATES:
             try:
                 self._retirer(self.filename, retire_headline(state))

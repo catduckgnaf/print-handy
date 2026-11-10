@@ -781,6 +781,23 @@ def test_slice_summary_references_provenance_artifact_and_stays_concise(job):
     assert 'setting_0' not in text and 'x' * 40 not in text
 
 
+def test_slice_summary_survives_a_missing_or_failed_plate_provenance_record():
+    # The slicer adapter stores None when building the record raised; a
+    # derived plate with that None (or any non-dict) must not kill the whole
+    # "Sliced:" summary.
+    for record in (None, 'broken', [], 7):
+        text = summary.format_slice_summary(
+            {'title': 'x', 'derived_plates': [{'provenance': {'conversion_provenance': record}}]})
+        assert text.startswith('Sliced: x') and 'Conversion:' not in text
+    text = summary.format_slice_summary(
+        {'title': 'x', 'provenance': {'conversion_provenance': None},
+         'derived_plates': [{'provenance': None},
+                            {'provenance': {'conversion_provenance': None}},
+                            {'provenance': {'conversion_provenance': {
+                                'intent_status': 'known', 'unresolved_conflicts': [{'key': 'k'}]}}}]})
+    assert 'Conversion: 1 designer setting conflict(s)' in text
+
+
 def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
     job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
     assert 'Conversion:' not in summary.format_slice_summary(job.data)
@@ -810,19 +827,6 @@ class StrictAdapter:
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         self.sent.append(content)
         return S(success=True)
-
-
-def test_receipt_hook_sends_with_content_keyword(monkeypatch):
-    plugin = _load("print_feedback_msgs", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-    adapter = StrictAdapter()
-    src = S(platform=S(value="discord"), profile="3dprinting", user_id="42", chat_id="c", thread_id=None)
-    gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter)
-    event = S(source=src, text="Approved. Bed is clear.", message_id="m1", internal=False)
-    errors = []
-    monkeypatch.setattr(plugin.logger, "exception", lambda *a, **k: errors.append(a))
-    asyncio.run(plugin.receive_ack(event, gateway))
-    assert errors == []
-    assert adapter.sent and "bed-clear" in adapter.sent[0]
 
 
 def test_every_plugin_and_intake_send_uses_content_keyword():
@@ -861,8 +865,6 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     asyncio.run(plugin.model_link_dispatch(event, gateway))
     # No "Got the link" receipt: the model preview and color picker are the acknowledgement.
     assert order and order[0][1] == []
-    # receive_ack must not double-send for the same handled message.
-    asyncio.run(plugin.receive_ack(event, gateway))
     assert adapter.sent == []
 
 

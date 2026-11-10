@@ -127,7 +127,7 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None, mirror=N
 
     No mesh repair, merging or per-part rearrangement. An optional operator-selected
     rigid rotation, then uniform scale, is applied before rigid centering on the bed (bed, default the configured one).
-    A source with negative/modifier volumes goes through color_geometry, which still centres at 110 mm.
+    A source with negative/modifier volumes goes through color_geometry, centered on the same bed.
     STL float32 rounding is recorded by hashes. Non-mm and nonprintable builds refuse.
     """
     scale = float(scale) if scale is not None else 1.0
@@ -148,7 +148,7 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None, mirror=N
             raise RuntimeError('source has negative/modifier volumes or per-part settings; '
                                'export to .3mf, not STL')
         from .color_geometry import export_volume_plate
-        return export_volume_plate(source, target, scale=scale, rotation=rotation)
+        return export_volume_plate(source, target, scale=scale, rotation=rotation, bed=bed or BED)
     return _place_triangles(_3mf_triangles(source), target, scale, rotation, bed, mirror=mirror)
 
 
@@ -216,6 +216,23 @@ def _3mf_triangles(source):
     return hit
 
 
+def transform_mirrors(chain):
+    """True when a chain of 12-value 3MF transforms reflects (negative determinant).
+
+    A 3MF mesh is wound counterclockwise seen from outside in its own
+    coordinates. Flattened through a reflecting transform the same order
+    is clockwise, so the flattened triangles must be rewound or the solid
+    comes out inside-out (negative volume, inward normals). The sign of
+    the composed determinant is the product of the signs of each one.
+    """
+    negative = False
+    for t in chain:
+        det = (t[0] * (t[4] * t[8] - t[5] * t[7]) - t[1] * (t[3] * t[8] - t[5] * t[6])
+               + t[2] * (t[3] * t[7] - t[4] * t[6]))
+        negative ^= det < 0
+    return negative
+
+
 def _parse_3mf_triangles(source):
     with zipfile.ZipFile(source) as archive:
         models = {}
@@ -265,13 +282,14 @@ def _parse_3mf_triangles(source):
             mesh = obj.find('c:mesh', NS)
             out = IndexedTriangles()
             if mesh is not None:
+                import numpy as np
+                order = [0, 2, 1] if transform_mirrors(chain) else [0, 1, 2]
                 if name in tables:
                     table = tables[name].get(oid)
                     if table is not None:
                         out.extend_indexed(transform_vertices(table.vertices, chain),
-                                            table.triangles)
+                                            np.asarray(table.triangles).reshape((-1, 3))[:, order])
                 else:
-                    import numpy as np
                     vertices = [tuple(float(v.get(k)) for k in ('x', 'y', 'z')) for v in mesh.findall('c:vertices/c:vertex', NS)]
                     faces = [tuple(int(tri.get(i)) for i in ('v1', 'v2', 'v3')) for tri in mesh.findall('c:triangles/c:triangle', NS)]
                     if faces:
@@ -282,7 +300,7 @@ def _parse_3mf_triangles(source):
                             # vertices[a] for exactly this range.
                             raise IndexError('3MF triangle vertex index out of range')
                         face_array = np.where(face_array < 0, face_array + count, face_array)
-                        out.extend_indexed(transform_vertices(vertices, chain), face_array)
+                        out.extend_indexed(transform_vertices(vertices, chain), face_array[:, order])
             for component in obj.findall('c:components/c:component', NS):
                 external = next((v for k, v in component.attrib.items() if k.endswith('}path')), name)
                 out.extend(collect(external.lstrip('/'), component.get('objectid'),
@@ -378,10 +396,12 @@ def _object_triangles(source, object_id):
                 vertices = [tuple(float(v.get(k)) for k in ('x', 'y', 'z')) for v in vertex_nodes]
                 for t in chain:
                     vertices = [apply(p, t) for p in vertices]
+                mirrored = transform_mirrors(chain)
                 for triangles_node in children(mesh, 'triangles'):
                     for tri in children(triangles_node, 'triangle'):
                         a, b, c = (int(tri.get(i)) for i in ('v1', 'v2', 'v3'))
-                        out.append((vertices[a], vertices[b], vertices[c]))
+                        out.append((vertices[a], vertices[c], vertices[b]) if mirrored
+                                   else (vertices[a], vertices[b], vertices[c]))
             components = []
             for wrapper in children(obj, 'components'):
                 components.extend(children(wrapper, 'component'))
@@ -1411,7 +1431,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             and not identity_single and not pause_single:
         raise ValueError('fit_by_object is only supported for per-part color decisions')
     folder.mkdir(parents=True, exist_ok=True)
-    machine, process, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'process', 'filament')]
+    machine, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'filament')]
+    # The destination process template, read once: `process` becomes the job's process, and
+    # destination_process stays the untouched template (brim mode, protected-setting baseline,
+    # conversion provenance target).
+    _process_text = (templates / 'process.json').read_text()
+    process, destination_process = json.loads(_process_text), json.loads(_process_text)
     template_nozzle_dia = float(machine.get('nozzle_diameter', [NOZZLE_MM])[0] if isinstance(machine.get('nozzle_diameter'), list) else machine.get('nozzle_diameter', NOZZLE_MM))
     nozzle_dia = float(state['nozzle']['diameter_mm'])
     from .nozzle import UntunedNozzleError, get_tuned_nozzle_profile
@@ -1424,6 +1449,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # nozzle's tuned width when that is larger.
     from .color_geometry import effective_tower_mm
     tower_mm = effective_tower_mm(nozzle_dia)
+    # The source's slicer project, parsed once for the whole slice (author settings, identity,
+    # embedded preset) and handed to every consumer below.
+    project = author_settings.read_project(source)
     author = {}
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
@@ -1458,7 +1486,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=multi_tool, tower_mm=tower_mm)
-        author = author_settings.read(source)
+        author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted
         # decision stays single_color) and export every part onto the picked
@@ -1472,7 +1500,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=True, tower_mm=tower_mm,
                                                   layer_mode='pause' if pause_single else None)
-        author = author_settings.read(source)
+        author = project['author']
     elif pause_single:
         # One extruder, manual swaps: every part on the picked slot, and the
         # height color changes written as pauses at their heights (#870).
@@ -1485,9 +1513,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=False, tower_mm=tower_mm,
                                                   layer_mode='pause')
-        author = author_settings.read(source)
+        author = project['author']
     elif source.suffix.lower() == '.3mf' and not preserve_layout:
-        author = author_settings.read(source)
+        author = project['author']
         input_path = folder / ('geometry.3mf' if has_cutters(source) or has_part_settings(source)
                                else 'geometry.stl')
         geometry.update(export_geometry(source, input_path, scale=scale or 1.0, rotation=rotation,
@@ -1502,7 +1530,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                   bed=printer.build_volume().bed_mm, mirror=mirror))
     else:
         if source.suffix.lower() == '.3mf':
-            author = author_settings.read(source)
+            author = project['author']
         input_path = source
         geometry = {'policy': 'derived plate; documented translation preserved; no arrange', 'source_sha256': digest(source)}
     if (color_decisions and color_decisions.get('mode') == 'single_color' and not pause_single
@@ -1524,31 +1552,50 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Gap fill falls back to 'everywhere' below, never to the templates' 'none' (not an Orca value).
     carried, author_notes = author_settings.carry(author, {**process, compat_registry.get_rule('gap-fill-default').parameters['key']: compat_registry.get_rule('gap-fill-default').parameters['default']}, PROCESS_KEYS)
     process.update(carried)
+    # Who set each process value that differs from the destination template, recorded where it is
+    # set (last writer wins), for the conversion provenance's selected_reason (#1110).
+    selected_by = {key: 'designer' if author.get(key) == value else 'compatibility_fallback'
+                   for key, value in carried.items()}
+
+    def _selected(reason, keys):
+        selected_by.update(dict.fromkeys(keys, reason))
     if 'wall_sequence' in carried:
         process.pop('wall_infill_order', None)  # the template's legacy spelling would override the author's order
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
-    process['brim_type'] = json.loads((templates / 'process.json').read_text())['brim_type']
+    process['brim_type'] = destination_process['brim_type']
+    selected_by.pop('brim_type', None)
     process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', compat_registry.get_rule('gap-fill-default').parameters['default']),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})
+    _selected('job', ['filter_out_gap_fill'])
+    if 'gap_fill_target' not in carried:
+        _selected('compatibility_fallback', ['gap_fill_target'])
+    _selected('designer' if 'enable_support' in author else 'job', ['enable_support'])
+    _selected('operator' if brim is not None else 'designer' if 'brim_width' in author else 'job', ['brim_width'])
     if brim_policy is not None:
         process['brim_type'] = brim_policy.get('type', 'no_brim')
         process['brim_width'] = str(brim_policy.get('width_mm', 0))
+        _selected('job', ['brim_type', 'brim_width'])
     _painted = compat_registry.get_rule('painted-supports-enable-generation').parameters
     if (supports is None and not first_layer and str(process[_painted['key']]) != _painted['on_value']
             and author_settings.painted_supports(source)):
         # Painted support enforcers do nothing while generation is off (ForgeBridge rule): turn it on,
         # unless the operator decided supports for this job.
         process['enable_support'] = '1'
+        _selected('designer', ['enable_support'])
         author_notes.append('supports turned on: the model has painted support enforcers')
     if supports is not None:
         process.update({'enable_support': '1' if supports else '0'})
-        if supports:
-            process.setdefault('support_type', 'tree(auto)')
+        _selected('operator', ['enable_support'])
+        if supports and 'support_type' not in process:
+            process['support_type'] = 'tree(auto)'
+            _selected('operator', ['support_type'])
     if first_layer:
         process.update({'layer_height': '0.2', 'initial_layer_print_height': '0.2', 'wall_loops': '2',
                         'brim_width': '0', 'brim_type': 'no_brim', 'initial_layer_speed': '20',
                         'initial_layer_infill_speed': '20', 'enable_support': '0'})
+        _selected('job', ['layer_height', 'initial_layer_print_height', 'wall_loops', 'brim_width', 'brim_type',
+                          'initial_layer_speed', 'initial_layer_infill_speed', 'enable_support'])
     mesh = start_mesh_profile(state)
     machine['machine_start_gcode'] = printer.machine_start_gcode(machine['machine_start_gcode'], mesh)
     machine['machine_end_gcode'] = printer.machine_end_gcode(machine.get('machine_end_gcode', ''))
@@ -1575,15 +1622,20 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         process['line_width'] = str(tuned_profile.line_width)
         process['initial_layer_line_width'] = str(tuned_profile.initial_layer_line_width)
         process['internal_solid_infill_line_width'] = str(tuned_profile.line_width)
+        _selected('job', ['layer_height', 'initial_layer_print_height', 'line_width', 'initial_layer_line_width',
+                          'internal_solid_infill_line_width'])
     if author.get('wall_generator') == 'arachne' and not first_layer and not mapping:
         # The designer chose variable-width walls: treat it as a thin/print-in-place model
         # and use the flex profile so moving gaps are not fused (AD5X Flexy Ring guide).
         process.update(FLEX_PROFILE)
+        _selected('compatibility_fallback', FLEX_PROFILE)
         if supports:
             process.update({'enable_support': '1'})
+            _selected('operator', ['enable_support'])
         if brim_policy is not None:
             process['brim_type'] = brim_policy.get('type', 'no_brim')
             process['brim_width'] = str(brim_policy.get('width_mm', 0))
+            _selected('job', ['brim_type', 'brim_width'])
         geometry['thin_feature_profile'] = 'arachne flex (designer asked for arachne walls)'
     if edits and not first_layer:
         # Chat edit plans (#903): the operator's confirmed choices outrank
@@ -1591,26 +1643,33 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # against. (A first-layer test slice keeps its own fixed recipe.)
         if edits.get('support_type'):
             process['support_type'] = 'tree(auto)' if edits['support_type'] == 'tree' else 'normal(auto)'
+            _selected('operator', ['support_type'])
         if edits.get('support_plate_only') is not None:
             process['support_on_build_plate_only'] = '1' if edits['support_plate_only'] else '0'
+            _selected('operator', ['support_on_build_plate_only'])
         if edits.get('layer_height') is not None:
             process['layer_height'] = str(edits['layer_height'])
+            _selected('operator', ['layer_height'])
         if edits.get('infill_percent') is not None:
             process['sparse_infill_density'] = f"{edits['infill_percent']:g}%"
+            _selected('operator', ['sparse_infill_density'])
         if edits.get('label_objects'):
             # The copies probe slice (#903): the shipped AD5X profiles turn
             # object labels off, so the probe turns them on to count copies.
             process['gcode_label_objects'] = '1'
+            _selected('job', ['gcode_label_objects'])
         for key, value in (edits.get('profile') or {}).items():
             # Job-level profile settings (#978): only the allowlisted
             # process keys in edit_plan.PROFILE_SETTINGS are applied.
             from .edit_plan import PROFILE_SETTINGS as _PROFILE_KEYS
             if key in _PROFILE_KEYS:
                 process[key] = str(value)
+                _selected('operator', [key])
         geometry['edit_plan'] = json.dumps({k: v for k, v in edits.items() if k != 'mirror'},
                                            sort_keys=True)
     tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None
     if tree_note:
+        _selected('compatibility_fallback', ['support_style'])
         author_notes.append(tree_note)
     from .nozzle import get_nozzle_type_adjustments
     adj = get_nozzle_type_adjustments(nozzle_type)
@@ -1781,6 +1840,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         pointers = support_tool_pointers(manifest, color_decisions, mapping, multi_tool)
         for key, tool in pointers.items():
             process[key] = str(tool + 1)
+        _selected('designer', pointers)
         if pointers:
             geometry['support_filament'] = (
                 'the project named its own support filament; the spool picked for it is loaded '
@@ -1814,6 +1874,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                   flush=True)
             speed = float(cap)
         process['outer_wall_speed'] = str(round(speed, 1))
+        _selected('material_profile', ['outer_wall_speed'])
     configs = []
     for name, data in zip(('machine', 'process', 'filament'), (machine, process, filament)):
         path = folder / f'{name}.json'
@@ -1869,11 +1930,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         process.update({'enable_prime_tower': '1', **purge_process})
+        _selected('job', ['enable_prime_tower', *purge_process])
         if tower_mm:  # a towerless plan keeps the template's width; Orca range-checks it even when off
             process['prime_tower_width'] = '%g' % tower_mm
+            _selected('job', ['prime_tower_width'])
         if geometry.get('prime_tower_xy_mm'):
             tower_x, tower_y = geometry['prime_tower_xy_mm']
             process.update({'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y)})
+            _selected('job', ['wipe_tower_x', 'wipe_tower_y'])
         if purge_plan is not None and purge_plan.zmod:
             geometry['purge_plan'] = purge_plan.as_dict()
         if purge_mode == 0:
@@ -1972,12 +2036,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Keep the untouched base templates for protected-setting comparison; gate the
     # final effective configs immediately before invoking Orca.
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
-                    **json.loads((templates / 'process.json').read_text()),
+                    **destination_process,
                     **json.loads(Path(filament_template).read_text())}
-    # The destination process template before any author overlay: conversion
-    # provenance compares carried author values against THIS, never against
+    # Conversion provenance compares carried author values against the
+    # destination template (destination_process, read above), never against
     # the final selected process (which would make target == selected).
-    destination_process = json.loads((templates / 'process.json').read_text())
     effective_profile = {**machine, **process, **filament}
     placed_bounds = geometry.get('placed_bounds_mm')
     if placed_bounds and len(placed_bounds) >= 2:
@@ -2100,11 +2163,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # retry that dropped them would approve an unsupported print (P2-65).
         resolved_support = process.get('enable_support')
         resolved_brim = (process.get('brim_type'), process.get('brim_width'))
+        resolved_by = dict(selected_by)
         process.update(FLEX_PROFILE)
+        _selected('compatibility_fallback', FLEX_PROFILE)
         if supports is not None:
             process['enable_support'] = resolved_support
+            selected_by['enable_support'] = resolved_by.get('enable_support', 'operator')
         if brim is not None or brim_policy is not None:
             process['brim_type'], process['brim_width'] = resolved_brim
+            for key in ('brim_type', 'brim_width'):
+                if key in resolved_by:
+                    selected_by[key] = resolved_by[key]
+                else:
+                    selected_by.pop(key, None)
         geometry['thin_feature_profile'] = 'arachne flex (AD5X Flexy Ring guide)'
         configs[1].write_text(json.dumps(process, indent=2) + '\n')
         if input_path.suffix.lower() == '.3mf':
@@ -2121,6 +2192,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         tried = [list(geometry['prime_tower_xy_mm'])]
         for tower_x, tower_y in geometry.get('prime_tower_candidates_mm', [])[1:]:
             process.update({'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y)})
+            _selected('job', ['wipe_tower_x', 'wipe_tower_y'])
             configs[1].write_text(json.dumps(process, indent=2) + '\n')
             output.unlink(missing_ok=True)
             (folder / 'result.json').unlink(missing_ok=True)
@@ -2317,6 +2389,68 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                            kind='guard')
     if baseline_gate.warnings:
         post_gate.warn(*baseline_gate.warnings)
+    # Which registry rules this slice applied, for the conversion provenance's
+    # governing rules (#1110): decided here, before the post-slice verdict, so a
+    # rule outside its declared versions can refuse readiness.
+    _source_family, _source_slicer_version, _source_format = author_settings.source_identity(project)
+    _candidates = set()
+    if _source_format != 'unknown':
+        # The carry and the process assembly run for every project source.
+        _candidates.update(('author-intent-allowlist', 'orca-enum-fallback',
+                            'designer-lowered-speed-carry', 'gap-fill-default'))
+    if _source_family == 'prusaslicer':
+        # read() translates a PrusaSlicer project through each of these.
+        _candidates.update(('prusa-key-translation', 'prusa-value-translation',
+                            'prusa-support-threshold-zero-drop', 'prusa-ironing-translation',
+                            'prusa-support-style-translation', 'prusa-wall-sequence-translation'))
+    if _project_copy_converted:
+        _candidates.update(('imported-auto-sentinel-normalization', 'imported-template-override',
+                            'settings-id-validation', 'wipe-tower-bed-clamp',
+                            'foreign-machine-key-removal', 'bed-type-replacement',
+                            'preset-bookkeeping-clearing', 'override-restriction'))
+        if _source_family == 'prusaslicer':
+            _candidates.add('prusa-plate-adoption-seeding')
+    if geometry.get('thin_feature_profile'):
+        _candidates.add('arachne-flex-profile')
+    if any('Tree Hybrid' in note for note in author_notes):
+        _candidates.add('organic-tree-hybrid-conversion')
+    if any('painted support' in note for note in author_notes):
+        _candidates.add('painted-supports-enable-generation')
+    if _range_clamped:
+        _candidates.add('orca-range-error-clamp')
+    if _bambu_widths_converted:
+        _candidates.add('orca-percent-line-width-to-bambu-mm')
+    # Phase C remap rules (#1110 C11): the geometry exports and the
+    # adoption pass reached these decision points when the sliced package
+    # carries the members they govern.
+    if Path(source).suffix.lower() == '.3mf' and zipfile.is_zipfile(source):
+        with zipfile.ZipFile(source) as _archive:
+            _member_names = set(_archive.namelist())
+            if _LAYER_RANGES in _member_names:
+                _candidates.add('height-range-extruder-remap')
+            if any(name.lower().endswith('.model')
+                   and b'mmu_segmentation' in _archive.read(name) for name in _member_names):
+                _candidates.add('mmu-segmentation-paint-translation')
+            if 'Metadata/project_settings.config' in _member_names:
+                _project = json.loads(_archive.read('Metadata/project_settings.config'))
+                if isinstance(_project, dict) and (
+                        'support_filament' in _project or 'support_interface_filament' in _project):
+                    _candidates.add('support-designation-remap')
+                if isinstance(_project, dict) and 'flush_volumes_matrix' in _project:
+                    _candidates.add('flush-matrix-permutation')
+    _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
+                           'Flash Studio': 'flash_studio'}.get(slicer)
+    _destination_slicer_version = sg.slicer_version(generator)
+    _governing_rules, _rules_outside = author_settings.governing_rules(
+        _candidates, _source_family, _source_slicer_version,
+        _destination_family, _destination_slicer_version)
+    if _source_format != 'unknown':
+        # #1110 requirements 5 and 6: a foreign project converted by a rule
+        # whose declared versions do not cover this slice (an unknown version
+        # included) is an unsupported combination, refused like any other
+        # post-slice block. A plain STL or native job is never refused here.
+        for problem in author_settings.version_conflict_problems(_rules_outside):
+            post_gate.block(problem)
     if post_gate.status == 'blocked':
         raise SliceFailure('Post-slice guard blocked: ' + '; '.join(post_gate.blocked), kind='guard')
     warnings = gate.warnings + post_gate.warnings + baseline_gate.warnings
@@ -2332,64 +2466,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Provenance is a record about the slice, never a reason to lose it:
     # malformed or unexpected project data must not fail a finished slice.
     try:
-        _source_family, _source_slicer_version, _source_format = author_settings.source_identity(source)
-        _candidates = set()
-        if _source_format != 'unknown':
-            # The carry and the process assembly run for every project source.
-            _candidates.update(('author-intent-allowlist', 'orca-enum-fallback',
-                                'designer-lowered-speed-carry', 'gap-fill-default'))
-        if _source_family == 'prusaslicer':
-            # read() translates a PrusaSlicer project through each of these.
-            _candidates.update(('prusa-key-translation', 'prusa-value-translation',
-                                'prusa-support-threshold-zero-drop', 'prusa-ironing-translation',
-                                'prusa-support-style-translation', 'prusa-wall-sequence-translation'))
-        if _project_copy_converted:
-            _candidates.update(('imported-auto-sentinel-normalization', 'imported-template-override',
-                                'settings-id-validation', 'wipe-tower-bed-clamp',
-                                'foreign-machine-key-removal', 'bed-type-replacement',
-                                'preset-bookkeeping-clearing', 'override-restriction'))
-            if _source_family == 'prusaslicer':
-                _candidates.add('prusa-plate-adoption-seeding')
-        if geometry.get('thin_feature_profile'):
-            _candidates.add('arachne-flex-profile')
-        if any('Tree Hybrid' in note for note in author_notes):
-            _candidates.add('organic-tree-hybrid-conversion')
-        if any('painted support' in note for note in author_notes):
-            _candidates.add('painted-supports-enable-generation')
-        if _range_clamped:
-            _candidates.add('orca-range-error-clamp')
-        if _bambu_widths_converted:
-            _candidates.add('orca-percent-line-width-to-bambu-mm')
-        # Phase C remap rules (#1110 C11): the geometry exports and the
-        # adoption pass reached these decision points when the sliced package
-        # carries the members they govern.
-        if Path(source).suffix.lower() == '.3mf' and zipfile.is_zipfile(source):
-            with zipfile.ZipFile(source) as _archive:
-                _member_names = set(_archive.namelist())
-                if _LAYER_RANGES in _member_names:
-                    _candidates.add('height-range-extruder-remap')
-                if any(name.lower().endswith('.model')
-                       and b'mmu_segmentation' in _archive.read(name) for name in _member_names):
-                    _candidates.add('mmu-segmentation-paint-translation')
-                if 'Metadata/project_settings.config' in _member_names:
-                    _project = json.loads(_archive.read('Metadata/project_settings.config'))
-                    if isinstance(_project, dict) and (
-                            'support_filament' in _project or 'support_interface_filament' in _project):
-                        _candidates.add('support-designation-remap')
-                    if isinstance(_project, dict) and 'flush_volumes_matrix' in _project:
-                        _candidates.add('flush-matrix-permutation')
-        _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
-                               'Flash Studio': 'flash_studio'}.get(slicer)
-        _destination_slicer_version = sg.slicer_version(generator)
-        _governing_rules = author_settings.governing_rule_ids(
-            _candidates, _source_family, _source_slicer_version,
-            _destination_family, _destination_slicer_version)
         _conversion_provenance = author_settings.conversion_provenance(
-            source, destination_process, process, author, author_notes,
+            project, destination_process, process, author, author_notes,
             destination_slicer_version=_destination_slicer_version,
             destination_profile=author_settings.destination_profile_identity(
                 destination_process, templates),
-            governing_rules=_governing_rules)
+            governing_rules=_governing_rules,
+            rules_outside_declared_versions=_rules_outside,
+            selected_reasons=selected_by)
     except Exception:
         _conversion_provenance = None
     if _conversion_provenance is not None:

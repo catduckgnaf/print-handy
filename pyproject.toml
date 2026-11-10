@@ -17,7 +17,7 @@ dynamic = ["version"]
 description = "Bambu Handy for every printer, local-first: chat-guided slicing, spool matching and confirmed printing for Klipper, Bambu Lab, Prusa, Flashforge, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-only" }
 dependencies = [
     "jinja2>=3.1",
     # Barcode/QR decoding for spool label photo intake (#514); imported lazily, only used when reading a label photo.
@@ -82,7 +82,6 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-extend-exclude = ["hermes"]
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82"]

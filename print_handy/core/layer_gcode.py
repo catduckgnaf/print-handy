@@ -166,42 +166,6 @@ def remap(xml_bytes, tool_map, z_scale=1.0):
                   'remapped': {str(src): tool for src, tool in sorted(tool_map.items())}}
 
 
-def remap_archive(source, target, tool_map, z_scale=1.0):
-    """Atomically remap only per-layer tool changes in a copied 3MF archive.
-
-    Reject an archive with a source tool lacking an explicit destination mapping;
-    never silently discard a designer-authored layer change. Other ZIP members
-    are copied byte-for-byte. The source is never modified.
-    """
-    source, target = Path(source), Path(target)
-    with zipfile.ZipFile(source) as archive:
-        names = archive.namelist()
-        if MEMBER not in names:
-            raise RuntimeError('3MF has no per-layer G-code member to remap')
-        original = archive.read(MEMBER)
-        entries = parse(original)
-        unresolved = sorted({row['source_extruder'] for row in entries
-                             if row['kind'] == 'tool_change' and row['source_extruder'] not in tool_map})
-        if unresolved:
-            raise RuntimeError(f'unmapped source layer tool(s): {unresolved}')
-        converted, report = remap(original, tool_map, z_scale=z_scale)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + '.tmp')
-        try:
-            with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
-                for name in names:
-                    out.writestr(name, converted if name == MEMBER else archive.read(name))
-            # Validate output before atomic replacement.
-            with zipfile.ZipFile(tmp) as check:
-                if check.testzip() is not None or parse(check.read(MEMBER)) is None:
-                    raise RuntimeError('remapped 3MF archive failed validation')
-            tmp.replace(target)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
-    return report
-
-
 def as_pauses(xml_bytes, z_scale=1.0):
     """Turn every tool change into a pause at the same height (single extruder).
 

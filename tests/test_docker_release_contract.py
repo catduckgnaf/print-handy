@@ -51,7 +51,6 @@ class DockerReleaseContract(unittest.TestCase):
             "bin/moonrakerctl": {"curl", "jq"},
             # Sourced by moonrakerctl for mesh-run.
             "bin/mesh-routine.sh": {"jq"},
-            "bin/restart_gateway_after_print.sh": {"curl"},
         }
         dockerfile = (ROOT / "Dockerfile").read_text()
         runtime = dockerfile.split("AS runtime", 1)[1]
@@ -124,15 +123,24 @@ class DockerReleaseContract(unittest.TestCase):
         """#214: one Compose service runs Print Handy plus the bundled Spoolman API on loopback."""
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         services = compose["services"]
-        # One container runs Print Handy; the only other service is the
-        # optional profile-gated cloudflared sidecar (#311), which runs no
-        # Print Handy code and shares the combined network namespace.
-        self.assertEqual(list(services), ["combined", "cloudflared"])
+        # One container runs Print Handy; the other services are the
+        # one-shot first-boot directory initializer (#1144) and the
+        # optional profile-gated cloudflared sidecar (#311).
+        self.assertEqual(list(services), ["combined", "print-handy-init", "cloudflared"])
         self.assertEqual(services["cloudflared"]["profiles"], ["live-stream"])
+        init_service = services["print-handy-init"]
+        self.assertEqual(init_service["user"], "0:0")
+        self.assertEqual(init_service["restart"], "no")
+        self.assertEqual(init_service["cap_drop"], ["ALL"])
+        self.assertEqual(init_service["cap_add"], ["CHOWN"])
+        self.assertEqual(init_service["security_opt"], ["no-new-privileges:true"])
         service = services["combined"]
         self.assertNotIn("command", service)
-        self.assertNotIn("ports", service)
-        self.assertNotIn("depends_on", service)
+        # The one published port is the Web UI's, so a stock Compose
+        # first boot can reach it; nothing else is published.
+        self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
+        self.assertEqual(service["depends_on"],
+                         {"print-handy-init": {"condition": "service_completed_successfully"}})
         self.assertTrue(service["init"])
         self.assertEqual(service["healthcheck"]["test"], ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         self.assertFalse(any(v.split(":")[-1].startswith("/app") for v in service["volumes"]))
@@ -509,7 +517,8 @@ class DockerReleaseContract(unittest.TestCase):
         manifest = workflow["jobs"]["manifest"]
         # Publication only, gated on every build leg (each leg is itself
         # acceptance-gated before its digest push).
-        self.assertEqual(manifest["needs"], "build")
+        # It also reads the publish ref guard's move_latest output.
+        self.assertEqual(manifest["needs"], ["build", "surfaces-gate"])
         self.assertEqual(manifest["if"], "inputs.publish")
         create = next(step for step in manifest["steps"]
                       if step.get("name") == "Create and push the multi-arch manifests")
