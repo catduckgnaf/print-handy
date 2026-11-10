@@ -28,10 +28,26 @@
         },
         {
             "commitMessagePrefix": "deps:",
-            "description": "Group base image updates for the Dockerfile stages.",
+            "description": "Group base image updates for the Dockerfile stages. Every FROM is pinned as tag@sha256 (#1196); pinDigests keeps it that way and bumps the digest when the tag moves.",
             "groupName": "docker base images",
+            "pinDigests": true,
             "matchManagers": [
                 "dockerfile"
+            ]
+        },
+        {
+            "commitMessagePrefix": "deps:",
+            "description": "The docker-static job container (debian:13-slim) carries the same digest pin as the Dockerfile stages (#1196); keep it in the same group so the digest moves once.",
+            "groupName": "docker base images",
+            "pinDigests": true,
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchDatasources": [
+                "docker"
+            ],
+            "matchPackageNames": [
+                "debian"
             ]
         },
         {
