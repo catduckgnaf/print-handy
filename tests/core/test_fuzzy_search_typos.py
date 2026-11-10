@@ -50,13 +50,16 @@ CORPUS = {**ALL_PAIRS, **PHASE3_MINED_TYPOS}
 
 # The carried lookup query is corrected against the *intent* vocabulary
 # (runtime._match_task_intent), whose canonical forms are the words the
-# task patterns themselves use. Two corpus corrections are therefore
+# task patterns themselves use. Four corpus corrections are therefore
 # routed in their intent-canonical form rather than the table's literal
 # value: the plural "spaghettis" routes as "spaghetti" (the form every
 # spaghetti pattern matches) and the adverb "separately" as "separate"
-# (the bed-down patterns' verb). Everything else routes as the table's
-# word, verified pair by pair below.
-ROUTED_FORM = {"spaghettis": "spaghetti", "separately": "separate"}
+# (the bed-down patterns' verb); the double-letter round added the
+# plural "errors" -> "error" and the adverb "currently" -> "current",
+# the same two shapes. Everything else routes as the table's word,
+# verified pair by pair below.
+ROUTED_FORM = {"spaghettis": "spaghetti", "separately": "separate",
+               "errors": "error", "currently": "current"}
 
 
 def routed(word):

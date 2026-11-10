@@ -58,6 +58,47 @@ OPERATOR_MINED_2 = {
 OPERATOR_MINED_3 = {
     "epsecially": "especially", "mispellings": "misspellings",
 }
+# Double-letter round (catduck, 2026-11-10, on PR #1191): more pairs
+# whose correct spelling carries a doubled ss, rr or ll — the pattern
+# behind both round-3 words ("especially", "misspellings"). Each typo
+# drops one of the doubled letters, doubles the wrong neighbor, or
+# triples the letter. Same curation rules as the rounds above: every
+# key verified absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS, not
+# a real English word per pyspellchecker, and its word a real word
+# carrying the double. Six candidates were rejected by that screen:
+# "alow" and "instal" (real words), "eror" and "isue" (already in
+# TOKEN_FORMS), "yelow" (already in the table), and "skil" -> "skill"
+# (the lookup carry re-routes the word "skill" itself to "still", so
+# the pair cannot be carried correctly — verified with no table entry
+# present; that routing quirk is outside this round's scope).
+DOUBLE_LETTER_TYPOS = {
+    "acces": "access", "acess": "access", "acros": "across",
+    "actualy": "actually", "addres": "address", "alowed": "allowed",
+    "anualy": "annually", "arange": "arrange", "arive": "arrive",
+    "arrrow": "arrow", "asembly": "assembly", "asess": "assess",
+    "asist": "assist", "assesment": "assessment", "baloon": "balloon",
+    "barier": "barrier", "borow": "borrow", "chalenge": "challenge",
+    "clasroom": "classroom", "colect": "collect", "colege": "college",
+    "controled": "controlled", "corect": "correct", "corected": "corrected",
+    "corespond": "correspond", "coridor": "corridor", "curent": "current",
+    "curently": "currently", "discusion": "discussion", "dolar": "dollar",
+    "erors": "errors", "esential": "essential", "excelent": "excellent",
+    "expres": "express", "folow": "follow", "folowing": "following",
+    "fullly": "fully", "fuly": "fully", "galery": "gallery",
+    "glas": "glass", "helo": "hello", "instaled": "installed",
+    "inteligence": "intelligence", "leson": "lesson", "mesage": "message",
+    "messsage": "message", "miror": "mirror", "mision": "mission",
+    "overal": "overall", "paralell": "parallel", "pasword": "password",
+    "permision": "permission", "posible": "possible", "presure": "pressure",
+    "proces": "process", "profesional": "professional", "progres": "progress",
+    "puley": "pulley", "referal": "referral", "sesion": "session",
+    "smal": "small", "sory": "sorry",
+    "speling": "spelling", "spelings": "spellings", "stil": "still",
+    "succes": "success", "sucess": "success", "suround": "surround",
+    "terible": "terrible", "teritory": "territory", "tisue": "tissue",
+    "totaly": "totally", "usualy": "usually", "valey": "valley",
+    "waranty": "warranty", "woried": "worried",
+}
 # Generic high-frequency non-word misspellings: domain typos the bounded
 # edit-distance pass misses (filamet, nozel) plus classic English keyboard
 # slips (teh, recieve, definately). Suggested in a branch commit whose file
@@ -279,7 +320,7 @@ BATCH2_TITLE_TYPOS = {
     "tewre": "tower", "vsaa": "vase", "vsai": "vase",
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
-             **OPERATOR_MINED_3,
+             **OPERATOR_MINED_3, **DOUBLE_LETTER_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 
