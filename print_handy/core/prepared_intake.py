@@ -2316,8 +2316,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
     platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
     if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='Yolo skips every check, so only a print approver can use it. '
-                                   'Running the normal intake instead.')
+                           content=yolo.refusal(platform) + ' Running the normal intake instead.')
         return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
                                    printer_id=printer_id, before_start=before_start,
                                    confirm_target=confirm_target)
@@ -2383,9 +2382,9 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
         return {'action': 'skip', 'reason': 'foreign G-code for another printer'}
     if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content=f'{name} is already-sliced G-code. Printing a file as-is skips every '
-                                   'check, so only a print approver can do it. Send the .stl or .3mf '
-                                   'model to have it sliced for this printer. Nothing was started.')
+                           content=f'{name} is already-sliced G-code, which prints only as yolo. '
+                                   + yolo.refusal(platform) + ' Or send the .stl or .3mf model to '
+                                   'have it sliced for this printer. Nothing was started.')
         return {'action': 'skip', 'reason': 'sliced G-code from a non-approver'}
     if not yolo.requested(getattr(event, 'text', '')):
         pick = await _ask(adapter, source, key,

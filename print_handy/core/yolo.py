@@ -14,7 +14,11 @@ Every check still runs and every auto-answer is posted in chat, so nothing is
 skipped silently; a failed check is reported instead of refusing (see
 ``model_job._waive``). Mechanics are never waived: a printer that is already
 printing, the control lock, the launch lease, the upload checksum and the
-start readback. Only print approvers may yolo (``may_yolo``).
+start readback. Neither are the printer's mechanical limits (S6): a move
+outside the axis limits, a toolpath whose bounds cannot be verified, or a
+heater target above the printer's absolute maximum still refuses
+(``model_job.require_mechanical_limits``). Only a configured print approver
+may yolo (``may_yolo``); with none configured, nobody may.
 """
 
 import contextvars
@@ -86,20 +90,54 @@ def auto_answer(choices):
     return 0
 
 
-def may_yolo(user_id, platform='discord', cfg=None):
-    """Whether this sender may skip checks: the same rule as answering a print approval.
+# The Web UI chat's one user. The web chat is built with this operator as
+# its approval user (bot/web.py), so it approves prints there, and yolos.
+WEB_OPERATOR = 'webui'
 
-    With approval users configured on the platform, only they may; with none
-    configured (or ``approval_all_users``), every authorized user may.
-    """
+
+def _approvers(platform, cfg):
     from .. import settings as _settings
     if cfg is None:
         from ..hermes import _config
         cfg = _config.cfg()
     section = (cfg or {}).get(str(platform or 'discord')) or {}
-    approvers = _settings.approver_ids(section)
-    return bool(not approvers or section.get('approval_all_users') is True
+    return section, _settings.approver_ids(section)
+
+
+def may_yolo(user_id, platform='discord', cfg=None):
+    """Whether this sender may yolo: only a configured print approver (S6).
+
+    Stricter than answering a print approval on purpose: yolo waives every
+    check that is not a mechanical limit, so it is never open to everyone by
+    default. With no ``approval_user_id`` configured on the platform nobody
+    may yolo there (``approval_all_users`` counts only once at least one
+    approver is configured, as the explicit choice to let everyone
+    approve). The web chat's operator is that platform's approval user by
+    construction, exactly as for print approvals there.
+    """
+    platform = str(platform or 'discord')
+    if platform == WEB_OPERATOR:
+        return user_id is not None and str(user_id) == WEB_OPERATOR
+    section, approvers = _approvers(platform, cfg)
+    if not approvers:
+        return False
+    return bool(section.get('approval_all_users') is True
                 or (user_id is not None and str(user_id) in approvers))
+
+
+def refusal(platform='discord', cfg=None):
+    """Why yolo was refused, saying how to allow it when no approver is set."""
+    platform = str(platform or 'discord')
+    base = 'Yolo skips checks, so only a print approver can use it'
+    try:
+        configured = platform == WEB_OPERATOR or bool(_approvers(platform, cfg)[1])
+    except Exception:  # an unreadable config: say only the rule
+        configured = True
+    if not configured:
+        return (f'{base}, and none is configured for {platform}. Set [{platform}] approval_user_id '
+                f'to your user ID (Web UI Settings, or PRINT_HANDY__{platform.upper()}__APPROVAL_USER_ID) '
+                'to allow it.')
+    return base + '.'
 
 
 def extract_gcode(package, dest_dir):

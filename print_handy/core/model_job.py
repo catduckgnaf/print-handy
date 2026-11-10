@@ -8756,7 +8756,10 @@ def partial_job_refusal(job):
 # <reason>` line instead of refusing, so the chat can say exactly what was
 # overridden. Mechanics are never waived: the control lock, a printer that is
 # already printing, the launch lease and duplicate-start claim, the upload
-# SHA256 check and the start readback.
+# SHA256 check and the start readback. Neither are the mechanical limits
+# (S6): require_mechanical_limits refuses a yolo toolpath past the axis
+# limits (or one whose bounds cannot be verified) and a heater target above
+# the printer's absolute maximum.
 YOLO_WAIVED_MARK = "YOLO WAIVED:"
 _YOLO = contextvars.ContextVar("print_now_yolo", default=False)
 
@@ -8793,6 +8796,118 @@ def _gate(gate, fn, *args, **kwargs):
         if not _waive(gate, exc):
             raise
         return None
+
+
+# Heater targets a G-code file sets, for the mechanical-limit check (S6):
+# M104/M109 (nozzle) and M140/M190 (bed) S/R values, Klipper's
+# SET_HEATER_TEMPERATURE, and the start macros' temperature arguments.
+_HEATER_M_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?M[^\S\n]*0*(104|109|140|190)(?![0-9])([^;\n]*)')
+_HEATER_VALUE_RE = re.compile(r'[SR]\s*(' + NUMBER + r')', re.I)
+_HEATER_SET_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?SET_HEATER_TEMPERATURE\b([^;\n]*)')
+_HEATER_MACRO_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?(?:START_PRINT|PRINT_START)\b([^;\n]*)')
+_HEATER_ARG_RE = re.compile(r'([A-Z_]+)\s*=\s*(' + NUMBER + r')', re.I)
+_MACRO_HOTEND_ARGS = frozenset({"EXTRUDER_TEMP", "HOTEND", "HOTEND_TEMP", "EXTRUDER", "NOZZLE", "NOZZLE_TEMP"})
+_MACRO_BED_ARGS = frozenset({"BED_TEMP", "BED"})
+
+
+def _adapter_fact(adapter, name):
+    fact = getattr(adapter, "fact", None)
+    if not callable(fact):
+        return None
+    try:
+        value = fact(name)
+    except Exception:  # a model without that fact has no such limit
+        return None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _heater_limits(state, adapter):
+    """(nozzle °C, bed °C): the printer's absolute heater maxima.
+
+    The nozzle limit is the fitted nozzle type's safe maximum, lowered to
+    the model's max_hotend_c when it has one; an unknown nozzle type counts
+    as brass, the softest. The bed limit is the model's max_bed_c, else the
+    hottest bed any configured material asks for.
+    """
+    from . import nozzle as _nozzle
+    nozzle_type = ((state or {}).get("nozzle") or {}).get("type") \
+        or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
+    try:
+        canonical = _nozzle.normalize_nozzle_type(nozzle_type)
+    except _nozzle.NozzleError:
+        canonical = _nozzle.normalize_nozzle_type("brass")
+    hotend = float(_nozzle._nozzle_type_defaults()[canonical]["max_temperature_c"])
+    model_hotend = _adapter_fact(adapter, "max_hotend_c")
+    if model_hotend is not None:
+        hotend = min(hotend, model_hotend)
+    bed = _adapter_fact(adapter, "max_bed_c")
+    if bed is None:
+        temps = {**settings.DEFAULT_MATERIAL_TEMPS, **(settings.current().get("material_temps") or {})}
+        bed = float(max(row["bed"] for row in temps.values()
+                        if isinstance(row, dict) and isinstance(row.get("bed"), (int, float))))
+    return hotend, bed
+
+
+def _gcode_heater_targets(text):
+    """(nozzle targets, bed targets) the G-code text sets, in °C."""
+    nozzle, bed = [], []
+    for match in _HEATER_M_RE.finditer(text):
+        into = nozzle if match.group(1) in ("104", "109") else bed
+        into.extend(float(v) for v in _HEATER_VALUE_RE.findall(match.group(2)))
+    for match in _HEATER_SET_RE.finditer(text):
+        args = match.group(1)
+        heater = re.search(r'HEATER\s*=\s*"?([A-Za-z0-9_ ]+)', args, re.I)
+        target = re.search(r'TARGET\s*=\s*(' + NUMBER + r')', args, re.I)
+        if heater and target:
+            name = heater.group(1).strip().lower()
+            if name.startswith("extruder"):
+                nozzle.append(float(target.group(1)))
+            elif name == "heater_bed":
+                bed.append(float(target.group(1)))
+    for match in _HEATER_MACRO_RE.finditer(text):
+        for key, value in _HEATER_ARG_RE.findall(match.group(1)):
+            key = key.upper()
+            if key in _MACRO_HOTEND_ARGS:
+                nozzle.append(float(value))
+            elif key in _MACRO_BED_ARGS:
+                bed.append(float(value))
+    return nozzle, bed
+
+
+def require_mechanical_limits(gcode_path, state, adapter):
+    """Refuse a toolpath past the axis limits or a heater past its maximum (S6).
+
+    These are the printer's mechanical limits, so yolo never waives them:
+    print_now runs this after the waivable G-code checks. A toolpath whose
+    bounds the verifier cannot establish (a refusal of the bounds parser)
+    refuses too, because nothing then shows it stays inside the limits.
+    Raises RuntimeError naming every problem; returns None when all hold.
+    """
+    state = state or {}
+    raw = Path(gcode_path).read_bytes()
+    text = raw.decode(errors="ignore")
+    problems = []
+    try:
+        bounds = cached_motion_bounds(raw, text)
+    except RuntimeError as exc:
+        problems.append(f"toolpath bounds unavailable: {exc}")
+    else:
+        limits = state.get("axis_limits_mm", {"x": [0, 223], "y": [0, 223],
+                                               "z": [0, state.get("max_print_height_mm", 250)]})
+        for axis in "xyz":
+            low, high = bounds[axis]
+            limit_low, limit_high = map(float, limits[axis])
+            if low < limit_low - 1e-3 or high > limit_high + 1e-3:
+                problems.append(f"{axis.upper()} bounds {low:.3f}..{high:.3f} exceed "
+                                f"{limit_low:.3f}..{limit_high:.3f}")
+    hotend_max, bed_max = _heater_limits(state, adapter)
+    nozzle_targets, bed_targets = _gcode_heater_targets(text)
+    for label, targets, limit in (("nozzle", nozzle_targets, hotend_max), ("bed", bed_targets, bed_max)):
+        over = [t for t in targets if not t <= limit]
+        if over:
+            problems.append(f"{label} target {max(over):g} C exceeds the printer's {limit:g} C maximum")
+    if problems:
+        raise RuntimeError("mechanical limits are never waived: " + "; ".join(problems))
 
 
 def yolo_waivers(tail):
@@ -8989,7 +9104,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     try:
         if yolo:
             print("YOLO: the operator chose to print without checks; failed checks are reported, "
-                  "not enforced.", flush=True)
+                  "not enforced, except the axis limits and heater maximums.", flush=True)
         out = _print_now_locked(target, wait_s=wait_s,
                                 accept_default_z_offset=accept_default_z_offset,
                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
@@ -9119,6 +9234,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
         _gate("G-code safety checks", _verify_routed, g, adapter, st, printer_id, job=job)
+        if yolo_active():
+            require_mechanical_limits(g, st, adapter)  # never waived (S6)
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:
             embedded_mapping = adapter.native.embedded_mapping
@@ -9360,7 +9477,7 @@ def _main():
     remap.add_argument("--tool", type=str, default="0", help="logical tool index (default: 0)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
-    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics are never waived)")
+    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics, axis limits and heater maximums are never waived)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap T0 to another physical IFS slot (1-4) without physical spool changes")
     for x in (pn,f,s):
         x.add_argument("--accept-default-z-offset",action="store_true",help="the operator accepted the printer default Z offset for this start")

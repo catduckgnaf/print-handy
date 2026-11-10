@@ -42,11 +42,60 @@ def test_auto_answer_takes_the_go_option_never_cancel(choices, want):
     assert yolo.auto_answer(choices) == want
 
 
-def test_may_yolo_follows_the_print_approval_rule():
-    assert yolo.may_yolo('1', cfg={'discord': {}}) is True                      # no approvers: anyone
+def test_may_yolo_needs_a_configured_approver():
+    # S6: with no approver configured nobody may yolo, approval_all_users or not.
+    assert yolo.may_yolo('1', cfg={'discord': {}}) is False
+    assert yolo.may_yolo('1', cfg={'discord': {'approval_all_users': True}}) is False
+    assert yolo.may_yolo('1', cfg={'telegram': {}}, platform='telegram') is False
     assert yolo.may_yolo('1', cfg={'discord': {'approval_user_id': '1, 2'}}) is True
     assert yolo.may_yolo('3', cfg={'discord': {'approval_user_id': '1, 2'}}) is False
+    assert yolo.may_yolo(None, cfg={'discord': {'approval_user_id': '1'}}) is False
+    # With an approver configured, approval_all_users keeps meaning "everyone approves".
     assert yolo.may_yolo('3', cfg={'discord': {'approval_user_id': '1', 'approval_all_users': True}}) is True
+
+
+def test_web_chat_operator_may_yolo_as_its_approval_user():
+    # The web chat is built with its operator as the approval user (bot/web.py).
+    assert yolo.may_yolo('webui', platform='webui', cfg={}) is True
+    assert yolo.may_yolo('someone', platform='webui', cfg={}) is False
+
+
+def test_refusal_says_how_to_configure_an_approver():
+    text = yolo.refusal('discord', cfg={'discord': {}})
+    assert 'approval_user_id' in text and 'none is configured for discord' in text
+    assert 'PRINT_HANDY__DISCORD__APPROVAL_USER_ID' in text
+    assert 'approval_user_id' not in yolo.refusal('discord', cfg={'discord': {'approval_user_id': '1'}})
+
+
+def _within_limits_gcode(tmp_path, body):
+    g = tmp_path / 'vouched.gcode'
+    g.write_text('G90\nG1 X10 Y10 Z0.2\n' + body)
+    return g
+
+
+@pytest.mark.parametrize('body, problem', [
+    ('G1 X400\n', 'X bounds 10.000..400.000 exceed 0.000..223.000'),
+    ('G91;rel\nG1 X100\nG1 X100\nG1 X100\n', 'X bounds 10.000..310.000 exceed'),
+    ('SET_GCODE_OFFSET X=300\n', 'toolpath bounds unavailable: line 3: SET_GCODE_OFFSET'),
+    ('M104 S350\n', 'nozzle target 350 C exceeds'),
+    ('M190 S200\n', 'bed target 200 C exceeds'),
+    ('SET_HEATER_TEMPERATURE HEATER=extruder TARGET=999\n', 'nozzle target 999 C'),
+    ('START_PRINT BED_TEMP=60 EXTRUDER_TEMP=480\n', 'nozzle target 480 C'),
+])
+def test_mechanical_limits_refuse(tmp_path, monkeypatch, body, problem):
+    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    adapter = S(fact=lambda name: {'max_hotend_c': 300, 'max_bed_c': 110}[name])
+    with pytest.raises(RuntimeError, match='mechanical limits are never waived') as caught:
+        model_job.require_mechanical_limits(_within_limits_gcode(tmp_path, body),
+                                            {'nozzle': {'type': 'hardened_steel'}}, adapter)
+    assert problem in str(caught.value)
+
+
+def test_mechanical_limits_pass_an_ordinary_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    adapter = S(fact=lambda name: {'max_hotend_c': 300, 'max_bed_c': 110}[name])
+    g = _within_limits_gcode(tmp_path, 'M140 S60\nM104 S220 T0\nM109 R215\nG1 X200 Y200 Z30\n')
+    assert model_job.require_mechanical_limits(g, {'nozzle': {'type': 'brass'}}, adapter) is None
 
 
 def test_gcode_file_and_package_extraction(tmp_path):
@@ -142,8 +191,9 @@ def test_print_now_cli_and_print_next_carry_the_flag(monkeypatch, tmp_path):
 
 
 def test_print_now_yolo_waives_checks_but_keeps_the_busy_printer_refusal(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
     g = tmp_path / 'part.gcode'
-    g.write_text('G1 X1\n')
+    g.write_text('G90\nG1 X1 Y1 Z0.2\n')
     adapter = S(transport=None, connection='lan', multi_slot=False, label='AD5X',
                 native=None, config={'printer': {}}, model=S(vendor_key='generic'))
     monkeypatch.setattr(model_job.printers, 'current', lambda: adapter)
@@ -181,6 +231,28 @@ def test_print_now_yolo_waives_checks_but_keeps_the_busy_printer_refusal(monkeyp
     assert any(w.startswith('G-code safety checks: BED_TEMP 60 != spool 65') for w in waived)
     assert any(w.startswith('filament readiness: ') for w in waived)
     assert model_job.yolo_active() is False  # the context never leaks past the run
+
+
+def test_print_now_yolo_never_waives_the_axis_limits(monkeypatch, tmp_path, capsys):
+    """S6: the G-code checks are waived under yolo, the axis limits are not."""
+    monkeypatch.setattr(model_job, 'BOUNDS_CACHE', tmp_path / 'cache')
+    g = tmp_path / 'part.gcode'
+    g.write_text('G90\nG1 X10 Y10 Z0.2\nG91;rel\nG1 X100\nG1 X100\nG1 X100\n')
+    adapter = S(transport=None, connection='lan', multi_slot=False, label='AD5X',
+                native=None, config={'printer': {}}, model=S(vendor_key='generic'))
+    monkeypatch.setattr(model_job.printers, 'current', lambda: adapter)
+    monkeypatch.setattr(model_job.printer_state, 'load', lambda *a, **k: {})
+    monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('standby', '', 'Ready'))
+    monkeypatch.setattr(model_job, 'mesh_readiness', lambda st: {'problem': None, 'display_off': None})
+    monkeypatch.setattr(model_job, '_verify_routed',
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError('X bounds exceed')))
+    monkeypatch.setattr(model_job, '_refuse_multicolor', lambda text: None)
+    uploads = []
+    monkeypatch.setattr(model_job, '_zmod_upload_artifact', lambda *a, **k: uploads.append(1))
+    with pytest.raises(SystemExit, match='mechanical limits are never waived: X bounds 10.000..310.000'):
+        model_job.print_now(str(g), yolo=True)
+    assert uploads == []
+    assert any(w.startswith('G-code safety checks:') for w in model_job.yolo_waivers(capsys.readouterr().out))
 
 
 # ---------------------------------------------------------------- chat: sliced G-code drops
