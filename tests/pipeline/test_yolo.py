@@ -331,10 +331,10 @@ def test_yolo_gcode_3mf_package_prints_plate_one(gcode_env):
 
 # ---------------------------------------------------------------- chat: models
 
-def _yolo_flow(env, text_suffix=' yolo', picks=()):
+def _yolo_flow(env, text_prefix='yolo ', picks=()):
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord')),
-              message_id='m-yolo', text='https://www.printables.com/model/1-ghost' + text_suffix)
+              message_id='m-yolo', text=text_prefix + 'https://www.printables.com/model/1-ghost')
     adapter = Adapter(list(picks))
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, __import__(
         'tests.pipeline.test_color_intake', fromlist=['state']).state(), env.root, timeout=1))

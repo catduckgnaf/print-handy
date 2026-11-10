@@ -2383,8 +2383,10 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     explicit_yolo = yolo.requested(getattr(event, 'text', ''))
     if explicit_yolo and not yolo.may_yolo(getattr(source, 'user_id', None), platform):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content=yolo.refusal(platform) + ' Running the normal intake instead.')
-        explicit_yolo = False
+                           content=f'{name} is already-sliced G-code, which prints only as yolo. '
+                                   + yolo.refusal(platform) + ' Or send the .stl or .3mf model to '
+                                   'have it sliced for this printer. Nothing was started.')
+        return {'action': 'skip', 'reason': 'sliced G-code from a non-approver'}
     if not explicit_yolo:
         pick = await _ask(adapter, source, key,
                           f'{name} is already-sliced G-code, so it would print exactly as sent: no '
