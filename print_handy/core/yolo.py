@@ -29,7 +29,8 @@ from pathlib import Path
 # A yolo request is an explicit command, not a word mentioned in ordinary
 # prose. Allow the command alone or followed by an intake URL/text; require
 # a token boundary after it so "YOLO" in a sentence cannot waive checks.
-YOLO_RE = re.compile(r'^\s*yolo(?:\s+|$)', re.I)
+YOLO_RE = re.compile(r'(?<![\w-])yolo(?![\w-])', re.I)
+YOLO_COMMAND_RE = re.compile(r'^\s*yolo(?:\s+|$)', re.I)
 GCODE_SUFFIXES = ('.gcode', '.gcode.3mf')
 
 # Set for the whole of one yolo intake (prepared_intake.prepare_link).
@@ -56,12 +57,12 @@ MAX_GCODE_BYTES = 1024 * 1024 * 1024
 
 def requested(text):
     """True when the message starts with an explicit yolo command."""
-    return bool(YOLO_RE.match(str(text or '')))
+    return bool(YOLO_COMMAND_RE.match(str(text or '')))
 
 
 def strip(text):
     """The message without its leading yolo command."""
-    return YOLO_RE.sub('', str(text or ''), count=1).strip()
+    return re.sub(r'\s{2,}', ' ', YOLO_RE.sub(' ', str(text or ''))).strip()
 
 
 def is_gcode_name(name):
