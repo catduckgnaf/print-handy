@@ -1578,7 +1578,7 @@ class WorkflowShapes(unittest.TestCase):
         self.assertEqual(wf["jobs"]["bump"]["timeout-minutes"], "45")
         steps = wf["jobs"]["bump"]["steps"]
         text = BUMP_WORKFLOW.read_text()
-        self.assertIn("actions/create-github-app-token@v3", text)
+        self.assertIn("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", text)
         self.assertIn("UPSTREAM_BOT_APP_ID", text)
         self.assertIn("UPSTREAM_BOT_PRIVATE_KEY", text)
         token_step = next(s for s in steps if s.get("id") == "app-token")
@@ -1621,7 +1621,7 @@ class WorkflowShapes(unittest.TestCase):
         job = wf["jobs"]["mark-ready"]
         self.assertIn("conclusion == 'success'", job["if"])
         text = READY_WORKFLOW.read_text()
-        self.assertIn("actions/create-github-app-token@v3", text)
+        self.assertIn("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", text)
         self.assertIn("--mark-ready", text)
 
 
