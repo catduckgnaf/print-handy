@@ -1,7 +1,10 @@
-# Troubleshooting: lookups and guided physical diagnosis
+# Troubleshooting
 
-Print Handy keeps its troubleshooting knowledge in root-level registries so a
-person browsing the repository and the bot read the same source:
+Something broke? Ask the bot: `/print-lookup first layer not sticking` searches the same knowledge base this page is built from. Physical problem, firmware command or error code, it checks them all.
+
+## Where the answers live
+
+Print Handy keeps its troubleshooting knowledge in registries so a person browsing the repository and the bot read the same source:
 
 | Registry | What is in it |
 | --- | --- |
@@ -25,7 +28,7 @@ In Discord (the bot runs the same handlers on every install):
 
 A lookup searches all three registries: firmware commands and macros (for
 example the ZMod IFS load path, Klipper `PROBE_CALIBRATE`, Marlin `M851`), error
-codes, symptoms, guided flows and printer facts. It returns the registry text —
+codes, symptoms, guided flows and printer facts. It returns the registry text, 
 command syntax, what it does, and its safety notes.
 
 ## Guided troubleshooting
@@ -46,8 +49,8 @@ physical checks: one observation or one small change, then the next question.
 
 Lookups and troubleshooting are **read-only and advisory**. They never send a
 command, heat, motion or extrusion to a printer, and there is no printer client
-on that code path. Where a fix is itself an action — a cold pull is the example
-in the clog flow — the flow points at the existing guarded command
+on that code path. Where a fix is itself an action; a cold pull is the example
+in the clog flow; the flow points at the existing guarded command
 (`/print-coldpull`), which asks for its own confirmation before doing anything.
 The `prepare-to-clean` flow does the same with `/print-bed-down`, which
 separates the bed and nozzle after a stop. `/print-lookup bed reset` ranks that

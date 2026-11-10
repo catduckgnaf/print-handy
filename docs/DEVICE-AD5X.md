@@ -178,7 +178,7 @@ Known risks:
 ## 3MF delivery
 
 `[printer] zmod_delivery_format` chooses how sliced jobs travel to the
-printer. See [Print file format](ZMOD.md#print-file-format-gcode-or-gcode3mf-564)
+printer. See [Print file format](ZMOD.md#print-file-format-gcode-or-gcode3mf)
 and the [Settings reference](SETTINGS.md).
 
 | Value | Sends |

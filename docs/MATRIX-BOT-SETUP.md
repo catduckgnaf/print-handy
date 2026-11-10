@@ -4,16 +4,16 @@ Print Handy can run its standalone bot in a Matrix room instead of Discord
 or Telegram. The same handlers, prompts and safety gates serve every
 platform; only the transport changes. The Matrix bot is a **pure bot: it
 has no LLM**. Unmatched text gets the short “didn't understand” reply, and no `[llm]` setting
-is ever consulted for Matrix — deliberate, the same no-LLM posture Telegram
+is ever consulted for Matrix, deliberate, the same no-LLM posture Telegram
 proved first. One-way posts are the exception, as on Telegram: the
-completion posts carry the one-line **roast** from the local roast corpus (no LLM, #1002) — `vision.roast_enabled`, on by default; `false` turns
+completion posts carry the one-line **roast** from the local roast corpus (no LLM, #1002), `vision.roast_enabled`, on by default; `false` turns
 roasts off. See [The roast](TELEGRAM-BOT-SETUP.md#the-roast).
 
 The bot talks to the homeserver with the Matrix Client-Server API by long
 polling (`/sync`), so it needs no inbound port, no public URL and no
 webhook. It uses only the Python standard library; there is no Matrix
 package to install. It works with matrix.org or a self-hosted homeserver
-(Synapse, Conduit, Dendrite, …) — anything that serves the standard
+(Synapse, Conduit, Dendrite, …), anything that serves the standard
 client API.
 
 ## The room must be unencrypted
@@ -37,7 +37,7 @@ Print Handy's allowed-user list.
    token is the bot. Signing out that session revokes it.
    (Programmatic login also works: `POST /_matrix/client/v3/login` with
    `m.login.password` returns an `access_token`.)
-3. Note the bot's full user ID (`@printhandy:matrix.org`) — you can set it
+3. Note the bot's full user ID (`@printhandy:matrix.org`); you can set it
    as `matrix.bot_user_id`, or leave that empty and the bot asks the
    homeserver who it is (`whoami`) at startup.
 
@@ -48,7 +48,7 @@ Print Handy's allowed-user list.
    itself when it next syncs, so there is nothing to click as the bot
    account.
 3. **Room ID**: in Element, room settings → Advanced shows the room ID,
-   for example `!abcd1234:matrix.org`. It starts with `!` — do not use the
+   for example `!abcd1234:matrix.org`. It starts with `!`, do not use the
    room alias (`#prints:...`), room IDs and aliases are different things.
 4. **Your user ID**: your full `@user:server` ID, from your client
    profile. Collect the ID of every person who may print, plus the
@@ -62,7 +62,7 @@ below remains the fallback room for the one entry that sets no `chat_id`
 (the first, default printer). A room no printer claims gets silence. Two
 entries may also claim the *same* room on purpose: that room becomes a
 shared channel where the bot asks which printer before anything
-printer-bound happens — see "Shared channels" in SETTINGS.md.
+printer-bound happens, see "Shared channels" in SETTINGS.md.
 
 ## 3. Configure Print Handy
 
@@ -81,7 +81,7 @@ services:
 ```
 
 Put the access token in the environment variable `[matrix]
-access_token_env` names (`MATRIX_ACCESS_TOKEN` by default) — in the
+access_token_env` names (`MATRIX_ACCESS_TOKEN` by default), in the
 process environment or in the `.env` file in `paths.hermes_home`, mode
 600. Never put the token in a config file. Every setting can also come
 from the environment, for example
@@ -110,20 +110,20 @@ into the same room through the Client-Server API instead of Discord REST.
 
 `/print-design` (or `/design`) and the design phrases ("design me …",
 "design this" with a model file attached, or a model link) work on Matrix
-too — see [AI design with OpenSCAD](DESIGN.md). Design is the one
+too, see [AI design with OpenSCAD](DESIGN.md). Design is the one
 model-backed feature here, and it runs only through an explicitly
 configured `[design]` endpoint (or the `[llm]` values it inherits). With
 an endpoint configured, design is on automatically (set
 `design.enabled: false` to force it off); with none configured, the
 commands answer "design is not set up". Ordinary chat still never
-consults `[llm]` — the pure-bot rule is unchanged. Design's Slice it /
+consults `[llm]`; the pure-bot rule is unchanged. Design's Slice it /
 Change it / Cancel choices arrive as a numbered list, like every other
 Matrix prompt.
 
 ## How Matrix differs from Discord here
 
 - **No buttons**: Matrix has no inline keyboards, so a prompt is the
-  question plus a numbered list — reply with the number (`2`) or with
+  question plus a numbered list, reply with the number (`2`) or with
   the choice text itself. Answering posts a short note recording the
   choice. The listener's Discord button posts (pause alerts, plate
   picker, insertion and spool questions) are sent as plain text that

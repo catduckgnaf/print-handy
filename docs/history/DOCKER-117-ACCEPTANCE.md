@@ -45,7 +45,7 @@ No contributor PR was closed, merged or represented as wholly integrated.
 
 ## Minimal Phase 3 approval proposal (PENDING, not authorization)
 
-Host: Francium, existing issue-117-standalone worktree at the final Phase 2 SHA.
+Host: Host B, existing issue-117-standalone worktree at the final Phase 2 SHA.
 Purpose: one stable-Orca source-build attempt, then one offline runtime fixture
 container from that exact image. No alpha, ARM64, no-Orca image, bundled Spoolman
 container, live endpoint, publish or replacement/retry is included in this packet.
@@ -69,10 +69,10 @@ guards, identity health, owned signals and data surviving process restart. Actua
 container recreation requires another explicitly approved container; a process
 restart must not be reported as recreation. Capture digest, logs and exit codes.
 
-Native tooling on Francium cannot prove OCI packaging, Linux loader closure or
+Native tooling on Host B cannot prove OCI packaging, Linux loader closure or
 tini/xvfb signal behavior. Native tests are already preferred where sufficient.
 Unraid is the eventual durable DockerMan host, not a disposable build default;
-dysprosium is latency-sensitive and unsuitable for this build. Neither host has
+host A is latency-sensitive and unsuitable for this build. Neither host has
 been approved as an alternate. Cleanup is limited to the two named disposable
 containers and their own fixture data after evidence capture, never broad prune,
 shared caches, volumes or unrelated resources. Retain image/logs for review unless

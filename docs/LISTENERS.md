@@ -2,8 +2,8 @@
 
 [Documentation home](README.md) · [Docker](DOCKER.md)
 
-A **listener** watches one printer continuously and reports what happens —
-status changes, progress, completion, errors — so the bot can post about a
+A **listener** watches one printer continuously and reports what happens, 
+status changes, progress, completion, errors, so the bot can post about a
 print without anyone asking. Print Handy splits listeners by **domain**: the
 configured printer's connection / firmware type. The domain selects the
 listener *type*; each configured printer gets its own listener *instance*,
@@ -16,7 +16,7 @@ listener.
 `print_handy/listeners.py` is the single registry: connection → listener
 domain. The supervisor's gate (`python3 -m print_handy.listener_gate`), the
 container healthcheck and the registry launcher (`python3 -m
-print_handy.listeners`) all consult it — adding a domain listener means
+print_handy.listeners`) all consult it, adding a domain listener means
 registering the module and implementing the contract below, with no
 supervisor or healthcheck edits.
 
@@ -33,14 +33,14 @@ supervisor or healthcheck edits.
 Every connection except `offline` now has a delivered listener. A domain with no listener yet is a normal
 state, not an error: the supervisor starts nothing for it and a
 configuration with no children at all idles instead of exiting. A
-configuration that cannot be resolved at all is different — the supervisor
+configuration that cannot be resolved at all is different; the supervisor
 stops with the settings error rather than guessing which children to run.
 
 ## The normalised contract
 
 Every domain listener reports through the one shape the printer adapters'
-`normalize_status` already returns. Consumers — Discord status and
-completion posts, the camera watchdog, timelapse — subscribe to this
+`normalize_status` already returns. Consumers, Discord status and
+completion posts, the camera watchdog, timelapse, subscribe to this
 shape and never need to know which domain produced it.
 
 **Status fields**
@@ -64,7 +64,7 @@ pins the core shape in tests.
 |---|---|
 | `status` | A fresh status snapshot in the shape above |
 | `completion` | A print finished |
-| `error` | The printer reports an error. The payload keeps the domain's raw representation alongside the normalised state — for Bambu that includes its HMS entries — so no diagnostic detail is lost in normalisation |
+| `error` | The printer reports an error. The payload keeps the domain's raw representation alongside the normalised state, for Bambu that includes its HMS entries, so no diagnostic detail is lost in normalisation |
 | `snapshot_available` | A camera snapshot can be fetched for this printer now |
 
 **Liveness.** A running listener writes the listener heartbeat
@@ -84,7 +84,7 @@ session open and merges the printer's delta pushes into a persistent
 state, normalising through the Bambu adapter. Its discipline comes from
 the #298 audit of Bambuddy (protocol facts only, no code copied):
 
-- `get_version` + `pushall` on every (re)connect, keepalive 30 s — and no
+- `get_version` + `pushall` on every (re)connect, keepalive 30 s, and no
   periodic pushall; the one extra request is at layer 1 when the layer
   total is still unknown.
 - Only `push_status` frames (or frames with no `print.command`) are
@@ -101,19 +101,19 @@ the #298 audit of Bambuddy (protocol facts only, no code copied):
   model has a verified camera protocol.
 
 With `[bambu] lan_host`/`lan_serial` unset, the Bambu listener starts but
-idles — heartbeat alive, `printer_connected=False`, no network contact —
+idles, heartbeat alive, `printer_connected=False`, no network contact, 
 so an offline Bambu configuration behaves exactly as it did before the
 domain had a listener. See [Bambu Lab printers](BAMBU-LAB.md#lan-status-read-only-opt-in).
 
 Since #460 the listener's `main()` wires its events to a posting sink
-(`family_control.BambuEventSink`): the transitions it always detected —
-started / paused / cancelled / completion / error — now post for prints
+(`family_control.BambuEventSink`): the transitions it always detected, 
+started / paused / cancelled / completion / error, now post for prints
 started outside Print Handy. Claimed prints (below) stay silent here;
 they belong to their launched-print monitor.
 
 ## Start/pause parity: the polling families
 
-Moonraker's listener has always posted the full lifecycle — starts
+Moonraker's listener has always posted the full lifecycle, starts
 (launched and external), pauses with Resume/Cancel buttons, completions.
 When that G-code contains `EXCLUDE_OBJECT_DEFINE` names, the Moonraker
 start post lists them (`Objects still printing: ...`) and offers a cancel
@@ -142,22 +142,22 @@ mechanism (`print_handy/hermes/family_control.py`), not five copies:
 - **External prints** (started at the printer or from another app) are
   the listener domain's. The four polling families share one listener
   (`print_handy/hermes/family_event_listener.py`): it polls the family's
-  normalised status every 15 s — the same read its monitor uses — and
+  normalised status every 15 s, the same read its monitor uses, and
   runs the Moonraker state machine over it. The Bambu domain does the
   same through its event sink.
 - **Resume/Cancel** on a family pause alert reach the family's *own*
   adapter `control()` operation (`family_control.FamilyControl`), routed
   by the alert record's connection marker in
-  `print_alert_buttons.handle_click` — never the Moonraker transport.
+  `print_alert_buttons.handle_click`, never the Moonraker transport.
   The press re-reads the family's state first, refuses when the state no
   longer matches or a different file is loaded, sends at most one
-  command, and reports the read-back — the Moonraker discipline. Every
+  command, and reports the read-back; the Moonraker discipline. Every
   family verifies state before resuming this way, so no family is
   offered a blind Resume. Nothing actuates without an operator press:
   posters and listeners hold no control callable.
 - **No stale buttons.** When a print ends, its pause alerts are retired
   (buttons stripped, headline updated) by whichever owner sees the end
-  first — the monitor or the listener; retiring is idempotent. A pause
+  first; the monitor or the listener; retiring is idempotent. A pause
   resolved at the printer leaves the alert live, exactly as Moonraker's
   does: its buttons re-read state on a press and refuse truthfully.
 - **Baseline rule.** A print already active at a listener's first
@@ -205,7 +205,7 @@ instance per roster printer** whose domain has an implementation:
   supervisor restarts only that printer's listener, with backoff
   (5 s doubling to a 60 s cap) and a restart budget (5 restarts per
   10 minutes). A listener that exhausts its budget stays down and the
-  healthcheck reports that printer unhealthy — a listener failure can
+  healthcheck reports that printer unhealthy; a listener failure can
   never restart the container or disturb the bot, Spoolman, or another
   printer's listener. The bot and bundled Spoolman remain the required
   children whose exit ends the container.
@@ -213,5 +213,5 @@ instance per roster printer** whose domain has an implementation:
   A single-printer (or legacy) configuration keeps exactly the
   historical process tree and the single health row.
 
-Running several containers, one per printer, remains available — see
+Running several containers, one per printer, remains available, see
 [More than one printer](MULTI-INSTANCE.md).

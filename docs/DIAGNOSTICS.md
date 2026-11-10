@@ -1,11 +1,6 @@
 # Diagnostics: error taxonomy, markers and the audit inventory
 
-Print Handy's diagnostics overhaul gives every
-failure one vocabulary, one searchable marker, and one operator-facing bar:
-a message says **what failed**, the **most likely cause**, and **what the
-operator can do about it**. No bare exception text, no silent drops, and no
-telemetry — diagnostics leave the machine only when the operator explicitly
-exports a bundle (Stage 3).
+Look up an error code, read what a log marker means, or export a diagnostics bundle for a bug report. Every failure gets one vocabulary and one searchable marker, and every message says **what failed**, the **most likely cause**, and **what you can do about it**. No bare exception text, no silent drops, and no telemetry: diagnostics leave the machine only when you explicitly export a bundle.
 
 ## Error taxonomy
 
@@ -27,14 +22,14 @@ never a guessed cause.
 ## Greppable markers
 
 Each (subsystem, category) pair has one stable marker,
-`PH_<SUBSYSTEM>_<CATEGORY>` — for example `PH_SPOOLMAN_TRANSIENT`.
+`PH_<SUBSYSTEM>_<CATEGORY>`, for example `PH_SPOOLMAN_TRANSIENT`.
 Markers are append-only within a naming generation: once one has shipped
 in a log line or a message it is not renamed again, so support threads
-stay searchable. The one rename that has happened is #590: the prefix was
+stay searchable. The one rename that has happened: the prefix was
 `PB_` (Print Buddy, the old product name) until 2.1.9 and is `PH_` (Print
-Handy) from this change on; the alias table under
+Handy) since; the alias table under
 [Reference codes](#reference-codes) maps every old code to its new one so
-old reports stay searchable. The pre-#390
+old reports stay searchable. The
 marker `DISCORD_STARTUP_RETRY` is registered as a legacy marker
 in `print_handy.diagnostics.LEGACY_MARKERS` and likewise never changes.
 
@@ -42,11 +37,11 @@ in `print_handy.diagnostics.LEGACY_MARKERS` and likewise never changes.
 
 A reference code (marker) is `PH_<SUBSYSTEM>_<CATEGORY>`: the subsystem
 says which part of Print Handy failed, and the category says what kind of
-failure it was — see the taxonomy table above for what each category
+failure it was, see the taxonomy table above for what each category
 means and the remedy shape it carries. A code in a chat post appears as
 the last line, as a link to the code's own catalog section below
 (`Reference: [PH_...](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-...)`;
-see [Error code catalog](#error-code-catalog-one-linked-section-per-code-924));
+see [Error code catalog](#error-code-catalog-one-linked-section-per-code));
 in logs it rides in brackets on the
 failure's WARNING line. Codes are how a support conversation starts:
 search the code in this repo's issues, or quote it in a new report with
@@ -73,12 +68,12 @@ Fixed codes that are not built from a subsystem/category pair:
 | `PH_DEBUG_CONFIGURATION` | A debug-mode state problem, or the marker carried on the "debug mode: ON" line while a session is live. |
 | `PH_LOGGING_CONFIGURATION` | The folder of the configured `[logging] file` does not exist or is not writable, so the log file is not being written. |
 | `PH_LISTENER_TRANSIENT` | A required printer listener's heartbeat is unhealthy (stale, wrong identity, or not answering). |
-| `DISCORD_STARTUP_RETRY` | Legacy log marker (never had a prefix): a Discord login failed transiently at startup and is being retried with backoff. Unchanged by #590. |
+| `DISCORD_STARTUP_RETRY` | Legacy log marker (never had a prefix): a Discord login failed transiently at startup and is being retried with backoff. Unchanged by the rename. |
 
-Old codes (`PB_`, before #590) and their replacements — search an old
+Old codes (`PB_`, before the rename) and their replacements, search an old
 report's code here to find the code current versions emit:
 
-| Before #590 | From #590 |
+| Before the rename | After the rename |
 | --- | --- |
 | `PB_<SUBSYSTEM>_<CATEGORY>` (any pair) | `PH_<SUBSYSTEM>_<CATEGORY>` (same pair) |
 | `PB_SPOOLMAN_TRANSIENT` | `PH_SPOOLMAN_TRANSIENT` |
@@ -91,7 +86,7 @@ report's code here to find the code current versions emit:
 
 ## Error code catalog: one linked section per code
 
-Since #924, the `Reference:` line at the end of a chat failure post is a
+The `Reference:` line at the end of a chat failure post is a
 link: `Reference: [PH_INTAKE_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-intake-configuration)`.
 Clicking the code opens this page at the code's own section, with its
 cause and recovery steps. A failure that `failure_report.py` classifies
@@ -115,8 +110,8 @@ The rules that keep the links honest:
 - **Drift test.** `tests/test_error_code_docs.py` parses this page and
   asserts the registry and the catalog match both ways: every
   registered code has a section at its anchor, and every catalog
-  section is a registered code. A code added without a section — or a
-  section added without a code — fails CI.
+  section is a registered code. A code added without a section, or a
+  section added without a code, fails CI.
 - **Fallback.** A marker built from a subsystem/category pair that is
   not in the registry (a combination no current boundary emits) still
   prints its code as a link, to the [Reference codes](#reference-codes)
@@ -140,7 +135,7 @@ The rules that keep the links honest:
 
 **What failed:** Discord refused the bot token, or the Message Content
 privileged intent is off for the bot. The bot exits instead of
-retrying — retrying cannot fix either cause.
+retrying, retrying cannot fix either cause.
 **What to do:** check that the token in the environment variable named
 by `discord.token_env` is the current bot token, and turn on the
 Message Content intent in the Discord developer portal (Bot >
@@ -160,8 +155,8 @@ container restart policy is the outer backstop.
 
 #### PH_SPOOLMAN_CONFIGURATION {#ph-spoolman-configuration}
 
-**What failed:** Spoolman is not configured — `services.spoolman_url`
-is empty — so filament tracking could not talk to it.
+**What failed:** Spoolman is not configured, `services.spoolman_url`
+is empty, so filament tracking could not talk to it.
 **What to do:** set `services.spoolman_url` to your Spoolman service,
 then try again. Prints are not blocked by this; tracking is skipped
 until Spoolman answers.
@@ -186,7 +181,7 @@ code and a diagnostics bundle (`/print-handy bundle`).
 #### PH_INTAKE_CONFIGURATION {#ph-intake-configuration}
 
 **What failed:** preparing a model from a link or file stopped on a
-problem intake can name — a missing or refused model-site credential,
+problem intake can name; a missing or refused model-site credential,
 a 3MF length unit that cannot be converted exactly, an unconfirmed
 filament choice, and similar operator-fixable causes. Where a more
 specific signature code exists (below), the post links that instead.
@@ -198,14 +193,14 @@ cannot help a configuration failure.
 #### PH_INTAKE_TRANSIENT {#ph-intake-transient}
 
 **What failed:** preparing a model was interrupted by network weather
-— a host that could not be looked up or reached, a timeout, or a
+, a host that could not be looked up or reached, a timeout, or a
 temporary refusal (HTTP 429/5xx).
 **What to do:** wait a moment and send the link or file again; if it
 keeps happening, check the network connection.
 
 #### PH_INTAKE_PROGRAMMING {#ph-intake-programming}
 
-**What failed:** intake hit what looks like a Print Handy bug — for
+**What failed:** intake hit what looks like a Print Handy bug, for
 example, a model whose colors cannot be split into single-color
 plates.
 **What to do:** this is not something a setting fixes. Run
@@ -218,14 +213,14 @@ specific explanation for it yet. Nothing was sliced, uploaded or
 started.
 **What to do:** run `/print-handy bundle` and share the bundle with
 this code so the failure can be looked into. Do not just resend the
-same link repeatedly — an unknown failure is rarely fixed by a retry.
+same link repeatedly; an unknown failure is rarely fixed by a retry.
 
 ### Marker codes: slicing
 
 #### PH_SLICING_CONFIGURATION {#ph-slicing-configuration}
 
 **What failed:** slicing was refused or stopped on a deterministic
-check — an unconfirmed loaded spool, a job or setting that changed
+check; an unconfirmed loaded spool, a job or setting that changed
 after the slice was requested, a safety guard, or another named
 configuration problem. This is the code a `SliceRefusal` carries, and
 it is never reported as `*_UNKNOWN`.
@@ -263,7 +258,7 @@ with this code.
 
 **What failed:** a printer-bound action from chat (stop, resume, next
 plate, print again, restart, and similar) stopped on a configuration
-problem — for example a calibration authority mismatch, where the
+problem, for example a calibration authority mismatch, where the
 confirmed Z offset belongs to a different screen mode than the one
 the printer is using.
 **What to do:** follow the step the post names (for a calibration
@@ -274,7 +269,7 @@ the action again.
 
 **What failed:** the printer or its listener did not answer in time
 for a printer-bound action.
-**What to do:** check the printer and its screen before retrying —
+**What to do:** check the printer and its screen before retrying, 
 the post says what did and did not happen, and an action whose
 outcome is unconfirmed must not be repeated blindly.
 
@@ -308,13 +303,13 @@ no specific explanation for it.
 
 #### PH_DEBUG_CONFIGURATION {#ph-debug-configuration}
 
-**What failed:** this is the standing marker of debug log mode — it
+**What failed:** this is the standing marker of debug log mode; it
 rides the "debug mode is ON" status line while a session is live,
 and names debug-mode state problems.
 **What to do:** while a session is live, no action is needed; turn
 the mode off with `/print-handy debug off` when the problem is
 reproduced, which exports the sanitized session log. See
-[Debug log mode](#debug-log-mode-and-sanitized-exports-478).
+[Debug log mode](#debug-log-mode-and-sanitized-exports).
 
 #### PH_DEBUG_TRANSIENT {#ph-debug-transient}
 
@@ -334,7 +329,7 @@ and, if an export can be built, the sanitized export.
 #### PH_DEBUG_UNKNOWN {#ph-debug-unknown}
 
 **What failed:** a debug-mode operation failed in a way Print Handy
-does not recognize — the operator message after a failed debug log
+does not recognize; the operator message after a failed debug log
 export carries this code.
 **What to do:** debug mode is still on and the capture is kept. Try
 `/print-handy debug off` again, or on the host run
@@ -355,11 +350,11 @@ it loudly).
 #### PH_LISTENER_TRANSIENT {#ph-listener-transient}
 
 **What failed:** a required printer listener's heartbeat is unhealthy
-— stale, carrying the wrong identity, or not answering (the doctor's
+, stale, carrying the wrong identity, or not answering (the doctor's
 `listener heartbeats` warning row carries this code).
 **What to do:** check that printer's listener is running; inside the
 container it restarts on its own. The row is a warning, not a doctor
-failure — the container healthcheck owns failing on a dead listener.
+failure; the container healthcheck owns failing on a dead listener.
 
 ### Signature codes: parse
 
@@ -387,9 +382,9 @@ real thickness), then send it again.
 
 #### PH_PARSE_BAD_3MF_STRUCTURE {#ph-parse-bad-3mf-structure}
 
-**What failed:** the 3MF file's internal structure is inconsistent —
+**What failed:** the 3MF file's internal structure is inconsistent, 
 for example a part that refers to an object that is missing or loops
-back on itself — so its parts cannot be told apart.
+back on itself, so its parts cannot be told apart.
 **What to do:** re-export the model as a fresh 3MF (or send the STL)
 from the program that made it, then send it again. If it fails again,
 run `/print-handy bundle` and share the bundle.
@@ -428,7 +423,7 @@ the model again.
 #### PH_INTAKE_TOO_COMPLEX {#ph-intake-too-complex}
 
 **What failed:** the model is too large or detailed to process
-safely — it passes a safety ceiling on size or element count.
+safely; it passes a safety ceiling on size or element count.
 **What to do:** simplify or reduce the mesh resolution in your
 modeling program, then send it again.
 
@@ -464,23 +459,23 @@ lower-resolution model, then retry once.
 ## Readable errors: the real cause, and `PH_` not `PB_`
 
 Two live failures after the 2.1.9 deploy drove this pass. A MakerWorld
-link failed with a clear, operator-fixable cause in the container log —
-no MakerWorld account token set up — while chat got only a generic
+link failed with a clear, operator-fixable cause in the container log, 
+no MakerWorld account token set up, while chat got only a generic
 "stopped before it was ready", advice to resend the link (which could
 not help), and a `PB_INTAKE_UNKNOWN` reference. The rules now are:
 
 - **A known cause is named.** `print_handy.diagnostics.known_cause`
   recognizes the curated, operator-phrased failures Print Handy raises
-  at its model-site boundaries — a missing, empty or refused site
+  at its model-site boundaries; a missing, empty or refused site
   credential (MakerWorld, Thingiverse, MyMiniFactory, Cults3D), a site
   robot check, a site's built-in download gap, Spoolman not answering
-  or not configured, a 3MF length unit intake cannot convert exactly —
+  or not configured, a 3MF length unit intake cannot convert exactly, 
   and the chat post states that cause in plain
   words with its remedy (for a token: the site, the credential, and the
   docs/PROJECT-REFERENCE.md section that explains setting it up). The
   wording is built in `diagnostics.py` from the recognized pattern,
   never copied from raw exception text, so no internal path, secret or
-  traceback can ride along — the #467 no-raw-text pin still holds.
+  traceback can ride along, the no-raw-text pin still holds.
 - **A known cause is classified, not `UNKNOWN`.** The same recognition
   feeds `classify`, so these failures carry a real category
   (`CONFIGURATION` for credentials, `TRANSIENT` for a robot check or an
@@ -492,17 +487,16 @@ not help), and a `PB_INTAKE_UNKNOWN` reference. The rules now are:
   transient failure; a known cause gets its remedy, and a genuinely
   unknown failure keeps the diagnostics bundle hint
   (``/print-handy bundle``) with no resend advice.
-- **Reference codes say `PH_`.** Every user-facing marker — the
+- **Reference codes say `PH_`.** Every user-facing marker; the
   `marker()` builder, the Discord startup exits, the doctor rows, the
-  debug-mode marker and the Spoolman notice — uses the `PH_` prefix.
+  debug-mode marker and the Spoolman notice, uses the `PH_` prefix.
   See the alias table above for the old codes.
 
-Two boundaries folded into the same allowlist after #590 (the #605 and
-#608 follow-on, once both had landed). Creality Cloud's credential
+Two more boundaries were folded into the same allowlist. Creality Cloud's credential
 failures were already recognized through the site list above; the new
 rows are its two remaining operator-fixable failures. Direct file links are recognized by the `DirectLinkError` type name over the
 provider's curated phrasing, with the wording built in
-`diagnostics.py` — the original message can name the operator's host
+`diagnostics.py`; the original message can name the operator's host
 or carry a credential-bearing URL, and neither reaches chat.
 
 | Failure | Category | The post names |
@@ -525,7 +519,7 @@ The direct-link HTTP row parses the status out of the curated message
 text: `DirectLinkError` discards the `HTTPError`, so the `code`
 attribute path in `classify` cannot see it. Creality Cloud's unexpected
 answer and its bare envelope refusal codes deliberately stay
-`unknown` — neither is operator-fixable, and the allowlist only claims
+`unknown`, neither is operator-fixable, and the allowlist only claims
 causes an operator can act on.
 
 What did not change: logging (full tracebacks stay in the logs), safety
@@ -538,24 +532,24 @@ ValueError, `NextPlateError`, `DesignError`).
 1. **Stage 1 (this page's PR):** taxonomy + markers + the operator-message
    builder (`print_handy/diagnostics.py`), first wiring in the Spoolman
    client's failure warning, and this audit inventory.
-2. **Stage 2:** Discord message audit fixes — apply the operator-message
+2. **Stage 2:** Discord message audit fixes, apply the operator-message
    bar to the surfaces the inventory below marks as failing it.
-3. **Stage 3 (done):** diagnostics bundle — `/print-handy bundle` in the bot
+3. **Stage 3 (done):** diagnostics bundle, `/print-handy bundle` in the bot
    and `python3 -m print_handy.diagnostics_bundle` on the host assemble
    versions, image digest (when the environment records one), a redacted
    config summary (env-name indirection only; secret values never
    included), printer/roster summary, doctor output and a bounded
    recent-log tail. The bug-report issue form asks for the bundle. The
    bundle is only ever written to a local file the operator chooses to
-   attach — nothing is uploaded.
-4. **Stage 4 (done):** structured logging consistency — per-subsystem
+   attach; nothing is uploaded.
+4. **Stage 4 (done):** structured logging consistency, per-subsystem
    verbosity via `[logging] levels` (see [Settings](SETTINGS.md)),
    `printer_id` bound on every log line of a per-printer listener
    process, and the container supervisor naming the required child that
    exited (`Required child exited: bot (status 1); stopping container.`)
    instead of a bare exit status. The container healthcheck already named
    each subsystem with its reason and is unchanged.
-5. **Stage 5 (done):** doctor / `bot check` tripwires — the doctor gained
+5. **Stage 5 (done):** doctor / `bot check` tripwires; the doctor gained
    a `logging` row (a configured log file whose folder is missing or
    unwritable now fails loudly with the remedy and
    `PH_LOGGING_CONFIGURATION`, instead of silently falling back to
@@ -567,30 +561,30 @@ ValueError, `NextPlateError`, `DesignError`).
    dead listener, and a doctor run on a host where listeners are
    legitimately stopped must not fail.
 6. **Stage 6 (done):** per-post audit of the Discord action handlers in
-   `plugins/print-feedback` — the generic failure posts (color selection,
+   `plugins/print-feedback`; the generic failure posts (color selection,
    next plate, stop, resume, print again, restart, plate picker, alert
    buttons) now go through one helper that keeps the operator detail and
    the state/remedy note and appends the greppable `PH_*` reference
    marker, redacted. The deliberate refusal posts (`NextPlateError`,
    `REFUSED: ... Nothing uploaded or started.`) already met the bar and
    are unchanged; `model_job`'s CLI exits are those same curated refusal
-   texts. The design turn's `DesignError` post is the same class —
-   a curated, operator-phrased error type — and is likewise unchanged.
+   texts. The design turn's `DesignError` post is the same class, 
+   a curated, operator-phrased error type, and is likewise unchanged.
 
 ## Plain-language pass
 
-#390's bar was written for the operator debugging the system. #467 holds
+The debugging bar is written for the operator debugging the system. The plain-language pass holds
 the messages a person in chat actually reads to a plainer bar:
 
-1. **First line in plain words** — what you asked for, what happened. No
+1. **First line in plain words**: what you asked for, what happened. No
    exception class names, no raw exception or stderr text, no ALL-CAPS
    failure prefix, no internal jargon.
-2. **What did *not* happen**, where it matters — nothing started /
+2. **What did *not* happen**, where it matters; nothing started /
    nothing uploaded / nothing changed / your print is still running.
-3. **One clear next step** — the button, command or check that fixes or
+3. **One clear next step**: the button, command or check that fixes or
    retries it. If there is no user fix (it looks like a bug), the post
    says so and points at the diagnostics bundle (`/print-handy bundle`).
-4. **Technical detail demoted, not deleted** — the `PH_*` marker rides as
+4. **Technical detail demoted, not deleted**: the `PH_*` marker rides as
    a secondary `Reference:` line, and the full detail stays in the log,
    the intake receipt and the bundle.
 5. **Never silent, never a dead end.**
@@ -606,7 +600,7 @@ What changed, surface by surface:
 | Surface | Before → after |
 | --- | --- |
 | Slicing failure (prepared intake) | Names the failed slicer (including a failed fallback), timeout, process limit, copy placement, changed job, or safety check and gives a specific next step. An unidentified cause says so and points to `/print-handy bundle`. Every failed retry retains its reason, reference and diagnostics step. Raw errors stay in the receipt and logs. |
-| Deterministic slice refusal (prepared intake) | A `SliceRefusal` (`print_handy/core/slice_refusal.py`) says the reason in plain words — e.g. "Slot 1 (Matte white PLA) was never confirmed as loaded, so I have not sliced yet … Is Matte white PLA loaded in slot 1?" — classified `configuration` (`Reference: PH_SLICING_CONFIGURATION`, never `*_UNKNOWN`). Where a safe fix exists it is the button ("Yes, slot 1 has it: slice"), applied before the one re-slice; with no safe fix the post explains and offers no retry. An exception may declare its own category with a `diagnostic_category` attribute, which `classify` honors |
+| Deterministic slice refusal (prepared intake) | A `SliceRefusal` (`print_handy/core/slice_refusal.py`) says the reason in plain words, e.g. "Slot 1 (Matte white PLA) was never confirmed as loaded, so I have not sliced yet … Is Matte white PLA loaded in slot 1?", classified `configuration` (`Reference: PH_SLICING_CONFIGURATION`, never `*_UNKNOWN`). Where a safe fix exists it is the button ("Yes, slot 1 has it: slice"), applied before the one re-slice; with no safe fix the post explains and offers no retry. An exception may declare its own category with a `diagnostic_category` attribute, which `classify` honors |
 | Backup-slicer notice | `Bambu Studio sliced it because OrcaSlicer failed: {reason}` → "Sliced with the backup slicer (Bambu Studio) because the main slicer could not slice this model."; the reason is logged |
 | Fit / resize checks unverified | trailing raw exception → plain unverified wording + resume step + marker |
 | Preview failure | `Preview unavailable: {exc}` → "I could not make a preview image, so no image was sent…" |
@@ -618,13 +612,13 @@ What changed, surface by surface:
 | `model_job` pipeline exits (CLI) | `UPLOAD FAILED: {stderr tail}`, `START FAILED: …`, `REFUSED: live hardware check failed: …`, `G-CODE REFUSED: …` → plain first lines ("The file could not be uploaded to the printer, so nothing started…") with the raw detail demoted to a secondary `Detail:` line |
 | Guided setup apply | `Applying the settings failed: {raw}` → "The settings could not be saved, so nothing was changed…" + bundle pointer; checklist and retry/manual/cancel replies unchanged |
 | Guided debugging findings | `login check failed: {exc}` / `health probe failed: {exc}` → "the login check did not pass" / "the health check did not answer", with the existing Next step kept |
-| `printer_state` warnings/problems | `Spoolman lookup failed: {e}`, `Moonraker active spool lookup failed: {e}`, `Moonraker unreachable: {e}`, `Calibration authority read failed: {e}` → plain wording naming the fallback ("the recorded spool was used; printing can continue") or the check to make; #235 fail-soft unchanged |
-| Design turns | `DesignError` texts that embedded the raw service error → plain reasons ("the design service did not answer — wait a moment and try again"); the post leads "That design change did not work: … Nothing was sliced or started." |
+| `printer_state` warnings/problems | `Spoolman lookup failed: {e}`, `Moonraker active spool lookup failed: {e}`, `Moonraker unreachable: {e}`, `Calibration authority read failed: {e}` → plain wording naming the fallback ("the recorded spool was used; printing can continue") or the check to make; fail-soft behavior unchanged |
+| Design turns | `DesignError` texts that embedded the raw service error → plain reasons ("the design service did not answer, wait a moment and try again"); the post leads "That design change did not work: … Nothing was sliced or started." |
 | Print-control / spool / cold-pull / maintenance generic failures | `…: {exc}` posts → plain posts naming the state ("nothing was changed", "usage is still paused; answer again", "do not retry until the printer state is checked") |
 | Vision-watch alerts | `vision check failed: {exc!r}` in the alert post → "the vision check could not be completed, so treat this as unreviewed…"; the raw error stays in the log |
-| Spool sync results | `NOT updated ({exc})` / per-slot raw errors → plain "not updated — run `/spool sync`…" wording |
+| Spool sync results | `NOT updated ({exc})` / per-slot raw errors → plain "not updated, run `/spool sync`…" wording |
 | Access refusal notice | "You are not on this bot's allowed list." → adds why and the next step ("…ask the person who runs Print Handy to add you"); the house "Not allowed. Nothing changed." posts are unchanged |
-| Unmatched message | the full command list posted as an error response → a short reply: "I didn't understand that, so nothing happened." + the one common next step (post a link / drop a file) + the list on request via `/print-help`. Explicit `/print-help` / `help` still returns the full list, and the #437 LLM-first order is unchanged |
+| Unmatched message | the full command list posted as an error response → a short reply: "I didn't understand that, so nothing happened." + the one common next step (post a link / drop a file) + the list on request via `/print-help`. Explicit `/print-help` / `help` still returns the full list, and the LLM-first order is unchanged |
 
 Deliberately unchanged, and why:
 
@@ -632,12 +626,12 @@ Deliberately unchanged, and why:
   `launch_state` remain the **transport contract** between the pipeline
   and its callers (`print_next` treats a trailing `REFUSED:` line as a
   confirmed pre-upload refusal; prepared intake extracts it). They are
-  never posted raw any more — every chat path translates them — and the
+  never posted raw any more, every chat path translates them, and the
   receipts keep them verbatim for support.
-- Curated error types whose text is already operator-phrased —
+- Curated error types whose text is already operator-phrased, 
   `NextPlateError` ("No next plate: …"), `DesignError`, guided-setup
-  validation answers ("That answer does not work: reply with …") — keep
-  their text; #467 removed the *raw machinery* interpolation under them.
+  validation answers ("That answer does not work: reply with …"), keep
+  their text; the raw machinery interpolation under them is gone.
 - Logs, the diagnostics bundle, doctor/`bot check` rows and Web UI
   status keep full technical detail; only chat posts were rewritten.
 
@@ -652,7 +646,7 @@ has a temporary **debug log mode** for reproducing a problem:
 - **Surfaces.** `/print-handy debug on [minutes]` / `off` / `status` in the
   bot, the Debug log mode form on the Web UI status page, and
   `python3 -m print_handy.debug_mode on|off|status` on the host are all
-  equivalent — they read and write one shared state file
+  equivalent; they read and write one shared state file
   (`debug-state.json`) in the state folder. No config edit, no restart.
 - **Duration.** `on` lasts **30 minutes by default** (an explicit number
   of minutes may follow, up to 24 hours), then the mode turns itself off.
@@ -665,11 +659,11 @@ has a temporary **debug log mode** for reproducing a problem:
   session id. The capture exists whether or not a `[logging] file` is
   configured, so a Docker (stderr-only) install still produces logs.
   **Listener processes are covered**: the mode is shared state, not a
-  per-process switch — every process applies it when it configures
+  per-process switch; every process applies it when it configures
   logging, the standalone bot re-checks it on its heartbeat, and the
   Moonraker, family and Bambu listeners poll it in their run loops.
   `bot check`, the doctor and the Web UI status page show a
-  "debug mode: ON — session …, off in …" row (marker
+  "debug mode: ON, session …, off in …" row (marker
   `PH_DEBUG_CONFIGURATION`) while a session is live.
 - **Logging only.** Turning the mode on or off, and exporting, never
   changes print behaviour, confirmation gates or readiness guards.
@@ -679,7 +673,7 @@ for that session's window (the capture lines between its markers) and
 delivers the file **in chat**, after showing its sanitization report;
 the CLI's `off` writes the same export to `state/debug-exports/`. The
 file is named `print-handy-debug-<date>-<session>.md`. With no session
-window, the export (and the #390 bundle, which uses the same path) falls
+window, the export (and the diagnostics bundle, which uses the same path) falls
 back to the existing bounded log tail. Nothing is uploaded anywhere:
 the operator reviews the export and attaches it to the issue themselves,
 and the bug-report form asks for the debug session ID and the
@@ -689,26 +683,26 @@ Exports are sanitized by `print_handy/sanitize_logs.py`, layered on
 `logs.redact` (which already strips tokens, credentials and secret env
 values). The export pass additionally removes:
 
-- IP addresses and internal hostnames, in URLs and bare text — the URL
+- IP addresses and internal hostnames, in URLs and bare text; the URL
   scheme, port and path shape stay, so the line remains diagnosable;
 - Discord/Telegram/Matrix user and channel IDs, plus IDs the config
-  itself names — replaced with **consistent pseudonyms** within one
+  itself names, replaced with **consistent pseudonyms** within one
   export (`user-1`, `channel-1`, …) so lines still correlate;
 - local file paths, email addresses, MAC addresses, serial-number-shaped
   values, and URL query strings.
 
 A **verification pass** then re-runs the whole sanitizer over the result;
 anything the first pass missed is removed there and counted too. Every
-export carries the **sanitization report** — counts by category, never
+export carries the **sanitization report**, counts by category, never
 the removed values (for example: "removed: 4 secrets/tokens, 6 IP
-addresses, 3 user IDs. Verification pass found nothing further.") — so
+addresses, 3 user IDs. Verification pass found nothing further."), so
 the operator can see at a glance what was taken out before attaching it
 to a public issue. The diagnostics bundle's config summary and log
 sections use the same sanitizer and carry the same report.
 
 ## Stage, cause and recovery for every model failure
 
-A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things. Since #924, a failure this classification recognizes also links its specific signature code (for example `PH_PARSE_BAD_3MF_STRUCTURE`) on the post's `Reference:` line instead of only the general subsystem marker — see the signature sections of the [Error code catalog](#error-code-catalog-one-linked-section-per-code-924):
+A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things. A failure this classification recognizes also links its specific signature code (for example `PH_PARSE_BAD_3MF_STRUCTURE`) on the post's `Reference:` line instead of only the general subsystem marker, see the signature sections of the [Error code catalog](#error-code-catalog-one-linked-section-per-code):
 
 - **Stage:** where it stopped: intake, parse, repair, color plan, plate plan, slice, upload or launch (`Stage: parse.`).
 - **Cause:** in plain words, written by Print Handy from a recognized pattern. Known slicer signatures include an unreadable 3MF (Orca "can not find object id", "Invalid 3MF format", return code -6), a model outside the build volume, an empty plate, thin features Orca cannot slice, and an out-of-memory slicer.
@@ -727,12 +721,12 @@ each row as it changes it.
 | --- | --- | --- | --- |
 | Discord startup (`bot/client.py` `run_bot`) | `DISCORD_STARTUP_RETRY` log marker with attempt/backoff; token/intent failures print an actionable stderr line and exit 3 | Meets bar after Stage 2: the exhausted-retry line carries `PH_DISCORD_*`, and the token/intent exits name the remedy and `PH_DISCORD_CONFIGURATION` | 2 (done) |
 | Spoolman unavailable (pipeline notice) | One-line notice that tracking was skipped; failure detail only in the WARNING log | Meets bar after Stage 2: the notice states the print continues and what to check; the log warning carries the exact `PH_SPOOLMAN_*` marker (Stage 1) | 2 (done) |
-| Timelapse completion posts | Every degraded outcome posts a reason line instead of dropping the video silently | Meets bar — the reference pattern for Stage 2 | — |
+| Timelapse completion posts | Every degraded outcome posts a reason line instead of dropping the video silently | Meets bar, the reference pattern for Stage 2 | n/a |
 | Intake / slicing / delivery posts (`core/model_job.py` + plugin handlers) | Curated refusal texts carry the reason and the state; generic handler failures were built from raw exception text with no marker | Meets bar after Stage 6: generic Discord handler posts carry the detail, the state/remedy note and the `PH_*` marker via `_failure_post`; deliberate refusals unchanged | 6 (done) |
 | Listener heartbeat (`healthcheck.py`, `bot/health.py`) | `(ok, reason)` strings name staleness/identity/connection states | Names what failed; no remedy, no marker | 5 |
 | Container supervisor (`docker/supervise.sh`) | A required child's exit is reported as a bare status; listener exits name the printer and the restart budget | Required-child exit does not name the child | 4 |
 | Container healthcheck (`docker/healthcheck.py`) | One row per subsystem with a reason string | Mostly meets bar; rows get markers in Stage 5 | 5 |
-| Doctor (`doctor.py`) | `FAIL <check>: <detail>`; several details already include the remedy (e.g. the #384 platform row) | Mostly meets bar; new detectable modes get rows in Stage 5 | 5 |
+| Doctor (`doctor.py`) | `FAIL <check>: <detail>`; several details already include the remedy (e.g. the platform row) | Mostly meets bar; new detectable modes get rows in Stage 5 | 5 |
 | Web UI status (`webui/status.py`) | Status/health JSON for the same checks | Stage 5 adds equivalents for new doctor rows where a surface exists | 5 |
 
 ## Listener watchdog and outage notices
@@ -764,7 +758,7 @@ What the bundle carries beyond versions and the redacted config summary:
   image digest is always shown when present), each printer's listener
   heartbeat age and event-loop lag, the supervisor's persisted restart
   counts per printer (including a spent budget), and the
-  capture-directory names with their lengths — the #1020 hang was a
+  capture-directory names with their lengths, one real hang was a
   capture name that outgrew its limit.
 - **Listener stack dumps**: when the watchdog's SIGUSR1 dump fired, the
   dump is in the state folder (`listener_stack_dump.log` next to the
@@ -777,8 +771,8 @@ What the bundle carries beyond versions and the redacted config summary:
   console history from Moonraker's `gcode_store`, plus the `klippy.log`,
   ZMod console and screen logs the printer serves. Each source's clock
   is labeled: the console history is epoch-anchored and shown in UTC,
-  while the ZMod console file writes its own clock — in the #1020
-  incident it ran about 10 hours behind Moonraker time — so correlate
+  while the ZMod console file writes its own clock, in one
+  incident it ran about 10 hours behind Moonraker time, so correlate
   events through the console history, never by comparing the console
   file's timestamps with Moonraker's.
 
@@ -834,7 +828,7 @@ work through this procedure on a test print, not a job you care about:
    polling for.
 5. **A/B `next_cmd_delay`.** Set `[zmod_ifs] next_cmd_delay` back to
    0.2 and repeat the same test. If the jam recurs at 0.02 but not at
-   0.2 — with steps 2–4 showing a clean path and a live encoder — the
+   0.2, with steps 2–4 showing a clean path and a live encoder, the
    trigger is the polling timing, not the filament: keep 0.2 and say so
    on the report.
 6. **Report with evidence.** Whichever way it lands, attach a bundle

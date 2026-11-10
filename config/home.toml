@@ -71,7 +71,7 @@ lan_access_code_env = "BAMBU_LAN_PASSWORD"
 start_confirm_s = 90
 
 [paths]
-# Hermes profile the bot runs in. State files live in <hermes_home>/state.
+# The bot's state folder (the name is historical). State files live in <hermes_home>/state.
 hermes_home = "~/.hermes/profiles/3dprinting"
 archive = "~/3d-prints"
 records_vault = "~/Documents/3D Printing Records"
@@ -201,8 +201,8 @@ edit_requests_per_hour = 20
 # keeps the settings it already used (small: services.vision_chat_url and the
 # [vision] models; chat: [llm]; heavy: [design], which inherits [llm]).
 # A tier is a table with chat_url, model, fallback_model, fallback_url,
-# api_key_env, fallback_api_key_env and timeout_s. small = print-start roast,
-# camera and image check, label reading. chat = questions the scripted handlers
+# api_key_env, fallback_api_key_env and timeout_s. small = camera
+# and image check, label reading. chat = questions the scripted handlers
 # cannot answer. heavy = model-file editing and repair (route only for now).
 # A call that fails or times out is retried once on fallback_model (on
 # fallback_url when set, else the same endpoint). Example:
@@ -217,7 +217,7 @@ heavy = {}
 [design]
 # AI design with OpenSCAD (#388): /print-design creates a new printable part
 # from a description. No enabled line on purpose: unset means AUTO — design
-# turns on whenever a design/LLM endpoint is configured, like roasts. Set
+# turns on whenever a design/LLM endpoint is configured. Set
 # enabled = false to force it off, or enabled = true to force it on. Empty
 # chat_url/model/api_key_env inherit the [llm] values. The endpoint fields
 # win in every mode, Hermes included: the profile's auxiliary.print_design
@@ -237,9 +237,9 @@ start_claim_ttl_s = 1800
 
 [vision]
 model = "gemini-latest"
-# The roast itself: on by default whenever an LLM/vision endpoint is available
-# (vision_chat_url plus CLIPROXY_API_KEY), on every platform, Telegram included.
-# Set false to turn roasts off; camera checks keep using the same endpoint.
+# The roast itself: on by default, on every platform, Telegram included. Roasts
+# come from the local roast corpus and need no model or endpoint. Set false to
+# turn roasts off; camera checks are not affected.
 roast_enabled = true
 # Custom roast bank (#1002 Phase 4): empty (the default) means the
 # shipped roast corpus alone. Set it to the path of a JSON file of your

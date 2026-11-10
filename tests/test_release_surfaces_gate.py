@@ -176,6 +176,17 @@ class GateScriptBehaviour(unittest.TestCase):
         self.assertIn("link target does not exist: docs/NOPE.md",
                       result.stdout)
 
+    def test_readme_links_must_point_at_real_headings(self):
+        (self.root / "docs" / "GUIDE.md").write_text("# Guide\n\n## Real heading\n")
+        self.write_root(version="1.2.3",
+                        readme="Ships with 1.2.3. [Ok](docs/GUIDE.md#real-heading) "
+                               "[Stale](docs/GUIDE.md#real-heading-264)")
+        result = self.run_gate(True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("link anchor does not exist: docs/GUIDE.md#real-heading-264",
+                      result.stdout)
+        self.assertNotIn("anchor does not exist: docs/GUIDE.md#real-heading)", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

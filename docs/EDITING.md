@@ -3,8 +3,8 @@
 This guide describes confirmed model-edit operations. OrcaSlicer post-slice warning detection and its support question are separate behavior; see [Slicer warnings](SLICER-WARNINGS.md).
 
 After a model has been prepared in a channel, you can change the job in
-chat instead of starting over. Every change — typed, tapped or proposed
-by the AI lane — becomes one typed **edit plan** that is confirmed,
+chat instead of starting over. Every change, typed, tapped or proposed
+by the AI lane, becomes one typed **edit plan** that is confirmed,
 applied to the job, verified against the re-sliced result, and recorded
 on the job. Nothing edits silently, and no edit starts a print: the
 re-sliced job comes back through the normal intake summary, and every
@@ -19,7 +19,7 @@ Say any of these about the current job in the channel (or thread):
   please" works too.
 - **Rotate:** "rotate 90", "rotate 45", "rotate 45 degrees around X". A bare number is the angle. Default is 90°
   around Z.
-- **Lay flat:** "lay flat", "flat side down", "largest face down" — the
+- **Lay flat:** "lay flat", "flat side down", "largest face down"; the
   model is set on its largest face.
 - **Scale:** "scale to 80%", "make it 80%", "make it 50 mm wide" (or
   "tall" by axis: "scale to 40 mm on Z"; plain "to 50 mm" scales the
@@ -30,7 +30,7 @@ Say any of these about the current job in the channel (or thread):
   this" or "make it bigger" with no amount gets a pick list of amounts.
   Size verbs tolerate typos ("shrnik it by 20%").
 - **Mirror:** "mirror it", "flip it on Y".
-- **Copies:** "print 3 copies", "two copies" — single-plate,
+- **Copies:** "print 3 copies", "two copies", single-plate,
   single-color jobs only, and only as many as fit the bed.
 - **Brim:** "add a brim", "brim 8 mm", "no brim".
 - **Layer height:** "layer height 0.12", "fine layers", "draft quality".
@@ -46,7 +46,7 @@ recent edit and re-slices that.
 ## The AI lane
 
 When a request names an edit concept but the vocabulary cannot resolve
-it, the AI lane may be asked to translate it — into a plan from the
+it, the AI lane may be asked to translate it, into a plan from the
 *same* vocabulary, which the same validator checks and the same
 confirmation names. The AI never applies anything itself, and an
 out-of-range or malformed proposal is rejected with the reason. A
@@ -69,7 +69,7 @@ as "thicker than that" has context. It is held in memory only.
 
 Model names, filenames and 3MF metadata are passed to the AI as quoted
 data, never as instructions, and the reply is only ever parsed as a
-plan — instruction-like text inside a model file cannot change the plan
+plan, instruction-like text inside a model file cannot change the plan
 schema or skip the confirmation.
 
 ## Verification before the print buttons
@@ -86,7 +86,7 @@ checked against the plan before the real job changes:
 - brim, layer height and infill check the values in the sliced config.
 
 A failed check is reported with its reason and the job is left exactly
-as it was — a failed verification is never printed. (The slicer's own
+as it was; a failed verification is never printed. (The slicer's own
 floating/cantilever warnings are not detected yet; that is separate
 work.)
 
@@ -97,7 +97,7 @@ per-part color/material assignments through every edit above. Two
 honest exceptions: mirroring is refused for per-part color jobs (the
 per-part export has no mirror channel, and flattening would drop the
 assignments), and a *geometry* edit on a multi-part model is refused
-with the reason — edit one part at a time instead. Neither is ever done
+with the reason, edit one part at a time instead. Neither is ever done
 silently.
 
 ## Provenance and undo
@@ -106,7 +106,7 @@ Each edit is recorded on the job: who asked (platform and user), which
 lane served it (fuzzy or AI), the plan, the verification result, and
 the source and output G-code hashes. "Undo" walks that record back one
 edit at a time. Because approvals are bound to the G-code hash, any
-edit — including an undo — means the print approvals are asked again
+edit, including an undo, means the print approvals are asked again
 for the new G-code.
 
 ## Questions about the model
@@ -146,8 +146,8 @@ against the job that intake just prepared. Plain intake text such as
 
 "fix this", "repair this" or "make this printable" after a file or job is
 not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)
-reads the problem — a slice failure or refusal, a failed post-slice gate,
-or a damaged uploaded mesh — together with the job's measured facts (size,
+reads the problem; a slice failure or refusal, a failed post-slice gate,
+or a damaged uploaded mesh, together with the job's measured facts (size,
 the clearance gap, bed and nozzle, mesh health and wall thickness), and
 proposes changes from the same edit vocabulary, a filament mapping (a
 source filament re-resolved onto another slot), allowlisted profile

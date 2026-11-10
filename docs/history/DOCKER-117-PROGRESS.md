@@ -27,7 +27,7 @@ change is integrated or validated. Contributor PRs are not closed or merged.
 - Conditional display wrapper; setup, persistence, proposed promotion/rollback
   policy, manual DockerMan parity and unsupported limits documented in DOCKER.md.
 
-Latest focused Francium run before documentation: 29 tests plus 11 subtests pass
+Latest focused Host B run before documentation: 29 tests plus 11 subtests pass
 in test_docker_release_contract.py, test_listener_health.py and
 bot/test_health_and_transport.py. These are source/config checks, not image proof.
 Entrypoint bash syntax and git diff whitespace checks passed in the prior run.
@@ -35,7 +35,7 @@ Entrypoint bash syntax and git diff whitespace checks passed in the prior run.
 ## Recovered image results and exact remaining gates
 
 First approved stable-source attempt exited 100 during apt/dpkg because storage
-was full, before Orca compilation. Francium storage was subsequently expanded.
+was full, before Orca compilation. Host B storage was subsequently expanded.
 The resumed attempt proc_2a21857e23b5 was killed with exit -15 on agent_close
 while configuring dependency OpenEXR. It did not finish an image or runtime test.
 This is not evidence that the Orca recipe succeeds or fails compilation.

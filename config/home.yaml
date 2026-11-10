@@ -165,8 +165,8 @@ ai:
   # it keeps the settings it already used (small: services.vision_chat_url and
   # the vision models; chat: llm; heavy: design, which inherits llm).
   # A tier is a table with chat_url, model, fallback_model, fallback_url,
-  # api_key_env, fallback_api_key_env and timeout_s. small = print-start
-  # roast, camera and image check, label reading. chat = questions the
+  # api_key_env, fallback_api_key_env and timeout_s. small = camera
+  # and image check, label reading. chat = questions the
   # scripted handlers cannot answer. heavy = model-file editing and repair
   # (route only for now). A call that fails or times out is retried once on
   # fallback_model (on fallback_url when set, else the same endpoint).
@@ -182,7 +182,7 @@ design:
   # AI design with OpenSCAD (#388): /print-design (or /design) creates a
   # new printable part from a description. There is deliberately no
   # enabled line here: unset means AUTO — design turns on whenever a
-  # design/LLM endpoint is configured, like roasts. Set enabled: false to
+  # design/LLM endpoint is configured. Set enabled: false to
   # force it off, or enabled: true to force it on. Empty
   # chat_url/model/api_key_env inherit the [llm] values, so a
   # single-endpoint setup only sets design.model (a stronger model
@@ -207,11 +207,10 @@ spool:
   prompt_brand: false
 vision:
   model: gemini-latest
-  # The one-line roast on the print-started post only. On by
-  # default: it runs whenever an LLM/vision endpoint is available
-  # (services.vision_chat_url plus CLIPROXY_API_KEY), on every platform,
-  # Telegram included. Set false to turn roasts off; camera checks keep
-  # using the same endpoint either way.
+  # The one-line roast on the completion, failure and cancel posts. On by
+  # default, on every platform, Telegram included. Roasts come from the
+  # local roast corpus and need no model or endpoint. Set false to turn
+  # roasts off; camera checks are not affected.
   roast_enabled: true
   # Custom roast bank (#1002 Phase 4): empty (the default) means the
   # shipped roast corpus alone. Set it to the path of a JSON file of
