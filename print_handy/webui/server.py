@@ -960,7 +960,44 @@ class _Handler(BaseHTTPRequestHandler):
                              "reason": "no compiled Wrapped video for that year. "
                                        "Compile it from the Wrapped page first."})
             return
-        self._send(200, target.read_bytes(), "video/mp4")
+        self._stream_file(target, "video/mp4")
+
+    VIDEO_CHUNK = 256 * 1024
+
+    def _stream_file(self, target, content_type):
+        """Send a file in chunks, honoring one ``Range`` (206) so a browser
+        can seek; the whole file is never held in memory."""
+        try:
+            handle = open(target, "rb")
+        except OSError:
+            self._json(404, {"ok": False, "reason": "the Wrapped video could not be read."})
+            return
+        with handle:
+            size = os.fstat(handle.fileno()).st_size
+            wanted = data_module.parse_byte_range(self.headers.get("Range"), size)
+            if wanted == "unsatisfiable":
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            start, end = wanted if wanted else (0, size - 1)
+            length = max(0, end - start + 1)
+            self.send_response(206 if wanted else 200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(length))
+            if wanted:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.end_headers()
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(self.VIDEO_CHUNK, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def _wrapped_video_status_route(self):
         """GET /api/wrapped/video-status?year=<year>: the compile's state

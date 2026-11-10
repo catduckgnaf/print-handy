@@ -438,6 +438,36 @@ def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
     return candidate if candidate.is_file() else None
 
 
+def parse_byte_range(header, size):
+    """The (start, end) bytes a ``Range`` header asks of a ``size``-byte file.
+
+    Inclusive offsets for a single satisfiable ``bytes=`` range; None when
+    there is no usable header (serve the whole file); the string
+    ``"unsatisfiable"`` when the range lies outside the file (answer 416).
+    Only one range is honored: a multi-range request is served whole.
+    """
+    if not header or not str(header).strip().lower().startswith("bytes="):
+        return None
+    spec = str(header).strip()[6:].strip()
+    if "," in spec or "-" not in spec:
+        return None
+    first, _, last = spec.partition("-")
+    first, last = first.strip(), last.strip()
+    try:
+        if not first:  # a suffix: the last N bytes
+            count = int(last)
+            if count <= 0:
+                return "unsatisfiable"
+            return (max(0, size - count), size - 1) if size else "unsatisfiable"
+        start = int(first)
+        end = int(last) if last else size - 1
+    except ValueError:
+        return None
+    if start < 0 or start >= size or end < start:
+        return "unsatisfiable"
+    return (start, min(end, size - 1))
+
+
 def _current_year(tz=None):
     from datetime import datetime, timezone
     return datetime.now(tz or timezone.utc).year
@@ -1155,6 +1185,6 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
 
 __all__ = ["DATA_OFF_REASON", "EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON",
            "WRAPPED_OFF_REASON", "ai_video_enabled", "data_enabled", "data_view",
-           "export_share", "make_video", "nav_for", "render_data_page",
+           "export_share", "make_video", "nav_for", "parse_byte_range", "render_data_page",
            "render_share_result", "render_wrapped_page", "video_status",
            "wrapped_enabled", "wrapped_video_path", "wrapped_view"]

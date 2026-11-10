@@ -893,6 +893,56 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(code, 403)
             self.assertIn("wrapped_ai_video", raw)
 
+    def test_video_file_streams_and_answers_range_requests(self):
+        payload = bytes(range(256)) * 4096  # 1 MiB, more than one chunk
+        with tempfile.TemporaryDirectory() as tmp:
+            write_vault(tmp)
+            (Path(tmp) / "vault" / "wrapped").mkdir()
+            (Path(tmp) / "vault" / "wrapped" / "wrapped-2025.mp4").write_bytes(payload)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            port = httpd.server_address[1]
+
+            def get(range_header=None, method="GET"):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                headers = {server.TOKEN_HEADER: TOKEN}
+                if range_header:
+                    headers["Range"] = range_header
+                try:
+                    conn.request(method, "/wrapped/video-file?year=2025", headers=headers)
+                    response = conn.getresponse()
+                    return response.status, dict(response.getheaders()), response.read()
+                finally:
+                    conn.close()
+
+            status, headers, body = get()
+            self.assertEqual((status, body), (200, payload))
+            self.assertEqual(headers["Accept-Ranges"], "bytes")
+            status, headers, body = get("bytes=100-199")
+            self.assertEqual(status, 206)
+            self.assertEqual(body, payload[100:200])
+            self.assertEqual(headers["Content-Range"], f"bytes 100-199/{len(payload)}")
+            status, headers, body = get("bytes=1048000-")
+            self.assertEqual((status, body), (206, payload[1048000:]))
+            status, headers, body = get("bytes=-50")
+            self.assertEqual((status, body), (206, payload[-50:]))
+            status, headers, body = get("bytes=999999999-")
+            self.assertEqual(status, 416)
+            self.assertEqual(headers["Content-Range"], f"bytes */{len(payload)}")
+
+    def test_parse_byte_range(self):
+        parse = data_module.parse_byte_range
+        self.assertEqual(parse("bytes=0-9", 100), (0, 9))
+        self.assertEqual(parse("bytes=90-", 100), (90, 99))
+        self.assertEqual(parse("bytes=50-500", 100), (50, 99))
+        self.assertEqual(parse("bytes=-10", 100), (90, 99))
+        self.assertEqual(parse("bytes=-500", 100), (0, 99))
+        self.assertEqual(parse("bytes=100-", 100), "unsatisfiable")
+        self.assertEqual(parse("bytes=9-3", 100), "unsatisfiable")
+        self.assertIsNone(parse(None, 100))
+        self.assertIsNone(parse("bytes=0-1,5-6", 100))
+        self.assertIsNone(parse("items=0-1", 100))
+        self.assertIsNone(parse("bytes=x-y", 100))
+
     def test_video_post_starts_a_job_and_the_status_route_reports_it(self):
         from unittest import mock
         self.addCleanup(wrapped_video.JOBS._jobs.clear)

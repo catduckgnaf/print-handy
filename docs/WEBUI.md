@@ -34,7 +34,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/wrapped` | The Wrapped payload as JSON (headline, highlights, commentary script) |
 | `POST /wrapped/video` | The Wrapped page's video form: starts the year's local video compile as a background job (or joins the one already running for that year) and goes back to the page, which shows its progress. Needs `timelapse.wrapped_ai_video` on as well |
 | `GET /api/wrapped/video-status?year=<year>` | The compile's state as JSON, polled by the Wrapped page: `idle`, `queued`, `running` (with `step` of `steps`), `done` or `failed` (with a short `reason`), plus whether the finished file `available`. Same login and `wrapped_enabled` gate |
-| `GET /wrapped/video-file?year=<year>` | The compiled Wrapped video file: serves only `wrapped-<year>.mp4` from the wrapped outputs, behind the same login and the `wrapped_enabled` gate, so the Wrapped page can embed it |
+| `GET /wrapped/video-file?year=<year>` | The compiled Wrapped video file: serves only `wrapped-<year>.mp4` from the wrapped outputs, behind the same login and the `wrapped_enabled` gate, so the Wrapped page can embed it. Streamed in chunks and answers `Range` requests with `206`, so a browser can seek (Safari needs this) |
 | `POST /wrapped/share` | The Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
 
