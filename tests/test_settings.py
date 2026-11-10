@@ -1136,3 +1136,23 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
     mine.write_text("printer:\n  model: klipper.generic\n")
     with pytest.raises(settings.SettingsError, match=r"\[printer\] model"):
         settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})
+
+
+@pytest.mark.parametrize("name", ["home", "docker"])
+def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
+    """The TOML files are kept for existing installs; the YAML files are canonical.
+
+    Both formats must parse to the same data, and loading either one must give the
+    same settings with no unknown-setting warnings, so the two cannot drift apart."""
+    root = settings.ROOT / "config"
+    assert settings._read(root / f"{name}.yaml") == settings._read(root / f"{name}.toml")
+    if name == "home":
+        yaml_data = settings.load(home=root / "home.yaml", local=False, environ={}, user=False)
+        yaml_unknown = settings.unknown_settings()
+        toml_data = settings.load(home=root / "home.toml", local=False, environ={}, user=False)
+    else:
+        yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
+        yaml_unknown = settings.unknown_settings()
+        toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
+    assert yaml_data == toml_data
+    assert yaml_unknown == [] and settings.unknown_settings() == []

@@ -21,6 +21,16 @@ ruby = 0.0
 tungsten_carbide = 0.0
 diamond = 0.0
 
+# Fallback temperatures in degrees C; explicit Spoolman filament settings win.
+[material_temps]
+PLA = { nozzle = 210, bed = 60 }
+PETG = { nozzle = 240, bed = 85 }
+ABS = { nozzle = 245, bed = 100 }
+ASA = { nozzle = 260, bed = 105 }
+TPU = { nozzle = 230, bed = 50 }
+PA = { nozzle = 260, bed = 90 }
+PC = { nozzle = 275, bed = 110 }
+
 # Slicing tuning per material family; a key set in your own config wins.
 [material_tuning.PLA]
 flow_ratio = 0.98
@@ -235,6 +245,11 @@ ifs_presence_poll_s = 15
 spool_nag_s = 600
 start_claim_ttl_s = 1800
 
+[spool]
+# Ask for the brand/vendor during the conversational new-spool walkthrough (#512). Off by
+# default: the walkthrough skips brand and the spool is created without one.
+prompt_brand = false
+
 [vision]
 model = "gemini-latest"
 # The roast itself: on by default whenever an LLM/vision endpoint is available
@@ -294,6 +309,7 @@ light_object = ""
 # The Moonraker (Klipper) watchdog never alerts on a stall when vision says "ok"/"safe", at any
 # level; the per-level "ok" rule above applies to the Bambu launched-print monitor.
 sensitivity = 3
+enabled = true
 # Early-layer mode (#913): a risky print (slicer finding, "print anyway" override or an
 # operator supports decision) is checked on every layer change for its first early_layers
 # layers, and at least every early_interval_s seconds until then. Normal prints unchanged.
