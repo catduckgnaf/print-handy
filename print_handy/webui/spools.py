@@ -538,7 +538,7 @@ def _default_ai_call():
             return visual_watch.visual_extract(
                 image, prompt, chat_url=listener._vision_chat_url,
                 model=listener._VISION_MODEL,
-                api_key=listener._profile_env_value("CLIPROXY_API_KEY"),
+                api_key=lambda: listener._profile_env_value("CLIPROXY_API_KEY"),
                 context="Filament purchase screenshot or order. Reply with JSON only.")
         full = prompt if text is None else f"{prompt}\n\nPage text:\n{text}"
         endpoint = _os_environ_vision_url()

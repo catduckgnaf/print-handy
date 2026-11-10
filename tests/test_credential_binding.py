@@ -293,6 +293,18 @@ def test_vision_text_call_uses_the_binding(listener, monkeypatch):
     assert listener.seen == [None, f"Bearer {KEY}"]
 
 
+def test_purchase_image_call_reaches_the_endpoint_with_its_key(listener, monkeypatch):
+    # The image branch of the Web UI purchase-intake call hands visual_extract
+    # an api_key that visual_watch calls; it must be a callable, not the key itself.
+    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.webui import spools
+    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    monkeypatch.setattr(mel, "_vision_chat_url", listener.url)
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: KEY)
+    assert spools._default_ai_call()(prompt="p", image=b"img") == "ok"
+    assert listener.seen == [f"Bearer {KEY}"]
+
+
 def test_vision_image_route_uses_the_binding(listener, monkeypatch):
     from print_handy.hermes import visual_watch
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
