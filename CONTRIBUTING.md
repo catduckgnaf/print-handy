@@ -149,7 +149,7 @@ Checks the maintainers should mark required (this repository's settings are the 
 - `contribution-policy` (pull request description and tests policy).
 - `public-text` (no private paths, hosts or names in public text).
 
-Until they are required, a maintainer reads these results before approving a merge.
+Until they are required, a red result on them does not stop auto-merge (branch protection requires only the four checks above and no review), so look at them before enabling auto-merge.
 
 ## Automated PR review support
 
