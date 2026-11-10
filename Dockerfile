@@ -217,6 +217,9 @@ RUN if [ -x /usr/local/bin/orca-slicer-stable ]; then \
 ARG APP_CHANNEL=development
 RUN case "$APP_CHANNEL" in stable|development) ;; *) echo 'APP_CHANNEL must be stable or development' >&2; exit 2;; esac
 LABEL org.print-handy.app-channel=$APP_CHANNEL
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/catduckgnaf/print-handy" \
+      org.opencontainers.image.description="Print Handy: local-first chat-guided slicing, spool matching and confirmed printing for 3D printers"
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY print_handy/__init__.py ./print_handy/__init__.py
@@ -255,6 +258,9 @@ RUN case "$ORT_FLAVOR" in \
 # the venv's site-packages; only the .so ships, no build toolchain.
 COPY --from=bounds-build /out/*.whl /tmp/bounds-wheel/
 COPY . .
+# The license, the notice and the third-party components table travel with the image (docs/ is otherwise
+# dockerignored; .dockerignore re-includes only docs/COMPONENTS.md).
+COPY LICENSE NOTICE docs/COMPONENTS.md /usr/share/doc/print-handy/
 # Only the compiled extension leaves the wheel: the wheel also carries the
 # package skeleton maturin needed (print_handy/__init__.py and
 # core/__init__.py), which must never overwrite the installed package's

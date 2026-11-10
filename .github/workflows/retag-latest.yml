@@ -1,0 +1,69 @@
+name: Retag latest to an existing release (manual repair)
+
+# One-off repair: point the floating :latest tag at an image that is already
+# published under a release version tag. Nothing is built. The manifest is
+# copied by digest (docker buildx imagetools create), so :latest ends up with
+# exactly the same digest as :VERSION.
+#
+# Use it when :latest was moved by mistake. Dispatch it from the main branch
+# with the version :latest should point back at, for example 2.2.7. The run
+# refuses a version whose git tag does not exist or is not reachable from
+# main, and a version whose image is not on GHCR. It only runs when a
+# maintainer dispatches it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing release version that :latest should point at (MAJOR.MINOR.PATCH)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: retag-latest
+  cancel-in-progress: false
+
+jobs:
+  retag:
+    name: Retag latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      IMAGE: ghcr.io/catduckgnaf/print-handy
+      # Inputs reach the shell only as environment variables, never interpolated into scripts.
+      RETAG_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Require a release tag that is reachable from main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          python3 scripts/check_publish_ref.py --retag-latest-to "$RETAG_VERSION"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy the version manifest to latest by digest
+        run: |
+          set -euo pipefail
+          before=$(docker buildx imagetools inspect --raw "$IMAGE:latest" | sha256sum | cut -d ' ' -f 1) || before=none
+          version_digest=$(docker buildx imagetools inspect --raw "$IMAGE:$RETAG_VERSION" | sha256sum | cut -d ' ' -f 1)
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$RETAG_VERSION"
+          after=$(docker buildx imagetools inspect --raw "$IMAGE:latest" | sha256sum | cut -d ' ' -f 1)
+          [[ "$after" == "$version_digest" ]] || {
+            echo ":latest digest sha256:$after does not match $RETAG_VERSION (sha256:$version_digest)" >&2
+            exit 1
+          }
+          {
+            echo "### :latest retagged"
+            echo
+            echo "- Before: \`sha256:$before\`"
+            echo "- After: \`sha256:$after\` (same digest as \`$IMAGE:$RETAG_VERSION\`)"
+          } >> "$GITHUB_STEP_SUMMARY"

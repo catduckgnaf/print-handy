@@ -70,7 +70,7 @@ def leave_one_out(runs, tol, slack):
             if a == b:
                 continue
             pairs += 1
-            fail += bool(check(rows, base))
+            fail += bool(check(rows, base, absolute_slack=True))
             for r in rows:
                 entry = base["cases"].get(key(r), {})
                 for m in METRICS:
@@ -99,7 +99,7 @@ def measure(runs, baseline, source=""):
         "source": source,
         "runs": len(runs),
         "baseline_limits": {"tolerance": tol, "slack_s": slack},
-        "checked_in_baseline_failing_runs": sum(bool(check(rows, baseline)) for rows in runs.values()),
+        "checked_in_baseline_failing_runs": sum(bool(check(rows, baseline, absolute_slack=True)) for rows in runs.values()),
         "leave_one_out_at_baseline": at_baseline,
         "leave_one_out_grid": grid,
         "spread": spread(runs),

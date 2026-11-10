@@ -53,10 +53,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: "3.12"
       - name: Install test dependencies
@@ -73,19 +73,9 @@ jobs:
           if [ -z "$version" ]; then
             version="$(python3 -c "from print_handy import __version__; print(__version__)")"
           fi
-          from_ref="$INPUT_FROM"
-          if [ -z "$from_ref" ]; then
-            from_ref="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
-          fi
-          to_ref="HEAD"
-          if [ "$from_ref" = "$version" ]; then
-            # HEAD is already past this release (a post-release PR touching
-            # the release surfaces): step back to the previous tag and cap
-            # the range at this release's tag, so the check covers exactly
-            # the PRs the release shipped.
-            from_ref="$(git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
-            to_ref="$version^"
-          fi
+          range="$(scripts/resolve_release_range.sh "$version" "$INPUT_FROM" HEAD)"
+          from_ref="$(printf '%s\n' "$range" | sed -n 's/^from_ref=//p')"
+          to_ref="$(printf '%s\n' "$range" | sed -n 's/^to_ref=//p')"
           notes="${INPUT_NOTES:-.github/release-notes-draft.md}"
           {
             echo "version=$version"

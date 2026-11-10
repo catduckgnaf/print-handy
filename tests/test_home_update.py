@@ -1,4 +1,6 @@
-"""scripts/home-update.sh against throwaway git repos: a good update sticks, a bad one rolls back."""
+"""scripts/home-update.sh against throwaway git repos: a good update sticks, a bad one rolls back.
+
+The update's proof is a smoke check (package import, settings load, `bot check`), not the test suite."""
 import os
 import shutil
 import site
@@ -95,6 +97,11 @@ class HomeUpdateTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def break_package(self):
+        """An upstream commit that makes `import print_handy` fail: the smoke check's failure."""
+        init = (self.upstream / "print_handy" / "__init__.py").read_text()
+        return self.commit_upstream("print_handy/__init__.py", init + '\nraise RuntimeError("broken release")\n')
+
     def commit_upstream(self, path, text):
         (self.upstream / path).write_text(text)
         git(self.upstream, "add", "-A")
@@ -135,11 +142,10 @@ class HomeUpdateTests(unittest.TestCase):
         legacy.write_text('{"ctx": 1}')
         profile = Path(self.tmp.name) / "profile"
         (profile / "state" / "print_handy_context.json").write_text('{"ctx": 1}')
-        self.commit_upstream("tests/test_broken.py",
-                             "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.fail('broken')\n")
+        self.break_package()
         self.assertEqual(self.update(home=fake_home).returncode, 1)
         self.assertTrue(legacy.exists())
-        self.commit_upstream("tests/test_broken.py", "")
+        self.commit_upstream("print_handy/__init__.py", (ROOT / "print_handy" / "__init__.py").read_text())
         result = self.update(home=fake_home)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"removed {legacy}", result.stdout)
@@ -147,13 +153,56 @@ class HomeUpdateTests(unittest.TestCase):
 
     def test_breaking_update_rolls_back(self):
         before = git(self.home, "rev-parse", "HEAD")
-        self.commit_upstream("tests/test_broken.py",
-                             "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.fail('broken')\n")
+        self.break_package()
         result = self.update()
         self.assertEqual(result.returncode, 1)
         self.assertIn("Rolled back", result.stdout)
         self.assertEqual(git(self.home, "rev-parse", "HEAD"), before)
-        self.assertFalse((self.home / "tests" / "test_broken.py").exists())
+        self.assertNotIn("broken release", (self.home / "print_handy" / "__init__.py").read_text())
+
+    def test_a_failing_test_in_the_suite_does_not_undo_the_update(self):
+        """The suite is not the gate: a flaky or environment-bound test must not roll an update back."""
+        head = self.commit_upstream("tests/test_broken.py",
+                                    "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.fail('flaky')\n")
+        result = self.update()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
+
+    def test_a_missing_slicer_is_reported_by_the_doctor_but_keeps_the_update(self):
+        head = self.commit_upstream("NOTES.txt", "harmless\n")
+        local = self.home / "config" / "local.toml"
+        local.write_text(local.read_text().replace('command = ["true"]', 'command = ["no-such-slicer-binary"]'))
+        result = self.update()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
+
+    def test_rollback_keeps_edits_that_appeared_while_checking(self):
+        """A hook that edits an unrelated tracked file and then fails: the rollback must not hard-reset it away."""
+        before = git(self.home, "rev-parse", "HEAD")
+        self.commit_upstream("NOTES.txt", "harmless\n")
+        hook = self.home / "config" / "after-update.sh"
+        hook.write_text("#!/bin/sh\necho local-work >> README.md\nexit 1\n")
+        hook.chmod(0o755)
+        original = (self.home / "README.md").read_text()
+        result = self.update()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), before)
+        self.assertIn("kept", result.stdout)
+        # The failed hook is run again on the restored tree, so the edit may appear twice; it must survive.
+        self.assertTrue((self.home / "README.md").read_text().startswith(original + "local-work\n"))
+
+    def test_rollback_that_would_overwrite_local_edits_refuses_and_says_so(self):
+        before = git(self.home, "rev-parse", "HEAD")
+        head = self.commit_upstream("NOTES.txt", "harmless\n")
+        hook = self.home / "config" / "after-update.sh"
+        hook.write_text("#!/bin/sh\necho local-work >> NOTES.txt\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.update()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
+        self.assertIn("would overwrite your local edits", result.stdout)
+        self.assertIn(f"git reset --hard {before}", result.stdout)
+        self.assertIn("local-work", (self.home / "NOTES.txt").read_text())
 
     def test_local_edits_to_tracked_files_block_the_update(self):
         self.commit_upstream("NOTES.txt", "harmless\n")
