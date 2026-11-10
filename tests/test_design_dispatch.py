@@ -465,8 +465,9 @@ def test_command_with_dropped_stl_starts_a_mesh_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "mesh"
-    assert "as a mesh" in adapter.sent[0]
-    assert "40 × 20 × 6" in adapter.sent[0]  # the doubled plate, from the render
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "as a mesh" in adapter.sent[1]
+    assert "40 × 20 × 6" in adapter.sent[1]  # the doubled plate, from the render
 
 
 @needs_scad
@@ -479,8 +480,9 @@ def test_command_with_dropped_scad_starts_a_source_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "scad"
-    assert "in source form" in adapter.sent[0]
-    assert "40 × 20 × 5" in adapter.sent[0]
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "in source form" in adapter.sent[1]
+    assert "40 × 20 × 5" in adapter.sent[1]
 
 
 @needs_scad
@@ -1080,3 +1082,47 @@ def test_typed_choice_is_narrow():
     assert design.typed_choice("forget it") == design.CANCEL_LABEL
     for text in ("make it 5 mm taller", "cancel the hole", "4", "", None, "slice it thinner"):
         assert design.typed_choice(text) is None
+
+
+# ------------------------------------------- a long design turn is never silent (#1206)
+
+class WorkingAdapter(FakeAdapter):
+    def __init__(self):
+        super().__init__()
+        self.typing = 0
+
+    async def signal_working(self, chat_id, metadata=None):
+        self.typing += 1
+
+
+def test_a_model_turn_is_acknowledged_and_shows_typing_until_it_posts(design_env, fake_render):
+    """#1206 finding 6: a turn can take minutes (1 + repair_attempts model
+    calls and renders) and nothing was posted until it ended."""
+    adapter = WorkingAdapter()
+    out = _dispatch("/print-design a hook", adapter, scripted([HOOK]), design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    ack = next(i for i, c in enumerate(adapter.sent) if c and c.startswith("Designing it"))
+    turn = next(i for i, c in enumerate(adapter.sent) if c and "Design turn 1" in c)
+    assert ack < turn
+    assert adapter.typing >= 1
+
+
+def test_undo_and_plain_parameter_edits_are_not_acknowledged(design_env, fake_render):
+    adapter = WorkingAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    before = sum(1 for c in adapter.sent if c and c.startswith("Designing it"))
+    _dispatch("make it 5 mm taller", adapter, fake, design.CHANGE_LABEL)
+    _dispatch("undo", adapter, fake, design.CANCEL_LABEL)
+    assert sum(1 for c in adapter.sent if c and c.startswith("Designing it")) == before == 1
+    assert len(fake.calls) == 1
+
+
+def test_will_call_model_matches_the_no_model_paths(tmp_path):
+    eng = design.DesignEngine(tmp_path, scripted([HOOK]), cfg={})
+    fresh = {"edit_mode": None}
+    assert eng.will_call_model(fresh, "a hook", previous=None)
+    assert not eng.will_call_model(fresh, "undo", previous=HOOK)
+    assert not eng.will_call_model(fresh, "make it 5 mm taller", previous=HOOK)
+    assert eng.will_call_model(fresh, "add a second hook", previous=HOOK)
+    assert eng.will_call_model({"edit_mode": "mesh"}, "make it 5 mm taller", previous="base();")

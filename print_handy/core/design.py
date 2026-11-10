@@ -1371,6 +1371,22 @@ class DesignEngine:
         sheet.save(compare)
         return str(compare)
 
+    def will_call_model(self, session, instruction, *, previous=...):
+        """True when ``run_turn(session, instruction)`` would ask the model.
+
+        False for the no-model paths: an undo/go-back and a plain parameter
+        edit of a SCAD source. Callers use it to say "designing it" only
+        when there is something slow to wait for (#1206).
+        """
+        mesh = session.get("edit_mode") == "mesh"
+        if previous is ...:
+            previous = self.current_body(session) if mesh else self.current_scad(session)
+        if previous and parse_revert(instruction) is not None:
+            return False
+        if previous and not mesh and deterministic_param_edit(previous, instruction) is not None:
+            return False
+        return True
+
     async def run_turn(self, session, instruction):
         """One design turn: model -> scan -> render -> validate, with bounded repairs.
 
