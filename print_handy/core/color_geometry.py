@@ -1,5 +1,6 @@
 """Source-bound, instance-preserving multipart core 3MF for Orca."""
 import io
+import logging
 import copy
 import json
 import math
@@ -14,6 +15,8 @@ from . import source_colors
 from .source_colors import inventory
 from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest, transform_mirrors
 from .threemf_canonical import require_millimeter
+
+_LOG = logging.getLogger(__name__)
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -1647,10 +1650,18 @@ def _declare_one_filament(project, keep_index=1):
                 if len(value) == count:
                     settings[key] = [value[keep]]
                 elif len(value) > 1:
-                    raise RuntimeError(
-                        f'per-filament project array {key} has {len(value)} entries for a '
-                        f'{count}-filament palette; refusing to keep only its first entry '
-                        'and drop the rest')
+                    # Never refuse on filament data (owner ruling, #1190): use the
+                    # entry at the declared filament's own index when the array has
+                    # one, else the first entry, and log which and why.
+                    index = keep if keep < len(value) else 0
+                    _LOG.warning(
+                        'per-filament project array %s has %d entries for a %d-filament palette; '
+                        'kept entry %d (%s)', key, len(value), count, index + 1,
+                        "the declared filament's own index" if index == keep
+                        else 'the first entry, as the array has none at that index')
+                    settings[key] = [value[index]]
+                else:
+                    settings[key] = value[:1]
         matrix = settings.get('flush_volumes_matrix')
         if isinstance(matrix, list) and len(matrix) == count * count:
             settings['flush_volumes_matrix'] = [matrix[keep * count + keep]]

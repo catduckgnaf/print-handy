@@ -584,12 +584,22 @@ def test_rewrite_paint_never_leaves_two_paint_attributes_on_a_triangle():
     assert b'paint_color="4"' in triangles[3]
 
 
-def test_declare_one_filament_refuses_to_drop_extra_entries_of_an_odd_shaped_array():
+def test_declare_one_filament_resolves_an_odd_shaped_array_without_refusing(caplog):
     project = {"filament_colour": ["#111111", "#222222"],
                "filament_mystery_table": ["a", "b", "c"]}  # 3 entries, 2 filaments
-    with pytest.raises(RuntimeError, match=r"filament_mystery_table has 3 entries for a 2-filament"):
-        _declare_one_filament(json.dumps(project).encode(), keep_index=1)
-    # A single-entry array is not truncated, so it is kept as authored.
+    # keep_index 2: the array has an entry at that index, so it is used.
+    with caplog.at_level("WARNING"):
+        out = json.loads(_declare_one_filament(json.dumps(project).encode(), keep_index=2))
+    assert out["filament_mystery_table"] == ["b"]
+    assert "filament_mystery_table" in caplog.text and "own index" in caplog.text
+    # No entry at the declared index: fall back to the first, and say so.
+    short = {"filament_colour": ["#1", "#2", "#3"], "filament_mystery_table": ["a", "b"]}
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        out = json.loads(_declare_one_filament(json.dumps(short).encode(), keep_index=3))
+    assert out["filament_mystery_table"] == ["a"]
+    assert "first entry" in caplog.text
+    # A single-entry array is kept as authored.
     project["filament_mystery_table"] = ["only"]
     out = json.loads(_declare_one_filament(json.dumps(project).encode(), keep_index=2))
     assert out["filament_mystery_table"] == ["only"]
