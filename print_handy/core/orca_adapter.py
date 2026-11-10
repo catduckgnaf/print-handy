@@ -1386,7 +1386,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             and not identity_single and not pause_single:
         raise ValueError('fit_by_object is only supported for per-part color decisions')
     folder.mkdir(parents=True, exist_ok=True)
-    machine, process, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'process', 'filament')]
+    machine, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'filament')]
+    # The destination process template, read once: `process` becomes the job's process, and
+    # destination_process stays the untouched template (brim mode, protected-setting baseline,
+    # conversion provenance target).
+    _process_text = (templates / 'process.json').read_text()
+    process, destination_process = json.loads(_process_text), json.loads(_process_text)
     template_nozzle_dia = float(machine.get('nozzle_diameter', [NOZZLE_MM])[0] if isinstance(machine.get('nozzle_diameter'), list) else machine.get('nozzle_diameter', NOZZLE_MM))
     nozzle_dia = float(state['nozzle']['diameter_mm'])
     from .nozzle import UntunedNozzleError, get_tuned_nozzle_profile
@@ -1399,6 +1404,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # nozzle's tuned width when that is larger.
     from .color_geometry import effective_tower_mm
     tower_mm = effective_tower_mm(nozzle_dia)
+    # The source's slicer project, parsed once for the whole slice (author settings, identity,
+    # embedded preset) and handed to every consumer below.
+    project = author_settings.read_project(source)
     author = {}
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
@@ -1433,7 +1441,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=multi_tool, tower_mm=tower_mm)
-        author = author_settings.read(source)
+        author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted
         # decision stays single_color) and export every part onto the picked
@@ -1447,7 +1455,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=True, tower_mm=tower_mm,
                                                   layer_mode='pause' if pause_single else None)
-        author = author_settings.read(source)
+        author = project['author']
     elif pause_single:
         # One extruder, manual swaps: every part on the picked slot, and the
         # height color changes written as pauses at their heights (#870).
@@ -1460,9 +1468,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=False, tower_mm=tower_mm,
                                                   layer_mode='pause')
-        author = author_settings.read(source)
+        author = project['author']
     elif source.suffix.lower() == '.3mf' and not preserve_layout:
-        author = author_settings.read(source)
+        author = project['author']
         input_path = folder / ('geometry.3mf' if has_cutters(source) or has_part_settings(source)
                                else 'geometry.stl')
         geometry.update(export_geometry(source, input_path, scale=scale or 1.0, rotation=rotation,
@@ -1477,7 +1485,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                   bed=printer.build_volume().bed_mm, mirror=mirror))
     else:
         if source.suffix.lower() == '.3mf':
-            author = author_settings.read(source)
+            author = project['author']
         input_path = source
         geometry = {'policy': 'derived plate; documented translation preserved; no arrange', 'source_sha256': digest(source)}
     if (color_decisions and color_decisions.get('mode') == 'single_color' and not pause_single
@@ -1510,7 +1518,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         process.pop('wall_infill_order', None)  # the template's legacy spelling would override the author's order
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
-    process['brim_type'] = json.loads((templates / 'process.json').read_text())['brim_type']
+    process['brim_type'] = destination_process['brim_type']
     selected_by.pop('brim_type', None)
     process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', compat_registry.get_rule('gap-fill-default').parameters['default']),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})
@@ -1983,12 +1991,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Keep the untouched base templates for protected-setting comparison; gate the
     # final effective configs immediately before invoking Orca.
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
-                    **json.loads((templates / 'process.json').read_text()),
+                    **destination_process,
                     **json.loads(Path(filament_template).read_text())}
-    # The destination process template before any author overlay: conversion
-    # provenance compares carried author values against THIS, never against
+    # Conversion provenance compares carried author values against the
+    # destination template (destination_process, read above), never against
     # the final selected process (which would make target == selected).
-    destination_process = json.loads((templates / 'process.json').read_text())
     effective_profile = {**machine, **process, **filament}
     placed_bounds = geometry.get('placed_bounds_mm')
     if placed_bounds and len(placed_bounds) >= 2:
@@ -2340,7 +2347,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Which registry rules this slice applied, for the conversion provenance's
     # governing rules (#1110): decided here, before the post-slice verdict, so a
     # rule outside its declared versions can refuse readiness.
-    _source_family, _source_slicer_version, _source_format = author_settings.source_identity(source)
+    _source_family, _source_slicer_version, _source_format = author_settings.source_identity(project)
     _candidates = set()
     if _source_format != 'unknown':
         # The carry and the process assembly run for every project source.
@@ -2397,7 +2404,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # malformed or unexpected project data must not fail a finished slice.
     try:
         _conversion_provenance = author_settings.conversion_provenance(
-            source, destination_process, process, author, author_notes,
+            project, destination_process, process, author, author_notes,
             destination_slicer_version=_destination_slicer_version,
             destination_profile=author_settings.destination_profile_identity(
                 destination_process, templates),

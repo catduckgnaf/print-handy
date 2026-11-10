@@ -658,3 +658,32 @@ def test_prusa_source_slicer_version_is_parsed_from_the_generated_by_line(tmp_pa
     assert author_settings.source_identity(source) == ("prusaslicer", "2.8.1", "prusaslicer_project")
     result = author_settings.conversion_provenance(source, TEMPLATE, {}, {}, [])
     assert result["source_slicer"] == "PrusaSlicer" and result["source_slicer_version"] == "2.8.1"
+
+
+def test_one_slice_parses_the_source_project_once(tmp_path):
+    # Every consumer (author settings, source identity, conversion provenance,
+    # embedded preset) shares one read_project() record; the PrusaSlicer
+    # config is translated once and the process template is read once.
+    source = prusa_project(tmp_path / "prusa.3mf")
+    calls = {"read_project": 0, "prusa": 0, "process.json": 0}
+    real_read_project, real_prusa, real_read_text = author_settings.read_project, author_settings._prusa, Path.read_text
+
+    def read_project(path):
+        calls["read_project"] += 1
+        return real_read_project(path)
+
+    def prusa(data):
+        calls["prusa"] += 1
+        return real_prusa(data)
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "process.json" and Path(orca_adapter.TEMPLATES) in self.parents:
+            calls["process.json"] += 1
+        return real_read_text(self, *args, **kwargs)
+    with patch.object(author_settings, "read_project", read_project), \
+            patch.object(author_settings, "_prusa", prusa), patch.object(Path, "read_text", read_text):
+        _process, provenance = sliced_process(tmp_path, source)
+    assert provenance["conversion_provenance"]["source_format"] == "prusaslicer_project"
+    # One process-template read for the slice itself; the other is the
+    # imported-project sanitizer loading its whole template set, as on main.
+    assert calls == {"read_project": 1, "prusa": 1, "process.json": 2}
