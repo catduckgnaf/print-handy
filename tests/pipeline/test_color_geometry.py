@@ -857,6 +857,22 @@ def test_tower_clears_the_whole_merged_group(tmp_path):
         assert candidate[0] >= x1 or candidate[0] + 60 <= x0 or candidate[1] >= y1 or candidate[1] + 60 <= y0
 
 
+@pytest.mark.parametrize('bed', [(220.0, 220.0), (256.0, 256.0), (350.0, 320.0)])
+def test_cutter_source_export_centers_on_the_target_bed(tmp_path, bed):
+    """export_geometry sends a cutter source through the volume-plate export.
+    It must center on the target printer's bed like the STL path does: on a
+    256 mm bed the hard-coded 110 mm center put the part 18 mm off center,
+    and the prepositioned plate is sliced with --arrange 0."""
+    from print_handy.core import orca_adapter
+    src = _cutter_source(tmp_path / 'cutter.3mf')
+    assert orca_adapter.has_cutters(src)
+    report = orca_adapter.export_geometry(src, tmp_path / 'geometry.3mf', bed=bed)
+    placed = report['placed_bounds_mm']
+    for axis in (0, 1):
+        assert (placed[axis][0] + placed[axis][1]) / 2 == pytest.approx(bed[axis] / 2)
+    assert placed[2][0] == pytest.approx(0.0)
+
+
 def test_single_item_multi_part_export_is_unchanged(tmp_path):
     src = _cutter_source(tmp_path / 'cutter.3mf')
     from .test_plate_merge import _two_slot_decisions

@@ -127,7 +127,7 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None, mirror=N
 
     No mesh repair, merging or per-part rearrangement. An optional operator-selected
     rigid rotation, then uniform scale, is applied before rigid centering on the bed (bed, default the configured one).
-    A source with negative/modifier volumes goes through color_geometry, which still centres at 110 mm.
+    A source with negative/modifier volumes goes through color_geometry, centered on the same bed.
     STL float32 rounding is recorded by hashes. Non-mm and nonprintable builds refuse.
     """
     scale = float(scale) if scale is not None else 1.0
@@ -148,7 +148,7 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None, mirror=N
             raise RuntimeError('source has negative/modifier volumes or per-part settings; '
                                'export to .3mf, not STL')
         from .color_geometry import export_volume_plate
-        return export_volume_plate(source, target, scale=scale, rotation=rotation)
+        return export_volume_plate(source, target, scale=scale, rotation=rotation, bed=bed or BED)
     return _place_triangles(_3mf_triangles(source), target, scale, rotation, bed, mirror=mirror)
 
 

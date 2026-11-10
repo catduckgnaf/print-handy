@@ -511,13 +511,14 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                      'all mesh leaves as independent build items; component transforms; per-object yaw rotations about the world origin, each composed with its per-object translation; float64 XML'}
 
 
-def export_volume_plate(source, target, scale=1.0, rotation=None):
+def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     """Single-filament 3MF that keeps negative/modifier volumes inside their object.
 
     Same placement contract as orca_adapter.export_geometry (optional rigid
-    rotation, uniform scale, center XY on the AD5X bed, lowest printed vertex on
-    Z0) but cutters stay typed volumes so Orca subtracts them instead of
-    printing them as a colliding solid.
+    rotation, uniform scale, center XY on ``bed`` -- the target printer's (x, y)
+    bed, the 220 mm AD5X bed when omitted -- lowest printed vertex on Z0) but
+    cutters stay typed volumes so Orca subtracts them instead of printing them
+    as a colliding solid.
     """
     from .orca_adapter import _check_rotation, _rotate
     from . import source_colors
@@ -583,7 +584,8 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
     if not printed:
         raise RuntimeError('3MF contains no printable volume')
     bounds = [(min(p[a] for p in printed), max(p[a] for p in printed)) for a in range(3)]
-    delta = [110 - sum(bounds[a]) / 2 for a in (0, 1)] + [-bounds[2][0]]
+    center = [float(v) / 2 for v in (bed or (220.0, 220.0))[:2]]
+    delta = [center[a] - sum(bounds[a]) / 2 for a in (0, 1)] + [-bounds[2][0]]
     tag = lambda name: '{' + CORE + '}' + name
     ET.register_namespace('', CORE)
     model = ET.Element(tag('model'), unit='millimeter')
