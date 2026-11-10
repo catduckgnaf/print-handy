@@ -9,7 +9,7 @@ Print Handy match what is being released:
   docs repo's own Docs sync check defines it (its ``scripts/check-sync.sh``
   and ``scripts/sync-manifest.tsv``, including REMOVED pages), and
 - the README and package version agree with the version being published,
-  and the README's relative documentation links resolve inside the repo
+  and the README's relative documentation links (and their heading anchors) resolve inside the repo
   (Pages-site routes it links to are checked against the docs checkout).
 
 The gate runs on every ``docker-publish`` dispatch. In candidate mode
@@ -57,6 +57,20 @@ Remedy:
 """
 
 
+def heading_anchors(path):
+    """GitHub-style anchor slugs for the headings of one Markdown file."""
+    text = re.sub(r"```.*?```", "", path.read_text(encoding="utf-8"), flags=re.S)
+    seen, anchors = {}, set()
+    for match in re.finditer(r"^#{1,6}\s+(.*?)\s*#*$", text, flags=re.M):
+        title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match.group(1))
+        slug = re.sub(r"[^\w\- ]", "", title.replace("`", "").strip().lower())
+        slug = slug.replace(" ", "-")
+        count = seen.get(slug, 0)
+        seen[slug] = count + 1
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+    return anchors
+
+
 def readme_problems(root, docs_dir, version):
     """In-repo consistency checks for the README and the package version."""
     problems = []
@@ -93,9 +107,11 @@ def readme_problems(root, docs_dir, version):
             continue
         if re.match(r"^[a-z][a-z0-9+.-]*:", target):
             continue  # external URL or mailto: not checked offline
-        path = target.split("#")[0]
+        path, _, anchor = target.partition("#")
         if path and not (root / path).exists():
             problems.append(f"README.md: link target does not exist: {target}")
+        elif path.endswith(".md") and anchor and anchor.lower() not in heading_anchors(root / path):
+            problems.append(f"README.md: link anchor does not exist: {target}")
     return problems
 
 

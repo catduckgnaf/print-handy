@@ -1,11 +1,9 @@
 # The Print Handy bot
 
-Print Handy talks to Discord itself. Links, dropped 3MF and STL files, color and fit buttons, slicing, the
-bed-clear start button, slash commands and printer alerts all run from Python with a Discord bot token. No
-LLM is needed. An OpenAI-compatible LLM is an optional extra for replying to free text.
+This is the bot with no Docker around it: links, files, color buttons, slicing and printer alerts, all from one Python process. No AI needed. Also runs on Telegram or Matrix. One token, one bot; two copies means two answers to everything.
 
-It can also run on Telegram instead: set `bot.platform` to `telegram` and follow
-[Telegram bot setup](TELEGRAM-BOT-SETUP.md). The Telegram bot is a pure bot with no LLM at all — unmatched
+An OpenAI-compatible LLM is an optional extra for replying to free text. To run on Telegram instead of Discord, set `bot.platform` to `telegram` and follow
+[Telegram bot setup](TELEGRAM-BOT-SETUP.md). The Telegram bot is a pure bot with no LLM at all, unmatched
 text gets the short “didn't understand” reply even when `[llm]` is configured for another platform.
 
 Or in a Matrix room: set `bot.platform` to `matrix` and follow
@@ -58,13 +56,13 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `discord.denied_user_ids` | empty | Optional deny list of Discord user IDs; a denied user is refused even when whitelisted or the approval user |
 | `discord.approval_user_id` | empty | Always allowed as well; setting one does not restrict anyone else |
 | `discord.token_env` | `DISCORD_BOT_TOKEN` | Name of the environment variable that holds the bot token |
-| `discord.chat_llm_enabled` | `true` | Discord's chat-LLM switch. `false` runs Discord as a pure bot — unmatched text gets the short “didn't understand” reply — while `[llm]` stays configured for `/print-design`. Roasts and camera checks keep their own vision switches |
+| `discord.chat_llm_enabled` | `true` | Discord's chat-LLM switch. `false` runs Discord as a pure bot, unmatched text gets the short “didn't understand” reply, while `[llm]` stays configured for `/print-design`. Roasts and camera checks keep their own vision switches |
 | `llm.chat_url` | empty | Optional OpenAI-compatible chat completions URL. Empty: unmatched text gets the short “didn't understand” reply |
 | `llm.model` | empty | Model name, required when `chat_url` is set |
 | `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the LLM API key, if it needs one |
 | `llm.timeout_s` | `20` | LLM request timeout |
-| `agent.chat_url` | empty | Stray-chat agent lane: an agent endpoint — any OpenAI-compatible chat completions URL, e.g. a Hermes agent behind its API — answers Discord free text ahead of the `[llm]` call. Empty: no agent lane |
-| `agent.model` | empty | Agent model name; optional — empty omits `model` from the request |
+| `agent.chat_url` | empty | Stray-chat agent lane: an agent endpoint, any OpenAI-compatible chat completions URL, e.g. a Hermes agent behind its API, answers Discord free text ahead of the `[llm]` call. Empty: no agent lane |
+| `agent.model` | empty | Agent model name; optional, empty omits `model` from the request |
 | `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
 | `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
 | `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint. `false` turns roasts off; camera checks are unaffected |
@@ -80,10 +78,10 @@ not the Discord account username or server nickname; set those in Discord. The d
 
 The token is only ever read from the environment variable `discord.token_env` names, or from the `.env` file in
 `paths.hermes_home` (the data folder; the name is historical, it does not need Hermes). With no allow list,
-everyone in the print channel can use the bot — the channel is the access boundary — and `check` reports
+everyone in the print channel can use the bot, the channel is the access boundary, and `check` reports
 `access: channel (everyone)`; set `discord.allowed_user_ids` to restrict the bot to listed users, and
 `discord.denied_user_ids` to exclude specific users in any mode. A refused message is logged at INFO with
-the user ID and reason, and answered in channel once per user per hour — never silently dropped.
+the user ID and reason, and answered in channel once per user per hour, never silently dropped.
 
 ```yaml
 # config/local.yaml
@@ -148,9 +146,9 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   reply pointing at `/print-again list`, not the help text. A bare number on its own is not a print request.
 * `/spool` walks you through spools with buttons: it asks whether you are adding a **new** spool or
   **changing** the spool in a slot (listing and screen sync stay in the same menu). Adding offers the
-  filament types already in the Spoolman database first — picking a known type supplies its colour and
-  colour code from the database, so you are never asked for a hex code and never re-type a known colour;
-  only a genuinely new type asks for brand / material / colour name and grams. Before anything is
+  filament types already in the Spoolman database first, picking a known type supplies its color and
+  color code from the database, so you are never asked for a hex code and never re-type a known color;
+  only a genuinely new type asks for brand / material / color name and grams. Before anything is
   created, the confirmation names the spool number the new spool will be, and the result reports the
   number actually created. Changing a slot walks slot → replacement (a shelf spool, or add-new first) →
   what happens to the old spool: **back on the shelf**, **archive it**, or **mark it as depleted**
@@ -161,12 +159,12 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   filament", "add a new spool", "we need to add new filament" and "change / swap / replace the
   filament" start the same guided flow; ordinary discussion about filament does not.
 * `/print-spools` answers what is loaded, where, and how much is left: a loaded-only,
-  read-only list — each loaded location with its spool number, brand, material, color, grams
+  read-only list; each loaded location with its spool number, brand, material, color, grams
   left and percent left where the spool's starting weight is recorded. `/spool loaded`, a bare
   `/print-colors` (no JOB.json; the archived-job form is unchanged), and plain asks ("what
   colors are loaded", "current spools", "how much filament is left") answer the same way, with
   no LLM configured. A clear typo of one of those asks ("currant spools", "what colours are <!-- us-spelling: allow colours -->
-  loded") gets a "Did you mean?" prompt first — the view is shown only on a yes, never on a
+  loded") gets a "Did you mean?" prompt first; the view is shown only on a yes, never on a
   fuzzy match alone. The full inventory, shelf included, stays on `/spool list`. If Spoolman
   does not answer, locations and spools are still reported from the record, with amounts
   named unavailable.
@@ -175,7 +173,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   copies (`/print-again … x3`, and multi-copy parts in a multipart plan) are labelled per copy: the
   confirmation and start posts add the all-copies printing time and filament, the completion prompt and
   the continuation summary show the updated remaining time and filament as copies finish, and no post
-  quotes one copy's finish as the whole job's — sequential finishes depend on the bed-clear pauses
+  quotes one copy's finish as the whole job's, sequential finishes depend on the bed-clear pauses
   between copies.
 * Slash commands: `/print-next`, `/print-stop`, `/print-resume`, `/print-again`, `/print-reboot`,
   `/print-coldpull`, `/print-bed-down` (prepare to clean: separate bed and nozzle, asks first, never homes or heats), `/nozzle`, `/print-maintenance`, `/print-colors`, `/spool`, `/print-spools`, `/print-lookup`, `/print-troubleshoot`,
@@ -187,11 +185,11 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 * `/print-design <what to make>` (or the short `/design`) designs a new part with AI + OpenSCAD (see
   [AI design](DESIGN.md)); with a model file dropped in the same message, or a model link in it, it edits
   that model instead, and phrases like "design me …" or "design this" start design without the command.
-  Design is on automatically whenever an OpenAI-compatible endpoint is configured — the `[design]`
-  settings, or `[llm]`'s — unless `design.enabled` is set false; it also needs the `openscad` binary on
+  Design is on automatically whenever an OpenAI-compatible endpoint is configured; the `[design]`
+  settings, or `[llm]`'s, unless `design.enabled` is set false; it also needs the `openscad` binary on
   the machine (the container image includes it; a native install must add it, e.g. `apt install openscad`).
   Design runs on Discord, Telegram and Matrix; on Telegram and Matrix it is the one model-backed
-  feature, served by the configured `[design]` endpoint only — ordinary chat there still gets no LLM
+  feature, served by the configured `[design]` endpoint only, ordinary chat there still gets no LLM
   reply and falls back to the short “didn't understand” reply, exactly as before.
 * Listener posts (started, complete, failed, timelapse) and alert buttons (Resume, Cancel, spool questions, IFS
   insertion, plate picker) work while the bot runs.
@@ -201,28 +199,28 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   If the cancel does not end the print, the question stays open and answerable.
 * A pause caused by a filament runout is announced as a runout, not a generic pause: the listener combines the
   pause message, the printer's own filament sensor (switch or motion sensor, discovered from Moonraker's object
-  list — a disabled, absent or unreadable sensor counts as no evidence, never as a runout) and, on printers with
+  list; a disabled, absent or unreadable sensor counts as no evidence, never as a runout) and, on printers with
   IFS slot presence, the slot readings. The alert names the slot and spool that ran out, is followed by the spool
   question for registering the replacement spool, and carries the usual **Resume print** / **Cancel print**
-  buttons — Resume acts only when you press it and re-checks the paused job first. If a slot empties while the
+  buttons, Resume acts only when you press it and re-checks the paused job first. If a slot empties while the
   print is already paused and the pause had not been classified as a runout, the alert is re-posted as a runout
   alert (with the spool question) instead of only being logged.
 * A spool created directly in Spoolman (its web UI, or another tool) gets a prompt too: on the same poll
   cadence as the IFS presence check, the listener diffs Spoolman's spool IDs against the ones it already
   knows (kept in the state folder; the first poll learns the current inventory silently, so existing spools
-  never prompt). Each genuinely new, non-archived spool is named in Discord — number, brand, material and
-  colour — exactly once, with **Load into a slot** (the guided change flow's slot → old spool's fate →
+  never prompt). Each genuinely new, non-archived spool is named in Discord, number, brand, material and
+  color, exactly once, with **Load into a slot** (the guided change flow's slot → old spool's fate →
   confirm steps, with the new spool already chosen), **Leave on the shelf** and **Dismiss**. A spool that
   arrives already archived is learned silently, a deleted spool is forgotten silently, and when Spoolman is
-  unreachable or not configured the poll simply skips — it never blocks the listener and never prompts.
+  unreachable or not configured the poll simply skips; it never blocks the listener and never prompts.
 * A typed reply answers your own open question ("2" for two copies, "split", "cancel"). It
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
-* Anything else is tried with a model lane first — the `[agent]` lane when an agent endpoint is
-  configured, else the LLM when `[llm]` is set — and only falls back to the short
+* Anything else is tried with a model lane first; the `[agent]` lane when an agent endpoint is
+  configured, else the LLM when `[llm]` is set, and only falls back to the short
   “didn't understand” reply when
   the model cannot solve it. The agent lane is different in kind from the LLM call below: the bot
-  sends your text once, with no bot system prompt, and posts the endpoint's reply as-is — the
+  sends your text once, with no bot system prompt, and posts the endpoint's reply as-is; the
   endpoint (a Hermes agent behind its API, say) answers in its own voice, and its reply can never
   name a command into execution. The bot keeps no conversation history; it sends the live session
   key as an `X-Print-Handy-Session` header the endpoint may key its own conversation on. If a
@@ -232,7 +230,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   other text goes to the model, which may answer directly or name one command from a fixed list (read-only or
   button-gated: `/print-stop`, `/print-next`, `/spool list`, `/print-spools`, ...). A named command runs through the same
   handler as a typed one and asks for its button the same way. Only if the model declines, names no usable
-  command, errors or times out does that reply appear — once, and never together with a model reply for
+  command, errors or times out does that reply appear, once, and never together with a model reply for
   the same message. The model can never run `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or
   `/print-again stop`, and it never sees links, files or the printer. With no `[llm]` configured, unmatched
   text gets that short reply as before, and Telegram and Matrix never use the LLM at all (see above).
@@ -241,17 +239,17 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 
 Discord can run as a pure bot too, the way Telegram and Matrix always do. Set
 `discord.chat_llm_enabled` to `false` (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=false`) and restart:
-unmatched text gets the short “didn't understand” reply, and no chat message is ever sent to a model — while everything
+unmatched text gets the short “didn't understand” reply, and no chat message is ever sent to a model, while everything
 deterministic (commands, links, files, typed answers, buttons, `print 57`) works exactly as before.
 The switch gates every stray-chat model call: the `[llm]` call and the `[agent]` lane alike.
 `bot check` says so on its llm and agent rows, naming the switch, and the bot's status reports `"llm": false`.
 
 You do not have to remove `[llm]` to do this, and you should not if you use `/print-design`: design
 inherits the `[llm]` endpoint when `[design]` is unset, and that inheritance keeps working with chat
-off — design has its own switch (`design.enabled`). Two other features use a model through the
+off, design has its own switch (`design.enabled`). Two other features use a model through the
 separate vision endpoint or need none, and keep their own gates: the **roast** (local, no LLM;
 `vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`, on
-`services.vision_chat_url` — or, with no endpoint at all, on the built-in local failure detector,
+`services.vision_chat_url`, or, with no endpoint at all, on the built-in local failure detector,
 `vision.local_detector_enabled`, #455). Turning the chat LLM off changes none of them; turn each off at its own
 switch if you want no model calls at all.
 
@@ -264,7 +262,7 @@ switch if you want no model calls at all.
 | Adapter `send` / `send_clarify` | The platform interface in `print_handy.bot.platform`: `send`, `send_clarify`, `answer_typed`, `close_prompt`, `is_allowed_id`, plus per-platform limits (`message_limit`, `upload_max_bytes`, `supports_buttons`, `max_buttons`). Discord's implementation is `print_handy.bot.adapter.StandaloneAdapter` over discord.py. `MEDIA:/path` becomes an attachment; long text is split at 2000 characters |
 | Question registry (register, wait, resolve, cancelled) | `print_handy.core.prompts`. The bot draws its own questions: they are posted from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed) |
 | Platform handler registration and the adapter's `_is_allowed_user` | The router hands the handler module's `alert_button_handlers` our discord.py client; the adapter implements `_is_allowed_user` |
-| Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments — no subprocess poster |
+| Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments; no subprocess poster |
 | "print it" link recall | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json` |
 | /print-design model | The `[design]`/`[llm]` HTTP transport: the configured endpoint answers |
 | Data folder, install script, systemd units | `paths.hermes_home` is just the data folder (the name is historical); `scripts/install-standalone.sh` and `systemd/*.service.template` |
@@ -285,7 +283,7 @@ is refused at load with a message naming the removal. Moving an existing install
    (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the
    environment or the data folder's `.env`.
 4. Run `python3 -m print_handy.bot check`, then `scripts/install-standalone.sh` and enable both units.
-5. Optional — keep agent answers for stray chat: point `[agent] chat_url` (and
+5. Optional, keep agent answers for stray chat: point `[agent] chat_url` (and
    `api_key_env`) at an agent API endpoint (a Hermes agent behind its API works). Without
    it, stray chat uses the `[llm]` endpoint if one is configured, else the short bounded
    reply.
@@ -295,7 +293,7 @@ is refused at load with a message naming the removal. Moving an existing install
 ## Adding a chat platform
 
 For contributors: the bot core and the plugin handlers talk to a chat service only through
-`print_handy.bot.platform` — `BotCore` is built with one platform adapter and never imports a platform
+`print_handy.bot.platform`, `BotCore` is built with one platform adapter and never imports a platform
 library. A new platform is a new module under `print_handy/bot/` holding a `StandaloneAdapter`-shaped
 implementation of `send` / `send_clarify` / `answer_typed` / `close_prompt` / `is_allowed_id` (prompt
 bookkeeping and choice resolution are shared in `BasePlatformAdapter`), a client that turns service

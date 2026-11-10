@@ -25,7 +25,7 @@ Both slice variants run speculatively in the background when flagged. Because th
 - A single mesh can bake its support pillars into the part itself, leaving no named support object to detect. When one mesh's downward overhang area is at least five times its bed-contact area (and at least 500 mm2), the analysis names it as a single-mesh cantilever warning. If Orca warns about floating regions or a cantilever and the operator chooses to print without supports, the job records an explicit `UNSUPPORTED_CANTILEVER_OVERRIDE` bound to the warning text and the source hash.
 - A single-object 3MF without material attributes (`pid`/`pindex`, as OpenSCAD exports) is treated exactly like a single-part STL across clearance analysis, single-color slot binding and post-slice verification; STL sources get the same clearance analysis as 3MF sources.
 - Cancelling at the post-slice support prompt cancels the start, not the slice: once a slice is referenced by `JOB.json` and the intake receipt, its files stay on disk with status `SLICED_NOT_STARTED`.
-- Uploading an already-sliced `.gcode.3mf` package is refused with that explanation — it is not reported as a corrupt 3MF structure.
+- Uploading an already-sliced `.gcode.3mf` package is refused with that explanation; it is not reported as a corrupt 3MF structure.
 
 ## Every other warning (information only)
 

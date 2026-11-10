@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Printer profiles](PRINTER-PROFILES.md)
 
-Print Handy supports the Snapmaker U1 through **Moonraker**. The U1 runs a Klipper-based firmware, and it is a tool changer: four toolheads, not a filament feeder. Nothing here has been tested on a U1. The numbers below are the manufacturer's published specification, and the templates are generic files this project wrote. Snapmaker's own profiles and OrcaSlicer's profiles are not shipped.
+The Snapmaker U1 works through **Moonraker**. It runs Klipper-based firmware and it is a tool changer: four toolheads, not a filament feeder. Support rests on the manufacturer's published specification, and no U1 has printed through Print Handy yet. The templates are generic files this project wrote; Snapmaker's own profiles and OrcaSlicer's profiles are not shipped.
 
 | Model | Key | Bed (mm) | Height | Tools |
 |---|---|---|---|---|

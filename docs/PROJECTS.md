@@ -70,9 +70,9 @@ offer requires an actual empty-bed observation.
 
 `/print-again` understands the plate labels. `/print-again 82B` reprints
 exactly that plate. Picking a project plate by its print number or its
-title first asks its scope — **This plate only**, **Entire project**,
+title first asks its scope, **This plate only**, **Entire project**,
 **Choose a plate**, or **Remaining unprinted plates** when some plates are
-not finished yet — because one plate of a project is not the project.
+not finished yet, because one plate of a project is not the project.
 An exact label already names its scope, so it skips the question.
 
 The entire-project and remaining-plates scopes queue the other plates as

@@ -43,11 +43,10 @@ body:
     attributes:
       label: How is Print Handy installed?
       options:
-        - Docker image
-        - Standalone (install.sh)
-        - Hermes plugin
+        - Docker
+        - Unraid
+        - Native (systemd)
         - Development checkout
-        - Other
     validations:
       required: true
   - type: input

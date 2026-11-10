@@ -1,6 +1,6 @@
 # Multi-printer design: one instance, many printers
 
-[Documentation home](README.md) · [More than one printer today](MULTI-INSTANCE.md) · [Listener domains](LISTENERS.md) · Issue [#257](https://github.com/catduckgnaf/print-handy/issues/257)
+[Documentation home](../README.md) · [More than one printer today](../MULTI-INSTANCE.md) · [Listener domains](../LISTENERS.md) · Issue [#257](https://github.com/catduckgnaf/print-handy/issues/257)
 
 **Status: design, not implemented.** This page is the output of the #257
 Stage 2 design spike (2026-10-26). It records an audit of every place the
@@ -13,7 +13,7 @@ the design is verified by reading, not by running printers.
 
 Where things stand:
 
-- **Stage 0** (the multi-instance recipe, [MULTI-INSTANCE.md](MULTI-INSTANCE.md))
+- **Stage 0** (the multi-instance recipe, [MULTI-INSTANCE.md](../MULTI-INSTANCE.md))
   is shipped and stays valid forever as the alternative deployment:
   separate processes, separate bots, hard isolation.
 - **Stage 1** (#256, merged) made one instance fully correct for one
@@ -24,7 +24,7 @@ Where things stand:
   and already committed to the shape this design builds on: *the domain
   selects the listener type; each configured printer gets its own
   listener instance, supervised and healthchecked independently*
-  ([LISTENERS.md](LISTENERS.md)).
+  ([LISTENERS.md](../LISTENERS.md)).
 
 ## 1. The audit: where "one printer" lives
 
@@ -512,7 +512,7 @@ afterthought:
 - Single-printer behaviour is byte-identical where behaviour is
   observable: same prompts in the same channel, same job records plus
   one additive `printer_id` field, same gates in the same order.
-- [MULTI-INSTANCE.md](MULTI-INSTANCE.md) remains the supported
+- [MULTI-INSTANCE.md](../MULTI-INSTANCE.md) remains the supported
   alternative deployment. One instance is a *choice* (one bot, one
   config, one Spoolman client view, combined status), not a migration
   users are pushed into; households that want hard process isolation
@@ -533,7 +533,7 @@ discord:
   chat_id: 100000000000000001   # default channel; the AD5X entry uses it
   allowed_user_ids: [200000000000000002]
 services:
-  spoolman_url: http://spoolman.home:7912
+  spoolman_url: http://spoolman.example:7912
 delivery:
   methods: [discord, printer]
 
@@ -542,14 +542,14 @@ printers:
     name: Garage A1
     model: bambulab.a1
     chat_id: 100000000000000003  # #a1-prints
-    lan_host: 192.168.1.60
+    lan_host: 192.0.2.60
     lan_serial: "00M00A000000000"
     lan_access_code_env: BAMBU_LAN_PASSWORD
   - id: workshop-ad5x
     name: Workshop AD5X
     model: flashforge.ad5x
     # no chat_id: falls back to the global discord.chat_id (#ad5x-prints)
-    moonraker_url: http://192.168.1.61:7125
+    moonraker_url: http://192.0.2.61:7125
 ```
 
 What this buys over the Stage 0 recipe: one container and one bot
@@ -705,7 +705,7 @@ behaviour for a single-printer install.
 ### Stage 2e — Setup, Web UI decision and docs — [#337](https://github.com/catduckgnaf/print-handy/issues/337)
 
 - **Scope.** `docs/DOCKER.md` gains the one-instance multi-printer
-  shape; [MULTI-INSTANCE.md](MULTI-INSTANCE.md) is reframed as the
+  shape; [MULTI-INSTANCE.md](../MULTI-INSTANCE.md) is reframed as the
   alternative deployment (hard isolation) rather than the only answer;
   `docs/SETTINGS.md` completed for the roster; setup wizard and guided
   setup learn an add-a-printer loop that writes `[[printers]]` entries

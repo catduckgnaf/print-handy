@@ -8,7 +8,7 @@ Marlin support is via OctoPrint, not a direct serial or standalone Marlin transp
 
 ## Ender presets
 
-`octoprint.marlin` is the generic profile, with placeholder dimensions to override in local config. Four Creality Ender models ship as presets of the same support — same adapter, same OctoPrint route, but the model's real dimensions and templates instead of placeholders:
+`octoprint.marlin` is the generic profile, with placeholder dimensions to override in local config. Four Creality Ender models ship as presets of the same support, same adapter, same OctoPrint route, but the model's real dimensions and templates instead of placeholders:
 
 | Key | Model | Bed (mm) | Height (mm) |
 |---|---|---:|---:|
@@ -17,11 +17,11 @@ Marlin support is via OctoPrint, not a direct serial or standalone Marlin transp
 | `octoprint.ender3v2` | Creality Ender-3 V2 | 220 x 220 | 250 |
 | `octoprint.ender3v3se` | Creality Ender-3 V3 SE | 220 x 220 | 250 |
 
-Dimensions are the pinned OrcaSlicer profiles' printable area/height (OrcaSlicer v2.5.0-alpha, Creality vendor profiles `02.03.02.87`); the templates are Print Handy's own Marlin set with those facts substituted — Orca profile content is AGPL-3.0 and is not republished. Upstream ships only a 0.4 mm nozzle machine profile for the Ender-3 V2, so that preset accepts only 0.4 mm. The Ender-3 V3 SE belongs here despite its name: its stock firmware is Marlin-based (the pinned profile declares `gcode_flavor: marlin2`) and it has no Moonraker endpoint — the Klipper Enders (Ender-3 V3, K1 family) are in [Creality printers](CREALITY.md). Select a preset with `PRINT_HANDY__PRINTER__VENDOR=octoprint` and `PRINT_HANDY__PRINTER__MODEL=ender3` (etc.).
+Dimensions are the pinned OrcaSlicer profiles' printable area/height (OrcaSlicer's 2.5 line, Creality vendor profiles `02.03.02.87`); the templates are Print Handy's own Marlin set with those facts substituted, Orca profile content is AGPL-3.0 and is not republished. Upstream ships only a 0.4 mm nozzle machine profile for the Ender-3 V2, so that preset accepts only 0.4 mm. The Ender-3 V3 SE belongs here despite its name: its stock firmware is Marlin-based (the pinned profile declares `gcode_flavor: marlin2`) and it has no Moonraker endpoint, the Klipper Enders (Ender-3 V3, K1 family) are in [Creality printers](CREALITY.md). Select a preset with `PRINT_HANDY__PRINTER__VENDOR=octoprint` and `PRINT_HANDY__PRINTER__MODEL=ender3` (etc.).
 
 ## Anycubic presets
 
-Eight Anycubic Marlin models ship as presets of the same support, with dimensions from the same pinned tree (OrcaSlicer v2.5.0-alpha, Anycubic vendor profiles `02.04.00.09`):
+Eight Anycubic Marlin models ship as presets of the same support, with dimensions from the same pinned tree (OrcaSlicer's 2.5 line, Anycubic vendor profiles `02.04.00.09`):
 
 | Key | Model | Bed (mm) | Height (mm) |
 |---|---|---:|---:|
@@ -34,7 +34,7 @@ Eight Anycubic Marlin models ship as presets of the same support, with dimension
 | `octoprint.kobraplus` | Anycubic Kobra Plus | 300 x 300 | 350 |
 | `octoprint.kobramax` | Anycubic Kobra Max | 400 x 400 | 450 |
 
-Templates are Print Handy's own Marlin set with those facts substituted, as for the Enders. Upstream ships only a 0.4 mm nozzle machine profile for every one of these models, so each preset accepts only 0.4 mm. The Kobra Neo's pinned profile declares `gcode_flavor: marlin2`; the rest declare `marlin`. These machines predate the Kobra 2 family's Klipper-derived firmware and have no Moonraker endpoint — the Kobra 2 family itself is in [Anycubic printers](ANYCUBIC.md), with the firmware caveat stated there. Two Anycubic Marlin models are deliberately not preset: the 4Max Pro (upstream names no default filament profile for it, so its slicing baseline cannot be pinned like the others) and the Predator (a delta machine with a circular printable area; the registry models rectangular build volumes only).
+Templates are Print Handy's own Marlin set with those facts substituted, as for the Enders. Upstream ships only a 0.4 mm nozzle machine profile for every one of these models, so each preset accepts only 0.4 mm. The Kobra Neo's pinned profile declares `gcode_flavor: marlin2`; the rest declare `marlin`. These machines predate the Kobra 2 family's Klipper-derived firmware and have no Moonraker endpoint; the Kobra 2 family itself is in [Anycubic printers](ANYCUBIC.md), with the firmware caveat stated there. Two Anycubic Marlin models are deliberately not preset: the 4Max Pro (upstream names no default filament profile for it, so its slicing baseline cannot be pinned like the others) and the Predator (a delta machine with a circular printable area; the registry models rectangular build volumes only).
 
 ## Completion posts and timelapse
 

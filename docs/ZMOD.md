@@ -1,9 +1,6 @@
 # ZMod printers
 
-Print Handy's home platform is Flashforge printers running [ZMod](https://zmod.link)
-(Klipper + Moonraker on top of the stock firmware). ZMod supports five Flashforge
-models; Print Handy has first-class profiles for all five
-([#301](https://github.com/catduckgnaf/print-handy/issues/301)).
+Flashforge printers running [ZMod](https://zmod.link) are Print Handy's home platform: Klipper and Moonraker on top of the stock firmware. ZMod supports five Flashforge models, and Print Handy has first-class profiles for all five. Find yours in the table.
 
 | Model | `[printer] model` | Build volume | Filament system | Status |
 | --- | --- | --- | --- | --- |
@@ -21,12 +18,11 @@ No print started by Print Handy has been verified on ZMod hardware.
 ## Audited ZMod version
 
 Print Handy's ZMod contracts were last audited against **ZMod 1.7.5**
-(released 2026-10-27; the feature-by-feature audit is
-[#562](https://github.com/catduckgnaf/print-handy/issues/562)). The audit
+(released 2026-10-27; the feature-by-feature audit is recorded in the project's issue tracker). The audit
 found no change to the contracts Print Handy relies on for the .gcode files
 it delivers. 1.7.5's headline features (3MF support, instant color
 mapping without the `FORCE_MD5` preprocessor, fast KAMP data) apply to the
-3MF path. Since #564, Print Handy delivers that `.gcode.3mf` package by
+3MF path. Print Handy delivers that `.gcode.3mf` package by
 default on ZMod 1.7.5 or newer (`[printer] zmod_delivery_format`, see
 [DEVICE-AD5X.md](DEVICE-AD5X.md)); that path is not yet live-verified. No `START_PRINT`
 signature, `SAVE_ZMOD_DATA` variable, timelapse, camera or `notify` change
@@ -48,7 +44,7 @@ never gates printing on it.
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
 Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
-above — so neither is in any ZMod version Print Handy has audited, and
+above, so neither is in any ZMod version Print Handy has audited, and
 neither has a version floor Print Handy can read yet. Both need the
 native screen off (`DISPLAY_OFF`). The evaluation below is the answer
 to [](https://github.com/catduckgnaf/print-handy/issues/851):
@@ -56,7 +52,7 @@ reasons why and reasons why not for each, then a verdict, every claim
 tied to the code or the wiki as its source. Print Handy never gates
 printing on a ZMod version, and this evaluation does not change that.
 
-### `orca_lanes`: color sync — verdict: accommodate (parser fix shipped), full adoption deferred
+### `orca_lanes`: color sync, verdict: accommodate (parser fix shipped), full adoption deferred
 
 **What it does.** ZMod publishes the IFS slots to the Moonraker
 database so OrcaSlicer's "Sync filament" button can pull filament
@@ -73,7 +69,7 @@ of the setting, so its data is not overwritten.
 Source: [ZMod wiki, AD5X "Filament sync with
 OrcaSlicer"](https://wiki.zmod.link/AD5X/#filament-sync-with-orcaslicer);
 upstream docs commits `4b07865`/`676c925`/`8c20949` (2026-11-03) in
-`ghzserg/zmod`, which contain only documentation — the firmware code
+`ghzserg/zmod`, which contain only documentation; the firmware code
 ships in release payloads, not in that repo.
 
 **Why accommodate it.**
@@ -94,8 +90,8 @@ ships in release payloads, not in that repo.
   A test with the exact wiki-documented payload failed against the old
   parser and passes with the fix.
 - **The fix is small and loses nothing the watcher can act on.** A
-  ZMod record names no spool, so the watcher — which never guesses a
-  spool — could only have produced a wrong-slot "unresolved" prompt
+  ZMod record names no spool, so the watcher, which never guesses a
+  spool, could only have produced a wrong-slot "unresolved" prompt
   from it. `parse_lane_data` now skips records carrying no
   screen-side field (`spool_id`, `scan_time`/`scanned_at`/`timestamp`,
   or any `helix_*` key); every screen record in the suite, including
@@ -104,8 +100,8 @@ ships in release payloads, not in that repo.
   no-HelixScreen install the watcher becomes inert for ZMod-authored
   data instead of wrong.
 - **HelixScreen installs are unchanged by construction.** ZMod skips
-  publishing when `helix = 1`, so the maintainer's AD5X — and any
-  HelixScreen install — sees no new author at all.
+  publishing when `helix = 1`, so the maintainer's AD5X, and any
+  HelixScreen install, sees no new author at all.
 
 **Why not adopt it fully.**
 
@@ -115,7 +111,7 @@ ships in release payloads, not in that repo.
   cannot tie to a Spoolman spool.
 - **Assignment is not presence, and the watcher must not confuse
   them.** ZMod's entries carry assignment (color/type), not sensor
-  presence — the wiki says filament presence from the sensors is not
+  presence; the wiki says filament presence from the sensors is not
   taken into account, and the external spool is not published. Print
   Handy's "physically loaded" calls still come from the other sources
   they come from today: `zmod_color` presence and the native
@@ -124,8 +120,8 @@ ships in release payloads, not in that repo.
   `lane_data` as presence, and this change keeps it that way.
 - **A slot with type `?` is removed, and a removal must not read as
   an unload for ZMod-authored lanes.** With the parser fix, removing
-  a ZMod key changes nothing parsed — it reads as no data, never as
-  an unload — which honors the #791 rule "absent data reads as
+  a ZMod key changes nothing parsed; it reads as no data, never as
+  an unload, which honors the rule "absent data reads as
   unknown, never as empty" for that author.
 - **The parser fix does not solve the deeper problem, and this PR
   does not claim it does.** ZMod's 0-based keys overlap Print
@@ -145,7 +141,7 @@ ships in release payloads, not in that repo.
   readable poll settles it. HelixScreen installs, where ZMod does not
   publish, behave as before.
 
-### `ORCA_FF`: native-screen emulator — verdict: document-only
+### `ORCA_FF`: native-screen emulator, verdict: document-only
 
 **What it does.** With `SAVE_ZMOD_DATA ORCA_FF=1` and a reboot, a
 ZMod printer with the native screen off answers the FlashForge host
@@ -173,7 +169,7 @@ Source: [ZMod wiki, Global
   watchdog, runout classification, and the completion announcer
   (`print_handy/hermes/moonraker_event_listener.py`, `on_status`).
   An `ORCA_FF` print is, to the listener, a print started by another
-  tool — it gets monitored and reported like a screen-started print.
+  tool; it gets monitored and reported like a screen-started print.
 
 **Why not incorporate it.**
 
@@ -181,7 +177,7 @@ Source: [ZMod wiki, Global
   exists to do.** A print sent from OrcaSlicer or Flash Studio never
   passes the confirm flow, the spool checks, the readiness guards, or
   Print Handy's print accounting. That is an operator choice, not a
-  bug — but there is nothing for Print Handy to adopt here without
+  bug, but there is nothing for Print Handy to adopt here without
   becoming a second slicer-send path, and the confirm-before-printing
   posture is the product.
 - **Pointing Print Handy's stock-Flashforge profile at an emulator is
@@ -195,7 +191,7 @@ Source: [ZMod wiki, Global
   documented credentials are `zmod`/`zmod`, so the common case fails
   at the credential/detail stage with a named error. A deliberately
   configured emulator could accept an upload whose start sequence is
-  the slicer's stock-owned one rather than ZMod's — that deserves
+  the slicer's stock-owned one rather than ZMod's; that deserves
   this warning, not a code guard for a configuration Print Handy
   never makes on its own.
 - **Print Handy cannot detect it with any mechanism it has today.**
@@ -204,7 +200,7 @@ Source: [ZMod wiki, Global
   `GET_ZMOD_DATA` (the console macro that reports saved parameters);
   the version reads Print Handy does have (Moonraker update status,
   `/machine/system_info`) say nothing about it. Building a detection
-  path for a document-level concern is not worth it — the doctor
+  path for a document-level concern is not worth it; the doctor
   says nothing about `ORCA_FF`, and this section is where an
   operator learns it exists.
 - **Spool choices made in the slicer do not make the next Print
@@ -215,19 +211,19 @@ Source: [ZMod wiki, Global
   `ph_slot` at session start (`reconcile_spools`) with a color
   backfill from `zmod_color` (`backfill_slot_colors`), and `/spool
   sync` reconciles on demand. That is exactly the exposure a
-  Fluidd-menu change already has — no new stale-state hazard, and
+  Fluidd-menu change already has; no new stale-state hazard, and
   no new code to close it.
 
 ## How the models differ
 
-All five models speak the same ZMod language — Moonraker transport and ZMod's
-`START_PRINT ... MESH=` / `END_PRINT` start code from their Orca templates — and
+All five models speak the same ZMod language, Moonraker transport and ZMod's
+`START_PRINT ... MESH=` / `END_PRINT` start code from their Orca templates, and
 each ships its own Orca machine/process/filament templates under
 `print_handy/templates/orca/`, derived from OrcaSlicer's upstream Flashforge
 profiles with the same adjustments the AD5X templates carry (ZMod start/end
 G-code, retraction tuning, corner-origin printable area).
 
-ZMod documents **no Klipper 13 support on the Creator models** — run them on the
+ZMod documents **no Klipper 13 support on the Creator models**, run them on the
 stock-Klipper ZMod configuration, not the Klipper 13 one.
 
 The filament system is where they part:
@@ -239,30 +235,30 @@ The filament system is where they part:
 - **AD5M and AD5M Pro** are single-extruder printers. Their adapter shares the ZMod
   start code and Moonraker transport with the AD5X and nothing else: no IFS slot
   questions, no spool-switch claims, no `PRINT_HANDY` macro (it is AD5X-only), no
-  native-screen sync and no stock `/detail` polling. A multi-colour job is refused,
-  not approximated — slice it single-colour or use a multi-slot printer. The Pro's
+  native-screen sync and no stock `/detail` polling. A multi-color job is refused,
+  not approximated, slice it single-color or use a multi-slot printer. The Pro's
   enclosure, camera and air filtration do not by themselves change slicing
   geometry; its geometry is the AD5M's, and its thermal facts are recorded
   separately in the printer registry thermal record (see PRINTER-PROFILES.md).
 - **Creator 5 and Creator 5 Pro** are toolhead machines: four independent
   toolheads (T0–T3, Klipper `extruder`…`extruder3`), each with its own filament,
-  changed by the sliced file's bare `T` lines — a tool changer, not a feeder.
+  changed by the sliced file's bare `T` lines; a tool changer, not a feeder.
   Print Handy models them as **tools**, not IFS slots (`[printer] tool_count`,
   `filament_slots` stays 1): slicer tool *i* always prints with toolhead *i*, readiness
-  and status are per toolhead, and Spoolman spools bind per toolhead — the
+  and status are per toolhead, and Spoolman spools bind per toolhead; the
   toolhead is the identity unit, never an IFS slot. A job that asks for a tool remapped to another head, or a fifth
-  tool, is refused rather than approximated. Multi-colour slicing uses the
-  four-extruder Orca templates, and the Discord colour questions are per
-  toolhead: for a source with two to four colours, intake asks one question
-  per colour — which toolhead prints it — showing each toolhead's loaded
-  spool, and a toolhead already assigned a different colour is not offered
+  tool, is refused rather than approximated. Multi-color slicing uses the
+  four-extruder Orca templates, and the Discord color questions are per
+  toolhead: for a source with two to four colors, intake asks one question
+  per color, which toolhead prints it, showing each toolhead's loaded
+  spool, and a toolhead already assigned a different color is not offered
   again. The recorded picks are the identity mapping (slicer tool *i* prints
-  with toolhead *i*), so nothing is remapped. A source with more colours
+  with toolhead *i*), so nothing is remapped. A source with more colors
   than toolheads is refused with that explanation; printing everything in
-  one colour on one toolhead stays available. Multi-colour jobs print as one
+  one color on one toolhead stays available. Multi-color jobs print as one
   merged plate; a source that cannot merge onto one bed is refused rather
   than split into per-toolhead plates. The `PRINT_HANDY`
-  plugin macro stays AD5X-only — ZMod's endless-spool feature exists on the
+  plugin macro stays AD5X-only, ZMod's endless-spool feature exists on the
   Creator too, but the macro's slot model is the IFS one. The Pro adds the
   enclosed frame, active chamber heating (65 °C) and air filtration over the base
   Creator 5; the print geometry and tool model are identical, and its template
@@ -270,7 +266,7 @@ The filament system is where they part:
 
 ## Print file format: `.gcode` or `.gcode.3mf`
 
-What reaches the printer is Print Handy's own sliced output either way — a
+What reaches the printer is Print Handy's own sliced output either way; a
 downloaded print file is never sent as-is; everything is resliced locally first.
 `[printer] zmod_delivery_format` chooses the container it travels in:
 
@@ -284,19 +280,19 @@ downloaded print file is never sent as-is; everything is resliced locally first.
 The package wraps the finalized `.gcode` byte-for-byte (`Metadata/plate_1.gcode`
 inside the zip, with the plate metadata and an MD5 sidecar). Its
 `Metadata/slice_info.config` names each used filament with its slot id, type
-and colour, plus the print time, weight and printer model, in the shape
-OrcaSlicer's own sliced export uses: that file is where ZMod reads the colours
+and color, plus the print time, weight and printer model, in the shape
+OrcaSlicer's own sliced export uses: that file is where ZMod reads the colors
 it maps to the IFS slots and the details Fluidd/Mainsail show. Every check Print
-Handy runs — verification, colour mapping, mesh and readiness guards — still
+Handy runs, verification, color mapping, mesh and readiness guards, still
 runs on that `.gcode` before packaging, and the `.gcode` stays the artifact of
 record for reprints, slot remaps and print records. The job and print records
 note which format a print used.
 
 Why 3MF at all: per ZMod's own documentation for 1.7.5+, a `.gcode.3mf` makes
-colour scanning and mapping instant (the `.gcode` path's preprocessor step does
+color scanning and mapping instant (the `.gcode` path's preprocessor step does
 not run), `FORCE_MD5` "only applies when sending G-code" so no MD5 pass is
 needed, and KAMP data is available instantly instead of after a scan. The floor
-is 1.7.5 because that is the release whose changelog adds 3MF colour mapping;
+is 1.7.5 because that is the release whose changelog adds 3MF color mapping;
 below it, the same package would buy nothing and risk the older firmware
 misreading it, so `auto` stays on `.gcode` there.
 
@@ -305,7 +301,7 @@ Two boundaries to know:
 - **Slot remaps happen before packaging.** Print Handy's `/print-again`
   slot remap rewrites the `.gcode` (mapping metadata and checksum) and the
   result is then packaged like any other job. A file already on the printer
-  can still be remapped from the printer's own screen — that is ZMod's
+  can still be remapped from the printer's own screen; that is ZMod's
   domain.
 - **Nothing here is live-hardware verified yet.** The format behaviour above
   is pinned by offline tests and ZMod's published documentation; the
@@ -319,9 +315,9 @@ Two boundaries to know:
 A ZMod printer does not keep time across a power cycle. Observed on the
 AD5X on 2026-11-02: about a minute after a reboot the clock read
 31 Dec 2025, and Moonraker's HTTP `Date` header said the same. Two time
-clients were running on the printer — the stock firmware's `ntpclient`
+clients were running on the printer; the stock firmware's `ntpclient`
 against `pool.ntp.org` and an `ntpd` against a rotating Russian pool
-server (`ntpN.vniiftri.ru`) — and the clock had not caught up a minute
+server (`ntpN.vniiftri.ru`), and the clock had not caught up a minute
 in, with the firewall already allowing all outbound traffic. While the
 clock is wrong, the printer's own TLS connections can fail (GitHub
 certificates look "not yet valid", so Moonraker update checks fail) and
@@ -385,7 +381,7 @@ printer's own local times (screen, logs) in your zone.
 
 The replay tests' start transitions (heating, IFS load, a start that drops back
 to standby) are code someone wrote, not recordings. To record the real
-ones, turn on the start recorder for the #842 checklist run:
+ones, turn on the start recorder for the checklist run:
 `PRINT_HANDY_RECORD_STARTS=1` in the environment of the process that runs
 `print-now` (Docker: a line in `.env`, or a container variable on Unraid, then
 recreate the container). It is off by default; unset it after the run.
@@ -396,7 +392,7 @@ changes. From immediately before the one `SET_ZCOLOR` POST (or
 `/printer/objects/query?print_stats&extruder&heater_bed&zmod_color&idle_timeout&virtual_sdcard&webhooks`
 every 2 s, plus the gcode store, and appends each reply with a monotonic and a
 wall timestamp. It also records the exact start command and its HTTP receipt,
-gcode store lines logged after the #848 pre-POST watermark, the delivery format
+gcode store lines logged after the pre-POST watermark, the delivery format
 (`.gcode` or `.gcode.3mf`), the ZMod version, the lease phases and the outcome.
 It only reads: it never posts, never runs G-code, and a recording failure never
 reaches the start. `print-now` usually returns while the AD5X is still
@@ -410,7 +406,7 @@ with the outcome, the time of the first heater target and of `printing`, any
 `!!` lines and the lease phases. The JSONL holds the printer's address and real
 file names; it is a local record, not a fixture.
 
-For #843, record one start that prints (`preparing`) and one IFS load that
+To verify, record one start that prints (`preparing`) and one IFS load that
 aborts back to standby (`prep_aborted`), then export each:
 
 ```
@@ -424,14 +420,14 @@ seconds since the POST, under `frames`, and the date, ZMod version and outcome
 under `recorded`. File names are replaced as the fixture README describes, and
 the export refuses a recording whose outcome does not match the fixture name or
 that still holds anything the scrub test forbids. It prints the README table row
-to add. Only export real recordings: #843 forbids hand-written ones.
+to add. Only export real recordings: hand-written ones are not accepted.
 
 ## Bundled Spoolman from printer Moonraker
 
 Print Handy's bundled Spoolman normally lives on loopback inside the
 Print Handy container, which is enough for Print Handy itself. When
-Moonraker runs on the printer hardware — the usual ZMod layout, for
-example an AD5X at `http://192.168.x.x:7125` — Moonraker's own
+Moonraker runs on the printer hardware; the usual ZMod layout, for
+example an AD5X at `http://192.168.x.x:7125`, Moonraker's own
 `[spoolman]` component needs to reach that API over the LAN to sync
 active spool IDs with the IFS slots. That access is opt-in:
 
@@ -453,7 +449,7 @@ active spool IDs with the IFS slots. That access is opt-in:
 3. Check from any LAN machine: `GET http://<unraid-ip>:7912/api/v1/info`
    answers HTTP 200 when the bundled Spoolman is up.
 
-The Spoolman API is unauthenticated — LAN only, never forward port 7912
+The Spoolman API is unauthenticated, LAN only, never forward port 7912
 from a router. Home Assistant REST sensors use the same base URL
 (`http://<unraid-ip>:7912/api/v1/...`).
 
@@ -472,5 +468,5 @@ Moonraker's `[spoolman]` connection is server-to-server and does not need this v
 Set `[printer] model` to the key from the table (or `PRINT_HANDY__PRINTER__MODEL` in
 Docker). The setup wizard and the Web UI picker list these models from the printer
 registry, so no other configuration names them. Stock (non-ZMod) firmware is a
-separate path — only the AD5X has one today (`flashforge_stock.ad5x`,
+separate path; only the AD5X has one today (`flashforge_stock.ad5x`,
 see [Stock Flashforge printers](FLASHFORGE-STOCK.md)).

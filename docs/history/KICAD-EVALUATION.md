@@ -11,7 +11,7 @@ Every factual claim below carries one of these labels:
 * **[observed]**: run and seen in the evaluation sandbox, with the command shown.
 * **[docs]**: taken from the linked documentation or package metadata, not run here.
 * **[inference]**: reasoning from observed or documented facts.
-* **[pending maintainer]**: needs a run on Dysprosium or Francium. Neither host was accessed. The check to run is in [Host availability](#3-host-availability-dysprosium-and-francium).
+* **[pending maintainer]**: needs a run on Host A or Host B. Neither host was accessed. The check to run is in [Host availability](#3-host-availability-host-a-and-host-b).
 
 ## Four validation areas
 
@@ -19,7 +19,7 @@ Every factual claim below carries one of these labels:
 | --- | --- | --- |
 | 1. Export and geometry | Done **[observed]** | Ubuntu 24.04 sandbox: KiCad 7.0.11, and KiCad 9.0.3 in an Ubuntu 25.10 chroot |
 | 2. Real slicer and Print Handy pipeline | Done **[observed]** | Same sandbox: OrcaSlicer 2.4.2 AppImage. Offline only, with no printer, Moonraker, Spoolman or Discord |
-| 3. Host availability on Dysprosium and Francium | **Not done; pending maintainer** | Neither host was inspected or contacted. A reproducible check is provided |
+| 3. Host availability on Host A and Host B | **Not done; pending maintainer** | Neither host was inspected or contacted. A reproducible check is provided |
 | 4. Physical print | **Not done** | No printer access, and the issue rules out live printer actions |
 
 No Docker container was used.
@@ -36,7 +36,7 @@ No Docker container was used.
 
 ### Representative board
 
-The test board is a hand-written 50 × 30 mm two-layer board with four 3.2 mm mounting holes on `Edge.Cuts`. It is own work with no third-party geometry, and its full source is embedded in the [host check script](#3-host-availability-dysprosium-and-francium). KiCad 7.0.11 and 9.0.3 both load it **[observed]**.
+The test board is a hand-written 50 × 30 mm two-layer board with four 3.2 mm mounting holes on `Edge.Cuts`. It is own work with no third-party geometry, and its full source is embedded in the [host check script](#3-host-availability-host A-and-host B). KiCad 7.0.11 and 9.0.3 both load it **[observed]**.
 
 A second variant, `parts.kicad_pcb`, adds two footprints:
 
@@ -162,7 +162,7 @@ Control runs at upstream `0c3c0c1` in the same setup, all **[observed]**:
 
 The two-shell parts mesh also passed. So the pipeline accepts what KiCad produces even when the result is not a sensible print. That is a reason not to feed it component exports, not evidence that they print well **[inference]**.
 
-## 3. Host availability: Dysprosium and Francium
+## 3. Host availability: Host A and Host B
 
 **Nothing here was observed on either host.** This evaluation had no access to them, and no claim is made about their OS, installed KiCad or Flatpak setup. Because the recommendation is to defer, nothing needs installing on them now.
 
@@ -227,8 +227,8 @@ native STL export: ok, 412 triangles, bounds [(0.0, 50.0), (-30.0, -0.0), (0.0, 
 
 | Host | OS | `kicad-cli version` | Native STL export | Result |
 | --- | --- | --- | --- | --- |
-| Dysprosium | pending maintainer | pending maintainer | pending maintainer | pending maintainer |
-| Francium | pending maintainer | pending maintainer | pending maintainer | pending maintainer |
+| Host A | pending maintainer | pending maintainer | pending maintainer | pending maintainer |
+| Host B | pending maintainer | pending maintainer | pending maintainer | pending maintainer |
 
 "Not installed" or "unavailable" is a valid result. It only matters if KiCad support is revisited.
 
@@ -284,7 +284,7 @@ Reopen only for a concrete need, such as test-fitting a printed enclosure or spa
 1. Generate a board-only STL with KiCad 9 or newer, offline, from a script under `scripts/`. Never at runtime, never from Discord uploads, never in CI.
 2. Commit the own-work `.kicad_pcb` and the exported `model.stl` together as a corpus case with `license = "own work"`, and record the KiCad version and sha256 in `case.toml`.
 3. Make the export script fail on any `Could not add 3D model` line or non-zero exit, and reject meshes with more than one shell or with unpaired edges.
-4. Record the host check results for Dysprosium and Francium first.
+4. Record the host check results for Host A and Host B first.
 5. Add no new intake formats and no runtime dependency.
 
 ## Reproduction notes

@@ -6,12 +6,12 @@ only. It is for answering "do I like how this talks to me?" before
 any install.
 
 The demo lives in `demo/` in this repository. It is plain HTML, CSS
-and JavaScript with a scenario data file (`demo/scenarios.json`) —
+and JavaScript with a scenario data file (`demo/scenarios.json`), 
 no build step and no backend.
 
 ## What it is, and what it is not
 
-- Always visible banner: "Demo — simulated printer, nothing is
+- Always visible banner: "Demo, simulated printer, nothing is
   printed, sample data only."
 - The visitor picks a pre-seeded sample, answers questions with
   buttons, sees a slice summary and the confirm-before-print card,
@@ -47,9 +47,9 @@ Then open the local address the command prints, in a browser.
 
 Version 1's host is GitHub Pages (decided by catduck): the demo is
 fully static, with no server code, so it stays within GitHub Pages
-constraints at no cost. Enabling Pages is a follow-up for catduck —
+constraints at no cost. Enabling Pages is a follow-up for catduck, 
 it is a repository-settings step, not a workflow in this repo (no
-Pages deploy workflow exists here) — and this change does not
+Pages deploy workflow exists here), and this change does not
 enable Pages and adds no deployment workflow. Once Pages is
 enabled, the README and docs link to the live demo as a follow-up.
 
