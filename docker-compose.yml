@@ -202,8 +202,11 @@ services:
     #           count: 1
     #           capabilities: [gpu, video]
     init: true
+    depends_on:
+      print-handy-init:
+        condition: service_completed_successfully
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    security_opt: ["no-new-privileges:true"]
     shm_size: 256m
     logging:
       driver: json-file
@@ -214,6 +217,25 @@ services:
       timeout: 10s
       start_period: 90s
       retries: 3
+  # Docker creates absent bind sources as root. Initialize only application data
+  # directories once, then keep the long-running service rootless.
+  print-handy-init:
+    image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
+    user: "0:0"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$$path" && chown 1000:1000 "$$path"; done'
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ${PRINT_HANDY_DATA:-./data}/state:/data/state
+      - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
+      - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
+      - ${PRINT_HANDY_DATA:-./data}/records:/data/records
+      - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
+      - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
   # Optional Cloudflare Tunnel connector for the live view (#311): a named
   # tunnel with a stable hostname, run only under the "live-stream" profile
   # (docker compose --profile live-stream up -d). It is a sidecar, never
