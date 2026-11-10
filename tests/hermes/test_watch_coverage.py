@@ -359,3 +359,67 @@ def test_reason_names_the_misconfigured_source(monkeypatch):
     monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda route: False)
     monkeypatch.setattr(vw.local_empty, "reference_ready", lambda: False)
     assert "watch_source is endpoint" in vw.watch_unavailable_reason(lambda: "")
+
+
+# -- 4. camera failures and a missing camera ----------------------------------
+
+
+def test_moonraker_camera_failure_alerts_are_throttled(monkeypatch):
+    texts = []
+    clock = [1000.0]
+
+    def no_snapshot():
+        raise OSError("camera unreachable")
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", no_snapshot)
+    monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
+    monkeypatch.setattr(mel, "_visual_alert_text", lambda filename, reason, identity=None: texts.append(reason))
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    listener = mel.Listener()
+    listener.filename = "deadcam.gcode"
+    listener.state = "printing"
+    periodic = listener.visual_watch.profile["periodic_s"]
+    asyncio.run(listener.visual_check("periodic", 7))
+    clock[0] += 30
+    asyncio.run(listener.visual_check("layer_progress", 8))
+    clock[0] += periodic - 31
+    asyncio.run(listener.visual_check("layer_progress", 9))
+    assert len(texts) == 1
+    clock[0] += 1
+    asyncio.run(listener.visual_check("periodic", 10))
+    assert len(texts) == 2
+    # A new print gets its own first alert at once.
+    listener.visual_watch.reset()
+    asyncio.run(listener.visual_check("layer2", 2))
+    assert len(texts) == 3
+
+
+@pytest.mark.parametrize("services, expect", [
+    ({"camera_source": "auto", "camera_snapshot_url": "http://cam/snap"}, ""),
+    ({"camera_source": "auto", "camera_snapshot_url": ""}, "no camera snapshot URL"),
+    ({"camera_source": "none", "camera_snapshot_url": "http://cam/snap"}, "camera images are off"),
+    ({"camera_source": "bambu", "camera_snapshot_url": "http://cam/snap"}, "camera_source is bambu"),
+    ({"camera_source": "go2rtc", "camera_snapshot_url": ""}, ""),
+])
+def test_camera_missing_reason(monkeypatch, services, expect):
+    data = {"services": services}
+    monkeypatch.setattr(mel._config, "cfg", lambda: data)
+    monkeypatch.setattr(mel.go2rtc, "fanout_frame_url", lambda data=None, environ=None: None)
+    reason = mel._camera_missing_reason()
+    assert (expect in reason) if expect else reason == ""
+
+
+def test_no_camera_turns_the_watch_off_instead_of_alerting(monkeypatch):
+    monkeypatch.setattr(mel, "_camera_missing_reason", lambda: "no camera snapshot URL is configured")
+    monkeypatch.setattr(mel, "_vision_ready", lambda: True)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {"enabled": True, "sensitivity": 3}})
+    listener = mel.Listener()
+    listener.state = "printing"
+    listener._watch_context_seen = True
+    listener.last_stats = {"info": {"current_layer": 3}}
+    listener.visual_watch.record(3, 0.0)
+    assert listener._watch_ready() is False
+    assert listener._visual_timer_tick(now=5000.0) is None
+    assert listener.last_visual_task is None
+    assert listener._watch_unavailable_reason() == "no camera snapshot URL is configured"

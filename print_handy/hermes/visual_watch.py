@@ -843,6 +843,9 @@ class VisualPrintWatch:
         self.last_evidence = ""
         self.last_counted = False
         self.auto_paused = False
+        # When the last camera-failure (no snapshot) alert went out, for
+        # the throttle: at most one per periodic interval per print.
+        self.camera_failure_alert_at = None
         # The clock-only schedule for a print without layer numbers: whether
         # it has started, the one notice saying so, the fallback clock, and
         # the printing time the last beat saw (for the early window).
