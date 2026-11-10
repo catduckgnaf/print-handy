@@ -285,7 +285,27 @@ def _ffmpeg():
     return name if "/" in name else (shutil.which(name) or name)
 
 
-def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
+# A hardware encoder that hangs (a wedged GPU, a bad driver) used to hold the
+# completion post for the 30-minute software limit before the CPU fallback
+# ran. A working hardware encode of a few thousand stills takes seconds, so
+# it gets a short limit that grows a little with the frame count; software
+# encoding is slower and legitimately long, so its limit scales with the
+# frames instead of being one flat half hour.
+HW_ENCODE_TIMEOUT_BASE_S = 90
+HW_ENCODE_TIMEOUT_PER_FRAME_S = 0.05
+SOFTWARE_ENCODE_TIMEOUT_BASE_S = 300
+SOFTWARE_ENCODE_TIMEOUT_PER_FRAME_S = 1.0
+
+
+def encode_timeout(vendor, frame_count) -> int:
+    """Seconds one ffmpeg assembly of ``frame_count`` stills may take with ``vendor``."""
+    frames = max(0, int(frame_count or 0))
+    if vendor == "cpu":
+        return int(SOFTWARE_ENCODE_TIMEOUT_BASE_S + SOFTWARE_ENCODE_TIMEOUT_PER_FRAME_S * frames)
+    return int(HW_ENCODE_TIMEOUT_BASE_S + HW_ENCODE_TIMEOUT_PER_FRAME_S * frames)
+
+
+def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run, frame_count=0):
     """One ffmpeg assembly of a frames directory at kbps with one vendor's codec."""
     run([str(ffmpeg), "-y", "-v", "error", *vertical_short.encoder_input_args(vendor),
          "-framerate", str(fps), "-i", str(Path(frames_dir) / "frame-%06d.jpg"),
@@ -293,7 +313,7 @@ def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
          *vertical_short.encoder_args(vendor),
          "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k",
          "-movflags", "+faststart", str(partial)],
-        capture_output=True, timeout=1800, check=True)
+        capture_output=True, timeout=encode_timeout(vendor, frame_count), check=True)
 
 
 # -- bounded playback length (#906) ---------------------------------------------------------------
@@ -446,17 +466,64 @@ def named_copy(video, name):
         return Path(video)
 
 
-def caption_with_number(text, job_key, filename=None) -> str:
-    """Add the print number to a post caption when the record has one and the text lacks it."""
+def coverage_note(manifest) -> str:
+    """One caption line about how much of the print a capture covers, or "".
+
+    A capture that ended at its byte cap covers only the start of the
+    print: say how much (frames kept times the interval in effect). A
+    capture that was halved to cover a long print says it was sampled
+    thinly. A plain complete capture needs no line.
+    """
+    manifest = manifest if isinstance(manifest, dict) else {}
     try:
-        if "Print #" in text:
-            return text
-        record = _record_for(job_key, filename)
-        number = record.get("print_number")
-        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
-            return f"{text}\nPrint #{number}"
+        interval = float(manifest.get("interval_s") or 0)
+        frames = int(manifest.get("frames") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if manifest.get("capped"):
+        if interval > 0 and frames:
+            hours = frames * interval / 3600
+            span = f"{hours:.1f} hours" if hours >= 1 else f"{round(frames * interval / 60)} minutes"
+            return (f"Timelapse note: capture hit its storage limit, so this clip covers "
+                    f"only the first {span} of the print.")
+        return ("Timelapse note: capture hit its storage limit, so this clip covers "
+                "only the first part of the print.")
+    if int(manifest.get("decimations") or 0) and interval > 0:
+        return (f"Timelapse note: this was a long print, so the clip uses one frame "
+                f"every {interval:g} seconds to cover all of it.")
+    return ""
+
+
+def capture_coverage_note(job_key, *, data=None) -> str:
+    """:func:`coverage_note` for a job's finished capture. Never raises."""
+    try:
+        directory = find_capture(job_key, data=data)
+        if directory is None:
+            return ""
+        return coverage_note(timelapse_capture.read_manifest(directory))
+    except Exception:
+        return ""
+
+
+def caption_with_number(text, job_key, filename=None) -> str:
+    """Add the print number, and any capture-coverage note, to a post caption.
+
+    The number goes in when the record has one and the text lacks it. For a
+    job with an in-container capture that was cut short by its storage
+    limit, or thinned to fit a long print, one more line says so.
+    """
+    try:
+        if "Print #" not in text:
+            record = _record_for(job_key, filename)
+            number = record.get("print_number")
+            if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+                text = f"{text}\nPrint #{number}"
     except Exception:
         pass
+    if job_key and "Timelapse note:" not in text:
+        note = capture_coverage_note(job_key)
+        if note:
+            text = f"{text}\n{note}"
     return text
 
 
@@ -536,7 +603,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
         for attempt_kbps in (kbps, int(kbps * 0.7)):
             try:
                 _encode_frames_once(frames_dir, partial, attempt_kbps, candidate.vendor,
-                                    fps=fps, ffmpeg=ffmpeg, run=run)
+                                    fps=fps, ffmpeg=ffmpeg, run=run, frame_count=len(frames))
             except Exception as exc:
                 reason = ffmpeg_failure(exc)
                 log(f"timelapse encode with {candidate.encoder} failed: {reason}")
@@ -590,7 +657,7 @@ def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, f
                      "-i", str(Path(frames_dir) / "frame-%06d.jpg"), "-an",
                      "-vf", f"scale='min({width},iw)':-2", "-c:v", "libx264", "-preset", "medium",
                      "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(partial)],
-                    capture_output=True, timeout=1800, check=True)
+                    capture_output=True, timeout=encode_timeout("cpu", len(frames)), check=True)
             except Exception as exc:
                 log(f"timelapse libx264 fallback (crf {crf}, width {width}) failed: {exc!r}")
                 return None  # software x264 itself is unusable; lower quality will not help

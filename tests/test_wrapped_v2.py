@@ -6,6 +6,7 @@ Fakes and fixtures only: temporary vaults, fake Spoolman spool lists, a
 fake ffmpeg runner. No network, no real Spoolman, no printer.
 """
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -430,12 +431,19 @@ class CaveatTests(unittest.TestCase):
         self.assertEqual(stats["duration_records"], 2)
 
 
+_TEXTFILE_RE = re.compile(r"drawtext=textfile=([^:]+):expansion=none")
+
+
 class FakeRunner:
     def __init__(self):
         self.commands = []
+        self.texts = []  # drawn texts per command, read while the work folder exists
 
     def __call__(self, command, **kwargs):
         self.commands.append([str(p) for p in command])
+        self.texts.append([
+            (Path(kwargs.get("cwd") or ".") / match.group(1)).read_text(encoding="utf-8")
+            for part in command for match in _TEXTFILE_RE.finditer(str(part))])
         target = Path(command[-1])
         if target.suffix == ".mp4":
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -491,7 +499,7 @@ class ClipJoinTests(unittest.TestCase):
         # clip; the segment built immediately before it is its label card.
         clip_index = next(i for i, cmd in enumerate(runner.commands)
                           if str(bad) in " ".join(cmd) and "clip-" in cmd[-1])
-        before = " ".join(runner.commands[clip_index - 1])
+        before = " ".join(runner.texts[clip_index - 1])
         self.assertIn("card-", runner.commands[clip_index - 1][-1])
         self.assertIn("turned into pasta", before)
 
@@ -505,7 +513,7 @@ class ClipJoinTests(unittest.TestCase):
                 2026, wrapped, Path(tmp) / "out", ffmpeg="ffmpeg", runner=runner,
                 find_clips=lambda year: [{"path": str(good), "print_number": 1}])
             self.assertTrue(result["ok"])
-        flat = " ".join(" ".join(cmd) for cmd in runner.commands)
+        flat = " ".join(" ".join(cmd) for cmd in runner.commands + runner.texts)
         self.assertNotIn("turned into pasta", flat)
         self.assertNotIn("This one failed", flat)
 
