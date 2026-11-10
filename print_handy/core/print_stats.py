@@ -212,6 +212,24 @@ def _is_finished(record):
     return _status(record) in ("completed", "failed", "canceled", "cancelled")
 
 
+def records_in_year(records, year, tz=None):
+    """The records whose ``started_at`` falls in ``year`` in the bucket timezone."""
+    resolved = _resolve_tz(tz)
+    year = int(year)
+    return [r for r in records or []
+            if isinstance(r, dict)
+            and (parsed := _parse_started(r.get("started_at"))) is not None
+            and _local(parsed, resolved).year == year]
+
+
+def years_available(records, tz=None):
+    """Every year with a dated record, ascending. One cheap pass: no aggregate."""
+    resolved = _resolve_tz(tz)
+    return sorted({_local(parsed, resolved).year for r in records or []
+                   if isinstance(r, dict)
+                   and (parsed := _parse_started(r.get("started_at"))) is not None})
+
+
 def _empty_breakdown():
     return {"count": 0, "filament_used_g": 0.0, "print_duration_seconds": 0.0}
 
@@ -463,13 +481,10 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     """
     resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
-    years = sorted({_local(parsed, resolved).year for r in records
-                    if (parsed := _parse_started(r.get("started_at"))) is not None})
+    years = years_available(records, resolved)
     if year is not None:
         year = int(year)
-        rows = [r for r in records
-                if (parsed := _parse_started(r.get("started_at"))) is not None
-                and _local(parsed, resolved).year == year]
+        rows = records_in_year(records, year, resolved)
     else:
         rows = list(records)
 
@@ -833,9 +848,7 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
     year = int(year)
     stats = aggregate(records, year=year, tz=resolved, events=events,
                       enrichments=enrichments)
-    rows = [r for r in records
-            if (parsed := _parse_started(r.get("started_at"))) is not None
-            and _local(parsed, resolved).year == year]
+    rows = records_in_year(records, year, resolved)
     breakdowns = stats["breakdowns"]
     top_color, top_color_count = _top_label(breakdowns["by_color"])
     top_material, _ = _top_label(breakdowns["by_material"])
@@ -1017,4 +1030,4 @@ def _script(year, stats, highlights, tz=None):
 
 __all__ = ["UNKNOWN", "aggregate", "build_wrapped", "load_records",
            "load_records_from_dir", "load_watchdog_events", "prints_dir",
-           "watchdog_events_path"]
+           "record_key", "records_in_year", "watchdog_events_path", "years_available"]

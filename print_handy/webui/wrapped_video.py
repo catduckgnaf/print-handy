@@ -163,7 +163,26 @@ def _record_number(record):
     return number if isinstance(number, int) and not isinstance(number, bool) else None
 
 
-def resolve_clip_print_number(name, records, tz=None):
+def claims_index(records):
+    """{print number: records claiming it}, built once per request.
+
+    A record claims its current number and, after a duplicate-number
+    repair, the old one it kept as ``print_number_was``. Resolving each
+    clip against this index replaces a scan of every record per clip.
+    """
+    index = {}
+    for record in records or []:
+        current = _record_number(record)
+        if current is None:
+            continue
+        index.setdefault(current, []).append(record)
+        was = record.get("print_number_was")
+        if isinstance(was, int) and not isinstance(was, bool) and was != current:
+            index.setdefault(was, []).append(record)
+    return index
+
+
+def resolve_clip_print_number(name, records, tz=None, index=None):
     """The CURRENT print number a delivered clip belongs to, or None.
 
     The name join alone breaks after a duplicate-number repair
@@ -184,15 +203,7 @@ def resolve_clip_print_number(name, records, tz=None):
     number = parse_clip_print_number(name)
     if number is None:
         return None
-    claims = []
-    for record in records or []:
-        current = _record_number(record)
-        if current is None:
-            continue
-        was = record.get("print_number_was")
-        if current == number or (isinstance(was, int) and not isinstance(was, bool)
-                                 and was == number):
-            claims.append(record)
+    claims = (index if index is not None else claims_index(records)).get(number, [])
     if not claims:
         return number
     if len(claims) == 1:
@@ -249,6 +260,7 @@ def default_clip_finder_detailed(data, year, records=None, tz=None):
     """
     found = []
     seen = set()
+    index = claims_index(records) if records is not None else None
     for root in _clip_roots(data):
         if not root.is_dir():
             continue
@@ -271,7 +283,7 @@ def default_clip_finder_detailed(data, year, records=None, tz=None):
                 continue
             seen.add(key)
             found.append({"path": str(path),
-                          "print_number": (resolve_clip_print_number(path.name, records, tz)
+                          "print_number": (resolve_clip_print_number(path.name, records, tz, index)
                                            if records is not None
                                            else parse_clip_print_number(path.name)),
                           "name_year": name_year})

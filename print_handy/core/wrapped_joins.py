@@ -14,6 +14,7 @@ the JOB.json that holds the job's title and ``filament_selection``.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -106,10 +107,31 @@ def _native_color_rows(record):
     return grams
 
 
+def _metadata_text(path):
+    """The part of a G-code file its filament metadata lives in.
+
+    :func:`gcode_3mf.plate_metadata` searches only the first and last
+    ``_METADATA_SLICE`` characters (the slicer's header block and footer
+    config, never the toolpath), so only those two windows are read: a
+    50 MB archived file costs two small reads instead of a whole-file
+    decode per record per page load. A file small enough to fit both
+    windows is read whole.
+    """
+    window = gcode_3mf._METADATA_SLICE - 1
+    size = os.path.getsize(path)
+    with open(path, "rb") as handle:
+        if size <= 2 * window:
+            return handle.read().decode("utf-8", errors="replace")
+        head = handle.read(window)
+        handle.seek(size - window)
+        tail = handle.read(window)
+    return head.decode("utf-8", errors="replace") + "\n" + tail.decode("utf-8", errors="replace")
+
+
 def _per_color_from_gcode(path):
     """{color: grams} from one archived G-code's header, or {}."""
     try:
-        text = Path(path).read_text(encoding="utf-8", errors="ignore")
+        text = _metadata_text(path)
     except OSError:
         return {}
     try:
@@ -156,24 +178,96 @@ def _stop_detail(record):
     return detail or None
 
 
-def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
+def _norm(path):
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _record_job(record, jobs_by_path, jobs_by_number):
+    """The archived job one record belongs to, or None.
+
+    The record's own slicer-settings ``local_gcode`` names a file inside
+    its job folder, so that is the join key: it is exact. A bare print
+    number joins only when exactly one job carries it, because numbers
+    are not unique in history from before per-launch numbering (a
+    reprint reused the original's number): with two jobs on one number
+    there is no way to tell which one this print was, and a wrong join
+    would hand it another print's colors.
+    """
+    settings = record.get("slicer_settings")
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings)
+        except ValueError:
+            settings = None
+    local = settings.get("local_gcode") if isinstance(settings, dict) else None
+    if local:
+        for parent in Path(str(local)).parents:
+            job = jobs_by_path.get(_norm(parent / "JOB.json"))
+            if job is not None:
+                return job
+    candidates = jobs_by_number.get(_print_number(record.get("print_number")))
+    return candidates[0] if candidates and len(candidates) == 1 else None
+
+
+def _gcode_signature(job):
+    """[path, mtime_ns, size] of each G-code a job names: what a cached read depends on."""
+    signature = []
+    for gcode_path in _job_gcode_paths(job):
+        try:
+            stat = os.stat(gcode_path)
+            signature.append([gcode_path, stat.st_mtime_ns, stat.st_size])
+        except OSError:
+            signature.append([gcode_path, None, None])
+    return signature
+
+
+def _load_derived(path):
+    payload = _read_json(path) if path else None
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_derived(path, payload):
+    """Best-effort atomic write of the derived-values cache; never raises."""
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(f".{target.name}.{os.getpid()}.partial")
+        partial.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.replace(partial, target)
+    except OSError:
+        pass
+
+
+def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=None,
+                      derived_cache=None):
     """The receipt/JOB enrichments for a set of print records.
 
     Returns a JSON-able dict (see the module docstring for the join
-    key). Records are the caller's full record list; year scoping is
-    the aggregate's job, which filters ``per_print``,
-    ``per_color_grams_by_print`` and ``support_waiver_print_numbers``
-    by the print numbers actually in scope.
+    key). ``records`` is the caller's full record list (a receipt is
+    "never started" only when no record anywhere carries its number).
+    ``scope`` is the records the per-record work is done for (stop
+    sidecars and archived-G-code color splits), normally the selected
+    year's: a Wrapped page for one year must not read every other year's
+    files. The aggregate still filters ``per_print``,
+    ``per_color_grams_by_print`` and ``support_waiver_print_numbers`` by
+    what is in scope.
+
+    ``derived_cache`` is a JSON file path. A record's per-color split
+    recovered from an archived G-code is stored there against the
+    G-code files' modification times and sizes, so each is computed once
+    and recomputed only when the file changes.
     """
     records = [r for r in (records or []) if isinstance(r, dict)]
+    scope_records = records if scope is None else [r for r in scope if isinstance(r, dict)]
     receipts, skipped_receipts = load_receipts(receipts_dir)
     jobs, skipped_jobs = load_jobs(archive_dir)
     jobs_by_path = {job["_job_path"]: job for job in jobs}
-    jobs_by_number = {}
+    jobs_by_number: dict[int, list] = {}
     for job in jobs:
         number = _print_number(job.get("print_number"))
         if number is not None:
-            jobs_by_number[number] = job
+            jobs_by_number.setdefault(number, []).append(job)
+    jobs_by_norm_path = {_norm(job["_job_path"]): job for job in jobs}
 
     # Receipt -> job, and receipt -> print number (its own reconciled
     # number first, then its JOB.json's).
@@ -206,8 +300,8 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
 
     for job in jobs:
         number = _print_number(job.get("print_number"))
-        if number is None:
-            continue
+        if number is None or len(jobs_by_number.get(number, ())) != 1:
+            continue  # a number two jobs share says nothing about either
         entry = per_print.setdefault(number, {})
         if job.get("title"):
             entry["job_title"] = str(job["title"])
@@ -256,13 +350,15 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
     # these first; the by-number maps stay for compatibility.
     per_color_by_record: dict[str, dict] = {}
     stop_by_record: dict[str, dict] = {}
-    jobs_for_number = dict(jobs_by_number)
+    jobs_for_number = {number: list(rows) for number, rows in jobs_by_number.items()}
     for receipt in receipts:
         job = receipt_job(receipt)
         number = receipt_number(receipt)
         if job is not None and number is not None and number not in jobs_for_number:
-            jobs_for_number[number] = job
-    for record in records:
+            jobs_for_number[number] = [job]
+    derived = _load_derived(derived_cache)
+    derived_changed = False
+    for record in scope_records:
         number = _print_number(record.get("print_number"))
         if number is None:
             continue
@@ -272,16 +368,27 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
             stop_by_record[record_key(record)] = detail
         if _native_color_rows(record) is not None:
             continue  # the record carries it natively; never double-count
-        job = jobs_for_number.get(number)
+        job = _record_job(record, jobs_by_norm_path, jobs_for_number)
         if job is None:
             continue
-        merged: dict[str, float] = {}
-        for gcode_path in _job_gcode_paths(job):
-            for color, grams in _per_color_from_gcode(gcode_path).items():
-                merged[color] = merged.get(color, 0.0) + grams
+        key = record_key(record)
+        signature = _gcode_signature(job)
+        cached = derived.get(key)
+        if isinstance(cached, dict) and cached.get("signature") == signature \
+                and isinstance(cached.get("colors"), dict):
+            merged = cached["colors"]
+        else:
+            merged = {}
+            for gcode_path in _job_gcode_paths(job):
+                for color, grams in _per_color_from_gcode(gcode_path).items():
+                    merged[color] = merged.get(color, 0.0) + grams
+            derived[key] = {"signature": signature, "colors": merged}
+            derived_changed = True
         if merged:
             per_color_by_print[number] = merged
-            per_color_by_record[record_key(record)] = merged
+            per_color_by_record[key] = merged
+    if derived_cache and derived_changed:
+        _save_derived(derived_cache, derived)
 
     return {
         "per_print": per_print,

@@ -34,6 +34,9 @@ Each handler returns ``(http_code, body)`` in the Web UI's
 from __future__ import annotations
 
 import html
+import os
+import threading
+import time
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
@@ -98,8 +101,105 @@ def _vault(data, records_vault):
     return Path(((data or {}).get("paths") or {}).get("records_vault") or ".")
 
 
+# ------------------------------------------------------------------ cache
+#
+# Every Data or Wrapped load used to read and parse every record, rebuild
+# the receipt/JOB joins over all of them, aggregate (twice on Wrapped) and
+# re-glob the clip folders. The results are now kept for a short time,
+# keyed on what they were computed from: the records folder's fingerprint
+# (record count, newest modification time, total size), the year, the
+# display timezone and the files the joins read. A new or changed record
+# changes the key at once; the time-to-live only bounds how stale the
+# receipt, JOB.json, clip and Spoolman inputs (which have no cheap
+# fingerprint) can look.
+
+SUMMARY_TTL_S = 30.0
+SPOOLMAN_TTL_S = 60.0
+SPOOLMAN_TIMEOUT_S = 2.0
+_CACHE_MAX = 64
+_cache = {}
+_cache_lock = threading.Lock()
+_build_lock = threading.RLock()
+
+
+def clear_cache():
+    """Forget every cached view (tests, and a way to force a rebuild)."""
+    with _cache_lock:
+        _cache.clear()
+
+
+def _cached(key, build, ttl=SUMMARY_TTL_S, serialize=True):
+    """The value for ``key`` if fresh, else ``build()`` stored under it.
+
+    Builds are serialized by default, so two page loads arriving together
+    compute a summary once instead of twice.
+    """
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None and now - hit[0] < ttl:
+            return hit[1]
+    lock = _build_lock if serialize else threading.Lock()
+    with lock:
+        with _cache_lock:
+            hit = _cache.get(key)
+            if hit is not None and time.monotonic() - hit[0] < ttl:
+                return hit[1]
+        value = build()
+        with _cache_lock:
+            if len(_cache) >= _CACHE_MAX:
+                oldest = min(_cache, key=lambda k: _cache[k][0])
+                _cache.pop(oldest, None)
+            _cache[key] = (time.monotonic(), value)
+        return value
+
+
+def _stamp(path):
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _records_fingerprint(vault):
+    """(count, newest modification time, total bytes) of the record files."""
+    count = newest = size = 0
+    try:
+        with os.scandir(print_stats.prints_dir(vault)) as entries:
+            for entry in entries:
+                if entry.name.startswith("print-") and entry.name.endswith(".json"):
+                    stat = entry.stat()
+                    count += 1
+                    newest = max(newest, stat.st_mtime_ns)
+                    size += stat.st_size
+    except OSError:
+        pass
+    return (count, newest, size)
+
+
+def _tz_key(tz):
+    return getattr(tz, "key", None) or str(tz)
+
+
+def _sources(data):
+    """The joins' input folders: (archive dir, intake receipts dir)."""
+    archive_dir = ((data or {}).get("paths") or {}).get("archive")
+    receipts_dir = os.environ.get("PRINT_HANDY_INTAKE_RECEIPTS")
+    if not receipts_dir:
+        try:
+            from .. import settings as _settings
+            receipts_dir = str(_settings.state_dir(data) / "model-link-intakes")
+        except Exception:
+            receipts_dir = None
+    return (str(archive_dir) if archive_dir else None, receipts_dir)
+
+
 def _load(data, records_vault):
-    return print_stats.load_records(_vault(data, records_vault))
+    """(records, skipped_names), cached on the records folder's fingerprint."""
+    vault = _vault(data, records_vault)
+    key = ("records", str(vault), _records_fingerprint(vault))
+    return _cached(key, lambda: print_stats.load_records(vault))
 
 
 def _load_events(data, records_vault):
@@ -108,53 +208,75 @@ def _load_events(data, records_vault):
     None (not an empty list) when no events file exists, so the
     aggregate keeps the honest not_recorded pasta state (#981 v2).
     """
-    try:
-        events, skipped, exists = print_stats.load_watchdog_events(
-            _vault(data, records_vault))
-    except Exception:
-        return None, []
-    return (events if exists else None), skipped
+    vault = _vault(data, records_vault)
+
+    def build():
+        try:
+            events, skipped, exists = print_stats.load_watchdog_events(vault)
+        except Exception:
+            return None, []
+        return (events if exists else None), skipped
+
+    key = ("events", str(vault), _stamp(print_stats.watchdog_events_path(vault)))
+    return _cached(key, build)
 
 
-def _load_enrichments(data, records):
+def _load_enrichments(data, records, year=None, tz=None, records_vault=None):
     """The receipt/JOB joins, or None when they cannot be built.
 
     Fail-soft by design: the joins are read-only beside the records,
     and a broken archive or receipts folder must never take the Data
     tab down with it. Receipts live where model_job reads them
     (``PRINT_HANDY_INTAKE_RECEIPTS`` or ``<state>/model-link-intakes``).
+    Per-record work (stop sidecars, archived G-code) is done only for the
+    selected year's records, and the per-record color splits recovered
+    from archived G-code persist beside the Wrapped outputs, so each is
+    read once.
     """
     try:
-        import os
-        from .. import settings as _settings
-        archive_dir = ((data or {}).get("paths") or {}).get("archive")
-        receipts_dir = os.environ.get("PRINT_HANDY_INTAKE_RECEIPTS") or str(
-            _settings.state_dir(data) / "model-link-intakes")
+        archive_dir, receipts_dir = _sources(data)
+        scope = (print_stats.records_in_year(records, year, tz)
+                 if year is not None else None)
         return wrapped_joins.build_enrichments(
-            records, archive_dir=archive_dir, receipts_dir=receipts_dir)
+            records, archive_dir=archive_dir, receipts_dir=receipts_dir, scope=scope,
+            derived_cache=_vault(data, records_vault) / "wrapped" / "derived-cache.json")
     except Exception:
         return None
 
 
 def _spoolman_lifetime(data):
-    """The all-time Spoolman block (never per-year), fail-soft."""
-    try:
-        from ..core import spoolman_client
-        base = str(((data or {}).get("services") or {}).get("spoolman_url") or "").strip()
-        spools = spoolman_client.list_spools(
-            base_url=base or None, allow_archived=True)
-    except Exception:
-        spools = None
-    return wrapped_joins.spoolman_lifetime(spools)
+    """The all-time Spoolman block (never per-year), fail-soft.
+
+    One short, bounded attempt, remembered for a minute either way: an
+    unreachable Spoolman costs the first page load two seconds at most,
+    and never fails the page.
+    """
+    base = str(((data or {}).get("services") or {}).get("spoolman_url") or "").strip()
+
+    def build():
+        try:
+            from ..core import spoolman_client
+            spools = spoolman_client.list_spools(
+                base_url=base or None, timeout=SPOOLMAN_TIMEOUT_S, allow_archived=True)
+        except Exception:
+            spools = None
+        return wrapped_joins.spoolman_lifetime(spools)
+
+    return _cached(("spoolman", base), build, ttl=SPOOLMAN_TTL_S, serialize=False)
 
 
 def _maintenance(data, records_vault, year, tz):
-    try:
-        return wrapped_joins.maintenance_block(
-            _vault(data, records_vault), year=year, tz=tz)
-    except Exception:
-        return {"state": "absent", "sessions": 0, "by_kind": {},
-                "problems": 0, "cold_pulls": 0, "skipped_lines": []}
+    vault = _vault(data, records_vault)
+    path = vault / "Maintenance" / "maintenance.jsonl"
+
+    def build():
+        try:
+            return wrapped_joins.maintenance_block(vault, year=year, tz=tz)
+        except Exception:
+            return {"state": "absent", "sessions": 0, "by_kind": {}, "problems": 0,
+                    "cold_pulls": 0, "skipped_lines": []}
+
+    return _cached(("maintenance", str(vault), _stamp(path), year, _tz_key(tz)), build)
 
 
 def _display_tz(data):
@@ -181,36 +303,70 @@ def _display_tz(data):
         return timezone.utc
 
 
-def _summary(data, year, records_vault):
-    """Everything one Wrapped year is built from: records, events and the
-    Wrapped payload. ``year`` must already be a whole number."""
-    records, skipped = _load(data, records_vault)
-    events, skipped_events = _load_events(data, records_vault)
+def _summary(data, year, records_vault, kind):
+    """One year's computed view, built once per fingerprint.
+
+    ``kind`` is ``"stats"`` (the Data tab's aggregate; ``year`` may be
+    None for all time) or ``"wrapped"`` (the Wrapped payload for a whole
+    number ``year``). Returns a dict with the records, the skipped
+    record names, the events and the timezone beside the result, so no
+    caller loads anything a second time.
+    """
+    vault = _vault(data, records_vault)
     tz = _display_tz(data)
-    wrapped = print_stats.build_wrapped(
-        records, int(year), tz=tz, events=events,
-        enrichments=_load_enrichments(data, records))
-    return {"records": records, "skipped": skipped, "events": events,
-            "skipped_events": skipped_events, "tz": tz, "wrapped": wrapped}
+    year = int(year) if year is not None else None
+    key = ("summary", kind, str(vault), _records_fingerprint(vault),
+           _stamp(print_stats.watchdog_events_path(vault)), year, _tz_key(tz),
+           _sources(data))
+
+    def build():
+        records, skipped = _load(data, records_vault)
+        events, skipped_events = _load_events(data, records_vault)
+        enrichments = _load_enrichments(data, records, year, tz, records_vault)
+        result = {"records": records, "skipped": skipped, "events": events,
+                  "skipped_events": skipped_events, "tz": tz}
+        if kind == "wrapped":
+            result["wrapped"] = print_stats.build_wrapped(
+                records, year, tz=tz, events=events, enrichments=enrichments)
+        else:
+            result["stats"] = print_stats.aggregate(
+                records, year=year, tz=tz, events=events, enrichments=enrichments)
+        return result
+
+    return _cached(key, build)
+
+
+def _clips(data, year, records_vault, records, tz):
+    """The year's timelapse clips joined to print numbers, remembered briefly."""
+    vault = _vault(data, records_vault)
+    archive_dir, _receipts = _sources(data)
+    cache_dir = ((data or {}).get("paths") or {}).get("cache")
+    archive_clips = ((data or {}).get("timelapse") or {}).get("archive_dir")
+    key = ("clips", str(vault), _records_fingerprint(vault), int(year), _tz_key(tz),
+           str(cache_dir), str(archive_clips))
+
+    def build():
+        try:
+            return video_module.default_clip_finder_detailed(
+                data, int(year), records=records, tz=tz)
+        except Exception:
+            return []
+
+    return _cached(key, build)
 
 
 def data_view(data, year=None, *, records_vault=None):
     """(code, body) for GET /api/data."""
     if not data_enabled(data):
         return 403, {"ok": False, "reason": DATA_OFF_REASON}
-    records, skipped = _load(data, records_vault)
-    events, skipped_events = _load_events(data, records_vault)
-    tz = _display_tz(data)
     try:
-        stats = print_stats.aggregate(
-            records, year=year, tz=tz, events=events,
-            enrichments=_load_enrichments(data, records))
         year_value = int(year) if year is not None else None
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
-    return 200, {"ok": True, **stats, "skipped_records": skipped,
-                 "skipped_event_lines": skipped_events,
-                 "maintenance": _maintenance(data, records_vault, year_value, tz),
+    summary = _summary(data, year_value, records_vault, "stats")
+    return 200, {"ok": True, **summary["stats"], "skipped_records": summary["skipped"],
+                 "skipped_event_lines": summary["skipped_events"],
+                 "maintenance": _maintenance(data, records_vault, year_value, summary["tz"]),
                  "spoolman_lifetime": _spoolman_lifetime(data)}
 
 
@@ -219,48 +375,45 @@ def wrapped_view(data, year=None, *, records_vault=None):
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     records, skipped = _load(data, records_vault)
-    events, skipped_events = _load_events(data, records_vault)
     tz = _display_tz(data)
-    years = print_stats.aggregate(records, tz=tz)["years_available"]
+    years = print_stats.years_available(records, tz)
     if year is None:
         year = years[-1] if years else _current_year(tz)
     try:
-        payload = print_stats.build_wrapped(
-            records, int(year), tz=tz, events=events,
-            enrichments=_load_enrichments(data, records))
+        year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    summary = _summary(data, year, records_vault, "wrapped")
+    payload = summary["wrapped"]
     # #981: clip counts are a finder result, not a record fact, so they
     # live here at the Web UI layer (where the finder runs) under their
     # own name, not inside the record aggregate. V2: the detailed
     # finder also joins clips to print numbers by delivery name.
-    try:
-        detailed = video_module.default_clip_finder_detailed(
-            data, int(year), records=records, tz=tz)
-    except Exception:
-        detailed = []
+    detailed = _clips(data, year, records_vault, records, tz)
     clips_by_print = [{"print_number": entry["print_number"],
                        "name": Path(entry["path"]).name}
                       for entry in detailed if entry.get("print_number")]
+    first_clip_name = {}
+    for clip in clips_by_print:
+        first_clip_name.setdefault(clip["print_number"], clip["name"])
     longest = (payload.get("highlights") or {}).get("longest_print") or {}
-    longest_clip = next((c["name"] for c in clips_by_print
-                         if c["print_number"] == longest.get("print_number")), None)
+    longest_clip = first_clip_name.get(longest.get("print_number"))
     # #981 sharing: the share panel lists past exports from the local
     # registry beside the wrapped outputs; a corrupt registry fails
     # soft into a named note here, never a broken page.
     share_entries, share_note = share_export.load_exports(
         _vault(data, records_vault) / "wrapped")
-    return 200, {"ok": True, **payload, "skipped_records": skipped,
+    return 200, {"ok": True, **payload, "skipped_records": summary["skipped"],
                  "share_exports": share_entries,
                  "share_registry_note": share_note,
-                 "skipped_event_lines": skipped_events,
+                 "skipped_event_lines": summary["skipped_events"],
                  "timelapse_clips_found": len(detailed),
                  "timelapse_clips_by_print": clips_by_print,
                  "longest_print_clip": longest_clip,
-                 "maintenance": _maintenance(data, records_vault, int(year), tz),
-                 "video_available": wrapped_video_path(data, int(year),
+                 "maintenance": _maintenance(data, records_vault, year, tz),
+                 "video_available": wrapped_video_path(data, year,
                                                        records_vault=records_vault) is not None,
-                 "video_job": video_module.JOBS.status(int(year)),
+                 "video_job": video_module.JOBS.status(year),
                  "ai_video_enabled": ai_video_enabled(data)}
 
 
@@ -330,7 +483,7 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
 
 
 def _wrapped_for_video(data, year, records_vault):
-    summary = _summary(data, year, records_vault)
+    summary = _summary(data, year, records_vault, "wrapped")
     return summary["wrapped"], summary["records"]
 
 
@@ -360,12 +513,8 @@ def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
     """
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
-    records, _skipped = _load(data, records_vault)
-    events, _skipped_events = _load_events(data, records_vault)
     try:
-        wrapped = print_stats.build_wrapped(
-            records, int(year), tz=_display_tz(data), events=events,
-            enrichments=_load_enrichments(data, records))
+        wrapped = _summary(data, int(year), records_vault, "wrapped")["wrapped"]
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was exported."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
