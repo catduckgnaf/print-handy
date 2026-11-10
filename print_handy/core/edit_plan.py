@@ -645,18 +645,29 @@ def lay_flat_rotation(triangles):
         key = tuple(round(v / length, 2) for v in (nx, ny, nz))
         groups.setdefault(key, []).append((tri, length / 2))
         normals.setdefault(key, (nx / length, ny / length, nz / length))
+    # A direction's supported area never exceeds its raw area, so check
+    # directions largest-raw-first and stop once no remaining direction
+    # could beat the best supported area. Curved meshes have thousands of
+    # directions; the supporting-plane test scans every vertex, so it runs
+    # only for real candidates. The answer is the same as checking all.
+    raw = {key: sum(area for _tri, area in faces) for key, faces in groups.items()}
     totals = {}
-    for key, faces in groups.items():
+    best = 0.0
+    for key in sorted(groups, key=raw.get, reverse=True):
+        if raw[key] < best:
+            break
         normal = normals[key]
         support = float((points @ normal).max())
-        area = sum(area for tri, area in faces
+        area = sum(area for tri, area in groups[key]
                    if all(abs(sum(normal[i] * p[i] for i in range(3)) - support) <= 0.01
                           for p in tri))
         if area > 0:
             totals[key] = area
+            best = max(best, area)
     if not totals:
         return None
-    nx, ny, nz = normals[max(totals, key=totals.get)]
+    # Ties resolve in mesh order, exactly as a full scan would.
+    nx, ny, nz = normals[max((key for key in groups if key in totals), key=totals.get)]
     length = math.sqrt(nx * nx + ny * ny + nz * nz)
     nx, ny, nz = nx / length, ny / length, nz / length
     if abs(nz + 1) < 1e-9:
