@@ -38,7 +38,7 @@ def test_container_marker_is_registered_in_pyproject():
 
 def test_dockerfile_sets_the_detection_variable_in_the_runtime_stage():
     dockerfile = (ROOT / "Dockerfile").read_text()
-    runtime = dockerfile.split("FROM debian:13-slim AS runtime", 1)[1]
+    runtime = dockerfile.split(" AS runtime", 1)[1]
     assert "PRINT_HANDY_IN_CONTAINER=1" in runtime
 
 

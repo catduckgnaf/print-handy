@@ -35,6 +35,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from . import credential_binding
 from .hermes import _config
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class Compat:
     model: str = ""
     key: str = ""
     timeout_s: float = 0.0
+    # The setting whose host the key is bound to (#1192, credential_binding).
+    slot: str = ""
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,7 @@ class _Leg:
     model: str
     key: str
     keyless_ok: bool
+    slot: str = ""
 
 
 @dataclass(frozen=True)
@@ -125,17 +129,19 @@ def _default_route(tier, cfg, purpose) -> Compat:
     if tier == "chat":
         llm = cfg.get("llm") or {}
         return Compat(str(llm.get("chat_url") or ""), str(llm.get("model") or ""),
-                      _secret(llm.get("api_key_env")), float(llm.get("timeout_s") or 0))
+                      _secret(llm.get("api_key_env")), float(llm.get("timeout_s") or 0),
+                      slot="llm.chat_url")
     if tier == "heavy":
         llm, design = cfg.get("llm") or {}, cfg.get("design") or {}
         return Compat(str(design.get("chat_url") or llm.get("chat_url") or ""),
                       str(design.get("model") or llm.get("model") or ""),
                       _secret(design.get("api_key_env") or llm.get("api_key_env")),
-                      float(design.get("timeout_s") or 0))
+                      float(design.get("timeout_s") or 0),
+                      slot="design.chat_url" if design.get("chat_url") else "llm.chat_url")
     vision = cfg.get("vision") or {}
     model = vision.get("model")
     url = str((cfg.get("services") or {}).get("vision_chat_url") or "").rstrip("/")
-    return Compat(url, str(model or ""), _secret("CLIPROXY_API_KEY"))
+    return Compat(url, str(model or ""), _secret("CLIPROXY_API_KEY"), slot="services.vision_chat_url")
 
 
 def _resolve(tier, cfg, compat, purpose) -> _Route | None:
@@ -151,7 +157,9 @@ def _resolve(tier, cfg, compat, purpose) -> _Route | None:
         key = _secret(env_name)
     else:
         key = base.key
-    primary = _Leg(url, model, key, keyless_ok(url))
+    slot = (f"ai.{tier}.chat_url" if str(mine.get("chat_url") or "").strip()
+            else base.slot or f"ai.{tier}.chat_url")
+    primary = _Leg(url, model, key, keyless_ok(url), slot)
     fallback = None
     fb_model = str(mine.get("fallback_model") or "").strip()
     fb_url = str(mine.get("fallback_url") or "").strip()
@@ -161,7 +169,8 @@ def _resolve(tier, cfg, compat, purpose) -> _Route | None:
         # primary's key, and a different host never gets it.
         fb_env = str(mine.get("fallback_api_key_env") or "").strip()
         fb_key = _secret(fb_env) if fb_env else (key if fb_url == url else "")
-        fallback = _Leg(fb_url, fb_model or model, fb_key, keyless_ok(fb_url))
+        fallback = _Leg(fb_url, fb_model or model, fb_key, keyless_ok(fb_url),
+                        slot if fb_url == url else f"ai.{tier}.fallback_url")
     timeout = float(mine.get("timeout_s") or 0) or base.timeout_s or DEFAULT_TIMEOUT_S
     return _Route(tier, primary, fallback, timeout)
 
@@ -226,8 +235,9 @@ def _post(leg, messages, images, max_tokens, temperature, timeout, opener):
         text = last.get("content")
         last["content"] = ([{"type": "text", "text": text}] if isinstance(text, str) else list(text or [])) + parts
     headers = {"Content-Type": "application/json"}
-    if leg.key:
-        headers["Authorization"] = f"Bearer {leg.key}"
+    key = credential_binding.key_for(leg.slot, leg.url, leg.key)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     body = json.dumps({"model": leg.model, "messages": messages,
                        "max_tokens": max_tokens, "temperature": temperature}).encode()
     request = urllib.request.Request(leg.url, data=body, headers=headers, method="POST")

@@ -44,7 +44,7 @@ def test_distro_components_install_from_the_same_debian_on_both_surfaces():
     assert set(bump.NON_BUMPED_COMPONENTS) >= {"openscad", "tesseract", "bounds-toolchain"}
     dockerfile = (ROOT / "Dockerfile").read_text()
     runtime = dockerfile.split("AS runtime", 1)[1]
-    assert re.search(r"FROM debian:13-slim AS runtime", dockerfile)
+    assert re.search(r"FROM debian:13-slim@sha256:[0-9a-f]{64} AS runtime", dockerfile)
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     assert "slim-trixie" in ci, "offline legs no longer run on Debian 13 (trixie)"
     for package in ("openscad", "tesseract-ocr"):

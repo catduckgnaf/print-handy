@@ -514,6 +514,8 @@ Image build inputs (`docker build --build-arg NAME=value`), not runtime settings
 
 Secrets come from the environment only (Docker: `.env`, never committed or shared), never from YAML or the image.
 
+Each stored key is bound to the host it was first used with (#1192), recorded in `credential-bindings.json` in the state folder (owner-only). This covers the chat, design, agent and vision endpoints, the `[ai.<tier>]` URLs, ntfy, the MQTT broker and the Matrix homeserver. A key is sent only to its bound host: a path or port change on the same host behaves as before, and a new host gets no key (logged once, without the key). A key bound over `https` is never sent over plain `http`, even to the same host; that counts as a host change. The Web UI settings save refuses a change that moves a key to a new host unless you tick "Send my <service> key to <host>" on the review page; that also covers the Moonraker, OctoPrint, Bambu Lab, PrusaLink and Flashforge addresses. An install upgraded from an earlier version binds each key on its first use. After editing an address by hand in the settings file, confirm the new host with `python -m print_handy.credential_binding rebind <setting> <url>` (`list` shows the bindings).
+
 | Variable | Used for |
 |---|---|
 | `DISCORD_BOT_TOKEN` | Standalone bot token. The variable name is `discord.token_env` |

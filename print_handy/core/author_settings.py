@@ -428,6 +428,22 @@ def read_prusa_model(source):
 def support_designation(source):
     """The filament the author designated for supports, as source extruder numbers.
 
+    See support_designation_status; this returns only the designation.
+    """
+    return support_designation_status(source)[0]
+
+
+def support_designation_status(source):
+    """(designation, problem) for the author's support filament designation.
+
+    designation is as support_designation describes below; problem is None, or
+    the reason the designation cannot be read: project settings that are not
+    a JSON object, or a designation value that is not a filament number. A
+    caller judging filament usage treats a problem as UNKNOWN usage, never as
+    "no designation" (#1155).
+
+    The filament the author designated for supports, as source extruder numbers.
+
     {'base': int|None, 'interface': int|None}; 0 in a project names the object's own
     filament, which is no designation. Bambu/Orca projects carry support_filament /
     support_interface_filament in project_settings.config; PrusaSlicer carries
@@ -436,14 +452,20 @@ def support_designation(source):
     caller's job (source_colors.inventory).
     """
     out = {'base': None, 'interface': None}
+    problems = []
     source = Path(source)
     if source.suffix.lower() != '.3mf' or not zipfile.is_zipfile(source):
-        return out
+        return out, None
 
-    def number(value):
+    def number(value, key):
+        if value is None:
+            return None
+        if isinstance(value, list) and len(value) == 1:
+            value = value[0]
         try:
             parsed = int(str(value).strip())
         except (TypeError, ValueError):
+            problems.append(f'{key} is not a filament number: {value!r}')
             return None
         return parsed if parsed > 0 else None
 
@@ -453,10 +475,14 @@ def support_designation(source):
             try:
                 project = json.loads(archive.read(PROJECT))
             except (ValueError, UnicodeDecodeError):
-                project = {}
+                project = None
             if isinstance(project, dict):
-                out['base'] = number(project.get('support_filament'))
-                out['interface'] = number(project.get('support_interface_filament'))
+                out['base'] = number(project.get('support_filament'), 'support_filament')
+                out['interface'] = number(project.get('support_interface_filament'),
+                                          'support_interface_filament')
+            else:
+                problems.append('the project settings could not be read as a settings object, '
+                                'so the support filament designation is unknown')
         elif PRUSA_CONFIG in names:
             values = {}
             for line in archive.read(PRUSA_CONFIG).decode('utf-8', 'replace').splitlines():
@@ -465,9 +491,10 @@ def support_designation(source):
                     continue
                 key, _, value = line[1:].partition('=')
                 values[key.strip()] = value.strip()
-            out['base'] = number(values.get('support_material_extruder'))
-            out['interface'] = number(values.get('support_material_interface_extruder'))
-    return out
+            out['base'] = number(values.get('support_material_extruder'), 'support_material_extruder')
+            out['interface'] = number(values.get('support_material_interface_extruder'),
+                                      'support_material_interface_extruder')
+    return out, ('; '.join(problems) or None)
 
 
 def _speed(value):

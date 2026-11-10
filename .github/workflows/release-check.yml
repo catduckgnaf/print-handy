@@ -1,6 +1,6 @@
 name: Release check
 
-# Fail-closed release gate for a version bump (docs/RELEASE-CHECKLIST.md).
+# Fail-closed release gate for a version bump (docs/history/RELEASE-CHECKLIST.md).
 # Runs the checks past releases taught us the hard way:
 # - scripts/check_release.py: version surfaces agree (__version__,
 #   README "Current release", the INTERNAL_RELEASE_NOTES section), every

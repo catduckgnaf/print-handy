@@ -489,7 +489,8 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
     try:
         content, served_by = ai_routes.call(
             "small", [{"role": "user", "content": context + str(prompt)}], images=[image],
-            compat=ai_routes.Compat(url, model, key, timeout_s=60), purpose="vision",
+            compat=ai_routes.Compat(url, model, key, timeout_s=60,
+                                   slot="services.vision_chat_url"), purpose="vision",
             max_tokens=200, temperature=0)
     except ai_routes.AIKeyMissing as exc:
         raise _VisionKeyMissing("vision key is not configured") from exc

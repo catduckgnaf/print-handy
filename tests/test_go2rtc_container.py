@@ -72,7 +72,7 @@ class RuntimeImageGo2rtcTests(unittest.TestCase):
         self.assertIn("sh /usr/local/bin/go2rtc-prebuilt \"$TARGETARCH\"", DOCKERFILE)
 
     def test_vaapi_stack_is_inside_the_with_go2rtc_conditional(self):
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         for package in ("intel-media-va-driver", "mesa-va-drivers", "libva-drm2", "vainfo"):
             with self.subTest(package=package):
                 self.assertIn(package, runtime)

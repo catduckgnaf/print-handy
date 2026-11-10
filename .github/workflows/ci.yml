@@ -371,6 +371,7 @@ jobs:
         run: python -m pytest tests/pipeline/test_native_bounds.py -q -rs
 
   discord-timing:
+    # A required status check on main (the owner added it; #1196). Keep the job name.
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
     # tests/corpus/timing_baseline.json (+10% + max(0.35 s, 10% of the baseline), #734). Raising a baseline needs
     # a fresh "reason", and the total drift from the first recording is limited (tests/corpus/timing_gate.py).
@@ -529,7 +530,11 @@ jobs:
 
   standalone-no-hermes:
     # #73: the standalone bot installs from the runtime dependencies alone (pip install .), loads every handler and imports no Hermes module.
-    # The setup checks run from the checkout, so they test the checkout; the installed wheel is tested by the known-gap step.
+    # The setup checks run against the installed wheel (#1196): from a directory outside the checkout, with
+    # `python -I` (no cwd or PYTHONPATH on sys.path), after a guard step proves print_handy comes from the venv.
+    # A file missing from print_handy/ in the wheel therefore fails them. The root-level config/ and plugins/
+    # are not in the wheel (a source checkout or the image provides them), so the known-gap step reports that
+    # separately and the checks below lay those two folders beside the installed package, as a source install has them.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:3.12-slim-trixie
@@ -558,14 +563,22 @@ jobs:
           PRINT_HANDY__PATHS__HERMES_HOME: /tmp/print-handy-wheel
         run: |
           mkdir -p /tmp/outside && cd /tmp/outside
-          "/tmp/clean/bin/python" -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
-          "/tmp/clean/bin/python" -m print_handy.bot check
+          "/tmp/clean/bin/python" -I -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
+          "/tmp/clean/bin/python" -I -m print_handy.bot check
       - name: Say plainly that the wheel check failed
         if: steps.wheel-check.outcome == 'failure'
         run: >-
-          echo "::warning title=standalone-no-hermes::The installed wheel cannot run the bot check from outside
-          the checkout (it lacks config/ and plugins/print-feedback). The checks below test the checkout, not the
-          wheel. Known gap, not a pass."
+          echo "::warning title=standalone-no-hermes::The installed wheel cannot run the bot check by itself
+          (it lacks config/ and plugins/print-feedback at the package root). The checks below run the installed
+          package with those two folders laid beside it. Known gap, not a full pass."
+      - name: Lay config and plugins beside the installed wheel
+        run: |
+          mkdir -p /tmp/outside && cd /tmp/outside
+          root="$("/tmp/clean/bin/python" -I -c "import pathlib, print_handy; print(pathlib.Path(print_handy.__file__).resolve().parent.parent)")"
+          case "$root" in /tmp/clean/*) ;; *) echo "print_handy is not the installed wheel: $root"; exit 1 ;; esac
+          cp -r "$GITHUB_WORKSPACE/config" "$root/config"
+          mkdir -p "$root/plugins" && cp -r "$GITHUB_WORKSPACE/plugins/print-feedback" "$root/plugins/print-feedback"
+          "/tmp/clean/bin/python" -I -c "import print_handy, sys; assert print_handy.__file__.startswith('/tmp/clean/'), print_handy.__file__; assert not any(p.startswith('$GITHUB_WORKSPACE') for p in sys.path), sys.path"
       - name: Standalone bot setup check
         env:
           PRINT_HANDY__BOT__MODE: standalone
@@ -574,7 +587,8 @@ jobs:
           DISCORD_BOT_TOKEN: not-a-real-token
         run: |
           export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
-          "/tmp/clean/bin/python" -m print_handy.bot check
+          cd /tmp/outside
+          "/tmp/clean/bin/python" -I -m print_handy.bot check
       # #164 stages 2-3: Telegram and Matrix are standalone platforms too, and
       # stdlib-only by design. The same clean venv must pass `bot check` on
       # each, so a stray non-runtime import in their paths fails here instead
@@ -588,7 +602,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: not-a-real-token
         run: |
           export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
-          "/tmp/clean/bin/python" -m print_handy.bot check
+          cd /tmp/outside
+          "/tmp/clean/bin/python" -I -m print_handy.bot check
       - name: Standalone bot setup check (Matrix)
         env:
           PRINT_HANDY__BOT__MODE: standalone
@@ -599,7 +614,8 @@ jobs:
           MATRIX_ACCESS_TOKEN: not-a-real-token
         run: |
           export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
-          "/tmp/clean/bin/python" -m print_handy.bot check
+          cd /tmp/outside
+          "/tmp/clean/bin/python" -I -m print_handy.bot check
 
   slicer-test-stable:
     name: Slicer test (stable, shard ${{ matrix.shard }})

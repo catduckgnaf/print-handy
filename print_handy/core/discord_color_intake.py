@@ -25,7 +25,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
     from .. import printers
     from .model_job import (intake_color_choices, set_color_decisions, resolve_filament_selection,
                             write_job, decisions_digest, build_slot_labels, build_tool_labels,
-                            configured_slots, position_limit, _job_adapter,
+                            configured_slots, position_limit, _job_adapter, file_sha256,
                             FilamentWarningPending, record_filament_warning_acknowledgement)
     from .source_colors import (inventory, prompts, canonical_prompts, grouped_prompts, validate_decisions,
                                 distinct_source_colours, prompt_source_colour)
@@ -143,7 +143,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
             refuse_over_capacity()
         slots = await ask_slots()
         latest = json.loads(path.read_text())
-        if inventory(latest['downloaded_file'])['source_sha256'] != source_hash:
+        if file_sha256(latest['downloaded_file']) != source_hash:
             raise ValueError('source changed during Discord selection; no decisions saved')
         if latest.get('color_decisions') != old_decisions:
             raise ValueError('concurrent color decision update; no decisions overwritten')
@@ -184,7 +184,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         slots = await ask_slots()
         mode = 'per_part'
     latest = json.loads(path.read_text())
-    if inventory(latest['downloaded_file'])['source_sha256'] != source_hash:
+    if file_sha256(latest['downloaded_file']) != source_hash:
         raise ValueError('source changed during Discord selection; no decisions saved')
     if latest.get('color_decisions') != job.get('color_decisions'):
         raise ValueError('concurrent color decision update; no decisions overwritten')

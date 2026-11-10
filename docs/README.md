@@ -54,9 +54,10 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 ## Contributors and history
 
 - [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
-- [Branding guide](BRANDING.md) · [Release notes](RELEASE-NOTES.md) · [Release checklist](RELEASE-CHECKLIST.md) · [Release notes template](RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
+- [Branding guide](BRANDING.md) · [Release notes](RELEASE-NOTES.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
 - Historical and internal records, not setup instructions, live in [`history/`](history/): [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
 - [3MF remap inventory](3MF-REMAP-INVENTORY.md): which 3MF references a conversion remaps, and where each one lives.
 - [3MF conversion evidence matrix](3MF-CONVERSION-EVIDENCE.md): the criterion-by-criterion evidence for the foreign 3MF conversion work.
+- [Geometry soundness audit](GEOMETRY_AUDIT.md): what the sizing, rotation, mirroring, bed fit and support checks cover, and their known limits.
 
 These versioned `docs/` pages are the source of truth. Document features with the code and identify wiki impact in the [contribution checklist](../CONTRIBUTING.md#automated-pr-review-support). Use documentation for the checked-out revision; draft work is not shipped capability.

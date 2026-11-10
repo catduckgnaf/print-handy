@@ -1,0 +1,51 @@
+name: GPU image flavor build
+
+# Build-only proof that the GPU flavors of the image (ORT_FLAVOR=openvino and cuda, docs/DOCKER.md
+# "GPU and the local failure detector") still build. Each flavor asserts its provider bridge library
+# during the build, so a broken pin or a missing wheel fails here instead of on an operator's machine.
+# Nothing is pushed, published, tagged or deployed, and no GPU is needed: this shows the image builds,
+# not that GPU inference works. The job is not a required check (#1196).
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'docker/**'
+      - 'pyproject.toml'
+      - '.github/workflows/gpu-flavor-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-flavor-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: GPU flavor build (${{ matrix.flavor }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # openvino is amd64-only and the runner is amd64. cuda pulls gigabytes of user-space libraries.
+        flavor: [openvino, cuda]
+    env:
+      IMAGE: print-handy-gpu-${{ matrix.flavor }}:${{ github.run_id }}
+      ORT_FLAVOR: ${{ matrix.flavor }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Free runner disk for the CUDA libraries
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Build the flavor locally without publishing
+        run: >-
+          docker buildx build --load --tag "$IMAGE"
+          --build-arg APP_CHANNEL=development
+          --build-arg ORT_FLAVOR="$ORT_FLAVOR"
+          --build-arg WITH_ORCA=false
+          --build-arg WITH_GO2RTC=false
+          --build-arg WITH_BAMBU=false
+          .

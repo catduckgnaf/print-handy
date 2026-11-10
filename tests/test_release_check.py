@@ -1,6 +1,6 @@
 """Tests for the release check (scripts/check_release.py).
 
-The check exists because of named past failures (docs/RELEASE-CHECKLIST.md,
+The check exists because of named past failures (docs/history/RELEASE-CHECKLIST.md,
 audit rows A2/A10/A12/A13): notes assembled from memory missed merged PRs,
 and release notes were never spelling-scanned because they are not a PR
 diff. These tests pin the fail-closed behavior on fixture checkouts.

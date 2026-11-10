@@ -48,7 +48,7 @@ only to the data folder's `.env` file (mode 600); it is never printed or written
 
 Doing it by hand instead:
 
-- Docker: put `DISCORD_BOT_TOKEN=...` and `PRINT_HANDY__DISCORD__CHAT_ID=...` in the `.env` file next to `docker-compose.yml` (the [Docker quickstart](DOCKER.md#quickstart) has the whole sequence), then `docker compose up -d`.
+- Docker: put `DISCORD_BOT_TOKEN=...` and `PRINT_HANDY__DISCORD__CHAT_ID=...` in the `.env` file next to `docker-compose.yml` (the [Docker quickstart](DOCKER.md#first-run-configuration) has the whole sequence), then `docker compose up -d`.
 - Standalone: put `DISCORD_BOT_TOKEN=...` in `~/.local/share/print-handy/.env` (or your `paths.hermes_home`),
   and set `discord.chat_id` in `config/local.yaml` (`discord.allowed_user_ids` is optional; see
   [Who can use the bot](#who-can-use-the-bot)). See [standalone bot](STANDALONE.md).

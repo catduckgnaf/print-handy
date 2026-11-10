@@ -68,6 +68,9 @@ SETUP_OPEN_FIELD = "confirm_open"
 # Hidden field on the confirm form listing the field ids the preview
 # parsed; the save POST parses exactly those, no others.
 FIELDS_FIELD = "_fields"
+# The confirm form's "send my <service> key to <new host>" boxes (#1192):
+# one value per catalog field id whose stored key the save moves.
+REBIND_FIELD = "_rebind"
 # Hidden field on the config form naming the section (sub-tab) the
 # submit came from, so a preview error re-render returns to the same
 # section instead of the first one.
@@ -465,7 +468,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
 
 
 def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME,
-                        warnings=(), section=None, reveal=None):
+                        warnings=(), section=None, reveal=None, rebinds=()):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
 
     ``section`` is the sub-tab the preview was posted from; the confirm
@@ -478,7 +481,10 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
     values the confirm form reposts as hidden inputs, so what is confirmed
     is byte-for-byte what was previewed. ``warnings`` are plain-language
     notices about the change set itself (not refusals), shown above the
-    diff so they are read before the save is confirmed.
+    diff so they are read before the save is confirmed. ``rebinds`` are
+    the changes that would send a stored service key to a new host
+    (#1192): each gets an unticked confirmation box, and the save is
+    refused unless it is ticked.
     """
     rows = "".join(
         f"<tr><th>{_esc(field.label)} ({_esc(field.id)})</th>"
@@ -518,6 +524,14 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
         'kept), and every change needs a restart to take effect.</p>',
         f"<table><tr><th>Setting</th><th>Current</th><th>New</th></tr>{rows}</table>",
         '<form method="post" action="/config">', "".join(hidden),
+        "".join(
+            f'<p class="notice">This change moves the {_esc(move.service)} address from '
+            f'{_esc(move.old_host)} to {_esc(move.new_host)}. Your stored '
+            f'{_esc(move.service)} key is sent only to {_esc(move.old_host)}; the save is '
+            'refused unless you confirm the new host.<br>'
+            f'<label><input type="checkbox" name="{REBIND_FIELD}" '
+            f'value="{_esc(move.setting)}"> {_esc(move.confirmation)}</label></p>'
+            for move in rebinds),
         '<p><button type="submit">Save changes</button> '
         '<a href="/config">Back to the form</a></p></form>',
     ]), theme=theme, path="/config")
@@ -652,7 +666,7 @@ def _try_write_copy(changes, environ):
         try:
             config_api.write_changes(
                 {field.id: value for field, value in changes.items()},
-                config_path=copy, environ=environ)
+                config_path=copy, environ=environ, credential_check=False)
         except config_api.WebUIConfigError as exc:
             return str(exc)
     return None
@@ -694,7 +708,8 @@ def attribute_error(message, changes, *, environ=None):
 
 
 __all__ = [
-    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "REVEAL_FIELD", "SECTION_FIELD",
+    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "REBIND_FIELD", "REVEAL_FIELD",
+    "SECTION_FIELD",
     "GROUPS",
     "LOGIN_REMEMBER_FIELD", "LOGIN_TOKEN_FIELD", "LOGIN_USER_FIELD",
     "PROVENANCE_LABELS", "attribute_error", "parse_form",

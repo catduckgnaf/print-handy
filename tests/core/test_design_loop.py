@@ -335,6 +335,49 @@ def test_a_revision_prompt_carries_the_earlier_changes(tmp_path):
     assert history[0]["instruction"] == "a plate"
 
 
+def _heights(eng, session, steps):
+    out = []
+    for text in steps:
+        try:
+            out.append(run(eng.run_turn(session, text))["geometry"]["dimensions_mm"][2])
+        except design.DesignError as exc:
+            out.append("no earlier" if "no earlier version" in str(exc) else str(exc))
+    return out
+
+
+def test_repeated_undo_walks_back_through_the_versions(tmp_path):
+    """#1206 finding 3: undo restored history[-2], and the undo itself was the
+    newest entry, so a second undo went forward again (8, 13, 8). Undo is a
+    stack: each one steps back from the version on screen."""
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    steps = ["a plate", "make it 5 mm taller", "make it 5 mm taller", "make it 5 mm taller",
+             "undo", "undo", "undo", "undo"]
+    assert _heights(eng, session, steps) == [3, 8, 13, 18, 13, 8, 3, "no earlier"]
+
+
+def test_undo_after_go_back_and_after_an_edit_of_a_restored_version(tmp_path):
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    steps = ["a plate", "make it 5 mm taller", "make it 5 mm taller",
+             "go back to version 2", "undo",           # before version 2 is version 1
+             "make it 1 mm taller", "undo", "undo"]    # back to the restored 3, then none
+    assert _heights(eng, session, steps) == [3, 8, 13, 8, 3, 4, 3, "no earlier"]
+
+
+def test_going_back_to_a_parameter_edit_does_not_warn_about_its_stale_size_line(tmp_path):
+    """A deterministic edit leaves the Size line stale by design and is checked
+    without it; restoring that version must be checked the same way."""
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    run(eng.run_turn(session, "a plate"))
+    edited = run(eng.run_turn(session, "make it 5 mm taller"))
+    assert edited["findings"] == []
+    run(eng.run_turn(session, "undo"))
+    back = run(eng.run_turn(session, "go back to version 2"))
+    assert back["reverted_to"] == 2 and back["findings"] == []
+
+
 # ------------------------------------------------------------------ question flow edges (#1206)
 
 def test_the_answer_survives_a_failed_answer_turn_and_a_retry_keeps_it(tmp_path):

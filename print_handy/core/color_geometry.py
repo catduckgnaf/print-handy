@@ -213,11 +213,13 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     points.append(point)
                 if not points:
                     raise RuntimeError('empty part geometry')
-                # A painted triangle's paint code subdivides along its own
-                # vertex order, so painted leaves keep their order (a known
-                # limit for mirrored painted sources); every other mirrored
-                # leaf is rewound so it does not come out inside-out.
-                if transform_mirrors(chain) and not painted:
+                # Paint subdivision trees depend on triangle vertex order.
+                # Refuse rather than emit an inside-out solid or guess a
+                # paint-tree permutation when flattening a reflected leaf.
+                if transform_mirrors(chain):
+                    if painted:
+                        raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
+                                           'export an unmirrored source or a geometry-only model')
                     mesh = _rewound(mesh)
                 leaves.append((key, mesh, points))
                 return
