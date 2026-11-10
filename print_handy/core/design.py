@@ -114,6 +114,18 @@ class DesignError(Exception):
     """A design turn failed in a way the user should be told about, in these words."""
 
 
+class DesignQuestion(DesignError):
+    """The model needs one fact it cannot assume before it can design the part.
+
+    Raised at most once per session, only on a create's first turn; the
+    session is left awaiting the answer, and the next turn designs with it.
+    """
+
+    def __init__(self, question):
+        super().__init__(question)
+        self.question = question
+
+
 # --------------------------------------------------------------------- sessions
 
 def sessions_root(cache_dir) -> Path:
@@ -551,6 +563,36 @@ _DET_RELATIVE = re.compile(
 _RELATIVE_PARAMS = {"taller": "height", "wider": "width", "longer": "length"}
 
 
+_REVERT_PREVIOUS = re.compile(
+    r"^\s*(?:please\s+)?(?:undo(?:\s+(?:that|it|this|the\s+last\s+(?:change|one)))?|"
+    r"revert(?:\s+(?:that|it|this))?|go\s+back(?:\s+one)?|"
+    r"(?:go\s+)?back\s+to\s+(?:the\s+)?(?:previous|last|earlier)\s+(?:one|version|design))"
+    r"\s*[.!]?\s*$", re.I)
+_REVERT_FIRST = re.compile(
+    r"^\s*(?:please\s+)?(?:go\s+back|revert|back)\s+to\s+(?:the\s+)?(?:first|original)"
+    r"(?:\s+(?:one|version|design))?\s*[.!]?\s*$", re.I)
+_REVERT_NUMBER = re.compile(
+    r"^\s*(?:please\s+)?(?:go\s+back|revert|back)\s+to\s+(?:version|turn|v)\s*(\d{1,2})"
+    r"\s*[.!]?\s*$", re.I)
+
+
+def parse_revert(instruction):
+    """"previous", a turn number, or None for an undo/go-back instruction.
+
+    Narrow and anchored on purpose: "undo", "go back", "back to the
+    previous version", "go back to the first one", "revert to version 2".
+    Anything else ("undo the chamfer but keep the holes") is a real change
+    and takes the model path.
+    """
+    text = str(instruction or "")
+    if _REVERT_PREVIOUS.match(text):
+        return "previous"
+    if _REVERT_FIRST.match(text):
+        return 1
+    match = _REVERT_NUMBER.match(text)
+    return int(match.group(1)) if match else None
+
+
 def deterministic_param_edit(source, instruction):
     """A plain parameter edit applied without a model call, or None.
 
@@ -592,15 +634,47 @@ def deterministic_param_edit(source, instruction):
     return None
 
 
+# Every design prompt lives here. The model's file opens with a small
+# comment header (Part / Size / Assumes) that design_notes() reads back: the
+# declared Size is checked against the measured render, and Part/Assumes
+# become the reply's description, so the user hears what was made and what
+# was assumed in the model's words while the numbers stay measured.
 _SYSTEM_PROMPT = (
-    "You are the design engine for a 3D printer helper. Answer with ONE OpenSCAD file and "
-    "nothing else: no explanation, no markdown fences. Rules: millimetres; one self-contained "
-    "file; put every dimension in a named top-level variable so it can be adjusted; use a "
-    "sane $fn (24-64) for curves; the part must be a single solid resting on Z=0 unless the "
-    "request says otherwise. You may NOT use import, include, use or surface statements — "
-    "the file may not read other files. If you are given previous OpenSCAD and a change "
-    "request, return the complete updated file. If you are given an OpenSCAD error, return "
-    "the complete corrected file."
+    "You design 3D-printable parts in OpenSCAD for an FDM printer. Answer with ONE complete "
+    "OpenSCAD file (OpenSCAD 2021.01 syntax — no newer language features) and nothing "
+    "outside it.\n"
+    "Start the file with these comment lines, filled in:\n"
+    "// Part: <one short line saying what this is>\n"
+    "// Size: <X> x <Y> x <Z> mm  (the overall bounding box you intend, as it sits on the bed)\n"
+    "// Assumes: <one assumption the user should know about>  (one line per assumption; "
+    "omit when there are none)\n"
+    "Then the design:\n"
+    "- Millimeters. Every dimension is a named top-level variable with a trailing comment "
+    "saying what it is, e.g. 'wall = 2.4; // wall thickness'. Derive the geometry from those "
+    "variables; no unexplained numbers inside the shapes. Name the overall dimensions "
+    "width, length and height where the part has them, so 'make it 5 mm taller' can be "
+    "applied to the variable directly.\n"
+    "- Proceed on sensible assumptions instead of asking: choose realistic sizes for the "
+    "object, and state each choice that matters in an Assumes line.\n"
+    "- Print it well: one connected solid lying on its largest flat face, resting on Z=0 "
+    "(nothing below Z=0, nothing floating); avoid overhangs steeper than 45 degrees from "
+    "vertical where the shape allows (use 45-degree chamfers instead of flat ledges; "
+    "chamfer bottom edges, do not round them); walls at least 1.2 mm, 2 mm or more where "
+    "the part carries load; screw and pin holes 0.2-0.3 mm larger than the nominal "
+    "diameter; 0.2-0.3 mm clearance per side between mating parts; details at least "
+    "0.6 mm; $fn between 32 and 96 for curves.\n"
+    "- You may NOT use import, include, use or surface statements: the file may not read "
+    "other files.\n"
+    "- Given current OpenSCAD and a change: return the complete updated file, change only "
+    "what was asked, keep the existing variable names, and update the Size and Assumes "
+    "lines to match.\n"
+    "- Given a render error or a failed check: fix that exact problem and return the "
+    "complete corrected file.\n"
+    "- Ask only when a missing fact would change the part and cannot reasonably be assumed "
+    "(for example the size of the thing it must fit, when the request gives none and there "
+    "is no standard size). Then answer with exactly one line, 'QUESTION: <the question>', "
+    "and nothing else. Never ask about what you can choose yourself: material, wall "
+    "thickness, style or cosmetic details."
 )
 
 _MESH_SYSTEM_PROMPT = (
@@ -627,10 +701,58 @@ _MESH_HEADER = (
 )
 
 
-def _messages(session, instruction, previous_scad=None, error=None):
+def build_volume(cfg):
+    """[x, y, z] mm of the configured printer, or None when the bed is unknown.
+
+    Settings keep ``bed_mm`` as two values and the height separately
+    (``max_print_height_mm``); a missing height is None in the third slot.
+    """
+    printer = (cfg or {}).get("printer") or {}
+    bed = list(printer.get("bed_mm") or [])[:2]
+    if len(bed) != 2:
+        return None
+    try:
+        x, y = float(bed[0]), float(bed[1])
+        z = printer.get("max_print_height_mm")
+        z = float(z) if z else None
+    except (TypeError, ValueError):
+        return None
+    return [x, y, z]
+
+
+def _volume_line(cfg):
+    volume = build_volume(cfg)
+    if not volume:
+        return ""
+    x, y, z = volume
+    size = (f"{_format_number(x)} x {_format_number(y)} x {_format_number(z)} mm" if z
+            else f"{_format_number(x)} x {_format_number(y)} mm (bed)")
+    return f"Printer build volume: {size}; the part must fit inside it."
+
+
+# The earlier change requests shown to the model on a revision: enough to
+# resolve "the other side" or "like before", never the whole history.
+_HISTORY_IN_PROMPT = 5
+
+
+def _messages(session, instruction, previous_scad=None, error=None, *, cfg=None,
+              feedback=None):
     mesh = session.get("edit_mode") == "mesh"
     parts = [f"Design request: {session['description']}"]
+    asked = session.get("question")
+    if asked and session.get("question_answer"):
+        parts.append(f"You asked: {asked}\nThe user answered: {session['question_answer']}\n"
+                     "Do not ask anything else: design it now, stating any further "
+                     "assumptions in Assumes lines.")
+    volume = _volume_line(cfg)
+    if volume:
+        parts.append(volume)
     if previous_scad:
+        earlier = [entry.get("instruction") for entry in session.get("history") or []
+                   if entry.get("instruction")][1:]
+        if earlier:
+            parts.append("Earlier changes in this session, oldest first:\n" + "\n".join(
+                f"- {text}" for text in earlier[-_HISTORY_IN_PROMPT:]))
         label = ("Current edit body (it calls base(); return the complete new body)"
                  if mesh else f"Current OpenSCAD (turn {session['turns']})")
         parts.append(f"{label}:\n{previous_scad}")
@@ -643,9 +765,111 @@ def _messages(session, instruction, previous_scad=None, error=None):
     if error:
         parts.append(f"The previous file failed to render. OpenSCAD said:\n{error}\n"
                      "Return the complete corrected file.")
+    if feedback:
+        parts.append("The previous file rendered, but the measured part failed these "
+                     "checks:\n" + "\n".join(f"- {line}" for line in feedback) +
+                     "\nFix the design (or the Size line, if the line was wrong) and return "
+                     "the complete corrected file.")
     return [{"role": "system",
              "content": _MESH_SYSTEM_PROMPT if mesh else _SYSTEM_PROMPT},
             {"role": "user", "content": "\n\n".join(parts)}]
+
+
+# --------------------------------------------------------------------- design notes and checks
+
+_NOTE_LINE = re.compile(r"^\s*//\s*(part|size|assumes?|assumption)\s*:\s*(.+?)\s*$",
+                        re.I | re.M)
+_SIZE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*"
+                   r"[x×*]\s*(\d+(?:\.\d+)?)", re.I)
+
+
+def design_notes(source) -> dict:
+    """The header comments the design prompt asks for, read back from a file.
+
+    Returns {"part": str|None, "size_mm": [x, y, z]|None, "assumptions": [...]}.
+    Only comment lines are read, so a file without the header (an older
+    session, a dropped .scad, a mesh body) simply has no notes.
+    """
+    notes = {"part": None, "size_mm": None, "assumptions": []}
+    for key, value in _NOTE_LINE.findall(str(source or "")):
+        key = key.casefold()
+        if key == "part" and notes["part"] is None:
+            notes["part"] = value[:160]
+        elif key == "size" and notes["size_mm"] is None:
+            match = _SIZE.search(value)
+            if match:
+                notes["size_mm"] = [float(v) for v in match.groups()]
+        elif key.startswith("assum") and len(notes["assumptions"]) < 6:
+            notes["assumptions"].append(value[:200])
+    return notes
+
+
+_PARAM_COMMENT = re.compile(r"[ \t]*;?[ \t]*//[ \t]*(.+?)[ \t]*$", re.M)
+
+
+def scad_param_notes(source) -> dict:
+    """{name: trailing comment} for the top-level parameters that carry one."""
+    source = str(source or "")
+    notes = {}
+    for name, _value, _start, end in _scad_param_spans(source):
+        line_end = source.find("\n", end)
+        tail = source[end:line_end if line_end != -1 else len(source)]
+        match = _PARAM_COMMENT.match(tail.lstrip(";"))
+        if match:
+            notes[name] = match.group(1)[:80]
+    return notes
+
+
+# A declared size within this of the measured one is a match: curves are
+# polygons ($fn), so a cylinder measures slightly under its diameter.
+SIZE_TOLERANCE_MM = 0.5
+SIZE_TOLERANCE_REL = 0.03
+
+
+def check_design(info, *, notes=None, cfg=None, declared=True) -> list:
+    """Checks of a rendered part against its declaration and the printer.
+
+    Returns [(level, text)] with level "fail" (never handed over: the mesh is
+    not a printable solid) or "warn" (printable, but not what was intended,
+    or not proven to fit). The texts are written for the model's repair
+    prompt and are shown to the user when a finding survives the repairs.
+    ``declared=False`` skips the Size comparison (a deterministic parameter
+    edit leaves the header's Size line stale by design).
+    """
+    from .assembly_check import PartReport, check_bed_fit, check_part
+    findings = []
+    part = PartReport("design", "structural", dict(info or {}))
+    for finding in check_part(part):
+        if finding.code == "mesh_topology":
+            problems = finding.message.split(": ", 1)[-1]
+            findings.append((finding.level, f"the mesh has problems: {problems}"))
+        elif finding.code in ("empty_mesh", "no_volume"):
+            findings.append(("fail", finding.message))
+    shells = int((info or {}).get("shell_count") or 1)
+    findings = [(level, text.replace("more than one shell",
+                                     f"{shells} separate pieces instead of one solid"))
+                for level, text in findings]
+    low = (info or {}).get("bounds_min_mm") or []
+    if len(low) == 3 and abs(float(low[2])) > 0.01:
+        findings.append(("warn", f"the part's lowest point is at Z={float(low[2]):g} mm, "
+                                 "not on the bed at Z=0"))
+    dims = [float(v) for v in (info or {}).get("dimensions_mm") or []]
+    volume = build_volume(cfg)
+    if volume and len(dims) == 3:
+        bed = [volume[0], volume[1], volume[2] if volume[2] else float("inf")]
+        for finding in check_bed_fit(part, bed, min_margin_mm=0.0):
+            if finding.level == "fail":
+                findings.append(("warn", f"it does not fit the printer: {finding.message}"))
+    size = (notes or {}).get("size_mm")
+    if declared and size and len(dims) == 3:
+        def close(a, b):
+            return abs(a - b) <= max(SIZE_TOLERANCE_MM, SIZE_TOLERANCE_REL * max(a, b))
+        if not (all(close(a, b) for a, b in zip(size, dims)) or
+                all(close(a, b) for a, b in zip(sorted(size), sorted(dims)))):
+            fmt = lambda v: " x ".join(f"{x:g}" for x in v)
+            findings.append(("warn", f"it measures {fmt(dims)} mm, not the {fmt(size)} mm on "
+                                     "the Size line"))
+    return findings
 
 
 # --------------------------------------------------------------------- rendering
@@ -919,29 +1143,69 @@ class DesignEngine:
             result = await result
         return str(result or "")
 
-    def _render_and_validate(self, session, source):
+    def _render_attempt(self, session, source, attempt=0):
+        """Render one candidate source into attempt files; nothing is committed.
+
+        Returns (attempt dict, "") or (None, error text). A candidate whose
+        composed render file is byte-identical to a version this session
+        already rendered reuses that version's STL instead of running
+        OpenSCAD again (an undo, or a model that repeats itself).
+        """
+        import hashlib
         folder = _session_path(self.root, session["id"])
         folder.mkdir(parents=True, exist_ok=True)
         turn = session["turns"] + 1
-        scad_path = folder / f"turn-{turn}.scad"
-        stl_path = folder / f"turn-{turn}.stl"
+        stem = f"turn-{turn}-try{attempt}"
+        scad_path = folder / f"{stem}.scad"
+        stl_path = folder / f"{stem}.stl"
+        body_path = None
+        authored = source
         if session.get("edit_mode") == "mesh":
             # The model authored a body, never a file: the render file is the
             # driver header (the only import) plus that body, and the body is
             # kept separately so the next turn shows the model its own text.
-            body_path = folder / f"turn-{turn}.body.scad"
+            body_path = folder / f"{stem}.body.scad"
             body_path.write_text(source, encoding="utf-8")
-            session["body_file"] = body_path.name
             source = _MESH_HEADER.format(name=session["base_stl"]) + source
         scad_path.write_text(source, encoding="utf-8")
-        ok, error = render_scad(scad_path, stl_path, timeout_s=self.render_timeout_s,
-                                runner=self.runner)
-        if not ok:
-            return None, error
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        cached = next((folder / entry["stl"] for entry in session.get("history") or []
+                       if entry.get("hash") == digest and entry.get("stl")
+                       and (folder / entry["stl"]).is_file()), None)
+        if cached is not None:
+            shutil.copyfile(cached, stl_path)
+            logger.info("design session %s: reusing the render of an identical earlier "
+                        "version (%s)", session["id"], cached.name)
+        else:
+            ok, error = render_scad(scad_path, stl_path, timeout_s=self.render_timeout_s,
+                                    runner=self.runner)
+            if not ok:
+                return None, error
         try:
             info = validate_stl(stl_path)
         except DesignError as exc:
             return None, str(exc)
+        return {"scad_path": scad_path, "stl_path": stl_path, "body_path": body_path,
+                "source": source, "authored": authored, "info": info, "hash": digest}, ""
+
+    def _commit(self, session, attempt, *, instruction=None, findings=(), attempts=1,
+                reverted_to=None):
+        """Make one rendered attempt the session's new turn (files, preview, history)."""
+        folder = _session_path(self.root, session["id"])
+        turn = session["turns"] + 1
+        scad_path = folder / f"turn-{turn}.scad"
+        stl_path = folder / f"turn-{turn}.stl"
+        attempt["scad_path"].replace(scad_path)
+        attempt["stl_path"].replace(stl_path)
+        body_name = None
+        if attempt.get("body_path") is not None:
+            body_path = folder / f"turn-{turn}.body.scad"
+            attempt["body_path"].replace(body_path)
+            body_name = body_path.name
+            session["body_file"] = body_name
+        for stale in folder.glob(f"turn-{turn}-try*"):
+            stale.unlink(missing_ok=True)
+        info = attempt["info"]
         preview_path, preview_error = None, None
         try:
             preview_path = self._make_preview(session, stl_path, turn, info)
@@ -952,17 +1216,43 @@ class DesignEngine:
             logger.warning("design preview failed for session %s turn %s: %s",
                            session["id"], turn, exc)
             preview_error = str(exc)[:200]
+        findings = [list(f) for f in findings]
         session["turns"] = turn
         session["scad"] = scad_path.name
         session["stl"] = stl_path.name
         session["preview"] = Path(preview_path).name if preview_path else None
         session["preview_error"] = preview_error
         session["geometry"] = info
+        session["findings"] = findings
         session["status"] = "active"
+        history = list(session.get("history") or [])
+        history.append({"turn": turn, "hash": attempt["hash"], "scad": scad_path.name,
+                        "stl": stl_path.name, "body": body_name,
+                        "instruction": (str(instruction)[:300] if instruction else None),
+                        "reverted_to": reverted_to})
+        session["history"] = history[-MAX_TURNS:]
         _save(self.root, session)
         return {"session": session, "scad_path": scad_path, "stl_path": stl_path,
                 "preview_path": preview_path, "preview_error": preview_error,
-                "param_changes": [], "geometry": info, "scad": source}, ""
+                "param_changes": [], "geometry": info, "scad": attempt["source"],
+                "notes": design_notes(attempt["authored"]), "findings": findings,
+                "attempts": attempts, "reverted_to": reverted_to}
+
+    def _discard_attempts(self, session):
+        folder = _session_path(self.root, session["id"])
+        for stale in folder.glob(f"turn-{session['turns'] + 1}-try*"):
+            stale.unlink(missing_ok=True)
+
+    def _render_and_validate(self, session, source, *, instruction=None):
+        """Render and commit one source with no model in the loop (baseline turns)."""
+        attempt, error = self._render_attempt(session, source)
+        if attempt is None:
+            self._discard_attempts(session)
+            return None, error
+        findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
+                                cfg=self.cfg, declared=False)
+        return self._commit(session, attempt, instruction=instruction,
+                            findings=findings), ""
 
     def _make_preview(self, session, stl_path, turn, info=None):
         if self.preview is not None:
@@ -1053,28 +1343,52 @@ class DesignEngine:
         # is applied to the source directly — no model call, so nothing else
         # in the file can drift (#841 gap 2). Mesh bodies have no parameters
         # to patch, so they always take the model path.
+        if (session.get("question") and not session.get("question_answer")
+                and not previous):
+            # The reply to the one clarifying question the model asked: keep
+            # the answer beside the original request and design that.
+            session["question_answer"] = str(instruction)[:500]
+            instruction = session["description"]
+        target = parse_revert(instruction) if previous else None
+        if target is not None:
+            return await asyncio.to_thread(self._revert, session, target, instruction,
+                                           previous)
         if not mesh and previous:
             edit = deterministic_param_edit(previous, instruction)
             if edit is not None:
                 new_source, changes = edit
                 scan_scad(new_source)
-                result, det_error = await asyncio.to_thread(
-                    self._render_and_validate, session, new_source)
-                if result is None:
+                attempt, det_error = await asyncio.to_thread(
+                    self._render_attempt, session, new_source)
+                if attempt is None:
+                    self._discard_attempts(session)
                     raise DesignError(
                         "that parameter change could not be rendered: "
                         f"{det_error}")
+                # The header's Size line is the model's and is now stale by
+                # design, so only the measured checks apply here.
+                findings = check_design(attempt["info"], cfg=self.cfg, declared=False)
+                self._refuse_unprintable(session, findings)
+                result = await asyncio.to_thread(
+                    lambda: self._commit(session, attempt, instruction=instruction,
+                                         findings=findings))
                 result["param_changes"] = changes
                 return result
         old_params = scad_params(previous) if previous and not mesh else {}
         # A first turn has no earlier source: every parameter would read as
         # "(new)", which is noise, not a diff — report changes only after one.
         had_previous = bool(previous)
-        error = None
-        attempts = 1 + self.repair_attempts
+        may_ask = (not previous and session.get("kind") == "create"
+                   and not session.get("question"))
+        error, feedback = None, None
+        budget = 1 + self.repair_attempts
         last_error = ""
-        for attempt in range(attempts):
-            reply = await self._call(_messages(session, instruction, previous, error))
+        best = None  # (rank, attempt, findings, number)
+        calls = 0
+        for number in range(budget):
+            calls += 1
+            reply = await self._call(_messages(session, instruction, previous, error,
+                                               cfg=self.cfg, feedback=feedback))
             needs = re.match(r"\s*NEEDS_SOURCE:\s*(.+)", str(reply or ""))
             if needs:
                 # Not a render failure and not repairable by asking again:
@@ -1084,24 +1398,101 @@ class DesignEngine:
                     "Mesh editing can scale, mirror, move, add shapes and cut holes; "
                     "drop the original .scad file if you have it and design can edit "
                     "that directly.")
+            asked = re.match(r"\s*QUESTION:\s*(.+)", str(reply or ""), re.S)
+            if asked and "```" not in str(reply):
+                question = " ".join(asked[1].split())[:300]
+                if may_ask:
+                    session["question"] = question
+                    session["status"] = "awaiting_revision"
+                    _save(self.root, session)
+                    logger.info("design session %s asked: %s", session["id"], question)
+                    raise DesignQuestion(question)
+                # At most one question per design: anything later is answered
+                # by an assumption, and the retry spends the same budget.
+                error, feedback = None, [
+                    f"you asked '{question}', but no further questions are possible: "
+                    "make a sensible assumption, state it in an Assumes line, and "
+                    "return the complete file"]
+                continue
             source = extract_scad(reply)
             scan_scad(source)  # a sandbox refusal is not repaired by asking again
-            result, last_error = await asyncio.to_thread(
-                self._render_and_validate, session, source)
-            if result is not None:
-                if not mesh and had_previous:
-                    # Name what the rewrite actually changed, so a model
-                    # that quietly moved a dimension is visible (#841).
-                    result["param_changes"] = param_changes(
-                        old_params, scad_params(source))
-                return result
-            error = last_error
-            previous = source
-            if attempt + 1 >= attempts:
+            attempt, last_error = await asyncio.to_thread(
+                self._render_attempt, session, source, number)
+            if attempt is None:
+                logger.info("design session %s attempt %s/%s did not render: %s",
+                            session["id"], number + 1, budget, last_error.splitlines()[-1:])
+                error, feedback = last_error, None
+                previous = source
+                continue
+            findings = check_design(attempt["info"], notes=design_notes(source), cfg=self.cfg)
+            logger.info("design session %s attempt %s/%s rendered; findings: %s",
+                        session["id"], number + 1, budget,
+                        "; ".join(text for _level, text in findings) or "none")
+            rank = (sum(level == "fail" for level, _ in findings), len(findings), -number)
+            if best is None or rank < best[0]:
+                best = (rank, attempt, findings, number)
+            if not findings:
                 break
-        raise DesignError(
-            f"OpenSCAD could not render the design after {attempts} attempt(s). "
-            f"Last error: {last_error}")
+            error, feedback = None, [text for _level, text in findings]
+            previous = source
+        if best is None:
+            self._discard_attempts(session)
+            raise DesignError(
+                f"OpenSCAD could not render the design after {calls} attempt(s). "
+                f"Last error: {last_error}")
+        _rank, attempt, findings, _number = best
+        self._refuse_unprintable(session, findings)
+        result = await asyncio.to_thread(
+            lambda: self._commit(session, attempt, instruction=instruction,
+                                 findings=findings, attempts=calls))
+        if not mesh and had_previous:
+            # Name what the rewrite actually changed, so a model that
+            # quietly moved a dimension is visible (#841).
+            result["param_changes"] = param_changes(old_params,
+                                                    scad_params(attempt["source"]))
+        return result
+
+    def _refuse_unprintable(self, session, findings):
+        failed = [text for level, text in findings if level == "fail"]
+        if failed:
+            self._discard_attempts(session)
+            raise DesignError("the design rendered, but it is not a printable solid: "
+                              + "; ".join(failed))
+
+    def _revert(self, session, target, instruction, current):
+        """Go back to an earlier version: a new turn with that version's source.
+
+        No model call; the earlier render is reused through the source-hash
+        cache. ``target`` is "previous" or a turn number.
+        """
+        history = list(session.get("history") or [])
+        if target == "previous":
+            if len(history) < 2:
+                raise DesignError("there is no earlier version of this design to go back to")
+            entry = history[-2]
+        else:
+            entry = next((e for e in history if e.get("turn") == target), None)
+            if entry is None:
+                known = ", ".join(str(e.get("turn")) for e in history) or "none"
+                raise DesignError(f"this design has no version {target} to go back to "
+                                  f"(versions kept: {known})")
+        folder = _session_path(self.root, session["id"])
+        name = entry.get("body") if session.get("edit_mode") == "mesh" else entry.get("scad")
+        path = folder / name if name else None
+        if path is None or not path.is_file():
+            raise DesignError(f"version {entry.get('turn')} of this design is no longer on disk")
+        source = path.read_text(encoding="utf-8")
+        attempt, error = self._render_attempt(session, source)
+        if attempt is None:
+            self._discard_attempts(session)
+            raise DesignError(f"version {entry.get('turn')} could not be rendered again: {error}")
+        findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
+                                cfg=self.cfg)
+        result = self._commit(session, attempt, instruction=instruction, findings=findings,
+                              attempts=0, reverted_to=entry.get("turn"))
+        if session.get("edit_mode") != "mesh" and current:
+            result["param_changes"] = param_changes(scad_params(current), scad_params(source))
+        return result
 
     def baseline_turn(self, session):
         """Preview a dropped model exactly as it is — no model call (#841 gap 4).
@@ -1128,6 +1519,57 @@ class DesignEngine:
         if result is None:
             raise DesignError(f"the dropped model could not be rendered as-is: {error}")
         return result
+
+
+_REPLY_PARAMS = 6  # key dimensions named in a reply; the .scad has the rest
+
+
+def reply_lines(result) -> list:
+    """The design reply, in the same words on every platform.
+
+    What was made (the model's Part line), its measured size, what was
+    assumed, the key named dimensions, anything a check still found, and
+    how to change it. Numbers are always the measured ones; only the
+    description and the assumptions are the model's.
+    """
+    session = result["session"]
+    info = result.get("geometry") or {}
+    notes = result.get("notes") or {}
+    title = notes.get("part") or ("Your design" if session.get("kind") == "create"
+                                  else "The edited model")
+    if result.get("reverted_to"):
+        title = f"Back to version {result['reverted_to']}: {title[0].lower() + title[1:]}"
+    lines = [f"**Design turn {session['turns']}** — {title.rstrip('.')}."]
+    lines.append(f"Measured: {summary_text(result)}.")
+    assumptions = notes.get("assumptions") or []
+    if assumptions:
+        lines.append("Assumed: " + "; ".join(a.rstrip(".") for a in assumptions) + ".")
+    scad = result.get("scad") or ""
+    if session.get("edit_mode") != "mesh" and scad:
+        params = scad_params(scad)
+        described = scad_param_notes(scad)
+        names = [n for n in params if not n.startswith("$")]
+        names = sorted(names, key=lambda n: (n not in described, list(params).index(n)))
+        shown = [f"{n} = {_format_number(params[n])}"
+                 + (f" ({described[n]})" if n in described else "")
+                 for n in names[:_REPLY_PARAMS]]
+        if shown:
+            more = len(names) - len(shown)
+            lines.append("Key parameters: " + ", ".join(shown)
+                         + (f", and {more} more in the .scad" if more > 0 else "") + ".")
+    findings = [text for _level, text in result.get("findings") or []]
+    if findings:
+        lines.append("Heads-up: " + "; ".join(findings) + ".")
+    return lines
+
+
+def change_hint(session) -> str:
+    """How to change the design, phrased for the next message."""
+    if session.get("edit_mode") == "mesh":
+        return ('To change it, just say so — "scale it to 120%", "cut a 5 mm hole through '
+                'the middle" — or "undo" to go back.')
+    return ('To change it, just say so — "make it 5 mm taller", "set wall to 3", "add a '
+            'second hook" — or "undo" / "go back to version 1".')
 
 
 def summary_text(result) -> str:

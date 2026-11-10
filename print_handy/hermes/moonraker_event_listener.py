@@ -225,6 +225,11 @@ def post_alert(message, kind, filename, episode=None):
         try:
             from . import print_alert_buttons as pab
             kwargs = {"mention_user_id": mention} if mention else {}
+            from .. import listeners as _listeners
+            # The alert's buttons act on this listener's printer, not the default one (a
+            # listener with no instance is the default printer's; the alert records that).
+            if _listeners.instance_printer_id():
+                kwargs["printer_id"] = _listeners.instance_printer_id()
             if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
                                      message, kind, filename, **kwargs):
                 log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")

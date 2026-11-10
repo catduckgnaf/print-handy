@@ -1105,6 +1105,53 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
             f"({record['name']}).{moved} Inventory updated; printer untouched.")
 
 
+def _owner(printer_id: str | None = None) -> str | None:
+    """The roster id an alert being created belongs to: given, else this process's printer.
+
+    A per-printer listener or monitor process knows its instance printer; the legacy single
+    listener (no instance) is the default printer's. Recording it on every printer alert lets
+    handle_click act on the printer that raised the alert, never on whichever is the default.
+    None only when no roster is readable at all.
+    """
+    if printer_id:
+        return str(printer_id)
+    try:
+        from print_handy import listeners
+        instance = listeners.instance_printer_id()
+        if instance:
+            return str(instance)
+        from print_handy import settings
+        return settings.default_printer_id()
+    except Exception:
+        return None
+
+
+ALERT_PRINTER_UNKNOWN = ("This alert was recorded before alerts named their printer, and more than one "
+                         "printer is configured, so I can't tell which printer it came from. Nothing sent. "
+                         "Use the printer's own screen or the Web UI.")
+
+
+def _alert_printer(alert: dict[str, Any]) -> tuple[str | None, str | None]:
+    """(printer_id for the control calls, refusal text) for a button press.
+
+    The alert's recorded printer; None (the configured printer) when that is the default printer,
+    so the default keeps its legacy call shape. An old alert row with no printer_id falls back to
+    the configured printer only when exactly one printer is configured; otherwise it is refused.
+    """
+    try:
+        from print_handy import settings
+        roster = settings.printers()
+        default = settings.default_printer_id()
+    except Exception:
+        roster, default = None, None
+    pid = alert.get("printer_id") or None
+    if pid:
+        return (None if pid == default else str(pid)), None
+    if roster is not None and len(roster) > 1:
+        return None, ALERT_PRINTER_UNKNOWN
+    return None, None
+
+
 def post_with_buttons(token: str, channel_id: str, content: str, kind: str, filename: str,
                       connection: str | None = None, printer_id: str | None = None,
                       identity: Any = None, mention_user_id: str | None = None) -> bool:
@@ -1126,8 +1173,9 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
     extra: dict[str, Any] = {}
     if connection:
         extra["connection"] = connection
-    if printer_id:
-        extra["printer_id"] = printer_id
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
     if identity:
         extra["identity"] = str(identity)
     aid = record(kind, filename, **extra)
@@ -1216,8 +1264,18 @@ def _allowed_mentions(mention_user_id: str | None) -> dict[str, Any]:
     return allowed
 
 
+def _visual_extra(identity: Any, printer_id: str | None) -> dict[str, Any]:
+    """A visual alert record's extra fields: its per-print identity (#476) and its printer."""
+    extra: dict[str, Any] = {"identity": str(identity)} if identity else {}
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
+    return extra
+
+
 def post_visual_alert(token: str, channel_id: str, content: str, filename: str, image: Path,
-                      identity: Any = None, mention_user_id: str | None = None) -> bool:
+                      identity: Any = None, mention_user_id: str | None = None,
+                      printer_id: str | None = None) -> bool:
     """Post one camera image and its safe visual-review buttons in a single Discord message.
 
     ``identity`` is the caller's per-print identity (#476): it rides on the
@@ -1228,7 +1286,7 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
     """
     if not token or not channel_id or not image.is_file():
         return False
-    aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
+    aid = record("visual", filename, **_visual_extra(identity, printer_id))
     boundary = f"----hermes-print-{secrets.token_hex(12)}"
     payload = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
                           "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
@@ -1255,7 +1313,8 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
 
 
 def post_visual_text_alert(token: str, channel_id: str, content: str, filename: str,
-                           identity: Any = None, mention_user_id: str | None = None) -> bool:
+                           identity: Any = None, mention_user_id: str | None = None,
+                           printer_id: str | None = None) -> bool:
     """Post a visual alert with no image: the camera snapshot itself failed.
 
     post_visual_alert's buttons (Pause / "It's fine" / the per-print mute)
@@ -1267,7 +1326,7 @@ def post_visual_text_alert(token: str, channel_id: str, content: str, filename: 
     """
     if not token or not channel_id:
         return False
-    aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
+    aid = record("visual", filename, **_visual_extra(identity, printer_id))
     body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
                        "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
@@ -1283,7 +1342,7 @@ def post_visual_text_alert(token: str, channel_id: str, content: str, filename: 
 
 
 def post_visual_dark_notice(token: str, channel_id: str, content: str, filename: str,
-                            identity: Any = None) -> bool:
+                            identity: Any = None, printer_id: str | None = None) -> bool:
     """Post the once-per-print dark-camera notice (#476): text plus the mute button only.
 
     No image (the frame is black; it would only look like a failed upload)
@@ -1292,7 +1351,7 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
     """
     if not token or not channel_id:
         return False
-    aid = record("visual-dark", filename, **({"identity": str(identity)} if identity else {}))
+    aid = record("visual-dark", filename, **_visual_extra(identity, printer_id))
     body = json.dumps({"content": content[:1990], "components": components(aid, "visual-dark"),
                        "allowed_mentions": {"parse": []}}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
@@ -1432,7 +1491,8 @@ def _repost_alert(kind: str, filename: str, alert: dict[str, Any], content: str)
 _PAUSE_TERMINAL_STATES = ("complete", "cancelled", "canceled", "error", "standby")
 
 
-def _poll_for_paused(pc: Any, wait_s: float, poll_s: float) -> dict[str, Any] | None:
+def _poll_for_paused(pc: Any, wait_s: float, poll_s: float,
+                     printer_id: str | None = None) -> dict[str, Any] | None:
     """Poll ``pc.status()`` for up to ``wait_s`` for state == "paused" (#837).
 
     Returns the paused status read as soon as it is seen, and the first
@@ -1448,7 +1508,7 @@ def _poll_for_paused(pc: Any, wait_s: float, poll_s: float) -> dict[str, Any] | 
     while time.monotonic() < deadline:
         time.sleep(poll_s)
         try:
-            st = pc.status()
+            st = pc.status(printer_id) if printer_id else pc.status()
         except Exception:
             continue
         last = st
@@ -1533,12 +1593,16 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         if action == "acknowledge":
             return "Visual check acknowledged. Monitoring continues; nothing sent to the printer."
         if action == "pause":
-            if print_stop._lan_adapter() is not None:
+            pid, refusal = _alert_printer(alert)
+            if refusal:
+                return refusal
+            kw = {"printer_id": pid} if pid else {}
+            if print_stop._lan_adapter(**kw) is not None:
                 # Bambu camera watch (#294): the same button, the Bambu pause —
                 # print_stop.pause re-reads the LAN state and checks the file itself.
-                return print_stop.pause(filename)[1]
+                return print_stop.pause(filename, **kw)[1]
             try:
-                st = pc.status()
+                st = pc.status(**kw)
             except Exception as exc:
                 return f"Pause not confirmed: I could not read the printer ({exc}). Nothing sent."
             if st.get("klippy") != "ready":
@@ -1561,10 +1625,10 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             # state, or unknown when no usable readback was obtained.
             send_error: Exception | None = None
             try:
-                pc._call("/printer/print/pause", method="POST", timeout=15)
+                pc._send("/printer/print/pause", method="POST", timeout=15, **kw)
             except Exception as exc:
                 send_error = exc
-            outcome = _poll_for_paused(pc, pause_wait_s, pause_poll_s)
+            outcome = _poll_for_paused(pc, pause_wait_s, pause_poll_s, printer_id=pid)
             state = outcome.get("state") if outcome else None
             if state == "paused":
                 if send_error is not None:
@@ -1611,6 +1675,11 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
                     "the print is no longer printing, so there is nothing to pause. "
                     "Check the printer screen. Not retrying.")
         return "That visual alert action is not recognized. Nothing sent."
+    # Every printer action below acts on the printer that raised this alert.
+    pid, refusal = _alert_printer(alert)
+    if refusal:
+        return refusal
+    kw = {"printer_id": pid} if pid else {}
     connection = alert.get("connection")
     if connection:
         # A non-Moonraker family's pause alert (#460): the press goes to
@@ -1618,7 +1687,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         # state re-read and filename check — never the Moonraker path
         # below, whose transport only speaks to Moonraker endpoints.
         from . import family_control
-        control = family_control.control_for(alert.get("printer_id"))
+        control = family_control.control_for(pid)
         if control is None or control.connection != connection:
             return "That alert belongs to a printer I can't control from here. Nothing sent."
         if action == "resume":
@@ -1635,10 +1704,10 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     if action == "recover":
         if alert.get("kind") != "shutdown":
             return "That alert action is not recognized. Nothing sent."
-        return recover_from_stop(filename)
-    st = pc.status()
+        return recover_from_stop(filename, pid)
+    st = pc.status(**kw)
     if action == "resume":
-        ok, msg = pc.resume(filename)
+        ok, msg = pc.resume(filename, **kw)
         if not ok and ("still reports paused" in msg or msg == pc.HEAD_EMPTY_TEXT):
             # #837: resume was sent but the printer is still paused, and
             # the claimed alert's buttons are gone — re-post the paused
@@ -1663,7 +1732,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         if filename and st.get("filename") and st["filename"] != filename:
             notes.append("A different print is loaded now than the one in this alert. Not cancelling it.")
         else:
-            notes.append(print_stop.cancel(st.get("filename") or filename)[1])
+            notes.append(print_stop.cancel(st.get("filename") or filename, **kw)[1])
     else:
         notes.append(f"The job is already gone (printer is {st.get('state')}). Nothing to cancel.")
     return "\n".join(notes)
