@@ -37,6 +37,7 @@ PROFILE = "3dprinting"  # the plugin's handlers only answer events of the print 
 # a household member who was never told about a list learns it exists, never
 # often enough to spam the channel while they keep posting.
 REFUSAL_NOTICE_PERIOD_S = 3600
+WORKING_SIGNAL_TIMEOUT_S = 10  # a typing indicator that has not landed by then is pointless
 APPROVAL_ONLY_NOTICE = "Only an approval user can approve a print. Nothing was changed."
 REFUSAL_NOTICE = ("You are not on this bot's allowed list, so I can't act on that. Nothing was changed. "
                   "If you should have access, ask the person who runs Print Handy to add you.")
@@ -671,6 +672,7 @@ class BotCore:
         # platforms (P1-109): the tasks are tracked so they are never
         # garbage-collected mid-wait and their failures are logged.
         self._suggestion_tasks: set[asyncio.Task] = set()
+        self._signal_tasks: set[asyncio.Task] = set()  # in-flight typing indicators
         self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
         # Help is a platform surface: a platform that cannot run the live
         # command does not advertise it (P2-123).
@@ -775,9 +777,38 @@ class BotCore:
             # plus one throttled in-channel notice.
             await self._note_refusal(source)
             return None
+        if str(getattr(message, "content", "") or "").strip() or getattr(message, "attachments", None):
+            self._signal_working(source)
         media = await self.save_attachments(message)
         event = make_event(source, getattr(message, "content", ""), message.id, media)
         return await self.process(event)
+
+    def _signal_working(self, source):
+        """Fire the platform's typing indicator for an accepted message, off the message path.
+
+        Only called once a message is admitted (author, channel and access
+        list all passed) and has something to act on, so ignored messages
+        never show the bot typing. It is cosmetic: it never blocks the
+        handler, never raises into it, and a failure is logged at DEBUG.
+        """
+        try:
+            signal = getattr(self.adapter, "signal_working", None)
+            if signal is None:
+                return
+            loop = asyncio.get_running_loop()
+            metadata = {"thread_id": source.thread_id} if source.thread_id else None
+
+            async def _run():
+                try:
+                    await asyncio.wait_for(signal(source.chat_id, metadata=metadata), WORKING_SIGNAL_TIMEOUT_S)
+                except Exception as exc:  # cosmetic only: never surfaces
+                    logger.debug("typing indicator failed on %s: %r", self.platform_name, exc)
+
+            task = loop.create_task(_run())
+            self._signal_tasks.add(task)
+            task.add_done_callback(self._signal_tasks.discard)
+        except Exception as exc:
+            logger.debug("could not start the typing indicator: %r", exc)
 
     async def _note_refusal(self, source):
         """Log a list refusal at INFO and tell the channel, once per user per period (#386)."""

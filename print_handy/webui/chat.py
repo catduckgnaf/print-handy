@@ -21,6 +21,7 @@ from . import shell
 
 _esc = shell._esc
 REFRESH_SECONDS = 3
+WORKING_TEXT = "Working on it…"
 
 
 def render_chat_disabled_page(*, theme=shell.DEFAULT_THEME, nav=None):
@@ -50,8 +51,9 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
     # no question is waiting on the operator (an open question is
     # already rendered; the page can sit still for the answer).
     prompt = service.open_prompt()
+    pending = service.busy() and not prompt
     parts = []
-    if service.busy() and not prompt:
+    if pending:
         parts.append(f'<meta http-equiv="refresh" content="{REFRESH_SECONDS}">')
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
@@ -68,6 +70,11 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         elif kind == "prompt":
             body.append(f'<p class="chat-bot"><em>'
                         f'{_esc(entry.get("question") or "")}</em></p>')
+    if pending:
+        # The browser's typing indicator: the turn is running. Shown from
+        # the page render right after Send, so the operator sees the
+        # message was taken before the first reply arrives.
+        body.append(f'<p class="chat-bot chat-working"><em>{WORKING_TEXT}</em></p>')
     if body:
         parts.append('<div class="chat-log">' + "".join(body) + "</div>")
     else:

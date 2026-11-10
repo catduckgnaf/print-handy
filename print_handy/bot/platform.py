@@ -290,6 +290,17 @@ class BasePlatformAdapter:
             return False
         return self.is_allowed_id(uid)
 
+    # ------------------------------------------------------------------ working signal
+
+    async def signal_working(self, chat_id, metadata=None):
+        """Show the chat that the bot is working on a message (typing indicator).
+
+        Best effort and cosmetic: BotCore fires it in the background for
+        an accepted message and ignores any failure. Platforms without
+        such a signal keep this no-op.
+        """
+        return None
+
     # ------------------------------------------------------------------ prompts
 
     def _record_prompt(self, clarify_id, row):
