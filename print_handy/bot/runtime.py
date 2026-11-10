@@ -518,7 +518,9 @@ def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="d
 
 
 def make_event(source, text, message_id, media_urls=(), metadata=None):
-    return SimpleNamespace(source=source, text=str(text or ""), media_urls=list(media_urls),
+    # A chat user's text is third-party text: a handler that echoes an
+    # argument back must never turn a typed MEDIA: line into an attachment.
+    return SimpleNamespace(source=source, text=rest.inert_media(text), media_urls=list(media_urls),
                            message_id=str(message_id), metadata=dict(metadata or {}), internal=False)
 
 

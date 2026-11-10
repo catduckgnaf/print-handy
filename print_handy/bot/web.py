@@ -69,12 +69,12 @@ class WebAdapter(BasePlatformAdapter):
         super().__init__([OPERATOR_ID], approver=OPERATOR_ID, **kwargs)
         self._outbox = outbox
 
-    async def send(self, chat_id, content, reply_to=None, metadata=None):
-        # The chat page cannot attach files, so a MEDIA: marker becomes
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
+        # The chat page cannot attach files, so an attachment becomes
         # a note naming the file — never the marker itself, whose server
-        # path is not the reader's business. split_media drops markers
-        # for files that do not exist, as on the other platforms.
-        body, files = rest.split_media(str(content or ""))
+        # path is not the reader's business. Markers go through the same
+        # restricted compatibility path as on the other platforms.
+        body, files = rest.outgoing(str(content or ""), files)
         if body or not files:
             for start in range(0, max(len(body), 1), self.message_limit):
                 self._outbox.append({"kind": "message",

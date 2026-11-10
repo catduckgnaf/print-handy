@@ -58,9 +58,18 @@ def starter_user_id(job):
     return user_id if user_id.isdigit() else ""
 
 
+def _inert(text):
+    """Third-party text (a model title, a printer-reported filename) with any
+    ``MEDIA:`` marker made inert, so it can never name a file to attach."""
+    from print_handy.bot.rest import inert_media
+    return inert_media(text)
+
+
 def scrub(text):
-    """Last line of defence: no hex run of 32+ characters ever reaches Discord."""
-    return _HASH.sub("", str(text))
+    """Last line of defence: no hex run of 32+ characters ever reaches Discord,
+    and no rendered text carries a live attachment marker (callers append
+    their own MEDIA lines after rendering)."""
+    return _inert(_HASH.sub("", str(text)))
 
 
 def safe_label(value, fallback="Print"):
@@ -68,7 +77,7 @@ def safe_label(value, fallback="Print"):
     text = re.sub(r"\.(?:gcode|3mf|stl|json)$", "", text, flags=re.I)
     text = re.sub(r"[_-]?[0-9a-f]{32,}", "", text, flags=re.I).replace("_", " ")
     text = re.sub(r"\s+", " ", text).strip(" .-/\\")
-    return text or fallback
+    return _inert(text) or fallback
 
 
 def filament_label(name, material, name_fallback="", material_fallback=""):

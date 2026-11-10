@@ -22,7 +22,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from .rest import chunks, split_media
+from .rest import chunks, outgoing
 
 CLIENT = "/_matrix/client/v3"
 MEDIA_CLIENT = "/_matrix/client/v1"
@@ -210,8 +210,11 @@ def download_media(homeserver, token, mxc_url, *, opener=None, timeout=60):
         return resp.read()
 
 
-def send(homeserver, token, room_id, text, *, opener=None, timeout=120, mention_user_id=None):
-    """Post text (and any MEDIA files) to a room. Returns (ok, first event id or error text).
+def send(homeserver, token, room_id, text, *, opener=None, timeout=120, mention_user_id=None,
+         files=None):
+    """Post text (and ``files``, plus any attachable MEDIA line) to a room.
+
+    Returns (ok, first event id or error text).
 
     Every event carries an explicit ``m.mentions``: empty, or on the first
     text event only, the one user ``mention_user_id`` names."""
@@ -221,7 +224,7 @@ def send(homeserver, token, room_id, text, *, opener=None, timeout=120, mention_
         return False, "matrix.homeserver_url is not configured"
     if not room_id:
         return False, "matrix.room_id is not configured"
-    body, files = split_media(text)
+    body, files = outgoing(text, files)
     pieces = chunks(body, LIMIT)
     first = None
     mention = mention_user_id
