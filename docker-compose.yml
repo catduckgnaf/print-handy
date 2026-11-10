@@ -205,6 +205,8 @@ services:
     depends_on:
       print-handy-init:
         condition: service_completed_successfully
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     shm_size: 256m
     logging:
       driver: json-file
@@ -222,7 +224,7 @@ services:
     user: "0:0"
     entrypoint: [/bin/sh, -ec]
     command:
-      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$path" && chown 1000:1000 "$path"; done'
+      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$$path" && chown 1000:1000 "$$path"; done'
     restart: "no"
     cap_drop: [ALL]
     cap_add: [CHOWN]

@@ -552,10 +552,11 @@ class UnraidTemplateTests(unittest.TestCase):
 
     def test_template_runs_the_combined_compose_service(self):
         # The combined service is the template's container; the only other
-        # Compose service is the optional cloudflared sidecar (#311), which
+        # Compose services are the one-shot first-boot init service (#1144)
+        # and the optional cloudflared sidecar (#311), which
         # is profile-gated, shares the combined network namespace and is a
         # separate Unraid container there — never part of this template.
-        self.assertEqual(list(COMPOSE["services"]), ["combined", "cloudflared"])
+        self.assertEqual(list(COMPOSE["services"]), ["combined", "print-handy-init", "cloudflared"])
         sidecar = COMPOSE["services"]["cloudflared"]
         self.assertEqual(sidecar["profiles"], ["live-stream"])
         self.assertEqual(sidecar["network_mode"], "service:combined")

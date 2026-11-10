@@ -5,7 +5,14 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 image=${1:?usage: clean_compose_start.sh LOCAL_IMAGE}
 work=$(mktemp -d)
 project="ph-clean-start-${GITHUB_RUN_ID:-local}-$$"
-cleanup() { (cd "$work" && docker compose -p "$project" down --volumes --remove-orphans) >/dev/null 2>&1 || true; rm -rf "$work"; }
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    (cd "$work" && docker compose -p "$project" logs) || true
+  fi
+  (cd "$work" && docker compose -p "$project" down --volumes --remove-orphans) >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
 trap cleanup EXIT
 mkdir -p "$work/fixture" "$work/data"
 cp "$repo/docker-compose.yml" "$repo/tests/docker/compose.acceptance.yml" "$work/"
