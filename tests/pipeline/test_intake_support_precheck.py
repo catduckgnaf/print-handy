@@ -423,6 +423,13 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     assert any('Reoriented' in m for m in adapter.sent)
     job = json.loads(Path(receipt['job_json']).read_text())
     assert (job.get('orientation') or {}).get('rotation') is not None
+    # The rotated envelope is recorded with the rotation, so the bed
+    # pre-check and size edits measure the pose that prints.
+    from print_handy.core import edit_plan, support_clearance
+    tris = [tuple(map(tuple, tri)) for p in support_clearance.leaves(str(V12_FIXTURE)) for tri in p['tris']]
+    expected = edit_plan.mesh_envelope(job['orientation']['rotation'], tris)
+    assert job['orientation']['dims_full_mm'] == pytest.approx(list(expected), abs=1e-3)
+    assert edit_plan.job_dims(job) == pytest.approx(expected, abs=1e-3)
     assert 'supports' not in (job.get('orientation') or {})
     assert 'support_decision' not in job
     assert 'clearance_acknowledgement' not in job
