@@ -134,6 +134,21 @@ channel per user per hour ("You are not on this bot's allowed list."). Approvals
 restricts anyone else, and widening intake does not widen the live camera's own allowlist
 (`approval_user_id` plus `allowed_user_ids`, as before).
 
+### Yolo
+
+Saying `yolo` with a model or link, or dropping an already-sliced `.gcode` / `.gcode.3mf` file, prints
+without enforcing the usual checks: each check still runs, and a failed one is posted in the thread instead
+of stopping the print. Two things are never waived:
+
+- **Who may yolo.** Only a configured approval user (`approval_user_id` on that platform). With no approval
+  user configured, nobody can yolo there and the bot says how to set one; `approval_all_users = true` lets
+  everyone yolo only once at least one approval user is configured. In the Web UI chat the signed-in
+  operator is the approval user, so yolo works there as print approvals do.
+- **The printer's mechanical limits.** A move outside the printer's axis limits, a toolpath whose bounds
+  cannot be verified (for example one that uses `SET_GCODE_OFFSET`, `M206`, `G10 L2` or `G54`-`G59`),
+  and a heater target above the printer's absolute maximum (the fitted nozzle's safe limit or the model's
+  hotend or bed maximum) still refuse.
+
 ## 5. Verify offline before connecting
 
 Run in the repository root using the Python environment from installation:

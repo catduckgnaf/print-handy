@@ -7,18 +7,28 @@
 //! implementations share — and that the shared corpus in
 //! `tests/pipeline/native_bounds_corpus.py` pins — is:
 //!
-//! * Lines are split on `\n`; only spaces and tabs may precede a command.
-//! * Command recognition is line-anchored and case-insensitive, requires
-//!   the next character to be whitespace or end-of-text, and tries the
-//!   alternation in the Python pattern's order (`G00` before `G0`, ...),
-//!   so `G1X10`, `G10`, `G92.1` and `G90;comment` do NOT match.
-//! * The words after a command run to the first `;`, `\r` or `\n`.
+//! * A carriage return followed by anything but whitespace before the
+//!   next `\n` refuses first, with its line number (API 3): Marlin ends
+//!   the line there and Klipper does not.
+//! * Lines are split on `\n`. A line is tokenized the way Klipper and
+//!   Marlin read it (API 3): optional leading whitespace (Python `\s`
+//!   except `\n`), an optional `N<digits>` line number and whitespace,
+//!   then either a `G`/`M` command word (letter, optional whitespace,
+//!   ASCII digits with leading zeros ignored, optional `.<digits>`
+//!   subcode; parameters may be glued on: `G1X400`) or an extended
+//!   command name `[A-Za-z_][A-Za-z0-9_]*`. Case-insensitive.
+//! * The words after a command run to the first `;` or `\n`.
 //! * `G90`/`G91` switch absolute/relative positioning (no `M82`/`M83`).
 //! * `G20` (inch units) refuses with its line number (API 2).
-//! * `G28`, `G53`, `FORCE_MOVE`, `MANUAL_STEPPER`, `STEPPER_BUZZ` and
-//!   `SET_KINEMATIC_POSITION` refuse with their line number; `G2`/`G02`/
-//!   `G3`/`G03` arcs refuse; `G92` refuses only when its words contain an
-//!   axis letter followed by a number.
+//! * `G28`, `G53`, `G5`, `G6`, `G38`, `FORCE_MOVE`, `MANUAL_STEPPER`,
+//!   `STEPPER_BUZZ` and `SET_KINEMATIC_POSITION` refuse with their line
+//!   number; `G2`/`G3` arcs refuse; `G92` refuses only when its words
+//!   contain an axis letter followed by a number.
+//! * Offset commands refuse (API 3): `SET_GCODE_OFFSET`,
+//!   `RESTORE_GCODE_STATE`, `M428`, `G54`..`G59`, `M206` with an axis
+//!   word, and `G10` with an `L` or axis word. A subcode on any G number
+//!   the parser interprets (`G92.1`, `G91.1`, `G1.5`) refuses; `M`
+//!   commands are matched on their number whatever the subcode.
 //! * Axis extraction scans the words for `X`/`Y`/`Z` (either case)
 //!   followed by optional whitespace and a number of the grammar
 //!   `[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?`; glued words (`X10Y20`)
@@ -46,7 +56,9 @@ use pyo3::types::PyDict;
 /// Version handshake between this extension and the Python dispatcher.
 /// Bump on any semantic change; the dispatcher falls back to the Python
 /// parser when the constant does not match its expectation.
-pub const API_VERSION: u32 = 2; // 2: G20 refused (#952 phase 2)
+// 2: G20 refused (#952 phase 2). 3: firmware tokenization and offset
+// commands refused (S4).
+pub const API_VERSION: u32 = 3;
 
 create_exception!(
     _bounds_native,
@@ -173,11 +185,112 @@ fn axis_index(c: u8) -> Option<usize> {
     }
 }
 
-/// Commands in the Python pattern's alternation order.
-const COMMANDS: &[&str] = &[
-    "G90", "G91", "G00", "G0", "G01", "G1", "G02", "G2", "G03", "G3", "G92", "G28", "G53", "G20",
-    "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION",
+/// Extended commands that refuse as unsupported motion.
+const FORBIDDEN_NAMES: &[&str] = &["FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"];
+/// Extended commands that change what later coordinates mean.
+const OFFSET_NAMES: &[&str] = &["SET_GCODE_OFFSET", "RESTORE_GCODE_STATE"];
+/// G numbers (leading zeros stripped) that refuse as unsupported motion.
+const G_FORBIDDEN: &[&[u8]] = &[b"28", b"53", b"5", b"6", b"38"];
+/// G numbers that select a work coordinate system.
+const G_WORK_OFFSETS: &[&[u8]] = &[b"54", b"55", b"56", b"57", b"58", b"59"];
+/// G numbers the parser interprets; a subcode on any of them refuses.
+const G_KNOWN: &[&[u8]] = &[
+    b"0", b"1", b"2", b"3", b"5", b"6", b"10", b"20", b"28", b"38", b"53", b"90", b"91", b"92",
+    b"54", b"55", b"56", b"57", b"58", b"59",
 ];
+
+/// One recognized line-start command.
+enum Command<'a> {
+    /// A `G`/`M` word: uppercase letter, number without leading zeros,
+    /// optional subcode digits.
+    Word { letter: u8, number: &'a [u8], sub: Option<&'a [u8]> },
+    /// An extended command name, uppercased.
+    Name(String),
+}
+
+/// Skip Python-`\s` whitespace in `s[i..end]` (never crosses `end`).
+fn skip_ws(s: &[u8], mut i: usize, end: usize) -> usize {
+    while i < end {
+        let w = ws_len(s, i);
+        if w == 0 || s[i] == b'\n' {
+            break;
+        }
+        i += w;
+    }
+    i
+}
+
+fn is_name_char(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// The command starting at `s[i]` (within `s[..end]`) and the index its
+/// words start at, or `None` when no command starts there. Mirrors the
+/// Python pattern `([GM])[^\S\n]*([0-9]+)(?:\.([0-9]+))?|([A-Z_][A-Z0-9_]*)`.
+fn parse_command(s: &[u8], i: usize, end: usize) -> Option<(Command<'_>, usize)> {
+    if i >= end {
+        return None;
+    }
+    let c = s[i].to_ascii_uppercase();
+    if c == b'G' || c == b'M' {
+        let ds = skip_ws(s, i + 1, end);
+        let mut j = ds;
+        while j < end && s[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > ds {
+            let mut nz = ds;
+            while nz + 1 < j && s[nz] == b'0' {
+                nz += 1;
+            }
+            let number = &s[nz..j];
+            let mut sub = None;
+            if j + 1 < end && s[j] == b'.' && s[j + 1].is_ascii_digit() {
+                let mut k = j + 1;
+                while k < end && s[k].is_ascii_digit() {
+                    k += 1;
+                }
+                sub = Some(&s[j + 1..k]);
+                j = k;
+            }
+            return Some((Command::Word { letter: c, number, sub }, j));
+        }
+    }
+    if c.is_ascii_alphabetic() || c == b'_' {
+        let mut k = i + 1;
+        while k < end && is_name_char(s[k]) {
+            k += 1;
+        }
+        let name = String::from_utf8_lossy(&s[i..k]).to_ascii_uppercase();
+        return Some((Command::Name(name), k));
+    }
+    None
+}
+
+/// True when `s[start..end]` holds one of `letters` (either case)
+/// followed by optional whitespace and a number.
+fn has_word(s: &[u8], start: usize, end: usize, letters: &[u8]) -> bool {
+    let mut k = start;
+    while k < end {
+        if letters.contains(&s[k].to_ascii_uppercase()) && parse_number(s, end, k + 1).is_some() {
+            return true;
+        }
+        k += 1;
+    }
+    false
+}
+
+fn digits(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
+}
+
+fn is(number: &[u8], want: &[u8]) -> bool {
+    number == want
+}
+
+fn one_of(set: &[&[u8]], number: &[u8]) -> bool {
+    set.iter().any(|known| *known == number)
+}
 
 struct State {
     absolute: bool,
@@ -220,6 +333,32 @@ pub fn parse(s: &[u8]) -> Result<[[f64; 2]; 3], String> {
         high: [f64::NEG_INFINITY; 3],
         recognized: 0,
     };
+    // A carriage return with more text after it on the same line: Marlin
+    // ends the line at the CR, Klipper does not, so they run different
+    // commands. Refused before anything else, like the Python pre-pass.
+    {
+        let mut cr_line: u64 = 1;
+        for i in 0..n {
+            if s[i] == b'\n' {
+                cr_line += 1;
+            } else if s[i] == b'\r' {
+                let mut j = i + 1;
+                loop {
+                    if j >= n || s[j] == b'\n' {
+                        break;
+                    }
+                    let w = ws_len(s, j);
+                    if w == 0 {
+                        return Err(format!(
+                            "line {cr_line}: carriage return inside a line; firmwares split it \
+                             differently, so bounds are ambiguous"
+                        ));
+                    }
+                    j += w;
+                }
+            }
+        }
+    }
     let mut p = 0usize;
     let mut lineno: u64 = 1;
     loop {
@@ -227,99 +366,107 @@ pub fn parse(s: &[u8]) -> Result<[[f64; 2]; 3], String> {
         while line_end < n && s[line_end] != b'\n' {
             line_end += 1;
         }
-        let mut i = p;
-        while i < line_end && (s[i] == b' ' || s[i] == b'\t') {
-            i += 1;
-        }
-        let mut matched: Option<(&str, usize)> = None;
-        for cand in COMMANDS {
-            let len = cand.len();
-            if i + len > n {
-                continue;
+        let i = skip_ws(s, p, line_end);
+        let parsed = if i + 1 < line_end && (s[i] == b'N' || s[i] == b'n') && s[i + 1].is_ascii_digit() {
+            // A line number. When no command follows it, the Python pattern
+            // falls back to reading the line as a name starting with N,
+            // which no refusal set contains: the line is ignored either way.
+            let mut j = i + 1;
+            while j < line_end && s[j].is_ascii_digit() {
+                j += 1;
             }
-            let mut eq = true;
-            for k in 0..len {
-                let mut c = s[i + k];
-                if c.is_ascii_lowercase() {
-                    c = c.to_ascii_uppercase();
-                }
-                if c != cand.as_bytes()[k] {
-                    eq = false;
-                    break;
-                }
-            }
-            if !eq {
-                continue;
-            }
-            let j = i + len;
-            if j == n || (j < n && ws_len(s, j) > 0) {
-                matched = Some((cand, j));
-                break;
-            }
-        }
-        if let Some((cmd, words_start)) = matched {
+            parse_command(s, skip_ws(s, j, line_end), line_end)
+        } else {
+            parse_command(s, i, line_end)
+        };
+        if let Some((cmd, words_start)) = parsed {
             let mut words_end = words_start;
-            while words_end < n && s[words_end] != b';' && s[words_end] != b'\r' && s[words_end] != b'\n' {
+            while words_end < line_end && s[words_end] != b';' {
                 words_end += 1;
             }
             match cmd {
-                "G90" => st.absolute = true,
-                "G91" => st.absolute = false,
-                "G28" | "G53" | "FORCE_MOVE" | "MANUAL_STEPPER" | "STEPPER_BUZZ"
-                | "SET_KINEMATIC_POSITION" => {
-                    return Err(format!(
-                        "line {lineno}: unsupported motion-affecting command {cmd}"
-                    ));
-                }
-                "G2" | "G02" | "G3" | "G03" => {
-                    return Err(format!(
-                        "line {lineno}: arc motion is unsupported by the bounds verifier"
-                    ));
-                }
-                "G20" => {
-                    // Inch coordinates read as millimetres would shrink every
-                    // bound about 25x and pass a print that cannot fit.
-                    return Err(format!("line {lineno}: inch units (G20) are unsupported by the bounds verifier"));
-                }
-                "G92" => {
-                    let mut found = false;
-                    let mut k = words_start;
-                    while k < words_end && !found {
-                        if axis_index(s[k]).is_some()
-                            && parse_number(s, words_end, k + 1).is_some()
-                        {
-                            found = true;
-                        }
-                        k += 1;
+                Command::Name(name) => {
+                    if FORBIDDEN_NAMES.iter().any(|known| *known == name) {
+                        return Err(format!("line {lineno}: unsupported motion-affecting command {name}"));
                     }
-                    if found {
+                    if OFFSET_NAMES.iter().any(|known| *known == name) {
                         return Err(format!(
-                            "line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous"
+                            "line {lineno}: {name} changes coordinate offsets; bounds are ambiguous"
                         ));
                     }
                 }
-                _ => {
-                    // G0/G00/G1/G01: scan the words for axis+number pairs.
-                    let mut found = false;
-                    let mut k = words_start;
-                    while k < words_end {
-                        if let Some(ax) = axis_index(s[k]) {
-                            if let Some((end, v)) = parse_number(s, words_end, k + 1) {
-                                found = true;
-                                if let Err(axis) = st.apply(ax, v) {
-                                    let name = b"XYZ"[axis] as char;
-                                    return Err(format!(
-                                        "line {lineno}: relative {name} motion before an absolute {name} position"
-                                    ));
-                                }
-                                k = end;
-                                continue;
-                            }
-                        }
-                        k += 1;
+                Command::Word { letter: b'M', number, .. } => {
+                    // Marlin dispatches on the number alone, whatever the subcode.
+                    if is(number, b"428") || (is(number, b"206") && has_word(s, words_start, words_end, b"XYZ")) {
+                        return Err(format!(
+                            "line {lineno}: M{} changes coordinate offsets; bounds are ambiguous",
+                            digits(number)
+                        ));
                     }
-                    if found {
-                        st.recognized += 1;
+                }
+                Command::Word { number, sub: Some(sub), .. } => {
+                    if one_of(G_KNOWN, number) {
+                        return Err(format!(
+                            "line {lineno}: unsupported motion-affecting command G{}.{}",
+                            digits(number),
+                            digits(sub)
+                        ));
+                    }
+                }
+                Command::Word { number, sub: None, .. } => {
+                    if is(number, b"0") || is(number, b"1") {
+                        // G0/G1: scan the words for axis+number pairs.
+                        let mut found = false;
+                        let mut k = words_start;
+                        while k < words_end {
+                            if let Some(ax) = axis_index(s[k]) {
+                                if let Some((end, v)) = parse_number(s, words_end, k + 1) {
+                                    found = true;
+                                    if let Err(axis) = st.apply(ax, v) {
+                                        let name = b"XYZ"[axis] as char;
+                                        return Err(format!(
+                                            "line {lineno}: relative {name} motion before an absolute {name} position"
+                                        ));
+                                    }
+                                    k = end;
+                                    continue;
+                                }
+                            }
+                            k += 1;
+                        }
+                        if found {
+                            st.recognized += 1;
+                        }
+                    } else if is(number, b"90") {
+                        st.absolute = true;
+                    } else if is(number, b"91") {
+                        st.absolute = false;
+                    } else if is(number, b"92") {
+                        if has_word(s, words_start, words_end, b"XYZ") {
+                            return Err(format!(
+                                "line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous"
+                            ));
+                        }
+                    } else if is(number, b"2") || is(number, b"3") {
+                        return Err(format!(
+                            "line {lineno}: arc motion is unsupported by the bounds verifier"
+                        ));
+                    } else if is(number, b"20") {
+                        // Inch coordinates read as millimetres would shrink every
+                        // bound about 25x and pass a print that cannot fit.
+                        return Err(format!("line {lineno}: inch units (G20) are unsupported by the bounds verifier"));
+                    } else if one_of(G_FORBIDDEN, number) {
+                        return Err(format!(
+                            "line {lineno}: unsupported motion-affecting command G{}",
+                            digits(number)
+                        ));
+                    } else if one_of(G_WORK_OFFSETS, number)
+                        || (is(number, b"10") && has_word(s, words_start, words_end, b"LXYZ"))
+                    {
+                        return Err(format!(
+                            "line {lineno}: G{} changes coordinate offsets; bounds are ambiguous",
+                            digits(number)
+                        ));
                     }
                 }
             }
@@ -420,6 +567,21 @@ mod tests {
     fn guarded_parse_keeps_an_ordinary_refusal() {
         let outcome = guarded_parse(b"G20\nG1 X10 Y10 Z1\n");
         assert!(outcome.unwrap_err().contains("G20"), "refusals pass through unchanged");
+    }
+
+    #[test]
+    fn firmware_tokenization_sees_glued_and_commented_commands() {
+        let outcome = guarded_parse(b"G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nN7 G1X100*12\n");
+        assert_eq!(outcome, Ok([[10.0, 210.0], [1.0, 1.0], [1.0, 1.0]]));
+    }
+
+    #[test]
+    fn offset_commands_refuse_by_name() {
+        let outcome = guarded_parse(b"G90\nG1 X1 Y1 Z1\nSET_GCODE_OFFSET X=300\n");
+        assert_eq!(outcome.unwrap_err(),
+                   "line 3: SET_GCODE_OFFSET changes coordinate offsets; bounds are ambiguous");
+        let outcome = guarded_parse(b"G90\nG1 X1 Y1 Z1\nM206 X300\n");
+        assert!(outcome.unwrap_err().contains("M206"));
     }
 
     #[test]

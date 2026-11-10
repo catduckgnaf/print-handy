@@ -2069,60 +2069,97 @@ def show(job):
 NUMBER=r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?'
 
 
-_GCODE_LINE_RE = re.compile(r'(?im)^[ \t]*(G90|G91|G0?0|G0?1|G0?2|G0?3|G92|G28|G53|G20|FORCE_MOVE|MANUAL_STEPPER|STEPPER_BUZZ|SET_KINEMATIC_POSITION)(?=\s|$)([^;\r\n]*)')
+# One G-code line as Klipper and Marlin tokenize it (API 3, S4): optional
+# leading whitespace, an optional N<digits> line number, then either a
+# letter-number command word (G1, G01, G 1, G92.1; the parameters may be
+# glued on: G1X400) or a Klipper extended command name (SET_GCODE_OFFSET).
+# The words run to the first ';' (both firmwares end the command there) or
+# the end of the line. A '*checksum' needs no handling: it is not an axis
+# word. Parenthesised comments are deliberately NOT stripped: Klipper has
+# none and stock Marlin builds leave PAREN_COMMENTS off, so an axis word
+# inside parentheses is counted, which can only widen the bounds.
+_GCODE_LINE_RE = re.compile(
+    r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?'
+    r'(?:([GM])[^\S\n]*([0-9]+)(?:\.([0-9]+))?|([A-Z_][A-Z0-9_]*))'
+    r'([^;\n]*)')
 _GCODE_XYZ_RE = re.compile(r'([XYZ])\s*('+NUMBER+r')')
-_GCODE_SUPPORTED = {"G0", "G00", "G1", "G01"}
-_GCODE_FORBIDDEN = {"G28", "G53", "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"}
+# G10 sets work or tool offsets when it carries an L word or an axis word
+# (RepRapFirmware, Marlin CNC builds); bare G10 is firmware retraction.
+_GCODE_G10_OFFSET_RE = re.compile(r'[LXYZ]\s*' + NUMBER, re.I)
+# A carriage return followed by more text on the same line: Marlin ends
+# the line there, Klipper does not, so the two disagree on what runs.
+_GCODE_STRAY_CR_RE = re.compile(r'\r[^\S\n]*[^\s]')
+_GCODE_FORBIDDEN_NAMES = frozenset({"FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"})
+# Commands that change what later coordinates mean. The verifier cannot
+# model them, so they refuse by name (RESTORE_GCODE_STATE restores saved
+# offsets and the G90/G91 mode).
+_GCODE_OFFSET_NAMES = frozenset({"SET_GCODE_OFFSET", "RESTORE_GCODE_STATE"})
+# G numbers (leading zeros stripped) that refuse outright: homing, machine
+# coordinates, curves the verifier does not trace, direct stepper moves,
+# probing moves, and the work coordinate systems.
+_GCODE_G_FORBIDDEN = frozenset({"28", "53", "5", "6", "38"})
+_GCODE_G_WORK_OFFSETS = frozenset({"54", "55", "56", "57", "58", "59"})
+# G numbers the verifier interprets; any of them with a subcode (G92.1,
+# G91.1, G1.5) refuses, because firmwares disagree on what it means.
+_GCODE_G_KNOWN = frozenset({"0", "1", "2", "3", "5", "6", "10", "20", "28", "38", "53", "90", "91", "92"}
+                           | _GCODE_G_WORK_OFFSETS)
 
 
 _GCODE_XYZ_RE_I = re.compile(r'([XYZ])\s*(' + NUMBER + r')', re.I)
-_FAST_COMMANDS = frozenset({"G0", "G00", "G1", "G01", "G90", "G91", "G92"})
 
 
 def _gcode_motion_bounds_python(text):
     """Return fail-closed XYZ bounds for ordinary slicer G-code.
 
-    Same single finditer pass and same outcomes as the original scan
-    (#925), with the per-line overhead cut: the command is uppercased only
-    when it is not already a common uppercase spelling, the axis scan runs
-    case-insensitively over the line's words instead of over an uppercased
-    copy of them, and the position/bounds state lives in locals instead of
-    dicts. Every refusal keeps its original message and line number.
+    One finditer pass over the line-start commands (#925), with the
+    position/bounds state in locals. API 3 (S4) reads lines the way the
+    firmware does: a ';' ends the command even with no space before it
+    (``G91;rel``), parameters may be glued to the command (``G1X400``), an
+    ``N<digits>`` line number may lead, the command number may carry
+    leading zeros, and commands that shift later coordinates
+    (SET_GCODE_OFFSET, M206, M428, G10 L/axis, G54-G59) refuse by name.
     """
+    if "\r" in text:
+        stray = _GCODE_STRAY_CR_RE.search(text)
+        if stray is not None:
+            lineno = text.count("\n", 0, stray.start()) + 1
+            raise RuntimeError(f"line {lineno}: carriage return inside a line; firmwares split it "
+                               "differently, so bounds are ambiguous")
     absolute = True
     pos_x = pos_y = pos_z = float("nan")
     low_x = low_y = low_z = float("inf")
     high_x = high_y = high_z = float("-inf")
     recognized = 0
     for match in _GCODE_LINE_RE.finditer(text):
-        command = match.group(1)
-        if command not in _FAST_COMMANDS:
-            command = command.upper()
-        if command == "G90":
-            absolute = True
-        elif command == "G91":
-            absolute = False
-        elif command in _GCODE_FORBIDDEN:
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: unsupported motion-affecting command {command}")
-        elif command in ("G2", "G02", "G3", "G03"):
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: arc motion is unsupported by the bounds verifier")
-        elif command == "G20":
-            # Inch coordinates read as millimetres would shrink every bound
-            # about 25x and pass a print that cannot fit (#952 phase 2).
-            lineno = text.count("\n", 0, match.start()) + 1
-            raise RuntimeError(f"line {lineno}: inch units (G20) are unsupported by the bounds verifier")
-        elif command == "G92":
-            if _GCODE_XYZ_RE.search(match.group(2).upper()):
+        letter, number, sub, name, words = match.groups()
+        if letter is None:
+            name = name.upper()
+            if name in _GCODE_FORBIDDEN_NAMES:
                 lineno = text.count("\n", 0, match.start()) + 1
-                raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
-        elif command in _GCODE_SUPPORTED:
+                raise RuntimeError(f"line {lineno}: unsupported motion-affecting command {name}")
+            if name in _GCODE_OFFSET_NAMES:
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: {name} changes coordinate offsets; bounds are ambiguous")
+            continue
+        if number[0] == "0" and len(number) > 1:
+            number = number.lstrip("0") or "0"
+        if letter == "M" or letter == "m":
+            # Marlin dispatches on the number alone, whatever the subcode.
+            if (number == "428" or number == "206" and _GCODE_XYZ_RE_I.search(words)):
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: M{number} changes coordinate offsets; bounds are ambiguous")
+            continue
+        if sub is not None:
+            if number in _GCODE_G_KNOWN:
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: unsupported motion-affecting command G{number}.{sub}")
+            continue
+        if number == "1" or number == "0":
             found = False
-            for xyz_match in _GCODE_XYZ_RE_I.finditer(match.group(2)):
-                axis, number = xyz_match.groups()
+            for xyz_match in _GCODE_XYZ_RE_I.finditer(words):
+                axis, value_text = xyz_match.groups()
                 found = True
-                value = float(number)
+                value = float(value_text)
                 if axis == "X" or axis == "x":
                     if absolute:
                         pos_x = value
@@ -2161,6 +2198,28 @@ def _gcode_motion_bounds_python(text):
                         high_z = pos_z
             if found:
                 recognized += 1
+        elif number == "90":
+            absolute = True
+        elif number == "91":
+            absolute = False
+        elif number == "92":
+            if _GCODE_XYZ_RE.search(words.upper()):
+                lineno = text.count("\n", 0, match.start()) + 1
+                raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
+        elif number == "2" or number == "3":
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: arc motion is unsupported by the bounds verifier")
+        elif number == "20":
+            # Inch coordinates read as millimetres would shrink every bound
+            # about 25x and pass a print that cannot fit (#952 phase 2).
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: inch units (G20) are unsupported by the bounds verifier")
+        elif number in _GCODE_G_FORBIDDEN:
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: unsupported motion-affecting command G{number}")
+        elif number in _GCODE_G_WORK_OFFSETS or number == "10" and _GCODE_G10_OFFSET_RE.search(words):
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: G{number} changes coordinate offsets; bounds are ambiguous")
     if not recognized:
         raise RuntimeError("no bounded XYZ motion found")
     missing = [axis for axis, low in (("X", low_x), ("Y", low_y), ("Z", low_z)) if low == float("inf")]
@@ -2188,13 +2247,27 @@ def _gcode_motion_bounds_python(text):
 # A native refusal (BoundsRefusal, a RuntimeError) propagates unchanged.
 # Any other native error falls back to the Python parser for that input,
 # is logged, and disables the native path for the rest of the process.
-_BOUNDS_NATIVE_API_VERSION = 2  # 2: G20 refused (#952 phase 2)
+# The bounds semantics version. It is the native API version (a native
+# build of any other version is never used) and part of the bounds cache
+# key and the full-verification marker, so a verdict reached by an older
+# parser is never reused. Bump it on any semantic change.
+# 2: G20 refused (#952 phase 2). 3: firmware tokenization (';' ends a
+# command, glued parameters, N line numbers) and offset commands refused (S4).
+BOUNDS_PARSER_VERSION = 3
+_BOUNDS_NATIVE_API_VERSION = BOUNDS_PARSER_VERSION
 _BOUNDS_SELF_CHECK_OK = (
     ("G90\nG1 X1 Y2 Z3\n", {"x": (1.0, 1.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
     ("G90\nG1 X-5 Y2 Z3\nG91\nG1 X5\n", {"x": (-5.0, 0.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
+    # API 3: ';' ends a command, glued parameters, line numbers.
+    ("G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nN7 G1X100*12\n",
+     {"x": (10.0, 210.0), "y": (1.0, 1.0), "z": (1.0, 1.0)}),
 )
-_BOUNDS_SELF_CHECK_REFUSAL = (
-    "G90\nG2 X1 Y1\n", "line 2: arc motion is unsupported by the bounds verifier")
+_BOUNDS_SELF_CHECK_REFUSALS = (
+    ("G90\nG2 X1 Y1\n", "line 2: arc motion is unsupported by the bounds verifier"),
+    ("G90\nG1 X1 Y1 Z1\nSET_GCODE_OFFSET X=300\n",
+     "line 3: SET_GCODE_OFFSET changes coordinate offsets; bounds are ambiguous"),
+    ("G20;inch\nG1 X1 Y1 Z1\n", "line 1: inch units (G20) are unsupported by the bounds verifier"),
+)
 _native_bounds_module = None
 _native_bounds_broken = False
 # A Rust panic inside the extension reaches Python as PyO3's
@@ -2228,14 +2301,14 @@ def _load_native_bounds():
         for text, expected in _BOUNDS_SELF_CHECK_OK:
             if module.parse_bounds(text) != expected:
                 raise ValueError(f"native bounds self-check mismatch for {text!r}")
-        text, message = _BOUNDS_SELF_CHECK_REFUSAL
-        try:
-            module.parse_bounds(text)
-        except module.BoundsRefusal as refusal:
-            if str(refusal) != message:
-                raise ValueError(f"native bounds self-check refusal mismatch: {refusal}")
-        else:
-            raise ValueError("native bounds self-check refusal did not raise")
+        for text, message in _BOUNDS_SELF_CHECK_REFUSALS:
+            try:
+                module.parse_bounds(text)
+            except module.BoundsRefusal as refusal:
+                if str(refusal) != message:
+                    raise ValueError(f"native bounds self-check refusal mismatch: {refusal}")
+            else:
+                raise ValueError(f"native bounds self-check refusal did not raise for {text!r}")
     except BaseException as exc:
         if isinstance(exc, _BOUNDS_NEVER_SWALLOW):
             raise
@@ -2328,9 +2401,11 @@ def _cached_bounds(hit):
     A hit must carry exactly two finite numbers per axis, low <= high: the
     pre-#952 reader returned any JSON value as tuples, so a hand-edited or
     corrupt entry with string values came back as tuples of characters and
-    only failed later, as a comparison crash inside verify.
+    only failed later, as a comparison crash inside verify. An entry
+    written by another parser version (S5) is not trustworthy either: the
+    parser it came from may have read the same bytes differently.
     """
-    if not isinstance(hit, dict):
+    if not isinstance(hit, dict) or hit.get("parser") != BOUNDS_PARSER_VERSION:
         return None
     bounds = {}
     for axis in "xyz":
@@ -2368,9 +2443,13 @@ def cached_motion_bounds(raw, text=None):
     stored result. Failures are never cached, so a bad file still fails closed.
     An entry that does not validate (_cached_bounds) is treated as a miss and
     recomputed; writes prune the directory to BOUNDS_CACHE_MAX_ENTRIES (#952).
+    The key carries BOUNDS_PARSER_VERSION and the entry records it (S5), so
+    an upgrade never reuses a verdict an older parser reached on the same
+    bytes; pre-version entries (plain ``<sha>.json``) are never read again
+    and age out through the pruning.
     """
     digest = hashlib.sha256(raw).hexdigest()
-    entry = BOUNDS_CACHE/f"{digest}.json"
+    entry = BOUNDS_CACHE/f"{digest}.p{BOUNDS_PARSER_VERSION}.json"
     try:
         hit = _cached_bounds(json.loads(entry.read_text()))
         if hit is not None:
@@ -2381,7 +2460,8 @@ def cached_motion_bounds(raw, text=None):
     try:
         BOUNDS_CACHE.mkdir(parents=True, exist_ok=True)
         tmp = entry.with_suffix(".tmp")
-        tmp.write_text(json.dumps({axis: list(bounds[axis]) for axis in "xyz"}))
+        tmp.write_text(json.dumps({"parser": BOUNDS_PARSER_VERSION,
+                                   **{axis: list(bounds[axis]) for axis in "xyz"}}))
         tmp.replace(entry)
         _prune_bounds_cache()
     except OSError:
@@ -3338,7 +3418,41 @@ def _recorded_temperatures(job, gcode_path):
     return temps if isinstance(temps, dict) else None
 
 
-def _already_verified_artifact(job, gcode_path):
+def _verification_facts_digest(state):
+    """Digest of the hardware facts a full verification was checked against.
+
+    The nozzle diameter and type (the embedded nozzle check and the heater
+    limit), the axis limits and print height (the bounds check) and the
+    bounds parser version. A change to any of them after slicing means the
+    earlier verdict says nothing about the printer as it is now.
+    """
+    state = state or {}
+    nozzle = state.get("nozzle") or {}
+    facts = {"nozzle_diameter_mm": nozzle.get("diameter_mm"), "nozzle_type": nozzle.get("type"),
+             "axis_limits_mm": state.get("axis_limits_mm"),
+             "max_print_height_mm": state.get("max_print_height_mm"),
+             "bounds_parser": BOUNDS_PARSER_VERSION}
+    return hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _full_verified_marker(gcode_sha, state):
+    """The gcode_full_verified_sha256 value: the artifact digest bound to the
+    hardware facts it was verified against (``<sha>+<facts digest>``)."""
+    return f"{gcode_sha}+{_verification_facts_digest(state)}"
+
+
+def _verify_state(state, printer_id):
+    """The hardware record verify_gcode checks against on this route, or None
+    when it cannot be read (then no skip is taken and no marker is written)."""
+    try:
+        if printer_id:
+            return state if state is not None else printer_state.load(printer_id)
+        return printer_state.load()
+    except Exception:
+        return None
+
+
+def _already_verified_artifact(job, gcode_path, state=None):
     """True only when the full verification already passed on these bytes (#925).
 
     The evidence is threefold: ``gcode_verified`` must be true, the
@@ -3346,7 +3460,11 @@ def _already_verified_artifact(job, gcode_path):
     ``artifact_binding.gcode_sha256`` (the plain digest for a single
     artifact, or this plate's entry of the per-plate digest map for a
     split job), and ``gcode_full_verified_sha256`` must name that same
-    digest. The marker is recorded only by _verify_routed after the full
+    digest bound to the current hardware facts (_full_verified_marker:
+    nozzle, axis limits, parser version), so a nozzle swap, a changed bed
+    limit or a parser upgrade after slicing forces the full verification
+    again; a marker written before the facts were bound (a bare digest)
+    never matches. The marker is recorded only by _verify_routed after the full
     verify_gcode — including its first-layer and line-width checks — has
     passed on the artifact; slice paths that run only the offline verify
     set ``gcode_verified`` without it, so their artifacts still get the
@@ -3355,7 +3473,7 @@ def _already_verified_artifact(job, gcode_path):
     changed file) is not evidence and returns False, so the caller runs
     the full verification exactly as before.
     """
-    if not isinstance(job, dict) or job.get('gcode_verified') is not True:
+    if not isinstance(job, dict) or job.get('gcode_verified') is not True or not isinstance(state, dict):
         return False
     binding = job.get('artifact_binding')
     if not isinstance(binding, dict):
@@ -3372,7 +3490,7 @@ def _already_verified_artifact(job, gcode_path):
                 break
     if not isinstance(stored, str) or not stored:
         return False
-    if job.get('gcode_full_verified_sha256') != stored:
+    if job.get('gcode_full_verified_sha256') != _full_verified_marker(stored, state):
         return False
     try:
         return file_sha256(gcode_path) == stored
@@ -3432,7 +3550,8 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     same bytes can take the skip; callers that persist the job (slice,
     remap) persist the marker with it.
     """
-    if _already_verified_artifact(job, gcode_path):
+    facts_state = _verify_state(state, printer_id) if isinstance(job, dict) else None
+    if _already_verified_artifact(job, gcode_path, facts_state):
         _run_live_printer_check(adapter, state, printer_id)
         connection = getattr(adapter, 'connection', None) or 'offline'
         return {'offline': True, 'connection': connection, 'skipped_reparse': True}
@@ -3442,9 +3561,9 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
     else:
         result = verify_gcode(gcode_path, **kw)
-    if isinstance(job, dict):
+    if isinstance(job, dict) and isinstance(facts_state, dict):
         try:
-            job['gcode_full_verified_sha256'] = file_sha256(gcode_path)
+            job['gcode_full_verified_sha256'] = _full_verified_marker(file_sha256(gcode_path), facts_state)
         except OSError:
             pass
     return result
@@ -8819,7 +8938,10 @@ def partial_job_refusal(job):
 # <reason>` line instead of refusing, so the chat can say exactly what was
 # overridden. Mechanics are never waived: the control lock, a printer that is
 # already printing, the launch lease and duplicate-start claim, the upload
-# SHA256 check and the start readback.
+# SHA256 check and the start readback. Neither are the mechanical limits
+# (S6): require_mechanical_limits refuses a yolo toolpath past the axis
+# limits (or one whose bounds cannot be verified) and a heater target above
+# the printer's absolute maximum.
 YOLO_WAIVED_MARK = "YOLO WAIVED:"
 _YOLO = contextvars.ContextVar("print_now_yolo", default=False)
 
@@ -8856,6 +8978,118 @@ def _gate(gate, fn, *args, **kwargs):
         if not _waive(gate, exc):
             raise
         return None
+
+
+# Heater targets a G-code file sets, for the mechanical-limit check (S6):
+# M104/M109 (nozzle) and M140/M190 (bed) S/R values, Klipper's
+# SET_HEATER_TEMPERATURE, and the start macros' temperature arguments.
+_HEATER_M_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?M[^\S\n]*0*(104|109|140|190)(?![0-9])([^;\n]*)')
+_HEATER_VALUE_RE = re.compile(r'[SR]\s*(' + NUMBER + r')', re.I)
+_HEATER_SET_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?SET_HEATER_TEMPERATURE\b([^;\n]*)')
+_HEATER_MACRO_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?(?:START_PRINT|PRINT_START)\b([^;\n]*)')
+_HEATER_ARG_RE = re.compile(r'([A-Z_]+)\s*=\s*(' + NUMBER + r')', re.I)
+_MACRO_HOTEND_ARGS = frozenset({"EXTRUDER_TEMP", "HOTEND", "HOTEND_TEMP", "EXTRUDER", "NOZZLE", "NOZZLE_TEMP"})
+_MACRO_BED_ARGS = frozenset({"BED_TEMP", "BED"})
+
+
+def _adapter_fact(adapter, name):
+    fact = getattr(adapter, "fact", None)
+    if not callable(fact):
+        return None
+    try:
+        value = fact(name)
+    except Exception:  # a model without that fact has no such limit
+        return None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _heater_limits(state, adapter):
+    """(nozzle °C, bed °C): the printer's absolute heater maxima.
+
+    The nozzle limit is the fitted nozzle type's safe maximum, lowered to
+    the model's max_hotend_c when it has one; an unknown nozzle type counts
+    as brass, the softest. The bed limit is the model's max_bed_c, else the
+    hottest bed any configured material asks for.
+    """
+    from . import nozzle as _nozzle
+    nozzle_type = ((state or {}).get("nozzle") or {}).get("type") \
+        or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
+    try:
+        canonical = _nozzle.normalize_nozzle_type(nozzle_type)
+    except _nozzle.NozzleError:
+        canonical = _nozzle.normalize_nozzle_type("brass")
+    hotend = float(_nozzle._nozzle_type_defaults()[canonical]["max_temperature_c"])
+    model_hotend = _adapter_fact(adapter, "max_hotend_c")
+    if model_hotend is not None:
+        hotend = min(hotend, model_hotend)
+    bed = _adapter_fact(adapter, "max_bed_c")
+    if bed is None:
+        temps = {**settings.DEFAULT_MATERIAL_TEMPS, **(settings.current().get("material_temps") or {})}
+        bed = float(max(row["bed"] for row in temps.values()
+                        if isinstance(row, dict) and isinstance(row.get("bed"), (int, float))))
+    return hotend, bed
+
+
+def _gcode_heater_targets(text):
+    """(nozzle targets, bed targets) the G-code text sets, in °C."""
+    nozzle, bed = [], []
+    for match in _HEATER_M_RE.finditer(text):
+        into = nozzle if match.group(1) in ("104", "109") else bed
+        into.extend(float(v) for v in _HEATER_VALUE_RE.findall(match.group(2)))
+    for match in _HEATER_SET_RE.finditer(text):
+        args = match.group(1)
+        heater = re.search(r'HEATER\s*=\s*"?([A-Za-z0-9_ ]+)', args, re.I)
+        target = re.search(r'TARGET\s*=\s*(' + NUMBER + r')', args, re.I)
+        if heater and target:
+            name = heater.group(1).strip().lower()
+            if name.startswith("extruder"):
+                nozzle.append(float(target.group(1)))
+            elif name == "heater_bed":
+                bed.append(float(target.group(1)))
+    for match in _HEATER_MACRO_RE.finditer(text):
+        for key, value in _HEATER_ARG_RE.findall(match.group(1)):
+            key = key.upper()
+            if key in _MACRO_HOTEND_ARGS:
+                nozzle.append(float(value))
+            elif key in _MACRO_BED_ARGS:
+                bed.append(float(value))
+    return nozzle, bed
+
+
+def require_mechanical_limits(gcode_path, state, adapter):
+    """Refuse a toolpath past the axis limits or a heater past its maximum (S6).
+
+    These are the printer's mechanical limits, so yolo never waives them:
+    print_now runs this after the waivable G-code checks. A toolpath whose
+    bounds the verifier cannot establish (a refusal of the bounds parser)
+    refuses too, because nothing then shows it stays inside the limits.
+    Raises RuntimeError naming every problem; returns None when all hold.
+    """
+    state = state or {}
+    raw = Path(gcode_path).read_bytes()
+    text = raw.decode(errors="ignore")
+    problems = []
+    try:
+        bounds = cached_motion_bounds(raw, text)
+    except RuntimeError as exc:
+        problems.append(f"toolpath bounds unavailable: {exc}")
+    else:
+        limits = state.get("axis_limits_mm", {"x": [0, 223], "y": [0, 223],
+                                               "z": [0, state.get("max_print_height_mm", 250)]})
+        for axis in "xyz":
+            low, high = bounds[axis]
+            limit_low, limit_high = map(float, limits[axis])
+            if low < limit_low - 1e-3 or high > limit_high + 1e-3:
+                problems.append(f"{axis.upper()} bounds {low:.3f}..{high:.3f} exceed "
+                                f"{limit_low:.3f}..{limit_high:.3f}")
+    hotend_max, bed_max = _heater_limits(state, adapter)
+    nozzle_targets, bed_targets = _gcode_heater_targets(text)
+    for label, targets, limit in (("nozzle", nozzle_targets, hotend_max), ("bed", bed_targets, bed_max)):
+        over = [t for t in targets if not t <= limit]
+        if over:
+            problems.append(f"{label} target {max(over):g} C exceeds the printer's {limit:g} C maximum")
+    if problems:
+        raise RuntimeError("mechanical limits are never waived: " + "; ".join(problems))
 
 
 def yolo_waivers(tail):
@@ -9052,7 +9286,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     try:
         if yolo:
             print("YOLO: the operator chose to print without checks; failed checks are reported, "
-                  "not enforced.", flush=True)
+                  "not enforced, except the axis limits and heater maximums.", flush=True)
         out = _print_now_locked(target, wait_s=wait_s,
                                 accept_default_z_offset=accept_default_z_offset,
                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
@@ -9182,6 +9416,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
         _gate("G-code safety checks", _verify_routed, g, adapter, st, printer_id, job=job)
+        if yolo_active():
+            require_mechanical_limits(g, st, adapter)  # never waived (S6)
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:
             embedded_mapping = adapter.native.embedded_mapping
@@ -9427,7 +9663,7 @@ def _main():
     remap.add_argument("--tool", type=str, default="0", help="logical tool index (default: 0)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
-    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics are never waived)")
+    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics, axis limits and heater maximums are never waived)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap T0 to another physical IFS slot (1-4) without physical spool changes")
     for x in (pn,f,s):
         x.add_argument("--accept-default-z-offset",action="store_true",help="the operator accepted the printer default Z offset for this start")
