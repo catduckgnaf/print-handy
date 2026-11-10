@@ -255,7 +255,8 @@ def test_partial_face_overlap_sharing_planes_collides(tmp_path):
     assert not _codes(findings, "assembly_no_collision")
 
 
-def test_overlap_inside_the_contact_band_is_unchecked_not_clearance(tmp_path):
+@pytest.mark.parametrize('depth', [0.005, 0.00001])
+def test_overlap_inside_the_contact_band_is_unchecked_not_clearance(tmp_path, depth):
     # A 0.005 mm deep overlap is real but no deeper than the 0.01 mm
     # contact epsilon the check itself uses, so it cannot be told from
     # contact at this resolution: a warning, never a clearance.
@@ -263,7 +264,7 @@ def test_overlap_inside_the_contact_band_is_unchecked_not_clearance(tmp_path):
     b = _box(tmp_path / "b.stl", 10, 10, 10)
     findings = ac.review([a, b], bed_mm=AD5X_BED, declarations={
         "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
-        "b.stl": {"assembly_transform": {"translate_mm": [9.995, 0, 0]}}})
+        "b.stl": {"assembly_transform": {"translate_mm": [10 - depth, 0, 0]}}})
     warn = _codes(findings, "assembly_collision_unchecked")
     assert warn and warn[0].level == "warn"
     assert not _codes(findings, "assembly_collision")

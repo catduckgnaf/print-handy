@@ -106,6 +106,20 @@ def write_3mf(path, tris, unit='millimeter', item_tf=None):
     return path
 
 
+def test_lay_flat_counts_only_outermost_terrace_contact():
+    # Three upward terraces total 75 mm2, but only the highest 25 mm2
+    # can touch a plate after flipping. A 60 mm2 downward face wins.
+    terraces = []
+    for x, z in ((0, 1), (5, 2), (10, 3)):
+        terraces += [[(x, 0, z), (x + 5, 0, z), (x + 5, 5, z)],
+                     [(x, 0, z), (x + 5, 5, z), (x, 5, z)]]
+    base = [[(0, 0, 0), (0, 4, 0), (15, 4, 0)],
+            [(0, 0, 0), (15, 4, 0), (15, 0, 0)]]
+    matrix, dims = edit_plan.lay_flat_rotation(terraces + base)
+    assert matrix == pytest.approx([1, 0, 0, 0, 1, 0, 0, 0, 1])
+    assert dims == pytest.approx((15, 5, 3))
+
+
 # --------------------------------------------------------------- envelopes
 
 def test_rotated_envelope_is_measured_on_vertices_not_the_rotated_box():
