@@ -603,22 +603,32 @@ def _usage_claim_present(usage):
 
 
 def validate_plate_usage_if_present(manifest, selected_plate_ids=None):
-    """Validate source slicer usage claims when present; absence is UNKNOWN, not invalid.
+    """Filament warnings for damaged source slicer usage claims, or [].
 
-    Only damaged or invalid claims refuse: an unreadable usage file, or a
-    record with bad numbers or a bad filament ID. A plate with no records
-    stays UNKNOWN and the destination slicer's output is authoritative.
+    Absence is UNKNOWN, not a warning: a plate with no records stays UNKNOWN
+    and the destination slicer's output is authoritative. Only damaged or
+    invalid claims warn — an unreadable usage file, or a record with bad
+    numbers or a bad filament ID. Owner ruling (catduck, 2026-11-10): a
+    filament condition never hard-blocks a print; it warns and the operator
+    may accept it. require_plate_usage_known keeps the strict refusal for
+    callers that ask for it directly; this gate converts its per-plate
+    refusals into warning texts.
     """
     stats = manifest.get('filament_stats')
     plates = stats.get('plates') if isinstance(stats, dict) else None
     if not isinstance(plates, dict) or not plates:
-        return  # No source claim. Destination slicing supplies authoritative usage.
+        return []  # No source claim. Destination slicing supplies authoritative usage.
     wanted = (list(plates) if selected_plate_ids is None
               else [str(plate_id) for plate_id in selected_plate_ids])
-    claimed = [plate_id for plate_id in wanted
-               if plate_id in plates and _usage_claim_present(plates[plate_id])]
-    if claimed:
-        require_plate_usage_known(manifest, claimed)
+    warnings = []
+    for plate_id in wanted:
+        if plate_id not in plates or not _usage_claim_present(plates[plate_id]):
+            continue
+        try:
+            require_plate_usage_known(manifest, [plate_id])
+        except RuntimeError as exc:
+            warnings.append(str(exc).removesuffix('; no slicing attempted'))
+    return warnings
 
 
 def require_plate_usage_known(manifest, selected_plate_ids=None):
@@ -987,26 +997,28 @@ def used_source_filaments(manifest, plate_id):
     return list(entry.get('source_filaments') or [])
 
 
-def plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capacity=None):
-    """Named reasons automated readiness must block for the selected plates.
+def _plate_readiness_problem_rows(manifest, decisions, selected_plate_ids, slot_capacity=None):
+    """(problem, is_filament_warning) rows behind plate_readiness_problems.
 
-    A selected plate blocks when a usage class for it is unknown, when the
-    slicer-reported and analyzed filament sets disagree, or when a filament
-    the plate uses has no validated slot mapping in the source-bound
-    decisions. An unselected plate never contributes a problem. Mappings are
-    validated against the destination's loaded-slot capacity when given: a
-    shared nozzle (AD5X) does not add slots, so a mapping naming a slot past
-    the capacity, however many nozzles share the path, is not validated.
-    Logical source filament IDs, loaded slots and nozzles stay distinct:
-    decisions map source IDs to slots, and only slots are capacity-checked.
+    A problem is a filament warning when it reports filament usage data the
+    source could not establish: a usage class that is unknown (including a
+    support designation naming a filament outside the project palette), a
+    plate with no usage analysis, slicer-reported usage that could not be
+    validated, or a disagreement between the slicer-reported and analyzed
+    filament sets. Owner ruling (catduck, 2026-11-10): those warn and the
+    operator may accept them; they never hard-block a print. The rest are
+    not filament data and keep refusing: no plate selected, decisions bound
+    to another source, a used filament with no slot mapping in the decisions
+    (missing operator input — accepting cannot invent the mapping), and a
+    mapping past the destination's loaded-slot capacity (a hardware fact).
     """
-    problems = []
+    rows = []
     selected = [str(p) for p in (selected_plate_ids or [])]
     if not selected:
-        return ['no plate is selected; per-plate filament usage cannot be validated']
+        return [('no plate is selected; per-plate filament usage cannot be validated', False)]
     usage = manifest.get('plate_usage') or {}
     if not isinstance(decisions, dict) or decisions.get('source_sha256') != manifest.get('source_sha256'):
-        problems.append('color decisions are not bound to this source; no filament mapping is validated')
+        rows.append(('color decisions are not bound to this source; no filament mapping is validated', False))
         decisions = {}
     mode = decisions.get('mode')
     choices = decisions.get('choices') if isinstance(decisions.get('choices'), dict) else {}
@@ -1018,21 +1030,21 @@ def plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capac
     for plate_id in selected:
         entry = usage.get(plate_id)
         if entry is None:
-            problems.append(f'plate {plate_id}: per-plate filament usage is unknown (no usage '
-                            'analysis for this plate); its color mapping cannot be validated')
+            rows.append((f'plate {plate_id}: per-plate filament usage is unknown (no usage '
+                         'analysis for this plate); its color mapping cannot be validated', True))
             continue
         for name in entry.get('unknown_classes') or []:
             reason = (entry['classes'].get(name) or {}).get('reason') or 'usage cannot be determined'
-            problems.append(f'plate {plate_id}: {name} filament usage is unknown ({reason}); '
-                            'its color mapping cannot be validated')
+            rows.append((f'plate {plate_id}: {name} filament usage is unknown ({reason}); '
+                         'its color mapping cannot be validated', True))
         if entry.get('disagreement'):
-            problems.append(f"plate {plate_id}: {entry['disagreement']}; "
-                            'its color mapping cannot be validated')
+            rows.append((f"plate {plate_id}: {entry['disagreement']}; "
+                         'its color mapping cannot be validated', True))
         if not entry.get('usage_known') and not entry.get('unknown_classes') \
                 and not entry.get('disagreement'):
             reason = entry.get('slicer_unknown_reason') or 'slicer-reported usage could not be validated'
-            problems.append(f'plate {plate_id}: per-plate filament usage is unknown ({reason}); '
-                            'its color mapping cannot be validated')
+            rows.append((f'plate {plate_id}: per-plate filament usage is unknown ({reason}); '
+                         'its color mapping cannot be validated', True))
         plate_parts = [parts_by_plate[k] for k in entry.get('part_keys') or [] if k in parts_by_plate]
         for ext in entry.get('source_filaments') or []:
             slots = set()
@@ -1048,16 +1060,45 @@ def plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capac
                     if holders and all(isinstance(c, dict) and c.get('slot') is not None for c in picked):
                         slots = {c['slot'] for c in picked}
             if not slots:
-                problems.append(f'plate {plate_id}: source filament {ext} is used but has no '
-                                'validated slot mapping')
+                rows.append((f'plate {plate_id}: source filament {ext} is used but has no '
+                             'validated slot mapping', False))
             mapped_slots |= {s for s in slots if isinstance(s, int) and not isinstance(s, bool)}
     if slot_capacity is not None:
         for slot in sorted(mapped_slots):
             if slot < 1 or slot > slot_capacity:
-                problems.append(f'slot {slot} is named by a filament mapping but the destination '
-                                f'has only {slot_capacity} loaded slots; a shared nozzle does '
-                                'not add slots or spools')
-    return problems
+                rows.append((f'slot {slot} is named by a filament mapping but the destination '
+                             f'has only {slot_capacity} loaded slots; a shared nozzle does '
+                             'not add slots or spools', False))
+    return rows
+
+
+def plate_readiness_problems(manifest, decisions, selected_plate_ids, slot_capacity=None):
+    """Named reasons automated readiness must block for the selected plates.
+
+    A selected plate blocks when a usage class for it is unknown, when the
+    slicer-reported and analyzed filament sets disagree, or when a filament
+    the plate uses has no validated slot mapping in the source-bound
+    decisions. An unselected plate never contributes a problem. Mappings are
+    validated against the destination's loaded-slot capacity when given: a
+    shared nozzle (AD5X) does not add slots, so a mapping naming a slot past
+    the capacity, however many nozzles share the path, is not validated.
+    Logical source filament IDs, loaded slots and nozzles stay distinct:
+    decisions map source IDs to slots, and only slots are capacity-checked.
+    """
+    return [text for text, _ in _plate_readiness_problem_rows(
+        manifest, decisions, selected_plate_ids, slot_capacity=slot_capacity)]
+
+
+def filament_readiness_warnings(manifest, decisions, selected_plate_ids, slot_capacity=None):
+    """The filament-warning subset of the readiness problems.
+
+    These report filament usage data the source could not establish. Under
+    the warn-and-accept ruling they are presented to the operator, who may
+    accept them and print anyway; the remaining readiness problems are not
+    filament data and keep refusing (see _plate_readiness_problem_rows).
+    """
+    return [text for text, is_warning in _plate_readiness_problem_rows(
+        manifest, decisions, selected_plate_ids, slot_capacity=slot_capacity) if is_warning]
 
 
 def require_plate_readiness(manifest, decisions, selected_plate_ids, slot_capacity=None):
