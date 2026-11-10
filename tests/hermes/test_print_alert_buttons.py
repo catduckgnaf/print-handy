@@ -659,8 +659,10 @@ def test_family_alert_record_carries_its_connection(tmp_path):
     family = next(r for r in data.values() if r["filename"] == "f.gcode")
     moonraker = next(r for r in data.values() if r["filename"] == "g.gcode")
     assert family["connection"] == "prusalink" and family["printer_id"] == "prusa-two"
-    # Moonraker alert records are unchanged: no connection marker at all.
-    assert "connection" not in moonraker and "printer_id" not in moonraker
+    # Moonraker alert records carry no connection marker, but they do name their printer (the
+    # process's own, here the default), so the buttons act on the printer that raised them.
+    from print_handy import settings
+    assert "connection" not in moonraker and moonraker["printer_id"] == settings.default_printer_id()
 
 
 def test_insertion_options_name_the_material_once():
@@ -882,3 +884,98 @@ def test_recover_refuses_a_non_shutdown_alert():
     with patch.object(pab, "clear_shutdown") as clr:
         assert "not recognized" in pab.handle_click("recover", {"kind": "paused", "filename": "f"})
     clr.assert_not_called()
+
+
+# --- an alert's buttons act on the printer that raised it, never the default printer ---
+
+TWO_PRINTERS = [{"id": "printer-a"}, {"id": "printer-b"}]
+
+
+def _roster(entries):
+    return patch("print_handy.settings.printers", return_value=entries), \
+        patch("print_handy.settings.default_printer_id", return_value=entries[0]["id"])
+
+
+def test_every_printer_alert_records_the_printer_that_raised_it(tmp_path, monkeypatch):
+    """Visual alerts and the listener's posts used to be recorded without printer_id."""
+    from print_handy import listeners
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(listeners, "instance_printer_id", lambda: "printer-b")
+    monkeypatch.setattr(pab.urllib.request, "urlopen", lambda req, timeout: (_ for _ in ()).throw(OSError("offline")))
+    seen = []
+    real_record = pab.record
+    monkeypatch.setattr(pab, "record", lambda kind, filename, **extra: seen.append(extra) or real_record(kind, filename, **extra))
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"jpeg")
+    pab.post_visual_alert("t", "c", "x", "f.gcode", image)
+    pab.post_visual_text_alert("t", "c", "x", "f.gcode")
+    pab.post_visual_dark_notice("t", "c", "x", "f.gcode")
+    pab.post_with_buttons("t", "c", "x", "paused", "f.gcode")
+    pab.post_with_buttons("t", "c", "x", "paused", "f.gcode", printer_id="printer-a")
+    assert [e.get("printer_id") for e in seen] == ["printer-b"] * 4 + ["printer-a"]
+
+
+def test_a_process_without_an_instance_records_the_default_printer(tmp_path, monkeypatch):
+    from print_handy import listeners
+    monkeypatch.setattr(listeners, "instance_printer_id", lambda: None)
+    roster, default = _roster(TWO_PRINTERS)
+    with roster, default:
+        assert pab._owner() == "printer-a" and pab._owner("printer-b") == "printer-b"
+
+
+@pytest.mark.parametrize("action", ["pause", "resume", "cancel", "recover"])
+def test_buttons_act_on_the_alerts_printer(action):
+    kind = {"pause": "visual", "recover": "shutdown"}.get(action, "paused")
+    alert = {"kind": kind, "filename": "f.gcode", "printer_id": "printer-b"}
+    printing = {"klippy": "ready", "state": "printing" if action == "pause" else "paused", "filename": "f.gcode"}
+    roster, default = _roster(TWO_PRINTERS)
+    with roster, default, \
+            patch("print_handy.hermes.print_stop._lan_adapter", return_value=None) as lan, \
+            patch("print_handy.hermes.print_control.status", return_value=printing) as status, \
+            patch("print_handy.hermes.print_control._send") as send, \
+            patch("print_handy.hermes.print_control.resume", return_value=(True, "Resumed.")) as resume, \
+            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel, \
+            patch.object(pab, "recover_from_stop", return_value="Recovered.") as recover:
+        pab.handle_click(action, alert, pause_wait_s=0.05, pause_poll_s=0.01)
+    if action == "pause":
+        lan.assert_called_with(printer_id="printer-b")
+        assert all(c.args == ("printer-b",) or c.kwargs == {"printer_id": "printer-b"} for c in status.call_args_list)
+        send.assert_called_once_with("/printer/print/pause", method="POST", timeout=15, printer_id="printer-b")
+    elif action == "resume":
+        resume.assert_called_once_with("f.gcode", printer_id="printer-b")
+        status.assert_called_once_with(printer_id="printer-b")
+    elif action == "cancel":
+        cancel.assert_called_once_with("f.gcode", printer_id="printer-b")
+        status.assert_called_once_with(printer_id="printer-b")
+    else:
+        recover.assert_called_once_with("f.gcode", "printer-b")
+
+
+@pytest.mark.parametrize("action", ["pause", "resume", "cancel", "recover"])
+def test_an_old_alert_without_a_printer_is_refused_when_several_are_configured(action):
+    kind = {"pause": "visual", "recover": "shutdown"}.get(action, "paused")
+    roster, default = _roster(TWO_PRINTERS)
+    with roster, default, patch("print_handy.hermes.print_control.status") as status, \
+            patch("print_handy.hermes.print_stop.cancel") as cancel, \
+            patch("print_handy.hermes.print_control.resume") as resume:
+        out = pab.handle_click(action, {"kind": kind, "filename": "f.gcode"})
+    assert out == pab.ALERT_PRINTER_UNKNOWN
+    status.assert_not_called(); cancel.assert_not_called(); resume.assert_not_called()
+
+
+def test_an_old_alert_without_a_printer_keeps_working_with_one_printer():
+    st = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
+    roster, default = _roster([{"id": "printer-a"}])
+    with roster, default, patch("print_handy.hermes.print_control.status", return_value=st), \
+            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+        assert pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode"}) == "Stopped."
+    cancel.assert_called_once_with("f.gcode")
+
+
+def test_the_default_printers_alert_keeps_the_configured_printer_call_shape():
+    st = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
+    roster, default = _roster(TWO_PRINTERS)
+    with roster, default, patch("print_handy.hermes.print_control.status", return_value=st), \
+            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+        pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode", "printer_id": "printer-a"})
+    cancel.assert_called_once_with("f.gcode")

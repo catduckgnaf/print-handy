@@ -520,6 +520,64 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
             assert verdict["phase"] == want
 
 
+def leftover_complete(remote):
+    """What a printer shows after the previous run of the same artifact: remote names come from the
+    file hash, so a reprint's name is the one already there, state complete, axes still homed."""
+    return {"result": {"status": {"print_stats": {"state": "complete", "filename": remote, "total_duration": 612.0},
+                                  "toolhead": {"homed_axes": "xyz"}, "extruder": {"target": 0},
+                                  "heater_bed": {"target": 0}, "virtual_sdcard": {"is_active": False},
+                                  "idle_timeout": {"state": "Idle"}, "webhooks": {"state": "ready"}}}}
+
+
+class ReprintScript(MoonrakerScript):
+    """The printer shows the previous run's leftover from the upload on, until the start changes it."""
+
+    def mr(self, st, path, data=None, timeout=30):
+        if path.startswith("/printer/objects/query") and not self.posts and self.remote():
+            return leftover_complete(self.remote())
+        return super().mr(st, path, data=data, timeout=timeout)
+
+
+@pytest.mark.parametrize("start, want_phase", [(raises(TimeoutError("timed out")), "preparing_or_unresolved"),
+                                               (None, "awaiting_confirmation")])
+def test_a_reprints_leftover_complete_state_is_never_reported_started(start, want_phase, printer, monkeypatch,
+                                                                       capsys, patch):
+    """A lost (or answered) start on a reprint used to read the previous run's state=complete with the
+    same file name (and homed axes) as "preparing": STARTED, lease released, though nothing ran."""
+    script = ReprintScript(printer, start=start, after=leftover_complete)
+    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    jp, _ = make_job(printer.root, "a")
+    ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
+    assert ok, tail
+    outcome = print_next.start_outcome(full)
+    assert outcome.get("phase") == want_phase and outcome.get("started") is False, full
+    assert intake_view(ok, tail)[0] == "START_PENDING", tail
+    assert phases() == ["uncertain"] and script.posts == 1  # the duplicate guard holds; nothing resubmitted
+
+
+def test_a_reprint_that_heats_from_a_cold_baseline_is_still_preparing(printer, monkeypatch, capsys, patch):
+    """The fix compares with the baseline; it does not ignore this start's real heating."""
+    def heating(remote):
+        status = leftover_complete(remote)
+        status["result"]["status"]["extruder"] = {"target": 215}
+        return status
+    ReprintScript(printer, start=raises(TimeoutError("timed out")), after=heating)
+    patch(model_job, "_wait_printing", lambda *a, **k: "complete")
+    jp, _ = make_job(printer.root, "a")
+    ok, tail, full = run_cli(monkeypatch, capsys, lambda: REAL_PRINT_NOW(jp))
+    assert print_next.start_outcome(full).get("phase") == "preparing", full
+
+
+def test_wait_printing_does_not_end_on_the_previous_jobs_cancelled_state(monkeypatch):
+    reads = iter([("cancelled", "x.gcode", "Idle")] * 3 + [("printing", "x.gcode", "Printing")])
+    monkeypatch.setattr(model_job, "_printer_phase", lambda st: next(reads))
+    monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
+    baseline = {"print_stats": {"state": "cancelled", "filename": "x.gcode"}}
+    assert REAL_WAIT_PRINTING({}, "x.gcode", 30, baseline=baseline) == "printing"
+    reads = iter([("cancelled", "x.gcode", "Idle")])
+    assert REAL_WAIT_PRINTING({}, "x.gcode", 30) == "cancelled"  # no baseline: unchanged behavior
+
+
 def test_item8_both_paths_share_one_reconcile():
     import inspect
     # print_now is a thin wrapper since the SAFE-6 control lock (P1-33); its body
@@ -649,6 +707,29 @@ def test_836_a_preheat_during_the_upload_refuses_before_sending(mapped, monkeypa
     assert mapped.scripts == [] and len(uploads(mapped.run)) == 1  # uploaded, but never sent
     assert phases() == [] and model_job._read_claims() == {}
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "not_submitted"
+    # The refusal leaves no side effect of a start behind: the active spool, the display
+    # message and the Home Assistant job card all come after the heater re-read.
+    model_job._sync_active_spool.assert_not_called()
+    model_job._announce_print_name.assert_not_called()
+    model_job._publish_job_card.assert_not_called()
+
+
+def test_a_sent_mapped_start_still_sets_the_spool_display_and_job_card_before_the_post(mapped, patch):
+    order = []
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            order.append("post")
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    model_job._preparation_evidence.side_effect = lambda st: order.append("reread") or False
+    model_job._sync_active_spool.side_effect = lambda *a, **k: order.append("spool") or {}
+    model_job._announce_print_name.side_effect = lambda *a, **k: order.append("display")
+    model_job._publish_job_card.side_effect = lambda *a, **k: order.append("card")
+    jp, g = make_job(mapped.root, "a")
+    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    assert order[:5] == ["reread", "spool", "display", "card", "post"], order
 
 
 def test_836_a_lost_post_is_not_credited_when_the_pre_post_baseline_was_unproven(mapped, patch):
