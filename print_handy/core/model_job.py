@@ -8646,6 +8646,9 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     return out
 
 
+IDLE_PRINT_STATES = ("standby", "complete", "cancelled")  # print_next.live_idle_check's idle set
+
+
 def _require_idle(st):
     try:
         state,fn,busy=_printer_phase(st)
@@ -8657,8 +8660,11 @@ def _require_idle(st):
         raise SystemExit("REFUSED: printer is offline/unreachable. Nothing uploaded or started.")
     if state == "printing" or busy == "Printing":
         raise SystemExit(f"REFUSED: printer is busy ({state}, {fn}). Nothing uploaded or started.")
-    if st.get("display_off") == 0 and state not in ("standby", "complete", "cancelled", "error"):
-        raise SystemExit(f"REFUSED: native printer state is {state!r} for {fn}; nothing uploaded or started.")
+    # The idle set is print_next.live_idle_check's, exactly: a paused job (or an errored one the
+    # operator has not cleared) still owns the printer, whichever caller asks for a start.
+    if state not in IDLE_PRINT_STATES:
+        raise SystemExit(f"REFUSED: printer is not idle ({state}, {fn}). Finish or cancel that job "
+                         "on the printer first. Nothing uploaded or started.")
     return state,fn,busy
 
 

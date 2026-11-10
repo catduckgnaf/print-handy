@@ -203,3 +203,28 @@ def test_classify_unconfirmed_idle_ready():
     assert rb.outcome == "unconfirmed"
     assert rb.evidence is None
     assert rb.message == "submitted, awaiting confirmation"
+
+
+# --- the start primitive's own idle check (any caller, not only the chat path) ---
+
+@pytest.mark.parametrize("state, busy, refused", [
+    ("standby", "Ready", False), ("complete", "Idle", False), ("cancelled", "Idle", False),
+    ("paused", "Idle", True), ("error", "Idle", True), ("printing", "Printing", True),
+    ("standby", "Printing", True)])
+def test_require_idle_mirrors_the_chat_paths_live_idle_check(monkeypatch, state, busy, refused):
+    from print_handy.core import model_job
+    monkeypatch.setattr(model_job, "_printer_phase", lambda st: (state, "x.gcode", busy))
+    if refused:
+        with pytest.raises(SystemExit, match="REFUSED"):
+            model_job._require_idle({"display_off": 1})
+    else:
+        assert model_job._require_idle({"display_off": 1})[0] == state
+
+
+def test_require_idle_and_live_idle_check_share_one_idle_set():
+    import inspect
+    from print_handy.core import model_job
+    from print_handy.hermes import print_next
+    spelled = "(" + ", ".join(f'"{s}"' for s in model_job.IDLE_PRINT_STATES) + ")"
+    source = inspect.getsource(print_next.live_idle_check)
+    assert source.count(f"not in {spelled}") == 2  # the routed and the configured-printer branch
