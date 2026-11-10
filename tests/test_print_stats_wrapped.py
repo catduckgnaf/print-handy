@@ -6,6 +6,7 @@ no real ffmpeg, no printer.
 """
 import http.client
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -535,12 +536,30 @@ class SettingsTests(unittest.TestCase):
             self.assertFalse(data_module.data_enabled(pinned))
 
 
+_TEXTFILE_RE = re.compile(r"drawtext=textfile=([^:]+):expansion=none")
+
+
+def drawtext_texts(command, cwd):
+    """The texts a command's drawtext filters will draw, read from their
+    textfiles (user text never appears in the filter string itself)."""
+    texts = []
+    for part in command:
+        for match in _TEXTFILE_RE.finditer(str(part)):
+            texts.append((Path(cwd) / match.group(1)).read_text(encoding="utf-8"))
+    return texts
+
+
 class FakeRunner:
+    """Records commands and, at call time, the drawtext texts (the work
+    folder is gone by the time a test looks)."""
+
     def __init__(self):
         self.commands = []
+        self.texts = []
 
     def __call__(self, command, **kwargs):
         self.commands.append([str(part) for part in command])
+        self.texts.extend(drawtext_texts(command, kwargs.get("cwd") or "."))
         target = Path(command[-1])
         if target.suffix == ".mp4":
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -618,11 +637,7 @@ class VideoTests(unittest.TestCase):
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
                 runner=runner, find_clips=lambda year: [])
             self.assertTrue(result["ok"])
-        texts = []
-        for command in runner.commands:
-            for part in command:
-                texts.extend(re.findall(r"drawtext=text='((?:[^'\\]|\\.)*)'", part))
-        joined = " ".join(texts)
+        joined = " ".join(runner.texts)
         self.assertIn("Bracket printed 4 times", joined)
         self.assertIn("2 failed prints", joined)
         self.assertIn("1 stopped print", joined)
@@ -659,8 +674,58 @@ class VideoTests(unittest.TestCase):
             self.assertTrue(Path(result["script_path"]).is_file())
             self.assertTrue(any("ffmpeg: unavailable" in n for n in result["notes"]))
 
-    def test_drawtext_escaping(self):
-        self.assertEqual(wrapped_video.escape_drawtext("a:b'c%"), "a\\:b\\'c\\%")
+    def test_hostile_titles_never_reach_a_filter_string(self):
+        """A title with % ' : \\ , [ ] { } or a newline (50% scale cube;
+        %{...} expands as a function) is drawn from a textfile with
+        expansion=none: none of it appears in any generated argument."""
+        hostile = ["50% scale cube", "%{pts} it's: a\\b, [x] {y}",
+                   "line one\nline two", "100%%", "a;b=c"]
+        wrapped = {"year": 2025,
+                   "headline": {"total_prints": 5},
+                   "highlights": {"longest_print": {"title": hostile[0], "seconds": 7200},
+                                  "most_reprinted": {"title": hostile[1], "count": 3}},
+                   "script": [hostile[2] + " " + hostile[3] + " " + hostile[4]]}
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [])
+            self.assertTrue(result["ok"])
+        for command in runner.commands:
+            for part in command:
+                if "drawtext" not in part:
+                    continue
+                self.assertNotIn("text='", part)
+                self.assertNotIn("%{", part)
+                self.assertNotIn("50%", part)
+                self.assertEqual(part.count("drawtext="), part.count("expansion=none"))
+        joined = " | ".join(runner.texts)
+        self.assertIn("50% scale cube", joined)
+        self.assertIn("%{pts}", joined)
+        self.assertTrue(all("\n" not in text for text in runner.texts))
+        self.assertIn("line one line two", joined)
+
+    def test_text_is_named_relative_to_the_work_folder(self):
+        """No path (with its colons and brackets) is ever in a filter, and
+        ffmpeg runs in the folder the text files sit in."""
+        cwds = []
+
+        class CwdRunner(FakeRunner):
+            def __call__(self, command, **kwargs):
+                cwds.append(kwargs.get("cwd"))
+                return super().__call__(command, **kwargs)
+
+        runner = CwdRunner()
+        wrapped = print_stats.build_wrapped(RECORDS, 2025)
+        with tempfile.TemporaryDirectory() as tmp:
+            wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [])
+        self.assertTrue(cwds and all(cwds))
+        for command in runner.commands:
+            for part in command:
+                for match in re.finditer(r"textfile=([^:]+):", part):
+                    self.assertRegex(match.group(1), r"^text-\d+\.txt$")
 
     def test_card_text_is_wrapped_to_fit_the_frame(self):
         """Long commentary lines wrap: no drawtext text may be wider than
@@ -679,13 +744,10 @@ class VideoTests(unittest.TestCase):
                 runner=runner, find_clips=lambda year: [],
                 data={})
             self.assertTrue(result["ok"])
-        texts = []
-        for command in runner.commands:
-            for part in command:
-                texts.extend(re.findall(r"drawtext=text='((?:[^'\\]|\\.)*)'", part))
+        texts = runner.texts
         self.assertTrue(texts)
         self.assertTrue(all(len(text) <= 48 for text in texts), texts)
-        joined = " ".join(texts).replace("\\", "")
+        joined = " ".join(texts)
         for word in ("123 prints", "nine hours", "without pausing"):
             self.assertIn(word, joined)
 

@@ -42,7 +42,9 @@ never uses an AI model or a cloud service.
 """
 from __future__ import annotations
 
+import functools
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -88,17 +90,36 @@ STING_VOLUME = 0.30
 NARRATION_VOLUME = 1.0
 
 
-def escape_drawtext(text):
-    """Escape one line for an ffmpeg drawtext ``text=`` value."""
-    out = []
-    for char in str(text):
-        if char in "\\':%":
-            out.append("\\" + char)
-        elif char in "\r\n":
-            out.append(" ")
-        else:
-            out.append(char)
-    return "".join(out)
+def _clean_text(text):
+    """One line of on-screen text: control characters become spaces."""
+    return "".join(" " if ord(char) < 32 or ord(char) == 127 else char
+                   for char in str(text))
+
+
+class TextFiles:
+    """Print-derived text for drawtext, kept out of filter strings.
+
+    Titles, colors and commentary are user data: escaping them into a
+    ``text='...'`` value lets a ``%`` (``%{...}`` expands as a function),
+    a quote or a colon break or steer the filter. Each text is written to
+    its own file in the work folder and referenced with ``textfile=`` and
+    ``expansion=none``, so no character in it is ever parsed. The option
+    names the file relative to the work folder (ffmpeg runs with that as
+    its working directory), so no path, with its own colons, backslashes
+    or brackets, ever has to be escaped for the filter parser either.
+    """
+
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self._count = 0
+
+    def option(self, text):
+        """The ``textfile=...:expansion=none`` drawtext options for ``text``."""
+        self._count += 1
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / f"text-{self._count:03d}.txt"
+        path.write_text(_clean_text(text), encoding="utf-8")
+        return f"textfile={path.name}:expansion=none"
 
 
 def _default_ffmpeg(data):
@@ -260,12 +281,18 @@ def default_clip_finder(data, year):
             for entry in default_clip_finder_detailed(data, year)][:MAX_CLIPS]
 
 
+def _absolute(path):
+    """A path ffmpeg can open from the work folder (it runs there)."""
+    text = str(path or "")
+    return os.path.abspath(text) if text else ""
+
+
 def _clip_entry(clip):
     """Normalize one finder result (Path/str or detailed dict)."""
     if isinstance(clip, dict):
-        return {"path": str(clip.get("path") or ""),
+        return {"path": _absolute(clip.get("path")),
                 "print_number": clip.get("print_number")}
-    return {"path": str(clip), "print_number": parse_clip_print_number(clip)}
+    return {"path": _absolute(clip), "print_number": parse_clip_print_number(clip)}
 
 
 def clip_label(entry, wrapped):
@@ -309,8 +336,11 @@ def select_clips(clips, wrapped, cap=MAX_CLIPS):
     return [entries[i] for i in chosen_idx]
 
 
-def _run(runner, command):
-    result = runner(command, capture_output=True, text=True)
+def _run(runner, command, *, cwd=None):
+    """One ffmpeg run. ``cwd`` is the work folder, so drawtext textfiles
+    are named relative to it."""
+    extra = {"cwd": str(cwd)} if cwd is not None else {}
+    result = runner(command, capture_output=True, text=True, **extra)
     code = getattr(result, "returncode", 0)
     if code:
         raise RuntimeError(f"ffmpeg exited {code}")
@@ -324,7 +354,7 @@ def _card_lines(text):
     return lines[:8]
 
 
-def _card_filter(text):
+def _card_filter(text, files):
     """A chain of drawtext filters, one per wrapped line, block-centered."""
     lines = _card_lines(text)
     middle = (len(lines) - 1) / 2
@@ -333,7 +363,7 @@ def _card_filter(text):
         offset = round((index - middle) * CARD_LINE_PX)
         y = f"(h-text_h)/2{offset:+d}" if offset else "(h-text_h)/2"
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':"
+            f"drawtext={files.option(line)}:"
             f"fontcolor=white:fontsize=40:x=(w-text_w)/2:y={y}")
     return ",".join(filters)
 
@@ -484,7 +514,7 @@ def _card_texts(wrapped):
     return [slide["hero"] for slide in build_slides(wrapped)]
 
 
-def _slide_filter(slide):
+def _slide_filter(slide, files):
     """Three type levels: eyebrow 28px, hero 64px, explanation 36px.
 
     All text sits in the central vertical-safe band of the 16:9 frame
@@ -492,22 +522,22 @@ def _slide_filter(slide):
     derived from the same composition later.
     """
     filters = [
-        f"drawtext=text='{escape_drawtext(slide['eyebrow'])}':fontcolor=white:"
+        f"drawtext={files.option(slide['eyebrow'])}:fontcolor=white:"
         "fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2-130"]
     hero_lines = textwrap.wrap(slide["hero"], width=18) or [""]
     for index, line in enumerate(hero_lines[:3]):
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':fontcolor=white:"
+            f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=64:x=(w-text_w)/2:y=(h-text_h)/2{-50 + index * 76:+d}")
     line_lines = textwrap.wrap(slide["line"], width=34) or []
     for index, line in enumerate(line_lines[:2]):
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':fontcolor=white:"
+            f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2{130 + index * 46:+d}")
     return ",".join(filters)
 
 
-def _extract_frames(runner, ffmpeg_bin, clips, work, count):
+def _extract_frames(run, ffmpeg_bin, clips, work, count):
     """One frame per slide from the year's clips, or {} per slide index.
 
     Returns {slide_index: (path, size)} for frames that exist on disk
@@ -520,7 +550,7 @@ def _extract_frames(runner, ffmpeg_bin, clips, work, count):
         clip = clips[index % len(clips)]
         frame = work / f"bg-{index:02d}.jpg"
         try:
-            _run(runner, [ffmpeg_bin, "-y", "-ss", "1", "-i", clip["path"],
+            run([ffmpeg_bin, "-y", "-ss", "1", "-i", clip["path"],
                           "-frames:v", "1", str(frame)])
         except Exception:
             continue
@@ -529,7 +559,7 @@ def _extract_frames(runner, ffmpeg_bin, clips, work, count):
     return frames
 
 
-def _slide_command(ffmpeg_bin, slide, segment, frame):
+def _slide_command(ffmpeg_bin, slide, segment, frame, files):
     """The ffmpeg command for one slide segment.
 
     Background rule (documented in docs/WEBUI.md): a frame of at
@@ -548,19 +578,19 @@ def _slide_command(ffmpeg_bin, slide, segment, frame):
                 "gblur=sigma=10,"
                 "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.62:t=fill,"
                 "drawbox=x=0:y=ih*0.55:w=iw:h=ih*0.45:color=black@0.35:t=fill,"
-                f"fps={CARD_FPS}," + _slide_filter(slide))
+                f"fps={CARD_FPS}," + _slide_filter(slide, files))
         return [ffmpeg_bin, "-y", "-loop", "1", "-i", str(frame[0]),
                 "-t", str(duration), "-vf", filt, *base_video, str(segment)]
     if frame is not None:
         filt = (f"[1:v]scale=720:-1[inset];[0:v][inset]overlay=(W-w)/2:30[bg];"
-                f"[bg]fps={CARD_FPS}," + _slide_filter(slide) + "[out]")
+                f"[bg]fps={CARD_FPS}," + _slide_filter(slide, files) + "[out]")
         return [ffmpeg_bin, "-y", "-f", "lavfi", "-i",
                 f"color=c=0x12110F:s=1280x720:d={duration}:rate={CARD_FPS}",
                 "-loop", "1", "-i", str(frame[0]),
                 "-filter_complex", filt, "-map", "[out]", *base_video, str(segment)]
     return [ffmpeg_bin, "-y", "-f", "lavfi", "-i",
             f"color=c=0x12110F:s=1280x720:d={duration}:rate={CARD_FPS}",
-            "-vf", f"fps={CARD_FPS}," + _slide_filter(slide),
+            "-vf", f"fps={CARD_FPS}," + _slide_filter(slide, files),
             *base_video, str(segment)]
 
 
@@ -760,7 +790,9 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
     slides = build_slides({**wrapped, "script": script})
     work = out_dir / f".wrapped-{year}-parts"
     work.mkdir(parents=True, exist_ok=True)
-    frames = _extract_frames(runner, resolved, clips, work, len(slides))
+    files = TextFiles(work)
+    run = functools.partial(_run, runner, cwd=work)
+    frames = _extract_frames(run, resolved, clips, work, len(slides))
     if not frames:
         notes.append("backgrounds: no operator images found")
     segments = []
@@ -780,7 +812,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
 
         def build_footage():
             segment = work / "clip-footage.mp4"
-            _run(runner, [resolved, "-y", "-stream_loop", "-1", "-i",
+            run([resolved, "-y", "-stream_loop", "-1", "-i",
                           footage_entry["path"], "-t", str(FOOTAGE_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=increase,"
                                  "crop=1280:720,"
@@ -802,7 +834,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 build_footage()
                 footage_done = True
             segment = work / f"slide-{index:02d}.mp4"
-            _run(runner, _slide_command(resolved, slide, segment, frames.get(index)))
+            run(_slide_command(resolved, slide, segment, frames.get(index), files))
             add_segment(segment, slide["duration"], slide["role"], slide_index=index)
         if not footage_done and footage_entry is not None:
             build_footage()
@@ -813,16 +845,16 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 # The label card sits immediately before its clip, so a
                 # failure/pasta clip is never mistaken for a success.
                 segment = work / f"card-label-{offset:02d}.mp4"
-                _run(runner, [resolved, "-y", "-f", "lavfi", "-i",
+                run([resolved, "-y", "-f", "lavfi", "-i",
                               f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}:rate={CARD_FPS}",
-                              "-vf", f"fps={CARD_FPS}," + _card_filter(label),
+                              "-vf", f"fps={CARD_FPS}," + _card_filter(label, files),
                               "-c:v", "libx264", "-pix_fmt", "yuv420p",
                               "-r", str(CARD_FPS),
                               "-video_track_timescale", str(SEGMENT_TIMESCALE),
                               str(segment)])
                 add_segment(segment, CARD_SECONDS, "label")
             segment = work / f"clip-{offset:02d}.mp4"
-            _run(runner, [resolved, "-y", "-stream_loop", "-1", "-i", entry["path"],
+            run([resolved, "-y", "-stream_loop", "-1", "-i", entry["path"],
                           "-t", str(CLIP_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
                                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
@@ -835,15 +867,15 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
         finale_index = len(slides) - 1
         finale = slides[finale_index]
         segment = work / f"slide-{finale_index:02d}.mp4"
-        _run(runner, _slide_command(resolved, finale, segment,
-                                    frames.get(finale_index)))
+        run(_slide_command(resolved, finale, segment,
+                                    frames.get(finale_index), files))
         add_segment(segment, finale["duration"], "finale", slide_index=finale_index)
         listing = work / "concat.txt"
         listing.write_text("".join(f"file '{segment.name}'\n" for segment in segments),
                            encoding="utf-8")
         target = out_dir / f"wrapped-{year}.mp4"
         silent = work / "silent.mp4"
-        _run(runner, [resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
+        run([resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
                       "-c", "copy", str(silent)])
         total = sum(entry["duration"] for entry in timeline)
         if export_silent:
@@ -860,7 +892,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             music_prefix = None
             if music_setting:
                 if Path(music_setting).is_file():
-                    music_file = Path(music_setting)
+                    music_file = Path(os.path.abspath(music_setting))
                 else:
                     music_prefix = (f"music: operator file not found at {music_setting}; "
                                     "using synthesized bed")
@@ -870,7 +902,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 music_note_prefix=music_prefix)
             notes.extend(audio_notes)
             try:
-                _run(runner, command)
+                run(command)
             except Exception as exc:
                 notes.append(f"audio: failed ({type(exc).__name__}: {exc}); silent video kept")
                 shutil.copyfile(silent, target)
@@ -888,5 +920,5 @@ __all__ = ["BED_DUCKED_VOLUME", "BED_FAILURE_VOLUME", "BED_VOLUME", "BG_FULL_MIN
            "SAD_VOLUME", "SEGMENT_TIMESCALE", "SHORT_SECONDS", "SLIDE_SECONDS",
            "STING_VOLUME", "build_slides", "build_wrapped_video",
            "clip_label", "default_clip_finder", "default_clip_finder_detailed",
-           "escape_drawtext", "parse_clip_print_number", "piper_command",
+           "parse_clip_print_number", "piper_command",
            "resolve_clip_print_number", "select_clips", "timeline_roles"]
