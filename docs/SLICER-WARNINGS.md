@@ -27,6 +27,16 @@ Both slice variants run speculatively in the background when flagged. Because th
 - Cancelling at the post-slice support prompt cancels the start, not the slice: once a slice is referenced by `JOB.json` and the intake receipt, its files stay on disk with status `SLICED_NOT_STARTED`.
 - Uploading an already-sliced `.gcode.3mf` package is refused with that explanation; it is not reported as a corrupt 3MF structure.
 
+## Filament warnings (print anyway)
+
+No filament condition blocks a print. A filament finding stops the slice once with the warnings listed, and **Print anyway (accept the filament warnings)** records an acceptance bound to those exact warning texts, the source file and the selected plates. The acceptance covers one slicing run: a reslice asks again. Findings include unknown or disagreeing per-plate filament usage, damaged usage records in the source, and three cases that print from a named fallback slot:
+
+- **A used filament with no slot chosen** prints from the slot already chosen for that same source filament, otherwise the slot chosen for the first part on that plate, otherwise the fallback slot below.
+- **A slot number past the printer's slots** (for example slot 6 on a four-slot AD5X) prints from the fallback slot.
+- **Color choices never made** print every part in one color from the fallback slot, the same as choosing one color for everything.
+
+The fallback slot is the printer's active slot when the printer record names one that is loaded, otherwise its first loaded slot. With no loaded-slot information at all it is slot 1, and the warning says so. The warning always names the slot. The substitution is made before slicing, so the G-code only uses slots the printer has and goes through the same bounds and slot checks as any other print. The job keeps the color choices you made; the slots the print used are recorded with the sliced file.
+
 ## Every other warning (information only)
 
 Other non-critical warnings never gate, block or add a button. Identical text is shown once, and the pre-print summary carries one compact line (count plus the first warning); the full list stays in the job's slice provenance. Warnings known to be harmless go in `print_handy/data/slice_warning_ignore.json` (`{"ignore": [{"pattern": "<regex>"}]}`); they are logged and not shown. The support finding cannot be ignored.
