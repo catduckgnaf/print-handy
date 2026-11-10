@@ -249,6 +249,10 @@ class PrintHandyBot(ext_commands.Bot):
                     self.user, self.core.chat_id, self.core.adapter.access_description(),
                     ", ".join(self.core.router.handler_names()))
         health.write(self.core.status(True))
+        if self.cfg["bot"].get("setup_only"):
+            logger.warning("setup-only mode: this install is not configured yet — "
+                           "run /print-handy setup in any channel to set it up; "
+                           "nothing else is answered until setup is applied")
         if not self._interrupted_checked:
             self._interrupted_checked = True  # once per process; READY can arrive again on a reconnect
             try:

@@ -33,7 +33,7 @@ the same posture as roasts. The `[design] enabled` switch is tri-state:
 
 Where the model comes from:
 
-- **Every mode, Hermes included:** the `[design]` settings pick the model.
+- **The `[design]` settings pick the model.**
   Leave `chat_url` / `model` / `api_key_env` empty to reuse the `[llm]`
   endpoint, or point them at a stronger model — design turns are the ones
   worth spending a bigger model on, while everyday chat stays on the small
@@ -42,14 +42,6 @@ Where the model comes from:
   serves design there, and nothing else changes — ordinary chat on those
   platforms still has no LLM fallback and unmatched text still gets the
   short “didn't understand” reply.
-- **Hermes with no endpoint configured:** the design model is the
-  profile's auxiliary task instead. Uncomment the
-  `auxiliary.print_design` block in the profile config (the shipped
-  template carries a commented example) to pin a provider/model for
-  design; chat stays on the profile model. As soon as a `[design]` (or
-  `[llm]`) endpoint is configured it takes over, and the profile pin
-  becomes the fallback.
-
 `bot check` prints a `design` row naming the mode (`off`, `auto-off`,
 `auto-on` or `on`), the model in effect, and whether OpenSCAD is present.
 

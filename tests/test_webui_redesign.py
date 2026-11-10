@@ -68,7 +68,7 @@ def test_config_page_has_tabs_search_and_restart_setup(tmp_path):
     from print_handy.webui import config as config_api
     fields = config_api.read_fields(environ={"PRINT_HANDY_CONFIG": str(path)})
     html = pages.render_config_page(fields, data=data, form_token="t")
-    assert 'class="pills config-tabs"' in html and 'href="#group-' in html
+    assert 'class="pills config-tabs"' in html and 'href="/config?section=' in html
     assert 'id="field-search"' in html
     assert 'name="action" value="restart"' in html
 

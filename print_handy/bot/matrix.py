@@ -30,7 +30,7 @@ from ..core import prompts
 from . import health
 from . import matrix_rest as mx
 from . import routing
-from .platform import BasePlatformAdapter, SendResult, answered_note
+from .platform import BasePlatformAdapter, SendResult, _prompts_guard, answered_note
 from .rest import chunks, split_media
 
 logger = logging.getLogger(__name__)
@@ -219,7 +219,9 @@ class StandaloneAdapter(BasePlatformAdapter):
         if match:
             cid = self.open_prompt(session_key)
             if cid is not None:
-                labels = self.registry.choices(cid) or (self._prompts.get(cid) or {}).get("choices") or []
+                with _prompts_guard(self):
+                    row = self._prompts.get(cid)
+                labels = self.registry.choices(cid) or (row or {}).get("choices") or []
                 index = int(match.group(1)) - 1
                 if 0 <= index < len(labels):
                     text = labels[index]
@@ -236,7 +238,8 @@ class StandaloneAdapter(BasePlatformAdapter):
 
     async def close_prompt(self, clarify_id, note):
         """No message edit on Matrix: a short follow-up message records the answer."""
-        row = self._prompts.pop(str(clarify_id), None)
+        with _prompts_guard(self):
+            row = self._prompts.pop(str(clarify_id), None)
         if not row:
             return
         try:

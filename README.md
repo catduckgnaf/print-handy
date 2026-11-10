@@ -15,27 +15,6 @@ Current release: **2.2.7**
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
-## Why this exists
-
-Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
-
-Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
-
-**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. One honest exception: the chat app you pick carries what you send through it — a model file, a photo, a timelapse — over that provider's servers, exactly like any other message in Discord or Telegram. Print Handy adds no cloud of its own on top of that, and its local surfaces (the doctor, the Web UI, a self-hosted Matrix room) never leave the house. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
-
-It is also a little mean. Every finished print comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
-
-*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
-
-## How it works
-
-1. **Share a model.** Drop a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link in the chat, a direct link to an STL or 3MF file (a Dropbox share link works too), or upload an STL or 3MF file. MakerOnline links are checked for their file inventory only; downloads are not supported. Cults3D links are recognized the same way, but Cults' API exposes listing details only, never the files, so intake names that gap instead.
-2. **Make a few choices.** A model that comes as several files (a box, its lid, a latch) prints as one job; you only pick between versions of a part, such as a lid with or without a logo. Print Handy walks you through colors and filament, how many copies, and — if the model needs it — how it should fit on the bed. Then it slices the model for your printer.
-3. **Check and confirm.** You see the result before anything happens. Only when you approve it does Print Handy send the job to a configured printer.
-4. **Follow along.** Progress, alerts, the timelapse and a roast of your model choices come back to the same chat.
-
-That's the whole idea: the convenience of printing from chat, with a human — you — making the final call every time.
-
 ## See it in action
 
 **Drop a link, pick your colors.**
@@ -64,12 +43,33 @@ These are mockups built from the bot's real message text and buttons, with place
 
 </details>
 
+## Why this exists
+
+Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
+
+Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
+
+**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. One honest exception: the chat app you pick carries what you send through it — a model file, a photo, a timelapse — over that provider's servers, exactly like any other message in Discord or Telegram. Print Handy adds no cloud of its own on top of that, and its local surfaces (the doctor, the Web UI, a self-hosted Matrix room) run in the house, on your network — reaching the Web UI from outside is your own network's choice (a VPN, a proxy, or a login you set first), never a Print Handy service. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
+
+It is also a little mean. Every finished print comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
+
+*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
+
+## How it works
+
+1. **Share a model.** Drop a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link in the chat, a direct link to an STL or 3MF file (a Dropbox share link works too), or upload an STL or 3MF file. MakerOnline links are checked for their file inventory only; downloads are not supported. Cults3D links are recognized the same way, but Cults' API exposes listing details only, never the files, so intake names that gap instead.
+2. **Make a few choices.** A model that comes as several files (a box, its lid, a latch) prints as one job; you only pick between versions of a part, such as a lid with or without a logo. Print Handy walks you through colors and filament, how many copies, and — if the model needs it — how it should fit on the bed. Then it slices the model for your printer.
+3. **Check and confirm.** You see the result before anything happens. Only when you approve it does Print Handy send the job to a configured printer.
+4. **Follow along.** Progress, alerts, the timelapse and a roast of your model choices come back to the same chat.
+
+That's the whole idea: the convenience of printing from chat, with a human — you — making the final call every time.
+
 ## Get started
 
 Setup instructions do not live in this README; they live in the guides, where they can be as detailed as each route needs:
 
 - **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). Pin the image by its digest, not `:latest` or `:develop`; the guide has the current digest and the rollback. On Unraid, start from `docker/unraid/print-handy.xml`.
-- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead), or the [Hermes installation](docs/INSTALL.md) for existing Hermes users.
+- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead); see the [native install](docs/INSTALL.md).
 - **Everything else** — the [documentation home](docs/README.md) indexes every guide, including configuration, multi-printer installs and troubleshooting.
 
 **You need** a 64-bit Debian or Ubuntu machine, or a Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS, for the Docker route. The image (`ghcr.io/catduckgnaf/print-handy`) is published for `linux/amd64` and `linux/arm64`.
@@ -120,7 +120,6 @@ Print Handy groups printers by **how they connect**, because that is what decide
 
 The same bot, with the same prompts and safety gates, runs on **Discord, Telegram or Matrix** — only the transport changes. Setup: [Discord](docs/DISCORD-BOT-SETUP.md) · [Telegram](docs/TELEGRAM-BOT-SETUP.md) · [Matrix](docs/MATRIX-BOT-SETUP.md).
 
-- On Discord you can alternatively run Print Handy as a Hermes plugin instead of the standalone bot. Use only one mode with a given bot token.
 - The Telegram and Matrix bots are pure bots with no LLM chat: send a message that isn't a command and you get the command list back. (Their roasts, camera checks and design still work — roasts are local, and the others use the vision and design endpoints, not chat.)
 - Discord is a choice, not a requirement: the same local-first install serves Telegram or Matrix instead, and the doctor and the local Web UI need no chat platform at all.
 
@@ -140,7 +139,7 @@ Everything in this list is plain, deterministic code, running locally. No model 
 - **Watch the camera live (Discord).** An optional live view inside a Discord voice channel, for checking on a print without leaving the chat. Nothing is recorded.
 - **Get help in chat.** `/print-handy setup` walks a fresh install through setup; `/print-handy add-printer` adds another printer to a running install through the same guided pattern, with a live connection probe before anything is written; `/print-handy debugging` runs read-only, redacted checks; `/print-handy bundle` assembles a diagnostics bundle (secret values are never included) as a local file that only leaves the machine if you choose to attach it. See [guided setup and debugging](docs/GUIDED-SETUP-DEBUGGING.md) and [diagnostics](docs/DIAGNOSTICS.md).
 - **Forgiving about typos.** Chat understands everyday misspellings too: "seperate the bed and nozzle", "do some maintance", "shrnik it by 20%", "can you add supprots", "callibrate the bed". A correction never invents an action (you still get the usual confirmation), and a word that could be two real words ("brim" or "trim") becomes a pick list. Numbers, units, links, file names and mentions are left alone. `/print-lookup` finds "nozzel clog", a mistyped command gets a "Did you mean `/spool list`?" button, and `/print-again` with a half-remembered name offers a pick-list. No model needed, and a suggestion never runs anything on its own. An optional [semantic lookup](docs/SETTINGS.md#semantic-lookup-endpoint-print_fuzzy_url) adds meaning-level matches ("bed won't stick"), runnable on [Cloudflare's free tier](docs/CLOUDFLARE.md).
-- **Use the optional Web UI.** An off-by-default local page for the same install: a first-run walkthrough, status and doctor checks, the settings picker, spool management, the read-only designs catalog, and a read-only sliced-layer view (colored by extrusion role, one layer at a time). Printer controls (pause, resume, cancel, target temperatures) live there too and stay off unless the operator turns them on. See the [Web UI guide](docs/WEBUI.md).
+- **Use the Web UI.** A local page for the same install, on by default: a first-run walkthrough, status and doctor checks, the settings picker, spool management, the read-only designs catalog, and a read-only sliced-layer view (colored by extrusion role, one layer at a time). It opens with no login on your own network; set a password in the walkthrough only if you want one. Printer controls (pause, resume, cancel, target temperatures) live there too and stay off unless the operator turns them on. See the [Web UI guide](docs/WEBUI.md).
 - **See your year in printing: the Data tab and Print Handy Wrapped.** An opt-in Web UI feature that turns the print records Print Handy already keeps into statistics — hours printing, filament by material, color, vendor, spool and nozzle, failures and risk flags, and top prints — plus Wrapped, a once-a-year recap with data-driven commentary in the Spotify Wrapped spirit. It is off by default: `timelapse.wrapped_enabled` (default `false`) turns on the Data tab and the Wrapped page, and `timelapse.wrapped_ai_video` (default `false`) adds the Wrapped video, compiled locally and only when you ask for it, from stat cards, the commentary as on-screen text, and the year's timelapses where they are found. See the [Web UI guide](docs/WEBUI.md#data-tab-and-print-handy-wrapped).
 
 ### With a model endpoint (the LLM features)
@@ -183,3 +182,7 @@ The **Print Handy Discord server** is the community home: [discord.gg/mT2Ht3nqZu
 | Write or review release notes | [Release-note guide](docs/RELEASE-NOTES.md) · [Internal history](docs/INTERNAL_RELEASE_NOTES.md) |
 
 Draft pull requests describe pending work, not installed or released capabilities.
+
+## License
+
+Print Handy is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). Version 2.2.7 and earlier were released under the MIT License; [NOTICE](NOTICE) keeps those terms for the code carried forward.

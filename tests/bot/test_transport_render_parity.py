@@ -9,8 +9,9 @@ bytes — formats legitimately differ:
 
 * the same core facts on every surface: the outcome verb, the model
   title (the file fact), and the printer name on a multi-printer roster;
-* the starter mention (post-#1029) present only where the platform
-  supports Discord mentions — Discord — and absent on Telegram/Matrix;
+* no rendered text carries a starter mention on any platform (#1095):
+  the ping is a send-path decision by the starter pings classifier,
+  and only Discord's payload carries ``allowed_mentions``;
 * each sender delivers the rendered text intact within its own message
   limit, and only Discord's payload carries ``allowed_mentions``;
 * unmatched text on the no-LLM transports (Telegram, Matrix) never
@@ -93,13 +94,23 @@ def test_terminal_render_parity(archive, monkeypatch, platform, kind):
     # Same core facts on every surface.
     assert text.startswith(f"{VERBS[kind]}: Widget"), text
     assert "Printer: Workshop AD5X" in text
-    # The starter mention exists only where the platform supports it.
-    if platform == "discord":
-        assert text.splitlines()[-1] == f"<@{STARTER}>"
-        assert summary.mention_user_id(text) == STARTER
-    else:
-        assert "<@" not in text
-        assert summary.mention_user_id(text) is None
+    # The rendered text carries no mention on any platform (#1095): the
+    # classifier decides the ping at the send path (next test).
+    assert "<@" not in text
+
+
+@pytest.mark.parametrize("kind", ["complete", "cancelled", "error"])
+def test_terminal_ping_decision_is_discord_only(archive, monkeypatch, kind):
+    """The starter pings classifier, asked the way the listener's send
+    path asks it: on a Discord install the terminal kind pings the
+    starter; on Telegram/Matrix installs it names nobody."""
+    from print_handy.hermes import starter_pings
+    monkeypatch.setattr(starter_pings, "STATE", archive.parent / "pings.json")
+    _install("discord", monkeypatch)
+    assert starter_pings.ping_for(kind, job_key="plate.gcode") == STARTER
+    for platform in ("telegram", "matrix"):
+        _install(platform, monkeypatch)
+        assert starter_pings.ping_for(kind, job_key="plate.gcode") == ""
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -113,15 +124,15 @@ def test_non_terminal_render_parity_mentions_nobody(archive, monkeypatch, platfo
 
 
 def test_the_notify_copy_never_carries_the_mention(archive, monkeypatch):
-    """format_event emits the MQTT/ntfy copy before appending the
-    mention: the non-Discord consumers of the same event get the plain
-    facts, on a Discord install too."""
+    """The MQTT/ntfy copy of an event is the same plain text the chat
+    post carries (#1095): no consumer of format_event ever sees a
+    mention, on a Discord install too."""
     _install("discord", monkeypatch)
     emitted = []
     with mock.patch("print_handy.notify.emit_queued",
                     lambda name, message: emitted.append((name, message))):
         text = summary.format_event("complete", "plate.gcode", archive=archive, emit=True)
-    assert text.splitlines()[-1] == f"<@{STARTER}>"
+    assert "<@" not in text
     assert emitted and all("<@" not in message for _name, message in emitted)
 
 
@@ -172,11 +183,17 @@ class _MatrixOpener:
 def test_each_sender_delivers_the_rendered_text_within_its_limit(archive, monkeypatch):
     _install("discord", monkeypatch)
     text = _render(archive, "complete")
-    assert text.splitlines()[-1] == f"<@{STARTER}>"
+    assert "<@" not in text
 
+    # The Discord send carries the classifier's decision (#1095): the
+    # text stays mention-free, the one allowed ping rides the payload.
+    from print_handy.hermes import starter_pings
+    monkeypatch.setattr(starter_pings, "STATE", archive.parent / "pings.json")
+    mention = starter_pings.ping_for("complete", job_key="plate.gcode")
+    assert mention == STARTER
     discord = _DiscordOpener()
     ok, _ = rest.send("tok", "123", text, opener=discord,
-                      mention_user_id=summary.mention_user_id(text))
+                      mention_user_id=mention)
     assert ok and [p["content"] for p in discord.payloads] == [text]
     assert discord.payloads[0]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
 

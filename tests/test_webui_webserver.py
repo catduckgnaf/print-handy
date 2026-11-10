@@ -380,15 +380,20 @@ class RouteShapeTests(WebServerCase):
 
     def test_data_and_wrapped_refuse_by_name_while_the_gate_is_off(self):
         with tempfile.TemporaryDirectory() as tmp:
-            _, port = self.start(tmp)
-            for path in ("/data", "/wrapped", "/api/data", "/api/wrapped",
-                         "/wrapped/video-file?year=2026"):
+            # Explicitly off (stage 5: on by default, but an explicit
+            # false is never overridden; data_enabled follows it).
+            _, port = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            for path, key in (("/data", "data_enabled"),
+                              ("/wrapped", "wrapped_enabled"),
+                              ("/api/data", "data_enabled"),
+                              ("/api/wrapped", "wrapped_enabled"),
+                              ("/wrapped/video-file?year=2026", "wrapped_enabled")):
                 code, _, raw = self.request(port, "GET", path,
                                             headers=self.auth())
                 self.assertEqual(code, 403, path)
                 payload = json.loads(raw)
                 self.assertFalse(payload["ok"], path)
-                self.assertIn("wrapped_enabled", payload["reason"], path)
+                self.assertIn(key, payload["reason"], path)
 
     def test_data_and_wrapped_serve_pages_and_json_when_the_gate_is_on(self):
         with tempfile.TemporaryDirectory() as tmp:

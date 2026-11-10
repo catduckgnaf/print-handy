@@ -1,7 +1,7 @@
 """Discord delivery for the standalone bot: the Discord implementation of the platform interface.
 
-``send`` and ``send_clarify`` have the signatures of Hermes' Discord adapter, so the print-feedback
-handlers run unchanged. A ``MEDIA:/path`` marker becomes an attachment. A button press resolves the
+``send`` and ``send_clarify`` carry the signatures the print-feedback
+handlers call, so the handlers run unchanged. A ``MEDIA:/path`` marker becomes an attachment. A button press resolves the
 core prompt registry (print_handy.core.prompts); the click handler lives here too. The shared
 interface and prompt bookkeeping live in ``print_handy.bot.platform`` (#164); this module is the
 only adapter module that imports ``discord``.
@@ -13,7 +13,8 @@ from typing import Any
 
 from ..core import prompts
 from . import rest
-from .platform import (CUSTOM_PREFIX, BasePlatformAdapter, SendResult, custom_id, parse_custom_id)
+from .platform import (CUSTOM_PREFIX, BasePlatformAdapter, SendResult, _prompts_guard, custom_id,
+                       parse_custom_id)
 
 __all__ = ["CUSTOM_PREFIX", "MAX_BUTTONS", "LABEL_LIMIT", "SendResult", "StandaloneAdapter",
            "custom_id", "parse_custom_id"]
@@ -155,7 +156,8 @@ class StandaloneAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------ answers
 
     async def close_prompt(self, cid, note):
-        row = self._prompts.pop(str(cid), None)
+        with _prompts_guard(self):
+            row = self._prompts.pop(str(cid), None)
         if not row:
             return
         try:
@@ -189,7 +191,8 @@ class StandaloneAdapter(BasePlatformAdapter):
                         getattr(user, "id", ""), self.approval_refusal_reason(getattr(user, "id", "")))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return True
-        row = self._prompts.get(cid)
+        with _prompts_guard(self):
+            row = self._prompts.get(cid)
         if row is not None:
             # A prompt is answered in the channel it was asked in (#335): the
             # channel is the approval's target, so a press arriving through a
@@ -220,7 +223,8 @@ class StandaloneAdapter(BasePlatformAdapter):
             return True
         who = getattr(user, "display_name", None) or getattr(user, "name", None) or "Someone"
         question = row["question"] if row else str(getattr(getattr(interaction, "message", None), "content", "") or "")
-        self._prompts.pop(cid, None)
+        with _prompts_guard(self):
+            self._prompts.pop(cid, None)
         try:
             await interaction.edit_original_response(
                 content=f"{question}\n> {who} chose **{labels[index]}**"[:rest.LIMIT], view=None)

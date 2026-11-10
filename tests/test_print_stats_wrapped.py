@@ -474,7 +474,10 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_validation_catalog_and_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)
-            self.assertIs(data["timelapse"]["wrapped_enabled"], False)
+            # Stage 5: Wrapped and the Data tab are on by default, and
+            # data_enabled follows wrapped_enabled while unset.
+            self.assertIs(data["timelapse"]["wrapped_enabled"], True)
+            self.assertIs(data["timelapse"]["data_enabled"], True)
             self.assertIs(data["timelapse"]["wrapped_ai_video"], False)
             env_data = load_settings(
                 tmp, environ={"PRINT_HANDY__TIMELAPSE__WRAPPED_ENABLED": "true",
@@ -485,11 +488,51 @@ class SettingsTests(unittest.TestCase):
             bad.write_text("timelapse:\n  wrapped_enabled: sometimes\n")
             with self.assertRaises(settings.SettingsError):
                 settings.load(local=bad, environ={})
-        for field_id in ("timelapse.wrapped_enabled", "timelapse.wrapped_ai_video"):
+
+    def test_data_enabled_follows_wrapped_until_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # An explicit pre-split wrapped_enabled: false keeps the
+            # Data tab off: data_enabled follows it at load.
+            off = load_settings(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            self.assertIs(off["timelapse"]["wrapped_enabled"], False)
+            self.assertIs(off["timelapse"]["data_enabled"], False)
+            # An explicit data_enabled pins the Data tab independently.
+            pinned = load_settings(
+                tmp, "timelapse:\n  wrapped_enabled: false\n  data_enabled: true\n")
+            self.assertIs(pinned["timelapse"]["data_enabled"], True)
+            bad = Path(tmp) / "bad2.yaml"
+            bad.write_text("timelapse:\n  data_enabled: sometimes\n")
+            with self.assertRaises(settings.SettingsError):
+                settings.load(local=bad, environ={})
+        for field_id in ("timelapse.wrapped_enabled", "timelapse.data_enabled",
+                         "timelapse.wrapped_ai_video"):
             field = catalog.field_by_id(field_id)
             self.assertIsNotNone(field)
             self.assertEqual(field.kind, "toggle")
-            self.assertEqual(field.group, "timelapse")
+            self.assertEqual(field.group, "wrapped")
+
+    def test_data_enabled_explicitness_survives_the_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Unset in every layer: the loaded mapping records that the
+            # value is a followed one, not an operator choice (the
+            # mode_explicit pattern), and the Data gate keeps following
+            # wrapped_enabled on that loaded mapping — the baked value
+            # must not pin the gate after wrapped_enabled moves.
+            followed = load_settings(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            self.assertIs(followed["timelapse"]["data_enabled"], False)
+            self.assertIs(followed["timelapse"]["data_enabled_explicit"], False)
+            followed["timelapse"]["wrapped_enabled"] = True
+            self.assertTrue(data_module.data_enabled(followed))
+            # The plain default load is a followed value too.
+            default = load_settings(tmp)
+            self.assertIs(default["timelapse"]["data_enabled_explicit"], False)
+            # Explicit: the flag is set, and the gate honors the pinned
+            # value even when wrapped_enabled moves on the same mapping.
+            pinned = load_settings(
+                tmp, "timelapse:\n  wrapped_enabled: false\n  data_enabled: false\n")
+            self.assertIs(pinned["timelapse"]["data_enabled_explicit"], True)
+            pinned["timelapse"]["wrapped_enabled"] = True
+            self.assertFalse(data_module.data_enabled(pinned))
 
 
 class FakeRunner:
@@ -673,19 +716,52 @@ class RouteTests(unittest.TestCase):
     def test_disabled_refusals_and_no_nav(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
-            httpd = self.start(tmp)
+            # Explicitly off (stage 5: an explicit false is never
+            # overridden by the new on-by-default), and data_enabled
+            # follows wrapped_enabled while unset.
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
             port = httpd.server_address[1]
-            for path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
+            for path, key in (("/data", "data_enabled"),
+                              ("/wrapped", "wrapped_enabled"),
+                              ("/api/data", "data_enabled"),
+                              ("/api/wrapped", "wrapped_enabled")):
                 code, raw = self.request(port, "GET", path)
                 self.assertEqual(code, 403, path)
-                self.assertIn("wrapped_enabled", raw)
+                self.assertIn(key, raw, path)
             code, raw = self.request(port, "GET", "/")
             self.assertEqual(code, 200)
             self.assertNotIn('href="/data"', raw)
             self.assertNotIn('href="/wrapped"', raw)
         self.assertNotIn("/data", [target for target, _label in shell.NAV])
-        code, payload = data_module.data_view({"timelapse": {}}, records_vault="/nope")
+        code, payload = data_module.data_view(
+            {"timelapse": {"data_enabled": False}}, records_vault="/nope")
         self.assertEqual(code, 403)
+        self.assertIn("data_enabled", payload["reason"])
+
+    def test_data_and_wrapped_switches_are_independent(self):
+        # Stage 5 split: data_enabled pins the Data tab on its own;
+        # wrapped_enabled alone no longer gates it, in either
+        # direction, and the nav carries only the links that are on.
+        data_only = {"timelapse": {"wrapped_enabled": False,
+                                   "data_enabled": True}}
+        self.assertTrue(data_module.data_enabled(data_only))
+        self.assertFalse(data_module.wrapped_enabled(data_only))
+        code, _payload = data_module.data_view(data_only, records_vault="/nope")
+        self.assertEqual(code, 200)
+        code, payload = data_module.wrapped_view(data_only, records_vault="/nope")
+        self.assertEqual(code, 403)
+        self.assertIn("wrapped_enabled", payload["reason"])
+        nav = [target for target, _label in data_module.nav_for(data_only)]
+        self.assertIn("/data", nav)
+        self.assertNotIn("/wrapped", nav)
+        wrapped_only = {"timelapse": {"wrapped_enabled": True,
+                                      "data_enabled": False}}
+        code, payload = data_module.data_view(wrapped_only, records_vault="/nope")
+        self.assertEqual(code, 403)
+        self.assertIn("data_enabled", payload["reason"])
+        # Unset data_enabled follows wrapped_enabled on a raw mapping.
+        self.assertTrue(data_module.data_enabled({"timelapse": {"wrapped_enabled": True}}))
+        self.assertFalse(data_module.data_enabled({"timelapse": {"wrapped_enabled": False}}))
 
     def test_enabled_pages_api_and_nav(self):
         with tempfile.TemporaryDirectory() as tmp:

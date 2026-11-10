@@ -67,15 +67,23 @@ class Field:
         return f"{self.section}.{self.key}"
 
 
-# Page groups for the stage 3 /config page, keyed by field id. The page
-# renders them in this order: printer, platform, services, endpoints,
-# timelapse, images, live, slicing, logging, webui (pages.GROUPS
-# carries the titles).
+# Page groups for the /config page, keyed by field id. The page renders
+# them in this order: printers, platform, spools, ai, camera, wrapped,
+# slicing, home_assistant, notifications, logging, webui (pages.GROUPS
+# carries the titles). Settings restructure stage 1 grouped the fields
+# by what they serve — printer connection addresses with the printer,
+# Spoolman with spools, MQTT under Home Assistant, Wrapped on its own,
+# and the camera, timelapse, image and live-stream fields in one camera
+# group — instead of by the settings section they happen to live in.
+# Stage 2 gathered every AI surface into the ai group: the chat, design
+# and agent endpoints, the vision endpoint and model, and the [ai] edit
+# gate. The [ai] tier tables themselves stay file-only (see
+# GROUP_FILE_ONLY_NOTES below).
 GROUP_OF = {
-    "printer.name": "printer",
-    "printer.model": "printer",
+    "printer.name": "printers",
+    "printer.model": "printers",
     "printer.slicer": "slicing",
-    "printer.zmod_delivery_format": "printer",
+    "printer.zmod_delivery_format": "printers",
     "delivery.methods": "slicing",
     "layout.spacing": "slicing",
     "bot.mode": "platform",
@@ -87,8 +95,7 @@ GROUP_OF = {
     "discord.approval_all_users": "platform",
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
-    "discord.clarify_ui": "platform",
-    "discord.mention_starter_on_complete": "platform",
+    "discord.mention_starter": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -96,86 +103,110 @@ GROUP_OF = {
     "matrix.room_id": "platform",
     "matrix.allowed_user_ids": "platform",
     "matrix.approval_user_id": "platform",
-    "services.moonraker_url": "services",
-    "services.octoprint_url": "services",
-    "bambu.lan_host": "services",
-    "bambu.lan_serial": "services",
-    "prusa.link_host": "services",
-    "flashforge_stock.host": "services",
-    "elegoo_sdcp.host": "services",
-    "services.spoolman_url": "services",
-    "spool.prompt_brand": "services",
-    "notify.mqtt_enabled": "services",
-    "notify.mqtt_host": "services",
-    "notify.mqtt_port": "services",
-    "notify.mqtt_topic": "services",
-    "notify.mqtt_username": "services",
-    "notify.ntfy_enabled": "services",
-    "notify.ntfy_url": "services",
-    "notify.ntfy_topic": "services",
-    "llm.chat_url": "endpoints",
-    "llm.model": "endpoints",
-    "design.chat_url": "endpoints",
-    "design.model": "endpoints",
-    "agent.chat_url": "endpoints",
-    "agent.model": "endpoints",
-    "services.camera_source": "images",
-    "services.camera_snapshot_url": "images",
-    "timelapse.capture_source_url": "images",
-    "services.vision_chat_url": "images",
-    "vision.model": "images",
-    "vision.roast_enabled": "images",
-    "vision.roast_custom_bank": "images",
-    "vision.local_detector_enabled": "images",
-    "vision.local_model_path": "images",
-    "vision.watch_source": "images",
-    "vision.local_empty_enabled": "images",
-    "vision.auto_light_off_minutes": "images",
-    "vision.light_object": "images",
-    "visual_watch.enabled": "images",
-    "visual_watch.sensitivity": "images",
-    "visual_watch.early_layers": "images",
-    "visual_watch.early_interval_s": "images",
-    "visual_watch.auto_pause_early": "images",
-    "timelapse.capture_enabled": "timelapse",
-    "timelapse.capture_trigger": "timelapse",
-    "timelapse.capture_interval_s": "timelapse",
-    "timelapse.capture_max_frames": "timelapse",
-    "timelapse.capture_max_bytes": "timelapse",
-    "timelapse.mode": "timelapse",
-    "timelapse.render_wait_s": "timelapse",
-    "timelapse.render_poll_s": "timelapse",
-    "timelapse.max_bytes": "timelapse",
-    "timelapse.local_retention_days": "timelapse",
-    "timelapse.target_length_s": "timelapse",
-    "timelapse.min_fps": "timelapse",
-    "timelapse.max_fps": "timelapse",
-    "timelapse.min_length_s": "timelapse",
-    "timelapse.hold_last_frame_s": "timelapse",
-    "timelapse.plan_clip_retention_days": "timelapse",
-    "timelapse.archive_host": "timelapse",
-    "timelapse.archive_dir": "timelapse",
-    "timelapse.ssh_key": "timelapse",
-    "timelapse.wrapped_enabled": "timelapse",
-    "timelapse.wrapped_ai_video": "timelapse",
-    "timelapse.wrapped_tts_engine": "timelapse",
-    "timelapse.wrapped_music_file": "timelapse",
+    "services.moonraker_url": "printers",
+    "services.octoprint_url": "printers",
+    "bambu.lan_host": "printers",
+    "bambu.lan_serial": "printers",
+    "prusa.link_host": "printers",
+    "flashforge_stock.host": "printers",
+    "elegoo_sdcp.host": "printers",
+    "services.spoolman_url": "spools",
+    "spool.prompt_brand": "spools",
+    "notify.mqtt_enabled": "home_assistant",
+    "notify.mqtt_host": "home_assistant",
+    "notify.mqtt_port": "home_assistant",
+    "notify.mqtt_topic": "home_assistant",
+    "notify.mqtt_username": "home_assistant",
+    "notify.ntfy_enabled": "notifications",
+    "notify.ntfy_url": "notifications",
+    "notify.ntfy_topic": "notifications",
+    "llm.chat_url": "ai",
+    "llm.model": "ai",
+    "design.chat_url": "ai",
+    "design.model": "ai",
+    "agent.chat_url": "ai",
+    "agent.model": "ai",
+    "ai.allowed_users": "ai",
+    "ai.edit_requests_per_hour": "ai",
+    "services.camera_source": "camera",
+    "services.camera_snapshot_url": "camera",
+    "timelapse.capture_source_url": "camera",
+    "services.vision_chat_url": "ai",
+    "vision.model": "ai",
+    "vision.roast_enabled": "camera",
+    "vision.roast_custom_bank": "camera",
+    "vision.local_detector_enabled": "camera",
+    "vision.local_model_path": "camera",
+    "vision.watch_source": "camera",
+    "vision.local_empty_enabled": "camera",
+    "vision.auto_light_off_minutes": "camera",
+    "vision.light_object": "camera",
+    "visual_watch.enabled": "camera",
+    "visual_watch.sensitivity": "camera",
+    "visual_watch.early_layers": "camera",
+    "visual_watch.early_interval_s": "camera",
+    "visual_watch.auto_pause_early": "camera",
+    "timelapse.capture_enabled": "camera",
+    "timelapse.capture_trigger": "camera",
+    "timelapse.capture_interval_s": "camera",
+    "timelapse.capture_max_frames": "camera",
+    "timelapse.capture_max_bytes": "camera",
+    "timelapse.mode": "camera",
+    "timelapse.render_wait_s": "camera",
+    "timelapse.render_poll_s": "camera",
+    "timelapse.max_bytes": "camera",
+    "timelapse.local_retention_days": "camera",
+    "timelapse.target_length_s": "camera",
+    "timelapse.min_fps": "camera",
+    "timelapse.max_fps": "camera",
+    "timelapse.min_length_s": "camera",
+    "timelapse.hold_last_frame_s": "camera",
+    "timelapse.plan_clip_retention_days": "camera",
+    "timelapse.archive_host": "camera",
+    "timelapse.archive_dir": "camera",
+    "timelapse.ssh_key": "camera",
+    "timelapse.wrapped_enabled": "wrapped",
+    "timelapse.data_enabled": "wrapped",
+    "timelapse.wrapped_ai_video": "wrapped",
+    "timelapse.wrapped_tts_engine": "wrapped",
+    "timelapse.wrapped_music_file": "wrapped",
     "logging.level": "logging",
     "logging.format": "logging",
     "logging.retention_days": "logging",
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
-    "live_stream.enabled": "live",
-    "live_stream.voice_channel_id": "live",
-    "live_stream.auto_start_on_print": "live",
-    "live_stream.max_height": "live",
-    "live_stream.fps": "live",
-    "live_stream.max_bitrate_kbps": "live",
-    "live_stream.encoder": "live",
-    "live_stream.empty_timeout_s": "live",
-    "live_stream.activity_origin": "live",
-    "live_stream.port": "live",
+    "webui.require_auth": "webui",
+    "webui.controls_enabled": "webui",
+    "webui.cookie_secure": "webui",
+    "webui.chat_llm_enabled": "webui",
+    "webui.chat_enabled": "webui",
+    "live_stream.enabled": "camera",
+    "live_stream.voice_channel_id": "camera",
+    "live_stream.auto_start_on_print": "camera",
+    "live_stream.max_height": "camera",
+    "live_stream.fps": "camera",
+    "live_stream.max_bitrate_kbps": "camera",
+    "live_stream.encoder": "camera",
+    "live_stream.empty_timeout_s": "camera",
+    "live_stream.activity_origin": "camera",
+    "live_stream.port": "camera",
+}
+
+
+# Named file-only subsections: settings that belong to a group but are
+# deliberately not fields (the no-secrets and no-table-kind rules). The
+# config page renders the note inside the group so the file-only home is
+# discoverable from the UI instead of silent.
+GROUP_FILE_ONLY_NOTES = {
+    "ai": "File-only in this section: the [ai] tier tables — [ai.small], "
+          "[ai.chat] and [ai.heavy], each with chat_url, model, "
+          "fallback_model, fallback_url, api_key_env, "
+          "fallback_api_key_env and timeout_s — are edited in the "
+          "settings file only; there are no fields for them here. The "
+          "*_api_key_env settings (for llm, design, agent and each tier) "
+          "stay file-only too: they name an environment variable, never "
+          "a key value.",
 }
 
 
@@ -213,7 +244,8 @@ CATALOG = (
            choices=("auto", "gcode", "3mf"), validator="settings zmod delivery format check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
     _field("bot", "mode", "Bot mode", "picker",
-           "standalone runs Print Handy's own bot; hermes runs it as a Hermes Agent profile.",
+           "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
+           "install and runtime mode were removed).",
            choices=tuple(settings.BOT_MODES), validator="guided mode / settings bot check"),
     _field("bot", "platform", "Bot platform", "picker",
            "Chat platform the standalone bot talks to.",
@@ -247,21 +279,18 @@ CATALOG = (
            "while [llm] stays configured for /print-design. The roast and camera "
            "watchdog keep their own vision switches either way.",
            validator="settings discord check"),
-    _field("discord", "clarify_ui", "Discord clarify UI", "toggle",
-           "Who draws Print Handy's questions on a Hermes install (#524 stage 2). "
-           "Off by default: Hermes' adapter renders them, as before. On: Print Handy "
-           "posts its questions itself by direct Discord REST and resolves clicks and "
-           "typed answers in its own prompt registry — one renderer in both modes, "
-           "matching the standalone rendering. The standalone bot always uses its "
-           "own renderer either way. Takes effect on restart.",
-           validator="settings discord check"),
-    _field("discord", "mention_starter_on_complete", "Mention who started the print", "toggle",
-           "On by default: the post that ends a print on Discord (complete, cancelled or "
-           "stopped with an error) @mentions only the user who started that print, so only "
-           "they get pinged — everyone else in the channel can use mention-only "
-           "notifications and stay unpinged by other people's prints. Off: terminal posts "
-           "mention nobody, as before. A print started outside the bot (at the printer, "
-           "from another app) has no recorded starter and never mentions anyone.",
+    _field("discord", "mention_starter", "Mention who started the print", "toggle",
+           "On by default: when a print needs its starter on Discord, the post @mentions "
+           "only the user who started that print — the post that ends it (complete, "
+           "cancelled or stopped with an error) and the alerts that need a person (the "
+           "camera watchdog, a pause or stop from an error or runout), once per problem. "
+           "Setup, slicing, progress and other routine posts never mention anyone, so "
+           "everyone else in the channel can use mention-only notifications and stay "
+           "unpinged by other people's prints. Off: no post mentions anyone, as before. "
+           "A print started outside the bot (at the printer, from another app) has no "
+           "recorded starter and never mentions anyone. (Earlier this was "
+           "mention_starter_on_complete and covered only the end-of-print post; the "
+           "old name still works and is read as this setting.)",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",
@@ -286,18 +315,18 @@ CATALOG = (
            "Matrix user IDs allowed to approve prints, full @user:server form, separated by "
            "commas or spaces; always allowed.",
            validator="settings.matrix_user_ids"),
-    # Services (guided setup: Moonraker and Spoolman URLs).
-    _field("services", "moonraker_url", "Printer URL", "url",
+    # Printer connections and Spoolman (guided setup: Moonraker and Spoolman URLs).
+    _field("services", "moonraker_url", "Moonraker URL", "url",
            "The address Print Handy uses to talk to a Moonraker printer. That can be "
            "Moonraker on the printer, or Klipper on another computer. Example: "
            "http://printer.local:7125. Leave empty when this model does not use Moonraker.",
            validator="guided service URL / settings services check"),
-    _field("services", "octoprint_url", "Printer URL", "url",
+    _field("services", "octoprint_url", "OctoPrint URL", "url",
            "The address Print Handy uses to talk to OctoPrint, including an OctoPi "
            "that is not running on the printer. Example: http://octopi.local. "
            "Leave empty when this model does not use OctoPrint.",
            validator="settings services check"),
-    _field("bambu", "lan_host", "Printer URL", "host",
+    _field("bambu", "lan_host", "Bambu Lab LAN host", "host",
            "Bambu Lab LAN hostname or IP. Not a full URL. Empty means no LAN connection.",
            validator="settings bambu check"),
     _field("bambu", "lan_serial", "Printer serial", "text",
@@ -305,13 +334,13 @@ CATALOG = (
            "the serial together — settings validation refuses one without the other. "
            "The LAN access code itself stays in the environment, never here.",
            validator="settings bambu check"),
-    _field("prusa", "link_host", "Printer URL", "host",
+    _field("prusa", "link_host", "PrusaLink host", "host",
            "PrusaLink hostname or IP. Not a full URL. Empty means no LAN connection.",
            validator="settings prusa check"),
-    _field("flashforge_stock", "host", "Printer URL", "host",
+    _field("flashforge_stock", "host", "Flashforge stock host", "host",
            "Stock Flashforge LAN hostname or IP. Not a full URL. Empty means offline.",
            validator="settings flashforge stock check"),
-    _field("elegoo_sdcp", "host", "Printer URL", "host",
+    _field("elegoo_sdcp", "host", "Elegoo SDCP host", "host",
            "Elegoo SDCP hostname or IP. Not a full URL. Empty means no LAN connection.",
            validator="settings elegoo sdcp check"),
     _field("services", "spoolman_url", "Spoolman URL", "url",
@@ -362,28 +391,58 @@ CATALOG = (
            "ntfy topic the events are published to. A protected topic's access "
            "token is NTFY_ACCESS_TOKEN in the environment — never a setting.",
            validator="settings notify check"),
-    # Model endpoints: the OpenAI-compatible chat endpoints. Only URLs
-    # and model names are fields — an endpoint's API key stays in the
-    # environment, like every other secret.
+    # AI and models: every OpenAI-compatible endpoint in one group. Only
+    # URLs and model names are fields — an endpoint's API key stays in
+    # the environment, like every other secret. The inheritance chain is
+    # stated once, on the chat endpoint: the design endpoint reuses the
+    # chat endpoint when its own URL is empty, the vision endpoint is the
+    # default route for the small [ai] tier, the chat endpoint for the
+    # chat tier and the design endpoint (inheriting chat) for the heavy
+    # tier — and an [ai] tier value set in the settings file wins over
+    # the matching default one field at a time.
     _field("llm", "chat_url", "Chat endpoint URL", "url",
            "OpenAI-compatible chat endpoint for plain-language replies; empty "
-           "leaves the chat lane off. Its API key stays in the environment.",
+           "leaves the chat lane off. Its API key stays in the environment. "
+           "This endpoint is the root of the AI inheritance chain stated in "
+           "this section: design reuses it when empty, it is the chat "
+           "tier's default route, and a tier value in the settings file "
+           "wins over it one field at a time.",
            validator="settings llm check"),
     _field("llm", "model", "Chat model", "text",
-           "Model the chat endpoint uses."),
+           "Model the chat endpoint uses; also the chat tier's default model."),
     _field("design", "chat_url", "Design endpoint URL", "url",
            "OpenAI-compatible endpoint /print-design uses when it differs from "
            "the chat endpoint; empty reuses the chat endpoint. Its API key "
            "stays in the environment.",
            validator="settings design check"),
     _field("design", "model", "Design model", "text",
-           "Model the design endpoint uses."),
+           "Model the design endpoint uses; also the heavy tier's default model."),
     _field("agent", "chat_url", "Agent endpoint URL", "url",
            "OpenAI-compatible endpoint for the agent lane; empty leaves the "
            "agent lane unconfigured. Its API key stays in the environment.",
            validator="settings agent check"),
     _field("agent", "model", "Agent model", "text",
            "Model the agent endpoint uses."),
+    _field("ai", "allowed_users", "AI edit users", "id_list",
+           "Who may use the AI edit lane: user IDs in the form your platform "
+           "uses — numeric IDs on Discord and Telegram, full Matrix IDs like "
+           "@user:server on Matrix — separated by commas or spaces. Empty "
+           "(the default) leaves the lane open to every user the gateway "
+           "already authorizes.",
+           validator="settings ai check"),
+    _field("ai", "edit_requests_per_hour", "AI edit requests per hour", "number",
+           "How many AI edit requests each authorized user may make per "
+           "hour; 20 by default. 0 disables the limit.",
+           validator="settings ai check", minimum=0),
+    _field("services", "vision_chat_url", "Vision chat URL", "url",
+           "OpenAI-compatible chat endpoint used for camera checks; it is "
+           "also the default route for the small AI tier. Empty disables "
+           "endpoint camera checks. Its API key stays in the environment, "
+           "never here.",
+           validator="settings services check"),
+    _field("vision", "model", "Vision model", "text",
+           "Model the vision endpoint uses for camera checks; also the "
+           "small AI tier's default model."),
     # Images (the camera source type, the snapshot URL and the vision
     # endpoint the watchdog uses; visual_watch itself is the next group.
     # API keys stay in the environment: vision_chat_url names no secret,
@@ -406,12 +465,6 @@ CATALOG = (
            "the one camera connection and fans the stream out for timelapse and live view. "
            "A go2rtc ffmpeg: source is also accepted. Empty keeps the snapshot URL.",
            validator="settings timelapse check"),
-    _field("services", "vision_chat_url", "Vision chat URL", "url",
-           "OpenAI-compatible chat endpoint used for camera checks; empty disables them. "
-           "Its API key stays in the environment, never here.",
-           validator="settings services check"),
-    _field("vision", "model", "Vision model", "text",
-           "Model the vision endpoint uses for camera checks."),
     _field("vision", "roast_enabled", "Roast", "toggle",
            "The one-line roast: one per print on the completion post, and on "
            "request in chat (\"roast my last print\"), on every platform. "
@@ -448,7 +501,7 @@ CATALOG = (
     _field("vision", "local_model_path", "Local detector model path", "text",
            "Where the local failure detector's ONNX model file lives. "
            "Empty uses the default location (a models folder under the "
-           "Hermes home) and the pinned model; name a model file you "
+           "data folder) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
            validator="settings vision check"),
     _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",
@@ -572,17 +625,28 @@ CATALOG = (
            "Filesystem path of the SSH private key for the archive host; only the path "
            "is stored here, never the key contents.",
            validator="settings type check"),
-    _field("timelapse", "wrapped_enabled", "Data tab and Wrapped", "toggle",
-           "The Data tab and Print Handy Wrapped (#956): read-only statistics over "
-           "the print records, plus the once-a-year Wrapped recap. Off by default; "
-           "while off, the Data and Wrapped pages are not in the navigation and "
-           "their routes refuse by name.",
+    _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
+           "Print Handy Wrapped (#956): the once-a-year recap over the "
+           "print records. On by default; while off, the Wrapped page "
+           "is not in the navigation and its routes refuse by name. "
+           "The Data tab has its own switch below.",
+           validator="settings timelapse check"),
+    _field("timelapse", "data_enabled", "Data tab", "toggle",
+           "The Data tab (#956): read-only statistics over the print "
+           "records. On by default; while the key is unset it follows "
+           "the Wrapped switch above, and setting it pins the Data "
+           "tab on or off independently. Saving a change to the "
+           "Wrapped switch on this page pins the Data value shown "
+           "here, so the Data tab keeps the state you saw instead of "
+           "flipping with Wrapped on the restart. While off, the "
+           "Data page is not in the navigation and its routes refuse "
+           "by name.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
            "The on-demand Wrapped video compile (#956): a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
            "AI model is used (the setting keeps its original name). Off by "
-           "default, and it needs the Data tab and Wrapped switch above on. "
+           "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
@@ -612,7 +676,7 @@ CATALOG = (
     # The Web UI itself. access_token_env is deliberately not editable here:
     # no *_env key is in the catalog (see the module docstring).
     _field("webui", "enabled", "Web UI", "toggle",
-           "Optional Web UI switch; off by default, and nothing listens while disabled.",
+           "Web UI switch; on by default, and nothing listens while disabled or while no port is chosen.",
            validator="settings webui check"),
     _field("webui", "host", "Web UI host", "host",
            "Host the Web UI binds to when enabled; a plain IP address or hostname.",
@@ -620,6 +684,38 @@ CATALOG = (
     _field("webui", "port", "Web UI port", "number",
            "Port the Web UI binds to when enabled; 0 means no port has been chosen yet.",
            validator="settings webui check", minimum=0, maximum=65535),
+    _field("webui", "require_auth", "Web UI login", "toggle",
+           "On: the Web UI access token or a saved password is required once one "
+           "is set. Off: the access token is neither required nor checked, even "
+           "on a LAN bind — anyone who can reach the port gets the Web UI. Only "
+           "for a network you trust.",
+           validator="settings webui check"),
+    _field("webui", "controls_enabled", "Web UI printer controls", "toggle",
+           "On: the Web UI printer control routes (pause, resume, cancel, target "
+           "temperature and the rest) send commands. Off: they answer 403 and "
+           "send nothing. Off by default.",
+           validator="settings webui check"),
+    _field("webui", "cookie_secure", "Secure session cookie", "toggle",
+           "On: the Web UI session cookie is marked Secure, so browsers send it "
+           "only over HTTPS. Keep off for plain-HTTP LAN access; turn on when "
+           "the Web UI is exposed through an HTTPS reverse proxy.",
+           validator="settings webui check"),
+    _field("webui", "chat_llm_enabled", "Web chat AI replies", "toggle",
+           "On by default: text in the Web UI chat page that no command or handler "
+           "takes may be answered by the configured [llm] or [agent] lane, like "
+           "Discord chat. Off: web chat is a pure bot — commands, design and the "
+           "print flow still work, but no model call is made for web chat text "
+           "and unmatched text gets the short not-understood reply. If the Web UI "
+           "is left open on the LAN with no password or token, anyone who can "
+           "reach it can spend the model endpoint's budget through web chat.",
+           validator="settings webui check"),
+    _field("webui", "chat_enabled", "Web chat", "toggle",
+           "On by default: the Web UI chat page — the bot in the browser. "
+           "Off: the chat page shows that web chat is turned off, and no web "
+           "chat message or button press is processed. This is the page's "
+           "own switch; Web chat AI replies above only governs the model "
+           "lane.",
+           validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity
     # session secret live only in the environment, and the tunnel token
@@ -762,11 +858,71 @@ def _configured_model(data):
         return None
 
 
-def config_page_visible(field, data) -> bool:
-    """Whether /config draws this field. Hidden fields are still submitted."""
+# Chat platforms whose settings hide until the platform is configured
+# (settings restructure stage 4): the field ids per platform, and the
+# identity keys whose presence counts as configured even when
+# bot.platform names another platform (an install mid-setup).
+CONDITIONAL_CHAT_FIELDS = {
+    "telegram": ("telegram.chat_id", "telegram.allowed_user_ids",
+                 "telegram.approval_user_id"),
+    "matrix": ("matrix.homeserver_url", "matrix.room_id",
+               "matrix.allowed_user_ids", "matrix.approval_user_id"),
+}
+_CHAT_IDENTITY_KEYS = {
+    "telegram": (("telegram", "chat_id"),),
+    "matrix": (("matrix", "homeserver_url"), ("matrix", "room_id")),
+}
+
+
+def _value_is_set(value) -> bool:
+    """Whether a stored settings value counts as set: a non-blank string,
+    a non-empty list, or any other truthy value."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(_value_is_set(item) for item in value)
+    return bool(value)
+
+
+def chat_platform_configured(data, platform) -> bool:
+    """Whether a conditional chat platform counts as configured: it is
+    the selected bot platform, one of its identity keys is set, or any
+    field in its group holds a value — a value stored without an
+    identity key (say, only allowed_user_ids pasted in) must not be
+    hidden from its owner behind the reveal row."""
+    bot = (data or {}).get("bot") or {}
+    if str(bot.get("platform") or "") == platform:
+        return True
+    data = data or {}
+    keys = list(_CHAT_IDENTITY_KEYS[platform])
+    for field_id in CONDITIONAL_CHAT_FIELDS[platform]:
+        section, _, key = field_id.partition(".")
+        keys.append((section, key))
+    return any(_value_is_set((data.get(section) or {}).get(key))
+               for section, key in keys)
+
+
+def unconfigured_chat_platforms(data):
+    """The conditional chat platforms whose fields the rule currently
+    hides — the config page offers each a "Set up" reveal row."""
+    return tuple(platform for platform in CONDITIONAL_CHAT_FIELDS
+                 if not chat_platform_configured(data, platform))
+
+
+def config_page_visible(field, data, reveal=None) -> bool:
+    """Whether /config draws this field. Hidden fields are still submitted.
+
+    ``reveal`` names a conditional chat platform whose fields draw
+    anyway (the "Set up Telegram" / "Set up Matrix" reveal on /config
+    and the walkthrough's chat step, which is the setup surface).
+    """
     field = field_by_id(field)
     if field is None:
         return True
+    for platform, field_ids in CONDITIONAL_CHAT_FIELDS.items():
+        if field.id in field_ids:
+            return (reveal == platform
+                    or chat_platform_configured(data, platform))
     model = _configured_model(data)
     if field.id == "printer.zmod_delivery_format":
         return bool(model and model.vendor.key == "flashforge")

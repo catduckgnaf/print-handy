@@ -1,7 +1,6 @@
 """Guided setup and read-only debugging for ``/print-handy`` (#162).
 
-Two flows, both driven by plain Discord messages so the standalone bot and the Hermes
-print-feedback plugin share one implementation:
+Two flows, both driven by plain Discord messages:
 
 - ``/print-handy setup`` walks a fresh install through small validated steps. Progress is a
   checklist persisted as JSON in the state folder, so cancelling, a timeout, or a bot restart
@@ -44,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -108,13 +108,6 @@ def _validate_model(value, _answers):
     if key not in printers.MODELS:
         raise ValueError(f"unknown model key {key!r}; reply with one of: {', '.join(sorted(printers.MODELS))}")
     return key
-
-
-def _validate_mode(value, _answers):
-    mode = value.strip().lower()
-    if mode not in settings.BOT_MODES:
-        raise ValueError("reply `standalone` (Print Handy runs its own bot) or `hermes` (a Hermes Agent profile)")
-    return mode
 
 
 def _one_id(value, label):
@@ -219,6 +212,182 @@ def _validate_spoolman_url(value, _answers):
     return text
 
 
+PLATFORMS = ("discord", "telegram", "matrix")
+
+PLATFORM_TOKEN_INFO = {
+    "discord": ("DISCORD_BOT_TOKEN", "Create the bot in the Discord developer portal"),
+    "telegram": ("TELEGRAM_BOT_TOKEN", "Create the bot by talking to @BotFather in Telegram"),
+    "matrix": ("MATRIX_ACCESS_TOKEN", "Sign in as the bot's Matrix user and copy its access token"),
+}
+
+
+def _validate_platform(value, _answers):
+    text = value.strip().casefold()
+    by_number = {"1": "discord", "2": "telegram", "3": "matrix"}
+    if text in by_number:
+        return by_number[text]
+    if text in PLATFORMS:
+        return text
+    raise ValueError("reply `discord`, `telegram`, or `matrix` (or 1, 2, or 3)")
+
+
+def _validate_chat_id_platform(value, answers):
+    platform = (answers or {}).get("platform") or "discord"
+    if platform == "matrix":
+        text = value.strip()
+        if not text.startswith("!") or ":" not in text:
+            raise ValueError("reply with the Matrix room ID, which looks like "
+                             "`!abc123:example.org` (Matrix Settings > Advanced in most clients)")
+        return text
+    if platform == "telegram":
+        # Telegram group and channel IDs are negative numbers, which
+        # the Discord-shaped ID check rejects; validate the digits and
+        # keep the sign.
+        text = value.strip()
+        digits = text[1:] if text.startswith("-") else text
+        _one_id(digits, "channel")
+        return text
+    return _one_id(value, "channel")
+
+
+def _validate_user_ids_platform(value, answers):
+    platform = (answers or {}).get("platform") or "discord"
+    if platform == "matrix":
+        if value.strip().casefold() in ("everyone", "anyone", "all"):
+            return ""
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if not parts or any(not part.startswith("@") or ":" not in part for part in parts):
+            raise ValueError("reply with Matrix user IDs like `@you:example.org`, separated "
+                             "by commas, or `everyone` for anyone in the room")
+        return ", ".join(parts)
+    return _validate_user_ids(value, answers)
+
+
+def _validate_homeserver_url(value, _answers):
+    from ..setup_wizard import _url
+    error = _url(value.strip())
+    if error:
+        raise ValueError(f"Homeserver URL {error}")
+    return value.strip()
+
+
+def _validate_camera_url(value, _answers):
+    text = value.strip()
+    if text.lower() in ("", "skip", "none"):
+        return ""
+    from ..setup_wizard import _url
+    error = _url(text)
+    if error:
+        raise ValueError(f"Camera snapshot URL {error}, or reply `skip`")
+    return text
+
+
+def _validate_timelapse(value, _answers):
+    text = value.strip().casefold()
+    if text in ("on", "yes"):
+        return "on"
+    if text in ("off", "no"):
+        return "off"
+    if text in ("skip", ""):
+        return ""
+    raise ValueError("reply `on`, `off`, or `skip` to keep the current timelapse setting")
+
+
+def _validate_webui_login(value, _answers):
+    text = value.strip().casefold()
+    if text in ("password", "open", "clear", "skip"):
+        return text
+    raise ValueError("reply `password` to set a Web UI login, `open` to leave the Web UI "
+                     "open, `clear` to remove a saved login, or `skip` to leave it as it is")
+
+
+def _validate_webui_username(value, _answers):
+    from ..webui import access as _access
+    try:
+        return _access.clean_username(value)
+    except _access.AccessError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _validate_secret_step(value, _answers):
+    # Password and confirmation answers are intercepted in handle_text
+    # and never reach this validator through the session store; the
+    # marker is all a session may ever hold for them.
+    return True
+
+
+def _token_prompt(platform, token_env):
+    _default_env, how = PLATFORM_TOKEN_INFO.get(platform or "discord",
+                                                PLATFORM_TOKEN_INFO["discord"])
+    return (f"{how} and store its token as the environment variable ${token_env} in the "
+            f"profile/data folder's `.env` file (file mode 600). Never paste the token in "
+            f"chat; Print Handy only ever reads ${token_env}. Reply `stored` when it is "
+            f"saved, or `skip` to do it later.")
+
+
+def setup_token_env(cfg, session, source_platform):
+    """The token variable the setup token step should name.
+
+    Setup can configure a different chat app from the one it is running
+    in, so the session's chosen platform decides; the platform the chat
+    arrived on only applies until a choice has been made. ``cfg`` may be
+    None when the settings do not load.
+    """
+    answers = (session or {}).get("answers") or {}
+    platform = answers.get("platform") or source_platform or "discord"
+    env_key = "access_token_env" if platform == "matrix" else "token_env"
+    try:
+        configured = cfg[platform].get(env_key)
+    except (AttributeError, KeyError, TypeError):
+        configured = None
+    default, _how = PLATFORM_TOKEN_INFO.get(platform, PLATFORM_TOKEN_INFO["discord"])
+    return str(configured or default)
+
+
+def _no_delete_login_prompt(step_key):
+    """A Web UI login step's wording for a chat that cannot delete messages."""
+    if step_key == "webui_login":
+        return ("The Web UI is Print Handy's browser page. Reply `password` to set its login "
+                "now (this chat cannot delete messages, so the password you send would stay "
+                "visible in the chat history; the Web UI walkthrough's Login step avoids "
+                "that), `open` to leave it open on your network, `clear` to remove a login "
+                "saved earlier, or `skip` to leave it as it is.")
+    if step_key == "webui_password":
+        from . import webui_access
+        return ("The new Web UI password needs at least 8 characters; a few unrelated words "
+                "work well. " + webui_access.capture_notice(False)
+                + " Spaces at the very start or end are trimmed in chat, so leave them off.")
+    return ("Reply with the same password once more to confirm it. This chat cannot delete "
+            "messages, so this one stays visible in the chat history too; the login is "
+            "saved as soon as it matches.")
+
+
+def _chat_id_prompt(platform):
+    if platform == "telegram":
+        return ("Reply with the print chat's numeric ID. In Telegram, add the bot to the "
+                "chat, send a message, and read the chat ID from the bot's updates or a "
+                "chat-ID helper bot (group IDs are negative numbers).")
+    if platform == "matrix":
+        return ("Reply with the print room's ID, which looks like `!abc123:example.org`. "
+                "Most Matrix clients show it under the room's Settings > Advanced.")
+    return ("Reply with the print channel's numeric ID. In Discord: User Settings > "
+            "Advanced > Developer Mode on, then right-click the channel > Copy Channel ID.")
+
+
+def _user_ids_prompt(platform):
+    if platform == "telegram":
+        return ("Reply with the numeric Telegram user IDs allowed to use Print Handy, "
+                "separated by commas (a chat-ID helper bot can show yours) — or reply "
+                "`everyone` to let anyone who can post in the print chat use it.")
+    if platform == "matrix":
+        return ("Reply with the Matrix user IDs allowed to use Print Handy, like "
+                "`@you:example.org`, separated by commas — or reply `everyone` to let "
+                "anyone in the print room use it.")
+    return ("Reply with the numeric Discord user IDs allowed to use Print Handy, separated by "
+            "commas (right-click a user > Copy User ID, with Developer Mode on) — or reply "
+            "`everyone` to let anyone who can post in the print channel use it.")
+
+
 def _validate_token_ack(value, _answers):
     text = value.strip().lower()
     if text == "stored":
@@ -272,18 +441,19 @@ class ProbeStep:
 def steps(token_env="DISCORD_BOT_TOKEN"):
     model_list = ", ".join(sorted(printers.MODELS))
     return (
+        Step("platform", "Chat platform",
+             "Which chat app should Print Handy talk in? Reply `discord`, `telegram`, or "
+             "`matrix` (or 1, 2, or 3). The rest of setup asks only that app's questions.",
+             _validate_platform),
         Step("model", "Printer model",
              f"Which printer? Reply with its model key, one of: {model_list}.", _validate_model),
-        Step("mode", "Bot mode",
-             "How should Print Handy talk to Discord? Reply `standalone` for its own bot, or "
-             "`hermes` for a Hermes Agent profile.", _validate_mode),
         Step("chat_id", "Print channel",
-             "Reply with the print channel's numeric ID. In Discord: User Settings > Advanced > "
-             "Developer Mode on, then right-click the channel > Copy Channel ID.", _validate_chat_id),
+             "Reply with the print channel's numeric ID.", _validate_chat_id_platform),
         Step("user_ids", "Allowed users",
-             "Reply with the numeric Discord user IDs allowed to use Print Handy, separated by "
-             "commas (right-click a user > Copy User ID, with Developer Mode on) — or reply "
-             "`everyone` to let anyone who can post in the print channel use it.", _validate_user_ids),
+             "Reply with the user IDs allowed to use Print Handy.", _validate_user_ids_platform),
+        Step("homeserver_url", "Matrix homeserver",
+             "Reply with your Matrix homeserver URL (for example https://matrix.example.org).",
+             _validate_homeserver_url),
         Step("moonraker_url", "Printer URL (optional)",
              "Reply with the printer's URL, or `skip`. The question names the right "
              "kind of address for the model you already picked.", _validate_service_url),
@@ -291,13 +461,60 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
              "If you run Spoolman for filament inventory, reply with its URL (for example "
              "http://spoolman.local:7912; the Spoolman included in the Docker stack is "
              "http://spoolman:8000). Otherwise reply `skip`.", _validate_spoolman_url),
+        Step("camera_snapshot_url", "Camera snapshot URL (optional)",
+             "If the printer has a camera, reply with its snapshot URL and finished prints "
+             "can be watched and recorded. Otherwise reply `skip`.", _validate_camera_url),
+        Step("timelapse", "Timelapse (optional)",
+             "Reply `on` to record a timelapse of finished prints, `off` for none, or "
+             "`skip` to keep the current setting.", _validate_timelapse),
         Step("token_stored", "Bot token stored securely",
-             f"Create the bot in the Discord developer portal and store its token as the "
-             f"environment variable ${token_env} in the profile/data folder's `.env` file "
-             f"(file mode 600) — see docs/DISCORD-BOT-SETUP.md. Never paste the token in chat; "
-             f"Print Handy only ever reads ${token_env}. Reply `stored` when it is saved, or "
-             f"`skip` to do it later.", _validate_token_ack),
+             _token_prompt("discord", token_env), _validate_token_ack),
+        Step("webui_login", "Web UI login (optional)",
+             "The Web UI is Print Handy's browser page. Reply `password` to set its login "
+             "now (the password message is deleted right after you send it and is never "
+             "saved in this checklist), `open` to leave it open on your network, `clear` "
+             "to remove a login saved earlier, or `skip` to leave it as it is.",
+             _validate_webui_login),
+        Step("webui_username", "Web UI username",
+             "Reply with the username for the Web UI login.", _validate_webui_username),
+        Step("webui_password", "Web UI password",
+             "Reply with the new Web UI password (at least 8 characters; a few unrelated "
+             "words work well). It is deleted from chat as soon as it is captured and is "
+             "never saved in this checklist or repeated back. Spaces at the very start "
+             "or end are trimmed in chat, so leave them off.", _validate_secret_step),
+        Step("webui_confirm", "Confirm Web UI password",
+             "Reply with the same password once more to confirm it. It is deleted from "
+             "chat as soon as it is captured; the login is saved as soon as it matches.",
+             _validate_secret_step),
     )
+
+
+def _step_applies(step_key, answers):
+    """Whether a step belongs to this session, given the answers so far."""
+    answers = answers or {}
+    if step_key == "homeserver_url":
+        return answers.get("platform") == "matrix"
+    if step_key in ("webui_username", "webui_password", "webui_confirm"):
+        return answers.get("webui_login") == "password"
+    return True
+
+
+def _applicable_steps(answers, token_env="DISCORD_BOT_TOKEN"):
+    return [step for step in steps(token_env) if _step_applies(step.key, answers)]
+
+
+# Password answers live only in this in-memory map, keyed by session
+# key, between the password step and its confirmation. They are never
+# written to the session store, never logged, and never echoed. Each
+# value is (password, captured_at), so an abandoned one can be dropped.
+_pending_webui_passwords = {}
+
+
+def _purge_stale_webui_passwords(now):
+    """Forget every captured password older than the session timeout."""
+    for key, (_password, captured_at) in list(_pending_webui_passwords.items()):
+        if now - captured_at > SESSION_TIMEOUT_S:
+            _pending_webui_passwords.pop(key, None)
 
 
 STEP_LABELS = {s.key: s.label for s in steps()}
@@ -1238,6 +1455,9 @@ class SetupStore:
         session = self._load().get(key)
         return session if isinstance(session, dict) else None
 
+    def all_sessions(self):
+        return [s for s in self._load().values() if isinstance(s, dict)]
+
     def save(self, session):
         data = self._load()
         data[session["key"]] = session
@@ -1259,6 +1479,28 @@ def default_store(cfg=None):
     return SetupStore(settings.state_dir(data) / STORE_NAME)
 
 
+def _record_shared_completion(store, surface="chat"):
+    """Write the shared setup-completion record beside the session store.
+
+    Best effort: the shared record (print_handy.setup_state) must never
+    break a flow that has already completed on its own terms.
+    """
+    try:
+        from .. import setup_state
+        setup_state.record_completion_in_state_dir(store.path.parent, surface)
+    except Exception:
+        logger.exception("shared setup-completion record could not be written")
+
+
+def shared_completion(store):
+    """The shared completion record visible from this store, or {}."""
+    try:
+        from .. import setup_state
+        return setup_state.load_completion_in_state_dir(store.path.parent)
+    except Exception:
+        return {}
+
+
 def _new_session(key, now):
     return {"key": key, "status": "in_progress", "answers": {}, "step": 0,
             "created_at": now, "updated_at": now}
@@ -1270,14 +1512,48 @@ def _expired(session, now):
             and now - float(session.get("updated_at") or 0) > SESSION_TIMEOUT_S)
 
 
+SETUP_ONLY_REFUSAL = ("**Setup-only mode.** This install is not configured yet, so the bot "
+                      "answers only the guided setup conversation. Run `/print-handy setup` "
+                      "to set it up; every other command becomes available once setup is "
+                      "applied and Print Handy has restarted.")
+
+
+def active_setup_owner(store, now, exclude_key=None):
+    """The session key owning an in-progress guided setup, or None.
+
+    The Q5 binding rule: a setup conversation binds at conversation
+    start and is session-scoped — while one setup session is active
+    (not expired), no other key may start or join one. An expired
+    session releases the bind, so an abandoned flow frees the install.
+    Onboarding sessions do not hold the setup bind.
+    """
+    for session in store.all_sessions():
+        if session.get("key") == exclude_key or session.get("flow") == "onboard":
+            continue
+        if session.get("status") in ("in_progress", "awaiting_consent", "adding_printer") \
+                and not _expired(session, now):
+            return session.get("key")
+        # A finished setup keeps its bind: setup-only mode lasts until the
+        # restart, and nobody else may rewrite what its owner just applied.
+        if session.get("status") == "complete" \
+                and now - float(session.get("updated_at") or 0) <= SESSION_TIMEOUT_S:
+            return session.get("key")
+    return None
+
+
 def checklist_text(session):
-    flow = steps()
     answers = session.get("answers") or {}
+    flow = _applicable_steps(answers)
+    current = None
+    if session["status"] == "in_progress":
+        full = steps()
+        if 0 <= session.get("step", 0) < len(full):
+            current = full[session["step"]].key
     lines = []
-    for index, step in enumerate(flow):
+    for step in flow:
         if step.key in answers:
             mark = "☑"
-        elif session["status"] == "in_progress" and index == session.get("step"):
+        elif step.key == current:
             mark = "▶"
         else:
             mark = "☐"
@@ -1290,25 +1566,47 @@ def checklist_text(session):
     return "\n".join(lines)
 
 
-def _prompt_text(session, note=""):
-    flow = steps()
+def _prompt_text(session, note="", token_env="DISCORD_BOT_TOKEN", can_delete_secrets=True):
+    flow = steps(token_env)
     step = flow[session["step"]]
-    prompt = _printer_url_prompt((session.get("answers") or {}).get("model")) if step.key == "moonraker_url" else step.prompt
-    head = f"**Setup step {session['step'] + 1} of {len(flow)}: {step.label}**\n{prompt}"
+    answers = session.get("answers") or {}
+    platform = answers.get("platform") or "discord"
+    if step.key == "moonraker_url":
+        prompt = _printer_url_prompt(answers.get("model"))
+    elif step.key == "chat_id":
+        prompt = _chat_id_prompt(platform)
+    elif step.key == "user_ids":
+        prompt = _user_ids_prompt(platform)
+    elif step.key == "token_stored":
+        prompt = _token_prompt(platform, token_env)
+    elif not can_delete_secrets and step.key in ("webui_login", "webui_password", "webui_confirm"):
+        prompt = _no_delete_login_prompt(step.key)
+    else:
+        prompt = step.prompt
+    applicable = _applicable_steps(answers, token_env)
+    position = next((i + 1 for i, s in enumerate(applicable) if s.key == step.key),
+                    session["step"] + 1)
+    head = f"**Setup step {position} of {len(applicable)}: {step.label}**\n{prompt}"
     return (note + "\n" if note else "") + head + "\n\n" + checklist_text(session) + \
         "\n\nReply with the answer, or `/print-handy cancel` to pause (your checklist is saved)."
 
 
 def _review_text(session):
     answers = session["answers"]
-    lines = ["**Setup is ready to review.** Nothing has been written yet.",
+    platform = answers.get("platform") or "discord"
+    lines = ["**Setup is ready to review.** Nothing has been written yet, except a Web UI "
+             "password you set above — that one is saved as soon as it is confirmed.",
+             f"- Chat platform: `{platform}`",
              f"- Printer model: `{answers.get('model')}`",
-             f"- Bot mode: `{answers.get('mode')}`",
+             "- Bot mode: `standalone`",
              "- Print channel and access: the user IDs you entered (not repeated here), "
              "or everyone in the channel if you chose `everyone`",
              f"- Printer URL: {answers.get('moonraker_url') or 'not set'}",
              f"- Spoolman URL: {answers.get('spoolman_url') or 'not set'}",
-             f"- Bot token: {'stored in its environment variable' if answers.get('token_stored') else 'not stored yet — the bot cannot log in until it is'}"]
+             f"- Camera snapshot URL: {answers.get('camera_snapshot_url') or 'not set'}",
+             f"- Timelapse: {answers.get('timelapse') or 'kept as it is'}",
+             f"- Bot token: {'stored in its environment variable' if answers.get('token_stored') else 'not stored yet — the bot cannot log in until it is'}",
+             _login_review_line(answers)]
     roster = answers.get("printers") or []
     if roster:
         lines.append(f"- First printer id: `{answers.get('printer_id')}`")
@@ -1348,8 +1646,10 @@ def _manual_text(session):
                      "the list itself is file-only (docs/SETTINGS.md, 'Printers list')")
     else:
         lines.append(f"   - `[printer] model` = `{answers.get('model')}`")
-    lines += [f"   - `[bot] mode` = `{answers.get('mode')}`",
-              "   - `[discord] chat_id` and `allowed_user_ids` = what you entered above "
+    _section, _chat = _chat_section(answers)
+    lines += ["   - `[bot] mode` = `standalone` and `[bot] platform` = "
+              f"`{answers.get('platform') or 'discord'}`",
+              f"   - `[{_section}]` chat/room and `allowed_user_ids` = what you entered above "
               "(blank `allowed_user_ids` = everyone in the channel)"]
     if answers.get("moonraker_url") and not roster:
         placed = _address_placement(answers.get("model"), answers.get("moonraker_url"))
@@ -1357,14 +1657,61 @@ def _manual_text(session):
             lines.append(f"   - `[{placed[0]}] {placed[1]}` = the Printer URL you entered above")
     if answers.get("spoolman_url"):
         lines.append("   - `[services] spoolman_url` = the URL you entered above")
-    lines += ["2. Store the Discord bot token in the environment variable named by `[discord] "
-              "token_env` (default `DISCORD_BOT_TOKEN`) in the profile/data folder `.env` "
+    if answers.get("camera_snapshot_url"):
+        lines.append("   - `[services] camera_snapshot_url` = the URL you entered above, "
+                     "with `[services] camera_source` = `auto`")
+    if answers.get("timelapse") == "on":
+        lines.append("   - `[timelapse] mode` = `rendered` and `capture_enabled` = true")
+    elif answers.get("timelapse") == "off":
+        lines.append("   - `[timelapse] mode` = `off` and `capture_enabled` = false")
+    _penv, _phow = PLATFORM_TOKEN_INFO.get(answers.get("platform") or "discord",
+                                           PLATFORM_TOKEN_INFO["discord"])
+    lines += [f"2. Store the bot token in its environment variable (for this platform, "
+              f"`{_penv}` unless the settings name another) in the profile/data folder `.env` "
               "(file mode 600). Do not put the token in the YAML file or in chat.",
               "3. Validate offline: `python3 -m print_handy.bot check` (standalone) or "
               "`python3 -m print_handy.doctor`.",
               "4. Run `/print-handy debugging` here to re-check. Your saved checklist stays "
               "available with `/print-handy status` until you finish or restart setup."]
     return "\n".join(lines)
+
+
+def _chat_section(answers):
+    """(section name, section dict) for the chosen platform's chat settings."""
+    platform = answers.get("platform") or "discord"
+    if platform == "matrix":
+        section = {"room_id": answers["chat_id"],
+                   "allowed_user_ids": answers["user_ids"]}
+        if answers.get("homeserver_url"):
+            section["homeserver_url"] = answers["homeserver_url"]
+        return "matrix", section
+    return platform, {"chat_id": answers["chat_id"],
+                      "allowed_user_ids": answers["user_ids"]}
+
+
+def _stamp_camera_and_timelapse(config, answers):
+    """The camera/timelapse keys, written exactly as the Web UI Camera step writes them."""
+    if answers.get("camera_snapshot_url"):
+        config.setdefault("services", {})["camera_snapshot_url"] = answers["camera_snapshot_url"]
+        config["services"].setdefault("camera_source", "auto")
+    if answers.get("timelapse") == "on":
+        config["timelapse"] = {"mode": "rendered", "capture_enabled": True}
+    elif answers.get("timelapse") == "off":
+        config["timelapse"] = {"mode": "off", "capture_enabled": False}
+
+
+def _login_review_line(answers):
+    choice = answers.get("webui_login")
+    if choice == "password":
+        return (f"- Web UI login: set for the username you entered "
+                f"(`{answers.get('webui_username') or 'saved'}`); the password itself was "
+                "saved when you confirmed it and is never shown here")
+    if choice == "open":
+        return "- Web UI login: left open by your saved choice when this setup is applied"
+    if choice == "clear":
+        return ("- Web UI login: the saved login/open choice is removed when this setup "
+                "is applied (a token set through the Docker variable still applies)")
+    return "- Web UI login: left as it is"
 
 
 def _stamp_address(entry, model_key, address):
@@ -1385,10 +1732,13 @@ def _roster_config(answers):
             entry["chat_id"] = extra["chat_id"]
         _stamp_address(entry, extra.get("model"), extra.get("moonraker_url"))
         entries.append(entry)
-    config = {"printers": entries, "bot": {"mode": answers["mode"]},
-              "discord": {"chat_id": answers["chat_id"], "allowed_user_ids": answers["user_ids"]}}
+    section, chat = _chat_section(answers)
+    config = {"printers": entries,
+              "bot": {"mode": "standalone", "platform": answers.get("platform") or "discord"},
+              section: chat}
     if answers.get("spoolman_url"):
-        config["services"] = {"spoolman_url": answers["spoolman_url"]}
+        config.setdefault("services", {})["spoolman_url"] = answers["spoolman_url"]
+    _stamp_camera_and_timelapse(config, answers)
     return config
 
 
@@ -1450,13 +1800,17 @@ def _apply_answers(answers, config_path):
         _refuse_unsafe_roster_target(config_path)
         config = _roster_config(answers)
     else:
-        config = {"printer": {"model": answers["model"]}, "bot": {"mode": answers["mode"]},
-                  "discord": {"chat_id": answers["chat_id"], "allowed_user_ids": answers["user_ids"]}}
+        section, chat = _chat_section(answers)
+        config = {"printer": {"model": answers["model"]},
+                  "bot": {"mode": "standalone",
+                          "platform": answers.get("platform") or "discord"},
+                  section: chat}
         placed = _address_placement(answers.get("model"), answers.get("moonraker_url"))
         if placed:
             config.setdefault(placed[0], {})[placed[1]] = answers["moonraker_url"]
         if answers.get("spoolman_url"):
             config.setdefault("services", {})["spoolman_url"] = answers["spoolman_url"]
+        _stamp_camera_and_timelapse(config, answers)
     writer = _Consent()
     if not setup_wizard.merge_config(Path(config_path), config, writer):
         detail = writer.notes[-1] if writer.notes else "the wizard merge declined to write"
@@ -1508,9 +1862,56 @@ def _start_onboarding(key, store, now, config_loader, restarted=False):
 
 # ---------------------------------------------------------------------- the flow
 
-def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
+def _access_data(access_data):
+    """The settings mapping the Web UI access writers act on, or None."""
+    if access_data is not None:
+        return access_data
+    try:
+        return settings.current()
+    except Exception:
+        return None
+
+
+def _apply_login_choice(session, access_data, access_environ):
+    """The review-time Web UI login actions: leave-open and clear-claim.
+
+    A set password is already saved by then (it is written at its
+    confirmation step, because the value may not be stored); these two
+    carry no secret, so they wait for the same `apply` consent as the
+    rest of setup. Returns a sentence for the completion reply, or "".
+    """
+    choice = (session.get("answers") or {}).get("webui_login")
+    if choice not in ("open", "clear"):
+        return ""
+    data = _access_data(access_data)
+    if data is None:
+        return (" The Web UI login choice could not be applied because this "
+                "install's settings do not load; set it from the Web UI instead.")
+    from . import webui_access
+    result = (webui_access.leave_open(data, True, environ=access_environ)
+              if choice == "open" else
+              webui_access.clear_claim(data, True, environ=access_environ))
+    return " " + result.message
+
+
+# Setup-only mode admits strangers, so checking who owns setup and claiming it
+# has to be one step: without this, two people starting at once could both win.
+_SETUP_ONLY_LOCK = threading.Lock()
+
+
+def handle_text(key, text, **kwargs):
+    """One message in the guided flows; see :func:`_handle_text`."""
+    if kwargs.get("setup_only"):
+        with _SETUP_ONLY_LOCK:
+            return _handle_text(key, text, **kwargs)
+    return _handle_text(key, text, **kwargs)
+
+
+def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 apply_config=None, report=None, bundle=None, debug=None,
-                probe_runner=None, onboard_apply=None, config_loader=None):
+                probe_runner=None, onboard_apply=None, config_loader=None,
+                setup_only=False, access_data=None, access_environ=None,
+                can_delete_secrets=True):
     """One message in the guided flows. Returns the reply text, or None when not ours.
 
     ``key`` identifies one person's session in one channel/thread. ``report`` is a zero-arg
@@ -1521,15 +1922,32 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
     consented settings. The onboarding kwargs are the same injection seam for #537:
     ``probe_runner`` runs the live connection test, ``onboard_apply`` performs the
     review-approved roster write, and ``config_loader`` reads the current settings the new
-    printer joins.
+    printer joins. ``access_data`` and ``access_environ`` are the settings and environment
+    the Web UI login steps act on. ``can_delete_secrets`` says whether this chat can delete
+    the password messages; when it cannot, the login prompts say so before asking.
     """
     now = time.time() if now is None else now
     raw = str(text or "").strip()
     low = raw.casefold()
     session = store.get(key)
+    _purge_stale_webui_passwords(now)
+    if session is not None and _expired(session, now):
+        _pending_webui_passwords.pop(key, None)
+
+    def _prompt(current, note=""):
+        return _prompt_text(current, note, token_env=token_env,
+                            can_delete_secrets=can_delete_secrets)
 
     if low.startswith("/print-handy"):
         rest = low[len("/print-handy"):].strip()
+        if setup_only and rest not in ("", "help", "setup", "setup restart", "status", "cancel"):
+            return SETUP_ONLY_REFUSAL
+        if setup_only and rest in ("setup", "setup restart"):
+            owner = active_setup_owner(store, now, exclude_key=key)
+            if owner is not None:
+                return ("A setup conversation is already in progress with another user. "
+                        "Only one setup runs at a time; it becomes available again when "
+                        "that conversation finishes, is paused, or times out.")
         if rest in ("", "help"):
             return HELP
         if rest == "debugging":
@@ -1559,6 +1977,7 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                          else checklist_text(session))
             return f"Print Handy {__version__}\n**Guided setup: {state}**\n" + checklist
         if rest == "cancel":
+            _pending_webui_passwords.pop(key, None)
             if session is None or session["status"] == "complete":
                 return "No guided setup is in progress. Nothing was changed."
             session["status"] = "cancelled"
@@ -1570,9 +1989,14 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         + _onboard_checklist_text(session) +
                         "\nResume any time with `/print-handy add-printer`, or discard the "
                         "checklist and start over with `/print-handy add-printer restart`.")
+            login_note = ""
+            if session["answers"].get("webui_confirm"):
+                login_note = ("\nThe Web UI login you confirmed stays saved: cancelling setup "
+                              "does not remove it. To remove it, run `/print-handy setup "
+                              "restart` and choose `clear` at the Web UI login step.")
             return ("Setup paused. Your answers are saved in the checklist and nothing was "
                     "written to the configuration.\n" + checklist_text(session) +
-                    "\nResume any time with `/print-handy setup`.")
+                    "\nResume any time with `/print-handy setup`." + login_note)
         if rest == "add-printer restart":
             # Discard a saved onboarding checklist and start over (P2-219):
             # resuming is the default everywhere else, so without this an
@@ -1620,11 +2044,18 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         "resumes it, `/print-handy cancel` pauses it, or "
                         "`/print-handy add-printer restart` discards it and starts over. "
                         "Guided setup can start once it finishes.")
+            if rest == "setup" and session is None:
+                prior = shared_completion(store)
+                if prior.get("done") and not prior.get("skipped"):
+                    from .. import setup_state as _setup_state
+                    return (_setup_state.describe(prior) +
+                            " Run `/print-handy setup restart` to run guided setup again.")
             if rest == "setup restart" or session is None or session["status"] == "complete":
+                _pending_webui_passwords.pop(key, None)
                 session = _new_session(key, now)
                 store.save(session)
-                return _prompt_text(session, "**Guided setup started.** One question at a time; "
-                                             "nothing is written until you approve it at the end.")
+                return _prompt(session, "**Guided setup started.** One question at a time; "
+                                        "nothing is written until you approve it at the end.")
             note = ""
             if session["status"] == "cancelled":
                 note = "**Welcome back — resuming your saved checklist.**"
@@ -1641,7 +2072,7 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             store.save(session)
             if session["status"] == "awaiting_consent":
                 return (note + "\n" if note else "") + _review_text(session)
-            return _prompt_text(session, note)
+            return _prompt(session, note)
         return ("Use `/print-handy setup`, `/print-handy add-printer`, `/print-handy debugging`, "
                 "`/print-handy bundle`, `/print-handy debug on|off|status`, `/print-handy status`, "
                 "or `/print-handy cancel`.")
@@ -1649,7 +2080,19 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
     if session is None or session["status"] not in ("in_progress", "awaiting_consent",
                                                      "adding_printer", "onboarding",
                                                      "onboard_review"):
+        if setup_only:
+            if active_setup_owner(store, now, exclude_key=key) is not None:
+                return ("A setup conversation is already in progress with another user. "
+                        "Only one setup runs at a time; it becomes available again when "
+                        "that conversation finishes, is paused, or times out.")
+            return ("This install is not set up yet. Run `/print-handy setup` to begin "
+                    "guided setup — it is the one conversation available until setup "
+                    "is applied.")
         return None
+    if setup_only and active_setup_owner(store, now, exclude_key=key) is not None:
+        return ("A setup conversation is already in progress with another user. "
+                "Only one setup runs at a time; it becomes available again when "
+                "that conversation finishes, is paused, or times out.")
     if raw.startswith("/"):
         return None  # another command; setup stays open for a later plain reply
     if _expired(session, now):
@@ -1688,6 +2131,12 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             session["status"] = "complete"
             session["updated_at"] = now
             store.save(session)
+            detail += _apply_login_choice(session, access_data, access_environ)
+            _record_shared_completion(store)
+            if setup_only:
+                return ("**Setup complete.** " + detail +
+                        "\n\nRestart Print Handy to bring the new settings live — "
+                        "setup-only mode ends at that restart.")
             return "**Setup complete.** " + detail
         if low == "manual":
             session["status"] = "cancelled"  # finished with the flow, checklist kept for reference
@@ -1737,19 +2186,65 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
 
     flow = steps(token_env)
     step = flow[session["step"]]
+
+    def _advance():
+        session["step"] += 1
+        while session["step"] < len(flow) and not _step_applies(flow[session["step"]].key,
+                                                                session["answers"]):
+            session["step"] += 1
+        session["updated_at"] = now
+        if session["step"] >= len(flow):
+            session["status"] = "awaiting_consent"
+            store.save(session)
+            return _review_text(session)
+        store.save(session)
+        return _prompt(session, f"Saved: {step.label}.")
+
+    if step.key == "webui_password":
+        # In memory only: the value never enters the session, the store,
+        # or any reply. Validation happens at confirmation, through the
+        # Web UI's own writer (bot/webui_access.py).
+        if not raw:
+            return "That answer does not work: reply with the password.\n\n" + _prompt(session)
+        _pending_webui_passwords[key] = (raw, now)
+        session["answers"]["webui_password"] = True
+        return _advance()
+    if step.key == "webui_confirm":
+        pending_entry = _pending_webui_passwords.pop(key, None)
+        if pending_entry is None:
+            session["step"] = next(i for i, s in enumerate(flow) if s.key == "webui_login")
+            session["answers"].pop("webui_password", None)
+            store.save(session)
+            return ("The password from the previous step is gone (setup was paused or timed "
+                    "out, or the bot restarted, before it was confirmed), so nothing was "
+                    "saved. Start the login step again.\n\n" + _prompt(session))
+        pending = pending_entry[0]
+        from . import webui_access
+        data = _access_data(access_data)
+        if data is None:
+            session["step"] = next(i for i, s in enumerate(flow)
+                                   if s.key == "webui_password")
+            store.save(session)
+            return ("The Web UI login could not be saved because this install's settings "
+                    "do not load. Fix that first, then reply with the password again.\n\n"
+                    + _prompt(session))
+        result = webui_access.set_password(
+            data, session["answers"].get("webui_username"), pending, raw,
+            environ=access_environ)
+        if not result.ok:
+            session["step"] = next(i for i, s in enumerate(flow)
+                                   if s.key == "webui_password")
+            session["answers"].pop("webui_password", None)
+            store.save(session)
+            return (f"That password does not work: {result.message}\n\n" + _prompt(session))
+        session["answers"]["webui_confirm"] = True
+        return _advance()
     try:
         value = step.validate(raw, session["answers"])
     except ValueError as exc:
-        return f"That answer does not work: {exc}\n\n" + _prompt_text(session)
+        return f"That answer does not work: {exc}\n\n" + _prompt(session)
     session["answers"][step.key] = value
-    session["step"] += 1
-    session["updated_at"] = now
-    if session["step"] >= len(flow):
-        session["status"] = "awaiting_consent"
-        store.save(session)
-        return _review_text(session)
-    store.save(session)
-    return _prompt_text(session, f"Saved: {step.label}.")
+    return _advance()
 
 
 # ---------------------------------------------------------------------- debugging
@@ -1823,22 +2318,16 @@ def run_diagnostics(*, loader=None, token_getter=None, probe=None, login_probe=N
                                 clean(f"settings load and validate; printer model {printer.get('model')}, "
                                       f"bed {printer.get('bed_mm')}")))
 
-        # Bot mode, token presence, and (standalone only) a read-only login probe.
-        mode = str((cfg.get("bot") or {}).get("mode") or "standalone")
+        # Token presence and a read-only login probe.
         token = ""
-        if token_getter is not None or mode == "standalone":
-            try:
-                token = (token_getter or _default_token_getter)(cfg) or ""
-            except Exception:
-                token = ""
+        try:
+            token = (token_getter or _default_token_getter)(cfg) or ""
+        except Exception:
+            token = ""
         if token:
             secrets.append(token)
         token_env = str((cfg.get("discord") or {}).get("token_env") or "DISCORD_BOT_TOKEN")
-        if mode != "standalone":
-            findings.append(Finding("bot mode and login", "skip",
-                                    f"mode is {mode}; the Hermes gateway owns the Discord login",
-                                    ""))
-        elif not token:
+        if not token:
             findings.append(Finding("bot mode and login", "fail",
                                     f"mode is standalone but ${token_env} is empty",
                                     f"Store the bot token in ${token_env} in the profile/data "
@@ -1958,11 +2447,10 @@ def run_diagnostics(*, loader=None, token_getter=None, probe=None, login_probe=N
                     fresh, why = health.evaluate(heartbeat, stale_s=int(cfg["bot"]["health_stale_s"]))
                     findings.append(Finding("bot heartbeat", "ok" if fresh else "warn",
                                             clean(f"standalone heartbeat: {why}"),
-                                            "" if fresh else "Start the standalone bot, or ignore "
-                                                              "this in Hermes mode."))
+                                            "" if fresh else "Start the standalone bot."))
                 else:
                     findings.append(Finding("bot heartbeat", "skip",
-                                            "no standalone heartbeat found (expected in Hermes mode)", ""))
+                                            "no standalone heartbeat found (the bot is not running)", ""))
             except Exception:
                 pass
     return findings

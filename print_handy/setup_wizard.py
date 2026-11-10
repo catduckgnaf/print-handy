@@ -3,7 +3,7 @@
     python3 -m print_handy.setup_wizard [--answers FILE] [--dry-run] [--yes]
 
 Asks brand then model (or Other / generic), connection, nozzle, filament, slicer, Spoolman, camera and
-timelapse, missing printer software, Discord and whether you run Hermes Agent. Shows a summary, then writes
+timelapse, missing printer software and Discord. Shows a summary, then writes
 config/local.yaml (existing keys always win; you see a diff first) and the secrets to the data folder's .env
 (mode 600). Secrets are never printed.
 
@@ -240,12 +240,6 @@ def _positive(value):
     return "must be a positive number"
 
 
-def profile_name_error(value):
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", value or ""):
-        return "lowercase letters, digits, - or _, starting with a letter or digit"
-    return None
-
-
 def registry():
     from . import printers
     return printers.VENDORS, printers.MODELS
@@ -326,7 +320,7 @@ def _ids_or_empty(value):
 def _ask_printer(w, prefix="", roster=False):
     """One printer's questions: identity, connection, nozzle (and, for the first
     printer, filament and slicer). Returns a record dict; the global questions
-    (Spoolman, Discord, Hermes) live in build_plan. ``roster`` is set for printers
+    (Spoolman, Discord) live in build_plan. ``roster`` is set for printers
     after the first in the add-a-printer loop: only what a [[printers]] entry can
     express is asked (model, connection, nozzle type) — nozzle size, slicer and
     main filament are model defaults there, not roster keys."""
@@ -491,7 +485,7 @@ def _claim_secret(secrets, notes, name, value, rec):
     secrets[name] = value
 
 
-def build_plan(w, *, hermes_found=False, existing_profiles=()):
+def build_plan(w):
     """Ask every question. Returns a plan dict; nothing is written or run here."""
     first = _ask_printer(w)
     key, printer, display = first["key"], first["printer"], first["display"]
@@ -527,16 +521,36 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
     users = w.ask("discord_user_ids", "Discord user IDs allowed to print (comma separated; "
                                       "blank = everyone in the print channel)", "", _ids)
     bot_name = w.ask("bot_name", "Bot name", "Print Handy")
+
+    # Web UI access (closing question): the Web UI is on by default, so
+    # the wizard does not ask about enabling it — it asks the one
+    # question that matters, who may open it. The choices write through
+    # the same access writers as the Web UI walkthrough and chat setup.
+    w.say()
+    w.say("Web UI: Print Handy's browser page is on by default. You can also protect "
+          "it with the WEBUI_ACCESS_TOKEN environment (Docker) variable instead; a "
+          "password set here and that token work side by side.")
+    webui_choice = w.menu("webui_access", "Who may open the Web UI?",
+                          ["keep", "password", "open"], "keep",
+                          ["Leave it as it is (no login set here)",
+                           "Set a Web UI username and password now",
+                           "Leave it open on purpose (a saved choice, so nothing keeps asking)"])
+    webui_access_plan = {"choice": webui_choice}
+    if webui_choice == "password":
+        def _username_error(value):
+            from .webui import access as _access
+            try:
+                _access.clean_username(value)
+            except _access.AccessError as exc:
+                return str(exc)
+            return None
+        webui_access_plan["username"] = w.ask("webui_username", "Web UI username", "",
+                                              _username_error)
+        webui_access_plan["password"] = w.secret("webui_password", "Web UI password")
+        webui_access_plan["confirm"] = w.secret("webui_password_confirm",
+                                                "Web UI password again")
     token = w.secret("discord_bot_token", "Discord bot token")
 
-    # Hermes or standalone
-    w.say()
-    w.say("Print Handy runs either as its own Discord bot (standalone) or as a Hermes Agent profile.")
-    hermes = w.confirm("hermes", "Do you use Hermes Agent?" + (" (found on this machine)" if hermes_found else ""),
-                       default=False)
-    profile = ""
-    if hermes:
-        profile = w.ask("profile", "Hermes profile name", "3dprinting", profile_name_error)
     # Add-a-printer loop (#337): a second printer turns the plan into a [[printers]]
     # roster. The first printer's id and channel are only needed then, so they are
     # asked when the loop is first entered.
@@ -581,14 +595,14 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
 
     timezone = detect_timezone()
     discord = {"chat_id": chat_id, "allowed_user_ids": users, "bot_name": bot_name, "timezone": timezone}
-    data_home = f"~/.hermes/profiles/{profile}" if hermes else "~/.local/share/print-handy"
+    data_home = "~/.local/share/print-handy"
     roster_rows = []
     if len(records) == 1:
         config = {
             "printer": printer,
             "services": services,
             "discord": {k: v for k, v in discord.items() if v},
-            "bot": {"mode": "hermes" if hermes else "standalone"},
+            "bot": {"mode": "standalone"},
             "paths": {"hermes_home": data_home},
         }
         if bambu_lan:
@@ -645,7 +659,7 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
             "printers": entries,
             "services": {k: v for k, v in services.items() if k == "spoolman_url"},
             "discord": {k: v for k, v in discord.items() if v},
-            "bot": {"mode": "hermes" if hermes else "standalone"},
+            "bot": {"mode": "standalone"},
             "paths": {"hermes_home": data_home},
         }
         notes.append("Multi-printer: the roster lives in the config file (it cannot come from the "
@@ -656,12 +670,12 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
                      "in a roster config; they are not per-printer keys in this version.")
     return {
         "config": config, "display": display, "material": material, "slicer": slicer, "flatpaks": flatpaks,
-        "actions": actions, "notes": notes, "hermes": hermes, "profile": profile,
-        "profile_exists": profile in existing_profiles, "data_home": data_home, "timezone": timezone,
+        "actions": actions, "notes": notes,
+        "data_home": data_home, "timezone": timezone,
         "secrets": secrets,
-        "hermes_env": {"DISCORD_ALLOWED_USERS": users.replace(" ", ""), "DISCORD_HOME_CHANNEL": chat_id},
         "spoolman": spool,
         "printers": roster_rows,
+        "webui_access": webui_access_plan,
     }
 
 
@@ -679,36 +693,8 @@ def detect_timezone():
         return "UTC"
 
 
-def build_hermes_commands(profile, display, repo, python, *, channel_id="", bot_name="Print Handy",
-                          timezone="UTC", display_name="3D Printing", profile_exists=False):
-    """Commands that set up a Hermes profile for Print Handy. Never clones another profile."""
-    commands = []
-    if not profile_exists:
-        commands.append(["hermes", "profile", "create", profile, "--description",
-                         f"Print Handy 3D printer specialist: slicing, printing, and printer status for {display}"])
-    env = {"DISCORD_CHANNEL_ID": channel_id, "BOT_NAME": bot_name, "TIMEZONE": timezone,
-           "DISPLAY_NAME": display_name}
-    commands.append(["env", *(f"{k}={v}" for k, v in env.items() if v), f"{repo}/scripts/install-hermes.sh",
-                     "--hermes-home", str(Path.home() / ".hermes" / "profiles" / profile), "--python", str(python)])
-    return commands
-
-
 def show(cmd):
     return " ".join(shlex.quote(c) for c in cmd)
-
-
-def hermes_profiles(env=None, which=shutil.which):
-    """Profile names from `hermes profile list` (the name in parentheses, else the first column)."""
-    path = (env or os.environ).get("PATH")
-    exe = which("hermes", path=path)
-    if not exe:
-        return set()
-    try:
-        out = subprocess.run([exe, "profile", "list"], capture_output=True, text=True, timeout=30, env=env).stdout
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    names = set(re.findall(r"\(([a-z0-9][a-z0-9_-]*)\)", out))
-    return names
 
 
 def summary(plan):
@@ -731,8 +717,11 @@ def summary(plan):
         f"  Discord:     channel {c['discord'].get('chat_id') or '(not set)'}, "
         f"users {c['discord'].get('allowed_user_ids') or '(everyone in the channel)'}, "
         f"token {'set' if plan['secrets']['DISCORD_BOT_TOKEN'] else 'not set'}",
-        f"  Runs as:     " + (f"Hermes profile '{plan['profile']}'" + (" (exists, reused)" if plan["profile_exists"] else "")
-                             if plan["hermes"] else "standalone bot (systemd user services)"),
+        "  Web UI:      " + {"password": "a login is set at apply (username and password, value not shown)",
+                            "open": "left open by a saved choice",
+                            }.get((plan.get("webui_access") or {}).get("choice"),
+                                  "left as it is (on by default; no login set here)"),
+        "  Runs as:     standalone bot (systemd user services)",
         f"  Data folder: {plan['data_home']} (state, logs, .env with secrets)",
     ]
     for label, cmd in plan["actions"]:
@@ -909,6 +898,41 @@ def effective_data_home(local, fallback):
     return fallback
 
 
+def _apply_webui_access(plan, w, data_home):
+    """The wizard's Web UI access action, through the shared writers.
+
+    Same store as every other surface (webui_access.json beside the
+    state files): a password goes through access.save_password with
+    its usual validation, the open choice through access.save_open.
+    A refusal is said plainly and never fails the rest of the install.
+    """
+    choice = (plan.get("webui_access") or {}).get("choice") or "keep"
+    if choice == "keep":
+        w.say("Web UI: left as it is. It is on by default; to protect it later, set a "
+              "login in the Web UI walkthrough, from chat setup, or put a token in the "
+              "WEBUI_ACCESS_TOKEN environment variable.")
+        return
+    from .webui import access as _access
+    data = {"paths": {"hermes_home": Path(data_home).expanduser()}}
+    try:
+        if choice == "password":
+            _access.save_password(data, plan["webui_access"].get("password") or "",
+                                  plan["webui_access"].get("confirm") or "",
+                                  username=plan["webui_access"].get("username") or "")
+            w.say("Web UI: login saved (the password itself was not stored in plain text). "
+                  "A WEBUI_ACCESS_TOKEN set in the environment keeps working alongside it.")
+        elif choice == "open":
+            _access.save_open(data, True)
+            w.say("Web UI: left open by your saved choice, so the other setup surfaces "
+                  "will not keep asking about a login.")
+    except _access.AccessError as exc:
+        w.say(f"Web UI: the login was not saved: {exc} Set it later from the Web UI "
+              "walkthrough's Login step instead.")
+    except OSError as exc:
+        w.say(f"Web UI: the login could not be saved ({exc}). Set it later from the "
+              "Web UI walkthrough's Login step instead.")
+
+
 def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.run, local=None):
     """Write config and secrets, then run the installs the user agreed to."""
     python = python or sys.executable
@@ -937,37 +961,29 @@ def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.r
         run(label, cmd, key="run_" + label.split()[1].lower())
 
     secrets = {k: v for k, v in plan["secrets"].items() if v}
-    if plan["hermes"]:
-        name = plan["profile"]
-        cmds = build_hermes_commands(name, plan["display"], repo, python,
-                                     channel_id=plan["config"]["discord"].get("chat_id", ""),
-                                     bot_name=plan["config"]["discord"].get("bot_name", "Print Handy"),
-                                     timezone=plan["timezone"], profile_exists=plan["profile_exists"])
-        if plan["profile_exists"]:
-            w.say(f"\nHermes profile '{name}' already exists; it is reused, not recreated.")
-        w.say("The standalone bot services are not installed in Hermes mode: two bots on one token collide.")
-        ok = True
-        for cmd in cmds:
-            ok = ok and run("Hermes setup", cmd, key="run_hermes")
-        home = Path.home() / ".hermes" / "profiles" / name
-        if ok and not dry_run:
-            changed = update_env(home, {**secrets, **{k: v for k, v in plan["hermes_env"].items() if v}})
-            w.say(f"Saved {', '.join(changed) or 'nothing new'} to {home}/.env (values not shown).")
-        w.say(f"\nNext:\n  1. hermes -p {name} setup        # pick the model and API key for this profile"
-              f"\n  2. hermes gateway restart        # or: hermes -p {name} gateway install --if-missing --start-now"
-              f"\n  3. In Discord, @mention the bot in the print channel: \"status\"")
-    else:
-        run("Install the standalone bot services (enables nothing yet)",
-            [str(repo / "scripts" / "install-standalone.sh"), "--python", str(python)], ask=False)
-        if not dry_run:
-            data_home = effective_data_home(local, plan["data_home"])
-            changed = update_env(data_home, secrets)
-            w.say(f"Saved {', '.join(changed) or 'nothing new'} to {data_home}/.env (values not shown).")
-        user = os.environ.get("USER") or "$USER"
-        run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
-        run("Start the bot now", ["systemctl", "--user", "enable", "--now",
-                                  "print-handy-bot.service", "print-handy-listener.service"], key="run_start")
-        w.say(f"\nCheck it: {python} -m print_handy.bot check")
+    run("Install the standalone bot services (enables nothing yet)",
+        [str(repo / "scripts" / "install-standalone.sh"), "--python", str(python)], ask=False)
+    if not dry_run:
+        data_home = effective_data_home(local, plan["data_home"])
+        changed = update_env(data_home, secrets)
+        w.say(f"Saved {', '.join(changed) or 'nothing new'} to {data_home}/.env (values not shown).")
+        _apply_webui_access(plan, w, data_home)
+    user = os.environ.get("USER") or "$USER"
+    run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
+    run("Start the bot now", ["systemctl", "--user", "enable", "--now",
+                              "print-handy-bot.service", "print-handy-listener.service"], key="run_start")
+    if not dry_run:
+        # Shared setup completion (setup_state), recorded last so an install
+        # that stopped partway is not reported as finished. Best effort: a
+        # state-folder problem must not fail an install that otherwise applied.
+        try:
+            from . import setup_state
+            home = effective_data_home(local, plan["data_home"])
+            setup_state.record_completion_in_state_dir(
+                Path(home).expanduser() / "state", "wizard")
+        except Exception as exc:
+            w.say(f"Could not record that setup finished ({exc}); the Web UI may offer setup again.")
+    w.say(f"\nCheck it: {python} -m print_handy.bot check")
     return True
 
 
@@ -986,8 +1002,7 @@ def main(argv=None):
             stream = io.StringIO("")
     w = Wizard(parse_answers(args.answers), stream, sys.stdout, args.yes)
     w.say("Print Handy setup. Press Enter to take the default in [brackets].\n")
-    found = bool(shutil.which("hermes")) or (Path.home() / ".hermes" / "hermes-agent").is_dir()
-    plan = build_plan(w, hermes_found=found, existing_profiles=hermes_profiles() if found else ())
+    plan = build_plan(w)
     w.say("\n" + summary(plan))
     if not args.dry_run and not w.confirm("apply", "\nApply these settings?"):
         w.say("Nothing was changed.")

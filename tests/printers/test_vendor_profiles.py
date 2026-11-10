@@ -45,6 +45,8 @@ def without_added(data):
     for key in ("wrapped_enabled", "wrapped_ai_video",
                 "wrapped_tts_engine", "wrapped_music_file"):  # added by #956 / #981 step 4, after capture
         data.get("timelapse", {}).pop(key, None)
+    data.get("timelapse", {}).pop("data_enabled", None)  # added by the Data/Wrapped split (settings restructure stage 5), after capture
+    data.get("timelapse", {}).pop("data_enabled_explicit", None)  # resolved-state flag stamped with the stage 5 fix, after capture
     data.pop("webui", None)  # added by #286 stage 1, after the golden files were captured
     data.pop("live_stream", None)  # added by #311 stage 3, after the golden files were captured
     data.pop("design", None)  # added by #388 stage 1, after the golden files were captured
@@ -53,7 +55,7 @@ def without_added(data):
     data.get("vision", {}).pop("roast_enabled", None)  # added by the roast switch, after capture
     data.get("vision", {}).pop("roast_custom_bank", None)  # added by #1002 Phase 4, after capture
     data.get("discord", {}).pop("clarify_ui", None)  # added by #524 stage 2, after capture
-    data.get("discord", {}).pop("mention_starter_on_complete", None)  # added with starter mentions, after capture
+    data.get("discord", {}).pop("mention_starter", None)  # added with starter mentions, after capture
     data.pop("spool", None)  # added by #512 (spool.prompt_brand), after the golden files were captured
     data.pop("telegram", None)  # added by #164 stage 2, after the golden files were captured
     data.pop("matrix", None)  # added by #164 stage 3, after the golden files were captured
