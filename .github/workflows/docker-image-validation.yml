@@ -102,6 +102,24 @@ jobs:
             docker image inspect --format 'platform={{.Os}}/{{.Architecture}} size={{.Size}}' "$IMAGE"
             docker run --rm --entrypoint sh "$IMAGE" -c 'cat /orca-stable-build-info 2>/dev/null || echo orca-stable=absent; cat /bambu-build-info 2>/dev/null || echo bambu=absent'
           } | tee evidence/identity.txt
+      - name: Assert the OCI license and source labels (#1158)
+        run: |
+          set -euo pipefail
+          # The Dockerfile carries the static labels; a build that loses
+          # them ships an image that no longer names its license or its
+          # source, which is the defect #1158 tracks. The revision and
+          # version labels are stamped by the publish workflows (they
+          # need the release ref), so they are not asserted here.
+          labels="$(docker image inspect --format '{{json .Config.Labels}}' "$IMAGE")"
+          echo "$labels"
+          grep -q '"org.opencontainers.image.licenses":"AGPL-3.0-only"' <<<"$labels" || {
+            echo "built image is missing the org.opencontainers.image.licenses label" >&2
+            exit 1
+          }
+          grep -q '"org.opencontainers.image.source":"https://github.com/catduckgnaf/print-handy"' <<<"$labels" || {
+            echo "built image is missing the org.opencontainers.image.source label" >&2
+            exit 1
+          }
       - name: Headless slice with the bundled Orca
         run: |
           set -euo pipefail
