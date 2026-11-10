@@ -2401,9 +2401,11 @@ def _cached_bounds(hit):
     A hit must carry exactly two finite numbers per axis, low <= high: the
     pre-#952 reader returned any JSON value as tuples, so a hand-edited or
     corrupt entry with string values came back as tuples of characters and
-    only failed later, as a comparison crash inside verify.
+    only failed later, as a comparison crash inside verify. An entry
+    written by another parser version (S5) is not trustworthy either: the
+    parser it came from may have read the same bytes differently.
     """
-    if not isinstance(hit, dict):
+    if not isinstance(hit, dict) or hit.get("parser") != BOUNDS_PARSER_VERSION:
         return None
     bounds = {}
     for axis in "xyz":
@@ -2441,9 +2443,13 @@ def cached_motion_bounds(raw, text=None):
     stored result. Failures are never cached, so a bad file still fails closed.
     An entry that does not validate (_cached_bounds) is treated as a miss and
     recomputed; writes prune the directory to BOUNDS_CACHE_MAX_ENTRIES (#952).
+    The key carries BOUNDS_PARSER_VERSION and the entry records it (S5), so
+    an upgrade never reuses a verdict an older parser reached on the same
+    bytes; pre-version entries (plain ``<sha>.json``) are never read again
+    and age out through the pruning.
     """
     digest = hashlib.sha256(raw).hexdigest()
-    entry = BOUNDS_CACHE/f"{digest}.json"
+    entry = BOUNDS_CACHE/f"{digest}.p{BOUNDS_PARSER_VERSION}.json"
     try:
         hit = _cached_bounds(json.loads(entry.read_text()))
         if hit is not None:
@@ -2454,7 +2460,8 @@ def cached_motion_bounds(raw, text=None):
     try:
         BOUNDS_CACHE.mkdir(parents=True, exist_ok=True)
         tmp = entry.with_suffix(".tmp")
-        tmp.write_text(json.dumps({axis: list(bounds[axis]) for axis in "xyz"}))
+        tmp.write_text(json.dumps({"parser": BOUNDS_PARSER_VERSION,
+                                   **{axis: list(bounds[axis]) for axis in "xyz"}}))
         tmp.replace(entry)
         _prune_bounds_cache()
     except OSError:
