@@ -891,6 +891,43 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(code, 403)
             self.assertIn("wrapped_ai_video", raw)
 
+    def test_video_post_starts_a_job_and_the_status_route_reports_it(self):
+        from unittest import mock
+        self.addCleanup(wrapped_video.JOBS._jobs.clear)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(wrapped_video, "_default_ffmpeg",
+                                  return_value="wrapped-no-such-ffmpeg"):
+            write_vault(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
+                                    "  wrapped_ai_video: true\n")
+            port = httpd.server_address[1]
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                conn.request("POST", "/wrapped/video",
+                             body=("_csrf=" + httpd.form_token + "&year=2025").encode(),
+                             headers={"Content-Type": "application/x-www-form-urlencoded",
+                                      server.TOKEN_HEADER: TOKEN})
+                response = conn.getresponse()
+                response.read()
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.getheader("Location"), "/wrapped?year=2025")
+            finally:
+                conn.close()
+            state = None
+            for _ in range(100):
+                code, raw = self.request(port, "GET", "/api/wrapped/video-status?year=2025")
+                self.assertEqual(code, 200)
+                state = json.loads(raw)
+                if state["state"] in ("done", "failed"):
+                    break
+                threading.Event().wait(0.05)
+            self.assertEqual(state["state"], "failed")
+            self.assertIn("ffmpeg", state["reason"])
+            code, raw = self.request(port, "GET", "/wrapped?year=2025")
+            self.assertIn("The last video compile failed", raw)
+            code, raw = self.request(port, "GET", "/api/wrapped/video-status")
+            self.assertEqual(code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -181,6 +181,19 @@ def _display_tz(data):
         return timezone.utc
 
 
+def _summary(data, year, records_vault):
+    """Everything one Wrapped year is built from: records, events and the
+    Wrapped payload. ``year`` must already be a whole number."""
+    records, skipped = _load(data, records_vault)
+    events, skipped_events = _load_events(data, records_vault)
+    tz = _display_tz(data)
+    wrapped = print_stats.build_wrapped(
+        records, int(year), tz=tz, events=events,
+        enrichments=_load_enrichments(data, records))
+    return {"records": records, "skipped": skipped, "events": events,
+            "skipped_events": skipped_events, "tz": tz, "wrapped": wrapped}
+
+
 def data_view(data, year=None, *, records_vault=None):
     """(code, body) for GET /api/data."""
     if not data_enabled(data):
@@ -247,6 +260,7 @@ def wrapped_view(data, year=None, *, records_vault=None):
                  "maintenance": _maintenance(data, records_vault, int(year), tz),
                  "video_available": wrapped_video_path(data, int(year),
                                                        records_vault=records_vault) is not None,
+                 "video_job": video_module.JOBS.status(int(year)),
                  "ai_video_enabled": ai_video_enabled(data)}
 
 
@@ -276,31 +290,62 @@ def _current_year(tz=None):
 
 
 def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=False,
-               **video_kwargs):
-    """(code, body) for POST /wrapped/video: the on-demand compile."""
+               wait=False, jobs=None, **video_kwargs):
+    """(code, body) for POST /wrapped/video: start the compile, or join it.
+
+    The compile is one background job per year (see
+    :class:`wrapped_video.VideoJobs`): this returns at once with 202 and
+    the job's status, and a request for a year already being compiled
+    joins that job (``"joined": true``) instead of starting another.
+    ``wait`` blocks until the job ends and answers in the old
+    synchronous shape (200 with the paths, or 502 with the reason).
+    """
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     if not ai_video_enabled(data):
         return 403, {"ok": False, "reason": VIDEO_OFF_REASON}
-    records, _skipped = _load(data, records_vault)
-    events, _skipped_events = _load_events(data, records_vault)
     try:
-        wrapped = print_stats.build_wrapped(
-            records, int(year), tz=_display_tz(data), events=events,
-            enrichments=_load_enrichments(data, records))
+        year = int(year)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
-    video_kwargs.setdefault("records", records)
-    video_kwargs.setdefault("tz", _display_tz(data))
-    result = video_module.build_wrapped_video(
-        int(year), wrapped, target_dir, data=data, export_silent=export_silent,
-        **video_kwargs)
-    if not result.get("ok"):
-        return 502, {"ok": False, "reason": result.get("reason") or "the video compile failed",
-                     "script_path": result.get("script_path"), "notes": result.get("notes") or []}
-    return 200, {"ok": True, "year": int(year), "path": result["path"],
-                 "script_path": result["script_path"], "notes": result.get("notes") or []}
+
+    def work(progress):
+        wrapped, records = _wrapped_for_video(data, year, records_vault)
+        kwargs = dict(video_kwargs)
+        kwargs.setdefault("records", records)
+        kwargs.setdefault("tz", _display_tz(data))
+        return video_module.build_wrapped_video(
+            year, wrapped, target_dir, data=data, export_silent=export_silent,
+            progress=progress, **kwargs)
+
+    status, joined = (jobs or video_module.JOBS).start(year, work, wait=wait)
+    if wait and status["state"] == "failed":
+        return 502, {"ok": False, "reason": status["reason"] or "the video compile failed",
+                     "script_path": status["script_path"], "notes": status["notes"]}
+    if wait and status["state"] == "done":
+        return 200, {"ok": True, "year": year, "path": status["path"],
+                     "script_path": status["script_path"], "notes": status["notes"]}
+    return 202, {"ok": True, "year": year, "joined": joined, "job": status}
+
+
+def _wrapped_for_video(data, year, records_vault):
+    summary = _summary(data, year, records_vault)
+    return summary["wrapped"], summary["records"]
+
+
+def video_status(data, year, *, records_vault=None, jobs=None):
+    """(code, body) for GET /api/wrapped/video-status?year=: the page's poll."""
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    status = (jobs or video_module.JOBS).status(year)
+    return 200, {"ok": True, **status,
+                 "available": wrapped_video_path(
+                     data, year, records_vault=records_vault) is not None}
 
 
 def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
@@ -664,6 +709,31 @@ def _share_panel(year, form_token, exports, registry_note):
     return "".join(parts)
 
 
+def _video_progress(year, job):
+    """The compile's progress block, polled until the job ends."""
+    steps = int(job.get("steps") or 0)
+    step = int(job.get("step") or 0)
+    label = ("Waiting to start…" if job.get("state") == "queued" or not steps
+             else f"Step {step} of {steps}")
+    bar = (f'<progress id="video-progress" max="{steps}" value="{step}"></progress>'
+           if steps else '<progress id="video-progress"></progress>')
+    return (
+        '<div id="video-job" role="status">'
+        f"<p>Compiling your {year} video in the background. "
+        f'<span id="video-job-label">{_esc(label)}</span></p>{bar}</div>'
+        "<script>(function(){var year=" + str(int(year)) + ";"
+        "function poll(){fetch('/api/wrapped/video-status?year='+year,"
+        "{credentials:'same-origin'}).then(function(r){return r.json();})"
+        ".then(function(s){if(s.state==='done'||s.state==='failed'||s.state==='idle')"
+        "{location.reload();return;}"
+        "var bar=document.getElementById('video-progress'),"
+        "label=document.getElementById('video-job-label');"
+        "if(s.steps){bar.max=s.steps;bar.value=s.step;"
+        "label.textContent='Step '+s.step+' of '+s.steps;}"
+        "setTimeout(poll,2000);}).catch(function(){setTimeout(poll,5000);});}"
+        "setTimeout(poll,2000);})();</script>")
+
+
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
                         theme=shell.DEFAULT_THEME):
     """GET /wrapped as HTML, from a :func:`wrapped_view` success payload."""
@@ -797,25 +867,36 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
                      "recorded.</p>")
     lines = "".join(f'<p class="card">{_esc(line)}</p>' for line in payload["script"])
     parts.append(f"<h2>Commentary</h2>{lines}")
+    job = payload.get("video_job") or {}
+    compiling = job.get("state") in ("queued", "running")
     if payload.get("ai_video_enabled"):
+        parts.append("<h2>Make my Wrapped video</h2>")
+        if compiling:
+            parts.append(_video_progress(year, job))
+        else:
+            if job.get("state") == "failed":
+                parts.append(
+                    '<p class="error">The last video compile failed: '
+                    f"{_esc(job.get('reason') or 'unknown reason')}</p>")
+            parts.append(
+                f'<form method="post" action="/wrapped/video">'
+                f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+                f'<input type="hidden" name="year" value="{year}">'
+                '<label><input type="checkbox" name="export_silent" value="1"> '
+                "Export silent (no music, no narration — add music in the "
+                "app you post to)</label> "
+                '<button type="submit">Make my Wrapped video</button></form>')
         parts.append(
-            "<h2>Make my Wrapped video</h2>"
-            f'<form method="post" action="/wrapped/video">'
-            f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
-            f'<input type="hidden" name="year" value="{year}">'
-            '<label><input type="checkbox" name="export_silent" value="1"> '
-            "Export silent (no music, no narration — add music in the "
-            "app you post to)</label> "
-            '<button type="submit" data-busy="Compiling…">Make my Wrapped video</button>'
-            "<p>Compiling runs on this machine, on demand, from stat cards, "
-            "this commentary as on-screen text, and the year's timelapses "
-            "where they are found. The commentary is the local lines above, "
+            "<p>Compiling runs on this machine, in the background, on demand, "
+            "from stat cards, this commentary as on-screen text, and the "
+            "year's timelapses where they are found. You can leave this page "
+            "while it works. The commentary is the local lines above, "
             "never rewritten by an AI model, and nothing leaves this "
             "machine. Narration: "
             "with [timelapse] wrapped_tts_engine set to piper, the slide "
             "lines are spoken by the local Piper binary and nothing is "
             "sent anywhere; with none (the default) there is no spoken "
-            "narration.</p></form>")
+            "narration.</p>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
                      "[timelapse] wrapped_ai_video = true to turn on the "
@@ -847,16 +928,6 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     return _page(data, "wrapped", "".join(parts), path="/wrapped", theme=theme)
 
 
-def render_video_result(data, payload, *, theme=shell.DEFAULT_THEME):
-    """The POST /wrapped/video result page: where the video landed, and its notes."""
-    notes = "".join(f"<li>{_esc(note)}</li>" for note in (payload.get("notes") or []))
-    body = (f"<p>Your Wrapped video is ready: <code>{_esc(payload.get('path') or '')}</code></p>"
-            f"<p>Script: <code>{_esc(payload.get('script_path') or '')}</code></p>"
-            + (f"<h2>Notes</h2><ul>{notes}</ul>" if notes else "")
-            + '<p><a href="/wrapped">Back to Wrapped</a></p>')
-    return _page(data, "wrapped video", body, path="/wrapped", theme=theme)
-
-
 def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     """The POST /wrapped/share result page: where the bundle landed."""
     manifest = payload.get("manifest") or {}
@@ -882,5 +953,5 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
 __all__ = ["DATA_OFF_REASON", "EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON",
            "WRAPPED_OFF_REASON", "ai_video_enabled", "data_enabled", "data_view",
            "export_share", "make_video", "nav_for", "render_data_page",
-           "render_share_result", "render_video_result", "render_wrapped_page",
+           "render_share_result", "render_wrapped_page", "video_status",
            "wrapped_enabled", "wrapped_video_path", "wrapped_view"]

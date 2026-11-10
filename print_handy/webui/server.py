@@ -802,6 +802,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._data_route(path)
             elif path == "/wrapped/video-file":
                 self._wrapped_video_file_route()
+            elif path == "/api/wrapped/video-status":
+                self._wrapped_video_status_route()
             elif path == "/readyz":
                 # Readiness per component (Spoolman, slicer, each printer),
                 # behind the same auth as /api/status; /healthz stays the
@@ -960,6 +962,18 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send(200, target.read_bytes(), "video/mp4")
 
+    def _wrapped_video_status_route(self):
+        """GET /api/wrapped/video-status?year=<year>: the compile's state
+        (idle, queued, running with a step count, done, failed with a
+        short reason), polled by the Wrapped page while a video compiles."""
+        year, error = self._year_param()
+        if error or year is None:
+            self._json(*(error or (400, {"ok": False, "reason":
+                                         "year must be a whole number. Nothing shown."})))
+            return
+        code, payload = data_module.video_status(self.server.settings_data, year)
+        self._json(code, payload)
+
     def _wrapped_video_post(self):
         """POST /wrapped/video (#956): the Wrapped page's video form.
 
@@ -982,16 +996,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_refusal(400, "year must be a whole number. Nothing was compiled.",
                                "/wrapped")
             return
+        # The compile runs as a background job: this starts it (or joins the
+        # one already running for the year) and goes back to the page, which
+        # shows the progress and then the finished video.
         code, payload = data_module.make_video(
             self.server.settings_data, year,
             export_silent=bool((form.get("export_silent") or [""])[0]))
-        if code != 200:
+        if code not in (200, 202):
             self._html_refusal(code, payload.get("reason", "the video compile failed"),
                                "/wrapped")
             return
-        self._send(200, data_module.render_video_result(
-            self.server.settings_data, payload, theme=self._theme()),
-            "text/html; charset=utf-8")
+        self._redirect(f"/wrapped?year={year}")
 
     def _wrapped_share_post(self):
         """POST /wrapped/share (#981): the Wrapped page's share form.
