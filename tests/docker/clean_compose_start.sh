@@ -11,7 +11,10 @@ cleanup() {
     (cd "$work" && docker compose -p "$project" logs) || true
   fi
   (cd "$work" && docker compose -p "$project" down --volumes --remove-orphans) >/dev/null 2>&1 || true
-  rm -rf "$work"
+  if ! rm -rf "$work" 2> /dev/null; then
+    sudo rm -rf "$work" || echo "warning: could not remove $work" >&2
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 mkdir -p "$work/fixture" "$work/data"
