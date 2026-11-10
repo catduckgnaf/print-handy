@@ -22,7 +22,7 @@ Use `.venv/bin/python` wherever this page says `python3` from here on, or activa
 Print Handy's default slicer command is `flatpak run com.orcaslicer.OrcaSlicer`. Install the 2.5.0 build that the Docker image ships. [`scripts/install-orca-flatpak.sh`](../scripts/install-orca-flatpak.sh) does exactly this for CI: it installs the pinned GNOME runtime, checks the bundle's SHA-256 and installs it. It reads its pins from the environment, which the top of [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) sets (`ORCA_BUNDLE_VERSION`, `ORCA_BUNDLE_SHA256`, `ORCA_RUNTIME_REF`, `ORCA_RUNTIME_COMMIT`, `ORCA_FLATPAK_APP_ID`), so export those values first and run it from the repository root:
 
 ```sh
-scripts/install-orca-flatpak.sh
+sh scripts/install-orca-flatpak.sh
 ```
 
 Or install by hand from the OrcaSlicer 2.5.0 release page: download the `x86_64` Flatpak bundle and run `flatpak install --user --bundle <the downloaded file>`. Either way, `flatpak run com.orcaslicer.OrcaSlicer --help` should print usage.
