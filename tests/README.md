@@ -421,8 +421,8 @@ What runs:
 
 | Leg | CI job | Cases | Status |
 | --- | --- | --- | --- |
-| Mock slicer | `discord-timing` | every corpus case, `hermes` and `standalone` transports | Blocking. A problem fails the job. |
-| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
+| Mock slicer | `discord-timing` | every corpus case, `direct` and `standalone` transports | A problem fails the job. The job is not a required status check; CONTRIBUTING lists the checks the maintainers should mark required. |
+| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `direct` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
 
 Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the
 three result files. The gate compares the per-case median of the three repeats, never one sample. Each leg writes
@@ -431,14 +431,18 @@ a per-case table (median, baseline, limit, change) to the job summary and upload
 
 The rule, per case/transport and per metric (`wall_s`, `first_prompt_s`, `fit_check_s`):
 
-    median > baseline x (1 + tolerance) + slack_s   ->  problem
+    median > baseline x (1 + tolerance) + slack   ->  problem
 
-Each baseline file sets its own `tolerance` and `slack_s`. Both use `tolerance` 0.10, the issue's +10%.
+Each baseline file sets its own `tolerance`. Both use `tolerance` 0.10, the issue's +10%. On the mock leg the
+slack is relative with a floor, max(0.35 s, 10% of the baseline) (#1142): a percentage alone cannot absorb
+runner noise on a 0.07 s flow, and the old flat 0.5 s could not fire at all on a sub-second case (a 0.01 s
+case could reach 0.49 s and pass). The real-Orca leg keeps the flat `slack_s` via `--absolute-slack`, because
+its noise is measured in seconds.
 
-Why the mock leg has `slack_s` 0.5 s: its flows are tiny (0.02 to 1.1 s), and on a shared runner a tiny flow's
-median moves far more than 10% from noise alone. Twelve green `main` runs (2026-11-01, `discord-timing` artifacts,
-36 repeats, 68 case/transport rows each) showed medians of 0.07 s flows reading 0.12 s (+70%) with no code change. A
-percentage alone would fail every run. To pick the slack, each of the twelve runs was used in turn as the
+Why the flat slack was measured first: the mock leg's flows are tiny (0.02 to 1.1 s), and on a shared runner a
+tiny flow's median moves far more than 10% from noise alone. Twelve green `main` runs (2026-11-01,
+`discord-timing` artifacts, 36 repeats, 68 case/transport rows each) showed medians of 0.07 s flows reading
+0.12 s (+70%) with no code change. To pick the slack, each of the twelve runs was used in turn as the
 baseline (the same `--record` the release step uses) and the other eleven were gated against it at +10%:
 
 | `slack_s` | runs failing (of 132 pairings) | worst median over its limit |
@@ -447,9 +451,20 @@ baseline (the same `--record` the release step uses) and the other eleven were g
 | 0.25 | 4 | +0.06 s |
 | 0.50 | 0 | 0.19 s under the limit |
 
-So 0.5 s is the smallest tested slack that never failed on unchanged code. It still catches any added half second
-in a flow, which covers the bug class that started this issue (a print-again scan that took 2.1 s instead of 5 ms).
-On the mock leg the slack dominates the 10%; the 10% matters on the real-Orca leg, where flows take seconds.
+So 0.5 s was the smallest tested flat slack that never failed on unchanged code. The floor that replaced it
+on the mock leg, 0.35 s, comes from the same kind of measurement: eight green `main` runs gated against the
+checked-in baseline needed up to 0.33 s of slack (one run read a 0.38 s case at 0.75 s with no relevant code
+change), and 0.30 s already failed two of 312 case/metric pairings. A flow shorter than the floor therefore
+cannot be gated tighter than runner noise by this check alone; the reason rule and the cumulative limit
+below are what keep a series of small raises honest.
+
+A raise is bookkeeping, not just numbers. `--record` leaves a raised entry's `reason` empty and keeps the
+old one as `previous_reason`; the gate refuses a raised entry whose reason is empty, under 20 characters,
+or the previous raise's reason copied over, so every raise needs fresh words. Every entry also keeps
+`original`, the first values ever recorded for the case (seeded from `raised_from` for entries recorded
+before the field existed). Past +25% over `original` the gate prints a warning; past +50% it fails, even
+when each individual raise was small. Every job summary and every `--record` proposal prints the cumulative
+drift of every raised entry, however small, so a re-record shows its own total before anyone merges it.
 
 The real-Orca leg keeps `slack_s` 1.0 s and stays reporting-only, because its measured runner noise is too large
 for any blocking limit in the tested range (see Real-Orca runner noise below). It runs one untimed warm-up slice first, because the first flatpak start pays
@@ -468,7 +483,7 @@ slice-time verify interval. Whether to add a large-plate case to the real-Orca l
 on #952.
 
 Noise controls in place: median of 3 repeats, per-case baselines (one heavy case cannot hide another's
-regression), absolute slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
+regression), a floored relative slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
 built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
 per-release baseline ships first; A/B is the next step if the real-Orca warnings prove too noisy to promote.
 
@@ -505,8 +520,9 @@ limits; its two entries that rose carry a `reason`. The real-Orca baseline was r
 (its `recorded_from` names the run).
 
 Other refusals the gate makes: a failed or errored flow, a case missing from the run, a new case with no baseline,
-the fit check over `fit_check_budget_s`, a `fit_check_required` row with no fit measurement, and an entry whose
-numbers rose without a `reason`.
+the fit check over `fit_check_budget_s`, a `fit_check_required` row with no fit measurement, an entry whose
+numbers rose without a `reason` or with the previous raise's reason copied over, and a case whose measured
+time is past the cumulative drift limit (+50% over its first recorded values).
 
 ### Updating the baselines (every release)
 
@@ -530,9 +546,11 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
            --recorded-from "CI run <id> (<sha>), artifact slicer-timing-real, median of 3" > proposed-real.json
 
 4. Copy them over `tests/corpus/timing_baseline.json` and `tests/corpus/timing_baseline_real_slicer.json`. Review
-   the diff. An entry that rose carries `raised_from`; write its `reason` (what got slower and why that is
-   acceptable, for example a new Orca version or a new pipeline stage). The gate refuses a raise with no reason.
-   Do not change `tolerance` or `slack_s` in this PR; that is a separate, measured change.
+   the diff. The `--record` step printed every raised entry's cumulative drift from its first recorded values
+   to stderr (the job log when CI made the proposal); read it before copying. An entry that rose carries
+   `raised_from`; write its `reason` (what got slower and why that is acceptable, for example a new Orca
+   version or a new pipeline stage). The gate refuses a raise with no reason, or with the previous raise's
+   reason copied over. Do not change `tolerance` or `slack_s` in this PR; that is a separate, measured change.
 5. Open a PR named "Timing baselines for X.Y.Z", let CI gate it against the new numbers, merge it, then tag.
 6. Record the decision on the release checklist issue: re-recorded or verified-no-change.
 
