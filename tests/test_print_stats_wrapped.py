@@ -889,7 +889,8 @@ class RouteTests(unittest.TestCase):
             body = "_csrf=" + httpd.form_token + "&year=2025"
             code, raw = self.request(
                 port, "POST", "/wrapped/video", body=body.encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 403)
             self.assertIn("wrapped_ai_video", raw)
 

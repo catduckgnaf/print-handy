@@ -316,6 +316,18 @@ class SharePanelAndRouteTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_process_form_token_alone_cannot_authorize_claimed_share(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_vault(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            body = ("_csrf=" + httpd.form_token +
+                    "&year=2025&visibility=public")
+            code, _ = self.request(
+                httpd.server_address[1], "POST", "/wrapped/share",
+                body=body.encode(),
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 403)
+
     def test_share_post_route_creates_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = _write_vault(tmp)
@@ -325,7 +337,8 @@ class SharePanelAndRouteTests(unittest.TestCase):
                     "&year=2025&visibility=public&destination=GitHub+Pages")
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200, raw[:400])
             self.assertIn("wrapped-2025", raw)
             self.assertTrue((vault / "wrapped" / "exports" /
@@ -339,7 +352,8 @@ class SharePanelAndRouteTests(unittest.TestCase):
             body = "_csrf=" + httpd.form_token + "&year=2025&visibility=public"
             code, raw = self.request(
                 port, "POST", "/wrapped/share", body=body.encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 403)
             self.assertIn("wrapped_enabled", raw)
 
