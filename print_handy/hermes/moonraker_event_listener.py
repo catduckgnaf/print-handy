@@ -2889,6 +2889,20 @@ def _auto_pause_early(filename, identity):
     return pab.handle_click("pause", alert)
 
 
+def _watch_now():
+    """The camera watch's wall clock (a seam: tests replace it)."""
+    return time.time()
+
+
+def _watch_printer_id():
+    """This listener's roster printer, for the auto-pause evidence; None when unknown."""
+    try:
+        from .. import listeners as _listeners
+        return _listeners.instance_printer_id()
+    except Exception:
+        return None
+
+
 def _vision_ready():
     """Whether the camera watch has a vision endpoint to judge frames with (visual_watch.vision_ready)."""
     return _visual_watch.vision_ready(lambda: _profile_env_value("CLIPROXY_API_KEY"), log)
@@ -3873,6 +3887,7 @@ class Listener:
         try:
             identity = self._visual_identity()
             image = await asyncio.to_thread(_camera_snapshot_bytes)
+            captured_at = _watch_now()
             if stale():
                 log(f"visual check discarded file={filename!r} reason={reason}: the print changed during capture")
                 return
@@ -3930,7 +3945,16 @@ class Listener:
                     self.visual_watch.note_empty_idle(time.time())
                     log(f"visual check file={filename!r} empty_idle while printing; re-check in "
                         f"{_visual_watch.EMPTY_IDLE_RECHECK_S}s")
-            streak = self.visual_watch.note_verdict(verdict, layer)
+            printer_id = _watch_printer_id()
+            signature = (await asyncio.to_thread(_visual_watch.frame_signature, image)
+                         if verdict in _visual_watch.AUTO_PAUSE_VERDICTS else None)
+            streak = self.visual_watch.note_verdict(
+                verdict, layer, printer_id=printer_id, print_identity=identity,
+                signature=signature, frame_age_s=_watch_now() - captured_at, now=_watch_now())
+            frame_counted = self.visual_watch.last_counted
+            if verdict in _visual_watch.AUTO_PAUSE_VERDICTS and early and not frame_counted:
+                log(f"visual check file={filename!r} reason={reason}: suspicious frame not counted "
+                    f"toward auto-pause: {self.visual_watch.last_evidence}")
             if reason == "stalled_layers" and changed is False:
                 # A healthy vision verdict outranks the pixel diff.
                 suspicious = verdict not in VISUAL_HEALTHY_VERDICTS
@@ -3963,8 +3987,16 @@ class Listener:
                     log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
                     event_discarded = True
                 else:
-                    pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
-                                 and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
+                    pause_now, pause_why = _visual_watch.auto_pause_decision(
+                        self.visual_watch.pause_members,
+                        enabled=_visual_watch.watch_settings(_config.cfg())["auto_pause_early"],
+                        already_paused=self.visual_watch.auto_paused,
+                        printer_id=printer_id, print_identity=identity, state=self.state,
+                        verdict=verdict, frame_counted=frame_counted,
+                        frame_age_s=_watch_now() - captured_at,
+                        mode=self.visual_watch.mode, in_early_window=early)
+                    if streak and not pause_now:
+                        log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     if pause_now:
                         # Reserve the once-per-print pause before yielding
                         # (Codex, #920): overlapping checks must not both
@@ -3975,8 +4007,8 @@ class Listener:
                             if reason == "stalled_layers" else
                             f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}")
                     if pause_now:
-                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
-                                 "in the early layers, so I am pausing the print. It is not cancelled.")
+                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {pause_why}, "
+                                 "so I am pausing the print. It is not cancelled.")
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -3987,6 +4019,15 @@ class Listener:
                                                   f"spaghetti:{identity or filename}")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity)
+                    if pause_now and (stale() or self.state != "printing"):
+                        # The alert took time; the printer must still be
+                        # printing this print when the PAUSE goes out.
+                        log(f"auto-pause not sent file={filename!r}: the printer is {self.state} "
+                            "or the print changed while the alert was posting")
+                        pause_now = False
+                        await asyncio.to_thread(post, _with_printer_name(
+                            f"Auto-pause: {clean(filename)}\nNot sent: the printer is no longer "
+                            "printing this print."))
                     event_action = "auto_pause" if pause_now else "alert"
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print

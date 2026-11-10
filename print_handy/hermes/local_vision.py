@@ -61,6 +61,7 @@ import hashlib
 import logging
 import os
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -574,17 +575,51 @@ class FailureStreak:
 
     def reset(self):
         self.positives = 0
+        self.last_at = None
+        self.last_signature = None
 
-    def note(self, kept) -> tuple[str, str]:
-        """Feed one frame's kept detections; returns its verdict."""
+    def _independent(self, now, signature):
+        """Whether a positive frame is a new view (visual_watch's evidence rule).
+
+        A positive only counts toward escalation when it is at least
+        EVIDENCE_MIN_SPACING_S after the last counted positive and its frame
+        visibly changed: early-layer checks can fire seconds apart on the
+        same or a frozen frame, and that is one view, not two. A caller that
+        passes neither time nor frame keeps the plain per-check count.
+        """
+        if now is None and signature is None:
+            return True
+        if self.last_at is None:
+            return True
+        from . import visual_watch as _vw
+        if now is None or now - self.last_at < _vw.EVIDENCE_MIN_SPACING_S:
+            return False
+        return _vw.frames_differ(self.last_signature, signature) is True
+
+    def note(self, kept, *, now=None, signature=None) -> tuple[str, str]:
+        """Feed one frame's kept detections; returns its verdict.
+
+        ``now`` and ``signature`` (visual_watch.frame_signature) let the
+        streak count only independent views; see :meth:`_independent`.
+        """
         if not kept:
+            self.last_at = None
+            self.last_signature = None
             if self.positives:
                 self.positives = 0
                 return "ok", ("local failure detector: no failure detected; "
                               "the earlier possible failure did not persist")
             return "ok", "local failure detector: no failure detected"
         confidence = kept[0][0]
-        self.positives = min(self.positives + 1, STREAK_CAP)
+        if self._independent(now, signature):
+            self.positives = min(self.positives + 1, STREAK_CAP)
+            self.last_at = now
+            self.last_signature = signature
+        elif confidence < FAILURE_AT:
+            return "uncertain", (
+                f"local failure detector: possible failure at {confidence:.0%} "
+                "confidence, below the single-frame failure threshold (not counted "
+                "toward escalation: too soon after, or unchanged from, the last detection)")
         if confidence >= FAILURE_AT:
             areas = len(kept)
             reason = (f"local failure detector: print failure at {confidence:.0%} "
@@ -618,7 +653,8 @@ def local_verdict(image: bytes, cfg=None, streak: FailureStreak | None = None) -
     kept = detect(image, cfg)
     if streak is None:
         return _single_frame_verdict(kept)
-    return streak.note(kept)
+    from . import visual_watch as _vw
+    return streak.note(kept, now=time.time(), signature=_vw.frame_signature(image))
 
 
 # --- Status (bot check / vision_ready) -------------------------------------------

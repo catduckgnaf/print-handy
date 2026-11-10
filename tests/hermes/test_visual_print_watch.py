@@ -290,6 +290,23 @@ def _jpeg():
     return bytes((0xff, 0xd8, 0xff, 0xd9))
 
 
+def _distinct_jpegs():
+    """Real, visibly different camera frames: a new view of the print each call."""
+    import io
+    import random
+    from PIL import Image
+    rng = random.Random(913)
+
+    def make():
+        image = Image.new("L", (160, 120))
+        image.putdata([rng.randrange(40, 220) for _ in range(160 * 120)])
+        out = io.BytesIO()
+        image.convert("RGB").save(out, "JPEG")
+        return out.getvalue()
+
+    return make
+
+
 def test_session_due_signature_schedules_stall_probe():
     """The live loop calls due(layer, now) with no snapshot flag."""
     watch = mel.VisualPrintWatch()
@@ -1105,8 +1122,10 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     alerts = []
     pauses = []
     actions = []
+    clock = [10_000.0]
     real_auto_pause = mel._auto_pause_early
-    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", _distinct_jpegs())
+    monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append(text))
     monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
@@ -1128,7 +1147,8 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     assert len(alerts) == 1
     assert pauses == []
 
-    # Second suspicious verdict
+    # Second suspicious verdict, a minute later on a new frame
+    clock[0] += 61
     asyncio.run(listener.visual_check("early_layer", 3))
     assert len(alerts) == 2
     assert pauses == []  # Off by default: NO pause sent
@@ -1153,7 +1173,8 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     assert pauses == []
     assert listener_on.visual_watch.auto_paused is False
 
-    # Second suspicious verdict (streak 2) -> alert + PAUSE!
+    # Second suspicious verdict (streak 2), a minute later on a new frame -> alert + PAUSE!
+    clock[0] += 61
     asyncio.run(listener_on.visual_check("early_layer", 3))
     assert len(alerts) == 2
     assert "Auto-pause" in alerts[1]
@@ -1162,6 +1183,7 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     assert listener_on.visual_watch.auto_paused is True
 
     # Third suspicious verdict (streak 3) -> alert, but pause only sent ONCE per print
+    clock[0] += 61
     asyncio.run(listener_on.visual_check("early_layer", 4))
     assert len(alerts) == 3
     assert len(pauses) == 1
@@ -1380,7 +1402,9 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
         time.sleep(0.3)
         alerts.append(text)
 
-    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    frames = _distinct_jpegs()
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", frames)
+    monkeypatch.setattr(mel, "_watch_now", lambda: 50_000.0)
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", slow_alert)
     monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append(filename) or "Paused")
@@ -1396,6 +1420,11 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     listener.filename = "race.gcode"
     listener.state = "printing"
     listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+    # One independent suspicious view two minutes earlier: each racing check
+    # could complete the streak, and only one may send the PAUSE.
+    listener.visual_watch.pause_members = [vw.PauseEvidence(
+        mel._watch_printer_id(), listener._visual_identity(),
+        vw.frame_signature(frames()), 50_000.0 - 120)]
 
     async def run():
         await asyncio.gather(*(listener.visual_check("early_layer", layer) for layer in (2, 3, 4)))
