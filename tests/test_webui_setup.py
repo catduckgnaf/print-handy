@@ -401,6 +401,12 @@ class UnclaimedFlowTests(unittest.TestCase):
         winner = next(name for name, code in results.items() if code == 303)
         self.assertEqual(access.resolve(data, "0.0.0.0", {}).username, winner)
 
+    def test_html_pages_are_never_cached(self):
+        _httpd, port, _data = self.start()
+        for route in ("/", "/config", "/walkthrough", "/upload"):
+            _code, headers, _ = self.request(port, "GET", route)
+            self.assertEqual(headers.get("cache-control"), "no-store", route)
+
     def test_every_open_reason_shows_a_banner_naming_it(self):
         httpd, port, data = self.start("  require_auth: false\n")
         access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)

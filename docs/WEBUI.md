@@ -244,7 +244,12 @@ Only a *missing* `webui_access.json` counts as nothing set. A file that exists b
 
 The session cookie and the `ph-theme` cookie omit the `Secure` attribute unless `[webui] cookie_secure` is true. The default is false so a plain-HTTP browser on the LAN still stores the cookie. Set it true only when every browser that should keep the session reaches the Web UI over HTTPS. The flag does not turn on TLS and does not change who may log in.
 
-Configuration form posts have a second, narrower credential: the server generates a form token when it starts, keeps it only in memory, and embeds it as the `_csrf` hidden field. A `POST` is accepted with either the `X-WebUI-Token` header or that form token. The form token is not the access token and does not authorize `GET` requests, and a session cookie alone never authorizes a post either — a signed-in browser still submits the form's own `_csrf` value. On loopback with no access token configured, the form token is still required for posts, so another page in the operator's browser cannot silently submit configuration changes.
+Form posts (configuration, the walkthrough, spools, printers, uploads, chat, debug mode) also carry a `_csrf` hidden field, and what it takes depends on whether the install is claimed:
+
+- **Open** (unclaimed, `require_auth = false`, or the leave-it-open choice): the server generates one form token when it starts, keeps it only in memory, and embeds it in every page. A post needs that token, so another site open in the same browser cannot silently submit changes.
+- **Claimed** (a password or access token is required): a post needs the `X-WebUI-Token` header, or a signed-in session together with the `_csrf` value bound to that session (an HMAC of the session id under an in-memory secret). A token copied out of a page is worthless without that browser's session, a session cookie alone never authorizes a post, and changing a setting such as `require_auth` therefore always needs someone signed in.
+
+Changing or removing the login in the walkthrough's Login step on a claimed install also asks for the **current password** (or the access token); a wrong entry counts toward the login backoff. HTML pages are sent with `Cache-Control: no-store`, so a browser or proxy cache never keeps a page that embeds a token. Restarting the server, or changing the login, replaces the form secrets, so an old page must be reloaded.
 
 ## Where the Web UI may be reached
 

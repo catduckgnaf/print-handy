@@ -9,8 +9,10 @@ tests/hermes/test_spool_reconcile.py.
 import copy
 import http.client
 import json
+import secrets
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -36,6 +38,15 @@ def enabled(tmp, extra=""):
 
 
 # ---------------------------------------------------------------------- fakes
+
+
+def signed_in(httpd):
+    """(Cookie header value, session-bound _csrf) for a live session on a
+    claimed install: the page's form token alone no longer posts there."""
+    session_id = secrets.token_urlsafe(16)
+    httpd.sessions[session_id] = time.time() + 3600
+    return (f"{server.SESSION_COOKIE}={session_id}",
+            server.session_form_token(httpd, session_id))
 
 class FakeSpoolman:
     """A stateful in-memory Spoolman: spools, filaments, vendors, field defs."""
@@ -757,15 +768,17 @@ class RouteTests(unittest.TestCase):
                                    headers={"Content-Type":
                                             "application/x-www-form-urlencoded"})
             self.assertEqual(code, 403)  # no form token, no header
+            cookie, csrf = signed_in(httpd)
             form = urllib.parse.urlencode(
-                {"_csrf": httpd.form_token, "spool_action": "assign",
+                {"_csrf": csrf, "spool_action": "assign",
                  "slot": "1", "spool_id": "7"}).encode()
             # #840: success is Post/Redirect/Get — the POST itself is a
             # 303 to the page with the action's detail as the notice, so
             # a reload never repeats the action.
             code, headers, _ = self.request_full(
                 port, "POST", f"/spools/{PRINTER}", form,
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "Cookie": cookie})
             self.assertEqual(code, 303)
             location = headers["Location"]
             self.assertTrue(location.startswith(f"/spools/{PRINTER}?done="), location)
@@ -864,12 +877,14 @@ class RouteTests(unittest.TestCase):
             httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
                                spools_action_func=refusing_action)
             port = httpd.server_address[1]
+            cookie, csrf = signed_in(httpd)
             form = urllib.parse.urlencode(
-                {"_csrf": httpd.form_token, "spool_action": "unassign",
+                {"_csrf": csrf, "spool_action": "unassign",
                  "slot": "1"}).encode()
             code, headers, raw = self.request_full(
                 port, "POST", f"/spools/{PRINTER}", form,
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "Cookie": cookie})
             self.assertEqual(code, 409)  # no redirect: the refusal stays on screen
             self.assertNotIn("Location", headers)
             self.assertIn("slot 1 has no spool assigned", raw)
@@ -887,12 +902,14 @@ class RouteTests(unittest.TestCase):
             httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
                                spools_action_func=propose_action)
             port = httpd.server_address[1]
+            cookie, csrf = signed_in(httpd)
             form = urllib.parse.urlencode(
-                {"_csrf": httpd.form_token, "spool_action": "purchase_propose",
+                {"_csrf": csrf, "spool_action": "purchase_propose",
                  "url": "https://shop.example/pla"}).encode()
             code, headers, raw = self.request_full(
                 port, "POST", f"/spools/{PRINTER}", form,
-                headers={"Content-Type": "application/x-www-form-urlencoded"})
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "Cookie": cookie})
             self.assertEqual(code, 200)  # proposed lines render on the same page
             self.assertNotIn("Location", headers)
             self.assertIn("Create these spools", raw)

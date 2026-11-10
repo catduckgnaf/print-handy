@@ -11,8 +11,10 @@ port, a fabricated status snapshot.
 """
 import http.client
 import re
+import secrets
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -317,9 +319,17 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             self.assertEqual(walkthrough.load_state(data)["step"], 5)
 
-    def login_step(self, port, csrf, **fields):
+    def login_step(self, port, csrf, _headers=None, **fields):
         body = urlencode({"step": "login", "action": "continue", pages.CSRF_FIELD: csrf, **fields})
-        return self.request(port, "POST", "/walkthrough", body=body, headers=FORM)
+        return self.request(port, "POST", "/walkthrough", body=body,
+                            headers={**FORM, **(_headers or {})})
+
+    def owner_session(self, httpd):
+        """(headers, csrf) for a signed-in browser on a claimed install."""
+        session_id = secrets.token_urlsafe(16)
+        httpd.sessions[session_id] = time.time() + 3600
+        return ({"Cookie": f"{server.SESSION_COOKIE}={session_id}"},
+                server.session_form_token(httpd, session_id))
 
     def test_login_step_sets_a_username_and_password_and_signs_in(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -371,7 +381,21 @@ class WalkthroughServerTests(unittest.TestCase):
             access.save_password(data, "long enough pw", "long enough pw", username="catduck")
             httpd.access = access.resolve(data, "0.0.0.0", {})
             walkthrough.save_state(data, {"step": 3})
-            code, _, _ = self.login_step(port, httpd.form_token, confirm_open="yes")
+            headers, csrf = self.owner_session(httpd)
+            # A signed-in session alone cannot remove the login: the
+            # current password is asked for, and a wrong one is refused.
+            for current in ({}, {"current_password": "not the password"}):
+                code, _, body = self.login_step(port, csrf, headers, confirm_open="yes",
+                                                **current)
+                self.assertEqual(code, 403, current)
+                self.assertIn("current password", body)
+                self.assertEqual(httpd.access.mode, access.PASSWORD)
+            # Nor can the process form token without a session.
+            code, _, _ = self.login_step(port, httpd.form_token, confirm_open="yes",
+                                         current_password="long enough pw")
+            self.assertEqual(code, 403)
+            code, _, _ = self.login_step(port, csrf, headers, confirm_open="yes",
+                                         current_password="long enough pw")
             self.assertEqual(code, 303)
             self.assertEqual(httpd.access.mode, access.OPEN)
 
@@ -406,12 +430,12 @@ class WalkthroughServerTests(unittest.TestCase):
                                  username="catduck")
             httpd.access = access.resolve(data, "0.0.0.0", {})
             walkthrough.save_state(data, {"step": 3})
-            retained = httpd.form_token
-            code, _, _ = self.login_step(port, retained, confirm_open="yes")
+            headers, retained = self.owner_session(httpd)
+            code, _, _ = self.login_step(port, retained, headers, confirm_open="yes",
+                                         current_password="long enough pw")
             self.assertEqual(code, 303)
             self.assertEqual(httpd.access.mode, access.OPEN)
-            self.assertNotEqual(httpd.form_token, retained)
-            code, _, _ = self.login_step(port, retained)
+            code, _, _ = self.login_step(port, retained, headers)
             self.assertEqual(code, 403)
 
     def test_login_step_inputs_are_optional(self):
