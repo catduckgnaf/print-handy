@@ -595,3 +595,49 @@ def test_a_print_starting_mid_look_voids_the_offer(monkeypatch):
     holder["listener"] = listener
     asyncio.run(listener.offer_next_plate_if_clear())
     assert observed == []
+
+
+# -- 7. reconnect backoff resets after a healthy session ----------------------
+
+
+def test_reconnect_backoff_resets_after_a_healthy_session(monkeypatch):
+    import time as _time
+    import types
+    clock = [0.0]
+    durations = [1, 1, 1, mel.HEALTHY_SESSION_S + 240, 1, 1]
+    delays = []
+
+    class Stop(Exception):
+        pass
+
+    async def session():
+        clock[0] += durations.pop(0)
+        raise ConnectionError("dropped")
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+        if not durations:
+            raise Stop()
+
+    async def idle(*a, **k):
+        return None
+
+    async def forever_beat():
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(mel, "time", types.SimpleNamespace(monotonic=lambda: clock[0], time=_time.time))
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    listener = mel.Listener()
+    monkeypatch.setattr(listener, "session", session)
+    monkeypatch.setattr(listener, "backfill_slot_colors", idle)
+    monkeypatch.setattr(listener, "reconcile_spools", idle)
+    monkeypatch.setattr(listener, "heartbeat", forever_beat)
+    monkeypatch.setattr(listener, "_start_heartbeat_writer", lambda: None)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(mel.asyncio, "sleep", fake_sleep)
+    try:
+        with pytest.raises(Stop):
+            asyncio.run(listener.forever())
+    finally:
+        monkeypatch.setattr(mel.asyncio, "sleep", real_sleep)
+    assert delays == [5, 10, 20, 5, 10, 20]
