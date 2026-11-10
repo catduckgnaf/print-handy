@@ -142,6 +142,23 @@ def generator_identity(text):
     return None
 
 
+_VERSION_TOKEN = re.compile(r"\d+(?:\.\d+)+")
+
+
+def slicer_version(identity):
+    """The version a generator identity names ("OrcaSlicer 2.5.0" -> "2.5.0"), or None.
+
+    The identity is what the producing slicer wrote into its own output (see
+    generator_identity), so the version is the slicer's own statement, kept
+    exactly as written (Bambu Studio's leading zeros included). An identity
+    with no dotted version records None rather than a guessed one.
+    """
+    if not identity:
+        return None
+    match = _VERSION_TOKEN.search(str(identity))
+    return match.group(0) if match else None
+
+
 # Orca 2.5+ tags the end of the machine start G-code and the start of the end G-code. Orca 2.4 does not:
 # there the first layer change opens the toolpath and the last "Custom" role tag (written just before the
 # filament and machine end G-code) closes it. Bambu Lab profiles use "; CHANGE_LAYER" and "; FEATURE: ".

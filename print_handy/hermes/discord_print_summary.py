@@ -586,41 +586,54 @@ def format_estimate_breakdown(job):
     return scrub("\n".join(lines))
 
 
+def _conversion_record(holder):
+    """The conversion provenance a job or derived plate carries, or None.
+
+    The slicer adapter stores None when building the record failed, and older
+    or hand-edited JOB.json files may hold anything: a missing, None or
+    non-dict record at either level is no record, never an error.
+    """
+    provenance = holder.get('provenance') if isinstance(holder, dict) else None
+    record = provenance.get('conversion_provenance') if isinstance(provenance, dict) else None
+    return record if isinstance(record, dict) else None
+
+
+def _conversion_line(records):
+    """One concise 'Conversion:' line for the consequential facts in `records`, or None."""
+    records = [record for record in records if record]
+    # Unknown intent is only worth a line for a foreign project; a plain STL
+    # or native job (source_format 'unknown', or intent 'not_applicable') has
+    # no designer settings whose intent could be unknown. Records without a
+    # format predate the field and were all written for projects.
+    unknown = any(record.get('intent_status') == 'unknown'
+                  and record.get('source_format') != 'unknown' for record in records)
+    conflicts = sum(len(record['unresolved_conflicts']) for record in records
+                    if isinstance(record.get('unresolved_conflicts'), list))
+    if not (unknown or conflicts):
+        return None
+    details = []
+    if unknown:
+        details.append('designer intent unknown for some settings')
+    if conflicts:
+        details.append(f'{conflicts} designer setting conflict(s) resolved by destination profile')
+    artifacts = sorted({record['artifact'] for record in records
+                        if isinstance(record.get('artifact'), str) and record['artifact']})
+    suffix = f' (full record: {artifacts[0]})' if artifacts else ''
+    return 'Conversion: ' + '; '.join(details) + suffix
+
+
 def format_slice_summary(job, now=None):
     """Post slice summary straight from JOB.json: model, parts per plate, filament, estimates."""
     rows = plates_of(job)
     lines = [f"Sliced: {_title(job)}"]
-    provenance = job.get('provenance')
-    conversion = provenance.get('conversion_provenance') if isinstance(provenance, dict) else None
-    if isinstance(conversion, dict):
-        unresolved = conversion.get('unresolved_conflicts') or []
-        # Unknown intent is only worth a line for a foreign project; a plain
-        # STL (source_format 'unknown') has no designer settings whose intent
-        # could be unknown. Records without a format predate the field and
-        # were all written for projects, so they still report.
-        unknown = (conversion.get('intent_status') == 'unknown'
-                   and conversion.get('source_format') != 'unknown')
-        if unresolved or unknown:
-            details = []
-            if unknown:
-                details.append('designer intent unknown for some settings')
-            if unresolved:
-                details.append(f'{len(unresolved)} designer setting conflict(s) resolved by destination profile')
-            lines.append('Conversion: ' + '; '.join(details))
-    if job.get('derived_plates'):
-        conversion_rows = [row.get('provenance', {}).get('conversion_provenance', {})
-                           for row in job['derived_plates'] if isinstance(row.get('provenance'), dict)]
-        unknown = any(row.get('intent_status') == 'unknown'
-                      and row.get('source_format') != 'unknown'
-                      for row in conversion_rows)
-        conflicts = sum(len(row.get('unresolved_conflicts') or []) for row in conversion_rows)
-        if unknown or conflicts:
-            details = []
-            if unknown:
-                details.append('designer intent unknown for some settings')
-            if conflicts:
-                details.append(f'{conflicts} designer setting conflict(s) resolved by destination profile')
-            lines.append('Conversion: ' + '; '.join(details))
+    line = _conversion_line([_conversion_record(job)])
+    if line:
+        lines.append(line)
+    derived = job.get('derived_plates')
+    if isinstance(derived, list) and derived:
+        line = _conversion_line([_conversion_record(row) for row in derived])
+        if line:
+            lines.append(line)
     total = 0
     total_filament = 0.0
     filament_known = True
