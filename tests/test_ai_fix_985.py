@@ -194,6 +194,33 @@ def test_split_writes_a_two_part_3mf_and_a_miss_changes_nothing(tmp_path):
     assert miss['changed'] is False
 
 
+def test_remapped_decisions_rejects_partial_or_unknown_mapping_atomically():
+    manifest = {'parts': [{'key': 'a', 'name': 'A', 'source_extruder': 1},
+                          {'key': 'b', 'name': 'B', 'source_extruder': 2}],
+                'painted': False, 'filaments': [{'extruder': 1}, {'extruder': 2}],
+                'filament_stats': {}}
+    original = {'color_manifest': manifest,
+                'color_decisions': {'choices': {'part:a': {'slot': 1},
+                                                'part:b': {'slot': 2}}}}
+    calls = []
+
+    def resolve(selection):
+        calls.append(selection['slot'])
+        if selection['slot'] == 4:
+            raise ValueError('unavailable slot')
+        return {**selection, 'slot': selection['slot']}
+
+    with pytest.raises(ai_fix.FixError, match='unknown source filament'):
+        ai_fix.remapped_decisions(original, {1: 3, 9: 4}, resolve)
+    assert calls == []
+    assert original['color_decisions']['choices']['part:a']['slot'] == 1
+
+    with pytest.raises(ai_fix.FixError, match='unavailable slot'):
+        ai_fix.remapped_decisions(original, {1: 4, 2: 3}, resolve)
+    assert original['color_decisions']['choices']['part:a']['slot'] == 1
+    assert original['color_decisions']['choices']['part:b']['slot'] == 2
+
+
 def test_remap_filament_choices_re_resolves_only_the_remapped_extruder():
     manifest = {'parts': [{'key': 'a', 'name': 'A', 'source_extruder': 1},
                           {'key': 'b', 'name': 'B', 'source_extruder': 2}],

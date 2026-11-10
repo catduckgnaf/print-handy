@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
-from . import author_settings, mesh_fast, resources, slice_warnings
+from . import author_settings, compat_registry, mesh_fast, resources, slice_warnings
 from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
@@ -666,14 +666,7 @@ def place_stl(source, target, scale=1.0, rotation=None, bed=None, mirror=None):
 # OrcaSlicer's built-in outer_wall_speed (mm/s), used when a process template does not set one (the Snapmaker U1's
 # only sets layer_height). Read from the `; outer_wall_speed` line of an Orca 2.4.2 slice of a template without one.
 ORCA_DEFAULT_OUTER_WALL_SPEED = 60.0
-FLEX_PROFILE = {
-    'wall_generator': 'arachne', 'wall_loops': '2',
-    'sparse_infill_density': '15%', 'sparse_infill_pattern': 'line',
-    'initial_layer_print_height': '0.2', 'initial_layer_speed': '20', 'initial_layer_infill_speed': '20',
-    'outer_wall_speed': '70', 'inner_wall_speed': '130', 'sparse_infill_speed': '160',
-    'brim_type': 'no_brim', 'brim_width': '0', 'enable_support': '0', 'raft_layers': '0',
-    'ironing_type': 'no ironing', 'fuzzy_skin': 'none',
-}
+FLEX_PROFILE = dict(compat_registry.get_rule('arachne-flex-profile').parameters['profile'])
 
 # Designer intent carried from a 3MF's project settings over the printer template. Support keys: the
 # switch and type, plus where supports go (overhang threshold, style, critical-regions-only, small
@@ -682,14 +675,7 @@ FLEX_PROFILE = {
 # picked for the project's designated support filament (#867, support_tool_pointers).
 # Seam, wall order, infill angle, surface patterns, ironing and elephant-foot compensation are the
 # designer's too (#868); speeds are kept only where the designer lowered them (author_settings).
-PROCESS_KEYS = ('layer_height', 'initial_layer_print_height', 'wall_loops', 'sparse_infill_density',
-                'sparse_infill_pattern', 'brim_type', 'brim_width', 'brim_object_gap', 'enable_support',
-                'support_type', 'support_style', 'support_threshold_angle', 'support_critical_regions_only',
-                'support_remove_small_overhang', 'support_on_build_plate_only', 'top_shell_layers',
-                'bottom_shell_layers', 'top_shell_thickness', 'bottom_shell_thickness', 'gap_fill_target',
-                'filter_out_gap_fill', 'wall_generator', 'seam_position', 'wall_sequence', 'infill_direction',
-                'top_surface_pattern', 'bottom_surface_pattern', 'ironing_type', 'ironing_pattern', 'ironing_flow',
-                'ironing_spacing', 'elefant_foot_compensation')
+PROCESS_KEYS = tuple(compat_registry.get_rule('author-intent-allowlist').parameters['keys'])
 
 
 RANGE_ERROR = re.compile(r'^(\w+): (\S+) not in range \[([-0-9.eE+]+),([-0-9.eE+]+)\]', re.M)
@@ -719,10 +705,7 @@ def _template_settings(template_root):
     return settings
 
 
-IMPORTED_AUTO_SENTINELS = {
-    'raft_first_layer_expansion': '-1',
-    'tree_support_wall_count': '-1',
-}
+IMPORTED_AUTO_SENTINELS = dict(compat_registry.get_rule('imported-auto-sentinel-normalization').parameters['sentinels'])
 
 
 def _rewrite_project_settings(path, settings, name):
@@ -759,8 +742,9 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
     # not the filaments-used count (2.2.5 review).
     slot_limit = slot_count if slot_limit is None else int(slot_limit)
     template_filament = json.loads(filament_template.read_text())
-    per_slot_filament = tuple(key for key in template_filament if key.startswith('filament_') and not key.endswith('_settings_id'))
-    for key in ('filament_z_hop_types', 'filament_wipe', 'filament_wipe_distance'):
+    _override = compat_registry.get_rule('imported-template-override').parameters
+    per_slot_filament = tuple(key for key in template_filament if key.startswith(_override['per_slot_prefix']) and not key.endswith(_override['per_slot_exclude_suffix']))
+    for key in _override['template_value_keys']:
         if key not in settings or key not in template_filament:
             continue
         template_values = template_filament[key]
@@ -780,16 +764,15 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             if previous != replacement:
                 settings[key] = replacement
                 changed[key] = [previous, replacement]
-    for key in ('z_hop', 'z_hop_types', 'travel_slope', 'wipe', 'wipe_distance',
-                'retract_lift_above', 'retract_lift_below', 'enable_arc_fitting', 'brim_type'):
+    for key in _override['own_template_keys']:
         if key in settings and key in own and settings[key] != own[key]:
             previous = settings[key]
             settings[key] = own[key]
             changed[key] = [previous, own[key]]
     for key, value in own.items():
-        if not key.endswith('_settings_id') or key not in settings:
+        if not key.endswith(compat_registry.get_rule('settings-id-validation').parameters['key_suffix']) or key not in settings:
             continue
-        if key == 'filament_settings_id':
+        if key == compat_registry.get_rule('settings-id-validation').parameters['filament_key']:
             template_id = value[0] if isinstance(value, list) else value
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
@@ -815,8 +798,9 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
     # color_geometry.effective_tower_mm), not the template's, so clamp with that (#868).
     width = float(tower_width if tower_width else own.get('prime_tower_width', 0))
     # Per-plate positions (one list entry per plate) are each kept inside the bed.
-    for key, low, high in (('wipe_tower_x', min_x, max_x-width),
-                           ('wipe_tower_y', min_y, max_y-width)):
+    _tower_keys = compat_registry.get_rule('wipe-tower-bed-clamp').parameters['keys']
+    for key, low, high in ((_tower_keys[0], min_x, max_x-width),
+                           (_tower_keys[1], min_y, max_y-width)):
         if key in settings:
             replacement = _clamp(settings[key], low, high)
             if replacement != settings[key]:
@@ -857,25 +841,20 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
 # never loads plugins today, but an imported project naming one is stripped, so a future CLI that
 # does load them finds nothing to load; slice_guard's PROTECTED_KEYS cover slicing_pipeline_plugin
 # on sliced output as well.
-_FOREIGN_KEY = re.compile(
-    r'.*_(?:speed|acceleration|jerk|gcode|temp|temperature)(?:_initial_layer(?:_single)?|_range_(?:low|high))?'
-    r'|(?:machine|printer|printable|bed|nozzle|extruder|retract|retraction|z_hop|print_host|printhost)_.*'
-    r'|curr_bed_type|default_bed_type|host_type|post_process|z_hop|wipe|wipe_distance|travel_slope'
-    r'|slicing_pipeline_plugin|plugins')
+_FOREIGN = compat_registry.get_rule('foreign-machine-key-removal').parameters
+_FOREIGN_KEY = re.compile(_FOREIGN['pattern'])
 # Multi-extruder variant bookkeeping (OrcaSlicer 2.5): the printer and filament halves must agree, and the
 # filament half stays, so these are never removed even though their names look like machine keys.
-_VARIANT_KEY = re.compile(r'.*_variant(?:_list)?|.*_extruder_id|extruder_type|nozzle_volume_type')
+_VARIANT_KEY = re.compile(_FOREIGN['variant_pattern'])
 # Preset bookkeeping, not settings: never rewritten from the job's templates.
-_PRESET_META = frozenset(('name', 'from', 'type', 'instantiation', 'setting_id', 'version', 'inherits',
-                          'inherits_group', 'different_settings_to_system', 'compatible_printers',
-                          'compatible_printers_condition', 'compatible_prints', 'compatible_prints_condition'))
+_PRESET_META = frozenset(_FOREIGN['preset_meta'])
 # Orca's bed type when a profile sets none, read from the `; curr_bed_type` line of an Orca 2.4.2
 # AD5X slice (tests/fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt).
-ORCA_DEFAULT_BED_TYPE = 'Cool Plate'
+ORCA_DEFAULT_BED_TYPE = compat_registry.get_rule('bed-type-replacement').parameters['default_bed_type']
 _MODEL_SETTINGS = 'Metadata/model_settings.config'
 _LAYER_RANGES = 'Metadata/layer_config_ranges.xml'
 # Object and part metadata that is structure, not a setting override.
-_STRUCTURAL_META = frozenset(('name', 'extruder', 'matrix'))
+_STRUCTURAL_META = frozenset(compat_registry.get_rule('override-restriction').parameters['structural_meta'])
 
 
 def _rewrite_entries(path, entries, remove=frozenset()):
@@ -1027,7 +1006,7 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
     if project is not None:
         for key in list(project):
             previous = project[key]
-            if key in ('inherits', 'inherits_group', 'different_settings_to_system'):
+            if key in compat_registry.get_rule('preset-bookkeeping-clearing').parameters['keys']:
                 replacement = [''] * len(previous) if isinstance(previous, list) else ''
             elif key == 'curr_bed_type':
                 replacement = job.get('curr_bed_type', ORCA_DEFAULT_BED_TYPE)
@@ -1240,6 +1219,22 @@ def normalize_3mf_core_namespace(path):
         for info, data in entries:
             out.writestr(info.filename, data)
     return True
+
+
+def convert_percent_line_widths(profile, nozzle_diameter):
+    """A copy of `profile` with percentage line widths as absolute millimeters.
+
+    Registry rule orca-percent-line-width-to-bambu-mm: Orca percentages are relative to the
+    destination machine's nozzle diameter, while Bambu Studio reads the same keys as
+    absolute millimeters. Only keys the rule names (its suffix and percent marker) convert.
+    """
+    rule = compat_registry.get_rule('orca-percent-line-width-to-bambu-mm').parameters
+    out = dict(profile)
+    for key, raw_value in profile.items():
+        if key.endswith(rule['key_suffix']) and str(raw_value).strip().endswith(rule['percent_marker']):
+            value = str(raw_value).strip()
+            out[key] = f"{nozzle_diameter * float(value[:-1]) / 100:g}"
+    return out
 
 
 _BAMBU_NOT_INSTALLED = ('the Bambu Studio fallback slicer is not installed in this image, '
@@ -1522,19 +1517,20 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Preserve author structural intent, not P1S motion/material calibration: the kept keys, enum-checked
     # against what Orca accepts, plus any speed the designer lowered below the template's (#868).
     # Gap fill falls back to 'everywhere' below, never to the templates' 'none' (not an Orca value).
-    carried, author_notes = author_settings.carry(author, {**process, 'gap_fill_target': 'everywhere'}, PROCESS_KEYS)
+    carried, author_notes = author_settings.carry(author, {**process, compat_registry.get_rule('gap-fill-default').parameters['key']: compat_registry.get_rule('gap-fill-default').parameters['default']}, PROCESS_KEYS)
     process.update(carried)
     if 'wall_sequence' in carried:
         process.pop('wall_infill_order', None)  # the template's legacy spelling would override the author's order
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
     process['brim_type'] = json.loads((templates / 'process.json').read_text())['brim_type']
-    process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', 'everywhere'),
+    process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', compat_registry.get_rule('gap-fill-default').parameters['default']),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})
     if brim_policy is not None:
         process['brim_type'] = brim_policy.get('type', 'no_brim')
         process['brim_width'] = str(brim_policy.get('width_mm', 0))
-    if (supports is None and not first_layer and str(process['enable_support']) != '1'
+    _painted = compat_registry.get_rule('painted-supports-enable-generation').parameters
+    if (supports is None and not first_layer and str(process[_painted['key']]) != _painted['on_value']
             and author_settings.painted_supports(source)):
         # Painted support enforcers do nothing while generation is off (ForgeBridge rule): turn it on,
         # unless the operator decided supports for this job.
@@ -1967,6 +1963,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
                     **json.loads((templates / 'process.json').read_text()),
                     **json.loads(Path(filament_template).read_text())}
+    # The destination process template before any author overlay: conversion
+    # provenance compares carried author values against THIS, never against
+    # the final selected process (which would make target == selected).
+    destination_process = json.loads((templates / 'process.json').read_text())
     effective_profile = {**machine, **process, **filament}
     placed_bounds = geometry.get('placed_bounds_mm')
     if placed_bounds and len(placed_bounds) >= 2:
@@ -2183,17 +2183,16 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # Bambu Studio reads Orca's percentage line widths as absolute millimeters.
         # Orca percentages are relative to the machine nozzle, not line_width.
         bambu_profile = dict(process)
+        _width_rule = compat_registry.get_rule('orca-percent-line-width-to-bambu-mm').parameters
         percent_width_keys = [
             key for key, raw_value in bambu_profile.items()
-            if key.endswith('_line_width') and str(raw_value).strip().endswith('%')
+            if key.endswith(_width_rule['key_suffix']) and str(raw_value).strip().endswith(_width_rule['percent_marker'])
         ]
         if percent_width_keys:
             try:
                 nozzle_values = machine['nozzle_diameter']
                 nozzle_diameter = float(nozzle_values[0] if isinstance(nozzle_values, list) else nozzle_values)
-                for key in percent_width_keys:
-                    value = str(bambu_profile[key]).strip()
-                    bambu_profile[key] = f'{nozzle_diameter * float(value[:-1]) / 100:g}'
+                bambu_profile = convert_percent_line_widths(bambu_profile, nozzle_diameter)
             except (KeyError, TypeError, ValueError, IndexError) as exc:
                 raise RuntimeError(
                     f'cannot convert Orca percentage line widths for Bambu fallback: {exc}'
@@ -2316,6 +2315,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
         aliases=machine_identity(templates))
     _slicer_s = sum(_slicer_runs)
+    # Provenance is a record about the slice, never a reason to lose it:
+    # malformed or unexpected project data must not fail a finished slice.
+    try:
+        _conversion_provenance = author_settings.conversion_provenance(
+            source, destination_process, process, author, author_notes)
+    except Exception:
+        _conversion_provenance = None
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
                     # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
                     # subprocess time; python_s is everything else slice_model did (profile
@@ -2337,6 +2343,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     # What the author's values became (#868): lowered speeds kept, enum fallbacks, painted
                     # supports, Tree Hybrid; and which project keys the private 3MF copy took from the job.
                     'author_notes': author_notes,
+                    'conversion_provenance': _conversion_provenance,
                     'project_settings_rewritten': sorted(rewritten),
                     'source_profile_warnings': profile_warnings,
                     # Orca's own non-fatal findings (floating cantilever ...), read on success too.
@@ -2777,40 +2784,60 @@ def largest_fitting_scale(source, state, ceiling, **probe_kw):
     """Largest 0.1%-step scale below ``ceiling`` at which one copy fits, or None.
 
     ``ceiling`` is a size already known not to fit, so it is never re-probed;
-    the search starts at the largest whole 0.1% step below it, walks down in
-    1% steps to the 50% floor (the same floor the fit ladder uses), then
-    refines the fitting window to 0.1%. The floor itself is probed: a model
-    that only fits just above 50% still gets its offer. Probe keys (rotation,
-    supports, copy_limit, brim_policy) pass through to orca_plate_capacity,
-    so the answer is for the same layout the caller just refused.
+    the search starts at the largest whole 0.1% step below it, finds the
+    largest fitting 1% step down to the 50% floor (the same floor the fit
+    ladder uses), then refines the fitting window to 0.1%. The floor itself
+    is in range: a model that only fits just above 50% still gets its offer.
+    Probe keys (rotation, supports, copy_limit, brim_policy) pass through to
+    orca_plate_capacity, so the answer is for the same layout the caller
+    just refused.
+
+    The 1% steps are bisected rather than walked (about 6 probes instead of
+    up to 54), which gives the same step as a top-down walk whenever fit
+    shrinks monotonically with scale. Arrangement can be nondeterministic
+    right at the boundary, so the step above the bisected answer is probed
+    a second time; if it fits after all, the search walks up from there one
+    1% step at a time until a step fails, as the walk would have.
+
+    A probe that raises RuntimeError twice raises: a slicer failure is never
+    reported as "does not fit".
     """
     top = math.floor((float(ceiling) - 1e-9) * 1000)
     if top < 500:
         return None
 
     def fits(step):
-        for _ in range(2):  # one retry, like _confirm_scale: a probe abort is not a fit verdict
-            try:
-                return orca_plate_capacity(source, state, scale=step / 1000.0, **probe_kw) > 0
-            except RuntimeError:
-                continue
-        return False
+        try:
+            return orca_plate_capacity(source, state, scale=step / 1000.0, **probe_kw) > 0
+        except RuntimeError:  # one retry: Orca occasionally aborts on a specific scale
+            return orca_plate_capacity(source, state, scale=step / 1000.0, **probe_kw) > 0
 
     if fits(top):
         return top / 1000.0
     coarse = top - top % 10
     if coarse == top:
         coarse -= 10
-    found = None
-    step = coarse
-    while step >= 500:
-        if fits(step):
-            found = step
-            break
-        step -= 10
-    if found is None:
+    if coarse < 500:
         return None
-    lo, hi = found, min(found + 10, top)  # lo fits; hi was probed above and does not
+    # Bisect the 1% grid 500..coarse. Invariant: grid index lo fits (or is the
+    # virtual index -1 below the floor), index hi does not (hi = n is the step
+    # just under ``top``'s 1% bucket, which ``top`` failing already rules out).
+    n = (coarse - 500) // 10 + 1
+    lo, hi = -1, n
+    while hi - lo > 1:
+        middle = (lo + hi) // 2
+        if fits(500 + middle * 10):
+            lo = middle
+        else:
+            hi = middle
+    if lo < 0:
+        return None
+    found = 500 + lo * 10
+    # Confirm the step above really fails; if it fits on this second look,
+    # walk up 1% at a time to the last fitting step below ``top``.
+    while found + 10 < top and fits(found + 10):
+        found += 10
+    lo, hi = found, min(found + 10, top)  # lo fits; hi was probed and does not
     while hi - lo > 1:
         middle = (lo + hi) // 2
         if fits(middle):

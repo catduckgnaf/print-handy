@@ -97,6 +97,11 @@ class StandaloneAdapter(BasePlatformAdapter):
                 handle.close()
         return SendResult(True, message_id=str(first.id) if first is not None else None)
 
+    async def signal_working(self, chat_id, metadata=None):
+        """One Discord typing indicator (shown about 10 s, or until the reply)."""
+        channel = await self._channel(chat_id, metadata)
+        await channel.typing()
+
     async def delete_message(self, chat_id, message_id, metadata=None):
         try:
             channel = await self._channel(chat_id, metadata)

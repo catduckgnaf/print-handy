@@ -2,23 +2,23 @@
 
 [Documentation home](README.md) · [Docker](DOCKER.md) · [Bambu Lab printers](BAMBU-LAB.md)
 
-This page is the walkthrough asked for in [#274](https://github.com/catduckgnaf/print-handy/issues/274): every step from a published image to a print running on a Bambu Lab A1 over the LAN, with nothing else on the path (no Hermes, no Moonraker, no Spoolman record, no Bambu Studio). Every step below was run on 26 Oct 2026 with the 2.1.3 image, an A1 in Developer Mode and OrcaSlicer 2.4.2 from the image. The commands and keys match the code on `main` at the time of writing.
+Every step from a published image to a print running on a Bambu Lab A1 over the LAN, with nothing else on the path (no Hermes, no Moonraker, no Spoolman record, no Bambu Studio). Every step below was run on 26 Oct 2026 with the 2.1.3 image, an A1 in Developer Mode and OrcaSlicer 2.4.2 from the image. The commands and keys match the code on `main` at the time of writing. Read [Bambu Lab printers](BAMBU-LAB.md) first for what the Bambu path is and what it guards; this page only tells you what to type, in order.
 
-Some steps work around behaviour that is being fixed. Each such step names the issue; once the fix is released the workaround becomes unnecessary and this page should be updated. Read [Bambu Lab printers](BAMBU-LAB.md) first for what the Bambu path is and what it guards; this page only tells you what to type, in order.
+Some steps work around behavior that was being fixed when this walkthrough was run. They are marked below as limitations or workarounds. Check the release notes for your version: a workaround may no longer be needed.
 
-| Step | Workaround for | Status |
-|---|---|---|
-| 1 | Container restart-loops for a Bambu model: the stock supervisor starts the Moonraker listener, which exits when `services.moonraker_url` is empty | [#256](https://github.com/catduckgnaf/print-handy/issues/256) (PR 259) |
-| 1, 4 | `/data/.config` (MakerWorld token, local settings) is not a declared volume | [#262](https://github.com/catduckgnaf/print-handy/issues/262), [#270](https://github.com/catduckgnaf/print-handy/issues/270) |
-| 3 | The hardware record must be written by hand; editing it invalidates prepared jobs | [#263](https://github.com/catduckgnaf/print-handy/issues/263) |
-| 5 | Single-extruder slices fail the post-slice check | [#268](https://github.com/catduckgnaf/print-handy/issues/268) |
-| 5 | A package over the Discord attachment limit is not delivered | [#272](https://github.com/catduckgnaf/print-handy/issues/272) |
-| 6 | `delivery.methods` can only come from a mounted YAML that replaces `config/docker.yaml` | [#270](https://github.com/catduckgnaf/print-handy/issues/270) |
-| 6 | The Discord Start button's idle check queries Moonraker only | [#269](https://github.com/catduckgnaf/print-handy/issues/269) |
-| 6 | A started print can show as "submitted, awaiting confirmation" | [#271](https://github.com/catduckgnaf/print-handy/issues/271) |
-| 6 | `/print-stop` cannot stop a Bambu print | [#276](https://github.com/catduckgnaf/print-handy/issues/276) |
-| 6 | The handoff package has no preview thumbnails | [#275](https://github.com/catduckgnaf/print-handy/issues/275) |
-| 7 | The summary wording says "AD5X" | [#273](https://github.com/catduckgnaf/print-handy/issues/273) |
+| Step | Limitation or workaround |
+|---|---|
+| 1 | Container restart-loops for a Bambu model: the stock supervisor starts the Moonraker listener, which exits when `services.moonraker_url` is empty |
+| 1, 4 | `/data/.config` (MakerWorld token, local settings) is not a declared volume |
+| 3 | The hardware record must be written by hand; editing it invalidates prepared jobs |
+| 5 | Single-extruder slices fail the post-slice check |
+| 5 | A package over the Discord attachment limit is not delivered |
+| 6 | `delivery.methods` can only come from a mounted YAML that replaces `config/docker.yaml` |
+| 6 | The Discord Start button's idle check queries Moonraker only |
+| 6 | A started print can show as "submitted, awaiting confirmation" |
+| 6 | `/print-stop` cannot stop a Bambu print |
+| 6 | The handoff package has no preview thumbnails |
+| 7 | The summary wording says "AD5X" |
 
 ## Before you start
 
@@ -26,13 +26,13 @@ Some steps work around behaviour that is being fixed. Each such step names the i
 - The A1 on the same network, reachable from the container on TCP ports 8883 (MQTT over TLS) and 990 (implicit FTPS). Both are what `print_handy/printers/bambulab/client.py` uses; nothing else is opened.
 - A Discord bot token, the print channel ID and your user ID; see [Discord bot setup](DISCORD-BOT-SETUP.md).
 - A MakerWorld account if you want MakerWorld links. Printables links need no account.
-- The published image: it bundles OrcaSlicer, which the A1 workflow needs in order to slice (see [Docker](DOCKER.md#supported-platforms-192-353)).
+- The published image: it bundles OrcaSlicer, which the A1 workflow needs in order to slice (see [Docker](DOCKER.md#supported-platforms)).
 
 Paths below assume the checked-out `docker-compose.yml`, a private `.env` beside it and `PRINT_HANDY_DATA=./data`. Everything under the data directory must be writable by UID/GID 1000:1000, the container user.
 
 ## 1. Compose: pin the image, add the sixth mount, replace the command
 
-**Why:** the stock service definition assumes a Moonraker printer and the bundled Spoolman; on a Bambu model the Moonraker listener exits at once (`services.moonraker_url is not configured`), the supervisor treats a child exit as fatal and Docker restarts the container forever ([#256](https://github.com/catduckgnaf/print-handy/issues/256), fixed by PR 259 once it lands).
+**Why:** the stock service definition assumes a Moonraker printer and the bundled Spoolman; on a Bambu model the Moonraker listener exits at once (`services.moonraker_url is not configured`), the supervisor treats a child exit as fatal and Docker restarts the container forever.
 
 1. Copy `.env.example` to `.env`. Set `PRINT_HANDY_IMAGE` to the digest of the image you tested, not a tag; the digest is the first `RepoDigests` entry after a pull:
 
@@ -50,14 +50,14 @@ Paths below assume the checked-out `docker-compose.yml`, a private `.env` beside
    sudo chown -R 1000:1000 data
    ```
 
-   `HOME` inside the image is `/data` (`Dockerfile`), so the MakerWorld token is read from `/data/.config/bambu/token` and the bot keeps a local settings file under `/data/.config` as well. That directory is not one of the five declared volumes, so without a mount it is lost on every recreate ([#262](https://github.com/catduckgnaf/print-handy/issues/262), [#270](https://github.com/catduckgnaf/print-handy/issues/270)). Mount the whole of `/data/.config`, not only `bambu/`: a mount point Docker creates itself is owned by root.
+   `HOME` inside the image is `/data` (`Dockerfile`), so the MakerWorld token is read from `/data/.config/bambu/token` and the bot keeps a local settings file under `/data/.config` as well. That directory is not one of the five declared volumes, so without a mount it is lost on every recreate. Mount the whole of `/data/.config`, not only `bambu/`: a mount point Docker creates itself is owned by root.
 
 3. Write `docker-compose.override.yml` next to `docker-compose.yml`. Compose merges it over the checked-in file, so `docker-compose.yml` stays untouched:
 
    ```yaml
    services:
      combined:
-       # Until #256 lands: run only the Discord bot. The Moonraker listener and the
+       # Run only the Discord bot. The Moonraker listener and the
        # bundled Spoolman are not started, so the stock healthcheck would fail.
        command: ["python3", "-m", "print_handy.bot"]
        healthcheck:
@@ -96,11 +96,11 @@ docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --r
 docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --resources /opt/orca-stable/resources --check
 ```
 
-The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.0-beta (BBL vendor profiles 02.08.00.16) to /data/state/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the state volume, so they survive a recreate. Nothing is downloaded. Print Handy ships one bundled OrcaSlicer: `PRINT_HANDY_ORCA_CHANNEL=preview` (or `alpha`, the preview channel's name before #600) starts on the same single stable build with a startup notice, because the preview channel was removed.
+The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.0 (BBL vendor profiles 02.08.00.16) to /data/state/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the state volume, so they survive a recreate. Nothing is downloaded. Print Handy ships one bundled OrcaSlicer: `PRINT_HANDY_ORCA_CHANNEL=preview` (or `alpha`, its old name) starts on the same single stable build with a startup notice, because the preview channel was removed.
 
 ## 3. Write the hardware record by hand
 
-**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<hermes_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand ([#263](https://github.com/catduckgnaf/print-handy/issues/263) covers the proper fix).
+**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<hermes_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
 
 Create `data/state/state/printer_hardware.json` on the host (the container sees it as `/data/state/state/printer_hardware.json`). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
 
@@ -162,7 +162,7 @@ chmod 700 data/dot-config/bambu && chmod 600 data/dot-config/bambu/token
 sudo chown -R 1000:1000 data/dot-config
 ```
 
-No restart is needed; the file is read on each MakerWorld request. A wrong or expired token does not fail early: the model lookup still answers and the summary is posted, and only the download is refused ([#262](https://github.com/catduckgnaf/print-handy/issues/262)). When downloads start failing, sign in again and replace the file.
+No restart is needed; the file is read on each MakerWorld request. A wrong or expired token does not fail early: the model lookup still answers and the summary is posted, and only the download is refused. When downloads start failing, sign in again and replace the file.
 
 ## 5. Discord: first link, first slice
 
@@ -184,14 +184,14 @@ No restart is needed; the file is read on each MakerWorld request. A wrong or ex
    - **Delivery.** After a `Slice only`, the delivery menu offers `Send the files here` (the G-code as a Discord attachment) and `Package for Bambu (no upload)`, which builds the `.gcode.3mf` in Bambu Studio's export layout. Each runs at most once per slice.
 
 3. Known limits on this step today:
-   - **Single-extruder slices fail the post-slice check** until [#268](https://github.com/catduckgnaf/print-handy/issues/268) lands. The slice itself completes; the failure is in the check that follows.
-   - **Attachment size.** `discord.upload_max_bytes` is 9 500 000 bytes (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`). A 22.9 MB package cannot be posted, so fetch it from the host: the handoff writes it to a `bambu/` folder beside the plate's G-code in the job folder under the data directory ([#272](https://github.com/catduckgnaf/print-handy/issues/272) tracks delivering it another way).
+   - **Single-extruder slices fail the post-slice check** in this version. The slice itself completes; the failure is in the check that follows.
+   - **Attachment size.** `discord.upload_max_bytes` is 9 500 000 bytes (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`). A 22.9 MB package cannot be posted, so fetch it from the host: the handoff writes it to a `bambu/` folder beside the plate's G-code in the job folder under the data directory.
 
 ## 6. LAN printing opt-in
 
 **Why:** a Start button exists only when three separate things hold (see [Printing over LAN](BAMBU-LAB.md#printing-over-lan-opt-in)): `printer` is in `delivery.methods`, LAN status is configured, and the printer is in Developer Mode. None is a default, so nobody gets a print button by accident.
 
-1. **`delivery.methods` in a mounted YAML.** It is a list, and lists cannot come from the environment. A file selected with `PRINT_HANDY_CONFIG` replaces the automatic file; it does not layer on top of `config/docker.yaml` ([YAML configuration](CONFIGURATION-YAML.md)). So copy the image's defaults and add the one section ([#270](https://github.com/catduckgnaf/print-handy/issues/270) asks for a layered override):
+1. **`delivery.methods` in a mounted YAML.** It is a list, and lists cannot come from the environment. A file selected with `PRINT_HANDY_CONFIG` replaces the automatic file; it does not layer on top of `config/docker.yaml` ([YAML configuration](CONFIGURATION-YAML.md)). So copy the image's defaults and add the one section (there is no layered override yet):
 
    ```bash
    docker compose run --rm --no-deps --entrypoint cat combined /app/config/docker.yaml > print-handy.yaml
@@ -222,23 +222,23 @@ No restart is needed; the file is read on each MakerWorld request. A wrong or ex
 
 What to expect from the pending fixes on this step:
 
-- **The Discord button's idle check** (`live_idle_check` in `print_handy/hermes/print_next.py`) queries Moonraker, so on a Bambu printer it is not a live check of the A1 until [#269](https://github.com/catduckgnaf/print-handy/issues/269) lands. Look at the printer yourself before you confirm the bed is clear.
-- **"submitted, awaiting confirmation".** A start that the printer accepted can still be reported this way when the confirming snapshot does not arrive in time ([#271](https://github.com/catduckgnaf/print-handy/issues/271)). The print is running; the record is uncertain. Once you see the printer printing, settle it, and only then:
+- **The Discord button's idle check** (`live_idle_check` in `print_handy/hermes/print_next.py`) queries Moonraker, so on a Bambu printer it is not a live check of the A1 in this version. Look at the printer yourself before you confirm the bed is clear.
+- **"submitted, awaiting confirmation".** A start that the printer accepted can still be reported this way when the confirming snapshot does not arrive in time. The print is running; the record is uncertain. Once you see the printer printing, settle it, and only then:
 
   ```bash
   docker compose exec combined python3 -m print_handy.core.model_job reconcile-launch --started
   ```
 
   Never resubmit. The lease refuses a second start on the printer while the first is uncertain.
-- **`/print-stop` cannot stop a Bambu print** until [#276](https://github.com/catduckgnaf/print-handy/issues/276); stop it from the printer screen. The stop, pause and resume calls exist on the LAN client but the Discord command does not reach them.
-- **No preview thumbnails** in the handoff package ([#275](https://github.com/catduckgnaf/print-handy/issues/275)): the printer screen shows the file without a picture.
+- **`/print-stop` cannot stop a Bambu print** in this version; stop it from the printer screen. The stop, pause and resume calls exist on the LAN client but the Discord command does not reach them.
+- **No preview thumbnails** in the handoff package: the printer screen shows the file without a picture.
 
 ## 7. What is normal in the messages
 
 - `spool weight unknown` in the spool projection line: there is no Spoolman record to take the remaining weight from.
 - `Estimated total: unknown` on the start message: the start message on this path carries no time estimate (`discord_print_summary` prints `unknown` when it is given none).
 - Two to three minutes of silence after you confirm: the package is being uploaded over FTPS and the start confirmed. Nothing is posted until that completes.
-- "AD5X" in the summary wording: the estimate text names the AD5X regardless of the configured printer ([#273](https://github.com/catduckgnaf/print-handy/issues/273)). The slice is for the A1.
+- "AD5X" in the summary wording: the estimate text names the AD5X regardless of the configured printer. The slice is for the A1.
 
 ## 8. What worked
 

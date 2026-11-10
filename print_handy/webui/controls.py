@@ -16,8 +16,10 @@ The ha-print-handy #1 routes add, under the same guard:
   ``/server_restart`` — Moonraker's ``/printer/emergency_stop``,
   ``/printer/firmware_restart`` and ``/server/restart`` (the endpoints
   the chat panic ladder in ``hermes/panic.py`` uses). Each needs
-  ``{"confirm": true}``. Emergency stop has NO state gate: it is the
-  panic button, so it sends from any state the printer can be read in.
+  ``{"confirm": true}``. Emergency stop has NO state gate and no status
+  read at all: it is the panic button, and a hung controller is when it
+  is needed, so it sends at once and falls back to ``M112`` through the
+  script endpoint when the emergency-stop call itself fails.
   No other family exposes a verified stop or restart capability in its
   adapter or client code, so every other family refuses with a named
   501 — no behavior is invented for them. This deliberately reverses
@@ -88,6 +90,11 @@ POWER_ACTIONS = {"emergency_stop": "/printer/emergency_stop",
 # under the control route's 4096-byte cap in server.py.
 GCODE_MAX_CHARS = 2048
 HEATERS = ("nozzle", "bed")
+# The ceiling for a heater no model fact describes: a chamber on a model
+# with no max_chamber_c, or a Klipper heater_generic named in a raw
+# script. Low on purpose (heated chambers run 40-65 °C); the firmware's
+# own max_temp is still the real limit.
+UNKNOWN_HEATER_CEILING_C = 60.0
 # The family control vocabulary (FamilyControl): cancel is "stop".
 _FAMILY_ACTION = {"pause": "pause", "resume": "resume", "cancel": "stop"}
 # Which states each action may start from; anything else sends nothing.
@@ -249,9 +256,27 @@ def _fitted_nozzle_type(view, printer_id):
 def temperature_limit(adapter, view, heater, printer_id=None):
     """The highest target this printer accepts for ``heater`` (°C).
 
-    The nozzle limit follows the FITTED nozzle: ``printer_id``'s hardware
-    record when it names a type, else the configured nozzle type.
+    The one place every Web UI temperature ceiling comes from: the
+    temperature routes and the raw G-code scan both ask here.
+
+    - ``nozzle``: the FITTED nozzle's safe maximum (``printer_id``'s
+      hardware record when it names a type, else the configured nozzle
+      type), and the model's ``max_hotend_c`` when it has one;
+    - ``bed``: the model's ``max_bed_c``, else the hottest bed any
+      configured material asks for;
+    - ``chamber``: the model's ``max_chamber_c`` when it has one, else
+      ``UNKNOWN_HEATER_CEILING_C``;
+    - anything else (a named heater with no model fact): the
+      conservative ``UNKNOWN_HEATER_CEILING_C``.
+
+    The firmware's own ``max_temp`` remains the real limit; this is the
+    ceiling the Web UI refuses to send above.
     """
+    if heater == "chamber":
+        chamber = _fact(adapter, "max_chamber_c")
+        return chamber if chamber is not None else UNKNOWN_HEATER_CEILING_C
+    if heater not in ("nozzle", "bed"):
+        return UNKNOWN_HEATER_CEILING_C
     if heater == "nozzle":
         from ..core import nozzle
         nozzle_type = _fitted_nozzle_type(view, printer_id)
@@ -442,15 +467,51 @@ def _dispatch(send, adapter, view, command, label):
                                 f"({type(exc).__name__}: {exc})") from None
 
 
+def _emergency_stop(entry, adapter, view, send):
+    """Send the emergency stop without waiting on any status read.
+
+    A hung or unreachable controller is exactly when the stop is
+    needed, so nothing is read first: the stop goes out at once. When
+    the primary endpoint call fails (the transport, not a family that
+    has no stop at all), the firmware's own G-code emergency command
+    ``M112`` is tried through the script endpoint. The answer says
+    truthfully what was sent: 200 only when one of the two was accepted,
+    otherwise a 502 naming both failures and telling the operator to cut
+    power."""
+    try:
+        send(adapter, view, ("power", "emergency_stop"))
+    except ControlError:
+        raise  # 501: this family has no stop path; nothing was sent
+    except Exception as primary:
+        first = f"{type(primary).__name__}: {primary}"
+        try:
+            send(adapter, view, ("gcode", "M112"))
+        except Exception as fallback:
+            second = (fallback.reason if isinstance(fallback, ControlError)
+                      else f"{type(fallback).__name__}: {fallback}")
+            raise ControlError(502, f"emergency stop could not be delivered: the emergency-stop "
+                                    f"endpoint failed ({first}) and the M112 fallback failed "
+                                    f"({second}). The printer may still be running: cut its "
+                                    "power.") from None
+        return 200, {"ok": True, "id": entry["id"], "action": "emergency_stop",
+                     "from_state": "unknown", "sent": "M112",
+                     "detail": f"the emergency-stop endpoint failed ({first}), so M112 was "
+                               "sent through the G-code endpoint instead; check the "
+                               "printer's status for the result."}
+    return 200, {"ok": True, "id": entry["id"], "action": "emergency_stop",
+                 "from_state": "unknown", "sent": "emergency_stop",
+                 "detail": "emergency_stop sent without waiting for a status read; "
+                           "check the printer's status for the result."}
+
+
 def power_action(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):
     """(code, body) for POST /api/printers/<id>/emergency_stop|firmware_restart|server_restart.
 
     All three need ``{"confirm": true}``. There is deliberately no state
-    gate — least of all on emergency stop, which must send from whatever
-    state the printer can be read in (printing included, exactly like
-    the chat panic ladder). The printer is still read first, so an
-    unreachable printer is an explicit 502 rather than a blind send —
-    except ``server_restart``, whose read is best-effort: Moonraker
+    gate. Emergency stop is not even read first (see _emergency_stop):
+    it sends at once, with an ``M112`` fallback. Firmware restart reads
+    the printer first, so an unreachable printer is an explicit 502
+    rather than a blind send — and ``server_restart``, whose read is best-effort: Moonraker
     rejects the status query while Klippy is disconnected, and server
     restart is the recovery control for exactly that failure, so the
     restart POST itself decides reachability there.
@@ -465,6 +526,8 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
         entry, view = _resolve(data, printer_id)
         _require_confirm(body, action)
         adapter = adapter or printers.get(entry["model"], view)
+        if action == "emergency_stop":
+            return _emergency_stop(entry, adapter, view, send)
         if action == "server_restart":
             # Best-effort read only: Moonraker rejects the objects query
             # while Klippy is disconnected, but /server/restart does not
@@ -484,26 +547,42 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
                  "detail": f"{action} sent; check the printer's status for the result."}
 
 
-# The temperature-setting words a raw script can carry, and the heater
-# each sets: the words this module itself sends for /temperature
-# (M104/M140, in default_send above), their wait variants (M109/M190 —
-# the same four the family G-code guards scan for), Marlin's M303
-# autotune, and Klipper's SET_HEATER_TEMPERATURE, the form the chat
-# nozzle-change path uses, plus its PID_CALIBRATE, which heats the
-# named heater to its target in the same KEY=VALUE shape.
-_HEATER_WORDS = {"M104": "nozzle", "M109": "nozzle", "M140": "bed", "M190": "bed"}
-_HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190|M303)(?![0-9])", re.IGNORECASE)
-# A heater number as the loosest real parser could read it: an
-# optional sign, digits with an optional fraction (or a leading-dot
-# fraction), and an optional exponent. The scan must read the whole
-# token — stopping early, at an exponent or a leading dot, would check
-# a different number than the one a parser accepting those forms acts
-# on: ``S5e2`` is 500 °C to such a parser, not 5 °C.
+# The traditional temperature words a raw script can carry: M-code ->
+# (heater, the parameters that carry a temperature). M104/M109 set the
+# nozzle (S; R on the wait variant; B is Marlin's AUTOTEMP maximum),
+# M140/M190 the bed, M141/M191 the chamber, and M303 (Marlin PID
+# autotune) heats to its S target: the nozzle by default, the bed when
+# E is -1 and the chamber when E is -2.
+_HEATER_WORDS = {104: ("nozzle", "SRB"), 109: ("nozzle", "SRB"),
+                 140: ("bed", "SR"), 190: ("bed", "SR"),
+                 141: ("chamber", "SR"), 191: ("chamber", "SR"),
+                 303: ("nozzle", "S")}
+# A number as the loosest real parser could read it: an optional sign,
+# digits with an optional fraction (or a leading-dot fraction), and an
+# optional exponent. The scan must read the whole token — stopping
+# early, at an exponent or a leading dot, would check a different
+# number than the one a parser accepting those forms acts on: ``S5e2``
+# is 500 °C to such a parser, not 5 °C.
 _HEATER_NUMBER = r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
-_HEATER_PARAM_RE = re.compile(r"([SR])(" + _HEATER_NUMBER + r")", re.IGNORECASE)
-_M303_EXT_RE = re.compile(r"E(" + _HEATER_NUMBER + r")", re.IGNORECASE)
-_EXTENDED_HEATER_RE = re.compile(
-    r"^(SET_HEATER_TEMPERATURE|PID_CALIBRATE)(?![A-Za-z0-9_])", re.IGNORECASE)
+# One letter and its value with any spaces or tabs between them, on an
+# uppercased line: Klipper splits a traditional line into letter/value
+# pairs and strips each value, and Marlin skips spaces, so ``S 300``,
+# ``S<tab>300`` and ``M 104`` are what the firmware runs.
+_PAIR_RE = re.compile(r"([A-Z])[ \t]*(" + _HEATER_NUMBER + r")")
+_COMMAND_RE = re.compile(r"^([A-Z])[ \t]*([-+]?[0-9]+(?:\.[0-9]*)?)")
+_LINE_NUMBER_RE = re.compile(r"^[Nn][ \t]*[0-9]+[ \t]*")
+# Klipper's extended-command shape: a word of two or more characters
+# that is not a letter followed by a number.
+_EXTENDED_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]+)(?:[ \t]+|$)(.*)$")
+_PLAIN_WORD_RE = re.compile(r"^[A-Za-z][0-9]+$")
+_HEATER_COMMANDS = ("SET_HEATER_TEMPERATURE", "PID_CALIBRATE")
+_MACRO_PARAM_RE = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(\"[^\"]*\"|'[^']*'|\S+)")
+# Parameter-name parts that mark a temperature on a macro the scan does
+# not know (PRINT_START EXTRUDER=250 BED=110, a TEMP= on a filament
+# macro): BED and CHAMBER name those heaters, EXTRUDER* and these the
+# hotend. Only a numeric value counts (EXTRUDER=extruder1 is a name).
+_MACRO_NOZZLE_PARTS = frozenset({"HOTEND", "NOZZLE", "TEMP", "TEMPERATURE", "TOOL"})
 # States in which a printer cannot accept commands at all, so a raw
 # script is refused 409 like the state-gated control actions instead of
 # being sent blind. Any positively known state (idle, printing, paused,
@@ -514,18 +593,53 @@ _GCODE_REFUSED_STATES = frozenset(
     {"unknown", "error", "shutdown", "disconnected", "offline", "unavailable"})
 
 
-def _extended_heater_target(word, rest):
-    """(word, heater, target_c) or None for one Klipper extended line.
+def _number(text):
+    """A finite float from a parameter value (quotes allowed), or None."""
+    try:
+        value = float(str(text).strip().strip("\"'"))
+    except ValueError:
+        return None
+    return value if value == value and value not in (float("inf"), float("-inf")) else None
+
+
+def _named_heater(name):
+    """(kind, label) for a Klipper heater name: ``extruder*`` is the
+    nozzle, ``heater_bed`` the bed, a name containing ``chamber`` the
+    chamber, and any other named heater an ``other`` heater held to the
+    conservative ceiling (see temperature_limit)."""
+    name = name.strip().lower()
+    if name.startswith("extruder"):
+        return "nozzle", "nozzle"
+    if name == "heater_bed":
+        return "bed", "bed"
+    if "chamber" in name:
+        return "chamber", "chamber"
+    return "other", f"heater {name}"
+
+
+def _macro_param_heater(name):
+    """The heater a macro parameter name points at, or None."""
+    parts = name.upper().split("_")
+    if "BED" in parts:
+        return "bed"
+    if "CHAMBER" in parts:
+        return "chamber"
+    if any(part.startswith("EXTRUDER") for part in parts) or \
+            _MACRO_NOZZLE_PARTS.intersection(parts):
+        return "nozzle"
+    return None
+
+
+def _extended_params(word, rest, *, strict):
+    """The KEY=VALUE parameters of one extended line, last value winning.
 
     Klipper tokenizes extended commands with ``shlex`` and builds a
     parameter dict, so this does the same: quoted values parse as
-    Klipper parses them, and a repeated key's last value is the one
-    that wins. A line that cannot be parsed that way — unbalanced
-    quotes, a token without ``=``, a missing HEATER or TARGET, or a
-    non-numeric TARGET — is refused with a 400 (fail closed) instead
-    of being sent unchecked. A named heater this module has no limit
-    for returns None, exactly like a command this scan does not know.
-    """
+    Klipper parses them, and a repeated key's last value is the one that
+    wins. ``strict`` (the heater commands) refuses a line that cannot be
+    parsed that way — unbalanced quotes, a token without ``=`` — with a
+    400 (fail closed); for any other command a parse failure falls back
+    to a plain KEY=VALUE scan, so an odd line never hides a value."""
     try:
         tokens = shlex.split(rest)
     except ValueError:
@@ -538,69 +652,118 @@ def _extended_heater_target(word, rest):
                 tokens = None
                 break
             params[key.strip().upper()] = value.strip()
-    if tokens is None or "HEATER" not in params or "TARGET" not in params:
+    if tokens is None:
+        if strict:
+            raise ControlError(400, f"{word} line could not be parsed for its heater "
+                                    "and target. Nothing sent.")
+        params = {key.upper(): value for key, value in _MACRO_PARAM_RE.findall(rest)}
+    return params
+
+
+def _extended_heater_target(word, rest):
+    """(word, kind, label, target_c) for a SET_HEATER_TEMPERATURE or
+    PID_CALIBRATE line. A line that cannot be parsed, a missing HEATER
+    or TARGET, or a non-numeric TARGET refuses with a 400 instead of
+    being sent unchecked. Every named heater is checked: a heater this
+    module has no model fact for gets the conservative ceiling."""
+    params = _extended_params(word, rest, strict=True)
+    if "HEATER" not in params or "TARGET" not in params:
         raise ControlError(400, f"{word} line could not be parsed for its heater "
                                 "and target. Nothing sent.")
-    try:
-        target = float(params["TARGET"])
-    except ValueError:
-        target = None
-    if target is None or target != target or target in (float("inf"), float("-inf")):
+    target = _number(params["TARGET"])
+    if target is None:
         raise ControlError(400, f"{word} target {params['TARGET']!r} is not a number "
                                 "of °C. Nothing sent.")
-    name = params["HEATER"].lower()
-    heater = ("nozzle" if name.startswith("extruder")
-              else "bed" if name == "heater_bed" else None)
-    if heater is None:
-        return None
-    return word, heater, target
+    kind, label = _named_heater(params["HEATER"])
+    return word, kind, label, target
+
+
+def _traditional_targets(line):
+    """[(word, kind, label, target_c, above_only)] for one uppercased
+    traditional line.
+
+    The command is matched by its number however it is spelled
+    (``M104``, ``M 104``, ``M0104``). Every value of every temperature
+    parameter is checked, not only the one a firmware keeps (Klipper and
+    Marlin keep the last), so a repeated parameter cannot hide an
+    over-limit value. The whole line is scanned, past a ``*`` too:
+    Klipper reads ``*`` as one more parameter letter and keeps parsing
+    after it, so ``M104 *S400`` sets 400 °C."""
+    command = _COMMAND_RE.match(line)
+    if not command or command.group(1) != "M":
+        return []
+    try:
+        code = int(float(command.group(2)))
+    except ValueError:
+        return []
+    if code not in _HEATER_WORDS:
+        return []
+    kind, letters = _HEATER_WORDS[code]
+    word = f"M{code}"
+    pairs = _PAIR_RE.findall(line[command.end():])
+    if code == 303:
+        selectors = [_number(value) for letter, value in pairs if letter == "E"]
+        selector = selectors[-1] if selectors else None
+        kind = "bed" if selector == -1 else "chamber" if selector == -2 else "nozzle"
+    found = []
+    for letter, value in pairs:
+        target = _number(value) if letter in letters else None
+        if target is not None:
+            found.append((word, kind, kind, target, False))
+    return found
 
 
 def _script_heater_targets(script):
-    """[(word, heater, target_c)] — every temperature a raw script sets.
+    """[(word, kind, label, target_c, above_only)]: every temperature a
+    raw script sets.
 
-    Line by line, the way the script will run: a ``;`` comment is
-    stripped first (a heater word inside a comment sets nothing), an
-    optional line number and checksum are dropped, and the command word
-    must start the line. ``M104``/``M109`` set the nozzle (the ``S``
-    parameter, or ``R`` on the wait variant), ``M140``/``M190`` the
-    bed. ``M303`` (Marlin PID autotune) heats to its ``S`` target:
-    the nozzle by default, the bed when its ``E`` parameter is -1.
-    ``SET_HEATER_TEMPERATURE`` and ``PID_CALIBRATE`` name their
-    heater: ``extruder*`` is the nozzle and ``heater_bed`` the bed;
-    any other named heater has no limit in this module and is left
-    alone, exactly like a command this scan does not know. A malformed
-    extended line raises ``ControlError`` (400) rather than passing
-    unchecked. Targets are read whole — sign, fraction and exponent —
-    so the number checked is the number the loosest parser that could
-    run the script would act on.
+    Line by line, the way firmware reads it: a ``;`` comment is stripped
+    first (a heater word inside a comment sets nothing) and an optional
+    line number is dropped. Then:
+
+    - a traditional command is uppercased (both firmwares are
+      case-insensitive) and read as letter/value pairs with any spaces
+      or tabs between letter and value (_traditional_targets): M104/M109
+      (S, R, B), M140/M190 (S, R), the chamber's M141/M191 (S, R), and
+      M303's S target on the heater its E selects;
+    - ``SET_HEATER_TEMPERATURE`` and ``PID_CALIBRATE`` are checked
+      against the named heater's own limit; a malformed line raises
+      ``ControlError`` (400);
+    - any other extended command (a macro such as ``PRINT_START``) has
+      each numeric parameter whose name marks a temperature (``BED``,
+      ``EXTRUDER``, ``TEMP``, ``CHAMBER`` and the like, see
+      _macro_param_heater) held to that heater's ceiling. These are
+      ``above_only``: a negative macro value is an offset, not a target.
+
+    Klipper ends an extended command's arguments at ``#``, ``*`` or
+    ``;``, and so does this scan. Targets are read whole — sign, fraction
+    and exponent. This is a pre-send screen, not the safety limit: the
+    firmware's own ``max_temp`` stays the real ceiling, and a macro can
+    still heat by means no scan of its call can see.
     """
     found = []
     for raw_line in str(script).splitlines():
-        line = raw_line.split(";", 1)[0].strip()
+        line = _LINE_NUMBER_RE.sub("", raw_line.split(";", 1)[0].strip()).strip()
         if not line:
             continue
-        line = re.sub(r"^[Nn][0-9]+\s*", "", line).split("*", 1)[0].strip()
-        word_match = _HEATER_WORD_RE.match(line)
-        if word_match:
-            word = word_match.group(1).upper()
-            rest = line[word_match.end():]
-            if word == "M303":
-                exts = _M303_EXT_RE.findall(rest)
-                heater = "bed" if exts and float(exts[-1]) == -1 else "nozzle"
-                for param, value in _HEATER_PARAM_RE.findall(rest):
-                    if param.upper() == "S":
-                        found.append((word, heater, float(value)))
-            else:
-                for _param, value in _HEATER_PARAM_RE.findall(rest):
-                    found.append((word, _HEATER_WORDS[word], float(value)))
+        if _COMMAND_RE.match(line.upper()):
+            found.extend(_traditional_targets(line.upper()))
+        # A first word that is more than a letter and a number is also
+        # read as an extended command: Klipper runs a macro named like
+        # S3D_START even though its line starts with a letter and digit.
+        extended = _EXTENDED_RE.match(line)
+        if not extended or _PLAIN_WORD_RE.match(extended.group(1)):
             continue
-        extended_match = _EXTENDED_HEATER_RE.match(line)
-        if extended_match:
-            parsed = _extended_heater_target(extended_match.group(1).upper(),
-                                             line[extended_match.end():])
-            if parsed is not None:
-                found.append(parsed)
+        word = extended.group(1).upper()
+        rest = re.split(r"[#*]", extended.group(2), maxsplit=1)[0]
+        if word in _HEATER_COMMANDS:
+            found.append((*_extended_heater_target(word, rest), False))
+            continue
+        for name, value in _extended_params(word, rest, strict=False).items():
+            kind = _macro_param_heater(name)
+            target = _number(value) if kind else None
+            if target is not None:
+                found.append((f"{word} {name}", kind, kind, target, True))
     return found
 
 
@@ -638,12 +801,12 @@ def send_gcode(data, printer_id, body=None, *, adapter=None, read=None, send=Non
                                     f"{GCODE_MAX_CHARS}. Nothing sent.")
         adapter = adapter or printers.get(entry["model"], view)
         limits = {}
-        for word, heater, target in _script_heater_targets(script):
-            if heater not in limits:
-                limits[heater] = temperature_limit(adapter, view, heater, printer_id)
-            limit = limits[heater]
-            if not 0 <= target <= limit:
-                raise ControlError(400, f"{word} sets the {heater} to {target:g}°C, "
+        for word, kind, label, target, above_only in _script_heater_targets(script):
+            if kind not in limits:
+                limits[kind] = temperature_limit(adapter, view, kind, printer_id)
+            limit = limits[kind]
+            if target > limit or (target < 0 and not above_only):
+                raise ControlError(400, f"{word} sets the {label} to {target:g}°C, "
                                         f"outside 0..{limit:g}°C for this printer. "
                                         "Nothing sent.")
         live = _live_status(adapter, view, read)

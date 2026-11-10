@@ -13,7 +13,7 @@ It renames `print_buddy*` files in the profile `state/` dir and the archive dir 
 
 Two steps the script cannot do for you:
 
-- **Hermes installs:** historical — the Hermes install method has since been removed; move the install to the standalone bot per [docs/INSTALL.md](INSTALL.md).
+- **Hermes installs:** historical — the Hermes install method has since been removed; move the install to the standalone bot per [docs/INSTALL.md](../INSTALL.md).
 - **Standalone installs:** the systemd units are now `print-handy-bot.service` and `print-handy-listener.service`. Stop and disable the old `print-buddy-bot.service` / `print-buddy-listener.service`, remove the old unit files, re-run `scripts/install-standalone.sh`, then `systemctl --user daemon-reload` and enable the new units.
 
 Then restart the listener:
@@ -29,7 +29,7 @@ The chat-facing bot name defaults to `Print Handy` now. To keep a different name
 
 Two `PB_` spellings survived the main rename and were cleaned up later, again as a clean break with no aliases:
 
-- **Reference codes:** diagnostics markers in chat posts, log lines and doctor rows were `PB_<SUBSYSTEM>_<CATEGORY>` (for example `PB_INTAKE_UNKNOWN`) and are now `PH_...`. Nothing to migrate — old codes appear only in old posts, logs and support notes, and [docs/DIAGNOSTICS.md](DIAGNOSTICS.md#reference-codes) carries an old → new alias table so they stay searchable.
+- **Reference codes:** diagnostics markers in chat posts, log lines and doctor rows were `PB_<SUBSYSTEM>_<CATEGORY>` (for example `PB_INTAKE_UNKNOWN`) and are now `PH_...`. Nothing to migrate — old codes appear only in old posts, logs and support notes, and [docs/DIAGNOSTICS.md](../DIAGNOSTICS.md#reference-codes) carries an old → new alias table so they stay searchable.
 - **Setup wizard answer presets:** the setup wizard (`python3 -m print_handy.setup_wizard`) could pre-fill its answers from environment variables named `PB_<KEY>` (for example `PB_DISCORD_CHAT_ID`). It now reads `PRINT_HANDY_WIZARD_<KEY>` (for example `PRINT_HANDY_WIZARD_DISCORD_CHAT_ID`), and the old names are not read. **What an existing install needs to do:** nothing for a running install — these variables are only read while the wizard runs, never at runtime. If you keep wizard presets in your shell environment or a wrapper script, rename them `PB_<KEY>` → `PRINT_HANDY_WIZARD_<KEY>` before your next wizard run; an unrenamed preset is simply not picked up and the wizard asks the question instead. `scripts/migrate-names.sh` does not rewrite these: they live in your shell environment, not in the config files that script edits.
 
 ## Docker and Unraid

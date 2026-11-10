@@ -16,7 +16,9 @@ import base64
 import json
 import logging
 import os
+import time
 import urllib.request
+from typing import NamedTuple
 
 from .. import ai_routes
 from . import _config, local_empty, local_vision
@@ -111,6 +113,15 @@ def _visual_level(level=None):
 # until then. Normal prints keep the sensitivity schedule above.
 EARLY_LAYERS = 10
 EARLY_INTERVAL_S = 120
+# Prints that report no layer number (Klipper prints sliced without the
+# SET_PRINT_STATS_INFO layer macro) are watched on a timer instead, as the
+# Bambu watch already is. The first timed check waits for this much printing
+# time (print_stats.print_duration, which only counts from the first
+# extrusion), so heat-up and the purge line are never judged. The early-layer
+# caution for a risky print then lasts EARLY_SECONDS_PER_LAYER per configured
+# early layer of printing time (20 minutes at the default 10 layers).
+LAYERLESS_FIRST_CHECK_S = 180
+EARLY_SECONDS_PER_LAYER = 120
 # An empty-bed verdict while print_stats says printing is suspicious, not
 # healthy: it is re-checked this many seconds later (#913).
 EMPTY_IDLE_RECHECK_S = 60
@@ -119,6 +130,130 @@ AUTO_PAUSE_VERDICTS = frozenset({"spaghetti", "detached", "air"})
 AUTO_PAUSE_STREAK = 2
 WATCH_MODE_NORMAL = "normal"
 WATCH_MODE_EARLY = "early_layer"
+
+# Independent evidence (auto-pause and the local detector's escalation).
+# A streak must be made of distinct views of the print, not of checks: in
+# early-layer mode a check fires on every layer change, so two checks can
+# land seconds apart on the same, or a frozen, camera frame. A suspicious
+# frame only joins a streak when it is at least EVIDENCE_MIN_SPACING_S after
+# the previous member, visibly differs from that member's frame, and is no
+# older than FRAME_MAX_AGE_S when the decision is made. A frame that did not
+# change is a camera fault (a frozen or repeating feed), never evidence.
+EVIDENCE_MIN_SPACING_S = 60.0
+FRAME_MAX_AGE_S = 90.0
+# The comparison signature: a 32x24 grayscale thumbnail. Frames differ when
+# at least FRAME_CHANGE_MIN_FRACTION of its cells moved by more than
+# FRAME_CHANGE_PIXEL_DELTA grey levels (JPEG re-encoding noise of a frozen
+# scene stays far below that after the downscale).
+FRAME_SIGNATURE_SIZE = (32, 24)
+FRAME_CHANGE_PIXEL_DELTA = 6
+FRAME_CHANGE_MIN_FRACTION = 0.01
+
+
+def _decode_gray(image, size):
+    """Decode a JPEG to grayscale at roughly ``size``, cheaply.
+
+    ``draft`` lets the JPEG decoder scale down by up to 8x while decoding,
+    so a full-resolution frame is never materialized just to be shrunk.
+    """
+    from PIL import Image
+    import io as _io
+    frame = Image.open(_io.BytesIO(image))
+    try:
+        frame.draft("L", size)
+    except Exception:
+        pass
+    return frame.convert("L")
+
+
+def frame_signature(image):
+    """The comparison signature of one frame (bytes), or None when it cannot be decoded."""
+    try:
+        gray = _decode_gray(image, (FRAME_SIGNATURE_SIZE[0] * 4, FRAME_SIGNATURE_SIZE[1] * 4))
+        return gray.resize(FRAME_SIGNATURE_SIZE).tobytes()
+    except Exception:
+        return None
+
+
+def frames_differ(before, after):
+    """True when two frame signatures show a visible change; None when either is unknown."""
+    if not before or not after or len(before) != len(after):
+        return None
+    moved = sum(1 for a, b in zip(before, after) if abs(a - b) > FRAME_CHANGE_PIXEL_DELTA)
+    return moved >= max(1, int(len(before) * FRAME_CHANGE_MIN_FRACTION))
+
+
+class PauseEvidence(NamedTuple):
+    """One member of an auto-pause streak: a distinct suspicious view of one print."""
+    printer_id: object
+    print_identity: object
+    signature: bytes
+    at: float
+
+
+def independent_evidence(previous, *, printer_id, print_identity, signature, frame_age_s, now):
+    """Whether a suspicious frame is a new, independent view after ``previous``.
+
+    Returns ``(counts, why)``. ``previous`` is the streak's last member
+    (None when the streak is empty). A frame of a different printer or
+    print starts a new streak rather than extending this one; the caller
+    sees that as ``why == "new print"``.
+    """
+    if not isinstance(frame_age_s, (int, float)) or frame_age_s > FRAME_MAX_AGE_S:
+        return False, "the frame is too old to count"
+    if not signature:
+        return False, "the frame could not be compared"
+    if previous is None:
+        return True, "first view"
+    if (previous.printer_id, previous.print_identity) != (printer_id, print_identity):
+        return True, "new print"
+    if frames_differ(previous.signature, signature) is not True:
+        return False, ("the camera frame did not change since the last suspicious check "
+                       "(a frozen or repeating camera), so it is not new evidence")
+    if now - previous.at < EVIDENCE_MIN_SPACING_S:
+        return False, (f"less than {EVIDENCE_MIN_SPACING_S:.0f}s after the last suspicious "
+                       "check, so it is not an independent view")
+    return True, "independent view"
+
+
+def auto_pause_decision(members, *, enabled, already_paused, printer_id, print_identity, state,
+                        verdict, frame_counted, frame_age_s, mode, in_early_window):
+    """Decide the opt-in early-layer auto-pause (#913). Returns ``(pause, reason)``.
+
+    Every input is explicit: ``members`` is the streak of independent
+    suspicious views so far (:class:`PauseEvidence`, oldest first, this
+    frame included when it counted), ``frame_counted`` says whether this
+    frame joined the streak as independent evidence, ``state`` is the
+    printer state at decision time, and ``frame_age_s`` is the age of the
+    frame being judged. A pause needs AUTO_PAUSE_STREAK members, all of this
+    printer and print, each at least EVIDENCE_MIN_SPACING_S after the one
+    before with a visibly different frame, the newest being this fresh
+    frame, while the printer still reports printing.
+    """
+    if not enabled:
+        return False, "auto-pause is off"
+    if already_paused:
+        return False, "auto-pause already acted once on this print"
+    if mode != WATCH_MODE_EARLY or not in_early_window:
+        return False, "outside the early-layer window of a risky print"
+    if verdict not in AUTO_PAUSE_VERDICTS:
+        return False, f"verdict {verdict} does not count toward auto-pause"
+    if state != "printing":
+        return False, f"the printer is {state or 'in an unknown state'}, not printing"
+    if not isinstance(frame_age_s, (int, float)) or frame_age_s > FRAME_MAX_AGE_S:
+        return False, "the frame is too old to act on"
+    members = list(members or ())
+    if not frame_counted or not members:
+        return False, "this frame is not new evidence"
+    if any((m.printer_id, m.print_identity) != (printer_id, print_identity) for m in members):
+        return False, "the streak spans another printer or print"
+    for before, after in zip(members, members[1:]):
+        if after.at - before.at < EVIDENCE_MIN_SPACING_S or frames_differ(before.signature, after.signature) is not True:
+            return False, "the streak is not made of independent views"
+    if len(members) < AUTO_PAUSE_STREAK:
+        return False, f"{len(members)} of {AUTO_PAUSE_STREAK} independent suspicious views"
+    return True, (f"{len(members)} independent suspicious views at least "
+                  f"{EVIDENCE_MIN_SPACING_S:.0f}s apart in the early layers")
 
 
 def risky_job(job):
@@ -248,58 +383,69 @@ def chat_key_ready(api_key) -> bool:
     return bool(api_key())
 
 
-def vision_ready(api_key, log=None):
-    """True when a frame can actually be judged: PRINT_VISION_URL, vision_chat_url with
-    its key, or the built-in local failure detector (#455).
+def watch_unavailable_reason(api_key):
+    """Why no frame can be judged right now, in plain words; "" when one can.
 
-    ``vision.watch_source`` narrows what counts (#455): "local" counts
-    the detector (plus a calibrated plate reference for the idle checks,
-    as below), "endpoint" counts only the endpoint routes, and
-    "auto" (the default) counts any of them.
-
-    Without one, every verdict degrades to "uncertain", and "uncertain"
-    alerts, so the watch would post a false alert at every check. The
-    watch stays off instead, as docs/DOCKER.md describes, and says so once.
+    The judging routes are PRINT_VISION_URL, vision_chat_url with its key,
+    or the built-in local failure detector (#455). ``vision.watch_source``
+    narrows what counts (#455): "local" counts the detector (plus a
+    calibrated plate reference for the idle checks), "endpoint" counts
+    only the endpoint routes, and "auto" (the default) counts any of them.
+    When the detector would be the route and its model is missing, this
+    also starts the background model download (local_vision.prefetch_model),
+    so the download never happens inside a camera check.
     """
-    global _vision_missing_logged
     source = local_vision.watch_source()
     if source == "local":
         if local_vision.detector_ready():
-            return True
+            return ""
         if local_empty.reference_ready():
             # Stage 1 (#455): a calibrated plate reference can answer the
             # idle checks the idle consumers gate on here, even when the
             # detector is not ready; the in-print watch under "local"
             # still judges with the detector only.
-            return True
-        if log is not None and not _vision_missing_logged:
-            _vision_missing_logged = True
-            log("camera watch skipped: vision.watch_source is local but the local "
-                "failure detector is not ready (see the local detector row in "
-                "bot check)")
-        return False
+            return ""
+        local_vision.prefetch_model()
+        return ("vision.watch_source is local but the local failure detector is not "
+                f"ready: {local_vision.detector_status()[1]}")
     if os.environ.get("PRINT_VISION_URL"):
-        return True
+        return ""
     if (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
-        return True
+        return ""
     if source == "auto" and local_vision.detector_ready():
-        return True
+        return ""
     if local_empty.reference_ready():
         # Stage 1 (#455): a calibrated plate reference can answer idle
         # plate checks, which is what the idle consumers gate on here.
+        return ""
+    if source == "endpoint":
+        return ("vision.watch_source is endpoint but no vision endpoint is configured "
+                "(set services.vision_chat_url with CLIPROXY_API_KEY, which a local or "
+                "LAN endpoint does not need, or PRINT_VISION_URL)")
+    if local_vision.enabled():
+        local_vision.prefetch_model()
+        return f"the local failure detector is not ready: {local_vision.detector_status()[1]}"
+    return ("no vision endpoint (set services.vision_chat_url with CLIPROXY_API_KEY, which a "
+            "local or LAN endpoint does not need, or PRINT_VISION_URL, or enable the local "
+            "detector with vision.local_detector_enabled)")
+
+
+def vision_ready(api_key, log=None):
+    """True when a frame can actually be judged (see :func:`watch_unavailable_reason`).
+
+    Without a route, every verdict degrades to "uncertain", and "uncertain"
+    alerts, so the watch would post a false alert at every check. The
+    watch stays off instead, as docs/DOCKER.md describes, and says so once
+    per outage: the log line repeats only after the watch was ready again.
+    """
+    global _vision_missing_logged
+    reason = watch_unavailable_reason(api_key)
+    if not reason:
+        _vision_missing_logged = False
         return True
     if log is not None and not _vision_missing_logged:
         _vision_missing_logged = True
-        if source == "endpoint":
-            log("camera watch skipped: vision.watch_source is endpoint but no vision "
-                "endpoint is configured (set services.vision_chat_url with "
-                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
-                "PRINT_VISION_URL)")
-        else:
-            log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
-                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
-                "PRINT_VISION_URL, or enable the local detector with "
-                "vision.local_detector_enabled)")
+        log(f"camera watch skipped: {reason}")
     return False
 
 
@@ -553,10 +699,22 @@ class VisualPrintWatch:
         """Pick the schedule for this print: normal or early_layer (#913)."""
         self.mode = WATCH_MODE_EARLY if mode == WATCH_MODE_EARLY else WATCH_MODE_NORMAL
 
-    def in_early_window(self, layer):
-        """True while a risky print is inside its first early_layers layers."""
-        return (self.mode == WATCH_MODE_EARLY and isinstance(layer, int)
-                and 1 <= layer <= self.early_layers)
+    def in_early_window(self, layer, elapsed_s=None):
+        """True while a risky print is inside its first early_layers layers.
+
+        A print that reports no layer (``layer`` None) is judged by printing
+        time instead: the first early_layers * EARLY_SECONDS_PER_LAYER
+        seconds. ``elapsed_s`` defaults to the time the last timer beat saw.
+        """
+        if self.mode != WATCH_MODE_EARLY:
+            return False
+        if isinstance(layer, int):
+            return 1 <= layer <= self.early_layers
+        if layer is None:
+            elapsed = self.last_elapsed_s if elapsed_s is None else elapsed_s
+            return (isinstance(elapsed, (int, float))
+                    and 0 <= elapsed < self.early_layers * EARLY_SECONDS_PER_LAYER)
+        return False
 
     def note_empty_idle(self, now):
         """An empty-bed verdict while printing: re-check soon (#913).
@@ -569,25 +727,49 @@ class VisualPrintWatch:
         if not self.recheck_at:
             self.recheck_at = now + EMPTY_IDLE_RECHECK_S
 
-    def note_verdict(self, verdict, layer):
-        """Track consecutive auto-pause verdicts inside the early window.
+    def note_verdict(self, verdict, layer, *, printer_id=None, print_identity=None,
+                     signature=None, frame_age_s=None, now=None):
+        """Track consecutive independent auto-pause views inside the early window.
 
         Returns the streak length. Any other verdict, or a check outside the
-        early window, resets it: only consecutive suspicious frames count.
+        early window, resets it: only consecutive suspicious views count. A
+        suspicious frame joins the streak only as independent evidence
+        (:func:`independent_evidence`): too soon, unchanged, stale or
+        undecodable frames neither extend nor reset it. ``self.last_evidence``
+        says why the last suspicious frame did or did not count.
         """
+        now = time.time() if now is None else now
         if verdict in AUTO_PAUSE_VERDICTS and self.in_early_window(layer):
-            self.suspicious_streak += 1
+            previous = self.pause_members[-1] if self.pause_members else None
+            counts, why = independent_evidence(
+                previous, printer_id=printer_id, print_identity=print_identity,
+                signature=signature, frame_age_s=frame_age_s, now=now)
+            self.last_evidence = why
+            self.last_counted = counts
+            if counts:
+                member = PauseEvidence(printer_id, print_identity, signature, now)
+                self.pause_members = ([member] if why == "new print"
+                                      else (self.pause_members + [member])[-AUTO_PAUSE_STREAK * 4:])
         else:
-            self.suspicious_streak = 0
+            self.pause_members = []
+            self.last_evidence = ""
+            self.last_counted = False
+        self.suspicious_streak = len(self.pause_members)
         return self.suspicious_streak
 
-    def tick(self, layer, now):
+    def tick(self, layer, now, *, elapsed_s=None):
         """Time-based schedule, independent of layer events (#913).
 
         Moonraker sends print_stats only when it changes, so a 40-minute
         layer produced no event and therefore no periodic check. A timer
         calls this; it answers the checks owed by the clock alone.
+
+        ``layer`` None means the print reports no layer number at all: the
+        watch then runs on the clock alone (see :meth:`_layerless_tick`),
+        with ``elapsed_s`` the printing time so far when the caller knows it.
         """
+        if layer is None:
+            return self._layerless_tick(now, elapsed_s)
         if not isinstance(layer, int) or layer < 1:
             return None
         if self.recheck_at and now >= self.recheck_at:
@@ -595,6 +777,43 @@ class VisualPrintWatch:
             self.last_check_at = now
             return "empty_idle_recheck"
         if self.in_early_window(layer) and now - self.last_check_at >= self.early_interval_s:
+            self.last_check_at = now
+            return "early_periodic"
+        if now - self.last_check_at >= self.profile["periodic_s"]:
+            self.last_check_at = now
+            return "periodic"
+        return None
+
+    def _layerless_tick(self, now, elapsed_s):
+        """The clock-only schedule for a print that reports no layer number.
+
+        Without layers the layer 2 / layer 5 / every-layer checks cannot
+        run, so the watch checks once after LAYERLESS_FIRST_CHECK_S of
+        printing ("layerless_start"), then on the sensitivity profile's
+        periodic interval; a risky print is checked every early_interval_s
+        while its printing time is inside the early window. ``elapsed_s``
+        is print_stats.print_duration when known; without it the watch
+        counts from the first beat that saw the layerless print.
+        """
+        if not isinstance(elapsed_s, (int, float)) or isinstance(elapsed_s, bool):
+            if self.layerless_since is None:
+                self.layerless_since = now
+            elapsed_s = now - self.layerless_since
+        self.last_elapsed_s = float(elapsed_s)
+        early = self.in_early_window(None, elapsed_s)
+        first = (min(self.early_interval_s, LAYERLESS_FIRST_CHECK_S)
+                 if self.mode == WATCH_MODE_EARLY else LAYERLESS_FIRST_CHECK_S)
+        if elapsed_s < first:
+            return None
+        if self.recheck_at and now >= self.recheck_at:
+            self.recheck_at = 0.0
+            self.last_check_at = now
+            return "empty_idle_recheck"
+        if not self.layerless:
+            self.layerless = True
+            self.last_check_at = now
+            return "layerless_start"
+        if early and now - self.last_check_at >= self.early_interval_s:
             self.last_check_at = now
             return "early_periodic"
         if now - self.last_check_at >= self.profile["periodic_s"]:
@@ -620,7 +839,20 @@ class VisualPrintWatch:
         self.early_layer_seen = 0
         self.recheck_at = 0.0
         self.suspicious_streak = 0
+        self.pause_members = []
+        self.last_evidence = ""
+        self.last_counted = False
         self.auto_paused = False
+        # When the last camera-failure (no snapshot) alert went out, for
+        # the throttle: at most one per periodic interval per print.
+        self.camera_failure_alert_at = None
+        # The clock-only schedule for a print without layer numbers: whether
+        # it has started, the one notice saying so, the fallback clock, and
+        # the printing time the last beat saw (for the early window).
+        self.layerless = False
+        self.layerless_noticed = False
+        self.layerless_since = None
+        self.last_elapsed_s = None
 
     def due(self, layer, now, *, snapshot_changed=None):
         if not isinstance(layer, int) or layer < 1:

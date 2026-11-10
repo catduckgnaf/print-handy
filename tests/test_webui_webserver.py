@@ -428,15 +428,24 @@ class RouteShapeTests(WebServerCase):
 
     def test_wrapped_posts_need_the_form_token_and_a_whole_year(self):
         with tempfile.TemporaryDirectory() as tmp:
-            _, port = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
-            _, _, page = self.get(port, "/wrapped", headers=self.auth())
+            httpd, port = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n")
+            # A claimed install: the page's token posts only with a session.
+            session_id = "wrapped-test-session"
+            httpd.sessions[session_id] = time.time() + 3600
+            cookie = {"Cookie": f"{server.SESSION_COOKIE}={session_id}"}
+            _, _, page = self.get(port, "/wrapped", headers=cookie)
             match = re.search(rf'name="{pages.CSRF_FIELD}" value="([^"]+)"',
                               page)
             self.assertIsNotNone(match)
             form_token = match.group(1)
             form_headers = {"Content-Type":
-                            "application/x-www-form-urlencoded"}
+                            "application/x-www-form-urlencoded", **cookie}
             for path in ("/wrapped/video", "/wrapped/share"):
+                code, _, _ = self.request(
+                    port, "POST", path,
+                    urlencode({pages.CSRF_FIELD: form_token, "year": "2026"}),
+                    {"Content-Type": "application/x-www-form-urlencoded"})
+                self.assertEqual(code, 403, path)  # the token without a session
                 code, _, _ = self.request(
                     port, "POST", path, urlencode({"year": "2026"}),
                     form_headers)
@@ -578,7 +587,9 @@ class RobustnessTests(WebServerCase):
             self.assertEqual(code, 500)
             payload = json.loads(raw)
             self.assertFalse(payload["ok"])
-            self.assertIn("RuntimeError", payload["reason"])
+            # Generic: the exception is logged, never echoed.
+            self.assertEqual(payload["reason"], server.INTERNAL_ERROR_REASON)
+            self.assertNotIn(b"exploded", raw)
             # A browser gets the themed page; the exception text stays
             # out. The walkthrough's first-run redirect is stubbed at its
             # own seam so the request reaches the snapshot render.

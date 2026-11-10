@@ -2,7 +2,8 @@ import json,re,zipfile,xml.etree.ElementTree as ET
 from pathlib import Path
 import pytest
 from print_handy.core import source_colors, model_job
-from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
+from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate, export_production_plate
+from print_handy.core import layer_gcode
 
 # The coupon is a shipped corpus case (three parts, three source extruders),
 # not a host-only recording: the old PRINT_HANDY_COUPONS / sol_recovery gate
@@ -60,6 +61,79 @@ def test_invalid_geometry_mapping_refused(tmp_path,failure):
   d['choices'].pop('filament:2')
  with pytest.raises(RuntimeError):export_color_geometry(src,tmp_path/'out.3mf',d)
  assert not (tmp_path/'out.3mf').exists()
+
+
+def test_archive_layer_remap_preserves_members_and_is_atomic(tmp_path):
+    source = tmp_path / 'source.3mf'
+    target = tmp_path / 'target.3mf'
+    xml = b'<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'
+    with zipfile.ZipFile(source, 'w') as archive:
+        archive.writestr(layer_gcode.MEMBER, xml)
+        archive.writestr('Metadata/vendor.bin', b'opaque')
+    target.write_bytes(b'old target')
+    with pytest.raises(RuntimeError, match='unmapped'):
+        layer_gcode.remap_archive(source, target, {})
+    assert target.read_bytes() == b'old target'
+    original = source.read_bytes()
+    report = layer_gcode.remap_archive(source, target, {3: 1})
+    assert source.read_bytes() == original
+    with zipfile.ZipFile(source) as before, zipfile.ZipFile(target) as after:
+        assert before.read('Metadata/vendor.bin') == after.read('Metadata/vendor.bin')
+        assert layer_gcode.parse(after.read(layer_gcode.MEMBER))[0]['source_extruder'] == 1
+    assert report['kept'] == 1
+
+
+def test_layer_gcode_remaps_source_tool_to_selected_job_tool():
+    source_xml = b'''<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'''
+    converted, report = layer_gcode.remap(source_xml, {3: 1})
+    assert report['kept'] == 1
+    assert report['dropped'] == 0
+    rows = layer_gcode.parse(converted)
+    assert rows[0]['source_extruder'] == 1
+    assert rows[0]['top_z'] == pytest.approx(4.2)
+
+
+def test_failed_remap_preserves_source_and_existing_destination_bytes(tmp_path):
+ src=COUPON; st=json.loads(STATE.read_text()); d=decisions(src,st)
+ d['source_sha256']='not-the-source'
+ destination=tmp_path/'out.3mf'
+ original_source=src.read_bytes()
+ original_destination=b'existing destination sentinel\x00'
+ destination.write_bytes(original_destination)
+ with pytest.raises(RuntimeError, match='exact-source'):
+  export_color_geometry(src,destination,d)
+ assert src.read_bytes()==original_source
+ assert destination.read_bytes()==original_destination
+
+
+
+def test_production_plate_recolor_preserves_unrelated_zip_members(tmp_path):
+    source = tmp_path / 'production.3mf'
+    target = tmp_path / 'recolored.3mf'
+    model = '''<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources><build><item objectid="1"/></build></model>'''
+    project = json.dumps({'filament_colour': ['#FFFFFF'], 'filament_type': ['PLA']}, indent=2)
+    with zipfile.ZipFile(source, 'w') as archive:
+        archive.writestr('3D/3dmodel.model', model)
+        archive.writestr('Metadata/model_settings.config', '<config><object id="1"><metadata key="extruder" value="1"/></object></config>')
+        archive.writestr('Metadata/project_settings.config', project)
+        archive.writestr('Metadata/opaque_vendor_record.bin', b'preserve this payload exactly\\x00\\xff')
+        archive.writestr('Preview/thumbnail.png', b'not really png, but opaque bytes')
+    manifest = source_colors.inventory(source)
+    decisions = {'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+                 'choices': {row['key']: {'slot': 2} for row in source_colors.canonical_prompts(manifest)}}
+    source_bytes = source.read_bytes()
+    with zipfile.ZipFile(source) as original:
+        before = {name: original.read(name) for name in original.namelist()}
+    report = export_production_plate(source, target, decisions, {'2': '#123456'})
+    assert report[1]['policy'] == 'production package copy; one filament colour byte patch'
+    with zipfile.ZipFile(target) as converted:
+        after = {name: converted.read(name) for name in converted.namelist()}
+    assert set(after) == set(before)
+    for name in before.keys() - {'Metadata/project_settings.config'}:
+        assert after[name] == before[name]
+    assert after['Metadata/project_settings.config'] != before['Metadata/project_settings.config']
+    assert source.read_bytes() == source_bytes
+
 
 def _mesh(path, vertices):
     body = ''.join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in vertices)

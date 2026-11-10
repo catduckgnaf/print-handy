@@ -5,6 +5,7 @@ can carry credentials) is never echoed. Offline: fake fetch and adapters.
 """
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from print_handy import settings
@@ -49,6 +50,27 @@ class CameraSnapshotTests(unittest.TestCase):
             fetch=lambda url: seen.append(url) or JPEG, fanout_url=no_fanout)
         self.assertEqual((code, body, content_type), (200, JPEG, "image/jpeg"))
         self.assertEqual(seen, [SECRET_URL])
+
+    def test_only_http_and_https_camera_addresses_are_fetched(self):
+        for url in ("file:///etc/passwd", "ftp://192.0.2.10/snap.jpg", "data:image/jpeg,xx"):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    camera.fetch_jpeg(url)
+                data = dict(self.data, services={**self.data["services"],
+                                                 "camera_snapshot_url": url})
+                with unittest.mock.patch.object(camera.settings, "view_for",
+                                                lambda pid, d: data):
+                    code, body, _ = camera.snapshot(
+                        self.data, self.printer_id, adapter=NoOwnCamera(),
+                        fetch=lambda u: self.fail("fetched " + u), fanout_url=no_fanout)
+                self.assertEqual(code, 400)
+                self.assertIn("http or https", body["reason"])
+                self.assertNotIn(url, body["reason"])
+
+    def test_redirects_to_other_schemes_are_refused(self):
+        handler = camera._WebOnlyRedirects()
+        with self.assertRaises(ValueError):
+            handler.redirect_request(None, None, 302, "Found", {}, "file:///etc/passwd")
 
     def test_adapter_stills_are_used_first(self):
         code, body, _ = camera.snapshot(self.data, self.printer_id, adapter=OwnCamera(JPEG),

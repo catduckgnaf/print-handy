@@ -2316,8 +2316,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
     platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
     if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='Yolo skips every check, so only a print approver can use it. '
-                                   'Running the normal intake instead.')
+                           content=yolo.refusal(platform) + ' Running the normal intake instead.')
         return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
                                    printer_id=printer_id, before_start=before_start,
                                    confirm_target=confirm_target)
@@ -2381,13 +2380,14 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content=_ai_fix.foreign_gcode_message(name, _foreign))
         return {'action': 'skip', 'reason': 'foreign G-code for another printer'}
-    if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
+    explicit_yolo = yolo.requested(getattr(event, 'text', ''))
+    if explicit_yolo and not yolo.may_yolo(getattr(source, 'user_id', None), platform):
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content=f'{name} is already-sliced G-code. Printing a file as-is skips every '
-                                   'check, so only a print approver can do it. Send the .stl or .3mf '
-                                   'model to have it sliced for this printer. Nothing was started.')
+                           content=f'{name} is already-sliced G-code, which prints only as yolo. '
+                                   + yolo.refusal(platform) + ' Or send the .stl or .3mf model to '
+                                   'have it sliced for this printer. Nothing was started.')
         return {'action': 'skip', 'reason': 'sliced G-code from a non-approver'}
-    if not yolo.requested(getattr(event, 'text', '')):
+    if not explicit_yolo:
         pick = await _ask(adapter, source, key,
                           f'{name} is already-sliced G-code, so it would print exactly as sent: no '
                           'slicing for this printer and no checks (yolo). Is the bed clear?',
@@ -3798,8 +3798,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, state,
                                              new_scale, **probe_kw)
                 except Exception:
+                    # The slicer failed while searching: say so, never imply
+                    # that no smaller size fits.
                     logger.exception('largest fitting scale search failed')
-                    fit_scale = None
+                    await adapter.send(chat_id=source.chat_id,
+                                       content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
+                                               f'so nothing was scaled. The model stays at {_pct(current_scale)}. '
+                                               f'I could not work out the biggest size that fits because the '
+                                               f'slicer check failed.',
+                                       metadata=metadata)
+                    continue
                 planned = latest.get('full_size_split_plan') or latest.get('full_size_rearrange_plan')
                 offer = fit_scale is not None and (
                     fit_scale > current_scale + 0.0005

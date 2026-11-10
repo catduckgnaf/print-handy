@@ -823,6 +823,20 @@ def _default_verdict(adapter, streak=None):
     return verdict
 
 
+def _post_watch_not_running(filename, post):
+    """One notice at the launch: the camera watch is on but cannot run, and why. Never raises."""
+    try:
+        from . import moonraker_event_listener as mel
+        reason = _vw.watch_unavailable_reason(
+            lambda: mel._profile_env_value("CLIPROXY_API_KEY")) or "no vision route is ready"
+        log(f"bambu camera watch not running for {filename!r}: {reason}")
+        post(f"Camera watch is on but not running for "
+             f"{print_summary.safe_label(filename, 'print')}: {reason}. This print is not "
+             "being watched; nothing was sent to the printer.")
+    except Exception as exc:
+        log(f"bambu camera watch status notice failed: {exc!r}")
+
+
 def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=None,
                   camera_source_fn=None, thread_factory=None, printer_id=None):
     """Start a BambuPrintMonitor for a just-launched print on a daemon thread.
@@ -849,6 +863,8 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             alert = deliver_visual_alert
             dark_notice = deliver_dark_notice
             text_alert = deliver_visual_text_alert
+        elif _config.cfg()["visual_watch"]["enabled"]:
+            _post_watch_not_running(filename, post or _default_post)
         if camera_source_fn is None and hasattr(adapter, "camera_frame_source"):
             camera_source_fn = adapter.camera_frame_source
         try:

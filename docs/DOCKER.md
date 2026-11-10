@@ -138,7 +138,7 @@ Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/do
 | `visual_watch.sensitivity` | `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` | `3` | How readily the watchdog alerts, 1 (quietest) to 5 (most alerts) |
 | `visual_watch.early_layers` | `PRINT_HANDY__VISUAL_WATCH__EARLY_LAYERS` | `10` | Early-layer window (layers) for risky prints |
 | `visual_watch.early_interval_s` | `PRINT_HANDY__VISUAL_WATCH__EARLY_INTERVAL_S` | `120` | Check interval (seconds) during early-layer mode for risky prints |
-| `visual_watch.auto_pause_early` | `PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY` | `false` | Optional printer control: pauses after two consecutive suspicious early-layer checks when enabled. Off by default |
+| `visual_watch.auto_pause_early` | `PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY` | `false` | Optional printer control (Moonraker printers only): pauses after two independent suspicious early-layer views, at least 60 s apart with a changed camera frame, when enabled. Off by default |
 
 Sensitivity also sets the periodic check interval (30, 20, 15, 10 or 7.5 minutes for levels 1 to 5) and how many unchanged layers count as a stall; level 3 is the original behavior. Periodic checks run on a timer independent of layer events, so long layers receive timely checks. In early-layer mode for risky prints, checks run every layer change up to `early_layers` and at least every `early_interval_s` seconds. An empty bed (`empty_idle`) while printing schedules a 60-second re-check and alerts if it repeats. The full per-level table is in the [project reference](PROJECT-REFERENCE.md#camera-stall-sensitivity), and every setting is listed in [SETTINGS.md](SETTINGS.md). Restart the container after a change; settings are read once at start.
 

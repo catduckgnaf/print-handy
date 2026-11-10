@@ -41,11 +41,6 @@ THEME_COOKIE = "ph-theme"
 THEMES = ("dark", "light")
 DEFAULT_THEME = "dark"
 
-# The public source repository. Releases are tagged with the bare
-# version (for example "2.2.7"), so the source tree for the running
-# version is SOURCE_REPO + "/tree/" + __version__.
-SOURCE_REPO = "https://github.com/catduckgnaf/print-handy"
-
 # The surfaces the header navigates to: only pages that exist. (The
 # Spools page arrived with #789 while this shell was being built; the
 # header picked it up on the rebase rather than inventing it early.)
@@ -57,6 +52,13 @@ NAV = (
     ("/designs", "Designs"),
     ("/config", "Settings"),
 )
+
+# The project's source repository (the same address the setup wizard
+# and the model-site guides use), linked from every page's footer.
+# Releases are tagged with the bare version (for example "2.2.7"), so
+# the source tree for the running version is SOURCE_URL + "/tree/" +
+# __version__.
+SOURCE_URL = "https://github.com/catduckgnaf/print-handy"
 
 CSS = """
 :root {
@@ -138,11 +140,6 @@ nav.pills a.active { background: var(--color-ink); color: var(--color-bg); }
   color: var(--color-muted); text-decoration: none; font-size: 0.875rem;
 }
 .theme-toggle a.active { background: var(--color-ink); color: var(--color-bg); }
-footer.source-footer {
-  border-top: 1px solid var(--color-line);
-  padding: 1rem 0 2rem; color: var(--color-muted); font-size: 0.85rem;
-}
-footer.source-footer a { color: var(--color-accent); }
 main .wrap { padding-top: 1.5rem; padding-bottom: 3rem; }
 h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 1rem; }
 h2 { font-size: 1.125rem; font-weight: 600; margin: 1.75rem 0 0.75rem; }
@@ -153,6 +150,7 @@ p { margin: 0.5rem 0; }
   letter-spacing: 0.08em; color: var(--color-muted); margin: 0 0 0.25rem;
 }
 .muted { color: var(--color-muted); }
+.site-footer { font-size: 0.85rem; color: var(--color-muted); padding: 0 0 2rem; }
 .card {
   background: var(--color-surface); border: 1px solid var(--color-line);
   border-radius: var(--radius-card); padding: 1rem; margin: 1rem 0;
@@ -326,22 +324,6 @@ def _header(path, theme, nav=None):
             "</div></div></header>")
 
 
-def _footer():
-    """The source offer every page carries (#1158).
-
-    Links the source tree at the running version's tag and the license
-    text beside it, so a network user can get the corresponding source
-    for the exact version serving them (AGPL section 13).
-    """
-    return ('<footer class="source-footer"><div class="wrap">'
-            f"Print Handy {_esc(__version__)} is free software under the "
-            f'<a href="{SOURCE_REPO}/blob/{_esc(__version__)}/LICENSE">'
-            "AGPL-3.0-only</a> license. "
-            f'<a href="{SOURCE_REPO}/tree/{_esc(__version__)}">'
-            "Get the source for this version</a>."
-            "</div></footer>")
-
-
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
          eyebrow="", banner="", nav=None):
     """One full HTML document in the shared shell.
@@ -376,13 +358,20 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
         parts.append(f"<h1>{_esc(heading)}</h1>")
     parts.append(body)
     parts.append("</div></main>")
-    parts.append(_footer())
+    # The AGPL expects network users to be able to get the source: one
+    # small footer on every page, the bare ones included, naming the
+    # running version and linking its source tree (#1158).
+    parts.append('<footer class="site-footer"><div class="wrap">'
+                 f'Print Handy {_esc(__version__)} is free software under the '
+                 'AGPL-3.0-only license. '
+                 f'<a href="{_esc(SOURCE_URL)}/tree/{_esc(__version__)}" rel="noopener">'
+                 'Source for this version</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SOURCE_REPO", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
+    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]

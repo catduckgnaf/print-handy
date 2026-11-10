@@ -13,7 +13,7 @@ from print_handy.webui import shell
 
 def test_footer_links_the_source_tree_at_the_running_version():
     out = shell.page("Status", "<p>body</p>", path="/")
-    assert f'href="{shell.SOURCE_REPO}/tree/{__version__}"' in out
+    assert f'href="{shell.SOURCE_URL}/tree/{__version__}"' in out
     assert "AGPL-3.0-only" in out
     assert __version__ in out
 
@@ -22,9 +22,9 @@ def test_footer_is_present_without_chrome_too():
     # The login and token-upload pages render with chrome=False; a
     # network user reaches those first, so the offer applies there too.
     out = shell.page("log in", "<p>body</p>", path="/login", chrome=False)
-    assert f'href="{shell.SOURCE_REPO}/tree/{__version__}"' in out
+    assert f'href="{shell.SOURCE_URL}/tree/{__version__}"' in out
 
 
 def test_footer_comes_after_the_page_body():
     out = shell.page("Status", "<p>marker-body</p>", path="/")
-    assert out.index("marker-body") < out.index('<footer class="source-footer">')
+    assert out.index("marker-body") < out.index('<footer class="site-footer">')

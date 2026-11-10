@@ -101,6 +101,14 @@ def redact(homeserver, token, room_id, event_id, *, txn_id=None, opener=None, ti
                     {}, timeout=timeout, opener=opener)
 
 
+def typing(homeserver, token, room_id, user_id, *, typing_ms=10000, opener=None, timeout=10):
+    """PUT /rooms/{roomId}/typing/{userId}: show the bot as typing for ``typing_ms``."""
+    room = urllib.parse.quote(str(room_id), safe="")
+    user = urllib.parse.quote(str(user_id), safe="")
+    return _request(homeserver, token, "PUT", f"{CLIENT}/rooms/{room}/typing/{user}",
+                    {"typing": True, "timeout": int(typing_ms)}, timeout=timeout, opener=opener)
+
+
 def send_message(homeserver, token, room_id, text, *, txn_id=None, opener=None, timeout=30):
     """One m.room.message text event. Returns the event id, or ''."""
     sent = send_event(homeserver, token, room_id, "m.room.message",

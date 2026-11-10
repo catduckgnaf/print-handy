@@ -98,6 +98,18 @@ def _unclaimed_quietly(host):
         return False
 
 
+def _broken_quietly(host):
+    """The broken-login explanation for the gate's log line, or "".
+
+    The server still starts (so /healthz answers) and refuses every
+    other request until the file is fixed; the gate only says why."""
+    try:
+        from .webui import access
+        return access.resolve(settings.load(), str(host)).problem
+    except Exception:
+        return ""
+
+
 def main():
     try:
         enabled, host, port, env_name, require_auth = webui_config()
@@ -112,6 +124,9 @@ def main():
             print(f"webui gate: enabled on {host}:{port} with authentication OFF "
                   f"([webui] require_auth = false): anyone who can reach the port "
                   f"can use the Web UI")
+        elif problem := _broken_quietly(host):
+            print(f"webui gate: WARNING enabled on {host}:{port} but refusing requests: "
+                  f"{problem}", file=sys.stderr)
         elif _unclaimed_quietly(host):
             print(f"webui gate: enabled on {host}:{port}; no login set yet: "
                   f"the Web UI is open and the walkthrough is offered")

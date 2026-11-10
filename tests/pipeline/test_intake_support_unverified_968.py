@@ -185,7 +185,7 @@ def test_unverified_under_yolo_records_via_yolo(env, monkeypatch):
     monkeypatch.setattr(yolo, 'may_yolo', lambda user_id, platform='discord', cfg=None: True)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='discord')),
-              message_id='m-968-yolo', text='https://www.printables.com/model/1-ghost yolo')
+              message_id='m-968-yolo', text='yolo https://www.printables.com/model/1-ghost')
     adapter = Adapter([])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())

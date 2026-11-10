@@ -746,6 +746,22 @@ def test_slice_summary_is_deterministic_and_complete(job):
     }
 
 
+def test_slice_summary_reports_only_consequential_conversion_provenance(job):
+    job.data['provenance'] = {'conversion_provenance': {
+        'intent_status': 'unknown',
+        'unresolved_conflicts': [{'key': 'wall_loops'}],
+        'settings': {'wall_loops': {'project_value': '4'}},
+    }}
+    text = summary.format_slice_summary(job.data)
+    assert 'Conversion: designer intent unknown for some settings; 1 designer setting conflict(s) resolved by destination profile' in text
+    assert 'project_value' not in text
+
+
+def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
+    job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
+    assert 'Conversion:' not in summary.format_slice_summary(job.data)
+
+
 def test_slice_summary_includes_auto_scale(job):
     job.data['auto_scale'] = {'factor': 25.4, 'reason': 'inch units',
                               'original_mm': [2, 3, 4], 'final_mm': [50.8, 76.2, 101.6]}
@@ -953,3 +969,15 @@ def test_history_facts_flow_into_roast_generation(monkeypatch, tmp_path):
     assert captured.get("prev_fails") == "3"
     assert captured.get("fail_streak") == "2"
     assert captured.get("color_streak") == "4"
+
+
+def test_slice_summary_stays_quiet_about_intent_for_a_plain_source(job):
+    # A plain STL has no designer project to have intent about; the summary
+    # must not announce unknown intent for it (only foreign projects report).
+    job.data['provenance'] = {'conversion_provenance': {
+        'source_format': 'unknown',
+        'intent_status': 'unknown',
+        'unresolved_conflicts': [],
+        'settings': {},
+    }}
+    assert 'Conversion:' not in summary.format_slice_summary(job.data)

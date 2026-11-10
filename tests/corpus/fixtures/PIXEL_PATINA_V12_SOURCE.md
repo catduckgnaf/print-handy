@@ -2,8 +2,8 @@
 
 - File: `Pixel_Patina_V12_With_Removable_Supports.3mf`
 - SHA256: `94bc8a786427812811ad38e5248695995c26f2ff90de6bcd6eaa8f22b4d769fd`
-- Origin / Owner: catduck (Andrew Komarow)
-- Authorization: Explicitly authorized by Andrew on 2026-11-05 as a test fixture for Print Handy.
+- Origin / Owner: catduck (the project maintainer)
+- Authorization: Explicitly authorized by the owner on 2026-11-05 as a test fixture for Print Handy.
 - Purpose: Multi-object assembly fixture featuring:
   1. `BLACK BODY` (object id 2, pindex 0)
   2. `BRONZE DETAILS` (object id 3, pindex 1)

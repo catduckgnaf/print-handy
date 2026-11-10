@@ -151,7 +151,9 @@ def test_start_monitor_with_injected_parts_uses_the_given_thread_factory():
         post=lambda text: ran.append(text),
         thread_factory=lambda target: types.SimpleNamespace(start=lambda: target()))
     assert monitor_thread is not None
-    assert len(ran) == 1 and "MEDIA:" in ran[0]
+    # The test config has no vision route: one notice says the watch is not
+    # running, then the completion post.
+    assert len(ran) == 2 and "not running" in ran[0] and "MEDIA:" in ran[1]
 
 
 # -- Stage 3: the camera watchdog ----------------------------------------------
@@ -816,7 +818,7 @@ def test_start_monitor_wires_the_adapters_frame_source():
         adapter, REMOTE, post=ran.append,
         thread_factory=lambda target: types.SimpleNamespace(start=lambda: target()))
     assert thread is not None
-    assert len(ran) == 1 and "MEDIA:" in ran[0]
+    assert len(ran) == 2 and "not running" in ran[0] and "MEDIA:" in ran[1]
 
 
 # -- the full lifecycle: real session, real JPEG stills, real ffmpeg -------------
