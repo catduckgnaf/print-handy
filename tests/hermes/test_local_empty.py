@@ -247,6 +247,9 @@ def test_visual_verdict_print_watch_never_consults_the_reference(cfg, monkeypatc
 
 def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     calibrate(cfg)
+    # The shared fixture forces the local route. This case exercises auto
+    # routing with a configured endpoint, not the explicit local override.
+    monkeypatch.setattr(vw.local_vision, "watch_source", lambda: "auto")
     monkeypatch.setattr(vw, "_vision_answer",
                         lambda *a, **k: {"verdict": "ok", "reason": "part there"})
     monkeypatch.setattr(vw, "_local_verdict",
