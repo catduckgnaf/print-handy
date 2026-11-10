@@ -296,6 +296,96 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             self.assertNotIn('filament_warnings_pending', saved)
 
 
+
+_SLOT1 = {'slot': 1, 'spoolman_id': 10, 'color': 'white', 'material': 'PLA'}
+_SLOT2 = {'slot': 2, 'spoolman_id': 11, 'color': 'black', 'material': 'PLA'}
+
+
+class WholeSourceMultiPlateTests(unittest.TestCase):
+    """#1155: nothing in production writes job['selected_plates'], so a
+    multi-plate source is sliced whole. Its usage findings over all plates
+    still warn (warn-and-accept, #1189); the per-plate mapping rows never
+    refuse a whole-source job."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.work = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _patches(self):
+        return (mock.patch.object(mj, "ARCHIVE", self.work),
+                mock.patch.object(mj.printer_state, "load", return_value=STATE),
+                mock.patch.object(mj.printer_state, "check", return_value=(True, [], {})))
+
+    def _job(self, path, decisions, **extra):
+        job_path = self.work / "JOB.json"
+        job_path.write_text(json.dumps({
+            'downloaded_file': str(path),
+            'audit': {'plates': 2, 'size_x': '10', 'size_y': '10', 'size_z': '10'},
+            'title': 'Whole source', 'color_decisions': decisions, **extra}))
+        return job_path
+
+    def test_unknown_usage_on_any_plate_warns_then_slices_after_acceptance(self):
+        path, manifest = _unknown_usage_manifest(self.work)
+        job_path = self._job(path, {'source_sha256': manifest['source_sha256'],
+                                    'mode': 'single_color', 'selection': _SLOT1})
+        p1, p2, p3 = self._patches()
+        with p1, p2, p3, mock.patch.object(
+                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+            with self.assertRaises(mj.FilamentWarningPending) as caught:
+                mj.slice_job(job_path)
+            slicer.assert_not_called()
+            self.assertTrue(any('plate 2' in w and 'objects filament usage is unknown' in w
+                                for w in caught.exception.warnings), caught.exception.warnings)
+            self.assertEqual(caught.exception.selected_plates, [])
+            mj.record_filament_warning_acknowledgement(job_path)
+            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+            slicer.assert_called_once()
+
+    def test_known_usage_slices_with_no_warning_round(self):
+        source = two_plate_source(self.work / "two.3mf")
+        manifest = sc.inventory(source)
+        job_path = self._job(source, {'source_sha256': manifest['source_sha256'],
+                                      'mode': 'single_color', 'selection': _SLOT1})
+        p1, p2, p3 = self._patches()
+        with p1, p2, p3, mock.patch.object(
+                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+            slicer.assert_called_once()
+        self.assertNotIn('filament_warnings_pending', json.loads(job_path.read_text()))
+
+    def test_whole_source_job_never_hard_refuses_on_mapping_rows(self):
+        # Filament 3 prints on plate 1 only through a height range; its
+        # color question is the Knob part on plate 2, so plate 1 holds no
+        # part of filament 3. With a plate selection that is a hard "no
+        # validated slot mapping" refusal; a whole-source job, whose
+        # questions were never scoped per plate, must slice as it does now.
+        ranges = ('<objects><object id="1"><range min_z="0" max_z="5">'
+                  '<option opt_key="extruder">3</option></range></object></objects>')
+        source = write_source(self.work / "ranges.3mf",
+                              [("Base", 1, None), ("Knob", 3, None)], [[0], [1]],
+                              members={"Metadata/layer_config_ranges.xml": ranges})
+        manifest = sc.inventory(source)
+        self.assertIn(3, manifest['plate_usage']['1']['source_filaments'])
+        parts = {p['name']: p for p in manifest['parts']}
+        decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
+                     'mode': 'per_part',
+                     'choices': {'part:' + parts['Base']['key']: _SLOT1,
+                                 'part:' + parts['Knob']['key']: _SLOT2}}
+        self.assertEqual({row['key'] for row in sc.canonical_prompts(manifest)},
+                         set(decisions['choices']))
+        self.assertTrue(any('no validated slot mapping' in p for p in
+                            sc.plate_readiness_problems(manifest, decisions, ['1'])))
+        job_path = self._job(source, decisions, color_schema='part_slots_v1')
+        p1, p2, p3 = self._patches()
+        with p1, p2, p3, mock.patch.object(
+                mj, "slice_multi_plate", return_value=Path("result.gcode")) as slicer:
+            self.assertEqual(mj.slice_job(job_path), Path("result.gcode"))
+            slicer.assert_called_once()
+        self.assertNotIn('filament_warnings_pending', json.loads(job_path.read_text()))
+
 class DiscordWarningRoundTests(unittest.TestCase):
     """The Discord color flow presents filament warnings once; only an
     explicit acceptance saves the choices, and cancelling saves nothing."""
