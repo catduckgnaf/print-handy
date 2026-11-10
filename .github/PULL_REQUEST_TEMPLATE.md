@@ -61,7 +61,7 @@ Regression scoping reason:
 
 ## User-facing release note
 
-<!-- Write for someone operating Print Handy, not someone reading the diff. Lead with what they can do or what no longer breaks. Group features, fixes, then technical details. State pending/draft status accurately. Write "Not applicable" for changes with no release-note impact. See docs/RELEASE-NOTES.md. -->
+<!-- Write for someone operating Print Handy, not someone reading the diff. Lead with what they can do or what no longer breaks. Group features, fixes, then technical details. State pending/draft status accurately. Write "Not applicable" for changes with no release-note impact. See docs/RELEASE-NOTES-GUIDE.md. -->
 
 ## Safety, compatibility and deployment
 

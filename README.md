@@ -200,7 +200,7 @@ The **Print Handy Discord server** is the community home: [discord.gg/mT2Ht3nqZu
 | Get help or ask a question | [Print Handy Discord server](https://discord.gg/mT2Ht3nqZu) (#support) |
 | Report a problem or contribute | [Contribution guide](CONTRIBUTING.md) · [Issues](https://github.com/catduckgnaf/print-handy/issues) |
 | See what shipped in each release | [GitHub releases](https://github.com/catduckgnaf/print-handy/releases) |
-| Write or review release notes | [Release-note guide](docs/RELEASE-NOTES.md) · [Internal history](docs/history/INTERNAL_RELEASE_NOTES.md) |
+| Write or review release notes | [Release-note guide](docs/RELEASE-NOTES-GUIDE.md) · [Internal history](docs/history/INTERNAL_RELEASE_NOTES.md) |
 
 Draft pull requests describe pending work, not installed or released capabilities.
 
