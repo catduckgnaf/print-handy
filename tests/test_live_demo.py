@@ -4,6 +4,12 @@ Offline contract tests for demo/: the scenario data drives every
 journey to a terminal state, every button points at a real step,
 the honesty banner is present, and nothing in the demo can reach a
 real printer or a credential.
+
+The LiveDemoProductionContract class is the drift guard: it compares
+the scenario data against the production bot's own command table,
+unmatched reply and help heading, and pins the production wording of
+the confirmation and fit-refusal flows, so a wording change in the
+real bot fails here instead of letting the demo drift silently.
 """
 import json
 import re
@@ -30,7 +36,7 @@ class LiveDemoScenarios(unittest.TestCase):
         data = load_scenarios()
         self.assertEqual(data["version"], 1)
         self.assertEqual(data["honesty_banner"], BANNER)
-        for required in ("happy", "too_big", "spools", "fallback"):
+        for required in ("happy", "too_big", "spools", "fallback", "help"):
             self.assertIn(required, data["journeys"])
         self.assertTrue(data["samples"])
         self.assertTrue(data["commands"])
@@ -67,10 +73,85 @@ class LiveDemoScenarios(unittest.TestCase):
         confirm = [s for s in data["journeys"]["happy"]["steps"] if s.get("kind") == "confirm"]
         self.assertTrue(confirm, "happy path must keep the confirm-before-print card")
 
-    def test_fallback_journey_shows_the_command_list(self):
+    def test_help_journey_shows_the_command_list(self):
+        data = load_scenarios()
+        steps = data["journeys"]["help"]["steps"]
+        self.assertTrue(any(s.get("show_commands") for s in steps))
+
+    def test_fallback_journey_does_not_show_the_command_list(self):
+        # #467: the command list is the answer to /print-help (the help
+        # journey above), never the reply to unmatched free text.
         data = load_scenarios()
         steps = data["journeys"]["fallback"]["steps"]
-        self.assertTrue(any(s.get("show_commands") for s in steps))
+        self.assertFalse(any(s.get("show_commands") for s in steps))
+
+
+class LiveDemoProductionContract(unittest.TestCase):
+    """Scenario wording pinned against the production bot (#1031 drift guard)."""
+
+    def test_demo_commands_match_the_production_help_list(self):
+        # Production help_text() lists every command except print-help
+        # itself, in table order, with the table's usage and description.
+        from print_handy.bot import commands
+
+        expected = [
+            {"name": c.name, "usage": c.usage, "description": c.description}
+            for c in commands.COMMANDS
+            if c.name != "print-help"
+        ]
+        self.assertEqual(load_scenarios()["commands"], expected)
+
+    def test_unmatched_reply_matches_production(self):
+        from print_handy.bot.runtime import unmatched_text
+
+        steps = load_scenarios()["journeys"]["fallback"]["steps"]
+        answer = next(s for s in steps if s["id"] == "fallback-answer")
+        self.assertEqual(answer["text"], unmatched_text())
+
+    def test_help_heading_matches_production_help_text(self):
+        from print_handy.bot import commands
+
+        steps = load_scenarios()["journeys"]["help"]["steps"]
+        answer = next(s for s in steps if s.get("show_commands"))
+        self.assertEqual(answer["text"], commands.help_text().splitlines()[0])
+
+    def test_help_intent_routes_to_the_help_journey(self):
+        data = load_scenarios()
+        intent = next(i for i in data["intents"] if i["id"] == "intent-help")
+        self.assertEqual(intent["journey"], "help")
+
+    def test_confirm_buttons_match_production_labels(self):
+        # prepared_intake's ready question: print_label is
+        # "Slice and print now (bed is clear)" and cancel_label is
+        # "Cancel print request"; its question opens "Ready to slice".
+        steps = load_scenarios()["journeys"]["happy"]["steps"]
+        confirm = next(s for s in steps if s.get("kind") == "confirm")
+        self.assertTrue(confirm["text"].startswith("Ready to slice"))
+        self.assertEqual(
+            [b["label"] for b in confirm["buttons"]],
+            ["Slice and print now (bed is clear)", "Cancel print request"],
+        )
+
+    def test_too_big_refusal_matches_production_fit_wording(self):
+        # prepared_intake.fit_question opens "<part> (<extent>) does not
+        # fit the bed full size as the author laid it out." and offers a
+        # "Shrink option: ... fits at <pct> max." line; fit_choice_rows
+        # labels the shrink button "Shrink to <pct>" and appends "Cancel".
+        # The must-shrink corpus case pins the part at 260 x 260 x 230 mm
+        # and the fitting scale at 83.8%.
+        steps = load_scenarios()["journeys"]["too_big"]["steps"]
+        refusal = next(s for s in steps if s["id"] == "big-refusal")
+        self.assertTrue(
+            refusal["text"].startswith(
+                "Big plate (260 × 260 × 230 mm) does not fit the bed "
+                "full size as the author laid it out."
+            )
+        )
+        self.assertIn("Shrink option: as authored it fits at 83.8% max.", refusal["text"])
+        self.assertEqual(
+            [b["label"] for b in refusal["buttons"]],
+            ["Shrink to 83.8%", "Cancel"],
+        )
 
 
 class LiveDemoPage(unittest.TestCase):
