@@ -235,8 +235,8 @@ The filament system is where they part:
 - **AD5M and AD5M Pro** are single-extruder printers. Their adapter shares the ZMod
   start code and Moonraker transport with the AD5X and nothing else: no IFS slot
   questions, no spool-switch claims, no `PRINT_HANDY` macro (it is AD5X-only), no
-  native-screen sync and no stock `/detail` polling. A multi-colour job is refused,
-  not approximated, slice it single-colour or use a multi-slot printer. The Pro's
+  native-screen sync and no stock `/detail` polling. A multi-color job is refused,
+  not approximated, slice it single-color or use a multi-slot printer. The Pro's
   enclosure, camera and air filtration do not by themselves change slicing
   geometry; its geometry is the AD5M's, and its thermal facts are recorded
   separately in the printer registry thermal record (see PRINTER-PROFILES.md).
@@ -247,15 +247,15 @@ The filament system is where they part:
   `filament_slots` stays 1): slicer tool *i* always prints with toolhead *i*, readiness
   and status are per toolhead, and Spoolman spools bind per toolhead; the
   toolhead is the identity unit, never an IFS slot. A job that asks for a tool remapped to another head, or a fifth
-  tool, is refused rather than approximated. Multi-colour slicing uses the
-  four-extruder Orca templates, and the Discord colour questions are per
-  toolhead: for a source with two to four colours, intake asks one question
-  per colour, which toolhead prints it, showing each toolhead's loaded
-  spool, and a toolhead already assigned a different colour is not offered
+  tool, is refused rather than approximated. Multi-color slicing uses the
+  four-extruder Orca templates, and the Discord color questions are per
+  toolhead: for a source with two to four colors, intake asks one question
+  per color, which toolhead prints it, showing each toolhead's loaded
+  spool, and a toolhead already assigned a different color is not offered
   again. The recorded picks are the identity mapping (slicer tool *i* prints
-  with toolhead *i*), so nothing is remapped. A source with more colours
+  with toolhead *i*), so nothing is remapped. A source with more colors
   than toolheads is refused with that explanation; printing everything in
-  one colour on one toolhead stays available. Multi-colour jobs print as one
+  one color on one toolhead stays available. Multi-color jobs print as one
   merged plate; a source that cannot merge onto one bed is refused rather
   than split into per-toolhead plates. The `PRINT_HANDY`
   plugin macro stays AD5X-only, ZMod's endless-spool feature exists on the
@@ -280,19 +280,19 @@ downloaded print file is never sent as-is; everything is resliced locally first.
 The package wraps the finalized `.gcode` byte-for-byte (`Metadata/plate_1.gcode`
 inside the zip, with the plate metadata and an MD5 sidecar). Its
 `Metadata/slice_info.config` names each used filament with its slot id, type
-and colour, plus the print time, weight and printer model, in the shape
-OrcaSlicer's own sliced export uses: that file is where ZMod reads the colours
+and color, plus the print time, weight and printer model, in the shape
+OrcaSlicer's own sliced export uses: that file is where ZMod reads the colors
 it maps to the IFS slots and the details Fluidd/Mainsail show. Every check Print
-Handy runs, verification, colour mapping, mesh and readiness guards, still
+Handy runs, verification, color mapping, mesh and readiness guards, still
 runs on that `.gcode` before packaging, and the `.gcode` stays the artifact of
 record for reprints, slot remaps and print records. The job and print records
 note which format a print used.
 
 Why 3MF at all: per ZMod's own documentation for 1.7.5+, a `.gcode.3mf` makes
-colour scanning and mapping instant (the `.gcode` path's preprocessor step does
+color scanning and mapping instant (the `.gcode` path's preprocessor step does
 not run), `FORCE_MD5` "only applies when sending G-code" so no MD5 pass is
 needed, and KAMP data is available instantly instead of after a scan. The floor
-is 1.7.5 because that is the release whose changelog adds 3MF colour mapping;
+is 1.7.5 because that is the release whose changelog adds 3MF color mapping;
 below it, the same package would buy nothing and risk the older firmware
 misreading it, so `auto` stays on `.gcode` there.
 

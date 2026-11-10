@@ -149,9 +149,9 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   reply pointing at `/print-again list`, not the help text. A bare number on its own is not a print request.
 * `/spool` walks you through spools with buttons: it asks whether you are adding a **new** spool or
   **changing** the spool in a slot (listing and screen sync stay in the same menu). Adding offers the
-  filament types already in the Spoolman database first, picking a known type supplies its colour and
-  colour code from the database, so you are never asked for a hex code and never re-type a known colour;
-  only a genuinely new type asks for brand / material / colour name and grams. Before anything is
+  filament types already in the Spoolman database first, picking a known type supplies its color and
+  color code from the database, so you are never asked for a hex code and never re-type a known color;
+  only a genuinely new type asks for brand / material / color name and grams. Before anything is
   created, the confirmation names the spool number the new spool will be, and the result reports the
   number actually created. Changing a slot walks slot → replacement (a shelf spool, or add-new first) →
   what happens to the old spool: **back on the shelf**, **archive it**, or **mark it as depleted**
@@ -212,7 +212,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   cadence as the IFS presence check, the listener diffs Spoolman's spool IDs against the ones it already
   knows (kept in the state folder; the first poll learns the current inventory silently, so existing spools
   never prompt). Each genuinely new, non-archived spool is named in Discord, number, brand, material and
-  colour, exactly once, with **Load into a slot** (the guided change flow's slot → old spool's fate →
+  color, exactly once, with **Load into a slot** (the guided change flow's slot → old spool's fate →
   confirm steps, with the new spool already chosen), **Leave on the shelf** and **Dismiss**. A spool that
   arrives already archived is learned silently, a deleted spool is forgotten silently, and when Spoolman is
   unreachable or not configured the poll simply skips; it never blocks the listener and never prompts.
