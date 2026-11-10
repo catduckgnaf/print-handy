@@ -463,18 +463,19 @@ def test_conversion_provenance_records_destination_identity_and_governing_rules(
     assert result["registry_version"] == 1
 
 
-def test_destination_profile_identity_prefers_real_versions_over_setting_id(tmp_path):
+def test_destination_profile_identity_records_only_real_versions(tmp_path):
     template = {"name": "0.20mm Standard @FF AD5X", "setting_id": "abc123"}
     # A template carrying its own version wins.
     assert author_settings.destination_profile_identity(
-        {**template, "version": "7.1"}, tmp_path) == {"name": template["name"], "version": "7.1"}
+        {**template, "version": "7.1"}, tmp_path) == {"name": template["name"], "id": "abc123", "version": "7.1"}
     # A generated template folder records the vendor version beside the templates.
     (tmp_path / "SOURCE.json").write_text(json.dumps({"vendor_version": "02.08.00.15"}))
     assert author_settings.destination_profile_identity(
         template, tmp_path)["version"] == "02.08.00.15"
-    # A shipped template with neither carries its Orca setting_id as its identity.
+    # A shipped template with neither has no version: its Orca setting_id is its
+    # identity, recorded as the id, never passed off as a version.
     assert author_settings.destination_profile_identity(
-        template, tmp_path / "missing") == {"name": template["name"], "version": "abc123"}
+        template, tmp_path / "missing") == {"name": template["name"], "id": "abc123", "version": None}
 
 
 def test_slice_provenance_records_real_destination_versions_rules_and_artifact(tmp_path):
@@ -487,7 +488,9 @@ def test_slice_provenance_records_real_destination_versions_rules_and_artifact(t
     record = provenance["conversion_provenance"]
     assert record["destination_slicer_version"] == "2.4.2"
     assert record["destination_profile_name"] == TEMPLATE["name"]
-    assert record["destination_profile_version"] == TEMPLATE["setting_id"]
+    assert record["destination_profile_id"] == TEMPLATE["setting_id"]
+    assert record["destination_profile_version"] is None
+    assert record["destination_profile_version_status"] == "not_recorded_by_template"
     assert record["source_profile_version"] is None
     assert record["source_profile_version_status"] == "not_recorded_by_source"
     for rule_id in ("author-intent-allowlist", "orca-enum-fallback",
@@ -505,7 +508,8 @@ def test_slice_provenance_records_prusa_rules_and_source_version_for_a_prusa_pro
     _process, provenance = sliced_process(tmp_path, prusa_project(tmp_path / "prusa.3mf"))
     record = provenance["conversion_provenance"]
     assert record["destination_slicer_version"] == "2.4.2"
-    assert record["destination_profile_version"] is not None
+    assert record["destination_profile_id"] is not None
+    assert record["source_slicer_version"] == "2.8.1"
     for rule_id in ("prusa-key-translation", "prusa-value-translation",
                     "prusa-ironing-translation", "author-intent-allowlist"):
         assert rule_id in record["governing_rules"]
@@ -615,3 +619,42 @@ def test_a_foreign_slice_attributes_designer_and_operator_values(tmp_path):
     assert rows["brim_width"]["selected_reason"] == "operator"
     assert rows["enable_support"]["selected_reason"] == "operator"
     assert "unattributed" not in {row["selected_reason"] for row in rows.values()}
+
+
+def _with_application(path, application):
+    with zipfile.ZipFile(path) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    entries["3D/3dmodel.model"] = entries["3D/3dmodel.model"].replace(
+        b"<resources>", f'<metadata name="Application">{application}</metadata><resources>'.encode(), 1)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return path
+
+
+def test_source_slicer_version_is_the_application_version_never_the_preset_version(tmp_path):
+    # project_settings.config's `version` is preset bookkeeping, not the
+    # application's version; the model's Application metadata names the slicer.
+    source = _with_application(bambu_project(tmp_path / "bambu.3mf", {"wall_loops": "4", "version": "01.09.00.20"}),
+                               "BambuStudio-01.10.00.00")
+    assert author_settings.source_identity(source) == ("bambu_studio", "01.10.00.00", "orca_project")
+    result = author_settings.conversion_provenance(source, TEMPLATE, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_slicer"] == "BambuStudio"
+    assert result["source_slicer_version"] == "01.10.00.00"
+    assert result["source_slicer_version_status"] == "recorded"
+    orca = _with_application(bambu_project(tmp_path / "orca.3mf", {"wall_loops": "4"}), "OrcaSlicer-2.3.0")
+    assert author_settings.source_identity(orca) == ("orca", "2.3.0", "orca_project")
+    # No Application metadata: the version is not stated, and a preset
+    # `version` key is not read in its place.
+    bare = bambu_project(tmp_path / "bare.3mf", {"wall_loops": "4", "version": "01.09.00.20"})
+    result = author_settings.conversion_provenance(bare, TEMPLATE, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_slicer_version"] is None
+    assert result["source_slicer_version_status"] == "not_recorded_by_source"
+
+
+def test_prusa_source_slicer_version_is_parsed_from_the_generated_by_line(tmp_path):
+    source = prusa_project(tmp_path / "prusa.3mf",
+                           PRUSA_CONFIG.replace("PrusaSlicer 2.8.1", "PrusaSlicer 2.8.1 on 2024-05-01 at 10:00:00 UTC"))
+    assert author_settings.source_identity(source) == ("prusaslicer", "2.8.1", "prusaslicer_project")
+    result = author_settings.conversion_provenance(source, TEMPLATE, {}, {}, [])
+    assert result["source_slicer"] == "PrusaSlicer" and result["source_slicer_version"] == "2.8.1"
