@@ -7,8 +7,11 @@ A filament warning with no recorded acceptance stops the slice with
 FilamentWarningPending (nothing proceeds silently); an explicit acceptance
 bound to the exact warning texts, the source hash and the selected plates
 lets the same job slice, and the accepted warnings ride on the job record.
-Hard problems that are not filament data (an unmapped used filament, a slot
-past capacity, decisions bound to another source) refuse exactly as before.
+Hard problems that are not filament data (decisions bound to another source)
+refuse exactly as before. Since #1189 (owner decision, catduck, 2026-11-10)
+an unmapped used filament, a slot past capacity and color choices never made
+are no longer refusals: they print from a named fallback once accepted (see
+tests/pipeline/test_filament_fallbacks_1189.py).
 """
 import asyncio
 import io
@@ -132,7 +135,11 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mj.record_filament_warning_acknowledgement({}, warnings=[])
 
-    def test_hard_problem_refuses_even_when_warnings_were_accepted(self):
+    def test_unmapped_filament_is_a_fallback_warning_not_covered_by_another_acceptance(self):
+        # Behavior change (#1189, owner decision 2026-11-10): #1190 pinned a
+        # used filament with no slot mapping as a hard refusal. With the
+        # printer record it now becomes a warning naming the fallback slot.
+        # An acceptance for some other warning set still does not cover it.
         manifest = sc.inventory(two_plate_source(self.work / "two.3mf"))
         parts = {p["name"]: p for p in manifest["parts"]}
         decisions = {"source_sha256": manifest["source_sha256"], "schema": "part_slots_v1",
@@ -140,16 +147,33 @@ class GateTests(unittest.TestCase):
                      "choices": {"part:" + parts["Base"]["key"]: selection(1),
                                  "part:" + parts["Lid"]["key"]: selection(2)}}
         job = {}
-        # An acceptance for some other warning set must not soften this:
-        # a used filament with no slot mapping is missing operator input.
         job['filament_warning_acknowledgement'] = {
             'acknowledged': True, 'warnings': ['some earlier warning'],
             'selected_plates': [2], 'source_sha256': manifest['source_sha256']}
+        with self.assertRaises(mj.FilamentWarningPending) as caught:
+            mj._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
+                                           job_folder=self.work, state=STATE)
+        self.assertEqual(caught.exception.warnings,
+                         ["plate 2: source filament 3 is used but has no slot chosen (part Knob); "
+                          "it prints from slot 1, the printer's first loaded slot"])
+        # Without the printer record (no fallback can be named) it refuses as before.
+        with self.assertRaisesRegex(RuntimeError, 'print readiness blocked') as hard:
+            mj._enforce_filament_readiness(job, manifest, decisions, [2], job_folder=self.work)
+        self.assertNotIsInstance(hard.exception, mj.FilamentWarningPending)
+
+    def test_decisions_bound_to_another_source_still_refuse(self):
+        # Decision integrity is not filament data: it stays a hard refusal
+        # with the printer record and an acceptance present.
+        manifest = sc.inventory(two_plate_source(self.work / "two.3mf"))
+        decisions = {"source_sha256": "another source", "mode": "single_color",
+                     "selection": selection(1)}
+        job = {'filament_warning_acknowledgement': {
+            'acknowledged': True, 'warnings': ['some earlier warning'],
+            'selected_plates': [2], 'source_sha256': manifest['source_sha256']}}
         with self.assertRaisesRegex(RuntimeError, 'print readiness blocked') as caught:
-            mj._enforce_filament_readiness(job, manifest, decisions, [2],
-                                           job_folder=self.work)
-        self.assertNotIsInstance(caught.exception, mj.FilamentWarningPending,
-                                 'a hard readiness problem must not become a warning round')
+            mj._enforce_filament_readiness(job, manifest, decisions, [2], slot_capacity=4,
+                                           job_folder=self.work, state=STATE)
+        self.assertNotIsInstance(caught.exception, mj.FilamentWarningPending)
 
 
 class SliceJobWarnAcceptTests(unittest.TestCase):
@@ -226,6 +250,7 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             with self.assertRaises(mj.FilamentWarningPending) as caught:
                 mj.slice_job(job_path)
             self.assertTrue(any('plate 1' in w for w in caught.exception.warnings))
+
             slicer.assert_not_called()
             mj.record_filament_warning_acknowledgement(job_path)
             result = mj.slice_job(job_path)
@@ -278,9 +303,11 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
         self.assertEqual(ack['warnings'], ['plate 2: support usage is unknown'])
         self.assertNotIn('filament_warnings_pending', saved)
 
-    def test_choices_gate_is_not_a_warning_round(self):
-        # Missing color decisions are missing operator input: the job stops
-        # at the choices gate exactly as before, never as a warning round.
+    def test_choices_never_made_is_a_warning_round(self):
+        # Behavior change (#1189, owner decision 2026-11-10): #1190 pinned
+        # missing color decisions as a refusal at the choices gate, never a
+        # warning round. They are now the #1190 round itself: the job stops
+        # with the fallback named, and nothing slices until it is accepted.
         source = two_plate_source(self.work / "two.3mf")
         job_path = self.work / "JOB.json"
         job_path.write_text(json.dumps({
@@ -288,12 +315,17 @@ class SliceJobWarnAcceptTests(unittest.TestCase):
             'audit': {'plates': 2, 'size_x': '10', 'size_y': '10', 'size_z': '10'},
             'title': 'Needs choices'}))
         p1, p2, p3 = self._patches()
-        with p1, p2, p3:
-            with self.assertRaises(RuntimeError) as caught:
+        with p1, p2, p3, mock.patch.object(mj, "slice_multi_plate") as slicer:
+            with self.assertRaises(mj.FilamentWarningPending) as caught:
                 mj.slice_job(job_path)
-            self.assertNotIsInstance(caught.exception, mj.FilamentWarningPending)
+            slicer.assert_not_called()
+            self.assertEqual(caught.exception.warnings,
+                             ['color choices were never made for this print; every part prints '
+                              "single-color from slot 1, the printer's first loaded slot"])
             saved = json.loads(job_path.read_text())
-            self.assertNotIn('filament_warnings_pending', saved)
+            self.assertEqual(saved['filament_warnings_pending']['warnings'],
+                             caught.exception.warnings)
+            self.assertNotIn('color_decisions', saved)
 
 
 

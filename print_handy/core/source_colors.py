@@ -1299,6 +1299,51 @@ def used_source_filaments(manifest, plate_id):
     return list(entry.get('source_filaments') or [])
 
 
+def _mapped_slots(ext, plate_parts, mode, choices, selection):
+    """The slots the decisions map one used source filament to on one plate (empty when unmapped)."""
+    if mode == 'single_color' and selection.get('slot') is not None:
+        return {selection['slot']}
+    if mode == 'per_part':
+        row = choices.get(f'filament:{ext}')
+        if isinstance(row, dict) and row.get('slot') is not None:
+            return {row['slot']}
+        holders = [p for p in plate_parts if p.get('source_extruder') == ext]
+        picked = [choices.get('part:' + p['key']) for p in holders]
+        if holders and all(isinstance(c, dict) and c.get('slot') is not None for c in picked):
+            return {c['slot'] for c in picked}
+    return set()
+
+
+def unmapped_plate_filaments(manifest, decisions, selected_plate_ids):
+    """(plate, source filament, plate parts) for each used filament the decisions leave without a slot.
+
+    The same mapping rule as the readiness row "is used but has no validated
+    slot mapping", in plate order then filament order, so a caller that fills
+    the gap (the #1189 fallback) fills exactly the rows readiness reports.
+    Decisions not bound to this source map nothing and report nothing here:
+    that is a decision-integrity refusal, not a missing slot.
+    """
+    if not isinstance(decisions, dict) or decisions.get('source_sha256') != manifest.get('source_sha256'):
+        return []
+    mode = decisions.get('mode')
+    choices = decisions.get('choices') if isinstance(decisions.get('choices'), dict) else {}
+    selection = decisions.get('selection') if isinstance(decisions.get('selection'), dict) else {}
+    usage = manifest.get('plate_usage') or {}
+    parts_by_key = {}
+    for part in manifest.get('parts') or []:
+        parts_by_key.setdefault(str(part.get('key')), part)
+    out = []
+    for plate_id in [str(p) for p in (selected_plate_ids or [])]:
+        entry = usage.get(plate_id)
+        if entry is None:
+            continue
+        plate_parts = [parts_by_key[k] for k in entry.get('part_keys') or [] if k in parts_by_key]
+        for ext in entry.get('source_filaments') or []:
+            if not _mapped_slots(ext, plate_parts, mode, choices, selection):
+                out.append((plate_id, ext, plate_parts))
+    return out
+
+
 def _plate_readiness_problem_rows(manifest, decisions, selected_plate_ids, slot_capacity=None):
     """(problem, is_filament_warning) rows behind plate_readiness_problems.
 
@@ -1309,10 +1354,14 @@ def _plate_readiness_problem_rows(manifest, decisions, selected_plate_ids, slot_
     validated, or a disagreement between the slicer-reported and analyzed
     filament sets. Owner ruling (catduck, 2026-11-10): those warn and the
     operator may accept them; they never hard-block a print. The rest are
-    not filament data and keep refusing: no plate selected, decisions bound
-    to another source, a used filament with no slot mapping in the decisions
-    (missing operator input — accepting cannot invent the mapping), and a
-    mapping past the destination's loaded-slot capacity (a hardware fact).
+    not filament usage data: no plate selected, decisions bound to another
+    source, a used filament with no slot mapping in the decisions, and a
+    mapping past the destination's loaded-slot capacity. The last two are
+    filled before this check by the #1189 fallbacks
+    (model_job.filament_fallbacks, owner decision catduck 2026-11-10) on
+    every path that slices or saves decisions, which then present them as
+    accept-and-print warnings naming the slot they print from; a caller
+    without the printer record still sees them refuse.
     """
     rows = []
     selected = [str(p) for p in (selected_plate_ids or [])]
@@ -1349,18 +1398,7 @@ def _plate_readiness_problem_rows(manifest, decisions, selected_plate_ids, slot_
                          'its color mapping cannot be validated', True))
         plate_parts = [parts_by_plate[k] for k in entry.get('part_keys') or [] if k in parts_by_plate]
         for ext in entry.get('source_filaments') or []:
-            slots = set()
-            if mode == 'single_color' and selection.get('slot') is not None:
-                slots = {selection['slot']}
-            elif mode == 'per_part':
-                row = choices.get(f'filament:{ext}')
-                if isinstance(row, dict) and row.get('slot') is not None:
-                    slots = {row['slot']}
-                else:
-                    holders = [p for p in plate_parts if p.get('source_extruder') == ext]
-                    picked = [choices.get('part:' + p['key']) for p in holders]
-                    if holders and all(isinstance(c, dict) and c.get('slot') is not None for c in picked):
-                        slots = {c['slot'] for c in picked}
+            slots = _mapped_slots(ext, plate_parts, mode, choices, selection)
             if not slots:
                 rows.append((f'plate {plate_id}: source filament {ext} is used but has no '
                              'validated slot mapping', False))
@@ -1996,11 +2034,23 @@ def validate_decisions(manifest, decisions, state, resolve, selected_plate_ids=N
     schema = decisions.get('schema')
     if schema not in (None, 'part_slots_v1'):
         raise ValueError('unknown color decision schema')
+    # A filament fallback (#1189) is decisions the slice derived from the
+    # operator's own (or from none) after the operator accepted the named
+    # warnings. It is never persisted as the job's decisions; it carries the
+    # original so its identity is the operator's (decisions_digest), and the
+    # part or filament keys it filled for used filaments that had no slot.
+    fallback = decisions.get('fallback')
+    if fallback is not None and not (isinstance(fallback, dict) and fallback.get('warnings')):
+        raise ValueError('a filament fallback must carry the warnings it was accepted under')
+    added = set((fallback or {}).get('added_keys') or [])
+    if any(not str(key).startswith(('filament:', 'part:')) for key in added):
+        raise ValueError('a filament fallback may only fill part and source filament keys')
+    keep = {'fallback': fallback} if fallback is not None else {}
     mode = decisions.get('mode')
     if mode == 'single_color':
         out = {'source_sha256': manifest['source_sha256'], 'mode': mode,
                **({'schema': schema} if schema else {}),
-               'selection': resolve(state, decisions.get('selection'))}
+               'selection': resolve(state, decisions.get('selection')), **keep}
         # A single-color print of a height-color source must say what happens
         # to the changes (#870): pauses for a manual swap, or one color with
         # the changes dropped. The choice is recorded, never left silent.
@@ -2016,11 +2066,12 @@ def validate_decisions(manifest, decisions, state, resolve, selected_plate_ids=N
                                    if schema == 'part_slots_v1'
                                    else prompts(manifest, selected_plate_ids=selected_plate_ids))}
     choices = decisions.get('choices')
-    if not isinstance(choices, dict) or set(choices) != expected or 'painted:unknown' in expected:
+    if (not isinstance(choices, dict) or set(choices) != expected | added
+            or 'painted:unknown' in expected):
         raise ValueError('every part and source filament requires an explicit selection')
     return {'source_sha256': manifest['source_sha256'], 'mode': mode,
             **({'schema': schema} if schema else {}),
-            'choices': {key: resolve(state, value) for key, value in choices.items()}}
+            'choices': {key: resolve(state, value) for key, value in choices.items()}, **keep}
 
 
 def require_single_color(manifest, decisions):

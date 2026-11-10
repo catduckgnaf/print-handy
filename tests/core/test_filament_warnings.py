@@ -77,8 +77,11 @@ class FilamentWarningClassificationTests(unittest.TestCase):
         self.assertTrue(any("disagree" in w for w in warnings), warnings)
 
     def test_unmapped_used_filament_is_not_a_filament_warning(self):
-        # A used filament with no slot mapping in the decisions is missing
-        # operator input, not filament data: it stays a hard problem.
+        # A used filament with no slot mapping in the decisions is not filament
+        # usage data, so it is not in this subset. Behavior change (#1189,
+        # owner decision 2026-11-10): the row no longer refuses a print; the
+        # gates fill it with model_job.filament_fallbacks first and present
+        # it as a warning naming the fallback slot.
         manifest = sc.inventory(two_plate_source(self.dir / "two.3mf"))
         parts = {p["name"]: p for p in manifest["parts"]}
         decisions = {"source_sha256": manifest["source_sha256"], "schema": "part_slots_v1",
@@ -90,6 +93,8 @@ class FilamentWarningClassificationTests(unittest.TestCase):
         self.assertEqual(sc.filament_readiness_warnings(manifest, decisions, [2]), [])
 
     def test_slot_past_capacity_is_not_a_filament_warning(self):
+        # Not in the usage-data subset; since #1189 the gates replace the slot
+        # with the fallback slot and warn instead of refusing (owner decision).
         manifest = sc.inventory(two_plate_source(self.dir / "two.3mf"))
         parts = {p["name"]: p for p in manifest["parts"]}
         decisions = {"source_sha256": manifest["source_sha256"], "schema": "part_slots_v1",
