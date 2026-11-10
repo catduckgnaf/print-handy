@@ -389,9 +389,9 @@ class CaptureSession:
         if not self.active:
             return False
         now = self._now() if now is None else now
-        if self.decimations and getattr(self.trigger, "name", "") == "layer":
-            # Every layer is due, but only every 2**n-th is kept once the
-            # stored frames have been halved n times: spacing stays even.
+        if self.decimations and getattr(self.trigger, "name", "") in ("layer", "both"):
+            # Layer-heavy sampling must remain even after decimation, even in
+            # both mode where interval samples may also be due.
             self._layer_frames_seen += 1
             if (self._layer_frames_seen - 1) % (2 ** self.decimations):
                 return False

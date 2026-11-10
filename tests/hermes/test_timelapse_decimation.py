@@ -106,6 +106,16 @@ class DecimationTests(unittest.TestCase):
         self.assertLessEqual(session.frame_count, 16)
         self.assertGreater(session.frame_count, 4)
 
+    def test_both_trigger_thins_layer_captures_across_the_print(self):
+        session, taken = run(self.tmp.name, hours=2, trigger="both", interval=300,
+                             max_frames=16)
+        self.assertFalse(session.capped)
+        self.assertGreater(session.manifest()["decimations"], 0)
+        self.assertGreater(session.frame_count, 4)
+        self.assertLessEqual(session.frame_count, 16)
+        self.assertLess(taken[0], 2 * 3600 - 60)
+        self.assertGreater(taken[-1], 2 * 3600 - 2 * (session.interval_s() or 0))
+
     def test_the_byte_cap_still_ends_capture_and_sets_capped(self):
         session, _ = run(self.tmp.name, hours=1, interval=5.0, max_frames=0,
                          max_bytes=len(JPEG) * 10)

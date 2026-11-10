@@ -63,6 +63,29 @@ class DefaultsAndOptions(unittest.TestCase):
         self.assertRegex(page, r'name="include_video" value="1"(?! checked)')
         self.assertIn('name="include_titles" value="1" checked', page)
 
+    def test_video_is_omitted_when_titles_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "wrapped"
+            out.mkdir()
+            (out / "wrapped-2025.mp4").write_bytes(b"video contains Secret Bracket")
+            result = share_export.export_bundle(
+                payload(), out, include_video=True, include_titles=False)
+            folder = Path(result["path"])
+            self.assertFalse(result["video_included"])
+            self.assertFalse((folder / "wrapped-2025.mp4").exists())
+            self.assertNotIn("video", [item["kind"] for item in result["manifest"]["files"]])
+            self.assertIn("compiled video was left out", " ".join(result["manifest"]["notes"]))
+
+    def test_video_is_omitted_when_printer_names_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "wrapped"
+            out.mkdir()
+            (out / "wrapped-2025.mp4").write_bytes(b"video contains printer name")
+            result = share_export.export_bundle(
+                payload(), out, include_video=True, include_printers=False)
+            self.assertFalse(result["video_included"])
+            self.assertFalse((Path(result["path"]) / "wrapped-2025.mp4").exists())
+
     def test_titles_and_printer_names_can_be_left_out(self):
         with tempfile.TemporaryDirectory() as tmp:
             kept = share_export.export_bundle(payload(), Path(tmp) / "a")

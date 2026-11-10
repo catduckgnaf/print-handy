@@ -527,10 +527,17 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
     notes = []
     video_name = f"wrapped-{year}.mp4"
     video_source = outputs_dir / video_name
-    video_included = bool(include_video) and video_source.is_file()
+    # The precompiled video can contain titles and printer names in both
+    # its slides and narration. Until it can be rebuilt from the redacted
+    # payload, never attach it when either identifying category is excluded.
+    video_included = (bool(include_video) and include_titles and include_printers
+                      and video_source.is_file())
     if video_included:
         _place_video(video_source, folder / video_name)
         notes.append(VIDEO_FOOTAGE_NOTE)
+    elif include_video and not (include_titles and include_printers):
+        notes.append("the compiled video was left out because it may contain "
+                     "titles or printer names excluded from this export.")
     elif include_video:
         notes.append(f"no {video_name} in the wrapped outputs, so no video "
                      "was included; compile the Wrapped video first if you "
