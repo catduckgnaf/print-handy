@@ -548,9 +548,8 @@ SPACING_PRESETS = {
 SPACING_LABELS = {"minimum": "Minimum", "low": "Low", "medium": "Medium (Standard)", "high": "High"}
 
 
-# The shipped defaults for these [paths] keys used to live under ~/.hermes. A key still at the new
-# shipped default that the operator never set keeps using the old folder when it already exists,
-# so an install that relied on the old default does not lose sight of its state.
+# The shipped defaults for these [paths] keys used to live under ~/.hermes. If an install has data
+# in the old directory and never explicitly set a path, keep using that directory after upgrade.
 LEGACY_PATH_DEFAULTS = {
     "hermes_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
     "cache": ("~/.cache/print-handy", "~/.hermes/cache"),

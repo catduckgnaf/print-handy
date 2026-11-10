@@ -1159,10 +1159,10 @@ def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
 
 
 def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):
-    """discord.post_print_quiet_s and discord.daily_reset_hour were retired: nothing reads them.
+    """The settings and bot no longer read these retired session-reset values.
 
-    The shipped defaults no longer carry them; an old settings file or environment that
-    still sets them loads, the values are ignored, and the file's keys are warned about."""
+    Their old file and environment forms are ignored so existing installs
+    continue loading without restoring dead runtime knobs."""
     defaults = settings.load(local=False, environ={}, user=False)
     assert "post_print_quiet_s" not in defaults["discord"] and "daily_reset_hour" not in defaults["discord"]
     old = tmp_path / "local.yaml"

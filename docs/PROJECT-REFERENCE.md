@@ -382,8 +382,8 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | | `stock_api_port` | `8898` | Flashforge stock API for IFS presence |
 | `discord` | `chat_id`, `approval_user_id` | empty | Channel and approver IDs |
 | | `upload_max_bytes` | `9500000` | Largest upload before video is shrunk |
-| | `post_print_quiet_s` | `7200` | Retired: the bot no longer resets chat sessions; kept so existing configs load |
-| | `daily_reset_hour`, `timezone` | `4`, `America/New_York` | `daily_reset_hour` retired with it; `timezone` is the display zone |
+| | `post_print_quiet_s` | retired | — | Retired: ignored if set in old config or environment |
+| | `daily_reset_hour` | retired | — | Retired: ignored if set in old config or environment |
 | | `bot_name` | `Print Handy` | Name the bot uses in the roast persona and the rendered profile templates (`SOUL.md`, locale strings). Set it to anything, for example your old name |
 | | `question_timeout_s` | `1800` | How long a Discord question waits for a button press |
 | | `safety_confirm_timeout_s` | `600` | How long a safety confirmation (stop, resume, reboot, cold-pull go-ahead) waits |
