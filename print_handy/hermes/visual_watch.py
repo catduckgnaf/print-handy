@@ -111,6 +111,15 @@ def _visual_level(level=None):
 # until then. Normal prints keep the sensitivity schedule above.
 EARLY_LAYERS = 10
 EARLY_INTERVAL_S = 120
+# Prints that report no layer number (Klipper prints sliced without the
+# SET_PRINT_STATS_INFO layer macro) are watched on a timer instead, as the
+# Bambu watch already is. The first timed check waits for this much printing
+# time (print_stats.print_duration, which only counts from the first
+# extrusion), so heat-up and the purge line are never judged. The early-layer
+# caution for a risky print then lasts EARLY_SECONDS_PER_LAYER per configured
+# early layer of printing time (20 minutes at the default 10 layers).
+LAYERLESS_FIRST_CHECK_S = 180
+EARLY_SECONDS_PER_LAYER = 120
 # An empty-bed verdict while print_stats says printing is suspicious, not
 # healthy: it is re-checked this many seconds later (#913).
 EMPTY_IDLE_RECHECK_S = 60
@@ -553,10 +562,22 @@ class VisualPrintWatch:
         """Pick the schedule for this print: normal or early_layer (#913)."""
         self.mode = WATCH_MODE_EARLY if mode == WATCH_MODE_EARLY else WATCH_MODE_NORMAL
 
-    def in_early_window(self, layer):
-        """True while a risky print is inside its first early_layers layers."""
-        return (self.mode == WATCH_MODE_EARLY and isinstance(layer, int)
-                and 1 <= layer <= self.early_layers)
+    def in_early_window(self, layer, elapsed_s=None):
+        """True while a risky print is inside its first early_layers layers.
+
+        A print that reports no layer (``layer`` None) is judged by printing
+        time instead: the first early_layers * EARLY_SECONDS_PER_LAYER
+        seconds. ``elapsed_s`` defaults to the time the last timer beat saw.
+        """
+        if self.mode != WATCH_MODE_EARLY:
+            return False
+        if isinstance(layer, int):
+            return 1 <= layer <= self.early_layers
+        if layer is None:
+            elapsed = self.last_elapsed_s if elapsed_s is None else elapsed_s
+            return (isinstance(elapsed, (int, float))
+                    and 0 <= elapsed < self.early_layers * EARLY_SECONDS_PER_LAYER)
+        return False
 
     def note_empty_idle(self, now):
         """An empty-bed verdict while printing: re-check soon (#913).
@@ -581,13 +602,19 @@ class VisualPrintWatch:
             self.suspicious_streak = 0
         return self.suspicious_streak
 
-    def tick(self, layer, now):
+    def tick(self, layer, now, *, elapsed_s=None):
         """Time-based schedule, independent of layer events (#913).
 
         Moonraker sends print_stats only when it changes, so a 40-minute
         layer produced no event and therefore no periodic check. A timer
         calls this; it answers the checks owed by the clock alone.
+
+        ``layer`` None means the print reports no layer number at all: the
+        watch then runs on the clock alone (see :meth:`_layerless_tick`),
+        with ``elapsed_s`` the printing time so far when the caller knows it.
         """
+        if layer is None:
+            return self._layerless_tick(now, elapsed_s)
         if not isinstance(layer, int) or layer < 1:
             return None
         if self.recheck_at and now >= self.recheck_at:
@@ -595,6 +622,43 @@ class VisualPrintWatch:
             self.last_check_at = now
             return "empty_idle_recheck"
         if self.in_early_window(layer) and now - self.last_check_at >= self.early_interval_s:
+            self.last_check_at = now
+            return "early_periodic"
+        if now - self.last_check_at >= self.profile["periodic_s"]:
+            self.last_check_at = now
+            return "periodic"
+        return None
+
+    def _layerless_tick(self, now, elapsed_s):
+        """The clock-only schedule for a print that reports no layer number.
+
+        Without layers the layer 2 / layer 5 / every-layer checks cannot
+        run, so the watch checks once after LAYERLESS_FIRST_CHECK_S of
+        printing ("layerless_start"), then on the sensitivity profile's
+        periodic interval; a risky print is checked every early_interval_s
+        while its printing time is inside the early window. ``elapsed_s``
+        is print_stats.print_duration when known; without it the watch
+        counts from the first beat that saw the layerless print.
+        """
+        if not isinstance(elapsed_s, (int, float)) or isinstance(elapsed_s, bool):
+            if self.layerless_since is None:
+                self.layerless_since = now
+            elapsed_s = now - self.layerless_since
+        self.last_elapsed_s = float(elapsed_s)
+        early = self.in_early_window(None, elapsed_s)
+        first = (min(self.early_interval_s, LAYERLESS_FIRST_CHECK_S)
+                 if self.mode == WATCH_MODE_EARLY else LAYERLESS_FIRST_CHECK_S)
+        if elapsed_s < first:
+            return None
+        if self.recheck_at and now >= self.recheck_at:
+            self.recheck_at = 0.0
+            self.last_check_at = now
+            return "empty_idle_recheck"
+        if not self.layerless:
+            self.layerless = True
+            self.last_check_at = now
+            return "layerless_start"
+        if early and now - self.last_check_at >= self.early_interval_s:
             self.last_check_at = now
             return "early_periodic"
         if now - self.last_check_at >= self.profile["periodic_s"]:
@@ -621,6 +685,13 @@ class VisualPrintWatch:
         self.recheck_at = 0.0
         self.suspicious_streak = 0
         self.auto_paused = False
+        # The clock-only schedule for a print without layer numbers: whether
+        # it has started, the one notice saying so, the fallback clock, and
+        # the printing time the last beat saw (for the early window).
+        self.layerless = False
+        self.layerless_noticed = False
+        self.layerless_since = None
+        self.last_elapsed_s = None
 
     def due(self, layer, now, *, snapshot_changed=None):
         if not isinstance(layer, int) or layer < 1:
