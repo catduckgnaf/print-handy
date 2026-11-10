@@ -40,11 +40,14 @@ recorded before this field existed). A median over
 fails the gate even when each individual raise was small and explained (+50%). Past the lower
 CUMULATIVE_WARN_TOLERANCE (+25%) the gate only reports a "timing drift" warning and a summary note, so the
 trend is visible before it blocks. Every summary and every --record proposal also prints the cumulative
-drift of every raised entry, however small, so a raise never hides its own total (#1142). The blocking limit is +50% because the checked-in mock baseline already
-sits at +38% over its earliest recorded values for the two parts-512-four-color cases (3.77 s -> 5.20 s and
-3.79 s -> 5.21 s wall_s, via their "raised_from"), so a +25% hard limit would fail unchanged main today;
-those two cases therefore show the warning on every run until someone fixes the slowdown or re-baselines
-it with a reason. The file's history shows no other case beyond +25% once the slack floor is applied.
+drift of every raised entry, however small, so a raise never hides its own total (#1142). The blocking limit is +50% with real headroom: no checked-in entry stands past the +25% warning
+once the slack floor is applied, and the largest wall drift on a case over a second is
+parts-512-four-color at +10% against its first recording (4.74 s, recorded 2026-11-03; 5.35 s at the
+2.2.5 re-record as the fit probes moved ahead of the first prompt, since eased to 5.20 s). An earlier
+file carried a "raised_from" of 3.77 s for that case that no recorded baseline in its history supports,
+which printed as +38% drift; the #1142 review corrected the entry to its first recording and stored
+"original" explicitly on every entry, so the seed the drift is measured from cannot be silently
+replaced by a later re-record again.
 Raising the baseline past the blocking limit means the slowdown is bigger than the process allows: fix it,
 or change the limit in this file in a reviewed change that says why.
 
