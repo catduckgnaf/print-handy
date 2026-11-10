@@ -203,7 +203,7 @@ class JobTests(unittest.TestCase):
 
 class DataLayerTests(unittest.TestCase):
     def settings(self, tmp):
-        return {"timelapse": {"wrapped_enabled": True, "wrapped_ai_video": True},
+        return {"timelapse": {"wrapped_enabled": True, "wrapped_video": True},
                 "paths": {"records_vault": str(tmp)}}
 
     def test_make_video_answers_202_and_joins_a_running_year(self):
@@ -252,7 +252,7 @@ class DataLayerTests(unittest.TestCase):
     def test_gates_and_bad_year_do_not_start_a_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             jobs = wrapped_video.VideoJobs()
-            off = {"timelapse": {"wrapped_enabled": True, "wrapped_ai_video": False},
+            off = {"timelapse": {"wrapped_enabled": True, "wrapped_video": False},
                    "paths": {"records_vault": str(tmp)}}
             self.assertEqual(data_module.make_video(off, 2026, jobs=jobs)[0], 403)
             self.assertEqual(data_module.make_video(self.settings(tmp), "x", jobs=jobs)[0], 400)
