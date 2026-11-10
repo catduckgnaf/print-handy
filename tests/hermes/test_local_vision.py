@@ -651,6 +651,19 @@ def _kept(conf):
     return [(conf, [0.1, 0.1, 0.5, 0.5])]
 
 
+@pytest.fixture
+def independent_views(monkeypatch):
+    """Treat every repeated test frame as a new, independent view.
+
+    The solid fixture frames are identical and judged microseconds apart,
+    which the evidence rule (spacing plus a changed frame) rightly refuses
+    to count twice; these tests are about threading the streak, so they
+    lift that rule. Its own tests are in test_watch_coverage.py.
+    """
+    monkeypatch.setattr(vw, "EVIDENCE_MIN_SPACING_S", 0.0)
+    monkeypatch.setattr(vw, "frames_differ", lambda before, after: True)
+
+
 def test_streak_weak_positive_escalates_on_the_second_consecutive_check():
     streak = lv.FailureStreak()
     verdict, detail = streak.note(_kept(0.35))
@@ -701,7 +714,7 @@ def test_streak_counter_is_bounded_and_reset_clears():
     assert verdict == "uncertain"
 
 
-def test_local_verdict_with_streak_escalates_across_frames():
+def test_local_verdict_with_streak_escalates_across_frames(independent_views):
     streak = lv.FailureStreak()
     verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
     assert verdict == "uncertain"
@@ -712,7 +725,7 @@ def test_local_verdict_with_streak_escalates_across_frames():
     assert lv.local_verdict(frame(84), cfg_with())[0] == "uncertain"
 
 
-def test_detector_failure_neither_builds_nor_clears_the_streak(monkeypatch):
+def test_detector_failure_neither_builds_nor_clears_the_streak(monkeypatch, independent_views):
     streak = lv.FailureStreak()
     verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
     assert verdict == "uncertain" and streak.positives == 1
@@ -732,7 +745,7 @@ def test_detector_failure_neither_builds_nor_clears_the_streak(monkeypatch):
     assert verdict == "spaghetti"  # the next real positive completes the streak
 
 
-def test_visual_verdict_threads_the_streak(process_cfg):
+def test_visual_verdict_threads_the_streak(process_cfg, independent_views):
     streak = lv.FailureStreak()
     verdict, _ = _verdict(frame(84), local_streak=streak)
     assert verdict == "uncertain"
@@ -743,7 +756,7 @@ def test_visual_verdict_threads_the_streak(process_cfg):
     assert _verdict(frame(84))[0] == "uncertain"
 
 
-def test_listener_verdict_threads_its_streak(process_cfg):
+def test_listener_verdict_threads_its_streak(process_cfg, independent_views):
     from print_handy.hermes import moonraker_event_listener as mel
     listener = mel.Listener()
     assert isinstance(listener.local_streak, lv.FailureStreak)
@@ -755,7 +768,7 @@ def test_listener_verdict_threads_its_streak(process_cfg):
     assert mel._visual_verdict(frame(84), "prompt")[0] == "uncertain"
 
 
-def test_bambu_monitor_verdict_threads_its_streak(process_cfg):
+def test_bambu_monitor_verdict_threads_its_streak(process_cfg, independent_views):
     from print_handy.hermes import bambu_watch
     adapter = SimpleNamespace(label="Test Bambu")
     streak = lv.FailureStreak()
