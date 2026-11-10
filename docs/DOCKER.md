@@ -264,7 +264,7 @@ AMD's AMF encoders are not in Debian's ffmpeg build and need AMD's proprietary r
 Intel iGPU or AMD GPU:
 
 1. In the Unraid terminal, check the device exists and note its group: `ls -l /dev/dri` and `stat -c %g /dev/dri/renderD128`. On an Intel iGPU with no `/dev/dri`, install the **Intel GPU TOP** plugin (it loads the `i915` driver). AMD GPUs normally load `amdgpu` by themselves, or use the **Radeon TOP** plugin.
-2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry already maps `/dev/dri` — keep it — and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
+2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry ships with an empty value so hosts without an iGPU still start: set its value to `/dev/dri` (its default) and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
 3. Apply, then check from the Unraid terminal: `docker exec print-handy vainfo --display drm --device /dev/dri/renderD128`. It should list an H.264 `VAEntrypointEncSlice` (or `…EncSliceLP`) line.
 4. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
 
@@ -358,7 +358,7 @@ This is the edit. It is not applied by installing this repository.
 <Repository>ghcr.io/catduckgnaf/print-handy@sha256:36d44e6c3bfd285deb671508217e0296fcf8d26e39fc17bd5f6e69414b762a48</Repository>
 ```
 
-3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
+3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: every appdata path and any extra mounts (account tokens, timelapse archive) stay.
 4. Apply the template through DockerMan so the container is recreated from the same paths. Do not run `docker compose down -v` and do not delete `/mnt/user/appdata/print-handy`.
 5. After it is up, `docker inspect print-handy --format '{{.Config.Image}}'` must print the digest above, and the health check must be healthy.
 
@@ -487,11 +487,20 @@ printer warnings recorded before the stop".
 
 ## Unraid DockerMan
 
-Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template carries only the install-time surface: the Web UI port (8088), a single **Appdata** path mounting all of `/data`, a **Timelapse Archive** path whose default folder sits inside Appdata, the bundled/external Spoolman choice, the container timezone and the GPU passthrough entries — both paths under `/mnt/user/appdata/print-handy` by default, the Appdata path owned by UID/GID 1000:1000. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port beyond the Web UI's; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
+Use `docker/unraid/print-handy.xml` (the Community Applications listing is the same install surface). One entry runs all required processes; leave PostArgs empty. Its only Extra Parameters value is `--shm-size=256m`, the same shared-memory size Compose sets: Docker's 64 MB default is too small for OrcaSlicer's slicing. The template carries only the install-time surface: the Web UI port (8088), a single **Appdata** path mounting all of `/data`, a **Timelapse Archive** path whose default folder sits inside Appdata, the bundled/external Spoolman choice, the container timezone and the GPU passthrough entries — both paths under `/mnt/user/appdata/print-handy` by default, the Appdata path owned by UID/GID 1000:1000.
+
+Before the first start, make the Appdata folder writable by the container user (UID 1000; Unraid creates folders as 99:100). In the Unraid terminal:
+
+```bash
+mkdir -p /mnt/user/appdata/print-handy
+chown -R 1000:1000 /mnt/user/appdata/print-handy
+```
+
+All data lives in that one folder. A chat bot token goes in `state/.env` inside it (for example `DISCORD_BOT_TOKEN=...` or `TELEGRAM_BOT_TOKEN=...`) before the first start; create the file as UID 1000 or run the `chown` again afterwards. Then open the Web UI on port 8088 to finish setup. The Web UI is open to anyone who can reach the port until you set a password there. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port beyond the Web UI's; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
 
 The runtime selector `PRINT_HANDY_ORCA_CHANNEL` (Compose and `.env.example`) defaults to `stable`, the one bundled OrcaSlicer; `preview` and its pre-#600 name `alpha` also start on that single build with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops container startup.
 
-The container timezone `TZ` (Compose, `.env.example` and the template) defaults to `America/New_York` and takes any IANA name, for example `Europe/London`. It sets the container's local time: log timestamps, scheduled and timed features, and the bundled Spoolman's timestamps. The image ships the timezone database and points `/etc/localtime` at the default zone; a `TZ` set at runtime overrides it for every process, and an unknown name is logged at startup while the default is used instead. Print Handy's chat display times keep following `discord.timezone`, a separate setting.
+The container timezone `TZ` (Compose, `.env.example` and the template) defaults to `America/New_York` and takes any IANA name, for example `Europe/London`. It sets the container's local time: log timestamps, scheduled and timed features, and the bundled Spoolman's timestamps. It does not change how Print Handy shows times in chat. The image ships the timezone database and points `/etc/localtime` at the default zone; a `TZ` set at runtime overrides it for every process, and an unknown name is logged at startup while the default is used instead. Print Handy's chat display times keep following `discord.timezone`, a separate setting.
 
 The Compose environment also carries the feature-enabling variables — the ones that turn a feature on, as opposed to tuning settings, which stay in a mounted YAML pointed to by `PRINT_HANDY_CONFIG`:
 
@@ -502,6 +511,27 @@ The Compose environment also carries the feature-enabling variables — the ones
 - **Discord and LLM:** `PRINT_HANDY__DISCORD__APPROVAL_USER_ID`, `PRINT_HANDY__DISCORD__TIMEZONE`, `PRINT_HANDY__LLM__CHAT_URL`, `PRINT_HANDY__LLM__MODEL` and the `LLM_API_KEY` secret.
 
 In Compose, the settings are environment entries with their documented defaults and the secrets reach the container through the `.env` file, like `DISCORD_BOT_TOKEN`. The Unraid template carries none of them: on Unraid the same settings are made in the mounted config file or the Web UI, and secrets go in the profile `.env` inside the Appdata path (or in a variable added by hand in the container editor, masked). Leaving every one of them at its default or empty changes nothing about a running install.
+
+### Upgrading from the older multi-path template
+
+The older template mapped the account tokens and Web UI settings to a host folder named `dot-config`. The single-path layout reads `.config` inside the same Appdata folder, so after switching templates those tokens and settings look lost while the data is still on disk. Stop the container, then rename the folder:
+
+```bash
+cd /mnt/user/appdata/print-handy
+mv dot-config .config
+chown -R 1000:1000 .config
+```
+
+### Recovery: installed the single-path template while the image declared volumes
+
+Images released before this was fixed (2.2.7 and earlier) declared `VOLUME` for `/data/state`, `/data/hermes`, `/data/archive`, `/data/records`, `/data/cache` and `/data/spoolman`. With a template that binds only `/data`, Docker stores those six folders in anonymous volumes instead of the Appdata folder, so the host folder stays nearly empty and the data survives only as long as the container is not removed. Images built after the declaration was removed do not do this. If you installed the single-path template on an older image, move the data out before you recreate the container:
+
+1. Stop the container (do not remove it yet).
+2. List what it uses: `docker inspect print-handy --format '{{range .Mounts}}{{.Type}} {{.Destination}} {{.Name}} {{.Source}}{{"
+"}}{{end}}'`. Rows of type `volume` with a long hexadecimal name and a destination under `/data` are the anonymous volumes. `docker volume ls` lists them by name.
+3. Copy each one into the matching folder under Appdata, keeping ownership, for example: `cp -a /var/lib/docker/volumes/<name>/_data/. /mnt/user/appdata/print-handy/state/`. The Source column of step 2 gives the path to copy from. Do the same for `hermes`, `archive`, `records`, `cache` and `spoolman`.
+4. Run `chown -R 1000:1000 /mnt/user/appdata/print-handy`, then update to an image that no longer declares the volumes (or add a **Path** entry for each folder, host folder `/mnt/user/appdata/print-handy/<name>`, container path `/data/<name>`), and recreate the container.
+5. Once it runs correctly, remove the leftover anonymous volumes with `docker volume rm <name>`.
 
 This source template does not prove a Community Applications listing or an exercised Unraid installation. The host owner verifies deployment and final network mapping.
 
