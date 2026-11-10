@@ -146,3 +146,42 @@ def test_cancel_on_first_question_saves_nothing(tmp_path):
         assert jp.read_text() == before
         assert adapter.questions[0]['choices'][-1] == 'Cancel'
     asyncio.run(run())
+
+
+def test_discord_flow_rechecks_the_source_by_hash_not_a_full_inventory(tmp_path, monkeypatch):
+    # #1155: the post-selection "has the source changed" check needs only the
+    # file hash; a full inventory() there re-decoded every painted triangle.
+    p = source(tmp_path)
+    jp = tmp_path / 'JOB.json'
+    jp.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                              'color_manifest': source_colors.inventory(p)}))
+    real = source_colors.inventory
+    calls = []
+
+    def counting(path):
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(source_colors, 'inventory', counting)
+    asyncio.run(collect(jp, state(), Adapter([0, 1, 0, 0]), 'offline', 'colors-hash-only', timeout=1))
+    # One read to build the questions, one inside intake_color_choices (the
+    # canonical validator); none for the source-changed check.
+    assert len(calls) == 2
+
+
+def test_discord_flow_refuses_a_source_changed_during_selection(tmp_path):
+    p = source(tmp_path)
+    jp = tmp_path / 'JOB.json'
+    jp.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                              'color_manifest': source_colors.inventory(p)}))
+
+    class Changing(Adapter):
+        async def send_clarify(self, **kwargs):
+            if len(self.questions) == 1:
+                with open(p, 'ab') as handle:
+                    handle.write(b'\0')
+            return await super().send_clarify(**kwargs)
+
+    with pytest.raises(ValueError, match='source changed during Discord selection'):
+        asyncio.run(collect(jp, state(), Changing([0, 1, 0, 0]), 'offline', 'colors-changed', timeout=1))
+    assert 'color_decisions' not in json.loads(jp.read_text())

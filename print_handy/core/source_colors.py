@@ -414,16 +414,32 @@ def _attach_part_settings(archive, names, parts, painted):
         return
     from . import author_settings
     parsed = author_settings.parse_prusa_model(archive.read('Metadata/Slic3r_PE_model.config'))
+    for part, entry, volume in _prusa_volume_matches(parts, parsed):
+        settings = {**entry['settings'], **(volume.get('settings') or {})}
+        if settings:
+            part['settings'] = settings
+        if not painted:
+            extruder = volume.get('extruder') or entry['extruder']
+            if extruder:
+                part['source_extruder'] = extruder
+
+
+def _prusa_volume_matches(parts, parsed):
+    """(part, object entry, volume entry) for each part a parsed Slic3r_PE_model.config names.
+
+    Volumes match the object's leaves in component order, and only when the
+    counts agree (an unmatched part gets an empty volume entry, so a volume is
+    never matched to the wrong mesh). The same object placed by several build
+    items (instances) is matched per instance, or a two-volume object placed
+    twice would present four rows against two volumes and lose every volume
+    setting (#876).
+    """
     if not parsed:
         return
     groups = {}
     for part in parts:
         ancestry = part.get('ancestry') or []
         wrapper = ancestry[0][1] if len(ancestry) > 1 else part.get('object_id')
-        # The same object can be placed by several build items (instances);
-        # each instance's rows are matched against the config's volumes
-        # separately, or a two-volume object placed twice would present four
-        # rows against two volumes and lose every volume setting (#876).
         instance = str(part.get('key') or '').split('/', 1)[0]
         groups.setdefault((str(wrapper), instance), []).append(part)
     for (wrapper, _instance), rows in groups.items():
@@ -433,14 +449,7 @@ def _attach_part_settings(archive, names, parts, painted):
         volumes = entry['volumes']
         matched = len(volumes) == len(rows)
         for index, part in enumerate(rows):
-            volume = volumes[index] if matched else {}
-            settings = {**entry['settings'], **(volume.get('settings') or {})}
-            if settings:
-                part['settings'] = settings
-            if not painted:
-                extruder = volume.get('extruder') or entry['extruder']
-                if extruder:
-                    part['source_extruder'] = extruder
+            yield part, entry, (volumes[index] if matched else {})
 
 
 def inventory(path):
@@ -735,7 +744,11 @@ def _prusa_role_extruders(path):
     out = {}
     try:
         with zipfile.ZipFile(path) as archive:
-            if 'Metadata/Slic3r_PE.config' not in archive.namelist():
+            names = archive.namelist()
+            # A Bambu/Orca project that also carries a PrusaSlicer config is
+            # read through its own model settings (as inventory reads it);
+            # the Prusa role keys say nothing about it.
+            if 'Metadata/Slic3r_PE.config' not in names or 'Metadata/model_settings.config' in names:
                 return out
             data = archive.read('Metadata/Slic3r_PE.config').decode('utf-8', 'replace')
     except Exception:
@@ -754,6 +767,47 @@ def _prusa_role_extruders(path):
         if number and number > 0:
             out[key] = number
     return out
+
+
+def _prusa_explicit_extruder_keys(path, parts):
+    """Keys of the parts whose PrusaSlicer object or volume names its own extruder.
+
+    In PrusaSlicer a non-zero object (or volume) extruder sets that object's
+    perimeter, infill and solid-infill extruders, overriding the print-wide
+    perimeter_extruder / infill_extruder values; only an object with no
+    extruder of its own prints its walls and infill with the print-wide ones.
+    """
+    from . import author_settings
+    try:
+        parsed = author_settings.read_prusa_model(path)
+    except Exception:
+        parsed = {}
+    return {part['key'] for part, entry, volume in _prusa_volume_matches(parts, parsed)
+            if volume.get('extruder') or entry['extruder']}
+
+
+def _prusa_role_usage(path, plate_parts, prusa_roles):
+    """(wall filaments, infill filaments) for one plate of a PrusaSlicer project.
+
+    A real PrusaSlicer config always writes perimeter_extruder and
+    infill_extruder (1 by default), so the print-wide values are counted only
+    for the parts that take them: parts whose object names no extruder of its
+    own. Every other part prints its walls and infill with its own filament,
+    so a job whose objects all carry an extruder gains no filament (and no
+    color question) from the print-wide defaults (#1155).
+    """
+    explicit = _prusa_explicit_extruder_keys(path, plate_parts)
+    wall, infill = set(), set()
+    for part in plate_parts:
+        own = part.get('source_extruder')
+        if part['key'] in explicit:
+            wall.add(own)
+            infill.add(own)
+            continue
+        wall.add(prusa_roles.get('perimeter_extruder', own))
+        infill |= {prusa_roles[k] for k in ('infill_extruder', 'solid_infill_extruder')
+                   if k in prusa_roles} or {own}
+    return wall - {None}, infill - {None}
 
 
 def _height_range_extruders(path, object_plate):
@@ -908,13 +962,13 @@ def _plate_usage(path, manifest):
         # Wall / infill: only the PrusaSlicer format names per-feature
         # extruders; a Bambu/Orca project carries no distinct assignment.
         if prusa_roles:
-            wall = {prusa_roles['perimeter_extruder']} if 'perimeter_extruder' in prusa_roles else set()
-            infill = {prusa_roles[k] for k in ('infill_extruder', 'solid_infill_extruder')
-                      if k in prusa_roles}
-            classes['wall'] = _usage_row('known', wall or (assigned - {None}),
-                                         evidence='perimeter_extruder in Metadata/Slic3r_PE.config')
-            classes['infill'] = _usage_row('known', infill or (assigned - {None}),
-                                           evidence='infill_extruder in Metadata/Slic3r_PE.config')
+            wall, infill = _prusa_role_usage(path, plate_parts, prusa_roles)
+            classes['wall'] = _usage_row('known', wall,
+                                         evidence='perimeter_extruder in Metadata/Slic3r_PE.config, '
+                                                  'for parts whose object names no extruder')
+            classes['infill'] = _usage_row('known', infill,
+                                           evidence='infill_extruder in Metadata/Slic3r_PE.config, '
+                                                    'for parts whose object names no extruder')
         else:
             classes['wall'] = _usage_row(
                 'not_carried_by_format',
