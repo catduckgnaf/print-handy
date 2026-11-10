@@ -26,8 +26,12 @@ dimensions. You then choose:
 
 You do not have to press **Change it** first: while the question is open,
 just type the change ("make the holes 5 mm") and it runs as the next turn
-of the same design. Typing a choice (or its number on Matrix) answers the
-question the same as the button.
+of the same design. Typing a choice answers the question the same as the
+button: "slice it" or "print it" for **Slice it**, "cancel", "stop" or
+"never mind" for **Cancel**, or the choice's number on any platform. The
+same words work after **Change it**, so "never mind" there cancels instead
+of becoming a change. Any other message from you while the question is open
+is a change to the design, never an edit of an earlier print job.
 
 ## Turning it on
 
