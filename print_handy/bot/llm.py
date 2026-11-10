@@ -85,8 +85,20 @@ def allowed_command(command):
     return command if any(p.fullmatch(command) for p in ALLOWED) else None
 
 
-def system_prompt(help_text):
-    return (f"You are {_config.bot_name()}, the Discord helper for a 3D printer. You cannot see the printer, "
+_PLATFORM_LABELS = {"discord": "Discord", "telegram": "Telegram", "matrix": "Matrix",
+                    "webui": "web chat"}
+
+
+def system_prompt(help_text, platform=None):
+    """The chat lane's system prompt, naming the platform being served.
+
+    The lane serves every platform, so the prompt must not call itself
+    "the Discord helper" on Telegram (#1146): a known platform is named,
+    anything else stays neutral ("the chat helper").
+    """
+    label = _PLATFORM_LABELS.get(str(platform or "").strip().lower())
+    who = f"the {label} helper" if label else "the chat helper"
+    return (f"You are {_config.bot_name()}, {who} for a 3D printer. You cannot see the printer, "
             "start, stop or change anything yourself. Every printer action is a command that asks the "
             "operator to press a button first. Answer in at most two short sentences. If one of these "
             "commands does what the person asks, name it in \"command\"; otherwise use null. Never invent "
@@ -178,8 +190,11 @@ def ask(text, help_text, *, session=None, cfg=None, opener=None):
 
 def _ask_turn(user_text, help_text, key, cfg, opener):
     history = _history(key) if key else []
+    # Session keys are "platform:chat:thread:user" (bot.runtime.session_key);
+    # the first segment names the platform the prompt should claim to serve.
+    platform = key.split(":", 1)[0] if key else None
     answer, _served_by = ai_routes.call(
-        "chat", [{"role": "system", "content": system_prompt(help_text)}, *history,
+        "chat", [{"role": "system", "content": system_prompt(help_text, platform)}, *history,
                  {"role": "user", "content": user_text}],
         max_tokens=200, temperature=0.2, cfg=cfg or _config.cfg(), opener=opener)
     reply, command = _parse(answer)
