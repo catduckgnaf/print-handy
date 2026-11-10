@@ -25,6 +25,14 @@ deduplicated by the ``upstream-watch`` label and titles of the form
 - when nothing is newer, nothing is created or changed — a quiet
   week is a successful no-op.
 
+For the commit-pinned components the comparison is by commit, never
+by date: a release counts as newer only when the pinned commit does
+not contain the commit the release's tag points to. A release is
+routinely published hours after its own tag commit was written, so
+comparing the publish time with the pinned commit's date made a pin
+sitting exactly on a release read as older than that release, and
+the catch-up test could never clear it afterwards (#1130, #1131).
+
 Notification only: the script never edits a pin and never opens a
 bump PR. Bumps stay separate decisions (an OrcaSlicer bump also needs
 the per-architecture SHA256 and vendor-profile identity updates a
@@ -263,28 +271,35 @@ def _version_finding(
 def _commit_finding(
     component: str,
     pin_ref: str,
-    pin_date: datetime,
+    pin_contains_tag,
     pin_source: str,
     latest: Release | None,
     releases: list[Release],
 ) -> Finding:
+    """Finding for a commit-pinned component.
+
+    ``pin_contains_tag(tag)`` reports whether the pinned commit is
+    the commit the release tag points to, or a descendant of it.
+    Dates play no part: a release is often published hours after its
+    tag commit was written, so comparing the release's publish time
+    with the pinned commit's date flags a pin that already IS the
+    release (issues #1130 and #1131), and the same comparison in the
+    catch-up test could never clear such an issue afterwards.
+    """
     newer = (
         latest
-        if latest is not None and latest.published_at > pin_date
+        if latest is not None and not pin_contains_tag(latest.tag)
         else None
     )
     by_version = {r.version: r for r in releases}
 
     def caught_up(version: str, _release: Release | None) -> bool:
         release = by_version.get(version)
-        return release is not None and release.published_at <= pin_date
+        return release is not None and pin_contains_tag(release.tag)
 
     return Finding(
         component=component,
-        pin_description=(
-            f"commit {pin_ref[:12]} committed "
-            f"{pin_date.date().isoformat()} ({pin_source})"
-        ),
+        pin_description=f"commit {pin_ref[:12]} ({pin_source})",
         newer_release=newer,
         latest_release=latest,
         pin_caught_up=caught_up,
@@ -296,9 +311,9 @@ def build_findings(
     orca_releases: list[Release],
     go2rtc_releases: list[Release],
     spoolman_releases: list[Release],
-    spoolman_pin_date: datetime,
+    spoolman_pin_contains_tag,
     bambu_releases: list[Release],
-    bambu_pin_date: datetime,
+    bambu_pin_contains_tag,
 ) -> list[Finding]:
     orca_stable_latest, orca_pre_latest = select_latest(orca_releases)
     go2rtc_stable, go2rtc_pre = select_latest(go2rtc_releases)
@@ -331,7 +346,7 @@ def build_findings(
         _commit_finding(
             "Spoolman",
             pins.spoolman_ref,
-            spoolman_pin_date,
+            spoolman_pin_contains_tag,
             "Dockerfile, ARG SPOOLMAN_REF",
             newest(spoolman_stable, spoolman_pre),
             spoolman_releases,
@@ -339,7 +354,7 @@ def build_findings(
         _commit_finding(
             "Bambu Studio",
             pins.bambu_ref,
-            bambu_pin_date,
+            bambu_pin_contains_tag,
             "Dockerfile, ARG BAMBU_REF",
             newest(bambu_stable, bambu_pre),
             bambu_releases,
@@ -450,11 +465,23 @@ class GitHubClient:
             )
         return releases
 
-    def commit_date(self, repo: str, ref: str) -> datetime:
-        raw = self.request("GET", f"/repos/{repo}/commits/{ref}")
+    def commit_is_ancestor(self, repo: str, ancestor: str, descendant: str) -> bool:
+        """Whether `descendant` is `ancestor` or a commit built on it.
+
+        The compare endpoint takes the would-be ancestor as its base:
+        "identical" means both refs name the same commit and "ahead"
+        means the head contains the base; "behind" and "diverged"
+        mean it does not. Refs may be tags or commit SHAs — the
+        endpoint resolves both, including annotated tags.
+        """
+        raw = self.request(
+            "GET", f"/repos/{repo}/compare/{ancestor}...{descendant}"
+        )
         if raw is None:
-            raise WatchError(f"commit {ref} not found in {repo}")
-        return parse_datetime(raw["commit"]["committer"]["date"])
+            raise WatchError(
+                f"cannot compare {ancestor}...{descendant} in {repo}"
+            )
+        return raw.get("status") in ("identical", "ahead")
 
     def list_open_watch_issues(self, repo: str) -> list[WatchIssue]:
         raw = self._list_all(
@@ -552,17 +579,19 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
     go2rtc_releases = client.list_releases(GO2RTC_REPO)
     spoolman_releases = client.list_releases(SPOOLMAN_REPO)
     bambu_releases = client.list_releases(BAMBU_REPO)
-    spoolman_pin_date = client.commit_date(SPOOLMAN_REPO, pins.spoolman_ref)
-    bambu_pin_date = client.commit_date(BAMBU_REPO, pins.bambu_ref)
 
     findings = build_findings(
         pins,
         orca_releases,
         go2rtc_releases,
         spoolman_releases,
-        spoolman_pin_date,
+        lambda tag: client.commit_is_ancestor(
+            SPOOLMAN_REPO, tag, pins.spoolman_ref
+        ),
         bambu_releases,
-        bambu_pin_date,
+        lambda tag: client.commit_is_ancestor(
+            BAMBU_REPO, tag, pins.bambu_ref
+        ),
     )
     print("Upstream state:")
     for finding in findings:
