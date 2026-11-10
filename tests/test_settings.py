@@ -628,7 +628,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         # The multiplexed gateway runs with HERMES_HOME=~/.hermes for every profile. Reading it
         # sent the print plugin to ~/.hermes/state, where printer_hardware.json does not exist.
         data = settings.load(local=False, environ={"HERMES_HOME": "/somewhere/else/.hermes"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("~/.hermes/profiles/3dprinting").expanduser())
+        self.assertEqual(data["paths"]["hermes_home"], Path("~/.local/share/print-handy").expanduser())
         data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": "/tmp/ph-profile"})
         self.assertEqual(data["paths"]["hermes_home"], Path("/tmp/ph-profile"))
 
@@ -750,8 +750,8 @@ class RuntimeSettingsTests(unittest.TestCase):
 
     def test_paths_expand_and_state_lives_in_the_profile(self):
         data = settings.load(local=False, environ={})
-        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".hermes/profiles/3dprinting")
-        self.assertEqual(settings.state_dir(data), Path.home() / ".hermes/profiles/3dprinting/state")
+        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".local/share/print-handy")
+        self.assertEqual(settings.state_dir(data), Path.home() / ".local/share/print-handy/state")
         self.assertEqual(data["paths"]["ffmpeg"], "ffmpeg")
 
     def test_home_file_has_no_addresses_or_ids(self):
