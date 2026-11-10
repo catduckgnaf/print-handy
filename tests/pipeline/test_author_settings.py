@@ -353,21 +353,53 @@ def test_slice_model_provenance_targets_the_destination_template(tmp_path):
                for row in conflicts)
 
 
-def test_conversion_provenance_empty_changed_list_is_unknown_intent(tmp_path):
-    # different_settings_to_system present but EMPTY names no deliberate key;
-    # intent stays unknown (the docs have always said "unknown otherwise").
+def test_conversion_provenance_empty_changed_list_is_known_and_inherited(tmp_path):
+    # different_settings_to_system present with an EMPTY print entry is
+    # metadata saying nothing differs from the system preset: intent is
+    # KNOWN and every row inherited (#1110 requirement 1). The status and the
+    # rows must agree; they once said "unknown" over all-"inherited" rows.
     source = tmp_path / "empty-changed.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],
               project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
     result = author_settings.conversion_provenance(
         source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert result["intent_status"] == "known"
+
+
+def test_conversion_provenance_reads_only_the_print_presets_changed_list(tmp_path):
+    # The list is per preset: print first, then each filament, then the
+    # printer. A key a filament or printer preset changed is not the
+    # designer's process choice.
+    source = tmp_path / "per-preset.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "sparse_infill_density": "25%",
+                             "different_settings_to_system": ["sparse_infill_density", "wall_loops", "wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_density": "15%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"},
+        {"wall_loops": "4", "sparse_infill_density": "25%"}, [])
+    assert result["settings"]["sparse_infill_density"]["origin"] == "designer"
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert [row["key"] for row in result["unresolved_conflicts"]] == ["sparse_infill_density"]
+    assert result["intent_status"] == "known"
+
+
+def test_conversion_provenance_without_metadata_status_agrees_with_rows(tmp_path):
+    source = tmp_path / "no-metadata.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "4"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "unknown"
     assert result["intent_status"] == "unknown"
 
 
 def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
-    # A present changed list proves the LISTED keys deliberate; an unlisted key
-    # with no preset evidence is unknown, not "inherited", and its reason agrees.
+    # A present changed list is complete for the print preset: it proves the
+    # LISTED keys deliberate and every unlisted key inherited.
     source = tmp_path / "unlisted.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],
@@ -386,6 +418,159 @@ def test_conversion_provenance_unlisted_key_reason_agrees_with_origin(tmp_path):
     assert "intent unknown" not in entry["reason"]
 
 
+def test_conversion_provenance_records_source_profile_version_from_embedded_preset(tmp_path):
+    # The embedded preset record (filament_sequence.json's print preset) is the
+    # source 3MF's own evidence for its profile identity: name and version are
+    # recorded from it, never inferred from the project values.
+    source = tmp_path / "preset-version.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": [""]},
+                  extra={"Metadata/filament_sequence.json": json.dumps(
+                      {"print": [{"setting": {"wall_loops": "4", "name": "0.20mm Standard @BBL X1C",
+                                              "version": "1.4.2"}}]}).encode()})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_profile_version"] == "1.4.2"
+    assert result["source_profile_name"] == "0.20mm Standard @BBL X1C"
+    assert result["source_profile_version_status"] == "recorded"
+
+
+def test_conversion_provenance_marks_source_profile_version_not_recorded(tmp_path):
+    # A project whose own evidence carries no preset version: the field stays
+    # null, but the status names that as a recorded fact about the source
+    # ("not recorded by the source"), not as an unwired placeholder.
+    source = tmp_path / "no-preset-version.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "4"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [])
+    assert result["source_profile_version"] is None
+    assert result["source_profile_version_status"] == "not_recorded_by_source"
+
+
+def test_conversion_provenance_records_destination_identity_and_governing_rules(tmp_path):
+    source = tmp_path / "destination.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [],
+        destination_slicer_version="2.5.0",
+        destination_profile={"name": "0.20mm Standard @FF AD5X", "version": "3ei5QadUbDuTI3hi"},
+        governing_rules=["author-intent-allowlist", "orca-enum-fallback"])
+    assert result["destination_slicer_version"] == "2.5.0"
+    assert result["destination_profile_version"] == "3ei5QadUbDuTI3hi"
+    assert result["destination_profile_name"] == "0.20mm Standard @FF AD5X"
+    assert result["governing_rules"] == ["author-intent-allowlist", "orca-enum-fallback"]
+    assert result["registry_version"] == 1
+
+
+def test_destination_profile_identity_records_only_real_versions(tmp_path):
+    template = {"name": "0.20mm Standard @FF AD5X", "setting_id": "abc123"}
+    # A template carrying its own version wins.
+    assert author_settings.destination_profile_identity(
+        {**template, "version": "7.1"}, tmp_path) == {"name": template["name"], "id": "abc123", "version": "7.1"}
+    # A generated template folder records the vendor version beside the templates.
+    (tmp_path / "SOURCE.json").write_text(json.dumps({"vendor_version": "02.08.00.15"}))
+    assert author_settings.destination_profile_identity(
+        template, tmp_path)["version"] == "02.08.00.15"
+    # A shipped template with neither has no version: its Orca setting_id is its
+    # identity, recorded as the id, never passed off as a version.
+    assert author_settings.destination_profile_identity(
+        template, tmp_path / "missing") == {"name": template["name"], "id": "abc123", "version": None}
+
+
+def test_slice_provenance_records_real_destination_versions_rules_and_artifact(tmp_path):
+    # End to end over the production slice path: the fake slicer identifies
+    # itself as OrcaSlicer 2.4.2 in its G-code, and that identity — the one
+    # the adapter itself verifies — is the recorded destination slicer version.
+    source = tmp_path / "carried.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source)
+    record = provenance["conversion_provenance"]
+    assert record["destination_slicer_version"] == "2.4.2"
+    assert record["destination_profile_name"] == TEMPLATE["name"]
+    assert record["destination_profile_id"] == TEMPLATE["setting_id"]
+    assert record["destination_profile_version"] is None
+    assert record["destination_profile_version_status"] == "not_recorded_by_template"
+    assert record["source_profile_version"] is None
+    assert record["source_profile_version_status"] == "not_recorded_by_source"
+    for rule_id in ("author-intent-allowlist", "orca-enum-fallback",
+                    "designer-lowered-speed-carry", "gap-fill-default"):
+        assert rule_id in record["governing_rules"]
+    assert "prusa-key-translation" not in record["governing_rules"]
+    # The record is its own authoritative artifact beside the slice output,
+    # with content equal to the record JOB.json embeds.
+    artifact = tmp_path / "out" / record["artifact"]
+    assert record["artifact"] == "conversion_provenance.json"
+    assert json.loads(artifact.read_text()) == record
+
+
+def test_slice_provenance_records_prusa_rules_and_source_version_for_a_prusa_project(tmp_path):
+    _process, provenance = sliced_process(tmp_path, prusa_project(tmp_path / "prusa.3mf"))
+    record = provenance["conversion_provenance"]
+    assert record["destination_slicer_version"] == "2.4.2"
+    assert record["destination_profile_id"] is not None
+    assert record["source_slicer_version"] == "2.8.1"
+    for rule_id in ("prusa-key-translation", "prusa-value-translation",
+                    "prusa-ironing-translation", "author-intent-allowlist"):
+        assert rule_id in record["governing_rules"]
+    # A PrusaSlicer project records no Orca preset version; that is the
+    # source's own truth, named by the status, not a missing wire.
+    assert record["source_profile_version"] is None
+    assert record["source_profile_version_status"] == "not_recorded_by_source"
+
+
+def _slicer_reporting(version):
+    def run(cmd, **kwargs):
+        folder = Path(cmd[cmd.index("--outputdir") + 1])
+        (folder / "plate_1.gcode").write_text(f"; HEADER_BLOCK_START\n; generated by OrcaSlicer {version}\n"
+                                              "; HEADER_BLOCK_END\nT0\nG90\n")
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    return run
+
+
+def test_a_foreign_project_converted_outside_a_rules_declared_versions_is_refused(tmp_path):
+    from print_handy.core.slice_failure import SliceFailure
+    source = bambu_project(tmp_path / "foreign.3mf", {"wall_loops": "4"})
+    state = copy.deepcopy(model_job.printer_state.load())
+    with patch.object(orca_adapter.subprocess, "run", side_effect=_slicer_reporting("3.1.0")):
+        with pytest.raises(SliceFailure) as refused:
+            orca_adapter.slice_model(source, tmp_path / "out", state)
+    assert refused.value.kind == "guard"
+    assert "author-intent-allowlist" in str(refused.value) and "3.1.0" in str(refused.value)
+
+
+def test_a_plain_stl_is_never_refused_for_rule_versions_and_rules_are_recorded(tmp_path):
+    stl = tmp_path / "part.stl"
+    from tests.corpus.make_models import write_stl
+    write_stl(stl, box(20, 20, 10))
+    state = copy.deepcopy(model_job.printer_state.load())
+    with patch.object(orca_adapter.subprocess, "run", side_effect=_slicer_reporting("3.1.0")):
+        _out, provenance, _configs = orca_adapter.slice_model(stl, tmp_path / "out", state)
+    assert provenance["gcode_sha256"]
+
+
+def test_slice_provenance_records_rules_outside_their_versions_without_dropping_them(tmp_path):
+    # Inside the range, every applied rule is recorded and none is outside.
+    source = bambu_project(tmp_path / "foreign.3mf", {"wall_loops": "4"})
+    _process, provenance = sliced_process(tmp_path, source)
+    record = provenance["conversion_provenance"]
+    assert record["rules_outside_declared_versions"] == []
+    assert "author-intent-allowlist" in record["governing_rules"]
+
+
+def test_prusa_project_intent_is_unknown_never_read_from_a_settings_line(tmp_path):
+    # PrusaSlicer does not write different_settings_to_system; a line of that
+    # name was once parsed as the "=" sign, which read as "intent known, every
+    # key inherited". A PrusaSlicer project's intent is UNKNOWN, line or not.
+    for extra in ("", "; different_settings_to_system = perimeters;fill_density\n"):
+        source = prusa_project(tmp_path / f"prusa{len(extra)}.3mf", PRUSA_CONFIG + extra)
+        author = author_settings.read(source)
+        result = author_settings.conversion_provenance(source, TEMPLATE, author, author, [])
+        assert result["intent_status"] == "unknown"
+        assert result["settings"]["wall_loops"]["origin"] == "unknown"
+        assert {row["origin"] for row in result["settings"].values()} == {"unknown"}
+
+
 def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
     source = tmp_path / "unchanged.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
@@ -398,3 +583,107 @@ def test_conversion_provenance_stores_only_differing_or_carried_keys(tmp_path):
     # wall_loops was carried by the author: kept. brim_width / skirt_loops are
     # template values identical in target and selected, never carried: dropped.
     assert set(result["settings"]) == {"wall_loops"}
+
+
+def test_a_plain_stl_slice_records_no_designer_intent_and_attributes_selected_values(tmp_path):
+    # A plain STL has no designer metadata at all: its record must not say
+    # "designer intent unknown"; values the operator or the job set are
+    # attributed to them, not to an unknown designer.
+    from print_handy.hermes import discord_print_summary as summary
+    from tests.corpus.make_models import write_stl
+    stl = tmp_path / "part.stl"
+    write_stl(stl, box(20, 20, 10))
+    state = copy.deepcopy(model_job.printer_state.load())
+    with patch.object(orca_adapter.subprocess, "run", side_effect=fake_slice):
+        _out, provenance, _configs = orca_adapter.slice_model(stl, tmp_path / "out", state, brim=7)
+    record = provenance["conversion_provenance"]
+    assert record["intent_status"] == "not_applicable"
+    assert record["unresolved_conflicts"] == []
+    assert {row["origin"] for row in record["settings"].values()} == {"not_applicable"}
+    assert "unknown" not in {row["origin"] for row in record["settings"].values()}
+    brim = record["settings"]["brim_width"]
+    assert brim["selected_value"] == "7" and brim["selected_reason"] == "operator"
+    if "gap_fill_target" in record["settings"]:
+        assert record["settings"]["gap_fill_target"]["selected_reason"] == "compatibility_fallback"
+    assert "unattributed" not in {row["selected_reason"] for row in record["settings"].values()}
+    text = summary.format_slice_summary({"title": "x", "provenance": provenance})
+    assert "Conversion:" not in text
+
+
+def test_a_foreign_slice_attributes_designer_and_operator_values(tmp_path):
+    source = bambu_project(tmp_path / "carried.3mf", {"wall_loops": "4",
+                                                      "different_settings_to_system": ["wall_loops"]})
+    _process, provenance = sliced_process(tmp_path, source, brim=3, supports=False)
+    rows = provenance["conversion_provenance"]["settings"]
+    assert rows["wall_loops"]["selected_reason"] == "designer" and rows["wall_loops"]["origin"] == "designer"
+    assert rows["brim_width"]["selected_reason"] == "operator"
+    assert rows["enable_support"]["selected_reason"] == "operator"
+    assert "unattributed" not in {row["selected_reason"] for row in rows.values()}
+
+
+def _with_application(path, application):
+    with zipfile.ZipFile(path) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    entries["3D/3dmodel.model"] = entries["3D/3dmodel.model"].replace(
+        b"<resources>", f'<metadata name="Application">{application}</metadata><resources>'.encode(), 1)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return path
+
+
+def test_source_slicer_version_is_the_application_version_never_the_preset_version(tmp_path):
+    # project_settings.config's `version` is preset bookkeeping, not the
+    # application's version; the model's Application metadata names the slicer.
+    source = _with_application(bambu_project(tmp_path / "bambu.3mf", {"wall_loops": "4", "version": "01.09.00.20"}),
+                               "BambuStudio-01.10.00.00")
+    assert author_settings.source_identity(source) == ("bambu_studio", "01.10.00.00", "orca_project")
+    result = author_settings.conversion_provenance(source, TEMPLATE, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_slicer"] == "BambuStudio"
+    assert result["source_slicer_version"] == "01.10.00.00"
+    assert result["source_slicer_version_status"] == "recorded"
+    orca = _with_application(bambu_project(tmp_path / "orca.3mf", {"wall_loops": "4"}), "OrcaSlicer-2.3.0")
+    assert author_settings.source_identity(orca) == ("orca", "2.3.0", "orca_project")
+    # No Application metadata: the version is not stated, and a preset
+    # `version` key is not read in its place.
+    bare = bambu_project(tmp_path / "bare.3mf", {"wall_loops": "4", "version": "01.09.00.20"})
+    result = author_settings.conversion_provenance(bare, TEMPLATE, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["source_slicer_version"] is None
+    assert result["source_slicer_version_status"] == "not_recorded_by_source"
+
+
+def test_prusa_source_slicer_version_is_parsed_from_the_generated_by_line(tmp_path):
+    source = prusa_project(tmp_path / "prusa.3mf",
+                           PRUSA_CONFIG.replace("PrusaSlicer 2.8.1", "PrusaSlicer 2.8.1 on 2024-05-01 at 10:00:00 UTC"))
+    assert author_settings.source_identity(source) == ("prusaslicer", "2.8.1", "prusaslicer_project")
+    result = author_settings.conversion_provenance(source, TEMPLATE, {}, {}, [])
+    assert result["source_slicer"] == "PrusaSlicer" and result["source_slicer_version"] == "2.8.1"
+
+
+def test_one_slice_parses_the_source_project_once(tmp_path):
+    # Every consumer (author settings, source identity, conversion provenance,
+    # embedded preset) shares one read_project() record; the PrusaSlicer
+    # config is translated once and the process template is read once.
+    source = prusa_project(tmp_path / "prusa.3mf")
+    calls = {"read_project": 0, "prusa": 0, "process.json": 0}
+    real_read_project, real_prusa, real_read_text = author_settings.read_project, author_settings._prusa, Path.read_text
+
+    def read_project(path):
+        calls["read_project"] += 1
+        return real_read_project(path)
+
+    def prusa(data):
+        calls["prusa"] += 1
+        return real_prusa(data)
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "process.json" and Path(orca_adapter.TEMPLATES) in self.parents:
+            calls["process.json"] += 1
+        return real_read_text(self, *args, **kwargs)
+    with patch.object(author_settings, "read_project", read_project), \
+            patch.object(author_settings, "_prusa", prusa), patch.object(Path, "read_text", read_text):
+        _process, provenance = sliced_process(tmp_path, source)
+    assert provenance["conversion_provenance"]["source_format"] == "prusaslicer_project"
+    # One process-template read for the slice itself; the other is the
+    # imported-project sanitizer loading its whole template set, as on main.
+    assert calls == {"read_project": 1, "prusa": 1, "process.json": 2}

@@ -622,11 +622,11 @@ def remap_filament_choices(job, mapping, resolve_selection) -> int:
     prompts = source_colors.canonical_prompts(manifest)
     known = {row.get('source_extruder') for row in prompts}
     if decisions.get('mode') == 'single_color' and not known:
-        # Single-color jobs may omit a source manifest; the selected color is
-        # nevertheless the entire job's known mapping target.
+        # Single-color jobs may omit a source manifest; the whole job then
+        # prints as source filament 1, the only id a mapping may name.
         if mapping and not isinstance(decisions.get('selection'), dict):
             raise FixError('single-color filament mapping has no validated selection')
-        known.update(mapping)
+        known = {1}
     unknown = set(mapping) - known
     if unknown:
         raise FixError('filament mapping includes unknown source filament(s): '
