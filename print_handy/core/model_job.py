@@ -6884,12 +6884,22 @@ def _selected_plate_stats(manifest, selected):
         row = plates.get(str(plate_id))
         if not isinstance(row, dict) or row.get('usage_known') is not True:
             return None
-        for ext, amounts in (row.get('extruders') or {}).items():
-            entry = extruders.setdefault(int(ext), {'g': 0.0, 'm': 0.0})
-            entry['g'] += float(amounts['g'])
-            entry['m'] += float(amounts['m'])
-            total_g += float(amounts['g'])
-            total_m += float(amounts['m'])
+        records = row.get('extruders') or {}
+        if not isinstance(records, dict):
+            return None
+        for ext, amounts in records.items():
+            # A record missing an amount, or carrying a non-number, is not
+            # a validated record (#1155): keep the whole-source totals
+            # rather than fail the projection with a KeyError.
+            try:
+                ext_id, grams, meters = int(ext), float(amounts['g']), float(amounts['m'])
+            except (KeyError, TypeError, ValueError):
+                return None
+            entry = extruders.setdefault(ext_id, {'g': 0.0, 'm': 0.0})
+            entry['g'] += grams
+            entry['m'] += meters
+            total_g += grams
+            total_m += meters
     scoped = {**stats, 'extruders': extruders, 'total_g': round(total_g, 1),
               'total_m': round(total_m, 1)}
     scoped.pop('estimated', None)
