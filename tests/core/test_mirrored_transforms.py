@@ -100,7 +100,8 @@ def test_color_export_mirrors_are_outward_or_explicitly_refused(tmp_path, painte
             archive.writestr('3D/3dmodel.model', xml)
     manifest = source_colors.inventory(src)
     choices = {row['key']: {'slot': 1} for row in source_colors.canonical_prompts(manifest)}
-    decisions = {'mode': 'per_part', 'source_sha256': manifest['source_sha256'], 'choices': choices}
+    decisions = {'schema': 'part_slots_v1', 'mode': 'per_part',
+                 'source_sha256': manifest['source_sha256'], 'choices': choices}
     out = tmp_path / 'out.3mf'
     reflected = len(kw) == 1
     if painted and reflected:
