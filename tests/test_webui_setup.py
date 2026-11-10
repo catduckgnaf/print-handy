@@ -401,6 +401,24 @@ class UnclaimedFlowTests(unittest.TestCase):
         winner = next(name for name, code in results.items() if code == 303)
         self.assertEqual(access.resolve(data, "0.0.0.0", {}).username, winner)
 
+    def test_removing_a_claim_on_a_loopback_bind_turns_the_host_check_back_on(self):
+        tmp = tempfile.mkdtemp()
+        data = load(tmp)
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        httpd = server.make_server(data, environ={}, host="127.0.0.1", port=0,
+                                   snapshot_func=lambda: FAKE_SNAPSHOT)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.shutdown)
+        self.addCleanup(httpd.server_close)
+        port = httpd.server_address[1]
+        evil = {"Host": f"rebind.attacker.example:{port}", server.TOKEN_HEADER: PASSWORD}
+        # Claimed: the password is the guard, any Host name is answered.
+        self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 200)
+        access.access_path(data).unlink()  # the claim is removed
+        self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 403)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Host": f"127.0.0.1:{port}"})[0], 200)
+
     def test_html_pages_are_never_cached(self):
         _httpd, port, _data = self.start()
         for route in ("/", "/config", "/walkthrough", "/upload"):

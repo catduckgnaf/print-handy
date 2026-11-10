@@ -353,6 +353,19 @@ def is_loopback(host):
         return False
 
 
+def allowed_hosts(bind_host, access):
+    """The Host names an open loopback bind answers to, or None.
+
+    The DNS-rebinding guard (_Handler._host_refused): only an open
+    loopback bind relies on the form token alone, so only it checks Host
+    against this list. Computed from the access in force on every
+    request, never once at start: removing a claim on a loopback bind
+    must turn the Host check back on at once."""
+    if is_loopback(bind_host) and not access.required:
+        return {"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
+    return None
+
+
 def access_token(data, environ=None):
     """The configured access token's *value* from the environment ("" if unset).
 
@@ -631,7 +644,7 @@ class _Handler(BaseHTTPRequestHandler):
         Origin must be the same host, which also refuses cross-site posts.
         Re-read per request: finishing setup replaces server.access.
         """
-        allowed = self.server.allowed_hosts
+        allowed = allowed_hosts(self.server.bind_host, self.server.access)
         open_lan = not is_loopback(self.server.bind_host) and not self.server.access.required
         if allowed is None and not open_lan:
             return False
@@ -2271,10 +2284,6 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # /chat request (see _Handler._chat_service).
     server.chat_service = None
     server.chat_service_lock = threading.Lock()
-    # DNS-rebinding guard (see _Handler._host_refused): only an open
-    # loopback bind relies on the form token alone, so only it checks Host.
-    server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
-                            if is_loopback(bind_host) and not server.access.required else None)
     # The config page reads and writes through the same environment the
     # settings were loaded with (PRINT_HANDY_CONFIG resolution included).
     server.webui_environ = environ
