@@ -13,12 +13,17 @@ is primary, the environment token stays a co-credential, and a saved
 Offline: temp settings and state folder, the server on an ephemeral port.
 """
 import http.client
+import os
+import re
+import socket
 import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlencode
 
 from print_handy import settings
@@ -161,13 +166,44 @@ class ResolveOrderTests(unittest.TestCase):
             access.save_open(self.data, False)
         self.assertFalse(access.access_path(self.data).exists())
 
-    def test_unreadable_saved_file_falls_back_to_open_and_unclaimed(self):
+    def test_a_damaged_saved_file_fails_closed_instead_of_reopening(self):
+        """A file that exists but cannot be used is BROKEN, never
+        "unclaimed": the owner chose a login, and nobody can tell what
+        the damaged file held. Only a missing file is unclaimed."""
         path = access.access_path(self.data)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{not json")
+        damaged = {"not json": "{not json", "not a dict": "[1, 2]",
+                   "missing fields": '{"mode": "password", "salt": "AAAA"}',
+                   "bad base64": '{"mode": "password", "salt": "!!", "hash": "!!", '
+                                 '"iterations": 5}',
+                   "unknown mode": '{"mode": "sideways"}', "empty": ""}
+        for label, text in damaged.items():
+            with self.subTest(label):
+                path.write_text(text)
+                for environ in ({}, {"WEBUI_ACCESS_TOKEN": TOKEN}):
+                    resolved = access.resolve(self.data, "0.0.0.0", environ)
+                    self.assertEqual(resolved.mode, access.BROKEN)
+                    self.assertTrue(resolved.required)
+                    self.assertFalse(resolved.unclaimed)
+                    self.assertFalse(resolved.matches(TOKEN))
+                    self.assertIn(access.ACCESS_FILE, resolved.problem)
+
+    def test_an_unreadable_saved_file_fails_closed_and_says_why(self):
+        path = access.access_path(self.data)
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        real = Path.read_text
+
+        def denied(self_path, *args, **kwargs):
+            if self_path == path:
+                raise PermissionError(13, "Permission denied")
+            return real(self_path, *args, **kwargs)
+        with mock.patch.object(Path, "read_text", denied):
+            resolved = access.resolve(self.data, "0.0.0.0", {})
+        self.assertEqual(resolved.mode, access.BROKEN)
+        self.assertIn("permission denied", resolved.problem)
+        path.unlink()
         resolved = access.resolve(self.data, "0.0.0.0", {})
-        self.assertEqual(resolved.mode, access.OPEN)
-        self.assertTrue(resolved.unclaimed)
+        self.assertEqual((resolved.mode, resolved.unclaimed), (access.OPEN, True))
 
 
 class UnclaimedFlowTests(unittest.TestCase):
@@ -303,6 +339,230 @@ class UnclaimedFlowTests(unittest.TestCase):
                                       headers={server.TOKEN_HEADER: TOKEN})[0], 200)
         code, headers, _ = self.request(port, "GET", "/setup", headers={server.TOKEN_HEADER: TOKEN})
         self.assertEqual((code, headers.get("location")), (303, "/"))
+
+    def sign_in(self, port, password=PASSWORD):
+        code, headers, _ = self.request(port, "POST", "/login", headers=FORM,
+                                        body=urlencode({"username": USERNAME,
+                                                        "token": password}))
+        self.assertEqual(code, 303)
+        return headers["set-cookie"].split(";", 1)[0]
+
+    def test_changing_the_password_ends_every_other_live_session(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        intruder = self.sign_in(port)
+        owner = self.sign_in(port)
+        for cookie in (intruder, owner):
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={"Cookie": cookie})[0], 200)
+        walkthrough.save_state(data, {"step": 3})
+        _, _, page = self.request(port, "GET", "/walkthrough",
+                                  headers={"Cookie": owner})
+        csrf = dict(re.findall(r'name="([^"]+)" value="([^"]*)"', page))[pages.CSRF_FIELD]
+        new_password = "a different long passphrase"
+        body = urlencode({"step": "login", "action": "continue", pages.CSRF_FIELD: csrf,
+                          "username": USERNAME, "password": new_password,
+                          "password_again": new_password, "current_password": PASSWORD})
+        code, headers, _ = self.request(port, "POST", "/walkthrough", body=body,
+                                        headers={**FORM, "Cookie": owner})
+        self.assertEqual(code, 303)
+        fresh = headers["set-cookie"].split(";", 1)[0]
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": intruder})[0], 401)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": fresh})[0], 200)
+
+    def test_two_simultaneous_first_claims_cannot_both_succeed(self):
+        httpd, port, data = self.start()
+        walkthrough.save_state(data, {"step": 3})
+        token = httpd.form_token
+        real_save = access.save_password
+        barrier = threading.Barrier(2, timeout=5)
+
+        def slow_save(*args, **kwargs):
+            time.sleep(0.3)  # widen the window between the check and the write
+            return real_save(*args, **kwargs)
+        results = {}
+
+        def claim(name):
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
+            results[name] = self.login_step(port, token, username=name, password=PASSWORD,
+                                            password_again=PASSWORD)[0]
+        with mock.patch.object(access, "save_password", slow_save):
+            threads = [threading.Thread(target=claim, args=(name,))
+                       for name in ("first-owner", "second-owner")]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+        self.assertEqual(sorted(results.values()), [303, 403], results)
+        winner = next(name for name, code in results.items() if code == 303)
+        self.assertEqual(access.resolve(data, "0.0.0.0", {}).username, winner)
+
+    def test_removing_a_claim_on_a_loopback_bind_turns_the_host_check_back_on(self):
+        tmp = tempfile.mkdtemp()
+        data = load(tmp)
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        httpd = server.make_server(data, environ={}, host="127.0.0.1", port=0,
+                                   snapshot_func=lambda: FAKE_SNAPSHOT)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.shutdown)
+        self.addCleanup(httpd.server_close)
+        port = httpd.server_address[1]
+        evil = {"Host": f"rebind.attacker.example:{port}", server.TOKEN_HEADER: PASSWORD}
+        # Claimed: the password is the guard, any Host name is answered.
+        self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 200)
+        access.access_path(data).unlink()  # the claim is removed
+        self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 403)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Host": f"127.0.0.1:{port}"})[0], 200)
+
+    def test_every_response_carries_the_security_headers(self):
+        _httpd, port, _data = self.start()
+        for method, route in (("GET", "/"), ("GET", "/api/status"), ("GET", "/healthz"),
+                              ("GET", "/nope"), ("POST", "/nope")):
+            _code, headers, _ = self.request(port, method, route,
+                                             body="x=1" if method == "POST" else None,
+                                             headers=FORM if method == "POST" else None)
+            self.assertEqual(headers.get("x-content-type-options"), "nosniff", route)
+            self.assertEqual(headers.get("referrer-policy"), "same-origin", route)
+            self.assertEqual(headers.get("x-frame-options"), "DENY", route)
+            self.assertIn("frame-ancestors 'none'",
+                          headers.get("content-security-policy", ""), route)
+
+    def test_a_500_never_echoes_the_exception(self):
+        httpd, port, _data = self.start()
+
+        def broken():
+            raise RuntimeError("secret detail /home/someone/token=abc")
+        httpd.snapshot_func = broken
+        with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
+            code, _, body = self.request(port, "GET", "/api/status")
+        self.assertEqual(code, 500)
+        self.assertNotIn("secret detail", body)
+        self.assertNotIn("RuntimeError", body)
+        self.assertIn("secret detail", "\n".join(logs.output))
+
+    def test_handlers_have_a_socket_timeout_and_a_thread_cap(self):
+        httpd, port, _data = self.start()
+        self.assertEqual(server._Handler.timeout, server.REQUEST_TIMEOUT_S)
+        self.assertIsInstance(httpd, server._BoundedThreadingHTTPServer)
+        # A connection that sends nothing holds one slot, not the server.
+        idle = socket.create_connection(("127.0.0.1", port))
+        self.addCleanup(idle.close)
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
+
+    def test_every_page_links_to_the_source(self):
+        from print_handy.webui import shell
+        _httpd, port, _data = self.start()
+        for route in ("/", "/config", "/walkthrough"):
+            _code, _headers, body = self.request(port, "GET", route)
+            self.assertIn(f'<a href="{shell.SOURCE_URL}" rel="noopener">Source</a>', body)
+        bare = shell.page("upload", "<p>x</p>", chrome=False)
+        self.assertIn(shell.SOURCE_URL, bare)
+
+    def test_html_pages_are_never_cached(self):
+        _httpd, port, _data = self.start()
+        for route in ("/", "/config", "/walkthrough", "/upload"):
+            _code, headers, _ = self.request(port, "GET", route)
+            self.assertEqual(headers.get("cache-control"), "no-store", route)
+
+    def test_every_open_reason_shows_a_banner_naming_it(self):
+        httpd, port, data = self.start("  require_auth: false\n")
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        httpd.access = access.resolve(data, "0.0.0.0", {})
+        self.assertEqual(httpd.access.open_reason, access.OPEN_AUTH_OFF)
+        self.assertTrue(httpd.access.credential_ignored)
+        code, _, body = self.request(port, "GET", "/")
+        self.assertEqual(code, 200)
+        self.assertIn("This Web UI is open: login is turned off by", body)
+        self.assertIn("require_auth = false", body)
+        self.assertIn("A saved login or access token exists but is ignored", body)
+        # The owner's saved leave-it-open choice: open, and the page says so.
+        httpd2, port2, data2 = self.start()
+        access.save_open(data2, True)
+        httpd2.access = access.resolve(data2, "0.0.0.0", {})
+        code, _, body = self.request(port2, "GET", "/")
+        self.assertIn("This Web UI is open: a login was removed", body)
+        self.assertNotIn("No login is set", body)
+
+    def test_a_password_saved_under_require_auth_false_turns_auth_back_on(self):
+        httpd, port, data = self.start("  require_auth: false\n")
+        walkthrough.save_state(data, {"step": 3})
+        code, _, body = self.request(port, "GET", "/walkthrough")
+        self.assertIn("Saving a password here turns that setting back on", body)
+        code, headers, _ = self.login_step(
+            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            password_again=PASSWORD)
+        self.assertEqual(code, 303)
+        reloaded = settings.load(local=Path(httpd.webui_environ["PRINT_HANDY_CONFIG"]),
+                                 environ=httpd.webui_environ)
+        self.assertIs(reloaded["webui"]["require_auth"], True)
+        # Enforced now, not only after a restart.
+        self.assertEqual(httpd.access.mode, access.PASSWORD)
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 401)
+        cookie = headers["set-cookie"].split(";", 1)[0]
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={"Cookie": cookie})[0], 200)
+
+    def test_a_password_is_refused_when_require_auth_false_cannot_be_undone(self):
+        httpd, port, data = self.start(
+            "  require_auth: false\n",
+            environ={"PRINT_HANDY__WEBUI__REQUIRE_AUTH": "false"})
+        walkthrough.save_state(data, {"step": 3})
+        code, _, body = self.login_step(
+            port, httpd.form_token, username=USERNAME, password=PASSWORD,
+            password_again=PASSWORD)
+        self.assertEqual(code, 200)
+        self.assertIn("The password was not saved", body)
+        self.assertFalse(access.access_path(data).exists())
+
+    def test_a_claimed_install_with_a_damaged_login_file_refuses_service(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        path = access.access_path(data)
+        path.write_text('{"mode": "password"')  # cut short
+        with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
+            for method, route in (("GET", "/"), ("GET", "/api/status"), ("GET", "/login"),
+                                  ("GET", "/walkthrough"), ("POST", "/walkthrough")):
+                code, headers, body = self.request(port, method, route,
+                                                   body="x=1" if method == "POST" else None,
+                                                   headers=FORM if method == "POST" else HTML)
+                self.assertEqual(code, 503, route)
+                self.assertIn(access.ACCESS_FILE, body)
+                self.assertIn("not valid JSON", body)
+                self.assertTrue(headers["content-type"].startswith("text/plain"))
+            # The header token does not open it either.
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={server.TOKEN_HEADER: PASSWORD})[0], 503)
+        self.assertEqual(len(logs.records), 1)  # logged once, not per request
+        # /healthz still answers its own JSON, so the container stays observable.
+        _code, headers, body = self.request(port, "GET", "/healthz")
+        self.assertEqual(headers["content-type"], "application/json")
+        self.assertNotIn(access.ACCESS_FILE, body)
+        # Deleting the file is the documented reset: open and unclaimed again.
+        path.unlink()
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
+        self.assertTrue(httpd.access.unclaimed)
+
+    def test_a_fixed_login_file_applies_without_a_restart(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        path = access.access_path(data)
+        good = path.read_bytes()
+        stamp = path.stat().st_mtime_ns
+        path.write_text("garbage")
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 503)
+        # Restore the content with the old mtime, as a chmod/chown fix
+        # would leave it: the server must still notice.
+        path.write_bytes(good)
+        os.utime(path, ns=(stamp, stamp))
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 401)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={server.TOKEN_HEADER: PASSWORD})[0], 200)
 
     def test_bearer_is_not_accepted(self):
         # X-WebUI-Token is the one header (Home Assistant sends it).

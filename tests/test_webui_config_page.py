@@ -634,9 +634,50 @@ class ConfigPageTests(unittest.TestCase):
             code, _body = self.post(port, "/config/preview", bare,
                                     headers={server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200)
-            # And so does the embedded form token alone.
+            # On a claimed install the page's form token alone is NOT a
+            # credential any more: it needs a signed-in session with it.
             code, _body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 403)
+            self.assertEqual(local.read_bytes(), before)
+            cookie_a, cookie_b = self.sign_in(port), self.sign_in(port)
+            _code, _body, csrf_a = self.get_config(port, headers={"Cookie": cookie_a})
+            self.assertNotEqual(csrf_a, csrf)  # bound to the session, not the process
+            signed_form = self.browser_form(environ, csrf_a, **{"discord.chat_id": "999"})
+            code, _body = self.post(port, "/config/preview", signed_form,
+                                    headers={"Cookie": cookie_a})
             self.assertEqual(code, 200)
+            # The same token with another session, or with none, is refused.
+            for headers in ({"Cookie": cookie_b}, {}):
+                code, _body = self.post(port, "/config/preview", signed_form, headers=headers)
+                self.assertEqual(code, 403, headers)
+            # A session with the process token (not bound to it) is refused.
+            code, _body = self.post(port, "/config/preview", form,
+                                    headers={"Cookie": cookie_a})
+            self.assertEqual(code, 403)
+
+    def test_changing_require_auth_on_a_claimed_install_needs_a_session(self):
+        environ = {"WEBUI_ACCESS_TOKEN": TOKEN}
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, environ=environ)
+            _code, _body, csrf = self.get_config(port, headers={server.TOKEN_HEADER: TOKEN})
+            form = self.browser_form(environ, csrf, **{"webui.require_auth": None})
+            before = local.read_bytes()
+            for path in ("/config/preview", "/config"):
+                code, _body = self.post(port, path, form + [("_confirm", "yes")])
+                self.assertEqual(code, 403, path)
+            self.assertEqual(local.read_bytes(), before)
+
+    def sign_in(self, port):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.request("POST", "/login", body=urlencode({"token": TOKEN}),
+                         headers=FORM_HEADERS)
+            response = conn.getresponse()
+            response.read()
+            self.assertEqual(response.status, 303)
+            return response.getheader("Set-Cookie").split(";", 1)[0]
+        finally:
+            conn.close()
 
     def test_loopback_without_a_token_still_requires_the_form_token(self):
         with tempfile.TemporaryDirectory() as tmp:

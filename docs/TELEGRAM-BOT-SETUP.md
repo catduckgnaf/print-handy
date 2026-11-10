@@ -3,12 +3,12 @@
 Print Handy can run its standalone bot on Telegram instead of Discord. The same handlers, prompts and safety gates serve both platforms;
 only the transport changes. The Telegram bot is a **pure bot: it has no
 LLM**. Unmatched text gets the short “didn't understand” reply, and no `[llm]` setting is
-ever consulted for Telegram — that is deliberate, and it is how the
+ever consulted for Telegram; that is deliberate, and it is how the
 no-LLM standalone mode from the standalone design is being proven first.
 
 One-way posts are the exception to "no model is involved": the
-completion posts carry the **roast** — a
-one-line joke at the model's expense, from the local roast corpus — on
+completion posts carry the **roast**; a
+one-line joke at the model's expense, from the local roast corpus, on
 Telegram just as on Discord. See [The roast](#the-roast) below. It never
 answers messages and changes nothing about the pure-bot rule above.
 
@@ -33,7 +33,7 @@ standard library; there is no Telegram package to install.
 1. Create a Telegram group for printing and add the bot to it. A private
    one-to-one chat with the bot works too.
 2. **Chat ID**: send a message in the group, then read it back from
-   `https://api.telegram.org/bot<token>/getUpdates` — the `chat.id` of the
+   `https://api.telegram.org/bot<token>/getUpdates`; the `chat.id` of the
    message is the chat ID. Group and supergroup IDs are **negative**
    (for example `-1001234567890`); a one-to-one chat ID is your own
    positive user ID. Tools like @userinfobot can also show it.
@@ -54,7 +54,7 @@ the fallback channel for the one entry that sets no `chat_id` (the first,
 default printer). A chat no printer claims gets silence. Two entries may
 also claim the *same* group on purpose: that group becomes a shared
 channel where the bot asks which printer before anything
-printer-bound happens — see "Shared channels" in SETTINGS.md.
+printer-bound happens, see "Shared channels" in SETTINGS.md.
 
 ## 3. Configure Print Handy
 
@@ -72,7 +72,7 @@ services:
 ```
 
 Put the token in the environment variable `[telegram] token_env` names
-(`TELEGRAM_BOT_TOKEN` by default) — in the process environment or in the
+(`TELEGRAM_BOT_TOKEN` by default), in the process environment or in the
 `.env` file in `paths.hermes_home`, mode 600. Never put the token in a
 config file. Every setting can also come from the environment, for
 example `PRINT_HANDY__TELEGRAM__CHAT_ID=-1001234567890`.
@@ -95,7 +95,7 @@ posts through the Telegram Bot API instead of Discord REST.
 ## The roast
 
 When a print finishes, the completion post ends with a one-line **roast** of
-the model — exactly one per print, one short sentence from the bot persona.
+the model, exactly one per print, one short sentence from the bot persona.
 Prints that do not finish get one too, from the bank that matches how they
 ended: the failure post draws from the failed bank, the cancel post from the
 cancelled bank, and a camera alert that confirms spaghetti carries a line
@@ -106,7 +106,7 @@ You can also ask for one in plain words: "roast my last print", "roast print
 
 Roasts need **no LLM and no endpoint**. Each line comes from the
 local roast corpus shipped with Print Handy (`print_handy/data/roasts/`) and
-is filled from facts about that print — title, duration, material, color,
+is filled from facts about that print, title, duration, material, color,
 grams, printer, finish hour, how many times it has been printed. A line that
 needs a fact Print Handy does not have is never used, a failed or cancelled
 print gets a gentle line about that and never a cheerful one, and the same
@@ -135,7 +135,7 @@ defaulting to `true`.
 
 `/print-design` (or `/design`) and the design phrases ("design me …",
 "design this" with a model file attached as a document, or a model link)
-work on Telegram too — see [AI design with OpenSCAD](DESIGN.md). Design is
+work on Telegram too, see [AI design with OpenSCAD](DESIGN.md). Design is
 the one model-backed feature here, and it runs only through an explicitly
 configured `[design]` endpoint (or the `[llm]` values it inherits):
 
@@ -158,22 +158,22 @@ every other Telegram prompt.
 
 If your printer runs ZMod (an AD5X, say), you may already run
 [moonraker-telegram-bot](https://github.com/nlef/moonraker-telegram-bot)
-by nlef. It is the bot ZMod itself uses — on a separate host, in place
-of moonraker-timelapse — and the two bots are complements: they run
+by nlef. It is the bot ZMod itself uses, on a separate host, in place
+of moonraker-timelapse, and the two bots are complements: they run
 side by side against the same Moonraker, each with its own token.
 
 | Job | Which bot |
 | --- | --- |
 | Prepare a print: link or file in, colour/fit questions, slicing, and a confirmation before anything prints | Print Handy |
 | Operate the running printer: status, pause, resume, cancel, emergency stop, macro buttons, power devices | moonraker-telegram-bot |
-| Push notifications with camera photos while a print runs | Either — pick one notifier (below) |
+| Push notifications with camera photos while a print runs | Either, pick one notifier (below) |
 | A rendered timelapse video in the chat | moonraker-telegram-bot (frames by time interval or Z-height, rendered at 15 fps by default) |
 
 Boundaries, stated plainly:
 
 - moonraker-telegram-bot is a **separate upstream project**. Print
   Handy does not bundle it, does not require it, and does not support
-  it — report its problems to its own tracker. It works with
+  it, report its problems to its own tracker. It works with
   **Moonraker printers only**.
 - Its control commands **act on the printer as soon as they are
   tapped**. Only the commands in its `[telegram_ui]
@@ -185,7 +185,7 @@ Boundaries, stated plainly:
 - Print Handy's Telegram bot stays a prep bot: it has no live printer
   control commands, and pairing changes nothing about that.
 
-### Two bots, two tokens — never share one
+### Two bots, two tokens, never share one
 
 Create **two** bots with BotFather and give each program its own
 token. A Telegram bot token supports exactly one `getUpdates` poller;
@@ -204,7 +204,7 @@ silence the other:
 - **The companion notifies; Print Handy stays quiet.** Do not run Print
   Handy's listener: in a standalone install, start
   `print-handy-bot.service` but not `print-handy-listener.service`.
-  Print Handy has no per-message notification switch — the `[listener]`
+  Print Handy has no per-message notification switch; the `[listener]`
   settings only set timing intervals, and every event post (started,
   complete, failed, timelapse) plus the camera-watch alerts and spool
   questions comes from that one process, so those go quiet too. In

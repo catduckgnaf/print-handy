@@ -75,6 +75,30 @@ STEPS = (
 )
 
 _LOGIN_INDEX = next(i for i, (step_id, _label) in enumerate(STEPS) if step_id == "login")
+# The Login step's "current password" input, shown once a login exists;
+# the server checks it before a change (see server._login_change_refused).
+CURRENT_PASSWORD_FIELD = "current_password"
+
+
+def _posted_step(data, form):
+    """The step a POST acts on, decided exactly as apply_post decides it."""
+    posted = (form.get("step") or [""])[0]
+    index = next((i for i, (step_id, _label) in enumerate(STEPS) if step_id == posted),
+                 _step_index(load_state(data)))
+    return index
+
+
+def login_change_requested(data, form):
+    """True when this walkthrough POST would change or remove the login."""
+    def field(name):
+        return (form.get(name) or [""])[0]
+    if _posted_step(data, form) != _LOGIN_INDEX:
+        return False
+    if (form.get("action") or ["continue"])[0] in ("restart", "skip_setup", "back",
+                                                   "skip", "finish"):
+        return False
+    return bool(field(pages.SETUP_USER_FIELD).strip() or field(pages.SETUP_PASSWORD_FIELD)
+                or field(pages.SETUP_CONFIRM_FIELD) or field(pages.SETUP_OPEN_FIELD) == "yes")
 
 STEP_LEADS = {
     "printer": "The printer Print Handy prepares prints for, how it reaches the "
@@ -375,8 +399,8 @@ def _login_html(data, environ, submitted_username="", *, loopback=False):
              "anyone on your network can use it")
     if not data["webui"].get("require_auth", True):
         status = ("Login is turned off by <code>[webui] require_auth = false</code>: "
-                  f"{reach}. A login saved here "
-                  "takes effect only once that setting is back on.")
+                  f"{reach}. Saving a password here turns that setting back on, "
+                  "so the password is required from then on.")
     elif mode == access_module.PASSWORD and current.username:
         status = f"Signed in with the username <strong>{_esc(current.username)}</strong>."
     elif mode == access_module.PASSWORD:
@@ -388,7 +412,18 @@ def _login_html(data, environ, submitted_username="", *, loopback=False):
                   "keeps working for Home Assistant and other tools.")
     else:
         status = f"This Web UI is open: {reach}."
-    parts = [f'<p>{status}</p>', pages.login_rows(submitted_username, required=False)]
+    parts = [f'<p>{status}</p>']
+    if mode in (access_module.PASSWORD, access_module.TOKEN):
+        # A claimed install: changing or removing the login needs the
+        # credential in force now, so a session left signed in (or a
+        # page token) cannot replace the owner's password on its own.
+        what = "password" if mode == access_module.PASSWORD else "access token"
+        parts.append(
+            f'<p><label for="f-{CURRENT_PASSWORD_FIELD}">Current {what}</label> '
+            f'<input type="password" id="f-{CURRENT_PASSWORD_FIELD}" '
+            f'name="{CURRENT_PASSWORD_FIELD}" autocomplete="current-password"></p>'
+            f'<p class="help">Needed only to change or remove the login.</p>')
+    parts.append(pages.login_rows(submitted_username, required=False))
     if mode != access_module.OPEN:
         parts.append(
             f'<p><input type="checkbox" id="f-{pages.SETUP_OPEN_FIELD}" '
@@ -400,9 +435,15 @@ def _login_html(data, environ, submitted_username="", *, loopback=False):
     return "".join(parts)
 
 
-def _apply_login(data, form):
+def _apply_login(data, form, environ=None):
     """Save the Login step. Returns None when nothing changed, "saved"
-    when a new login or the open choice was written; raises AccessError."""
+    when a new login or the open choice was written; raises AccessError.
+
+    A password saved while ``[webui] require_auth`` is false turns that
+    setting back on first: otherwise the opt-out silently outlives the
+    password the owner just chose. When the setting is owned by a layer
+    the Web UI cannot write (an environment override, say), nothing is
+    saved and the step says why."""
     def field(name):
         return (form.get(name) or [""])[0]
     username, password, confirm = (field(pages.SETUP_USER_FIELD),
@@ -416,6 +457,16 @@ def _apply_login(data, form):
         return "saved"
     if not (username.strip() or password or confirm):
         return None
+    access_module.check_password(password, confirm, username=username)
+    if not data["webui"].get("require_auth", True):
+        try:
+            config_api.write_changes({"webui.require_auth": True}, environ=environ)
+        except config_api.WebUIConfigError as exc:
+            raise access_module.AccessError(
+                "The password was not saved: login is turned off by "
+                "[webui] require_auth = false, and the Web UI could not turn it "
+                f"back on ({exc}). Turn that setting on where it is set, then "
+                "save the password again.") from None
     access_module.save_password(data, password, confirm, username=username)
     return "saved"
 
@@ -504,9 +555,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
     POST and checked the form token, exactly as for /config.
     """
     state = load_state(data)
-    posted = (form.get("step") or [""])[0]
-    index = next((i for i, (step_id, _label) in enumerate(STEPS) if step_id == posted),
-                 _step_index(state))
+    index = _posted_step(data, form)
     step_id = STEPS[index][0]
     action = (form.get("action") or ["continue"])[0]
     if action == "restart":
@@ -526,7 +575,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
         return "redirect", "/"
     if step_id == "login":
         try:
-            outcome = _apply_login(data, form)
+            outcome = _apply_login(data, form, environ)
         except access_module.AccessError as exc:
             username = (form.get(pages.SETUP_USER_FIELD) or [""])[0]
             return "page", render_page(
@@ -592,8 +641,8 @@ def apply_post(data, environ, form, field_values, *, form_token,
 
 
 __all__ = [
-    "REVIEW_FIELDS", "STATE_FILE", "STEPS", "STEP_FIELDS", "STEP_LEADS",
-    "reopen_at_login",
+    "CURRENT_PASSWORD_FIELD", "REVIEW_FIELDS", "STATE_FILE", "STEPS", "STEP_FIELDS",
+    "STEP_LEADS", "login_change_requested", "reopen_at_login",
     "apply_post", "load_state", "pending", "render_page", "save_state",
     "state_path",
 ]

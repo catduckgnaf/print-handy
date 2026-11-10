@@ -31,11 +31,47 @@ def cache_dir(tmp_path, monkeypatch):
     return root
 
 
-def _entry(cache_dir, raw, value):
+def _entry(cache_dir, raw, value, name=None):
+    """Write a cache entry where the current parser looks for it, stamped with
+    the current parser version unless the value says otherwise."""
     digest = hashlib.sha256(raw).hexdigest()
     cache_dir.mkdir(parents=True, exist_ok=True)
-    (cache_dir / f"{digest}.json").write_text(json.dumps(value))
+    if isinstance(value, dict):
+        value = {"parser": model_job.BOUNDS_PARSER_VERSION, **value}
+    name = name or f"{digest}.p{model_job.BOUNDS_PARSER_VERSION}.json"
+    (cache_dir / name.format(digest=digest)).write_text(json.dumps(value))
     return digest
+
+
+# S5: an S4-bypass file whose old (API 2) verdict was "X stays at 10". The
+# current parser sees the G91 and reports the real reach.
+BYPASS = b"G90\nG1 X10 Y1 Z1\nG91;rel\nG1 X100\nG1 X100\nG1 X100\n"
+OLD_VERDICT = {"x": [10, 100], "y": [1, 1], "z": [1, 1]}
+
+
+def test_bounds_cache_ignores_a_pre_version_entry(cache_dir):
+    # Written by a parser before the cache carried a version: <sha>.json.
+    _entry(cache_dir, BYPASS, dict(OLD_VERDICT), name="{digest}.json")
+    assert model_job.cached_motion_bounds(BYPASS)["x"] == (10.0, 310.0)
+
+
+def test_bounds_cache_ignores_an_entry_from_another_parser_version(cache_dir):
+    # Right file name, but the entry says an older parser wrote it.
+    _entry(cache_dir, BYPASS, {**OLD_VERDICT, "parser": model_job.BOUNDS_PARSER_VERSION - 1})
+    assert model_job.cached_motion_bounds(BYPASS)["x"] == (10.0, 310.0)
+
+
+def test_bounds_cache_hit_needs_the_current_version_and_records_it(cache_dir):
+    first = model_job.cached_motion_bounds(SMALL)
+    entries = list(cache_dir.glob("*.json"))
+    assert len(entries) == 1
+    stored = json.loads(entries[0].read_text())
+    assert stored["parser"] == model_job.BOUNDS_PARSER_VERSION
+    assert f".p{model_job.BOUNDS_PARSER_VERSION}." in entries[0].name
+    # A current-version entry is a hit: its (edited) value comes back.
+    _entry(cache_dir, SMALL, {"x": [1, 2], "y": [1, 2], "z": [1, 2]})
+    assert model_job.cached_motion_bounds(SMALL) == {"x": (1.0, 2.0), "y": (1.0, 2.0), "z": (1.0, 2.0)}
+    assert first != model_job.cached_motion_bounds(SMALL)
 
 
 def test_bounds_cache_recomputes_a_corrupt_string_entry(cache_dir):
