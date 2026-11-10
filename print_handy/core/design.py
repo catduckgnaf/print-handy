@@ -998,7 +998,12 @@ def http_complete(cfg, messages, *, opener=None):
     if resolved is None:
         raise DesignError("design is enabled but no model endpoint is configured: "
                           "set [design] chat_url and model, or the [llm] values they inherit")
-    key = os.environ.get(resolved["api_key_env"]) or ""
+    from .. import credential_binding
+    # The key is bound to the host of the setting the address came from (#1192).
+    slot = ("design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
+            else "llm.chat_url")
+    key = credential_binding.key_for(slot, resolved["chat_url"],
+                                     os.environ.get(resolved["api_key_env"]) or "")
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
