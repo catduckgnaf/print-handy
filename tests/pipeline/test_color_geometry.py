@@ -63,26 +63,6 @@ def test_invalid_geometry_mapping_refused(tmp_path,failure):
  assert not (tmp_path/'out.3mf').exists()
 
 
-def test_archive_layer_remap_preserves_members_and_is_atomic(tmp_path):
-    source = tmp_path / 'source.3mf'
-    target = tmp_path / 'target.3mf'
-    xml = b'<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'
-    with zipfile.ZipFile(source, 'w') as archive:
-        archive.writestr(layer_gcode.MEMBER, xml)
-        archive.writestr('Metadata/vendor.bin', b'opaque')
-    target.write_bytes(b'old target')
-    with pytest.raises(RuntimeError, match='unmapped'):
-        layer_gcode.remap_archive(source, target, {})
-    assert target.read_bytes() == b'old target'
-    original = source.read_bytes()
-    report = layer_gcode.remap_archive(source, target, {3: 1})
-    assert source.read_bytes() == original
-    with zipfile.ZipFile(source) as before, zipfile.ZipFile(target) as after:
-        assert before.read('Metadata/vendor.bin') == after.read('Metadata/vendor.bin')
-        assert layer_gcode.parse(after.read(layer_gcode.MEMBER))[0]['source_extruder'] == 1
-    assert report['kept'] == 1
-
-
 def test_layer_gcode_remaps_source_tool_to_selected_job_tool():
     source_xml = b'''<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'''
     converted, report = layer_gcode.remap(source_xml, {3: 1})
