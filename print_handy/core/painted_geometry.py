@@ -1,10 +1,19 @@
-"""Triangle-painted (Bambu/Orca mmu_segmentation) 3MF support.
+"""Triangle-painted (Bambu/Orca paint_color, PrusaSlicer mmu_segmentation) 3MF support.
 
 paint_color is a TriangleSelector tree serialized as hex nibbles read from the
 END of the string. Per node: low 2 bits = split side count (0 = leaf). A split
 node is followed by split+1 children. A leaf stores its state in the high 2
 bits; 3 means "state >= 3", and the next nibble holds state - 3. State 0 is the
 object's base extruder; state N >= 1 is source filament N.
+
+PrusaSlicer's slic3rpe:mmu_segmentation attribute carries the same
+TriangleSelector encoding with the same state numbering (the corpus
+prusa-mmu-project fixture's "8" is state 2, exactly as paint_color's "8" is).
+Both attributes are therefore decoded by the same reader. The destination
+slicer (Orca) reads paint_color, so a remap translates mmu_segmentation codes
+to paint_color codes for the mapped tool and drops the Prusa attribute —
+registry rule mmu-segmentation-paint-translation. A state with no slot choice
+refuses, exactly as an uncovered paint_color state does.
 
 This module decodes states, remaps them to contiguous logical tools for the
 physical IFS slots chosen, and derives a one-plate package that keeps every
@@ -16,6 +25,10 @@ import zipfile
 from pathlib import Path
 
 PAINT_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
+MMU_RE = re.compile(rb'(?:slic3rpe:)?mmu_segmentation="([0-9A-Fa-f]+)"')
+# Either paint attribute on one triangle tag; paint_color wins when both are
+# present (no known writer emits both, and Orca reads paint_color).
+ANY_PAINT_RE = re.compile(rb'(?:paint_color|slic3rpe:mmu_segmentation|mmu_segmentation)="([0-9A-Fa-f]+)"')
 
 
 def _parse(code):
@@ -126,7 +139,7 @@ def paint_census(source, build_object_ids=None):
         for mid in _mesh_ids(model, oid):
             body = model[slice(*blocks[mid])]
             for tri in re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body):
-                m = PAINT_RE.search(tri.group(0))
+                m = PAINT_RE.search(tri.group(0)) or MMU_RE.search(tri.group(0))
                 if m:
                     counter.update(decode_states(m.group(1).decode()))
                 else:
@@ -174,6 +187,29 @@ def rewrite_paint(model_bytes, mesh_ids, table):
     return b''.join(pieces)
 
 
+def rewrite_paint_bytes(data, table):
+    """Remap every paint code in raw model bytes, translating mmu to paint_color.
+
+    Byte-level, so everything outside the two paint attributes — geometry,
+    support/seam paint, material properties — stays byte-for-byte. A code whose
+    state the table does not map keeps its state (the caller validates the
+    table covers every state present before writing).
+    """
+    data = PAINT_RE.sub(
+        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
+    return MMU_RE.sub(
+        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
+
+
+def paint_states_in(data):
+    """Every paint state named by raw model bytes (both attributes), decoded."""
+    counter = collections.Counter()
+    for regex in (PAINT_RE, MMU_RE):
+        for match in regex.finditer(data):
+            counter.update(decode_states(match.group(1).decode()))
+    return dict(counter)
+
+
 def leaf_states(source, part):
     """{'states': {state: leaves}, 'unpainted': n} for one inventory part's mesh.
 
@@ -188,7 +224,7 @@ def leaf_states(source, part):
     body = model[slice(*span)]
     counter, unpainted = collections.Counter(), 0
     for tri in re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body):
-        m = PAINT_RE.search(tri.group(0))
+        m = PAINT_RE.search(tri.group(0)) or MMU_RE.search(tri.group(0))
         if m:
             counter.update(decode_states(m.group(1).decode()))
         else:

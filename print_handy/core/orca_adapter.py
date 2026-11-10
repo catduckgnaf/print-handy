@@ -1041,9 +1041,34 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
                 changed[_MODEL_SETTINGS] = [sorted(set(dropped + plate_dropped)), None]
     if ranges is not None:
         data, dropped = _restrict_overrides(ranges, b'option', override)
-        if dropped:
+        # Height-range extruder options are filament references, not structural
+        # metadata (Phase C, #1110 C6; registry rule height-range-extruder-remap):
+        # the plate this copy describes was already renumbered by its export
+        # (a single-color collapse to filament 1, or the compacted job tools),
+        # so an option naming an extruder past the job's filament count is
+        # stale and clamps to the job's last filament — the same clamp
+        # _prusa_model_settings applies to per-volume extruders. (The generic
+        # package remapper, which knows the exact mapping, translates these
+        # values precisely instead of clamping.) Options within the job's
+        # numbering are the author's height intent and stay.
+        job_count = next((len(job[key]) for key in ('filament_colour', 'nozzle_temperature',
+                                                     'filament_type')
+                          if isinstance(job.get(key), list) and job[key]), None)
+        clamped = []
+
+        def _clamp_range_extruder(match):
+            value = int(match.group(2))
+            if job_count is not None and value > job_count:
+                clamped.append(f'extruder:{value}->{job_count}')
+                return match.group(1) + str(job_count).encode() + match.group(3)
+            return match.group(0)
+
+        if job_count is not None:
+            data = re.sub(rb'(<option opt_key="extruder">)(\d+)(</option>)',
+                          _clamp_range_extruder, data)
+        if dropped or clamped:
             entries[_LAYER_RANGES] = data
-            changed[_LAYER_RANGES] = [sorted(set(dropped)), None]
+            changed[_LAYER_RANGES] = [sorted(set(dropped + clamped)), None]
     if entries or remove:
         _rewrite_entries(path, entries, remove)
     return changed
@@ -2335,6 +2360,24 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             _candidates.add('orca-range-error-clamp')
         if _bambu_widths_converted:
             _candidates.add('orca-percent-line-width-to-bambu-mm')
+        # Phase C remap rules (#1110 C11): the geometry exports and the
+        # adoption pass reached these decision points when the sliced package
+        # carries the members they govern.
+        if Path(source).suffix.lower() == '.3mf' and zipfile.is_zipfile(source):
+            with zipfile.ZipFile(source) as _archive:
+                _member_names = set(_archive.namelist())
+                if _LAYER_RANGES in _member_names:
+                    _candidates.add('height-range-extruder-remap')
+                if any(name.lower().endswith('.model')
+                       and b'mmu_segmentation' in _archive.read(name) for name in _member_names):
+                    _candidates.add('mmu-segmentation-paint-translation')
+                if 'Metadata/project_settings.config' in _member_names:
+                    _project = json.loads(_archive.read('Metadata/project_settings.config'))
+                    if isinstance(_project, dict) and (
+                            'support_filament' in _project or 'support_interface_filament' in _project):
+                        _candidates.add('support-designation-remap')
+                    if isinstance(_project, dict) and 'flush_volumes_matrix' in _project:
+                        _candidates.add('flush-matrix-permutation')
         _destination_family = {'OrcaSlicer': 'orca', 'Bambu Studio': 'bambu_studio',
                                'Flash Studio': 'flash_studio'}.get(slicer)
         _destination_slicer_version = sg.slicer_version(generator)

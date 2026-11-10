@@ -31,6 +31,20 @@ def _kept_part_settings(settings):
             if key in PROCESS_KEYS and not author_settings.invalid_enum(key, settings[key])]
 
 
+def _dropped_part_settings(settings):
+    """The per-volume author setting keys a rebuilt export does NOT carry (#1110 C9).
+
+    The allowlist restriction itself is unchanged (registry rule
+    author-intent-allowlist); what Phase C changes is that the drop is named
+    in the export report instead of silent, so a dropped feature/support
+    assignment is a recorded decision, never an invisible one.
+    """
+    if not settings:
+        return []
+    kept = {key for key, _value in _kept_part_settings(settings)}
+    return sorted(key for key in settings if key not in kept)
+
+
 def _write_part_settings(pc, settings):
     for key, value in _kept_part_settings(settings):
         ET.SubElement(pc, 'metadata', key=key, value=str(value))
@@ -71,6 +85,20 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         raise RuntimeError('painted export scale must be greater than 0')
     if decisions.get('source_sha256') != manifest['source_sha256'] or decisions.get('mode') != 'per_part':
         raise RuntimeError('multicolor geometry requires exact-source per_part decisions')
+    # Height ranges (Phase C, #1110 criterion 4): this rebuilt export renumbers
+    # object ids, and layer_config_ranges.xml keys its ranges by source object
+    # id, so its extruder options cannot be translated honestly here. A source
+    # carrying them is refused by name; the package remapper
+    # (package_remap.remap_package) and the single-color copy, which preserve
+    # object ids, remap the same member instead. Copy paths are unaffected.
+    with zipfile.ZipFile(source) as _archive:
+        source_members = _archive.namelist()
+        if 'Metadata/layer_config_ranges.xml' in source_members and \
+                b'opt_key="extruder"' in _archive.read('Metadata/layer_config_ranges.xml'):
+            raise RuntimeError('source carries Metadata/layer_config_ranges.xml height-range '
+                               'extruder assignments, which the rebuilt geometry export cannot '
+                               'translate (it renumbers object ids); refusing rather than drop '
+                               'them silently')
     painted = bool(manifest['painted'])
     choices = decisions['choices']
     schema = decisions.get('schema')
@@ -326,15 +354,28 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         new_mesh = copy.deepcopy(mesh)
         for node in new_mesh.iter():
             node.tag = tag(node.tag.split('}')[-1])
-        if painted:
-            from . import painted_geometry
-            for tri in new_mesh.find(tag('triangles')):
+        for tri in new_mesh.find(tag('triangles')):
+            # Core per-triangle material properties name resources this rebuilt
+            # package does not carry; leaving them would emit a dangling
+            # reference. The face colors themselves stay disclosed through the
+            # inventory's face_colors_ignored note (Phase C, #1110 C10).
+            for attr in ('pid', 'p1', 'p2', 'p3'):
+                tri.attrib.pop(attr, None)
+            mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
+            if painted:
+                from . import painted_geometry
                 code = tri.get('paint_color')
                 if code:
                     tri.set('paint_color', painted_geometry.remap_code(code, paint_table))
-        else:
-            for tri in new_mesh.find(tag('triangles')):
+                elif mmu_key is not None:
+                    # PrusaSlicer paint, translated to the paint_color form the
+                    # Orca destination reads, remapped through the same table
+                    # (registry rule mmu-segmentation-paint-translation).
+                    tri.set('paint_color', painted_geometry.remap_code(tri.get(mmu_key), paint_table))
+            else:
                 tri.attrib.pop('paint_color', None)
+            if mmu_key is not None:
+                del tri.attrib[mmu_key]
         placed = []
         move = [float(v) for v in item_shifts[str(part['object_id'])]] if item_shifts is not None else delta
         for vertex, point in zip(new_mesh.find(tag('vertices')), points):
@@ -383,6 +424,11 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             placed.append(xyz)
             for a, axis in enumerate(('x', 'y', 'z')):
                 vertex.set(axis, repr(xyz[a]))
+        for tri in new_mesh.find(tag('triangles')):
+            for attr in ('pid', 'p1', 'p2', 'p3'):
+                tri.attrib.pop(attr, None)
+            for key in [k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation']:
+                del tri.attrib[key]
         obj.append(new_mesh)
         if row.get('settings'):
             settings_by_mesh[cut_id] = row['settings']
@@ -465,20 +511,45 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                 if selection is None:
                     continue
                 tool_map[ext] = selection['slot'] if identity_tools else slots.index(selection['slot']) + 1
+            # Phase C (#1110 C7): align the in-export path with remap_archive —
+            # a tool change whose extruder has no mapping refuses, never drops
+            # silently. (The member-level remap() drop behavior stays for its
+            # other callers; this caller has the decisions to know better.)
+            unresolved = sorted({row['source_extruder']
+                                 for row in layer_gcode.tool_changes(layer_gcode.parse(xml))
+                                 if row['source_extruder'] not in tool_map})
+            if unresolved:
+                raise RuntimeError(f'per-layer tool change(s) to source extruder(s) {unresolved} '
+                                   'have no slot choice; refusing rather than drop them')
             layer_payload, layer_report = layer_gcode.remap(xml, tool_map, z_scale=scale or 1.0)
         if layer_report is not None and not layer_report.get('kept'):
             layer_payload = None
-    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
-        out.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
-        out.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
-        out.writestr('3D/3dmodel.model', ET.tostring(model, encoding='utf-8', xml_declaration=True))
-        out.writestr('Metadata/model_settings.config', ET.tostring(config, encoding='utf-8', xml_declaration=True))
-        if layer_payload is not None:
-            from . import layer_gcode
-            out.writestr(layer_gcode.MEMBER, layer_payload)
+    from . import layer_gcode as _layer_gcode_module
+    from .package_remap import write_package_atomically
+    payload = {'[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
+               '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+               '3D/3dmodel.model': ET.tostring(model, encoding='utf-8', xml_declaration=True),
+               'Metadata/model_settings.config': ET.tostring(config, encoding='utf-8', xml_declaration=True)}
+    if layer_payload is not None:
+        payload[_layer_gcode_module.MEMBER] = layer_payload
+    # Staged write (Phase C, #1110 C1): a failure during the write itself can
+    # no longer leave a truncated destination; the staging file validates
+    # (zip integrity) before it replaces the target.
+    write_package_atomically(target, payload)
     towers = prime_tower_candidates(part_bounds, tower=tower_mm)
     tower = towers[0] if towers else None  # None: a towerless plan (#832)
+    dropped_part_settings = [{'part_key': row['key'], 'key': key}
+                             for row in list(manifest['parts']) + list(manifest.get('cutters', []))
+                             for key in _dropped_part_settings(row.get('settings'))]
+    governing = ['author-intent-allowlist']
+    with zipfile.ZipFile(source) as _archive:
+        if any(b'mmu_segmentation' in _archive.read(name)
+               for name in source_members if name.lower().endswith('.model')):
+            governing.append('mmu-segmentation-paint-translation')
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
+                     'dropped_members': sorted(set(source_members) - set(payload)),
+                     'dropped_part_settings': dropped_part_settings,
+                     'governing_rules': governing,
                      **({'layer_changes': layer_report} if layer_report is not None else {}),
                      **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
                      'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower) if tower else None,
@@ -576,6 +647,11 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         for node in new_mesh.iter():
             node.tag = tag(node.tag.split('}')[-1])
             node.attrib.pop('paint_color', None)
+            for key in [k for k in node.attrib if k.split('}')[-1] == 'mmu_segmentation']:
+                del node.attrib[key]
+            if node.tag.split('}')[-1] == 'triangle':
+                for attr in ('pid', 'p1', 'p2', 'p3'):
+                    node.attrib.pop(attr, None)
         for vertex, pt in zip(new_mesh.find(tag('vertices')), pts):
             for a, axis in enumerate(('x', 'y', 'z')):
                 vertex.set(axis, repr(pt[a] + delta[a]))
@@ -604,11 +680,12 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')
         ET.SubElement(out_build, tag('item'), objectid=wrapper_id, printable='1')
-    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
-        out.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
-        out.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
-        out.writestr('3D/3dmodel.model', ET.tostring(model, encoding='utf-8', xml_declaration=True))
-        out.writestr('Metadata/model_settings.config', ET.tostring(config, encoding='utf-8', xml_declaration=True))
+    from .package_remap import write_package_atomically
+    write_package_atomically(target, {
+        '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
+        '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+        '3D/3dmodel.model': ET.tostring(model, encoding='utf-8', xml_declaration=True),
+        'Metadata/model_settings.config': ET.tostring(config, encoding='utf-8', xml_declaration=True)})
     placed = [(bounds[a][0] + delta[a], bounds[a][1] + delta[a]) for a in range(3)]
     res = {'volumes': counts, 'build_bounds_mm': bounds, 'translation_mm': delta, 'placed_bounds_mm': placed,
            'converted_sha256': digest(target),
@@ -650,7 +727,10 @@ def export_production_plate(source, target, decisions, slot_colors):
     from .filament_color import slot_hex
     color = slot_hex(slot, slot_colors.get(str(slot)) or slot_colors.get(slot))
     with zipfile.ZipFile(source) as archive:
-        names = [name for name in archive.namelist() if not name.startswith('Auxiliaries/')]
+        # Every member rides along, Auxiliaries/ included (Phase C, #1110 C10):
+        # the copy's preservation contract is the whole member set, and what a
+        # Bambu package keeps under Auxiliaries/ is not the exporter's to drop.
+        names = archive.namelist()
         if 'Metadata/project_settings.config' not in names or 'Metadata/model_settings.config' not in names:
             raise RuntimeError('production plate export requires project and model settings')
         cfg = archive.read('Metadata/model_settings.config').decode()
@@ -680,9 +760,8 @@ def export_production_plate(source, target, decisions, slot_colors):
         raise RuntimeError('filament colour entry was not found verbatim')
     lines[target_line] = lines[target_line].replace(old, b'"' + color.encode() + b'"', 1)
     payload['Metadata/project_settings.config'] = b'\n'.join(lines)
-    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
-        for name, data in payload.items():
-            out.writestr(name, data)
+    from .package_remap import write_package_atomically
+    write_package_atomically(target, payload)
     return {str(index - 1): slot}, {'source_sha256': digest(source), 'converted_sha256': digest(target),
                                     'filament_index': index, 'filament_colour': color,
                                     'policy': 'production package copy; one filament colour byte patch'}
@@ -1135,6 +1214,21 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
                 payload[name] = _PAINT_ATTR_RE.sub(b'', payload[name])
     if not core_source:
         payload['Metadata/model_settings.config'] = settings_out
+    # The one filament this plate actually uses (Phase C, #1110 C3): when every
+    # selected part prints with one source extruder, the collapsed project
+    # keeps that filament's own per-filament entries, not entry 1's — and the
+    # slot recolor below therefore targets that index, so the surviving entry
+    # carries both the used filament's profile and the slot's verified color.
+    used_extruders = {part['source_extruder'] for part in parts if part.get('source_extruder')}
+    if manifest['painted']:
+        from . import painted_geometry as _painted
+        for part in parts:
+            row = _painted.leaf_states(source, part)
+            used_extruders |= {state or part['source_extruder'] for state in row['states']}
+            if row['unpainted'] or not row['states']:
+                used_extruders.add(part['source_extruder'])
+    used_extruders.discard(None)
+    keep_index = next(iter(used_extruders)) if len(used_extruders) == 1 else 1
     color = None
     if slot_colors:
         row = slot_colors.get(str(slot)) or slot_colors.get(slot) or {}
@@ -1145,16 +1239,82 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
         color = slot_hex(slot, row)
         if 'Metadata/project_settings.config' in payload:
             payload['Metadata/project_settings.config'] = _recolor_filament_indexes(
-                payload['Metadata/project_settings.config'], {1}, color)
+                payload['Metadata/project_settings.config'], {keep_index}, color)
         elif not core_source:
             raise RuntimeError('derived plate slot color requires project settings')
         # A core 3MF has no project settings; the slice gets the verified slot
         # color from slice_model(filament_slot=...) and the report (#716).
     if 'Metadata/project_settings.config' in payload:
-        payload['Metadata/project_settings.config'] = _declare_one_filament(payload['Metadata/project_settings.config'])
-    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
-        for name, data in payload.items():
-            out.writestr(name, data)
+        payload['Metadata/project_settings.config'] = _declare_one_filament(
+            payload['Metadata/project_settings.config'], keep_index=keep_index)
+    # No stale filament reference rides along (Phase C, #1110 C8): every other
+    # member that can name a filament is remapped to the plate's one filament,
+    # dropped with the drop named in the report, or named as preserved. This
+    # copy never renumbers object ids, so height ranges keep their object keys
+    # and only their extruder values move.
+    from . import layer_gcode as _layer_gcode
+    dropped_entries, preserved_unremapped, single_layer_report = [], [], None
+    if _layer_gcode.MEMBER in payload:
+        entries = _layer_gcode.parse(payload[_layer_gcode.MEMBER])
+        tool_map = {ext: 1 for ext in _layer_gcode.tool_change_extruders(entries)}
+        if tool_map:
+            payload[_layer_gcode.MEMBER], single_layer_report = _layer_gcode.remap(
+                payload[_layer_gcode.MEMBER], tool_map)
+        else:
+            # Only pauses/custom entries: they are the job's to re-derive, and
+            # the member naming source heights for another plate shape drops.
+            del payload[_layer_gcode.MEMBER]
+            dropped_entries.append(_layer_gcode.MEMBER)
+    if 'Metadata/layer_config_ranges.xml' in payload:
+        payload['Metadata/layer_config_ranges.xml'] = re.sub(
+            rb'(<option opt_key="extruder">)\d+(</option>)', rb'\g<1>1\g<2>',
+            payload['Metadata/layer_config_ranges.xml'])
+    for name in list(payload):
+        if (name == 'Metadata/slice_info.config'
+                or re.fullmatch(r'Metadata/plate_\d+\.gcode', name)):
+            # Sliced usage and embedded G-code name the removed numbering and
+            # cannot be rewritten honestly (usage is re-derived by slicing;
+            # bare G-code is never rewritten).
+            del payload[name]
+            dropped_entries.append(name)
+    if 'Metadata/Slic3r_PE.config' in payload:
+        # The derived plate stays the author's package for a Prusa source
+        # (the slice-time adoption translates and removes this member from
+        # its own copy, #867), so it is translated to the one-filament
+        # numbering instead of dropped: palette lists collapse to the kept
+        # filament's entry and the support extruders follow it.
+        prusa_lines = []
+        for line in payload['Metadata/Slic3r_PE.config'].decode('utf-8', 'replace').splitlines():
+            stripped = line.strip()
+            if stripped.startswith(';') and '=' in stripped:
+                key, _, value = stripped[1:].partition('=')
+                key, value = key.strip(), value.strip()
+                if key in ('extruder_colour', 'filament_colour', 'filament_type'):
+                    items = [item.strip() for item in value.split(';')] if value else []
+                    if 1 <= keep_index <= len(items):
+                        line = f'; {key} = {items[keep_index - 1]}'
+                elif key in ('support_material_extruder', 'support_material_interface_extruder'):
+                    try:
+                        designation = int(value)
+                    except ValueError:
+                        designation = None
+                    if designation is not None and designation >= 1:
+                        line = f'; {key} = {"1" if designation == keep_index else "0"}'
+            prusa_lines.append(line)
+        payload['Metadata/Slic3r_PE.config'] = ('\n'.join(prusa_lines) + '\n').encode()
+    if 'Metadata/Slic3r_PE_model.config' in payload:
+        payload['Metadata/Slic3r_PE_model.config'] = re.sub(
+            rb'(<metadata[^>]*key="extruder" value=")\d+(")', rb'\g<1>1\g<2>',
+            payload['Metadata/Slic3r_PE_model.config'])
+    if 'Metadata/filament_sequence.json' in payload:
+        # Preserved byte-for-byte on purpose: the only reader of this member
+        # reads its embedded print preset as provenance evidence about the
+        # *source* (Phase A's conversion provenance compares against it), and
+        # no sequence semantics beyond that record are established (Phase C
+        # reconciliation of audit row R26 with Phase A). Named, not silent.
+        preserved_unremapped.append('Metadata/filament_sequence.json')
+    from .package_remap import write_package_atomically
+    write_package_atomically(target, payload)
     with zipfile.ZipFile(source) as archive:
         changed = sorted(name for name in payload if payload[name] != archive.read(name))
     return {'source_sha256': digest(original_source), 'converted_sha256': digest(target),
@@ -1168,6 +1328,11 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
                                    for oid, matrix in worlds.items()}} if worlds else {}),
             **({'placement_mm': placement} if placement is not None else {}), 'merged_placement': item_shifts is not None, 'bounds_mm': boxes,
             'placed_bounds_mm': placed, 'bed_mm': bed, 'changed_entries': changed,
+            'dropped_entries': sorted(dropped_entries),
+            'preserved_unremapped_entries': preserved_unremapped,
+            **({'layer_changes': single_layer_report} if single_layer_report is not None else {}),
+            'governing_rules': ['per-filament-array-permutation', 'support-designation-remap',
+                                'height-range-extruder-remap', 'remap-member-classification'],
             'policy': 'production package copy; every object, mesh and relationship kept; unselected build items printable=0; all extruders logical 1; selected transforms kept unless the group must shift to fit',
             **({'filament_colour': color} if color is not None else {})}
 
@@ -1183,8 +1348,9 @@ def _part_selections(source, manifest, choices, part):
     'filament:N' rows), and one part prints every filament its triangles
     are painted with plus its own extruder for unpainted triangles — the
     same states the multicolor exporter maps. PrusaSlicer mmu_segmentation
-    paint is not decoded per state, so such a part counts every palette
-    row. A part with no row that names it is refused, never guessed.
+    paint is decoded per state by painted_geometry (Phase C), so such a
+    part counts exactly the filaments its triangles name, like paint_color.
+    A part with no row that names it is refused, never guessed.
     """
     rows = []
     if 'part:' + part['key'] in choices:
@@ -1195,10 +1361,6 @@ def _part_selections(source, manifest, choices, part):
         used = {state or part['source_extruder'] for state in states['states']}
         if states['unpainted'] or not used:
             used.add(part['source_extruder'])
-        model_path = part['ancestry'][-1][0] if part.get('ancestry') else '3D/3dmodel.model'
-        with zipfile.ZipFile(source) as archive:
-            if b'mmu_segmentation=' in archive.read(model_path):
-                used |= {f['source_extruder'] for f in manifest['filaments']}
         missing = sorted(n for n in used if f'filament:{n}' not in choices)
         if missing:
             raise RuntimeError(f'painted source filament(s) {missing} have no slot choice')
@@ -1416,7 +1578,7 @@ _PER_FILAMENT_KEYS = re.compile(
     r'|overhang_threshold_participating_cooling|volumetric_speed_coefficients)')
 
 
-def _declare_one_filament(project):
+def _declare_one_filament(project, keep_index=1):
     """Cut every per-filament array of the project settings to the one filament a derived plate runs.
 
     A derived plate points every object at logical filament 1 (T0), but it keeps
@@ -1424,27 +1586,63 @@ def _declare_one_filament(project):
     filament of the source. OrcaSlicer 2.5.0-beta rejects that (exit -5,
     "filament_is_support's count 1 not equal to filament_colour's size 2") once
     the loaded filament profile contributes one entry; 2.4.2 never checked.
-    Entry 1 is the filament the plate uses, so each array keeps its first entry.
-    Scalar and machine-level keys stay as authored. Sources that already declare
-    one filament are returned unchanged.
+
+    The surviving entries are the *used* source filament's (keep_index, the
+    source extruder the plate's parts print with — Phase C, #1110 C3): keeping
+    entry 1 unconditionally would leave a plate that uses filament 2 carrying
+    filament 1's temperatures, density and profile id. The flush matrix
+    collapses to the kept filament's diagonal entry (0 by construction), the
+    flush vector to the kept filament's own pair (the established layout is
+    two entries per filament), and a support designation that named the kept
+    filament now names filament 1 while one that named a removed filament
+    falls back to 0, the object's own filament (registry rule
+    support-designation-remap). Scalar and machine-level keys stay as
+    authored. Sources that already declare one filament keep their entries;
+    their designations are still normalized when keep_index is 1.
     """
     settings = json.loads(project)
     colours = settings.get('filament_colour')
-    if not isinstance(colours, list) or len(colours) < 2:
+    if not isinstance(colours, list) or not colours:
         return project
     count = len(colours)
-    for key, value in settings.items():
-        if not isinstance(value, list) or not value:
+    if not 1 <= keep_index <= count:
+        raise RuntimeError(f'derived plate keeps source filament {keep_index}, outside the '
+                           f'{count}-filament palette')
+    keep = keep_index - 1
+    if count >= 2:
+        for key, value in settings.items():
+            if not isinstance(value, list) or not value:
+                continue
+            if key == 'flush_volumes_vector':
+                settings[key] = value[2 * keep:2 * keep + 2] if len(value) == 2 * count else value[:2]
+            elif key == 'different_settings_to_system' and len(value) == count + 2:
+                settings[key] = [value[0], value[1], value[-1]]
+            elif _PER_FILAMENT_KEYS.fullmatch(key):
+                settings[key] = [value[keep]] if len(value) == count else value[:1]
+        matrix = settings.get('flush_volumes_matrix')
+        if isinstance(matrix, list) and len(matrix) == count * count:
+            settings['flush_volumes_matrix'] = [matrix[keep * count + keep]]
+        elif isinstance(matrix, list) and matrix:
+            settings['flush_volumes_matrix'] = matrix[:1]
+    designation_changed = False
+    for key in ('support_filament', 'support_interface_filament'):
+        if key not in settings:
             continue
-        if key == 'flush_volumes_vector':
-            settings[key] = value[:2]
-        elif key == 'different_settings_to_system' and len(value) == count + 2:
-            settings[key] = [value[0], value[1], value[-1]]
-        elif _PER_FILAMENT_KEYS.fullmatch(key):
-            # flush_volumes_matrix is count x count; its first entry is the 1 x 1 diagonal.
-            settings[key] = value[:1]
-    if isinstance(settings.get('flush_volumes_matrix'), list) and settings['flush_volumes_matrix']:
-        settings['flush_volumes_matrix'] = settings['flush_volumes_matrix'][:1]
+        try:
+            designation = int(str(settings[key]).strip())
+        except (TypeError, ValueError):
+            continue
+        if designation == keep_index:
+            new = '1'
+        elif designation >= 1:
+            new = '0'
+        else:
+            continue
+        if str(settings[key]) != new:
+            settings[key] = new
+            designation_changed = True
+    if count < 2 and not designation_changed:
+        return project  # already one filament, nothing to cut: bytes stay as authored
     return json.dumps(settings, indent=4).encode()
 
 

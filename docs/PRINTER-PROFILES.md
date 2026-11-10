@@ -500,6 +500,13 @@ Each rule carries: a unique id; a decision kind; the source slicer family and a 
 | `orca-range-error-clamp` | value_clamp | orca >=2.4,<3.0 | orca >=2.4,<3.0 |
 | `support-filament-designation` | designation_carry | any any | orca >=2.4,<3.0 |
 | `prusa-plate-adoption-seeding` | profile_seeding | prusaslicer any | orca >=2.4,<3.0 |
+| `mmu-segmentation-paint-translation` | paint_translation | prusaslicer any | orca >=2.4,<3.0 |
+| `per-filament-array-permutation` | array_permutation | any any | orca >=2.4,<3.0 |
+| `flush-matrix-permutation` | purge_permutation | any any | orca >=2.4,<3.0 |
+| `flush-vector-unestablished-refusal` | refusal | any any | orca >=2.4,<3.0 |
+| `support-designation-remap` | designation_remap | any any | orca >=2.4,<3.0 |
+| `height-range-extruder-remap` | range_remap | any any | orca >=2.4,<3.0 |
+| `remap-member-classification` | member_classification | any any | orca >=2.4,<3.0 |
 
 How Phase A of the #1110 completion program consumes this registry: conversion provenance records a version pair for each job (`source_slicer_version`, `destination_slicer_version`, `source_profile_version`, `destination_profile_version` — the field names the registry module declares), filled from the source project's own evidence, the destination template actually applied, and the producing slicer's own identity line, as described under [Projects from another printer or slicer](#projects-from-another-printer-or-slicer). The provenance's `governing_rules` are the registry ids whose decision points that conversion reached, filtered by the registry's family and version-applicability check for the recorded pair, and `registry_version` records which registry version the ids belong to. The registry is the source of the version-pair shape and the rule ids; the recording adds no second compatibility table.
 

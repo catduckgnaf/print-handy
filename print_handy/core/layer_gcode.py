@@ -142,6 +142,12 @@ def remap(xml_bytes, tool_map, z_scale=1.0):
     pointing at a tool the sliced job does not have; pauses and custom
     entries are dropped too — only the height color changes are carried, and
     the caller reports the rest from the inventory. Returns (bytes, report).
+
+    A kept entry's `color` attribute rides verbatim: it is display metadata
+    (tool selection comes from the `extruder` attribute), and Orca's 3MF
+    loader requires the attribute — a build that stripped it got Orca -6
+    ("the input model file can not be parsed") for every height-color slice
+    in real-slicer CI (PR #1133). Never strip it.
     """
     def convert(node):
         if kind_of(dict(node.attrib)) != 'tool_change':

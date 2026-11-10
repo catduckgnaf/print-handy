@@ -790,9 +790,9 @@ def _painting_usage(path, manifest, plate_parts):
     """The painting class row for one plate's parts (painted_geometry states).
 
     State N >= 1 is source filament N; state 0 and unpainted triangles print
-    the part's base extruder. PrusaSlicer mmu_segmentation paint is not
-    decoded per state anywhere in this codebase, so such a part counts every
-    palette filament, exactly as the geometry exporters treat it.
+    the part's base extruder. PrusaSlicer mmu_segmentation paint is decoded
+    per state by painted_geometry with the same TriangleSelector decoding as
+    paint_color (Phase C, #1110 criterion 4), so its states count exactly.
     """
     if not manifest.get('painted'):
         return _usage_row('known', evidence='source carries no paint_color/mmu_segmentation attributes')
@@ -822,9 +822,8 @@ def _painting_usage(path, manifest, plate_parts):
         return _usage_row('unknown', reason='a painted part has no base extruder for its '
                                              'unpainted or base-state triangles')
     if mmu:
-        used |= {f.get('source_extruder') for f in manifest.get('filaments') or []}
-        return _usage_row('known', used, evidence='mmu_segmentation paint is not decoded per state; '
-                                                  'every palette filament is counted (conservative)')
+        return _usage_row('known', used, evidence='mmu_segmentation triangle states decoded per '
+                                                  'part (same selector decoding as paint_color)')
     return _usage_row('known', used, evidence='paint_color triangle states decoded per part')
 
 

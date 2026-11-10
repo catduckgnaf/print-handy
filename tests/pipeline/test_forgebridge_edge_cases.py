@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import orca_adapter, source_colors
+from print_handy.core import layer_gcode, orca_adapter, source_colors
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
 from print_handy.core.geometry_layout import _bounds_from_triangles
 from tests.corpus.make_models import box, write_3mf, write_stl
@@ -242,10 +242,12 @@ def test_layer_pauses_and_custom_gcode_are_reported_not_carried(tmp_path):
 
 
 def test_height_based_colour_changes_never_reach_a_one_filament_plate_as_extra_tools(tmp_path):
-    """What happens today on a derived plate (route (c)): the changes ride the byte copy, and the plate has one
-    filament, so a change to source filament 2 would be a tool the plate does not have. The post-slice guard
-    refuses any such G-code (tests/core/test_slice_guard.py); here we pin that the XML is copied unchanged
-    rather than silently remapped onto filament 1."""
+    """Deliberate change (Phase C, #1110 criterion 4 / audit finding 2): this test used to pin the
+    per-layer XML copied byte-for-byte onto a derived one-filament plate, where a change to source
+    filament 2 named a tool the plate does not have (the post-slice guard then refused the G-code).
+    Criterion 4 requires the member to be remapped instead of carried stale: every height change
+    the operator picked for the plate's one slot is rewritten to the plate's filament 1, so no
+    entry names a tool the plate does not have and none is silently dropped."""
     source = layered(tmp_path / "chroma.3mf")
     state = json.loads(STATE.read_text())
     manifest = source_colors.inventory(source)
@@ -256,7 +258,8 @@ def test_height_based_colour_changes_never_reach_a_one_filament_plate_as_extra_t
     plate = tmp_path / "plate.3mf"
     export_single_color_plate(source, plate, decisions, [p["key"] for p in manifest["parts"]])
     with zipfile.ZipFile(plate) as archive:
-        assert archive.read("Metadata/custom_gcode_per_layer.xml").decode() == LAYER_CHANGES
+        rows = layer_gcode.parse(archive.read("Metadata/custom_gcode_per_layer.xml"))
+    assert [(row["top_z"], row["source_extruder"]) for row in rows] == [(4.0, 1), (8.0, 1)]
 
 
 # --- 15. the fit check measures models wider at mid-height (ForgeBridge) -------------------------------
