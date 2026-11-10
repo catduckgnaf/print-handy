@@ -764,3 +764,94 @@ class ComponentReadinessTests(unittest.TestCase):
                 finally:
                     httpd.shutdown()
                     httpd.server_close()
+
+
+class SnapshotCacheTests(unittest.TestCase):
+    """GET /api/status reuses one snapshot for a few seconds (Home Assistant polls it)."""
+
+    def test_reuses_within_the_ttl_and_refreshes_after(self):
+        now = [100.0]
+        built = []
+
+        def build():
+            built.append(1)
+            return {"n": len(built), "rows": [{"a": 1}]}
+
+        cache = status.SnapshotCache(build, ttl=5, clock=lambda: now[0])
+        first = cache.get()
+        first["rows"].append("mutated by a renderer")
+        now[0] += 4.9
+        self.assertEqual(cache.get(), {"n": 1, "rows": [{"a": 1}]})  # a copy each time
+        now[0] += 0.2
+        self.assertEqual(cache.get()["n"], 2)
+        self.assertEqual(len(built), 2)
+
+    def test_concurrent_requests_share_one_refresh(self):
+        gate = threading.Event()
+        built = []
+
+        def build():
+            built.append(1)
+            gate.wait(2)
+            return {"n": len(built)}
+
+        cache = status.SnapshotCache(build, ttl=5)
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(cache.get())) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        time.sleep(0.1)
+        gate.set()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual(len(built), 1)
+        self.assertEqual(results, [{"n": 1}] * 8)
+
+    def test_a_failed_refresh_is_not_cached(self):
+        calls = []
+
+        def build():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("doctor blew up")
+            return {"ok": True}
+
+        cache = status.SnapshotCache(build, ttl=5)
+        with self.assertRaises(RuntimeError):
+            cache.get()
+        self.assertEqual(cache.get(), {"ok": True})
+
+    def test_api_status_is_cached_and_the_status_page_stays_live(self):
+        calls = []
+
+        def snapshot():
+            calls.append(1)
+            return dict(FAKE_SNAPSHOT)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "webui:\n  enabled: true\n  port: 8765\n")
+            httpd = server.make_server(data, environ={}, port=0, snapshot_func=snapshot)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = httpd.server_address[1]
+                bodies = []
+                for _ in range(3):
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    conn.request("GET", "/api/status")
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 200)
+                    bodies.append(json.loads(response.read().decode()))
+                    conn.close()
+                self.assertEqual(len(calls), 1)  # three polls, one doctor run
+                self.assertEqual(bodies[0], json.loads(json.dumps(FAKE_SNAPSHOT, default=str)))
+                self.assertEqual(bodies[0], bodies[2])  # the JSON shape is unchanged
+                for _ in range(2):
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    conn.request("GET", "/")
+                    self.assertEqual(conn.getresponse().status, 200)
+                    conn.close()
+                self.assertEqual(len(calls), 3)  # the page reads live every time
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
