@@ -559,14 +559,21 @@
    "wall_s": 0.77
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.17,
-   "fit_check_s": 0.05,
+   "first_prompt_s": 0.2,
+   "fit_check_s": 0.04,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.05,
     "wall_s": 0.75
    },
-   "wall_s": 0.75
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.05,
+    "wall_s": 0.75
+   },
+   "reason": "Wall time 0.75s -> 0.85s (median of 3, CI run 42883041795). CI medians of main show #1165 sped this case up (0.68s at 42861430542), then a step back to 0.83s by f0a238df (window: #1172, #1174, #1177, #1179, #1181); the cause inside that window was not isolated, no per-commit bisect was run.",
+   "wall_s": 0.85
   },
   "loose-2c-tight/direct": {
    "first_prompt_s": 0.07,
@@ -897,6 +904,22 @@
    },
    "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "wall_s": 0.26
+  },
+  "print-next-second-plate/direct": {
+   "first_prompt_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.0,
+    "wall_s": 0.01
+   },
+   "wall_s": 0.01
+  },
+  "print-next-second-plate/standalone": {
+   "first_prompt_s": 0.0,
+   "original": {
+    "first_prompt_s": 0.0,
+    "wall_s": 0.0
+   },
+   "wall_s": 0.0
   },
   "prusa-mmu-project/direct": {
    "first_prompt_s": 0.02,
@@ -1308,6 +1331,18 @@
    },
    "wall_s": 0.05
   },
+  "typed-setup-walkthrough/direct": {
+   "original": {
+    "wall_s": 0.01
+   },
+   "wall_s": 0.01
+  },
+  "typed-setup-walkthrough/standalone": {
+   "original": {
+    "wall_s": 0.0
+   },
+   "wall_s": 0.0
+  },
   "unicode-part-extra-plate/direct": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
@@ -1329,24 +1364,38 @@
    "wall_s": 0.05
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.38,
+   "first_prompt_s": 0.42,
    "fit_check_s": 0.13,
    "original": {
     "first_prompt_s": 0.38,
     "fit_check_s": 0.13,
     "wall_s": 1.12
    },
-   "wall_s": 1.12
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.38,
+    "fit_check_s": 0.13,
+    "wall_s": 1.12
+   },
+   "reason": "Wall time 1.12s -> 1.30s (median of 3, CI run 42883041795). Main CI medians: 1.11s after #1165, 1.24s at f0a238df, 1.30s on this head; the step lies in #1172/#1174/#1177/#1179/#1181 plus the later filament warn-and-accept change (#1190); the cause was not isolated, no per-commit bisect was run.",
+   "wall_s": 1.3
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 0.4,
+   "first_prompt_s": 0.45,
    "fit_check_s": 0.12,
    "original": {
     "first_prompt_s": 0.4,
     "fit_check_s": 0.12,
     "wall_s": 1.16
    },
-   "wall_s": 1.16
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.4,
+    "fit_check_s": 0.12,
+    "wall_s": 1.16
+   },
+   "reason": "Wall time 1.16s -> 1.61s (median of 3, CI run 42883041795; repeats read 1.89, 1.61, 1.27s, so noisy). Main CI medians: 1.06s after #1165, 1.25s at f0a238df; the rest of the rise is within runner noise or from #1190, cause not isolated, no per-commit bisect was run. Sits at +39% over the first recording, in the drift warning band.",
+   "wall_s": 1.61
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
@@ -1363,7 +1412,7 @@
   "stl-tall/direct",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 42464271849 (bc4c7ab43e3c2e0eda109d70087c87c639214851), artifact discord-timing, median of 3",
+ "recorded_from": "CI run 42464271849 (bc4c7ab43e3c2e0eda109d70087c87c639214851), artifact discord-timing, median of 3; except islands-144-four-color/standalone, witch-ghost-cults3d/direct, witch-ghost-cults3d/standalone and the print-next-second-plate and typed-setup-walkthrough cases: CI run 42883041795 (2c76bcdd97a9f1b375c02ff44fdb9c34ab5b6f3b), median of 3",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
