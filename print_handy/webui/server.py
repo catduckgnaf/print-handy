@@ -194,6 +194,23 @@ def _access_stamp(data):
         return None
 
 
+_BROKEN_LOG_LOCK = threading.Lock()
+
+
+def _log_broken_access(server):
+    """Log a broken login file once per distinct problem (not per request)."""
+    access = getattr(server, "access", None)
+    if not getattr(access, "broken", False):
+        return
+    key = (access.problem, access._broken_path)
+    with _BROKEN_LOG_LOCK:
+        if getattr(server, "broken_access_logged", None) == key:
+            return
+        server.broken_access_logged = key
+    log.error("webui: refusing all requests: %s (file: %s)", access.problem,
+              access._broken_path)
+
+
 def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
@@ -605,6 +622,20 @@ class _Handler(BaseHTTPRequestHandler):
                    "text/plain; charset=utf-8")
         return True
 
+    def _broken_refused(self, path):
+        """True (and a 503 sent) while the saved login file is broken.
+
+        Only /healthz still answers, so the container stays observable.
+        The reason is logged once per distinct problem, with the file's
+        full path; the response names only the file."""
+        access = self.server.access
+        if not getattr(access, "broken", False) or path == "/healthz":
+            return False
+        _log_broken_access(self.server)
+        self._send(503, access.problem + "\n", "text/plain; charset=utf-8",
+                   headers=[("Retry-After", "30")])
+        return True
+
     def _send(self, code, body, content_type, headers=()):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
@@ -740,6 +771,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             self._sync_access()
+            if self._broken_refused(path):
+                return
             if path != "/healthz" and self._host_refused():
                 return
             if path == "/healthz":
@@ -1327,11 +1360,15 @@ class _Handler(BaseHTTPRequestHandler):
         server = self.server
         if not hasattr(server, "access_stamp"):
             return
-        if _access_stamp(server.settings_data) == server.access_stamp:
+        # A broken login file is re-read on every request: fixing its
+        # ownership or mode changes no mtime, and the fix must apply
+        # without a restart.
+        broken = getattr(server.access, "broken", False)
+        if not broken and _access_stamp(server.settings_data) == server.access_stamp:
             return
         with server.access_sync_lock:
             stamp = _access_stamp(server.settings_data)
-            if stamp == server.access_stamp:
+            if stamp == server.access_stamp and not server.access.broken:
                 return
             server.access_stamp = stamp
             new_access = access_module.resolve(
@@ -1591,6 +1628,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             self._sync_access()
+            if self._broken_refused(path):
+                return
             if self._host_refused(post=True):
                 return
             if path.startswith("/u/"):
@@ -2076,6 +2115,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.settings_data = data
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
+    _log_broken_access(server)
     server.access_stamp = _access_stamp(data)
     server.access_sync_lock = threading.Lock()
     server.bind_host = bind_host

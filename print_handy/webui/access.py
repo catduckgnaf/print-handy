@@ -30,6 +30,11 @@ imports do not break; :func:`resolve` never returns it.
 The password is stored only as a salted PBKDF2-SHA256 hash; the file is
 written atomically with mode 0600. Deleting it is the reset; the
 environment token also signs in when the password is forgotten.
+
+A file that exists but cannot be used (unreadable, not JSON, missing
+fields) resolves to ``BROKEN``, never to "unclaimed": the server then
+refuses every request but ``/healthz`` with a 503 naming the file
+until the owner fixes or deletes it. Only a missing file is unclaimed.
 """
 from __future__ import annotations
 
@@ -53,6 +58,14 @@ MAX_USERNAME_LENGTH = 64
 _ITERATIONS = 200_000
 
 OPEN, TOKEN, PASSWORD, SETUP = "open", "token", "password", "setup"
+# A saved login file that exists but cannot be used. Nothing matches it
+# and the server refuses every request (except /healthz) until the file
+# is fixed or deleted: a claimed install never silently reopens.
+BROKEN = "broken"
+# Why an OPEN Access is open (Access.open_reason), shown on the status
+# page's banner: nothing set yet, the require_auth opt-out, or the
+# owner's saved "leave it open" choice.
+OPEN_UNCLAIMED, OPEN_AUTH_OFF, OPEN_SAVED = "unclaimed", "require_auth_off", "saved_open"
 
 
 class AccessError(ValueError):
@@ -75,6 +88,15 @@ class Access:
 
     mode: str
     unclaimed: bool = False
+    # OPEN only: OPEN_UNCLAIMED, OPEN_AUTH_OFF or OPEN_SAVED.
+    open_reason: str = ""
+    # OPEN_AUTH_OFF only: a saved password or an environment token exists
+    # but is being ignored because require_auth is off.
+    credential_ignored: bool = False
+    # BROKEN only: the plain explanation the server answers with, and the
+    # full path of the damaged file for the log.
+    problem: str = ""
+    _broken_path: str = field(default="", repr=False)
     _token: str = field(default="", repr=False)
     _salt: bytes = field(default=b"", repr=False)
     _hash: bytes = field(default=b"", repr=False)
@@ -88,8 +110,16 @@ class Access:
 
     @property
     def required(self):
-        """True when a request must carry a matching credential."""
-        return self.mode in (TOKEN, PASSWORD)
+        """True when a request must carry a matching credential.
+
+        BROKEN counts: nothing matches it, so anything that only asks
+        whether a credential is required stays closed."""
+        return self.mode in (TOKEN, PASSWORD, BROKEN)
+
+    @property
+    def broken(self):
+        """True when the saved login file exists but cannot be used."""
+        return self.mode == BROKEN
 
     def credential_fingerprint(self):
         """A hash naming this exact credential configuration.
@@ -103,7 +133,7 @@ class Access:
         already being hashes in password mode."""
         material = "\x00".join((self.mode, self._token, self.username,
                                 str(self._iterations),
-                                self._salt.hex(), self._hash.hex()))
+                                self._salt.hex(), self._hash.hex(), self.problem))
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     @property
@@ -214,25 +244,51 @@ def access_path(data):
     return Path(settings.state_dir(data)) / ACCESS_FILE
 
 
+def _broken(path, cause):
+    return Access(BROKEN, problem=(
+        f"The Web UI login file {path.name} in the state folder exists but {cause}. "
+        "The Web UI refuses every request until it is fixed, instead of reopening "
+        "without the login that was set. Fix the file (for example its owner or "
+        "permissions, so the user Print Handy runs as can read it), or delete it to "
+        "clear the login: the Web UI is then open until a new one is set."),
+        _broken_path=str(path))
+
+
 def _read_saved(path):
-    """The saved choice as an Access, or None when there is none (or it is unreadable)."""
+    """The saved choice as an Access, or None when there is no saved file.
+
+    A file that exists but cannot be used — unreadable (often a container
+    user change or a restore with other ownership), not JSON, or missing
+    the fields its mode needs — is a BROKEN Access, never None: the owner
+    chose a login, and reading the damage as "nothing saved" would reopen
+    the Web UI to anyone without a word."""
     try:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except PermissionError:
+        return _broken(path, "cannot be read (permission denied; the file probably "
+                             "belongs to another user, as after a container user change "
+                             "or a restore)")
+    except (OSError, ValueError) as exc:
+        return _broken(path, f"cannot be read ({type(exc).__name__})")
+    try:
+        saved = json.loads(text)
+    except ValueError:
+        return _broken(path, "is not valid JSON (it may have been cut short or edited by hand)")
     if not isinstance(saved, dict):
-        return None
+        return _broken(path, "does not hold a saved login")
     if saved.get("mode") == OPEN:
-        return Access(OPEN)
+        return Access(OPEN, open_reason=OPEN_SAVED)
     if saved.get("mode") == PASSWORD:
         try:
-            return Access(PASSWORD, _salt=base64.b64decode(saved["salt"]),
-                          _hash=base64.b64decode(saved["hash"]),
+            return Access(PASSWORD, _salt=base64.b64decode(saved["salt"], validate=True),
+                          _hash=base64.b64decode(saved["hash"], validate=True),
                           _iterations=int(saved["iterations"]),
                           username=str(saved.get("username") or "").strip())
         except (KeyError, TypeError, ValueError):
-            return None
-    return None
+            return _broken(path, "is missing the fields a saved password needs")
+    return _broken(path, "names no login mode this version knows")
 
 
 def resolve(data, host, environ=None):
@@ -243,6 +299,10 @@ def resolve(data, host, environ=None):
         return Access(OPEN)
     token = environ.get(webui["access_token_env"]) or ""
     saved = _read_saved(access_path(data))
+    if saved is not None and saved.mode == BROKEN:
+        # Fail closed, even beside an environment token: the file is the
+        # owner's choice and nobody can tell what it held.
+        return saved
     if saved is not None and saved.mode == PASSWORD:
         # A login chosen in the Web UI wins over the environment token for
         # people (#875), and the token keeps working as a credential, so
@@ -256,7 +316,7 @@ def resolve(data, host, environ=None):
     # Nothing set: open on every bind, loopback or not, with the claim
     # state exposed so the UI can offer the walkthrough and its Login
     # step instead of gating on a setup page (the #708 reversal).
-    return Access(OPEN, unclaimed=True)
+    return Access(OPEN, unclaimed=True, open_reason=OPEN_UNCLAIMED)
 
 
 def _write(path, payload):

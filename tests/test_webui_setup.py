@@ -13,12 +13,14 @@ is primary, the environment token stays a co-credential, and a saved
 Offline: temp settings and state folder, the server on an ephemeral port.
 """
 import http.client
+import os
 import stat
 import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlencode
 
 from print_handy import settings
@@ -161,13 +163,44 @@ class ResolveOrderTests(unittest.TestCase):
             access.save_open(self.data, False)
         self.assertFalse(access.access_path(self.data).exists())
 
-    def test_unreadable_saved_file_falls_back_to_open_and_unclaimed(self):
+    def test_a_damaged_saved_file_fails_closed_instead_of_reopening(self):
+        """A file that exists but cannot be used is BROKEN, never
+        "unclaimed": the owner chose a login, and nobody can tell what
+        the damaged file held. Only a missing file is unclaimed."""
         path = access.access_path(self.data)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{not json")
+        damaged = {"not json": "{not json", "not a dict": "[1, 2]",
+                   "missing fields": '{"mode": "password", "salt": "AAAA"}',
+                   "bad base64": '{"mode": "password", "salt": "!!", "hash": "!!", '
+                                 '"iterations": 5}',
+                   "unknown mode": '{"mode": "sideways"}', "empty": ""}
+        for label, text in damaged.items():
+            with self.subTest(label):
+                path.write_text(text)
+                for environ in ({}, {"WEBUI_ACCESS_TOKEN": TOKEN}):
+                    resolved = access.resolve(self.data, "0.0.0.0", environ)
+                    self.assertEqual(resolved.mode, access.BROKEN)
+                    self.assertTrue(resolved.required)
+                    self.assertFalse(resolved.unclaimed)
+                    self.assertFalse(resolved.matches(TOKEN))
+                    self.assertIn(access.ACCESS_FILE, resolved.problem)
+
+    def test_an_unreadable_saved_file_fails_closed_and_says_why(self):
+        path = access.access_path(self.data)
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        real = Path.read_text
+
+        def denied(self_path, *args, **kwargs):
+            if self_path == path:
+                raise PermissionError(13, "Permission denied")
+            return real(self_path, *args, **kwargs)
+        with mock.patch.object(Path, "read_text", denied):
+            resolved = access.resolve(self.data, "0.0.0.0", {})
+        self.assertEqual(resolved.mode, access.BROKEN)
+        self.assertIn("permission denied", resolved.problem)
+        path.unlink()
         resolved = access.resolve(self.data, "0.0.0.0", {})
-        self.assertEqual(resolved.mode, access.OPEN)
-        self.assertTrue(resolved.unclaimed)
+        self.assertEqual((resolved.mode, resolved.unclaimed), (access.OPEN, True))
 
 
 class UnclaimedFlowTests(unittest.TestCase):
@@ -303,6 +336,50 @@ class UnclaimedFlowTests(unittest.TestCase):
                                       headers={server.TOKEN_HEADER: TOKEN})[0], 200)
         code, headers, _ = self.request(port, "GET", "/setup", headers={server.TOKEN_HEADER: TOKEN})
         self.assertEqual((code, headers.get("location")), (303, "/"))
+
+    def test_a_claimed_install_with_a_damaged_login_file_refuses_service(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        path = access.access_path(data)
+        path.write_text('{"mode": "password"')  # cut short
+        with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
+            for method, route in (("GET", "/"), ("GET", "/api/status"), ("GET", "/login"),
+                                  ("GET", "/walkthrough"), ("POST", "/walkthrough")):
+                code, headers, body = self.request(port, method, route,
+                                                   body="x=1" if method == "POST" else None,
+                                                   headers=FORM if method == "POST" else HTML)
+                self.assertEqual(code, 503, route)
+                self.assertIn(access.ACCESS_FILE, body)
+                self.assertIn("not valid JSON", body)
+                self.assertTrue(headers["content-type"].startswith("text/plain"))
+            # The header token does not open it either.
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={server.TOKEN_HEADER: PASSWORD})[0], 503)
+        self.assertEqual(len(logs.records), 1)  # logged once, not per request
+        # /healthz still answers its own JSON, so the container stays observable.
+        _code, headers, body = self.request(port, "GET", "/healthz")
+        self.assertEqual(headers["content-type"], "application/json")
+        self.assertNotIn(access.ACCESS_FILE, body)
+        # Deleting the file is the documented reset: open and unclaimed again.
+        path.unlink()
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
+        self.assertTrue(httpd.access.unclaimed)
+
+    def test_a_fixed_login_file_applies_without_a_restart(self):
+        httpd, port, data = self.start()
+        access.save_password(data, PASSWORD, PASSWORD, username=USERNAME)
+        path = access.access_path(data)
+        good = path.read_bytes()
+        stamp = path.stat().st_mtime_ns
+        path.write_text("garbage")
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 503)
+        # Restore the content with the old mtime, as a chmod/chown fix
+        # would leave it: the server must still notice.
+        path.write_bytes(good)
+        os.utime(path, ns=(stamp, stamp))
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 401)
+        self.assertEqual(self.request(port, "GET", "/api/status",
+                                      headers={server.TOKEN_HEADER: PASSWORD})[0], 200)
 
     def test_bearer_is_not_accepted(self):
         # X-WebUI-Token is the one header (Home Assistant sends it).
