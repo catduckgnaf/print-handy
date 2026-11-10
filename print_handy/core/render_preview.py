@@ -70,7 +70,7 @@ color({rgb}) multmatrix([[{m[0][0]},{m[0][1]},{m[0][2]},{off[0]}],[{m[1][0]},{m[
 
 
 def _cache_dest(source, scale, rotation):
-    dest = Path.home() / '.hermes/cache/model-previews'
+    dest = Path(settings.current()['paths']['cache']) / 'model-previews'
     dest.mkdir(parents=True, exist_ok=True)
     key = abs(hash((str(source), scale, tuple(rotation or ())))) & 0xffffffff
     return dest / f'{Path(source).stem}-{key:08x}.png'

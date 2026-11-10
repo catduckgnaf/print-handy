@@ -64,10 +64,13 @@ bambu:
   # the start is left as uncertain (#271). An A1 can take over a minute to unpack a large package.
   start_confirm_s: 90
 paths:
-  hermes_home: ~/.hermes/profiles/3dprinting
+  # State, logs and the .env. The key name is historical; Hermes is not required. A native install
+  # that still has data in the old default (~/.hermes/profiles/3dprinting) keeps using it until
+  # you set this key or move the folder.
+  hermes_home: ~/.local/share/print-handy
   archive: ~/3d-prints
   records_vault: ~/Documents/3D Printing Records
-  cache: ~/.hermes/cache
+  cache: ~/.cache/print-handy
   ffmpeg: ffmpeg
   piper: piper
   piper_model: ''
@@ -85,8 +88,6 @@ discord:
   chat_id: ''
   approval_user_id: ''
   upload_max_bytes: 9500000
-  post_print_quiet_s: 7200
-  daily_reset_hour: 4
   timezone: America/New_York
   bot_name: Print Handy
   question_timeout_s: 1800

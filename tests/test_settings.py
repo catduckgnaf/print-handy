@@ -288,8 +288,8 @@ class OverrideTests(unittest.TestCase):
                       "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
-            "discord": {"chat_id", "approval_user_id", "upload_max_bytes", "post_print_quiet_s",
-                        "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
+            "discord": {"chat_id", "approval_user_id", "upload_max_bytes",
+                        "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
                         "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
                         "approval_all_users", "mention_starter"},
@@ -1156,3 +1156,60 @@ def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
         toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
     assert yaml_data == toml_data
     assert yaml_unknown == [] and settings.unknown_settings() == []
+
+
+def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):
+    """discord.post_print_quiet_s and discord.daily_reset_hour were retired: nothing reads them.
+
+    The shipped defaults no longer carry them; an old settings file or environment that
+    still sets them loads, the values are ignored, and the file's keys are warned about."""
+    defaults = settings.load(local=False, environ={}, user=False)
+    assert "post_print_quiet_s" not in defaults["discord"] and "daily_reset_hour" not in defaults["discord"]
+    old = tmp_path / "local.yaml"
+    old.write_text("discord:\n  post_print_quiet_s: 3600\n  daily_reset_hour: 6\n  bot_name: Kept\n")
+    data = settings.load(local=old, environ={}, user=False)
+    assert data["discord"]["bot_name"] == "Kept"
+    assert "post_print_quiet_s" not in data["discord"] and "daily_reset_hour" not in data["discord"]
+    assert any("daily_reset_hour" in line for line in settings.unknown_settings())
+    env = {"PRINT_HANDY__DISCORD__POST_PRINT_QUIET_S": "3600", "PRINT_HANDY__DISCORD__DAILY_RESET_HOUR": "6",
+           "DISCORD_POST_PRINT_QUIET_SECONDS": "3600", "DISCORD_DAILY_RESET_HOUR": "6"}
+    data = settings.load(local=False, environ=env, user=False)
+    assert "daily_reset_hour" not in data["discord"] and data["discord"]["bot_name"] == "Print Handy"
+
+
+def _home_at(monkeypatch, home):
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
+def test_fresh_install_defaults_to_the_neutral_data_and_cache_folders(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["cache"] == tmp_path / ".cache" / "print-handy"
+    assert settings.state_dir(data) == tmp_path / ".local" / "share" / "print-handy" / "state"
+
+
+def test_install_with_data_in_the_old_default_folders_keeps_using_them(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
+    (tmp_path / ".hermes" / "cache").mkdir()
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
+    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
+    # Only the folder that exists is kept: the cache alone does not drag the state folder back.
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").rmdir()
+    data = settings.load(local=False, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
+
+
+def test_an_explicit_path_beats_the_old_folder_even_when_it_matches_the_new_default(tmp_path, monkeypatch):
+    _home_at(monkeypatch, tmp_path)
+    (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
+    mine = tmp_path / "local.yaml"
+    mine.write_text("paths:\n  hermes_home: ~/.local/share/print-handy\n")
+    data = settings.load(local=mine, environ={}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(tmp_path / "elsewhere")}, user=False)
+    assert data["paths"]["hermes_home"] == tmp_path / "elsewhere"

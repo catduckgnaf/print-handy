@@ -165,8 +165,13 @@ def test_existing_printer_defaults_are_unchanged(key):
 
 
 @pytest.mark.parametrize("key", EXISTING)
-def test_existing_printer_loaded_settings_are_unchanged(key):
-    """model_settings.json: settings.load() for each model on main, before the vendor layer."""
+def test_existing_printer_loaded_settings_are_unchanged(key, tmp_path, monkeypatch):
+    """model_settings.json: settings.load() for each model on main, before the vendor layer.
+
+    The home folder is an empty temporary one, so the default [paths] do not depend on
+    whether the machine running the test still has the old ~/.hermes folders."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     want = json.loads((GOLDEN / "model_settings.json").read_text())[key]
     got = load({"PRINT_HANDY__PRINTER__MODEL": key})
 
