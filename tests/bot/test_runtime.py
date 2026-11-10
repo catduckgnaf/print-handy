@@ -282,11 +282,12 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
     assert model_file(SimpleNamespace(media_urls=paths)) is None
 
 
-def test_status_reports_no_hermes_modules(cfg):
+def test_status_has_no_hermes_modules_field(cfg):
     discord, core = make(cfg)
     status = core.status(True)
     assert status["mode"] == "standalone" and status["handlers"] == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
+    assert "hermes_modules" not in status
 
 
 def test_listener_alert_buttons_are_wired_and_checked(cfg):

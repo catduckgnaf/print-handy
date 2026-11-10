@@ -74,8 +74,6 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `discord.approval_user_id` | `PRINT_HANDY__DISCORD__APPROVAL_USER_ID` | empty | Discord user IDs allowed to approve, comma or space separated. Several household members can be listed |
 | `discord.approval_all_users` | `PRINT_HANDY__DISCORD__APPROVAL_ALL_USERS` | `false` | `true` lets anyone allowed to use the bot approve prints. A user on `denied_user_ids` is still refused |
 | `discord.upload_max_bytes` | `PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES` | `9500000` | Largest upload per file on Discord: video is shrunk to it, and a sliced file or Bambu package over it is reported with its host path instead of offered for sending (see [PRINTER-PROFILES.md](PRINTER-PROFILES.md)). Keep it under your server's Discord cap (10 MB unboosted). This row governs Discord only — Telegram and Matrix posts are sized to their own `upload_max_bytes` rows below |
-| `discord.post_print_quiet_s` | `PRINT_HANDY__DISCORD__POST_PRINT_QUIET_S` | `7200` | Retired: the bot no longer resets chat sessions after prints. Kept in the schema so existing configs still load; session resets are the agent host's own setting |
-| `discord.daily_reset_hour` | `PRINT_HANDY__DISCORD__DAILY_RESET_HOUR` | `4` | Retired: see `post_print_quiet_s` |
 | `discord.timezone` | `PRINT_HANDY__DISCORD__TIMEZONE` | `America/New_York` | Display and reset time zone (IANA name) |
 | `discord.bot_name` | `PRINT_HANDY__DISCORD__BOT_NAME` | `Print Handy` | Name the bot uses for itself |
 | `discord.question_timeout_s` | `PRINT_HANDY__DISCORD__QUESTION_TIMEOUT_S` | `1800` | How long a Discord question waits for a button |
@@ -561,3 +559,7 @@ The second #622 channel, alongside MQTT: off unless `notify.ntfy_enabled` is tru
 ## Legacy environment names
 
 The names below predate `PRINT_HANDY__SECTION__KEY` and still work; new installs should use the long form. The full map is `LEGACY_ENV` in `print_handy/settings.py`, for example `MOONRAKER_URL` → `services.moonraker_url`, `SPOOLMAN_URL` → `services.spoolman_url`, `PRINT_DISCORD_CHAT_ID` → `discord.chat_id`.
+
+## Retired settings
+
+The Discord settings `post_print_quiet_s` and `daily_reset_hour` (and the legacy environment names `DISCORD_POST_PRINT_QUIET_SECONDS` and `DISCORD_DAILY_RESET_HOUR`) are retired. The bot no longer resets chat sessions after prints or daily. A value left in an old config file or environment is ignored and does not stop startup.

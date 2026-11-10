@@ -73,8 +73,6 @@ LEGACY_ENV = {
     "PRINT_VISION_CHAT_URL": ("services", "vision_chat_url"),
     "PRINT_DISCORD_CHAT_ID": ("discord", "chat_id"),
     "DISCORD_UPLOAD_MAX_BYTES": ("discord", "upload_max_bytes"),
-    "DISCORD_POST_PRINT_QUIET_SECONDS": ("discord", "post_print_quiet_s"),
-    "DISCORD_DAILY_RESET_HOUR": ("discord", "daily_reset_hour"),
     "MOONRAKER_LISTENER_TICK_SECONDS": ("listener", "tick_s"),
     "IFS_PRESENCE_POLL_SECONDS": ("listener", "ifs_presence_poll_s"),
     "SPOOL_NAG_SECONDS": ("listener", "spool_nag_s"),
@@ -548,6 +546,23 @@ SPACING_PRESETS = {
     "high": dict(zip(SPACING_KEYS, (_half_mm(b * 1.5) for b in _SPACING_STANDARD))),
 }
 SPACING_LABELS = {"minimum": "Minimum", "low": "Low", "medium": "Medium (Standard)", "high": "High"}
+
+
+# The shipped defaults for these [paths] keys used to live under ~/.hermes. If an install has data
+# in the old directory and never explicitly set a path, keep using that directory after upgrade.
+LEGACY_PATH_DEFAULTS = {
+    "hermes_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
+    "cache": ("~/.cache/print-handy", "~/.hermes/cache"),
+}
+
+
+def _keep_legacy_path_defaults(data, explicit):
+    paths = data.get("paths", {})
+    for key, (shipped, legacy) in LEGACY_PATH_DEFAULTS.items():
+        if ("paths", key) in explicit or paths.get(key) != shipped:
+            continue
+        if Path(legacy).expanduser().is_dir():
+            paths[key] = legacy
 
 
 def _explicit_keys(*layers):
@@ -2175,6 +2190,7 @@ def load(home=None, local=None, environ=None, user=None):
     data = _merge(data, extra)
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
+    _keep_legacy_path_defaults(data, _explicit_keys(extra, env_layer))
     # layout.spacing fills the gap/margin keys; a key the operator set anywhere wins.
     apply_spacing_preset(data, _explicit_keys(home_data, extra, env_layer))
     return validate(data)

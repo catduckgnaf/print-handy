@@ -23,7 +23,7 @@ from print_handy.hermes import moonraker_event_listener as mel
 
 def beat(**extra):
     return {"mode": "standalone", "pid": os.getpid(), "heartbeat_at": time.time(), "connected": True,
-            "user": "Print Handy#0001", "handlers": 13, "hermes_modules": [], **extra}
+            "user": "Print Handy#0001", "handlers": 13, **extra}
 
 
 @pytest.mark.parametrize(("status", "ok", "reason"), [
@@ -31,7 +31,8 @@ def beat(**extra):
     (beat(), True, "connected as Print Handy#0001"),
     (beat(heartbeat_at=time.time() - 3600), False, "old"),
     (beat(connected=False), False, "not connected"),
-    (beat(hermes_modules=["tools.clarify_gateway"]), False, "Hermes modules loaded"),
+    # A heartbeat written by an older build still carries the retired field; it is ignored.
+    (beat(hermes_modules=["tools.clarify_gateway"]), True, "connected as"),
     (beat(mode="hermes"), False, "mode"),
     (beat(pid=2 ** 22 + 12345), False, "is gone"),
 ])
@@ -131,7 +132,7 @@ def test_check_command_names_every_problem(monkeypatch, capsys, tmp_path):
     out = capsys.readouterr().out
     for line in ("FAIL  mode: hermes", "FAIL  token", "FAIL  print channel",
                  "ok    access: channel (everyone)",
-                 "ok    handlers: 30", "ok    no hermes", f"ok    state dir: {tmp_path}"):
+                 "ok    handlers: 30", f"ok    state dir: {tmp_path}"):
         assert line in out, out
 
 
@@ -229,8 +230,7 @@ case = harness.load_case(harness.CASES / 'parts-one-plate')
 with mock.patch.object(printer_state, 'save', lambda state: None):
     run = harness.run_case(case, tempfile.mkdtemp(), transport='standalone')
 harness.check_expectations(case, run)
-print('REPORT ' + json.dumps({'status': run.receipt.get('status'), 'starts': len(run.starts),
-                              'hermes': health.hermes_modules_loaded()}))
+print('REPORT ' + json.dumps({'status': run.receipt.get('status'), 'starts': len(run.starts)}))
 """
 
 
@@ -243,7 +243,7 @@ def test_a_clean_process_with_hermes_blocked_runs_the_whole_intake():
     lines = [line for line in proc.stdout.splitlines() if line.startswith("REPORT ")]
     assert lines, f"child failed ({proc.returncode}):\n{proc.stdout[-2000:]}\n{proc.stderr[-3000:]}"
     report = json.loads(lines[-1][len("REPORT "):])
-    assert report == {"status": "STARTED", "starts": 1, "hermes": []}
+    assert report == {"status": "STARTED", "starts": 1}
 
 
 def test_install_standalone_renders_units_and_data_folder(tmp_path):
