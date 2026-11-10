@@ -707,6 +707,29 @@ def test_836_a_preheat_during_the_upload_refuses_before_sending(mapped, monkeypa
     assert mapped.scripts == [] and len(uploads(mapped.run)) == 1  # uploaded, but never sent
     assert phases() == [] and model_job._read_claims() == {}
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "not_submitted"
+    # The refusal leaves no side effect of a start behind: the active spool, the display
+    # message and the Home Assistant job card all come after the heater re-read.
+    model_job._sync_active_spool.assert_not_called()
+    model_job._announce_print_name.assert_not_called()
+    model_job._publish_job_card.assert_not_called()
+
+
+def test_a_sent_mapped_start_still_sets_the_spool_display_and_job_card_before_the_post(mapped, patch):
+    order = []
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            order.append("post")
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    model_job._preparation_evidence.side_effect = lambda st: order.append("reread") or False
+    model_job._sync_active_spool.side_effect = lambda *a, **k: order.append("spool") or {}
+    model_job._announce_print_name.side_effect = lambda *a, **k: order.append("display")
+    model_job._publish_job_card.side_effect = lambda *a, **k: order.append("card")
+    jp, g = make_job(mapped.root, "a")
+    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, json.loads(jp.read_text()), jp, 0, False)
+    assert order[:5] == ["reread", "spool", "display", "card", "post"], order
 
 
 def test_836_a_lost_post_is_not_credited_when_the_pre_post_baseline_was_unproven(mapped, patch):
