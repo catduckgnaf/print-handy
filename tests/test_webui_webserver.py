@@ -588,7 +588,9 @@ class RobustnessTests(WebServerCase):
             self.assertEqual(code, 500)
             payload = json.loads(raw)
             self.assertFalse(payload["ok"])
-            self.assertIn("RuntimeError", payload["reason"])
+            # Generic: the exception is logged, never echoed.
+            self.assertEqual(payload["reason"], server.INTERNAL_ERROR_REASON)
+            self.assertNotIn(b"exploded", raw)
             # A browser gets the themed page; the exception text stays
             # out. The walkthrough's first-run redirect is stubbed at its
             # own seam so the request reaches the snapshot render.

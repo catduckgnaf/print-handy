@@ -15,6 +15,7 @@ Offline: temp settings and state folder, the server on an ephemeral port.
 import http.client
 import os
 import re
+import socket
 import stat
 import sys
 import tempfile
@@ -418,6 +419,41 @@ class UnclaimedFlowTests(unittest.TestCase):
         self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 403)
         self.assertEqual(self.request(port, "GET", "/api/status",
                                       headers={"Host": f"127.0.0.1:{port}"})[0], 200)
+
+    def test_every_response_carries_the_security_headers(self):
+        _httpd, port, _data = self.start()
+        for method, route in (("GET", "/"), ("GET", "/api/status"), ("GET", "/healthz"),
+                              ("GET", "/nope"), ("POST", "/nope")):
+            _code, headers, _ = self.request(port, method, route,
+                                             body="x=1" if method == "POST" else None,
+                                             headers=FORM if method == "POST" else None)
+            self.assertEqual(headers.get("x-content-type-options"), "nosniff", route)
+            self.assertEqual(headers.get("referrer-policy"), "same-origin", route)
+            self.assertEqual(headers.get("x-frame-options"), "DENY", route)
+            self.assertIn("frame-ancestors 'none'",
+                          headers.get("content-security-policy", ""), route)
+
+    def test_a_500_never_echoes_the_exception(self):
+        httpd, port, _data = self.start()
+
+        def broken():
+            raise RuntimeError("secret detail /home/someone/token=abc")
+        httpd.snapshot_func = broken
+        with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
+            code, _, body = self.request(port, "GET", "/api/status")
+        self.assertEqual(code, 500)
+        self.assertNotIn("secret detail", body)
+        self.assertNotIn("RuntimeError", body)
+        self.assertIn("secret detail", "\n".join(logs.output))
+
+    def test_handlers_have_a_socket_timeout_and_a_thread_cap(self):
+        httpd, port, _data = self.start()
+        self.assertEqual(server._Handler.timeout, server.REQUEST_TIMEOUT_S)
+        self.assertIsInstance(httpd, server._BoundedThreadingHTTPServer)
+        # A connection that sends nothing holds one slot, not the server.
+        idle = socket.create_connection(("127.0.0.1", port))
+        self.addCleanup(idle.close)
+        self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
 
     def test_html_pages_are_never_cached(self):
         _httpd, port, _data = self.start()

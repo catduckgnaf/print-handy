@@ -157,6 +157,21 @@ from . import walkthrough as walkthrough_module
 log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "X-WebUI-Token"
+# Sent on every response. No Web UI route is meant to be framed (the
+# Discord Activity is its own server, print_handy.live_activity), so
+# framing is refused everywhere.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "same-origin"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", "frame-ancestors 'none'"),
+)
+# Per-connection socket timeout (seconds without progress on a read or
+# write) and the most requests handled at once: a slow or stalled
+# client cannot hold a thread forever, nor spawn threads without bound.
+REQUEST_TIMEOUT_S = 30
+MAX_HANDLER_THREADS = 64
+INTERNAL_ERROR_REASON = "internal error; the Web UI log has the details"
 LOOPBACK_NAMES = frozenset({"localhost"})
 # Browser login sessions: the cookie carries only an opaque id; the
 # id -> expiry map lives in server memory (see make_server), so nothing
@@ -618,9 +633,39 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     return shell.page("status", body, path="/", theme=theme, banner=banner, nav=nav)
 
 
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with at most ``max_threads`` requests in flight.
+
+    The accept loop waits for a free slot instead of starting a new
+    thread per connection without bound; with the handler's socket
+    timeout, a stalled client gives its slot back."""
+
+    max_threads = MAX_HANDLER_THREADS
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(self.max_threads)
+
+    def process_request(self, request, client_address):
+        self._slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "PrintHandyWebUI/1"
     protocol_version = "HTTP/1.1"
+    # StreamRequestHandler applies this to the connection's socket.
+    timeout = REQUEST_TIMEOUT_S
 
     # -- plumbing ---------------------------------------------------------
     def log_message(self, *args):  # keep stdout clean; errors still surface as 500s
@@ -695,6 +740,9 @@ class _Handler(BaseHTTPRequestHandler):
             # Pages embed a form token (and show settings): never let a
             # browser or proxy cache keep a copy.
             self.send_header("Cache-Control", "no-store")
+        for name, value in SECURITY_HEADERS:
+            if name.lower() not in named:
+                self.send_header(name, value)
         for name, value in headers:
             self.send_header(name, value)
         self.end_headers()
@@ -984,13 +1032,14 @@ class _Handler(BaseHTTPRequestHandler):
                                            "/api/printers/<id>/spools, "
                                            "/healthz, /readyz, /config, /designs, /layers, /spools, "
                                            "/walkthrough or /login"})
-        except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
+        except Exception:  # a broken snapshot is a 500, never a dropped connection
+            # The response never echoes the exception (it can carry paths,
+            # URLs or settings values); the log keeps it (log_message is silenced).
+            log.exception("Web UI GET %s failed", path)
             if self._browser_navigation(path):
-                # The page hides the exception text, so keep it in the log (log_message is silenced).
-                log.exception("Web UI page %s failed", path)
                 self._html_refusal(500, "Something went wrong rendering this page.", "/")
             else:
-                self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+                self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
     def _year_param(self):
@@ -1829,8 +1878,9 @@ class _Handler(BaseHTTPRequestHandler):
                     self._printer_control_route(rest)
             else:
                 self._read_only()
-        except Exception as exc:  # a broken write is a 500, never a dropped connection
-            self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # a broken write is a 500, never a dropped connection
+            log.exception("Web UI POST %s failed", path)
+            self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
 
     # -- web chat -------------------------------------------------------------
 
@@ -2261,7 +2311,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     bind_host = cfg_host if host is None else host
     bind_port = cfg_port if port is None else int(port)
     try:
-        server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
+        server = _BoundedThreadingHTTPServer((bind_host, bind_port), _Handler)
     except OSError as exc:
         # A bind failure (port already in use, address not available) is a
         # start refusal like the ones check_start raises: name it the same
