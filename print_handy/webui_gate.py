@@ -7,9 +7,8 @@ port, via print_handy.settings), never from whether an environment
 variable happens to be filled in, so a misconfiguration still fails
 loudly in settings validation instead of silently changing which
 children run. The gate only decides *whether* to start the server: the
-server's own start rules (print_handy.webui.server.check_start — a
-non-loopback bind requires the access token) still apply to the child
-and are never bypassed here.
+server's own start rules (print_handy.webui.server.check_start) still
+apply to the child and are never bypassed here.
 
 Exit codes: 0 = the Web UI is enabled and a port is chosen, start it
 (``python3 -m print_handy.webui``); 3 = the Web UI is disabled, or
@@ -18,11 +17,11 @@ configuration could not be resolved (the supervisor stops with the
 printed error rather than guessing).
 
 Before #708 a LAN bind with no access token was a third 3 case (#440):
-the gate reported it and the container ran without the Web UI. Since
-#708 such a bind starts in first-run setup instead
-(print_handy.webui.access): the Web UI serves only its setup page until
-the operator sets a password or affirmatively leaves it open, so it
-still never runs unauthenticated by accident. ``start_blocked`` stays
+the gate reported it and the container ran without the Web UI. #708
+made such a bind start behind a first-run setup page; the gate
+reversal has since removed that page — an unclaimed bind now serves
+the full Web UI openly, and a password exists only once one is
+deliberately set (print_handy.webui.access). ``start_blocked`` stays
 for callers (docker/healthcheck.py) and now always answers None.
 """
 from __future__ import annotations
@@ -62,19 +61,25 @@ def is_loopback(host):
 def start_blocked(host, port, env_name, environ=None, require_auth=True):
     """Why an enabled Web UI must not start, or None when it may.
 
-    Always None since #708: the one case that used to block (#440), a
-    non-loopback bind with no access token, now starts in first-run setup
-    and serves only the setup page. Kept so docker/healthcheck.py and the
-    supervisor keep asking the same question.
+    Always None: the one case that used to block (#440), a non-loopback
+    bind with no access token, now starts open and unclaimed. Kept so
+    docker/healthcheck.py and the supervisor keep asking the same
+    question.
     """
     return None
 
 
-def setup_pending(host, data=None, environ=None):
-    """True while a Web UI bound to ``host`` waits for its first-run setup choice."""
+def unclaimed(host, data=None, environ=None):
+    """True while a Web UI bound to ``host`` has no credential or saved
+    choice yet — it serves openly and offers the walkthrough."""
     from .webui import access
     data = settings.load() if data is None else data
-    return access.resolve(data, str(host), environ).setup_pending
+    return access.resolve(data, str(host), environ).unclaimed
+
+
+def setup_pending(host, data=None, environ=None):
+    """Kept for older callers: the setup gate is gone, so always False."""
+    return False
 
 
 def decide(data=None, environ=None):
@@ -85,10 +90,10 @@ def decide(data=None, environ=None):
     return 3 if start_blocked(host, port, env_name, environ, require_auth) else 0
 
 
-def _setup_pending_quietly(host):
-    """setup_pending for the gate's log line; an unreadable state never blocks the start."""
+def _unclaimed_quietly(host):
+    """unclaimed for the gate's log line; an unreadable state never blocks the start."""
     try:
-        return setup_pending(host)
+        return unclaimed(host)
     except Exception:
         return False
 
@@ -107,9 +112,9 @@ def main():
             print(f"webui gate: enabled on {host}:{port} with authentication OFF "
                   f"([webui] require_auth = false): anyone who can reach the port "
                   f"can use the Web UI")
-        elif _setup_pending_quietly(host):
-            print(f"webui gate: enabled on {host}:{port}; first-run setup is waiting: "
-                  f"open the Web UI in a browser to set a password or leave it open")
+        elif _unclaimed_quietly(host):
+            print(f"webui gate: enabled on {host}:{port}; no login set yet: "
+                  f"the Web UI is open and the walkthrough is offered")
         else:
             print(f"webui gate: enabled on {host}:{port}")
         return 0

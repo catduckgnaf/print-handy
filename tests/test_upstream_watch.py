@@ -53,18 +53,27 @@ def pins(
     )
 
 
-OLD = watch.parse_datetime("2025-01-01T00:00:00Z")
-
-
-def findings_for(*, pin=None, orca=(), go2rtc=(), spoolman=(), bambu=()):
+def findings_for(
+    *,
+    pin=None,
+    orca=(),
+    go2rtc=(),
+    spoolman=(),
+    bambu=(),
+    spoolman_contains=(),
+    bambu_contains=(),
+):
+    # The commit-pinned components are compared by commit, not date:
+    # ``*_contains`` names the release tags whose commits the pin
+    # already contains (the tag commit itself or a descendant of it).
     return watch.build_findings(
         pin or pins(),
         list(orca),
         list(go2rtc),
         list(spoolman),
-        OLD,
+        lambda tag: tag in spoolman_contains,
         list(bambu),
-        OLD,
+        lambda tag: tag in bambu_contains,
     )
 
 
@@ -216,7 +225,7 @@ class PlanActions(unittest.TestCase):
             [("create", "go2rtc", "1.9.16")],
         )
 
-    def test_commit_pin_flags_a_release_that_postdates_it(self):
+    def test_commit_pin_flags_a_release_the_pin_does_not_contain(self):
         findings = findings_for(
             spoolman=[release("0.20.0", published="2026-06-01T00:00:00Z")]
         )
@@ -230,30 +239,51 @@ class PlanActions(unittest.TestCase):
             [(a.kind, a.component, a.version) for a in actions],
         )
 
-    def test_commit_pin_ignores_a_release_older_than_the_pin(self):
+    def test_commit_pin_ignores_a_release_the_pin_contains(self):
         findings = findings_for(
-            spoolman=[release("0.20.0", published="2024-06-01T00:00:00Z")]
+            spoolman=[release("0.20.0", published="2024-06-01T00:00:00Z")],
+            spoolman_contains={"v0.20.0"},
         )
         by_component = {f.component: f for f in findings}
         self.assertIsNone(by_component["Spoolman"].newer_release)
 
-    def test_commit_pin_issue_closes_once_the_pin_passes_the_release(self):
-        # Pin commit dated after the release: nothing newer, and the
-        # still-open issue for that release closes.
-        findings = watch.build_findings(
-            pins(),
-            [],
-            [],
-            [release("0.20.0", published="2024-06-01T00:00:00Z")],
-            watch.parse_datetime("2025-06-01T00:00:00Z"),
-            [],
-            OLD,
+    def test_commit_pin_exact_tag_release_published_later_is_not_newer(self):
+        # Regression for #1130 / #1131: the pin sits exactly on the
+        # release's tag commit, but the release was published hours
+        # after that commit was written (Spoolman 0.27.1: commit
+        # 09:39 UTC, release published 14:12 UTC). Comparing publish
+        # time against the pinned commit's date made the pin read as
+        # older than its own release; publish time must not matter.
+        findings = findings_for(
+            spoolman=[release("0.27.1", published="2026-10-31T14:12:51Z")],
+            spoolman_contains={"v0.27.1"},
+        )
+        by_component = {f.component: f for f in findings}
+        self.assertIsNone(by_component["Spoolman"].newer_release)
+        self.assertEqual(watch.plan_actions(findings, []), [])
+
+    def test_commit_pin_issue_closes_when_the_pin_contains_the_release(self):
+        # The pin contains the release's tag commit: nothing newer,
+        # and the still-open issue for that release closes.
+        findings = findings_for(
+            spoolman=[release("0.20.0")],
+            spoolman_contains={"v0.20.0"},
         )
         open_issues = [watch.WatchIssue(9, "Spoolman", "0.20.0")]
         actions = watch.plan_actions(findings, open_issues)
         self.assertEqual(
             [(a.kind, a.issue_number) for a in actions], [("close", 9)]
         )
+
+    def test_commit_pin_issue_stays_open_for_a_release_the_pin_lacks(self):
+        # The pin contains an older Bambu tag only: the open issue
+        # for the newer release neither closes nor duplicates.
+        findings = findings_for(
+            bambu=[release("02.09.01.70"), release("02.08.00.00")],
+            bambu_contains={"v02.08.00.00"},
+        )
+        open_issues = [watch.WatchIssue(11, "Bambu Studio", "02.09.01.70")]
+        self.assertEqual(watch.plan_actions(findings, open_issues), [])
 
 
 class FakeClient(watch.GitHubClient):
@@ -347,6 +377,35 @@ class ClientBehavior(unittest.TestCase):
         )
         releases = client.list_releases("X/Y")
         self.assertEqual(len(releases), 101)
+
+    def test_commit_is_ancestor_reads_the_compare_status(self):
+        # The compare endpoint takes the would-be ancestor (a release
+        # tag) as its base: "identical" and "ahead" mean the head —
+        # the pin — contains it; "behind" and "diverged" mean it
+        # does not.
+        for status, expected in [
+            ("identical", True),
+            ("ahead", True),
+            ("behind", False),
+            ("diverged", False),
+        ]:
+            client = FakeClient(
+                {
+                    ("GET", "/repos/X/Y/compare/v1.0.0...abc123"): {
+                        "status": status
+                    }
+                }
+            )
+            self.assertEqual(
+                client.commit_is_ancestor("X/Y", "v1.0.0", "abc123"),
+                expected,
+                f"compare status {status}",
+            )
+
+    def test_commit_is_ancestor_missing_compare_fails_closed(self):
+        client = FakeClient({})
+        with self.assertRaises(watch.WatchError):
+            client.commit_is_ancestor("X/Y", "v1.0.0", "abc123")
 
     def test_open_watch_issues_parse_titles(self):
         client = FakeClient(

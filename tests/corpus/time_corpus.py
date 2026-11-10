@@ -1,6 +1,6 @@
 """Run every corpus case through the fake Discord flow and report how long each one takes.
 
-    python3 -m tests.corpus.time_corpus [--transport hermes|standalone|both] [--case NAME ...]
+    python3 -m tests.corpus.time_corpus [--transport direct|standalone|both] [--case NAME ...]
                                         [--json out.json] [--real-slicer]
 
 For each case and transport it records pass/fail against case.toml, total wall time, the
@@ -92,13 +92,12 @@ def run_one(case, transport, real_slicer, root):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--transport", choices=("hermes", "standalone", "both"), default="both")
+    ap.add_argument("--transport", choices=("direct", "standalone", "both"), default="both")
     ap.add_argument("--case", action="append", default=[])
     ap.add_argument("--json")
     ap.add_argument("--real-slicer", action="store_true")
     args = ap.parse_args(argv)
 
-    harness.install_clarify_stand_in()
     # Same isolation as tests/corpus/conftest.py: never write live printer state, use home slicer commands.
     from print_handy import settings
     from print_handy.core import orca_adapter, printer_state
@@ -111,7 +110,7 @@ def main(argv=None):
     cases = [harness.load_case(f) for f in folders]
     if args.case:
         cases = [c for c in cases if c.name in set(args.case)]
-    transports = ("hermes", "standalone") if args.transport == "both" else (args.transport,)
+    transports = ("direct", "standalone") if args.transport == "both" else (args.transport,)
     root = Path(tempfile.mkdtemp(prefix="ph-corpus-timing-"))
     rows = []
     for case in cases:

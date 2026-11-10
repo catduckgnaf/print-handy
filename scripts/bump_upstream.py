@@ -183,7 +183,6 @@ BAMBULAB_P1S_TEST = "tests/printers/test_bambulab_p1s.py"
 DOC_BAMBU_A1 = "docs/BAMBU-A1-DOCKER.md"
 DOC_ENV_EXAMPLE = ".env.example"
 DOC_README = "README.md"
-DOC_UNRAID = "docker/unraid/print-handy.xml"
 ORCA_VENDOR_DOCS = (
     "docs/ANYCUBIC.md",
     "docs/CREALITY.md",
@@ -1876,12 +1875,6 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
         f"one bundled build (v{pin.version})", f"one bundled build (v{new_pin.version})",
         "README.md bundled OrcaSlicer record",
     )))
-    edits.append((DOC_UNRAID, replace_exact(
-        (root / DOC_UNRAID).read_text(),
-        f"bundled OrcaSlicer (v{pin.version}) and stable",
-        f"bundled OrcaSlicer (v{new_pin.version}) and stable",
-        "docker/unraid/print-handy.xml OrcaSlicer channel description",
-    )))
     for relpath in ORCA_VENDOR_DOCS:
         edits.append((relpath, replace_exact(
             (root / relpath).read_text(),
@@ -2002,7 +1995,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
         f"ORCA_BUNDLE_SHA256 (ci.yml, the flatpak bundle the slicer legs run): {ci_sha} -> {sha_flatpak}",
         "guard tests (tests/test_docker_release.py, tests/test_docker_release_contract.py, "
         "tests/test_ci_bambu_workflow.py), the BBL ORCA_RELEASE provenance record and its "
-        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/README/Unraid-template/"
+        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/README/"
         "vendor-guide records updated to the same values",
         sweep_lines[-1],
         "narrative records that tell the release line's story (the pin comment in "

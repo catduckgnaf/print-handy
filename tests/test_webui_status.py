@@ -151,31 +151,21 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(bundled["spoolman"]["url"], "http://127.0.0.1:8000")
         self.assertTrue(bundled["spoolman"]["ok"])
 
-    def test_hermes_mode_bot_heartbeat_is_not_applicable(self):
-        # P2-100: the Hermes gateway writes no standalone heartbeat, so in
-        # hermes mode the bot check is not applicable and cannot fail the
-        # overall snapshot.
+    def test_missing_bot_heartbeat_fails_the_bot_row(self):
+        # The bot is the only runtime: no heartbeat means it is not
+        # running, and the row fails (there is no other mode whose
+        # gateway could be running instead).
         with tempfile.TemporaryDirectory() as tmp:
-            data = load_settings(tmp, "bot:\n  mode: hermes\n"
-                                 "services:\n  spoolman_url: http://spoolman.local:7912\n")
-            healthcheck.beat(data=data)
+            data = load_settings(tmp, "bot:\n  mode: standalone\n")
             snap = status.snapshot(data, environ={}, heartbeat=None,
                                    probe=ok_probe, checks=OK_CHECKS)
-        self.assertEqual(snap["bot"]["mode"], "hermes")
-        self.assertIsNone(snap["bot"]["ok"])
-        self.assertIn("not applicable", snap["bot"]["reason"])
-        self.assertTrue(snap["ok"])
+        self.assertEqual(snap["bot"]["mode"], "standalone")
+        self.assertFalse(snap["bot"]["ok"])
+        self.assertIn("no heartbeat", snap["bot"]["reason"])
 
-    def test_healthz_follows_the_same_hermes_mode_gate(self):
-        # 2.2.5 review of P2-100: /healthz used to evaluate the standalone
-        # heartbeat unconditionally and answered 503 in Hermes mode.
+    def test_healthz_without_a_heartbeat_is_503(self):
         with tempfile.TemporaryDirectory() as tmp:
-            hermes = load_settings(tmp, "bot:\n  mode: hermes\n")
             standalone = load_settings(tmp, "bot:\n  mode: standalone\n")
-            code, body = server.healthz(hermes, heartbeat=None)
-            self.assertEqual(code, 200)
-            self.assertTrue(body["ok"])
-            self.assertIn("not applicable", body["reason"])
             self.assertEqual(server.healthz(standalone, heartbeat=None)[0], 503)
 
     def test_unconfigured_spoolman_is_not_a_failure(self):
@@ -255,15 +245,17 @@ class ServerStartTests(unittest.TestCase):
             server.check_start(portless, {})
         self.assertEqual(server.serve(disabled, environ={}), 2)
 
-    def test_non_loopback_without_token_starts_in_setup(self):
-        # Refused before #708; now it starts and serves only the first-run
-        # setup page (tests/test_webui_setup.py covers the flow).
+    def test_non_loopback_without_token_starts_open_and_unclaimed(self):
+        # Refused before #708 and setup-gated by it; since the gate
+        # reversal it starts serving openly, unclaimed
+        # (tests/test_webui_setup.py covers the flow).
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8765\n")
             self.assertEqual(server.check_start(data, {}), ("0.0.0.0", 8765, ""))
             httpd = server.make_server(data, environ={}, port=0)
             try:
-                self.assertTrue(httpd.access.setup_pending)
+                self.assertFalse(httpd.access.setup_pending)
+                self.assertTrue(httpd.access.unclaimed)
             finally:
                 httpd.server_close()
         host, port, token = server.check_start(data, {"WEBUI_ACCESS_TOKEN": TOKEN})

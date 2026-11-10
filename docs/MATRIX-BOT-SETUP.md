@@ -94,7 +94,7 @@ message is ignored and `check` fails.
 
 ```bash
 export MATRIX_ACCESS_TOKEN='syt_...'
-python3 -m print_handy.bot check   # offline: mode, token present, homeserver, room, allowed users, handlers, no Hermes
+python3 -m print_handy.bot check   # offline: mode, token present, homeserver, room, allowed users, handlers, no host modules
 python3 -m print_handy.bot         # start syncing
 ```
 

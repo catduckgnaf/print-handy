@@ -24,7 +24,7 @@ from types import SimpleNamespace as S
 
 from ..core import prompts
 from . import commands, health, telegram_rest as tg
-from .platform import BasePlatformAdapter, SendResult, custom_id, parse_custom_id
+from .platform import BasePlatformAdapter, SendResult, _prompts_guard, custom_id, parse_custom_id
 from .rest import chunks, split_media
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,8 @@ class StandaloneAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------ answers
 
     async def close_prompt(self, cid, note):
-        row = self._prompts.pop(str(cid), None)
+        with _prompts_guard(self):
+            row = self._prompts.pop(str(cid), None)
         if not row or not row.get("message_id"):
             return
         text = f"{row['question']}\n> {note}"[:self.message_limit]
@@ -240,7 +241,8 @@ class StandaloneAdapter(BasePlatformAdapter):
         # A prompt is answered in the chat it was asked in (#335): the chat
         # is the approval's target, so a callback from another chat never
         # resolves this chat's question.
-        row = self._prompts.get(cid)
+        with _prompts_guard(self):
+            row = self._prompts.get(cid)
         asked_chat = str((row or {}).get("chat_id") or "")
         press_chat = str(((query.get("message") or {}).get("chat") or {}).get("id") or "")
         if asked_chat and press_chat and press_chat != asked_chat:

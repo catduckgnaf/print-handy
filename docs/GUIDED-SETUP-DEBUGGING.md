@@ -2,8 +2,7 @@
 
 [Documentation home](README.md) · [Discord bot setup](DISCORD-BOT-SETUP.md) · [Standalone bot](STANDALONE.md)
 
-Print Handy has three guided Discord flows, available in both runtimes (the standalone bot and
-the Hermes print-feedback plugin) to allowed users in the print channel:
+Print Handy has three guided Discord flows, available to allowed users in the print channel:
 
 | Command | What it does |
 | --- | --- |
@@ -19,22 +18,21 @@ authorizes a printer, and neither flow can start one.
 
 ## Setup
 
-Setup asks seven small steps, validating each answer before moving on:
+Setup asks six small steps, validating each answer before moving on:
 
 1. **Printer model** — a model key from the printer registry (see
    [printer profiles](PRINTER-PROFILES.md)).
-2. **Bot mode** — `standalone` or `hermes`.
-3. **Print channel** — the numeric Discord channel ID.
-4. **Allowed users** — numeric Discord user IDs, comma separated.
-5. **Printer URL** (optional) — the address for the model chosen in step 1. Klipper
+2. **Print channel** — the numeric Discord channel ID.
+3. **Allowed users** — numeric Discord user IDs, comma separated.
+4. **Printer URL** (optional) — the address for the model chosen in step 1. Klipper
    (Moonraker) and OctoPrint take a URL, and that host can be another computer.
    Bambu Lab, PrusaLink, stock Flashforge, and Elegoo SDCP take a hostname or IP,
    not a full URL. A model with no address accepts only `skip`.
-6. **Spoolman URL** (optional) — validated as a URL. Spoolman is printer-independent, so
+5. **Spoolman URL** (optional) — validated as a URL. Spoolman is printer-independent, so
    this step is offered for every model, including models with no Moonraker connection.
    The Spoolman included in the Docker stack is at `http://spoolman:8000`; an
    existing external Spoolman keeps its own URL, exactly as in the CLI setup wizard.
-7. **Bot token stored securely** — this step never collects the token. It explains how to
+6. **Bot token stored securely** — this step never collects the token. It explains how to
    store it: as the environment variable named by `[discord] token_env` (default
    `DISCORD_BOT_TOKEN`) in the profile/data folder `.env` file with mode 600, as in the
    [Discord bot setup guide](DISCORD-BOT-SETUP.md). Reply `stored` when it is saved, or
@@ -135,9 +133,8 @@ and completion messages call out as expected rather than a failure.
 failed, or skipped, with a concrete next step for anything that needs one:
 
 - **Configuration** — the settings load and validate; the failing key is named when not.
-- **Bot mode and login** — the configured mode; in standalone mode, whether the token
+- **Bot mode and login** — the configured mode, whether the token
   environment variable is set, plus a read-only Discord login check (`GET /users/@me`).
-  In Hermes mode this is skipped: the gateway owns the login.
 - **Permissions** — the print channel ID and allowed user IDs are present and numeric, and
   the report lists the channel permissions the bot needs (View Channels, Send Messages,
   Send Messages in Threads, Embed Links, Attach Files, Read Message History). Channel

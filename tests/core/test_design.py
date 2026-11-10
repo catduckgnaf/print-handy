@@ -168,35 +168,6 @@ def test_http_complete_without_an_endpoint_is_a_plain_error():
         design.http_complete({"design": {}, "llm": {}}, [])
 
 
-def test_hermes_complete_uses_the_print_design_task():
-    seen = {}
-
-    class FakeLlm:
-        async def acomplete(self, **kwargs):
-            seen.update(kwargs)
-            return type("R", (), {"text": "cube([1, 1, 1]);"})()
-
-    out = run(design.hermes_complete(FakeLlm(), [{"role": "user", "content": "x"}],
-                                     timeout_s=42))
-    assert out == "cube([1, 1, 1]);"
-    assert seen["task"] == "print_design" and seen["purpose"] == "print-design"
-    assert seen["timeout"] == 42
-
-
-def test_hermes_complete_trust_refusal_is_plain_words():
-    class TrustError(Exception):
-        pass
-
-    class FakeLlm:
-        async def acomplete(self, **kwargs):
-            raise TrustError("PluginLlmTrustError: operator has not granted this")
-
-    with pytest.raises(design.DesignError, match="trust gate"):
-        run(design.hermes_complete(FakeLlm(), []))
-
-
-# --------------------------------------------------------------------- sessions
-
 def test_session_store_roundtrip_and_owner_lookup(tmp_path):
     eng = engine(tmp_path, scripted([GOOD]))
     session = eng.start_session("owner-1", "chan", "a plate")

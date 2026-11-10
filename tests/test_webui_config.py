@@ -1,5 +1,7 @@
 """Web UI stage 1 (#286): the [webui] settings section, the field catalog, and
 the provenance read / validated write-back API over the YAML settings file."""
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,12 +18,15 @@ from print_handy.webui import (CATALOG, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT,
 # token_stored is deliberately absent: it collects no setting (the token is
 # never written anywhere), so it must not become a catalog field.
 GUIDED_FIELDS = {
+    "platform": "bot.platform",
     "model": "printer.model",
-    "mode": "bot.mode",
     "chat_id": "discord.chat_id",
     "user_ids": "discord.allowed_user_ids",
+    "homeserver_url": "matrix.homeserver_url",
     "moonraker_url": "services.moonraker_url",
     "spoolman_url": "services.spoolman_url",
+    "camera_snapshot_url": "services.camera_snapshot_url",
+    "timelapse": "timelapse.capture_enabled",
 }
 
 SECRET_KEYS = {"token", "token_env", "access_token", "access_token_env", "api_key", "api_key_env",
@@ -38,11 +43,13 @@ class WebUISettingsTests(unittest.TestCase):
             local = Path(tmp) / "local.yaml"
             local.write_text("visual_watch:\n  sensitivity: 3\n")
             data = settings.load(local=local, environ={})
-        self.assertEqual(data["webui"], {"enabled": False, "host": "127.0.0.1", "port": 0,
+        self.assertEqual(data["webui"], {"enabled": True, "host": "127.0.0.1", "port": 0,
                                          "access_token_env": "WEBUI_ACCESS_TOKEN",
                                          "require_auth": True,
                                          "controls_enabled": False,
-                                         "cookie_secure": False})
+                                         "cookie_secure": False,
+                                         "chat_llm_enabled": True,
+                                         "chat_enabled": True})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,7 +77,9 @@ class WebUISettingsTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     def test_every_guided_setup_field_is_in_the_catalog(self):
         step_keys = {step.key for step in guided.steps()}
-        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored"}, step_keys)
+        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored", "webui_login",
+                                               "webui_username", "webui_password",
+                                               "webui_confirm"}, step_keys)
         for step_key, field_id in GUIDED_FIELDS.items():
             with self.subTest(step=step_key):
                 self.assertIsNotNone(field_by_id(field_id))
@@ -129,19 +138,19 @@ class CatalogTests(unittest.TestCase):
         self.assertIsNotNone(trigger)
         self.assertEqual(trigger.kind, "picker")
         self.assertEqual(choices_for(trigger), tuple(settings.CAPTURE_TRIGGERS))
-        self.assertEqual(trigger.group, "timelapse")
+        self.assertEqual(trigger.group, "camera")
         interval = field_by_id("timelapse.capture_interval_s")
         self.assertIsNotNone(interval)
         self.assertEqual(interval.kind, "number")
         self.assertEqual(interval.maximum, 3600)
-        self.assertEqual(interval.group, "timelapse")
+        self.assertEqual(interval.group, "camera")
         for field_id in ("timelapse.capture_max_frames", "timelapse.capture_max_bytes"):
             with self.subTest(field=field_id):
                 field = field_by_id(field_id)
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, "number")
                 self.assertEqual(field.minimum, 0)  # 0 disables the cap
-                self.assertEqual(field.group, "timelapse")
+                self.assertEqual(field.group, "camera")
 
     def test_visual_watch_early_fields_are_in_the_catalog(self):
         # The #913 early-layer watch knobs ride the same surface.
@@ -154,7 +163,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(field.kind, "number")
                 self.assertEqual((field.minimum, field.maximum), (minimum, maximum))
 
-    def test_live_stream_fields_are_in_the_catalog_under_the_live_group(self):
+    def test_live_stream_fields_are_in_the_catalog_under_the_camera_group(self):
         # #311 stage 4: the whole [live_stream] section is editable here —
         # the Web UI is the settings surface — with the loader's own
         # bounds, and the encoder picker carries the settings choice set.
@@ -168,7 +177,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, "number")
                 self.assertEqual((field.minimum, field.maximum), (minimum, maximum))
-                self.assertEqual(field.group, "live")
+                self.assertEqual(field.group, "camera")
         for field_id, kind in (("live_stream.enabled", "toggle"),
                                ("live_stream.auto_start_on_print", "toggle"),
                                ("live_stream.voice_channel_id", "text"),
@@ -177,7 +186,7 @@ class CatalogTests(unittest.TestCase):
                 field = field_by_id(field_id)
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, kind)
-                self.assertEqual(field.group, "live")
+                self.assertEqual(field.group, "camera")
         encoder = field_by_id("live_stream.encoder")
         self.assertIsNotNone(encoder)
         self.assertEqual(encoder.kind, "picker")
@@ -192,32 +201,56 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(field.group)
         slicing = {field.id for field in CATALOG if field.group == "slicing"}
         self.assertEqual(slicing, {"printer.slicer", "delivery.methods", "layout.spacing"})
-        self.assertEqual(field_by_id("timelapse.mode").group, "timelapse")
-        self.assertEqual(field_by_id("services.camera_source").group, "images")
-        self.assertEqual(field_by_id("printer.model").group, "printer")
+        self.assertEqual(field_by_id("timelapse.mode").group, "camera")
+        self.assertEqual(field_by_id("services.camera_source").group, "camera")
+        self.assertEqual(field_by_id("printer.model").group, "printers")
+
+    def test_conditional_chat_platform_visibility(self):
+        # Stage 4: Telegram and Matrix fields hide until the platform is
+        # configured — selected as bot.platform, or carrying an identity
+        # key — and a reveal draws them anyway. Discord never hides.
+        base = {"bot": {"platform": "discord"},
+                "telegram": {"chat_id": ""},
+                "matrix": {"homeserver_url": "", "room_id": ""}}
+        self.assertFalse(config_page_visible("telegram.chat_id", base))
+        self.assertFalse(config_page_visible("telegram.allowed_user_ids", base))
+        self.assertFalse(config_page_visible("matrix.homeserver_url", base))
+        self.assertFalse(config_page_visible("matrix.room_id", base))
+        self.assertTrue(config_page_visible("discord.chat_id", base))
+        self.assertTrue(config_page_visible("telegram.chat_id", base,
+                                            reveal="telegram"))
+        self.assertTrue(config_page_visible("matrix.room_id", base,
+                                            reveal="matrix"))
+        selected = {**base, "bot": {"platform": "telegram"}}
+        self.assertTrue(config_page_visible("telegram.chat_id", selected))
+        self.assertFalse(config_page_visible("matrix.room_id", selected))
+        mid_setup = {**base, "matrix": {"homeserver_url": "https://hs.example",
+                                        "room_id": ""}}
+        self.assertTrue(config_page_visible("matrix.homeserver_url", mid_setup))
+        self.assertTrue(config_page_visible("matrix.room_id", mid_setup))
 
     def test_settings_surface_fix_fields_are_in_the_catalog(self):
         # The 2.2.2 settings-surface fix: every consumed, user-facing
         # setting the 2.2.1 audit found missing from the catalog is now
         # offered, in its group, with the kind its value needs.
         expected = {
-            "bambu.lan_serial": ("services", "text"),
-            "timelapse.capture_enabled": ("timelapse", "toggle"),
+            "bambu.lan_serial": ("printers", "text"),
+            "timelapse.capture_enabled": ("camera", "toggle"),
             "layout.spacing": ("slicing", "picker"),
-            "notify.mqtt_enabled": ("services", "toggle"),
-            "notify.mqtt_host": ("services", "host"),
-            "notify.mqtt_port": ("services", "number"),
-            "notify.mqtt_topic": ("services", "text"),
-            "notify.mqtt_username": ("services", "text"),
-            "notify.ntfy_enabled": ("services", "toggle"),
-            "notify.ntfy_url": ("services", "url"),
-            "notify.ntfy_topic": ("services", "text"),
-            "llm.chat_url": ("endpoints", "url"),
-            "llm.model": ("endpoints", "text"),
-            "design.chat_url": ("endpoints", "url"),
-            "design.model": ("endpoints", "text"),
-            "agent.chat_url": ("endpoints", "url"),
-            "agent.model": ("endpoints", "text"),
+            "notify.mqtt_enabled": ("home_assistant", "toggle"),
+            "notify.mqtt_host": ("home_assistant", "host"),
+            "notify.mqtt_port": ("home_assistant", "number"),
+            "notify.mqtt_topic": ("home_assistant", "text"),
+            "notify.mqtt_username": ("home_assistant", "text"),
+            "notify.ntfy_enabled": ("notifications", "toggle"),
+            "notify.ntfy_url": ("notifications", "url"),
+            "notify.ntfy_topic": ("notifications", "text"),
+            "llm.chat_url": ("ai", "url"),
+            "llm.model": ("ai", "text"),
+            "design.chat_url": ("ai", "url"),
+            "design.model": ("ai", "text"),
+            "agent.chat_url": ("ai", "url"),
+            "agent.model": ("ai", "text"),
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -225,6 +258,35 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(field)
                 self.assertEqual(field.group, group)
                 self.assertEqual(field.kind, kind)
+    def test_ai_section_fields_groups_and_gate(self):
+        # Settings restructure stage 2: every AI surface lives in the ai
+        # group — the three endpoint pairs, the vision endpoint and
+        # model, and the [ai] edit gate as ordinary fields (#902). The
+        # tier tables stay file-only: no field exists for them.
+        expected = {
+            "services.vision_chat_url": ("ai", "url"),
+            "vision.model": ("ai", "text"),
+            "ai.allowed_users": ("ai", "id_list"),
+            "ai.edit_requests_per_hour": ("ai", "number"),
+        }
+        for field_id, (group, kind) in expected.items():
+            with self.subTest(field=field_id):
+                field = field_by_id(field_id)
+                self.assertIsNotNone(field)
+                self.assertEqual(field.group, group)
+                self.assertEqual(field.kind, kind)
+        self.assertEqual(field_by_id("ai.edit_requests_per_hour").minimum, 0)
+        for tier in ("ai.small", "ai.chat", "ai.heavy"):
+            self.assertIsNone(field_by_id(tier))
+        # The gate serves every chat platform, so its help names the ID
+        # form each platform uses — numeric on Discord and Telegram, a
+        # full @user:server ID on Matrix — and shows no issue reference.
+        help_text = field_by_id("ai.allowed_users").help
+        self.assertIn("@user:server", help_text)
+        self.assertIn("Discord and Telegram", help_text)
+        self.assertNotIn("(#902)", help_text)
+        self.assertNotIn("numeric user IDs", help_text)
+
         spacing = field_by_id("layout.spacing")
         self.assertEqual(choices_for(spacing), tuple(settings.SPACING_PRESETS))
         mqtt_port = field_by_id("notify.mqtt_port")
@@ -322,9 +384,28 @@ class CatalogTests(unittest.TestCase):
     def test_printer_url_and_rtsp_fields_follow_the_model(self):
         rtsp = field_by_id("timelapse.capture_source_url")
         self.assertEqual(rtsp.label, "RTSP stream URL")
-        self.assertEqual(rtsp.group, "images")
-        self.assertEqual(field_by_id("services.moonraker_url").label, "Printer URL")
-        self.assertEqual(field_by_id("services.octoprint_url").label, "Printer URL")
+        self.assertEqual(rtsp.group, "camera")
+        # Per-connection labels (settings restructure stage 1): each
+        # address field names the connection it addresses instead of
+        # sharing one "Printer URL" label.
+        self.assertEqual(field_by_id("services.moonraker_url").label, "Moonraker URL")
+        self.assertEqual(field_by_id("services.octoprint_url").label, "OctoPrint URL")
+        self.assertEqual(field_by_id("bambu.lan_host").label, "Bambu Lab LAN host")
+        self.assertEqual(field_by_id("prusa.link_host").label, "PrusaLink host")
+        self.assertEqual(field_by_id("flashforge_stock.host").label, "Flashforge stock host")
+        self.assertEqual(field_by_id("elegoo_sdcp.host").label, "Elegoo SDCP host")
+        # The address fields (and the Bambu serial that pairs with its
+        # host) live in the Printers group; the Spoolman URL and its
+        # neighbor live in Spools (settings restructure stage 1).
+        for field_id in ("services.moonraker_url", "services.octoprint_url",
+                         "bambu.lan_host", "bambu.lan_serial",
+                         "prusa.link_host", "flashforge_stock.host",
+                         "elegoo_sdcp.host"):
+            with self.subTest(field=field_id):
+                self.assertEqual(field_by_id(field_id).group, "printers")
+        for field_id in ("services.spoolman_url", "spool.prompt_brand"):
+            with self.subTest(field=field_id):
+                self.assertEqual(field_by_id(field_id).group, "spools")
         data = settings.load(local=False, environ={})
         self.assertTrue(config_page_visible("services.moonraker_url", data))
         self.assertFalse(config_page_visible("services.octoprint_url", data))
@@ -389,6 +470,20 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual((data["webui"]["enabled"], data["webui"]["port"]), (True, 8080))
         values = values_by_id(local=self.local, environ={})
         self.assertEqual(values["visual_watch.sensitivity"].provenance, SETTINGS_FILE)
+
+    def test_ai_allowed_users_round_trips_a_matrix_id(self):
+        # A Matrix ID is not numeric: @user:server must pass the same
+        # load/validate path the ai.allowed_users catalog field uses and
+        # come back unchanged.
+        changed = write_changes({"ai.allowed_users": ["@name:matrix.org"]},
+                                config_path=self.local, environ={},
+                                timestamp="20261026-120000")
+        self.assertEqual(changed, [("ai", "allowed_users")])
+        data = settings.load(local=self.local, environ={})
+        self.assertEqual(data["ai"]["allowed_users"], ["@name:matrix.org"])
+        values = values_by_id(local=self.local, environ={})
+        self.assertEqual(values["ai.allowed_users"].value, ["@name:matrix.org"])
+        self.assertEqual(values["ai.allowed_users"].provenance, SETTINGS_FILE)
 
     def test_write_creates_the_file_and_preserves_uncatalogued_data(self):
         changed = write_changes({"bot.platform": "telegram"}, config_path=self.local, environ={})
@@ -612,6 +707,244 @@ class WriteAPITests(unittest.TestCase):
         with self.assertRaisesRegex(WebUIConfigError, "YAML"):
             write_changes({"visual_watch.sensitivity": 2}, config_path=target, environ={})
         self.assertEqual(target.read_bytes(), before)
+
+
+class ClosedTableToleranceTests(unittest.TestCase):
+    """CFG-1: a closed-table violation a settings file already carries —
+    a credential-shaped unknown key, a non-optional [notify] key, the
+    retired [printer] family key — must not block an unrelated Web UI
+    save. The save proceeds, the key stays in the file untouched, and
+    the violation is recorded by name (never by value). A violation a
+    save introduces or modifies still fails closed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.local = Path(self.tmp.name) / "local.yaml"
+        from print_handy.webui import config as webui_config
+        self.config = webui_config
+        webui_config._last_write_warnings = []
+
+    def save_roast_off(self, environ=None):
+        return write_changes({"vision.roast_enabled": False},
+                             config_path=self.local, environ=environ or {})
+
+    def test_preexisting_credential_shaped_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        written = self.local.read_text()
+        self.assertIn("mqtt_password: hunter2", written)  # left untouched
+        self.assertIn("roast_enabled: false", written)
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        warning = settings.unknown_settings_warning() or ""
+        self.assertIn("[notify] mqtt_password", warning)
+        self.assertNotIn("hunter2", warning)  # the secret is never echoed
+
+    def test_preexisting_retired_printer_family_does_not_block_a_save(self):
+        self.local.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("family: klipper", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_preexisting_non_optional_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  some_future_key: 1\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("some_future_key: 1", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] some_future_key"])
+
+    def test_preexisting_violation_in_the_user_file_does_not_block_a_save(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        user = Path(self.tmp.name) / "user.yaml"
+        user.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off(environ={"PRINT_HANDY_USER_CONFIG": str(user)})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(user.read_text(), "printer:\n  family: klipper\n")
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_introduced_credential_shaped_key_still_fails_closed(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        candidate = {"vision": {"roast_enabled": False},
+                     "notify": {"mqtt_password": "hunter2"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "vision:\n  roast_enabled: true\n")
+
+    def test_modified_preexisting_violation_still_fails_closed(self):
+        self.local.write_text("notify:\n  mqtt_password: old\n")
+        candidate = {"notify": {"mqtt_password": "new"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "notify:\n  mqtt_password: old\n")
+
+    def test_ordinary_unknown_keys_still_warn_and_drop_not_tolerated(self):
+        # #1058's settled behavior is unchanged: an ordinary unknown key
+        # is not a violation at all — the save validates as before, the
+        # key is preserved in the written file, and nothing is recorded
+        # as tolerated.
+        self.local.write_text("vision:\n  future_knob: 3\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("future_knob: 3", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_clean_save_records_no_warnings(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_clean_save_after_a_tolerated_save_clears_the_warnings(self):
+        # Regression (review of #1103): the warnings describe the most
+        # recent successful write, so a clean save after a tolerated one
+        # must not keep reporting the earlier save's tolerated names.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then saves again.
+        self.local.write_text("vision:\n  roast_enabled: false\n")
+        changed = write_changes({"vision.roast_enabled": True},
+                                config_path=self.local, environ={})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_noop_save_still_reports_a_violation_left_in_the_file(self):
+        # Regression (review of #1103, head b0d2d1a6): a no-op save used
+        # to return before validation and clear the warnings, so a file
+        # still carrying a tolerated violation reported nothing even
+        # though the next restart refuses it. The no-op save still
+        # writes nothing, but it must answer for the file it leaves in
+        # place.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        before = self.local.read_bytes()
+        self.assertEqual(self.save_roast_off(), [])
+        self.assertEqual(self.local.read_bytes(), before)  # nothing was written
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+
+    def test_noop_save_after_the_violation_is_removed_clears_the_warnings(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand; a no-op save
+        # now validates a file that carries nothing left to tolerate.
+        self.local.write_text("vision:\n  roast_enabled: false\n")
+        self.assertEqual(self.save_roast_off(), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_reporting_save_keeps_its_own_warnings_through_an_interleaved_save(self):
+        # Regression (review of #1103, head ad129ac5): the save handler
+        # read last_write_warnings() after write_changes returned, so a
+        # concurrent clean save landing between the write and the read
+        # replaced the module-wide list, and the first save's result
+        # showed no restart-failure warning for a key it had left in
+        # the file. write_changes_reporting returns the warnings the
+        # save itself recorded, so they cannot be replaced. The
+        # interleave is driven from _note_tolerated — called as the
+        # first save records its warnings, before anything reads them
+        # back — so it is deterministic, with no sleeps.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        other = Path(self.tmp.name) / "other.yaml"
+        other.write_text("vision:\n  roast_enabled: true\n")
+        real_note_tolerated = self.config._note_tolerated
+        interleaved = []
+
+        def note_tolerated_then_interleave(target, tolerated):
+            recorded = real_note_tolerated(target, tolerated)
+            if tolerated and not interleaved:
+                interleaved.append(True)
+                # A concurrent clean save: it tolerates nothing, so it
+                # replaces the module-wide warnings with its empty set.
+                write_changes({"vision.roast_enabled": False},
+                              config_path=other, environ={})
+            return recorded
+
+        self.config._note_tolerated = note_tolerated_then_interleave
+        self.addCleanup(setattr, self.config, "_note_tolerated",
+                        real_note_tolerated)
+        try:
+            changed, warnings = self.config.write_changes_reporting(
+                {"vision.roast_enabled": False},
+                config_path=self.local, environ={})
+        finally:
+            self.config._note_tolerated = real_note_tolerated
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertTrue(interleaved)  # the interleave really landed mid-save
+        # It replaced the module-wide list, as the review describes...
+        self.assertEqual(self.config.last_write_warnings(), [])
+        # ...but the warnings this save reports are its own.
+        self.assertEqual(warnings, ["[notify] mqtt_password"])
+
+    def test_printer_name_save_after_a_tolerated_save_clears_the_warnings(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then renames again.
+        self.local.write_text(roster.replace("Garage AD5X", "Workshop AD5X"))
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Bench AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_printer_name_noop_still_reports_a_violation_left_in_the_file(self):
+        # The printer-name writer's no-op path has the same shape as
+        # write_changes': renaming to the name the entry already carries
+        # must still report a violation the file still carries.
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        self.assertEqual(self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+
+    def test_printer_name_noop_after_the_violation_is_removed_clears(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand; the no-op
+        # rename now validates a file with nothing left to tolerate.
+        self.local.write_text(roster.replace("Garage AD5X", "Workshop AD5X"))
+        self.assertEqual(self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_tolerated_save_preserves_a_0600_file_mode_and_backup_mode(self):
+        # Review of #1103: a tolerated credential-shaped key must not get
+        # wider permissions on its way through a save. A hand-edited 0600
+        # settings file stays 0600 after the rewrite, and the timestamped
+        # backup of it is no wider than the source.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        os.chmod(self.local, 0o600)
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        self.assertEqual(stat.S_IMODE(self.local.stat().st_mode), 0o600)
+        backups = list(Path(self.tmp.name).glob("*.bak-*"))
+        self.assertEqual(len(backups), 1)
+        backup_mode = stat.S_IMODE(backups[0].stat().st_mode)
+        self.assertEqual(backup_mode & ~0o600, 0)  # no wider than the source
+        self.assertEqual(backup_mode, 0o600)
 
 
 if __name__ == "__main__":

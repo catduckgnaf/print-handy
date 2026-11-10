@@ -170,32 +170,6 @@ def test_check_design_row_states_off_on_and_missing_openscad(monkeypatch, capsys
     assert "FAIL  design: enabled, but openscad is not on PATH" in out
 
 
-def test_check_names_a_disabled_hermes_discord_platform(monkeypatch, capsys, tmp_path):
-    """#384: credentials present but the profile disables the platform: the
-    check must name the problem and the remedy, never report healthy."""
-    cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["bot"]["mode"] = "hermes"  # the platform-switch rows only exist in Hermes mode (#524)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    cfg["paths"]["hermes_home"] = profile
-    monkeypatch.setattr(settings, "current", lambda: cfg)
-    monkeypatch.setattr(_config, "cfg", lambda: cfg)
-    monkeypatch.setattr(_config, "profile_env_value",
-                        lambda name, **kw: "token-present" if name == "DISCORD_BOT_TOKEN" else "")
-    (profile / "config.yaml").write_text("platforms:\n  discord:\n    enabled: false\n")
-    assert bot_main.check() == 1
-    out = capsys.readouterr().out
-    assert "ok    token: $DISCORD_BOT_TOKEN is set" in out  # credentials really are present
-    assert "FAIL  hermes discord platform" in out
-    assert "platforms.discord.enabled is false" in out
-    assert "set platforms.discord.enabled: true" in out  # the remedy is named
-    (profile / "config.yaml").write_text("platforms:\n  discord:\n    enabled: true\n")
-    assert bot_main.check() == 1  # hermes mode itself still gates the standalone runner
-    out = capsys.readouterr().out
-    assert "ok    hermes discord platform" in out
-    assert "FAIL  hermes discord platform" not in out
-
-
 def test_run_refuses_to_start_when_checks_fail(monkeypatch):
     monkeypatch.setattr(bot_main, "check", lambda out=None: 1)
     with mock.patch("print_handy.bot.client.PrintHandyBot") as bot:
@@ -211,23 +185,12 @@ def test_run_logs_the_version_at_startup(monkeypatch, caplog):
     assert f"standalone bot starting (Print Handy {__version__})" in caplog.text
 
 
-def test_doctor_reports_mode_users_and_a_shared_token(monkeypatch, tmp_path):
+def test_doctor_reports_mode_and_users(monkeypatch, tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id="1", allowed_user_ids="5, 6")
     cfg["paths"]["hermes_home"] = tmp_path / "data"
-    hermes = tmp_path / ".hermes"
-    (hermes / "profiles" / "3dprinting").mkdir(parents=True)
-    (hermes / "profiles" / "3dprinting" / ".env").write_text("DISCORD_BOT_TOKEN='same-token'\n")
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "same-token")
     assert doctor.check_bot(cfg) == "standalone, print channel 1, access: whitelist (2 users)"
-    assert "holds this bot token" in doctor.check_shared_token(cfg, hermes_root=hermes)
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "other-token")
-    assert doctor.check_shared_token(cfg, hermes_root=hermes) is None
-    assert doctor.check_shared_token(cfg, hermes_root=tmp_path / "no-hermes") is None
-    cfg["bot"]["mode"] = "hermes"
-    assert doctor.check_bot(cfg) == "hermes (the Hermes gateway runs the print-feedback plugin)"
-    assert doctor.check_discord_login(cfg) is None
 
 
 def test_doctor_login_check_uses_the_token(monkeypatch):
@@ -347,47 +310,3 @@ def test_bot_shutdown_awaits_owned_resources(cfg):
         assert bot._background == [] and not bot.connected
 
     asyncio.run(flow())
-
-
-def _check_with_profile(monkeypatch, capsys, tmp_path, profile_text):
-    """Drive bot check with the Hermes profile config set to profile_text
-    (None = no config file at all), mirroring the #384 disabled test."""
-    cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["bot"]["mode"] = "hermes"  # the platform-switch rows only exist in Hermes mode (#524)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    cfg["paths"]["hermes_home"] = profile
-    monkeypatch.setattr(settings, "current", lambda: cfg)
-    monkeypatch.setattr(_config, "cfg", lambda: cfg)
-    monkeypatch.setattr(_config, "profile_env_value",
-                        lambda name, **kw: "token-present" if name == "DISCORD_BOT_TOKEN" else "")
-    if profile_text is not None:
-        (profile / "config.yaml").write_text(profile_text)
-    bot_main.check()
-    return capsys.readouterr().out
-
-
-def test_check_names_an_unreadable_hermes_profile_config(monkeypatch, capsys, tmp_path):
-    """#391 (#384 expansion): the switch cannot be verified when the file
-    cannot be parsed, so bot check fails that row instead of passing it."""
-    out = _check_with_profile(monkeypatch, capsys, tmp_path, "platforms: [unclosed\n")
-    assert "FAIL  hermes discord platform" in out
-    assert "cannot read" in out
-
-
-def test_check_passes_when_the_profile_has_no_platform_switch(monkeypatch, capsys, tmp_path):
-    """#391 (#384 expansion): no explicit switch — the gateway default
-    applies, the row is ok and says so."""
-    out = _check_with_profile(monkeypatch, capsys, tmp_path, "model:\n  default: test\n")
-    assert "ok    hermes discord platform" in out
-    assert "no explicit platforms.discord.enabled" in out
-    assert "FAIL  hermes discord platform" not in out
-
-
-def test_check_passes_when_the_profile_config_is_missing(monkeypatch, capsys, tmp_path):
-    """#391 (#384 expansion): a missing profile config is a not-installed
-    profile (already loud elsewhere), never a platform FAIL."""
-    out = _check_with_profile(monkeypatch, capsys, tmp_path, None)
-    assert "ok    hermes discord platform" in out
-    assert "no profile config at" in out
-    assert "FAIL  hermes discord platform" not in out

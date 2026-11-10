@@ -321,7 +321,7 @@ All values are in `print_handy/printers/bambulab/facts.py` with the same source 
 
 ## Provenance and licence
 
-**Maintainer approval needed.** The A1 profiles are OrcaSlicer's, which took them from Bambu Lab's Bambu Studio, and both are AGPL-3.0. This repository is MIT, so it no longer contains them. Generating them from the operator's own OrcaSlicer at install time is the approach this change takes. Whether that basis is acceptable is for the maintainer, or legal review, to approve. This document is not that approval.
+**Maintainer approval needed.** The A1 profiles are OrcaSlicer's, which took them from Bambu Lab's Bambu Studio, and both are AGPL-3.0. This repository does not contain them. Generating them from the operator's own OrcaSlicer at install time is the approach this change takes. Whether that basis is acceptable is for the maintainer, or legal review, to approve. This document is not that approval.
 
 What this repository holds, and what it does not:
 

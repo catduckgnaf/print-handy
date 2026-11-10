@@ -812,19 +812,6 @@ class StrictAdapter:
         return S(success=True)
 
 
-def test_receipt_hook_sends_with_content_keyword(monkeypatch):
-    plugin = _load("print_feedback_msgs", HERE.parents[1] / "plugins/print-feedback/__init__.py")
-    adapter = StrictAdapter()
-    src = S(platform=S(value="discord"), profile="3dprinting", user_id="42", chat_id="c", thread_id=None)
-    gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter)
-    event = S(source=src, text="Approved. Bed is clear.", message_id="m1", internal=False)
-    errors = []
-    monkeypatch.setattr(plugin.logger, "exception", lambda *a, **k: errors.append(a))
-    asyncio.run(plugin.receive_ack(event, gateway))
-    assert errors == []
-    assert adapter.sent and "bed-clear" in adapter.sent[0]
-
-
 def test_every_plugin_and_intake_send_uses_content_keyword():
     """Static guard on the real sources: no adapter.send(text=...) anywhere in the call paths."""
     core = HERE.parents[1] / "print_handy/core"
@@ -861,8 +848,6 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     asyncio.run(plugin.model_link_dispatch(event, gateway))
     # No "Got the link" receipt: the model preview and color picker are the acknowledgement.
     assert order and order[0][1] == []
-    # receive_ack must not double-send for the same handled message.
-    asyncio.run(plugin.receive_ack(event, gateway))
     assert adapter.sent == []
 
 

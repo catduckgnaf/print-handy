@@ -1372,9 +1372,8 @@ def makeronline_download(job, source, target):
 # check_source/audit path parses them — the extension is never trusted.
 DIRECT_FILE_EXTS = {".stl", ".3mf"}  # mirrors prepared_intake.MODEL_FILE_EXTS and the site inventory filters
 DIRECT_MAX_REDIRECTS = 5
-SUPPORTED_LINKS_MESSAGE = (
-    "supported links: MakerWorld, Printables, Thingiverse, MyMiniFactory, Cults3D, Creality Cloud, Thangs, Nexprint, MakerOnline "
-    "model pages, or a direct link to a .stl/.3mf file (a Dropbox share link works too)")
+from . import model_sources as _model_sources
+SUPPORTED_LINKS_MESSAGE = _model_sources.supported_links_message()
 
 
 class DirectLinkError(RuntimeError):
@@ -1708,31 +1707,9 @@ def direct_download(job, source, target):
 # Per-site registry (#462): site -> function NAME, resolved through this module's globals
 # at call time so existing tests that monkeypatch maker_*/printables_*/thingiverse_*/
 # myminifactory_* by name keep working exactly as before.
-SITE_INVENTORY_FUNCS={"makerworld":"maker_inventory","printables":"printables_inventory",
-                      "thingiverse":"thingiverse_inventory",
-                      "myminifactory":"myminifactory_inventory",
-                      "cults3d":"cults_inventory",
-                      "crealitycloud":"crealitycloud_inventory",
-                      "thangs":"thangs_inventory","nexprint":"nexprint_inventory",
-                      "makeronline":"makeronline_inventory",
-                      "direct":"direct_inventory"}
-SITE_DOWNLOAD_FUNCS={"makerworld":"maker_download","printables":"printables_download",
-                     "thingiverse":"thingiverse_download",
-                     "myminifactory":"myminifactory_download",
-                     "cults3d":"cults_download",
-                     "crealitycloud":"crealitycloud_download",
-                     "thangs":"thangs_download","nexprint":"nexprint_download",
-                     "makeronline":"makeronline_download",
-                     "direct":"direct_download"}
-SITE_HOSTS={"makerworld.com":"makerworld","www.makerworld.com":"makerworld",
-            "printables.com":"printables","www.printables.com":"printables",
-            "thingiverse.com":"thingiverse","www.thingiverse.com":"thingiverse",
-            "myminifactory.com":"myminifactory","www.myminifactory.com":"myminifactory",
-            "cults3d.com":"cults3d","www.cults3d.com":"cults3d",
-            "crealitycloud.com":"crealitycloud","www.crealitycloud.com":"crealitycloud",
-            "thangs.com":"thangs","www.thangs.com":"thangs",
-            "nexprint.com":"nexprint","www.nexprint.com":"nexprint",
-            "makeronline.com":"makeronline","www.makeronline.com":"makeronline"}
+SITE_INVENTORY_FUNCS=_model_sources.inventory_funcs()
+SITE_DOWNLOAD_FUNCS=_model_sources.download_funcs()
+SITE_HOSTS=_model_sources.hosts_map()
 def inventory_for_url(url):
     site=SITE_HOSTS.get((urllib.parse.urlparse(url).hostname or "").lower())
     if site is None:

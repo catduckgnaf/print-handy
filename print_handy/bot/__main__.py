@@ -7,7 +7,6 @@ health  exit 0 only while a running bot reports a fresh heartbeat with no Hermes
 import logging
 import os
 import sys
-from pathlib import Path
 
 from .. import __version__, ai_routes, logs, settings
 
@@ -26,53 +25,11 @@ def checks(cfg):
 
     mode = cfg["bot"]["mode"]
     add("mode", mode == "standalone", mode if mode == "standalone" else
-        f"{mode}; set PRINT_HANDY__BOT__MODE=standalone (or [bot] mode) to run without Hermes")
-    if mode == "hermes":
-        # #574: in Hermes mode the plugin answers events of the dedicated
-        # profile it is installed in (#566); the name is derived from
-        # paths.hermes_home, never configured. Name the identity the gates
-        # will use, and fail the row when it cannot be derived: the
-        # fallback answers only the default profile's events, which on a
-        # renamed install means the bot silently ignores its channel.
-        profile_name, derived = _config.hosting_profile(home=Path(cfg["paths"]["hermes_home"]), mode=mode)
-        if derived:
-            add("hosting profile", True,
-                f"{profile_name} (derived from paths.hermes_home {cfg['paths']['hermes_home']})")
-        else:
-            add("hosting profile", False,
-                f"cannot derive the hosting profile from paths.hermes_home "
-                f"({cfg['paths']['hermes_home']}); the plugin will answer only "
-                f"'{profile_name}' events — point paths.hermes_home at the dedicated "
-                "profile directory (~/.hermes/profiles/<name>)")
+        f"{mode}; the Hermes mode was removed — set [bot] mode to 'standalone'")
     name = str(cfg["bot"].get("platform") or "discord")
     implemented = platform.platform_module(name) is not None
     add("platform", implemented, name if implemented else
         f"{name}; platform {name!r} is not implemented yet (#164) — discord, telegram and matrix are available")
-    if mode == "hermes" and name == "discord":
-        # #384: in Hermes mode the gateway owns the Discord connection, and an
-        # explicit platforms.discord.enabled: false in the profile config
-        # silently removes attachment intake — credentials do not override it
-        # and the gateway only logs a warning. Name it here, with the remedy.
-        state, profile_config = _config.profile_platform_state(
-            "discord", path=Path(cfg["paths"]["hermes_home"]) / "config.yaml")
-        remedy = (f"set platforms.discord.enabled: true in {profile_config} and restart the Hermes gateway; "
-                  "environment credentials do not override an explicit platform disable")
-        if state == "disabled":
-            add("hermes discord platform", False,
-                f"disabled in {profile_config}: platforms.discord.enabled is false, so the gateway never "
-                f"connects Discord and attachment intake is silently absent; {remedy}")
-        elif state == "enabled":
-            add("hermes discord platform", True, f"enabled in {profile_config}")
-        elif state == "unset":
-            add("hermes discord platform", True,
-                f"no explicit platforms.discord.enabled in {profile_config}; the gateway default applies")
-        elif state == "missing":
-            add("hermes discord platform", True,
-                f"no profile config at {profile_config} (not installed; no platform switch to disable)")
-        else:
-            add("hermes discord platform", False,
-                f"cannot read {profile_config} to verify platforms.discord.enabled; "
-                "fix or remove it, then re-run scripts/install-hermes.sh")
     if name == "discord":
         token_env = cfg["discord"]["token_env"]
         add("token", bool(_config.discord_token()), f"${token_env} is set" if _config.discord_token()
@@ -169,19 +126,10 @@ def checks(cfg):
     else:
         add("agent", True, "not configured (set [agent] chat_url to let an agent endpoint "
                            "answer stray chat; unmatched messages use the llm row above)")
-    # Question rendering (#524 stage 2): the standalone bot always draws
-    # its own questions; on a Hermes install the host adapter draws them
-    # unless the operator turns on Print Handy's own renderer, so Hermes
-    # mode renders exactly what standalone (and the README mockups) show.
-    # A healthy-off row in both states, like the agent row above. The
-    # setting is read at plugin register/attach time (restart to change).
+    # Question rendering: the bot always draws its own questions — there
+    # is no host renderer anymore (the Hermes mode that drew them is gone).
     if name == "discord":
-        if bool((cfg.get("discord") or {}).get("clarify_ui", False)):
-            add("clarify ui", True, "own renderer (discord.clarify_ui is on: in Hermes mode "
-                                    "Print Handy draws its questions itself, one renderer in both modes)")
-        else:
-            add("clarify ui", True, "host renderer (in Hermes mode Hermes draws the questions; "
-                                    "set discord.clarify_ui=true for Print Handy's own renderer)")
+        add("clarify ui", True, "own renderer (Print Handy draws its questions itself)")
     # The roast is separate from the chat fallback above and needs no model
     # at all (#1002): one line per print from the local roast corpus, on the
     # completion post, the failure and cancel posts and a confirmed-spaghetti
@@ -306,16 +254,14 @@ def checks(cfg):
     # off; explicit true is on; unset is auto (on whenever a design/LLM
     # endpoint resolves — the roast posture). When on it needs OpenSCAD (the
     # design engine) and a model: the [design] endpoint inheriting [llm] is
-    # the normal path in every mode (#524 Stage 3); in Hermes mode with no
-    # endpoint configured, the profile's auxiliary.print_design task is the
-    # fallback lane. A forced-on-but-unusable design fails the check, like
-    # a missing token, so the misconfiguration is visible before a user
-    # hits it mid-conversation; auto with no endpoint is a healthy off.
+    # the path (#524 Stage 3). A forced-on-but-unusable design fails the
+    # check, like a missing token, so the misconfiguration is visible before
+    # a user hits it mid-conversation; auto with no endpoint is a healthy off.
     import shutil as _shutil
     from ..core import design as _design
     design_cfg = cfg.get("design") or {}
     resolved = _design.resolve_http_config(cfg)
-    endpoint_available = resolved is not None or mode == "hermes"
+    endpoint_available = resolved is not None
     design_mode = _design.mode_name(cfg, endpoint_available=endpoint_available)
     if design_mode == "off":
         add("design", True, "off (design.enabled is false; /print-design and /design are unavailable)")
@@ -327,13 +273,73 @@ def checks(cfg):
                              "(it is in the Docker image) or set design.enabled=false")
     elif resolved:
         add("design", True, f"{design_mode} ({resolved['model']} at {resolved['chat_url']})")
-    elif mode == "hermes":
-        add("design", True, f"{design_mode} (Hermes print_design auxiliary task; pin its model in the "
-                            "profile's auxiliary.print_design block)")
     else:
         add("design", False, "enabled, but no model endpoint: set [design] chat_url and "
                              "model, or the [llm] values they inherit")
     return rows
+
+
+# Startup check tiers (bootstrap): the credential tier is fatal — a bot
+# with no platform token cannot connect at all, and the token arrives
+# through the environment / Docker variable, never through chat. The
+# configuration tier (no print channel/room yet, no allowed users, no
+# Matrix homeserver on non-Matrix platforms) is not fatal: the bot
+# starts in setup-only mode and holds exactly one conversation, the
+# guided setup. Every other failing row stays fatal.
+CREDENTIAL_TIER_LABELS = frozenset({"token"})
+CONFIGURATION_TIER_LABELS = frozenset({"print channel", "allowed users", "print room"})
+
+
+def split_check_rows(rows):
+    """(credential, configuration, other) failing labels for check rows."""
+    credential, configuration, other = [], [], []
+    for label, ok, _detail in rows:
+        if ok:
+            continue
+        if label in CREDENTIAL_TIER_LABELS:
+            credential.append(label)
+        elif label in CONFIGURATION_TIER_LABELS or label == "homeserver":
+            configuration.append(label)
+        else:
+            other.append(label)
+    return credential, configuration, other
+
+
+def unconfigured_install(cfg, name):
+    """True only for an install nobody has set up yet.
+
+    Setup-only mode lets the first person who reaches the bot claim the
+    install, so a configured install with one bad setting must fail its
+    checks as before instead of reopening that door. A setup someone
+    skipped was never finished, so it does not count as configured.
+    """
+    from .. import setup_state
+    record = setup_state.load_completion(cfg)
+    if record.get("done") and not record.get("skipped"):
+        return False
+    section = cfg.get(name) if isinstance(cfg.get(name), dict) else {}
+    chat_key = "room_id" if name == "matrix" else "chat_id"
+    for key in (chat_key, "allowed_user_ids", "approval_user_id"):
+        value = section.get(key)
+        if value.strip() if isinstance(value, str) else bool(value):
+            return False
+    return True
+
+
+def setup_only_mode(cfg, rows):
+    """True when only configuration-tier rows fail: start setup-only.
+
+    Matrix is the exception for its homeserver row: without a
+    homeserver the Matrix client cannot connect at all, so that row is
+    credential-tier there even though it is configuration elsewhere.
+    """
+    credential, configuration, other = split_check_rows(rows)
+    if credential or other or not configuration:
+        return False
+    name = str(cfg["bot"].get("platform") or "discord")
+    if name == "matrix" and "homeserver" in configuration:
+        return False
+    return unconfigured_install(cfg, name)
 
 
 def check(out=None):
@@ -353,10 +359,28 @@ def check(out=None):
 def run():
     logs.configure()
     logger.info("standalone bot starting (Print Handy %s)", __version__)
-    if check(sys.stderr):
+    try:
+        cfg = settings.current()
+    except settings.SettingsError as exc:
+        print(f"FAIL  settings: {exc}", file=sys.stderr)
         print("Not starting: fix the FAIL lines above.", file=sys.stderr)
         return 2
-    cfg = settings.current()
+    rows = checks(cfg)
+    failed = False
+    for label, ok, detail in rows:
+        failed |= not ok
+        print(f"{'ok' if ok else 'FAIL':<5} {label}: {detail}", file=sys.stderr)
+    if failed and not setup_only_mode(cfg, rows):
+        print("Not starting: fix the FAIL lines above.", file=sys.stderr)
+        return 2
+    if failed:
+        cfg["bot"]["setup_only"] = True
+        print("Starting in setup-only mode: the bot connects and answers only the "
+              "guided setup conversation (`/print-handy setup`) until setup is "
+              "applied. The platform token still comes from the environment — "
+              "chat setup starts once the bot can connect.", file=sys.stderr)
+        logger.warning("setup-only mode: no chat configuration yet; only guided "
+                       "setup is answered")
     name = str(cfg["bot"].get("platform") or "discord")
     if name == "discord":
         from .client import run_bot

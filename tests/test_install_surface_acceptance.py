@@ -9,9 +9,8 @@ Two install surfaces ship in this repo:
   into ``SYSTEMD_USER_DIR`` and provisions the data folder that
   ``[paths] hermes_home`` names.
 
-``tests/test_install_hermes.py`` (the Hermes installer) and
 ``tests/test_home_update.py`` (the git update/rollback script) already
-cover their surfaces by executing them; nothing here duplicates those
+covers its surface by executing it; nothing here duplicates those
 cases. This file pins the cross-surface contracts those suites cannot
 see: shell syntax, script constants vs systemd unit directives (drift
 between them is exactly what breaks a bare-metal install silently),
@@ -71,7 +70,7 @@ class ShellSyntaxTests(unittest.TestCase):
     def test_every_install_surface_script_is_syntactically_valid_shell(self):
         scripts = [ROOT / name for name in ROOT_SCRIPTS] + [
             ROOT / "scripts" / name for name in
-            ("install-standalone.sh", "install-hermes.sh", "home-update.sh",
+            ("install-standalone.sh", "home-update.sh",
              "install-orca-flatpak.sh", "migrate-names.sh")]
         for script in scripts:
             with self.subTest(script=script.name):

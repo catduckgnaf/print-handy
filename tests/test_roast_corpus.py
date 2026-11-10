@@ -89,6 +89,22 @@ def test_title_reactions_and_fragments_keep_the_seed():
     assert roast.corpus_size() >= 1500
 
 
+def test_culled_weak_title_lines_stay_gone():
+    """The 2026-11-08 cull: ungrammatical, fact-free title lines removed or
+    repaired after catduck's complaint about the custom-cradle line. The
+    broken shapes stay gone; the repaired lines ship in their fixed form."""
+    texts = [text for _bank, text in _all_entries()]
+    joined = "\n".join(texts)
+    assert "custom cradle" not in joined  # dangling "resting on the desk fine"
+    assert "purge purge" not in joined    # duplicated word, chute pool
+    assert "at a moment notice" not in joined  # missing possessive, whistle pool
+    assert "dig into scalp" not in joined      # missing possessive, crown pool
+    corpus = roast.load_corpus()
+    holder_ids = {eid for eid, _t in corpus["title_reactions"]["holder"]}
+    assert "title-holder-title-is-a-custom-cradle" not in holder_ids
+    assert len(corpus["title_reactions"]["holder"]) >= 3  # the pool itself stays
+
+
 def test_no_exact_duplicates_anywhere():
     seen = {}
     corpus = roast.load_corpus()
