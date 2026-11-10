@@ -923,11 +923,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             self.assertEqual(out["phase"], "awaiting_confirmation")  # never "failed" without this file saying so
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
+        # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
-        self.assertIn("extruder=target", paths[0])
+        self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
         self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
         self.assertEqual(paths[2], "/printer/print/start")
         self.assertIn("/printer/objects/query", paths[3])
@@ -962,11 +962,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 self.assertEqual(out['phase'], 'awaiting_confirmation')
                 self.assertEqual(out['message'], 'submitted, awaiting confirmation')
                 # One start POST, then the #84 status readback. Not a second start.
-                # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
+                # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
                 paths = [c.args[1] for c in mr.call_args_list]
                 self.assertEqual(paths.count("/printer/print/start"), 1)
                 self.assertEqual(len(paths), 4)
-                self.assertIn("extruder=target", paths[0])
+                self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
                 self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
                 self.assertEqual(paths[2], "/printer/print/start")
                 self.assertIn("/printer/objects/query", paths[3])
@@ -1440,11 +1440,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             self.assertEqual(out["phase"], "awaiting_confirmation")
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
+        # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
-        self.assertIn("extruder=target", paths[0])
+        self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
         self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
         self.assertEqual(paths[2], "/printer/print/start")
         self.assertIn("/printer/objects/query", paths[3])

@@ -236,3 +236,80 @@ def test_bambu_status_refuses_an_unconfigured_lan(monkeypatch):
     with pytest.raises(RuntimeError, match="not configured"):
         print_stop.status()
 
+
+
+# --- /print-stop on the families without Moonraker: their own adapter control, never Moonraker URLs ---
+
+import pytest  # noqa: E402
+
+FAMILY_STATUS_READS = {"octoprint": "status", "prusalink": "snapshot", "elegoo_sdcp": "status",
+                       "flashforge_stock": "detail"}
+
+
+def _family_adapter(monkeypatch, connection, states):
+    """A fake roster adapter of one family: its client read returns `states` in order, control records."""
+    from print_handy.hermes import family_control
+    reads = iter(states)
+    client = mock.Mock()
+    setattr(client, FAMILY_STATUS_READS[connection], lambda: next(reads))
+    adapter = mock.Mock(connection=connection, transport=connection, label="Shelf printer")
+    adapter.client.return_value = client
+    adapter.normalize_status.side_effect = lambda raw: raw
+    monkeypatch.setattr(print_stop, "_lan_adapter", lambda printer_id=None: None)
+    monkeypatch.setattr(family_control, "adapter_for", lambda printer_id=None: adapter)
+    monkeypatch.setattr(family_control.time, "sleep", lambda s: None)
+    return adapter
+
+
+@pytest.mark.parametrize("connection", sorted(FAMILY_STATUS_READS))
+def test_family_status_reads_the_adapter_not_moonraker(monkeypatch, connection):
+    _family_adapter(monkeypatch, connection, [st("printing", "part.gcode", layer=3, total=90)])
+    with mock.patch.object(print_stop, "_call") as call:
+        now = print_stop.status("shelf")
+    assert now["state"] == "printing" and now["filename"] == "part.gcode" and now["layer"] == 3
+    call.assert_not_called()
+
+
+@pytest.mark.parametrize("connection", sorted(FAMILY_STATUS_READS))
+def test_family_cancel_sends_one_adapter_stop_and_reads_back(monkeypatch, connection):
+    adapter = _family_adapter(monkeypatch, connection,
+                              [st("printing", "part.gcode"), st("printing", "part.gcode"), st("cancelled", "part.gcode")])
+    with mock.patch.object(print_stop, "_call") as call:
+        sent, text = print_stop.cancel("part.gcode", wait_s=5, printer_id="shelf")
+    assert sent and text == "Stopped. Printer now reports cancelled."
+    adapter.control.assert_called_once_with("stop")
+    call.assert_not_called()
+
+
+@pytest.mark.parametrize("connection", sorted(FAMILY_STATUS_READS))
+def test_family_cancel_refuses_a_different_file_without_sending(monkeypatch, connection):
+    adapter = _family_adapter(monkeypatch, connection, [st("printing", "other.gcode")])
+    sent, text = print_stop.cancel("part.gcode", printer_id="shelf")
+    assert not sent and "different print" in text
+    adapter.control.assert_not_called()
+
+
+def test_a_printer_with_no_control_connection_says_so_plainly(monkeypatch):
+    from print_handy.hermes import family_control
+    adapter = mock.Mock(connection="offline", transport="offline", label="Shelf printer")
+    monkeypatch.setattr(print_stop, "_lan_adapter", lambda printer_id=None: None)
+    monkeypatch.setattr(family_control, "adapter_for", lambda printer_id=None: adapter)
+    with mock.patch.object(print_stop, "_call") as call:
+        assert print_stop.status("shelf")["state"] == print_stop.NO_CONTROL
+        sent, text = print_stop.cancel("part.gcode", printer_id="shelf")
+    assert not sent and "cannot be stopped from here" in text and "Nothing sent" in text
+    adapter.control.assert_not_called()
+    call.assert_not_called()
+
+
+def test_a_moonraker_roster_printer_keeps_the_moonraker_cancel(monkeypatch):
+    from print_handy.hermes import family_control
+    monkeypatch.setattr(print_stop, "_lan_adapter", lambda printer_id=None: None)
+    monkeypatch.setattr(family_control, "adapter_for",
+                        lambda printer_id=None: mock.Mock(connection="moonraker", transport="moonraker"))
+    seq = [st("printing"), st("cancelled")]
+    with mock.patch.object(print_stop, "status", side_effect=seq), \
+            mock.patch.object(print_stop, "_send") as send, mock.patch.object(print_stop.time, "sleep"):
+        sent, _text = print_stop.cancel("a.gcode", wait_s=5, printer_id="voron")
+    assert sent
+    send.assert_called_once_with("/printer/print/cancel", method="POST", timeout=15, printer_id="voron")

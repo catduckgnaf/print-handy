@@ -251,8 +251,7 @@ class LoginTests(unittest.TestCase):
     def test_healthz_stays_unauthenticated(self):
         record = {"heartbeat_at": time.time(), "pid": os.getpid(),
                   "mode": "standalone", "connected": True,
-                  "user": "printhandy#0001", "handlers": 12,
-                  "hermes_modules": []}
+                  "user": "printhandy#0001", "handlers": 12}
         with tempfile.TemporaryDirectory() as tmp:
             _httpd, port, _local, _environ = self.start(
                 tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})

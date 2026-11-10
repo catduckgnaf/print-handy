@@ -645,6 +645,8 @@ def remap_filament_choices(job, mapping, resolve_selection) -> int:
         selection = decisions.get('selection')
         if not isinstance(selection, dict) or not mapping:
             return 0
+        if not known:
+            raise FixError('single-color filament mapping cannot be validated against this job')
         extruder = 1 if 1 in mapping else next(iter(mapping))
         decisions['selection'] = _resolve(extruder, selection)
         job['color_decisions'] = decisions

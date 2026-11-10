@@ -78,8 +78,6 @@ EXEMPTIONS = {
     ("design", "timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "bot_name"): (frozenset({"webui"}), "#657"),
     ("discord", "cold_pull_outcome_s"): (frozenset({"webui"}), "#657"),
-    ("discord", "daily_reset_hour"): (frozenset({"webui", "consumer"}), "#524"),
-    ("discord", "post_print_quiet_s"): (frozenset({"webui", "consumer"}), "#524"),
     ("discord", "question_timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "safety_confirm_timeout_s"): (frozenset({"webui"}), "#657"),
     ("discord", "token_env"): (frozenset({"webui"}), "#286"),

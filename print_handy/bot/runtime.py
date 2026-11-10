@@ -1285,7 +1285,6 @@ class BotCore:
             return {}
 
     def status(self, connected):
-        from . import health
         user = getattr(self.client, "user", None)
         return {"mode": "standalone", "pid": os.getpid(), "started_at": self.started_at,
                 "platform": self.platform_name,
@@ -1299,5 +1298,4 @@ class BotCore:
                 "handlers": len(self.router.dispatch_hooks),
                 "llm": bool(self.use_llm and llm.configured(self.cfg)),
                 "agent": bool(self.use_llm and agent.configured(self.cfg)),
-                "open_prompts": prompts.open_count(),
-                "hermes_modules": health.hermes_modules_loaded()}
+                "open_prompts": prompts.open_count()}

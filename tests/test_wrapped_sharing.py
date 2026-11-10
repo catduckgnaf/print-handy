@@ -119,15 +119,15 @@ class ExporterTests(unittest.TestCase):
             kinds = {entry["name"]: entry["kind"] for entry in manifest["files"]}
             self.assertEqual(kinds["index.html"], "page")
             self.assertEqual(kinds["share-card.png"], "share-card")
-            self.assertTrue(any("no wrapped-2025.mp4" in note
-                                for note in manifest["notes"]))
+            self.assertTrue(any("left out" in note for note in manifest["notes"]))
 
     def test_video_copied_and_embedded_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "wrapped"
             out.mkdir(parents=True)
             (out / "wrapped-2025.mp4").write_bytes(b"fake-mp4-bytes")
-            result = share_export.export_bundle(_payload(), out, visibility="public")
+            result = share_export.export_bundle(_payload(), out, visibility="public",
+                                                include_video=True)
             folder = Path(result["path"])
             self.assertTrue(result["video_included"])
             self.assertEqual((folder / "wrapped-2025.mp4").read_bytes(), b"fake-mp4-bytes")

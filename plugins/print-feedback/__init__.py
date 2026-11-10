@@ -751,7 +751,9 @@ def _design_command_args(text):
     return None
 
 
-_DESIGN_BUSY: set = set()
+# owner -> phase: "turn" while a model call/render runs, "prompt" while the
+# Slice it / Change it / Cancel question is open and waiting for an answer.
+_DESIGN_BUSY: dict = {}
 
 
 async def design_dispatch(event, gateway, **kwargs):
@@ -765,6 +767,12 @@ async def design_dispatch(event, gateway, **kwargs):
     geometry. Hold a per-owner claim for the whole dispatch and refuse a
     concurrent one with a busy note; other commands and unrelated chat
     still fall through untouched.
+
+    While the design's own question is open (phase "prompt"), a plain
+    message is the answer to it — a typed choice, a Matrix number, or a
+    change typed instead of pressing Change it — so it falls through to the
+    bot core, which routes typed answers to the open prompt. Refusing it
+    here used to swallow every typed answer with the busy note.
     """
     if not _is_print_discord_event(event):
         return None
@@ -774,6 +782,8 @@ async def design_dispatch(event, gateway, **kwargs):
         text = str(getattr(event, 'text', '') or '').strip()
         if _design_command_args(text) is None and text.startswith('/'):
             return None  # another command: not design's to refuse
+        if _DESIGN_BUSY.get(owner) == 'prompt' and _design_command_args(text) is None:
+            return None  # the answer to the open design question
         from print_handy.core import design as _design
         if _design_command_args(text) is None and not _design.find_session_for_owner(
                 _design_root(_config.cfg()), owner):
@@ -786,11 +796,11 @@ async def design_dispatch(event, gateway, **kwargs):
                            content='A design turn is already running — let it finish, '
                                    'then send your change again. Nothing was changed.')
         return {'action': 'skip', 'reason': 'design turn already running'}
-    _DESIGN_BUSY.add(owner)
+    _DESIGN_BUSY[owner] = 'turn'
     try:
         return await _design_dispatch_turns(event, gateway, **kwargs)
     finally:
-        _DESIGN_BUSY.discard(owner)
+        _DESIGN_BUSY.pop(owner, None)
 
 
 async def _design_dispatch_turns(event, gateway, **kwargs):
@@ -964,6 +974,13 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                     # No change asked for: show the dropped model exactly as
                     # it is, with no model call in between (#841 gap 4).
                     result = await asyncio.to_thread(engine.baseline_turn, session)
+    except design.DesignQuestion as asked:
+        # The one clarifying question a design may ask, only when the answer
+        # changes the part and cannot be assumed. The session waits; the
+        # owner's next plain message is the answer and the design runs then.
+        await say(f'{asked.question}\n(Answer in your next message — or say "you pick" and '
+                  'I will choose a sensible size and tell you what I assumed.)')
+        return {'action': 'skip', 'reason': 'design asked a question'}
     except design.DesignError as exc:
         await say(f'That design change did not work: {exc} Nothing was sliced or started.')
         return {'action': 'skip', 'reason': 'design turn failed'}
@@ -972,33 +989,60 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         await say('That design change did not work, and I could not tell why from here. Nothing was sliced or started. '
                   'If it keeps happening, run `/print-handy bundle` and share the bundle so it can be looked into.')
         return {'action': 'skip', 'reason': 'design turn failed'}
-    session = result['session']
-    lines = [f"**Design turn {session['turns']}** — {design.summary_text(result)}"]
-    if note:
-        lines.append(note)
-    changes = design.format_param_changes(result.get('param_changes') or [])
-    if changes:
-        lines.append('Parameters changed: ' + '; '.join(changes))
-    lines.append(f"Source: `{result['scad_path'].name}` (the .scad is the design; "
-                 'the STL reaches the printer only through the normal intake after you pick Slice it).')
-    if result.get('preview_path'):
-        lines.append(f"MEDIA:{result['preview_path']}")
-    else:
-        reason = result.get('preview_error') or 'renderer unavailable'
-        lines.append(f"(No preview: {reason}. Check the dimensions above before slicing.)")
-    await say('\n'.join(lines))
+    owner_phase_key = owner
     timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
-    answer = await _confirm(adapter, source, metadata, 'print-design',
-                            'What next for this design?', list(design.CHOICES), timeout,
-                            live_key=gateway._session_key_for_source(source))
-    if answer == design.SLICE_LABEL:
-        engine.mark_handed_off(session)
-        return await _design_handoff(event, gateway, adapter, session, result['stl_path'])
-    if answer == design.CHANGE_LABEL:
-        engine.awaiting_revision(session)
-        await say('Say the change in your next message — e.g. "make it 5 mm taller". '
-                  f'({design.MAX_TURNS} turns per design; this one has had {session["turns"]}.)')
-        return {'action': 'skip', 'reason': 'design awaiting revision'}
+    while True:
+        session = result['session']
+        lines = design.reply_lines(result)
+        if note:
+            lines.append(note)
+        changes = design.format_param_changes(result.get('param_changes') or [])
+        if changes:
+            lines.append('Parameters changed: ' + '; '.join(changes))
+        lines.append(design.change_hint(session) + ' Slice it sends it through the normal '
+                     'intake; nothing prints without the usual confirmation.')
+        if result.get('preview_path'):
+            lines.append(f"MEDIA:{result['preview_path']}")
+        else:
+            reason = result.get('preview_error') or 'renderer unavailable'
+            lines.append(f"(No preview: {reason}. Check the dimensions above before slicing.)")
+        await say('\n'.join(lines))
+        note = ''
+        if owner_phase_key in _DESIGN_BUSY:
+            _DESIGN_BUSY[owner_phase_key] = 'prompt'
+        try:
+            answer = await _confirm(adapter, source, metadata, 'print-design',
+                                    'What next for this design?', list(design.CHOICES), timeout,
+                                    live_key=gateway._session_key_for_source(source))
+        finally:
+            if owner_phase_key in _DESIGN_BUSY:
+                _DESIGN_BUSY[owner_phase_key] = 'turn'
+        if answer == design.SLICE_LABEL:
+            engine.mark_handed_off(session)
+            return await _design_handoff(event, gateway, adapter, session, result['stl_path'])
+        if answer == design.CHANGE_LABEL:
+            engine.awaiting_revision(session)
+            await say('Say the change in your next message — e.g. "make it 5 mm taller". '
+                      f'({design.MAX_TURNS} turns per design; this one has had {session["turns"]}.)')
+            return {'action': 'skip', 'reason': 'design awaiting revision'}
+        typed = str(answer or '').strip()
+        if answer is None or not typed or typed == design.CANCEL_LABEL:
+            break
+        # A change typed instead of pressing a button ("make it 5 mm taller")
+        # is the revision itself: run it as the next turn of the same design.
+        try:
+            result = await engine.run_turn(session, typed)
+        except design.DesignError as exc:
+            engine.awaiting_revision(session)
+            await say(f'That change did not work: {exc} The previous version is kept; '
+                      'say another change, or /print-design <a new part> to start over.')
+            return {'action': 'skip', 'reason': 'design revision failed'}
+        except Exception:
+            logger.exception('design revision failed unexpectedly')
+            engine.awaiting_revision(session)
+            await say('That change did not work, and I could not tell why from here. The previous '
+                      'version is kept; nothing was sliced or started.')
+            return {'action': 'skip', 'reason': 'design revision failed'}
     engine.cancel(session)
     await say('Design cancelled. The files stay in the session folder for a while; nothing '
               'was sliced or started.')

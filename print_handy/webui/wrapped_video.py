@@ -42,13 +42,20 @@ never uses an AI model or a cloud service.
 """
 from __future__ import annotations
 
+import functools
 import json
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import textwrap
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from ..core import print_stats
 
 MAX_CLIPS = 6
 # Of the MAX_CLIPS slots, up to this many are reserved for clips of
@@ -88,17 +95,36 @@ STING_VOLUME = 0.30
 NARRATION_VOLUME = 1.0
 
 
-def escape_drawtext(text):
-    """Escape one line for an ffmpeg drawtext ``text=`` value."""
-    out = []
-    for char in str(text):
-        if char in "\\':%":
-            out.append("\\" + char)
-        elif char in "\r\n":
-            out.append(" ")
-        else:
-            out.append(char)
-    return "".join(out)
+def _clean_text(text):
+    """One line of on-screen text: control characters become spaces."""
+    return "".join(" " if ord(char) < 32 or ord(char) == 127 else char
+                   for char in str(text))
+
+
+class TextFiles:
+    """Print-derived text for drawtext, kept out of filter strings.
+
+    Titles, colors and commentary are user data: escaping them into a
+    ``text='...'`` value lets a ``%`` (``%{...}`` expands as a function),
+    a quote or a colon break or steer the filter. Each text is written to
+    its own file in the work folder and referenced with ``textfile=`` and
+    ``expansion=none``, so no character in it is ever parsed. The option
+    names the file relative to the work folder (ffmpeg runs with that as
+    its working directory), so no path, with its own colons, backslashes
+    or brackets, ever has to be escaped for the filter parser either.
+    """
+
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self._count = 0
+
+    def option(self, text):
+        """The ``textfile=...:expansion=none`` drawtext options for ``text``."""
+        self._count += 1
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / f"text-{self._count:03d}.txt"
+        path.write_text(_clean_text(text), encoding="utf-8")
+        return f"textfile={path.name}:expansion=none"
 
 
 def _default_ffmpeg(data):
@@ -139,7 +165,26 @@ def _record_number(record):
     return number if isinstance(number, int) and not isinstance(number, bool) else None
 
 
-def resolve_clip_print_number(name, records, tz=None):
+def claims_index(records):
+    """{print number: records claiming it}, built once per request.
+
+    A record claims its current number and, after a duplicate-number
+    repair, the old one it kept as ``print_number_was``. Resolving each
+    clip against this index replaces a scan of every record per clip.
+    """
+    index = {}
+    for record in records or []:
+        current = _record_number(record)
+        if current is None:
+            continue
+        index.setdefault(current, []).append(record)
+        was = record.get("print_number_was")
+        if isinstance(was, int) and not isinstance(was, bool) and was != current:
+            index.setdefault(was, []).append(record)
+    return index
+
+
+def resolve_clip_print_number(name, records, tz=None, index=None):
     """The CURRENT print number a delivered clip belongs to, or None.
 
     The name join alone breaks after a duplicate-number repair
@@ -160,15 +205,7 @@ def resolve_clip_print_number(name, records, tz=None):
     number = parse_clip_print_number(name)
     if number is None:
         return None
-    claims = []
-    for record in records or []:
-        current = _record_number(record)
-        if current is None:
-            continue
-        was = record.get("print_number_was")
-        if current == number or (isinstance(was, int) and not isinstance(was, bool)
-                                 and was == number):
-            claims.append(record)
+    claims = (index if index is not None else claims_index(records)).get(number, [])
     if not claims:
         return number
     if len(claims) == 1:
@@ -225,6 +262,7 @@ def default_clip_finder_detailed(data, year, records=None, tz=None):
     """
     found = []
     seen = set()
+    index = claims_index(records) if records is not None else None
     for root in _clip_roots(data):
         if not root.is_dir():
             continue
@@ -247,25 +285,25 @@ def default_clip_finder_detailed(data, year, records=None, tz=None):
                 continue
             seen.add(key)
             found.append({"path": str(path),
-                          "print_number": (resolve_clip_print_number(path.name, records, tz)
+                          "print_number": (resolve_clip_print_number(path.name, records, tz, index)
                                            if records is not None
                                            else parse_clip_print_number(path.name)),
                           "name_year": name_year})
     return found
 
 
-def default_clip_finder(data, year):
-    """MP4 paths under the local timelapse candidates for ``year``."""
-    return [Path(entry["path"])
-            for entry in default_clip_finder_detailed(data, year)][:MAX_CLIPS]
+def _absolute(path):
+    """A path ffmpeg can open from the work folder (it runs there)."""
+    text = str(path or "")
+    return os.path.abspath(text) if text else ""
 
 
 def _clip_entry(clip):
     """Normalize one finder result (Path/str or detailed dict)."""
     if isinstance(clip, dict):
-        return {"path": str(clip.get("path") or ""),
+        return {"path": _absolute(clip.get("path")),
                 "print_number": clip.get("print_number")}
-    return {"path": str(clip), "print_number": parse_clip_print_number(clip)}
+    return {"path": _absolute(clip), "print_number": parse_clip_print_number(clip)}
 
 
 def clip_label(entry, wrapped):
@@ -309,8 +347,32 @@ def select_clips(clips, wrapped, cap=MAX_CLIPS):
     return [entries[i] for i in chosen_idx]
 
 
-def _run(runner, command):
-    result = runner(command, capture_output=True, text=True)
+# Every subprocess is bounded, scaled to the work it does: a base for
+# startup plus a budget per second of output. A hung ffmpeg or Piper ends
+# the job with a named reason instead of holding it forever.
+STEP_TIMEOUT_BASE_S = 120
+STEP_TIMEOUT_PER_SECOND_S = 20
+FRAME_GRAB_TIMEOUT_S = 60
+PIPER_TIMEOUT_S = 180
+# A work folder this old belongs to a run that died without cleaning up.
+STALE_WORK_SECONDS = 6 * 3600
+
+
+def step_timeout(output_seconds):
+    """Seconds one ffmpeg step producing ``output_seconds`` of video may take."""
+    return int(STEP_TIMEOUT_BASE_S + STEP_TIMEOUT_PER_SECOND_S * max(0, output_seconds))
+
+
+def _run(runner, command, *, cwd=None, timeout=None):
+    """One ffmpeg run. ``cwd`` is the work folder, so drawtext textfiles
+    are named relative to it; ``timeout`` bounds the run in seconds."""
+    extra = {"cwd": str(cwd)} if cwd is not None else {}
+    if timeout is not None:
+        extra["timeout"] = timeout
+    try:
+        result = runner(command, capture_output=True, text=True, **extra)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ffmpeg timed out after {timeout}s") from None
     code = getattr(result, "returncode", 0)
     if code:
         raise RuntimeError(f"ffmpeg exited {code}")
@@ -324,7 +386,7 @@ def _card_lines(text):
     return lines[:8]
 
 
-def _card_filter(text):
+def _card_filter(text, files):
     """A chain of drawtext filters, one per wrapped line, block-centered."""
     lines = _card_lines(text)
     middle = (len(lines) - 1) / 2
@@ -333,7 +395,7 @@ def _card_filter(text):
         offset = round((index - middle) * CARD_LINE_PX)
         y = f"(h-text_h)/2{offset:+d}" if offset else "(h-text_h)/2"
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':"
+            f"drawtext={files.option(line)}:"
             f"fontcolor=white:fontsize=40:x=(w-text_w)/2:y={y}")
     return ",".join(filters)
 
@@ -371,26 +433,27 @@ def build_slides(wrapped):
     slides = [_slide("hook", "WRAPPED", f"Print Handy Wrapped {year}",
                      "Your year in plastic, counted honestly.", HOOK_SECONDS)]
     if headline.get("total_prints"):
-        slides.append(_slide("volume", "VOLUME", f"{headline['total_prints']} prints",
+        slides.append(_slide("volume", "VOLUME", print_stats.plural(headline['total_prints'], "print"),
                              "Every print you started this year.", SLIDE_SECONDS))
     if headline.get("total_hours"):
-        slides.append(_slide("volume", "VOLUME", f"{headline['total_hours']:g} hours printing",
+        slides.append(_slide("volume", "VOLUME", f"{print_stats.hours_text(headline['total_hours'])} printing",
                              "Time the printer spent making things.", SLIDE_SECONDS))
     if headline.get("total_filament_used_g"):
         kg = headline.get("total_filament_used_kg")
         if kg is None:
             kg = headline["total_filament_used_g"] / 1000.0
         slides.append(_slide("volume", "VOLUME", f"{kg:g} kg of filament",
-                             "Plastic turned into finished objects.", SLIDE_SECONDS))
+                             "Plastic you ran through the printer, failed prints included.",
+                             SLIDE_SECONDS))
     if headline.get("success_rate") is not None:
         slides.append(_slide("success", "OUTCOMES",
                              f"Success rate {round(headline['success_rate'] * 100):g}%",
-                             "Finished prints out of prints decided.", SHORT_SECONDS))
+                             "Finished prints out of prints finished or failed.", SHORT_SECONDS))
     longest = highlights.get("longest_print") or {}
     if longest.get("title"):
         hours = (longest.get("seconds") or 0) / 3600.0
         slides.append(_slide("top", "TOP PRINT", _words(longest["title"], 6),
-                             f"Your longest print, {hours:.1f} hours on the bed.",
+                             f"Your longest print, {print_stats.hours_text(hours)} on the bed.",
                              SLIDE_SECONDS))
     most_reprinted = highlights.get("most_reprinted") or {}
     if most_reprinted.get("count"):
@@ -408,7 +471,7 @@ def build_slides(wrapped):
     if highlights.get("busiest_month"):
         slides.append(_slide("top", "BUSIEST MONTH",
                              f"Busiest month {highlights['busiest_month']}",
-                             f"{highlights.get('busiest_month_prints', 0)} prints in your biggest month.",
+                             f"{print_stats.plural(highlights.get('busiest_month_prints', 0), 'print')} in your biggest month.",
                              SHORT_SECONDS))
     script = [str(line) for line in (wrapped.get("script") or []) if str(line).strip()]
     if script:
@@ -445,9 +508,9 @@ def build_slides(wrapped):
         slides.append(_slide("failures", "FAILURES", hero, " ".join(bits), SLIDE_SECONDS))
     summary_bits = []
     if headline.get("total_prints"):
-        summary_bits.append(f"{headline['total_prints']} prints")
+        summary_bits.append(print_stats.plural(headline['total_prints'], "print"))
     if headline.get("total_hours"):
-        summary_bits.append(f"{headline['total_hours']:g} hours")
+        summary_bits.append(print_stats.hours_text(headline['total_hours']))
     if headline.get("total_filament_used_g"):
         kg = headline.get("total_filament_used_kg")
         if kg is None:
@@ -475,16 +538,7 @@ def timeline_roles(wrapped, clips=0):
     return roles
 
 
-def _card_texts(wrapped):
-    """Compatibility seam: the slide hero texts, in arc order.
-
-    The presentation builder is :func:`build_slides`; this keeps the
-    old card-text shape available to anything that consumed it.
-    """
-    return [slide["hero"] for slide in build_slides(wrapped)]
-
-
-def _slide_filter(slide):
+def _slide_filter(slide, files):
     """Three type levels: eyebrow 28px, hero 64px, explanation 36px.
 
     All text sits in the central vertical-safe band of the 16:9 frame
@@ -492,22 +546,22 @@ def _slide_filter(slide):
     derived from the same composition later.
     """
     filters = [
-        f"drawtext=text='{escape_drawtext(slide['eyebrow'])}':fontcolor=white:"
+        f"drawtext={files.option(slide['eyebrow'])}:fontcolor=white:"
         "fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2-130"]
     hero_lines = textwrap.wrap(slide["hero"], width=18) or [""]
     for index, line in enumerate(hero_lines[:3]):
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':fontcolor=white:"
+            f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=64:x=(w-text_w)/2:y=(h-text_h)/2{-50 + index * 76:+d}")
     line_lines = textwrap.wrap(slide["line"], width=34) or []
     for index, line in enumerate(line_lines[:2]):
         filters.append(
-            f"drawtext=text='{escape_drawtext(line)}':fontcolor=white:"
+            f"drawtext={files.option(line)}:fontcolor=white:"
             f"fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2{130 + index * 46:+d}")
     return ",".join(filters)
 
 
-def _extract_frames(runner, ffmpeg_bin, clips, work, count):
+def _extract_frames(run, ffmpeg_bin, clips, work, count):
     """One frame per slide from the year's clips, or {} per slide index.
 
     Returns {slide_index: (path, size)} for frames that exist on disk
@@ -520,8 +574,8 @@ def _extract_frames(runner, ffmpeg_bin, clips, work, count):
         clip = clips[index % len(clips)]
         frame = work / f"bg-{index:02d}.jpg"
         try:
-            _run(runner, [ffmpeg_bin, "-y", "-ss", "1", "-i", clip["path"],
-                          "-frames:v", "1", str(frame)])
+            run([ffmpeg_bin, "-y", "-ss", "1", "-i", clip["path"],
+                 "-frames:v", "1", str(frame)], timeout=FRAME_GRAB_TIMEOUT_S)
         except Exception:
             continue
         if frame.is_file():
@@ -529,7 +583,7 @@ def _extract_frames(runner, ffmpeg_bin, clips, work, count):
     return frames
 
 
-def _slide_command(ffmpeg_bin, slide, segment, frame):
+def _slide_command(ffmpeg_bin, slide, segment, frame, files):
     """The ffmpeg command for one slide segment.
 
     Background rule (documented in docs/WEBUI.md): a frame of at
@@ -548,19 +602,19 @@ def _slide_command(ffmpeg_bin, slide, segment, frame):
                 "gblur=sigma=10,"
                 "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.62:t=fill,"
                 "drawbox=x=0:y=ih*0.55:w=iw:h=ih*0.45:color=black@0.35:t=fill,"
-                f"fps={CARD_FPS}," + _slide_filter(slide))
+                f"fps={CARD_FPS}," + _slide_filter(slide, files))
         return [ffmpeg_bin, "-y", "-loop", "1", "-i", str(frame[0]),
                 "-t", str(duration), "-vf", filt, *base_video, str(segment)]
     if frame is not None:
         filt = (f"[1:v]scale=720:-1[inset];[0:v][inset]overlay=(W-w)/2:30[bg];"
-                f"[bg]fps={CARD_FPS}," + _slide_filter(slide) + "[out]")
+                f"[bg]fps={CARD_FPS}," + _slide_filter(slide, files) + "[out]")
         return [ffmpeg_bin, "-y", "-f", "lavfi", "-i",
                 f"color=c=0x12110F:s=1280x720:d={duration}:rate={CARD_FPS}",
                 "-loop", "1", "-i", str(frame[0]),
                 "-filter_complex", filt, "-map", "[out]", *base_video, str(segment)]
     return [ffmpeg_bin, "-y", "-f", "lavfi", "-i",
             f"color=c=0x12110F:s=1280x720:d={duration}:rate={CARD_FPS}",
-            "-vf", f"fps={CARD_FPS}," + _slide_filter(slide),
+            "-vf", f"fps={CARD_FPS}," + _slide_filter(slide, files),
             *base_video, str(segment)]
 
 
@@ -572,7 +626,8 @@ def piper_command(binary, model, out_path):
 def _piper_synthesize(binary, model, text, out_path):
     """One real Piper run (the default synthesizer; tests inject a seam)."""
     result = subprocess.run(piper_command(binary, model, out_path),
-                            input=str(text), capture_output=True, text=True)
+                            input=str(text), capture_output=True, text=True,
+                            timeout=PIPER_TIMEOUT_S)
     if getattr(result, "returncode", 0):
         raise RuntimeError(f"piper exited {result.returncode}")
     return out_path
@@ -712,13 +767,20 @@ def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
 def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                         runner=None, find_clips=None,
                         export_silent=False, tts_call=None,
-                        records=None, tz=None):
+                        records=None, tz=None, progress=None):
     """Compile one Wrapped video. Returns {ok, path, script_path, notes}.
 
     ``wrapped`` is a :func:`print_handy.core.print_stats.build_wrapped`
     payload. The script sidecar (``wrapped-<year>-script.json``) is
     written even when ffmpeg is missing, so the commentary is never
     lost with the refusal.
+
+    The compile happens in a fresh temporary work folder inside
+    ``out_dir`` that is removed whatever the outcome, and the finished
+    file is moved into place whole, so a reader never sees a half-written
+    video and two runs can never delete each other's pieces. Every
+    subprocess has a timeout scaled to its work. ``progress(done, total)``
+    is called after each step when given.
     """
     year = int(year)
     out_dir = Path(out_dir)
@@ -758,9 +820,50 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             notes.append(f"timelapses: {len(labeled)} of them are failed or "
                          "pasta prints, labeled in the video")
     slides = build_slides({**wrapped, "script": script})
-    work = out_dir / f".wrapped-{year}-parts"
-    work.mkdir(parents=True, exist_ok=True)
-    frames = _extract_frames(runner, resolved, clips, work, len(slides))
+    _sweep_stale_work(out_dir)
+    work = Path(tempfile.mkdtemp(prefix=f".wrapped-{year}-", dir=out_dir))
+    try:
+        return _compile(year, wrapped, out_dir, work, notes, script, script_path,
+                        resolved, runner, clips, slides, data, export_silent,
+                        tts_call, progress)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _sweep_stale_work(out_dir):
+    """Remove work folders left behind by a run that was killed."""
+    cutoff = time.time() - STALE_WORK_SECONDS
+    for stale in Path(out_dir).glob(".wrapped-*"):
+        try:
+            if stale.is_dir() and stale.stat().st_mtime < cutoff:
+                shutil.rmtree(stale, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
+             runner, clips, slides, data, export_silent, tts_call, progress):
+    labeled_rest = sum(1 + (1 if clip_label(entry, wrapped) else 0) for entry in clips[1:])
+    narrating = (not export_silent and str(((data or {}).get("timelapse") or {}).get(
+        "wrapped_tts_engine") or "none").strip().lower() != "none")
+    total_steps = ((2 if clips else 0) + len(slides) + labeled_rest
+                   + (1 if narrating else 0) + 2)
+    done_steps = 0
+
+    def step():
+        nonlocal done_steps
+        done_steps += 1
+        if progress is not None:
+            try:
+                progress(done_steps, total_steps)
+            except Exception:
+                pass
+
+    files = TextFiles(work)
+    run = functools.partial(_run, runner, cwd=work)
+    frames = _extract_frames(run, resolved, clips, work, len(slides))
+    if clips:
+        step()
     if not frames:
         notes.append("backgrounds: no operator images found")
     segments = []
@@ -780,7 +883,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
 
         def build_footage():
             segment = work / "clip-footage.mp4"
-            _run(runner, [resolved, "-y", "-stream_loop", "-1", "-i",
+            run([resolved, "-y", "-stream_loop", "-1", "-i",
                           footage_entry["path"], "-t", str(FOOTAGE_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=increase,"
                                  "crop=1280:720,"
@@ -791,8 +894,9 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
                           "-r", str(CARD_FPS),
                           "-video_track_timescale", str(SEGMENT_TIMESCALE),
-                          str(segment)])
+                          str(segment)], timeout=step_timeout(FOOTAGE_SECONDS))
             add_segment(segment, FOOTAGE_SECONDS, "footage")
+            step()
 
         for index, slide in enumerate(slides):
             if slide["role"] == "finale":
@@ -802,8 +906,10 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 build_footage()
                 footage_done = True
             segment = work / f"slide-{index:02d}.mp4"
-            _run(runner, _slide_command(resolved, slide, segment, frames.get(index)))
+            run(_slide_command(resolved, slide, segment, frames.get(index), files),
+                timeout=step_timeout(slide["duration"]))
             add_segment(segment, slide["duration"], slide["role"], slide_index=index)
+            step()
         if not footage_done and footage_entry is not None:
             build_footage()
             footage_done = True
@@ -813,16 +919,17 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 # The label card sits immediately before its clip, so a
                 # failure/pasta clip is never mistaken for a success.
                 segment = work / f"card-label-{offset:02d}.mp4"
-                _run(runner, [resolved, "-y", "-f", "lavfi", "-i",
+                run([resolved, "-y", "-f", "lavfi", "-i",
                               f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}:rate={CARD_FPS}",
-                              "-vf", f"fps={CARD_FPS}," + _card_filter(label),
+                              "-vf", f"fps={CARD_FPS}," + _card_filter(label, files),
                               "-c:v", "libx264", "-pix_fmt", "yuv420p",
                               "-r", str(CARD_FPS),
                               "-video_track_timescale", str(SEGMENT_TIMESCALE),
-                              str(segment)])
+                              str(segment)], timeout=step_timeout(CARD_SECONDS))
                 add_segment(segment, CARD_SECONDS, "label")
+                step()
             segment = work / f"clip-{offset:02d}.mp4"
-            _run(runner, [resolved, "-y", "-stream_loop", "-1", "-i", entry["path"],
+            run([resolved, "-y", "-stream_loop", "-1", "-i", entry["path"],
                           "-t", str(CLIP_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
                                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
@@ -830,28 +937,34 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
                           "-r", str(CARD_FPS),
                           "-video_track_timescale", str(SEGMENT_TIMESCALE),
-                          str(segment)])
+                          str(segment)], timeout=step_timeout(CLIP_SECONDS))
             add_segment(segment, CLIP_SECONDS, "clip")
+            step()
         finale_index = len(slides) - 1
         finale = slides[finale_index]
         segment = work / f"slide-{finale_index:02d}.mp4"
-        _run(runner, _slide_command(resolved, finale, segment,
-                                    frames.get(finale_index)))
+        run(_slide_command(resolved, finale, segment, frames.get(finale_index), files),
+            timeout=step_timeout(finale["duration"]))
         add_segment(segment, finale["duration"], "finale", slide_index=finale_index)
+        step()
         listing = work / "concat.txt"
         listing.write_text("".join(f"file '{segment.name}'\n" for segment in segments),
                            encoding="utf-8")
-        target = out_dir / f"wrapped-{year}.mp4"
+        final_path = out_dir / f"wrapped-{year}.mp4"
+        target = work / "final.mp4"
         silent = work / "silent.mp4"
-        _run(runner, [resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-                      "-c", "copy", str(silent)])
         total = sum(entry["duration"] for entry in timeline)
+        run([resolved, "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
+             "-c", "copy", str(silent)], timeout=step_timeout(total / 10))
+        step()
         if export_silent:
             notes.append("audio: silent export (no music, no narration)")
             shutil.copyfile(silent, target)
         else:
             narration, narration_note = _prepare_narration(
                 slides, data, work, tts_call=tts_call)
+            if narrating:
+                step()
             if narration_note:
                 notes.append(narration_note)
             music_setting = str(((data or {}).get("timelapse") or {}).get(
@@ -860,7 +973,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             music_prefix = None
             if music_setting:
                 if Path(music_setting).is_file():
-                    music_file = Path(music_setting)
+                    music_file = Path(os.path.abspath(music_setting))
                 else:
                     music_prefix = (f"music: operator file not found at {music_setting}; "
                                     "using synthesized bed")
@@ -870,23 +983,108 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                 music_note_prefix=music_prefix)
             notes.extend(audio_notes)
             try:
-                _run(runner, command)
+                run(command, timeout=step_timeout(total / 4))
             except Exception as exc:
                 notes.append(f"audio: failed ({type(exc).__name__}: {exc}); silent video kept")
                 shutil.copyfile(silent, target)
+        step()
+        # Moved into place whole: a reader never sees a half-written file.
+        os.replace(target, final_path)
     except Exception as exc:
         notes.append(f"ffmpeg: failed ({type(exc).__name__}: {exc})")
         return {"ok": False, "reason": f"the Wrapped video compile failed ({type(exc).__name__}: {exc})",
                 "path": None, "script_path": str(script_path), "notes": notes}
-    shutil.rmtree(work, ignore_errors=True)
-    return {"ok": True, "path": str(target), "script_path": str(script_path), "notes": notes}
+    return {"ok": True, "path": str(final_path), "script_path": str(script_path), "notes": notes}
+
+
+class VideoJobs:
+    """One background compile per year, with a status the page can poll.
+
+    A compile is 15 to 40 ffmpeg runs: far too long for an HTTP handler
+    thread. :meth:`start` runs it on its own thread and returns at once.
+    A second request for a year that is already queued or running does
+    not start another compile; it joins the one in flight, so a double
+    click or a browser retry can never have two runs writing the same
+    files. States: ``queued``, ``running`` (with ``step`` of ``steps``),
+    ``done``, ``failed`` (with a short ``reason``), and ``idle`` for a
+    year nothing has been started for since this process began.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._jobs = {}
+
+    @staticmethod
+    def _view(job):
+        return {key: job[key] for key in
+                ("year", "state", "step", "steps", "reason", "notes",
+                 "path", "script_path", "started_at", "finished_at")}
+
+    def start(self, year, work, *, wait=False):
+        """(status, joined): start ``work(progress)`` for ``year`` or join it.
+
+        ``work`` returns a :func:`build_wrapped_video` result dict; the
+        ``progress(done, total)`` callback it is handed feeds the status.
+        ``wait`` blocks until the job ends (tests, scripts).
+        """
+        year = int(year)
+        with self._lock:
+            job = self._jobs.get(year)
+            if job is not None and job["state"] in ("queued", "running"):
+                return self._view(job), True
+            job = {"year": year, "state": "queued", "step": 0, "steps": 0,
+                   "reason": None, "notes": [], "path": None, "script_path": None,
+                   "started_at": time.time(), "finished_at": None}
+            self._jobs[year] = job
+            thread = threading.Thread(target=self._run, args=(job, work), daemon=True,
+                                      name=f"wrapped-video-{year}")
+            thread.start()
+        if wait:
+            thread.join()
+        with self._lock:
+            return self._view(job), False
+
+    def status(self, year):
+        with self._lock:
+            job = self._jobs.get(int(year))
+            if job is None:
+                return {"year": int(year), "state": "idle", "step": 0, "steps": 0,
+                        "reason": None, "notes": [], "path": None, "script_path": None,
+                        "started_at": None, "finished_at": None}
+            return self._view(job)
+
+    def _run(self, job, work):
+        def progress(done, total):
+            with self._lock:
+                job["step"], job["steps"] = done, total
+
+        with self._lock:
+            job["state"] = "running"
+        try:
+            result = work(progress) or {}
+            failure = None if result.get("ok") else (
+                result.get("reason") or "the video compile failed")
+        except Exception as exc:  # the job thread must always end in a state
+            result, failure = {}, f"the video compile failed ({type(exc).__name__})"
+        with self._lock:
+            job["notes"] = list(result.get("notes") or [])
+            job["script_path"] = result.get("script_path")
+            job["finished_at"] = time.time()
+            if failure is None:
+                job["state"], job["path"] = "done", result.get("path")
+                job["step"] = job["steps"] = max(job["steps"], job["step"])
+            else:
+                job["state"], job["reason"] = "failed", str(failure)[:300]
+
+
+JOBS = VideoJobs()
 
 
 __all__ = ["BED_DUCKED_VOLUME", "BED_FAILURE_VOLUME", "BED_VOLUME", "BG_FULL_MIN_BYTES",
            "CARD_FPS", "CARD_SECONDS", "CLIP_SECONDS", "FINALE_SECONDS", "FOOTAGE_SECONDS",
            "HOOK_SECONDS", "MAX_CLIPS", "NARRATION_VOLUME", "RESERVED_FAILURE_CLIPS",
            "SAD_VOLUME", "SEGMENT_TIMESCALE", "SHORT_SECONDS", "SLIDE_SECONDS",
-           "STING_VOLUME", "build_slides", "build_wrapped_video",
-           "clip_label", "default_clip_finder", "default_clip_finder_detailed",
-           "escape_drawtext", "parse_clip_print_number", "piper_command",
+           "STING_VOLUME", "JOBS", "VideoJobs", "build_slides", "build_wrapped_video",
+           "clip_label", "default_clip_finder_detailed",
+           "parse_clip_print_number", "piper_command",
            "resolve_clip_print_number", "select_clips", "timeline_roles"]

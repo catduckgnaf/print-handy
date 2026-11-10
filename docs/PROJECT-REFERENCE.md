@@ -125,7 +125,7 @@ A bed-clear approval starts one print. Starting the same G-code again needs a ne
 * Nothing starts without a bed clear button press.
 * Multi plate plans: `/print-next` offers the exact next plate, and finishing a plate advances the plan.
 * `/print-again` reprints an archived job exactly, with no re-slice. A job sliced before slice recipes were recorded is refused until it is re-sliced once. A misspelled name never reprints anything: near matches come back as a numbered "Did you mean one of these?" list to pick from, and a print number is always exact.
-* `/print-stop` and `/print-resume` each send at most one Moonraker command behind a confirm button.
+* `/print-stop` and `/print-resume` each send at most one printer command behind a confirm button. `/print-stop` reaches every printer with a live connection: one Moonraker cancel, one Bambu LAN stop, or the printer's own stop for OctoPrint, PrusaLink, Elegoo and stock Flashforge. A printer with no live connection gets a plain "stop it on the printer" reply.
 * `/print-reboot` uses the safe ZMod reboot flow.
 * Printer models: `flashforge.ad5x`, `flashforge.ad5m`, `flashforge.ad5m_pro`, `flashforge.creator5`, `flashforge.creator5_pro`, `sovol.sv06`, `klipper.generic`, `octoprint.marlin`, `bambulab.a1`, `bambulab.p1s` (offline only, see [Bambu Lab printers](BAMBU-LAB.md)). Each job records the model it was sliced for and refuses another.
 
@@ -382,8 +382,8 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | | `stock_api_port` | `8898` | Flashforge stock API for IFS presence |
 | `discord` | `chat_id`, `approval_user_id` | empty | Channel and approver IDs |
 | | `upload_max_bytes` | `9500000` | Largest upload before video is shrunk |
-| | `post_print_quiet_s` | `7200` | Retired: the bot no longer resets chat sessions; kept so existing configs load |
-| | `daily_reset_hour`, `timezone` | `4`, `America/New_York` | `daily_reset_hour` retired with it; `timezone` is the display zone |
+| | `post_print_quiet_s` | retired | — | Retired: ignored if set in old config or environment |
+| | `daily_reset_hour` | retired | — | Retired: ignored if set in old config or environment |
 | | `bot_name` | `Print Handy` | Name the bot uses in the roast persona and the rendered profile templates (`SOUL.md`, locale strings). Set it to anything, for example your old name |
 | | `question_timeout_s` | `1800` | How long a Discord question waits for a button press |
 | | `safety_confirm_timeout_s` | `600` | How long a safety confirmation (stop, resume, reboot, cold-pull go-ahead) waits |

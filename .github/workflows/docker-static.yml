@@ -32,9 +32,9 @@ jobs:
           apt-get install -y -q docker-ce-cli docker-compose-plugin
       - name: Shell syntax and ShellCheck
         run: |
-          bash -n docker/entrypoint.sh tests/docker/image_acceptance.sh tests/docker/lifecycle_gate.sh
+          bash -n docker/entrypoint.sh tests/docker/image_acceptance.sh tests/docker/lifecycle_gate.sh tests/docker/clean_compose_start.sh
           sh -n docker/orca-build-jobs.sh
-          shellcheck -x docker/entrypoint.sh docker/orca-build-jobs.sh tests/docker/image_acceptance.sh tests/docker/lifecycle_gate.sh
+          shellcheck -x docker/entrypoint.sh docker/orca-build-jobs.sh tests/docker/image_acceptance.sh tests/docker/lifecycle_gate.sh tests/docker/clean_compose_start.sh
       - name: Render every Compose variant (no containers)
         shell: bash
         run: |
