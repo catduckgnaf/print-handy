@@ -77,12 +77,15 @@ _is_mountpoint() {
 }
 # Copy into $2 every entry of $1 that $2 does not have. Directories are
 # created, existing entries are skipped untouched, and every other entry is
-# written under a temporary name and renamed, so an interruption leaves no
-# half-written file under a real name. Ownership is not preserved: the copy
-# runs as the volume's runtime user, and a filesystem that refuses chown must
-# not stop it.
+# written inside $3 first and renamed into place, so an interruption leaves no
+# half-written file under a real name. $3 is a private directory made by
+# mktemp for this run: no temporary path is ever derived from a file name, so
+# a legitimate file can never collide with one and be deleted (#1215 review).
+# Ownership is not preserved: the copy runs as the volume's runtime user, and
+# a filesystem that refuses chown must not stop it.
 _copy_missing() {
-    local src="$1" dst="$2" path rel target tmp
+    local src="$1" dst="$2" scratch="$3" path rel target tmp
+    tmp="$scratch/entry"
     while IFS= read -r -d '' path; do
         rel="${path#"$src"/}"
         target="$dst/$rel"
@@ -90,12 +93,24 @@ _copy_missing() {
         if [ -d "$path" ] && [ ! -L "$path" ]; then
             mkdir -p "$target"
         elif [ ! -e "$target" ] && [ ! -L "$target" ]; then
-            tmp="$target.ph-migrating"
-            rm -rf "$tmp"
+            rm -rf -- "$tmp"
             cp -a --no-preserve=ownership "$path" "$tmp"
             mv -n "$tmp" "$target"
         fi
     done < <(find -H "$src" -mindepth 1 -print0)
+    rm -rf -- "$tmp"
+}
+# The scratch directory an interrupted copy recorded in the mark file, when
+# the mark names one this script made; empty otherwise. Resume removes only
+# that exact directory, never anything matched by name.
+_recorded_scratch() {
+    local recorded
+    recorded="$(head -n 1 "$mark_file" 2>/dev/null)" || return 0
+    case "$recorded" in
+        "$state_home"/.ph-migrating.*)
+            if [ -d "$recorded" ] && [ ! -L "$recorded" ]; then printf '%s' "$recorded"; fi ;;
+    esac
+    return 0
 }
 if [ -L "$state_home" ]; then
     echo "Print Handy: state volume is /data/state, a symlink to $(readlink "$state_home") — the legacy /data/hermes volume is in use (deprecated name; it stays accepted for at least two minor releases)." >&2
@@ -115,10 +130,13 @@ elif _legacy_is_source && { ! _has_files "$state_home" || [ -e "$mark_file" ]; }
         # already exist are kept, so nothing newer is overwritten.
         if [ -e "$mark_file" ]; then
             echo "Print Handy: an earlier copy of the legacy /data/hermes state volume into /data/state did not finish; completing it (files already in /data/state are kept)." >&2
-            find "$state_home" -name '*.ph-migrating' -exec rm -rf {} + 2>/dev/null || true
+            stale_scratch="$(_recorded_scratch)"
+            if [ -n "$stale_scratch" ]; then rm -rf -- "$stale_scratch"; fi
         fi
-        touch "$mark_file"
-        _copy_missing "$legacy_home" "$state_home"
+        scratch="$(mktemp -d "$state_home/.ph-migrating.XXXXXX")"
+        printf '%s\n' "$scratch" > "$mark_file"
+        _copy_missing "$legacy_home" "$state_home" "$scratch"
+        rm -rf -- "$scratch"
         date -u +%Y-%m-%dT%H:%M:%SZ > "$done_file"
         rm -f "$mark_file"
         echo "Print Handy: /data/state is a mounted volume, so it cannot be replaced by a symlink to the legacy /data/hermes volume; the legacy volume's files that /data/state lacked were copied into /data/state instead (nothing was overwritten), and /data/hermes is left untouched (deprecated name; it stays accepted for at least two minor releases)." >&2

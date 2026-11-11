@@ -230,18 +230,60 @@ def test_resume_over_a_mark_keeps_newer_files_and_fills_the_gaps(tmp_path):
     (tmp_path / "hermes" / "c.txt").write_text("legacy c\n")
     state = tmp_path / "state"
     state.mkdir()
-    (state / ".migration-incomplete").write_text("")
+    scratch = state / ".ph-migrating.Ab12Cd"             # killed mid-copy:
+    scratch.mkdir()                                      # the run's scratch,
+    (scratch / "entry").write_text("leg")                # named by the mark
+    (state / ".migration-incomplete").write_text(f"{scratch}\n")
     (state / "a.txt").write_text("newer a\n")           # done, then edited
-    (state / "b.txt.ph-migrating").write_text("leg")    # killed mid-copy
     result = run_mounted(tmp_path)
     assert result.returncode == 0, result.stderr
     assert "did not finish; completing it" in result.stderr
     assert (state / "a.txt").read_text() == "newer a\n"
     assert (state / "b.txt").read_text() == "legacy b\n"
     assert (state / "c.txt").read_text() == "legacy c\n"
-    assert not (state / "b.txt.ph-migrating").exists()
+    assert not scratch.exists()
+    assert not list(state.glob(".ph-migrating.*"))
     assert not (state / ".migration-incomplete").exists()
     assert (state / ".migrated-from-legacy").is_file()
+
+
+def test_files_named_like_the_old_temp_suffix_are_data_and_survive(tmp_path):
+    # #1215 review: the copy used "<name>.ph-migrating" as its temporary
+    # path and `rm -rf`-ed it, and a resume deleted every "*.ph-migrating"
+    # under /data/state. Both destroyed legitimate files with that name.
+    legacy = tmp_path / "hermes"
+    seed(legacy, "foo")
+    (legacy / "foo.ph-migrating").write_text("legacy sibling\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "keep.ph-migrating").write_text("operator file\n")
+    (state / ".migration-incomplete").write_text("")   # a resume, old-style empty mark
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (state / "foo").read_text() == "state\n"
+    assert (state / "foo.ph-migrating").read_text() == "legacy sibling\n"
+    assert (state / "keep.ph-migrating").read_text() == "operator file\n"
+    assert not list(state.glob(".ph-migrating.*"))
+
+
+def test_a_mark_naming_any_other_path_deletes_nothing(tmp_path):
+    # Resume removes only a scratch directory this script made under
+    # /data/state; a mark that names anything else is ignored.
+    seed(tmp_path / "hermes", "a.txt")
+    outside = tmp_path / "precious"
+    outside.mkdir()
+    (outside / "x").write_text("keep\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    lookalike = state / "notes.ph-migrating.d"
+    lookalike.mkdir()
+    for named in (outside, lookalike):
+        (state / ".migration-incomplete").write_text(f"{named}\n")
+        result = run_mounted(tmp_path)
+        assert result.returncode == 0, result.stderr
+        (state / ".migrated-from-legacy").unlink()
+    assert (outside / "x").read_text() == "keep\n"
+    assert lookalike.is_dir()
 
 
 def test_recopying_over_a_mark_twice_is_safe(tmp_path):

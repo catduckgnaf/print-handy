@@ -228,16 +228,19 @@ class TestEntrypointMigration:
         with pytest.raises(subprocess.CalledProcessError):
             run_entrypoint_with_path(tmp_path, ["true"], both)
         state = tmp_path / "state"
-        # The half-written file sits under a temporary name (#1144): the real
-        # name never holds partial data, and the mark is still there.
+        # The half-written file sits in the run's private scratch directory
+        # (#1144, #1215 review), which the mark names: the real name never
+        # holds partial data, and no temporary name is derived from it.
         assert not (state / "state" / "printer_hardware.json").exists()
-        assert (state / "state" / "printer_hardware.json.ph-migrating").read_text() == '{"truncated'
-        assert (state / ".migration-incomplete").exists()
+        scratch = Path((state / ".migration-incomplete").read_text().strip())
+        assert scratch.parent == state and scratch.name.startswith(".ph-migrating.")
+        assert (scratch / "entry").read_text() == '{"truncated'
         result = run_entrypoint_with_path(tmp_path, ["true"], mount_shim)
         assert state.is_dir() and not state.is_symlink()
         assert (state / "state" / "printer_hardware.json").read_text() == "{}"
         assert not (state / ".migration-incomplete").exists()
-        assert not (state / "state" / "printer_hardware.json.ph-migrating").exists()
+        assert not scratch.exists()
+        assert not list(state.glob(".ph-migrating.*"))
         assert "did not finish" in result.stderr
 
     def test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied(self, tmp_path):
