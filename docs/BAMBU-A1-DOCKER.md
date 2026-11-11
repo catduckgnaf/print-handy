@@ -223,7 +223,7 @@ No restart is needed; the file is read on each MakerWorld request. A wrong or ex
 What to expect from the pending fixes on this step:
 
 - **The Discord button's idle check** (`live_idle_check` in `print_handy/hermes/print_next.py`) queries Moonraker, so on a Bambu printer it is not a live check of the A1 in this version. Look at the printer yourself before you confirm the bed is clear.
-- **"submitted, awaiting confirmation".** A start that the printer accepted can still be reported this way when the confirming snapshot does not arrive in time. The print is running; the record is uncertain. Once you see the printer printing, settle it, and only then:
+- **"submitted, awaiting confirmation".** A start that the printer accepted can still be reported this way when the confirming snapshot does not arrive in time. The print is running; the record is uncertain. With LAN telemetry configured, the Bambu listener settles it on its own: the printer reporting that file running or preparing settles it as started, and the printer sitting idle with both heater targets at 0 for a minute without ever running it releases it as not started. Without the listener, or if it has not settled, check the printer; once you see it printing, settle it, and only then:
 
   ```bash
   docker compose exec combined python3 -m print_handy.core.model_job reconcile-launch --started
