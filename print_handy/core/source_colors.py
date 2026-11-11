@@ -14,6 +14,7 @@ from .mesh_fast import archive_tables, MeshTable
 from .compact_geometry import transform_vertices_array
 import zipfile
 import subprocess
+from . import painted_geometry
 
 # Slicer triangle painting only (Bambu/Orca paint_color, PrusaSlicer
 # mmu_segmentation): the painted-region pipeline can split exactly these.
@@ -127,7 +128,7 @@ def component_parts(archive):
             continue
         if name in models:
             raise RuntimeError('duplicate 3MF model path')
-        root = ET.fromstring(_without_mesh_bodies(archive.read(name)))
+        root = ET.fromstring(_without_mesh_bodies(painted_geometry.read_member(archive, name)))
         objects = {}
         for node in root.iter():
             if node.tag.split('}')[-1] == 'object':
@@ -452,6 +453,7 @@ def _prusa_volume_matches(parts, parsed):
             yield part, entry, (volumes[index] if matched else {})
 
 
+@painted_geometry.decode_scoped
 def inventory(path):
     from .intake_resources import check_source
     path = Path(path)
@@ -1070,7 +1072,7 @@ def _painting_usage(path, manifest, plate_parts):
                     used.add(base)
                 model_path = part['ancestry'][-1][0] if part.get('ancestry') else '3D/3dmodel.model'
                 if model_path in names and model_path not in model_bytes:
-                    model_bytes[model_path] = archive.read(model_path)
+                    model_bytes[model_path] = painted_geometry.read_member(archive, model_path)
                 if b'mmu_segmentation=' in model_bytes.get(model_path, b''):
                     mmu = True
     except Exception as exc:

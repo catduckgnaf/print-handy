@@ -87,6 +87,26 @@ named in the remap report; a designation never survives pointing past the
 new palette. Slice-time adoption keeps its own end state (the job's values
 win), as before.
 
+Feature filament references (#1155) follow the parts' own mapping in every
+path: the print-wide `wall_filament`, `sparse_infill_filament`,
+`solid_infill_filament` and `wipe_tower_filament`, the same keys and
+`support_filament` / `support_interface_filament` as object or part
+metadata, and a plate's `filament_maps` list, which is positional (one
+entry per palette filament) and is permuted or cut like a per-filament
+array. The single-color copy maps every filament the plate prints to 1; the
+rebuilt export writes an object or part override as the tool the decisions
+give that filament and names the print-wide keys it does not carry. A value
+the mapping does not cover, past the palette or not a number is unknown
+usage, never a used filament and never a refusal: it becomes 0 (no specific
+filament) where 0 means that, is removed where it does not, and is named in
+the report's `feature_filaments`.
+
+The per-filament list is an allowlist (`color_geometry._PER_FILAMENT_KEYS`).
+A palette-length project array it does not know is passed through as
+authored and named as an unknown passthrough, never permuted by guesswork:
+some lists only happen to have palette length (a four-point bed outline on
+a four-filament project), and permuting those would corrupt them.
+
 ## Prusa mmu_segmentation paint translation
 
 PrusaSlicer's `slic3rpe:mmu_segmentation` triangle attribute carries the

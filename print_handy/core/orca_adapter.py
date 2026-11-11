@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
-from . import author_settings, compat_registry, mesh_fast, resources, slice_warnings
+from . import author_settings, compat_registry, mesh_fast, painted_geometry, resources, slice_warnings
 from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
@@ -1383,6 +1383,7 @@ def start_mesh_profile(state):
     return mesh
 
 
+@painted_geometry.decode_scoped
 def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
     _slice_started = time.monotonic()
     _slicer_runs = []  # elapsed seconds of each slicer subprocess, for the provenance timing split (#952)
@@ -2429,7 +2430,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             if _LAYER_RANGES in _member_names:
                 _candidates.add('height-range-extruder-remap')
             if any(name.lower().endswith('.model')
-                   and b'mmu_segmentation' in _archive.read(name) for name in _member_names):
+                   and b'mmu_segmentation' in painted_geometry.read_member(_archive, name)
+                   for name in _member_names):
                 _candidates.add('mmu-segmentation-paint-translation')
             if 'Metadata/project_settings.config' in _member_names:
                 _project = json.loads(_archive.read('Metadata/project_settings.config'))
