@@ -100,6 +100,92 @@ def _rewound(mesh):
     return mesh
 
 
+def _child_count(mesh, name):
+    """How many children a mesh's ``name`` element (vertices, triangles) has."""
+    node = next((n for n in mesh if n.tag.split('}')[-1] == name), None)
+    if node is None:
+        # the same failure the full export meets iterating the missing element
+        raise TypeError(f"'NoneType' object is not iterable (part mesh has no {name})")
+    return len(node)
+
+
+def _check_paint_remap(mesh, paint_table):
+    """Run the written export's paint remap on every distinct code of a mesh.
+
+    The measure-only export copies no triangles, but it must refuse what
+    the written export refuses: the same ``remap_code`` call is made once
+    per distinct ``paint_color`` (or PrusaSlicer ``mmu_segmentation``) code,
+    in triangle order, so the first bad code raises the same error.
+    """
+    triangles = next(n for n in mesh if n.tag.split('}')[-1] == 'triangles')
+    seen = set()
+    for tri in triangles:
+        code = tri.get('paint_color')
+        if not code:
+            mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
+            code = tri.get(mmu_key) if mmu_key is not None else None
+            if code is None:
+                continue
+        if code not in seen:
+            painted_geometry.remap_code(code, paint_table)
+            seen.add(code)
+    return True
+
+
+def _volume_leaves(manifest, key, mesh, points):
+    """[(instance key, mesh, points)] for one resolved mesh leaf, PrusaSlicer volumes split (#1260).
+
+    A PrusaSlicer object is one mesh holding every volume's triangles; inventory
+    names each volume's triangle ranges ('triangle_ranges' on the part row that
+    keeps the leaf's key and on each '<key>/volume<N>' cutter row). Each row
+    gets a mesh of only its own triangles, with its vertices compacted and
+    reindexed and the matching points, so a modifier, negative or support
+    volume rides as its own typed volume and is never part of the printed
+    body. The ranges must cover the leaf's triangles exactly once, or the
+    export refuses rather than print a volume as solid plastic. A leaf with
+    no split rows is returned unchanged.
+    """
+    rows = [row for row in list(manifest.get('parts') or []) + list(manifest.get('cutters') or [])
+            if row.get('triangle_ranges')
+            and (row['instance_key'] == key or row['instance_key'].startswith(key + '/volume'))]
+    if not rows:
+        return [(key, mesh, points)]
+    local = lambda node: node.tag.split('}')[-1]
+    vertices = next(n for n in mesh if local(n) == 'vertices')
+    triangles = next(n for n in mesh if local(n) == 'triangles')
+    vertex_nodes, triangle_nodes = list(vertices), list(triangles)
+    covered = sorted((first, last) for row in rows for first, last in row['triangle_ranges'])
+    expected = 0
+    for first, last in covered:
+        if first != expected or last < first:
+            raise RuntimeError(f'PrusaSlicer volume ranges of {key} do not cover its mesh exactly '
+                               'once; refusing rather than print a volume as solid plastic')
+        expected = last + 1
+    if expected != len(triangle_nodes):
+        raise RuntimeError(f'PrusaSlicer volume ranges of {key} cover {expected} triangles but its '
+                           f'mesh has {len(triangle_nodes)}; refusing rather than print a volume '
+                           'as solid plastic')
+    out = []
+    for row in rows:
+        kept = [triangle_nodes[i] for first, last in row['triangle_ranges'] for i in range(first, last + 1)]
+        used = sorted({int(tri.get(v)) for tri in kept for v in ('v1', 'v2', 'v3')})
+        if used and (used[0] < 0 or used[-1] >= len(vertex_nodes)):
+            raise RuntimeError(f'3MF triangle vertex index out of range in {key}')
+        renumber = {old: new for new, old in enumerate(used)}
+        sub = ET.Element(mesh.tag, dict(mesh.attrib))
+        sub_vertices = ET.SubElement(sub, vertices.tag, dict(vertices.attrib))
+        for old in used:
+            sub_vertices.append(copy.deepcopy(vertex_nodes[old]))
+        sub_triangles = ET.SubElement(sub, triangles.tag, dict(triangles.attrib))
+        for tri in kept:
+            node = copy.deepcopy(tri)
+            for v in ('v1', 'v2', 'v3'):
+                node.set(v, str(renumber[int(tri.get(v))]))
+            sub_triangles.append(node)
+        out.append((row['instance_key'], sub, [points[i] for i in used]))
+    return out
+
+
 def _write_part_settings(pc, settings, features=()):
     for key, value in _kept_part_settings(settings):
         ET.SubElement(pc, 'metadata', key=key, value=str(value))
@@ -144,6 +230,15 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     """object_ids limits export to those build objects (one authored plate);
     scale shrinks the selection uniformly before bed centering.
 
+    target None measures without writing (#1246): every check and
+    refusal runs exactly as for a written export, and the report carries
+    the same part records, build bounds and prime tower placement, but no
+    mesh is copied, no package is built and nothing is written
+    (``converted_sha256`` is None, ``measure_only`` True). The painted-plate
+    fit measures each scale step this way; slicing always writes. Inside a
+    decode scope (``painted_geometry.decode_scope``) the parsed source is
+    shared between calls, so the steps of one fit parse it once.
+
     identity_tools (#346, multi_tool printers): a part assigned to position
     n exports as slicer tool n-1 — the toolhead itself — instead of the
     compacted tool order the IFS merge uses, and the returned mapping is
@@ -162,6 +257,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     """
     if layer_mode not in (None, 'pause'):
         raise RuntimeError("layer_mode must be None or 'pause'")
+    measure = target is None
     manifest = inventory(source)
     full_parts = manifest['parts']
     if object_ids is not None:
@@ -182,6 +278,9 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     # object ids, remap the same member instead. Copy paths are unaffected.
     with zipfile.ZipFile(source) as _archive:
         source_members = _archive.namelist()
+        # PrusaSlicer volumes (#1260) are split by inventory; a model config
+        # that cannot be read leaves them unknown, which refuses here.
+        source_colors.prusa_volume_layout(_archive, strict=True)
         if 'Metadata/layer_config_ranges.xml' in source_members and \
                 b'opt_key="extruder"' in _archive.read('Metadata/layer_config_ranges.xml'):
             raise RuntimeError('source carries Metadata/layer_config_ranges.xml height-range '
@@ -276,63 +375,75 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
 
     feature_notes = []
     features_by_mesh = {}
-    with zipfile.ZipFile(source) as archive:
-        models = {}
-        for name in archive.namelist():
-            if name.endswith('.model'):
-                root = ET.fromstring(painted_geometry.read_member(archive, name))
-                require_millimeter(root)
-                models[name] = (root, {n.get('id'): n for n in root if n.tag.split('}')[-1] == 'resources' for n in n if n.tag.split('}')[-1] == 'object'})
-        leaves = []
 
-        def transform(node):
-            values = list(map(float, node.get('transform', ' '.join(map(str, IDENTITY))).split()))
-            if len(values) != 12 or not all(math.isfinite(v) for v in values):
-                raise RuntimeError('invalid 3MF transform')
-            return values
+    def read_leaves():
+        """(build key, mesh element, authored-size world points) per selected leaf."""
+        with zipfile.ZipFile(source) as archive:
+            models = {}
+            for name in archive.namelist():
+                if name.endswith('.model'):
+                    root = ET.fromstring(painted_geometry.read_member(archive, name))
+                    require_millimeter(root)
+                    models[name] = (root, {n.get('id'): n for n in root if n.tag.split('}')[-1] == 'resources' for n in n if n.tag.split('}')[-1] == 'object'})
+            leaves = []
 
-        def visit(name, oid, chain, key):
-            obj = models[name][1][oid]
-            mesh = next((n for n in obj if n.tag.split('}')[-1] == 'mesh'), None)
-            if mesh is not None:
-                vertices = next(n for n in mesh if n.tag.split('}')[-1] == 'vertices')
-                points = []
-                for vertex in vertices:
-                    point = tuple(float(vertex.get(k)) for k in ('x', 'y', 'z'))
-                    for matrix in chain:
-                        point = tuple(sum(point[j] * matrix[j * 3 + i] for j in range(3)) + matrix[9 + i] for i in range(3))
-                    if not all(math.isfinite(v) for v in point):
-                        raise RuntimeError('nonfinite 3MF vertex')
-                    points.append(point)
-                if not points:
-                    raise RuntimeError('empty part geometry')
-                # Paint subdivision trees depend on triangle vertex order.
-                # Refuse rather than emit an inside-out solid or guess a
-                # paint-tree permutation when flattening a reflected leaf.
-                if transform_mirrors(chain):
-                    if painted:
-                        raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
-                                           'export an unmirrored source or a geometry-only model')
-                    _refuse_mirrored_order_paint(mesh)
-                    mesh = _rewound(mesh)
-                leaves.append((key, mesh, points))
-                return
-            components = next(n for n in obj if n.tag.split('}')[-1] == 'components')
-            for i, component in enumerate(components):
-                path = next((v for k, v in component.attrib.items() if k.split('}')[-1] == 'path'), None)
-                path = path.lstrip('/') if path and path.startswith('/') else posixpath.normpath(posixpath.join(posixpath.dirname(name), path)) if path else name
-                visit(path, component.get('objectid'), [transform(component)] + chain, f'{key}/{i}')
+            def transform(node):
+                values = list(map(float, node.get('transform', ' '.join(map(str, IDENTITY))).split()))
+                if len(values) != 12 or not all(math.isfinite(v) for v in values):
+                    raise RuntimeError('invalid 3MF transform')
+                return values
 
-        root = models['3D/3dmodel.model'][0]
-        build = next(n for n in root if n.tag.split('}')[-1] == 'build')
-        for i, item in enumerate(build):
-            if object_ids is not None and item.get('objectid') not in object_ids:
-                continue
-            if item.get('printable', '1') != '1':
-                raise RuntimeError('nonprintable build item requires explicit selection')
-            path = next((v for k, v in item.attrib.items() if k.split('}')[-1] == 'path'), None)
-            path = path.lstrip('/') if path and path.startswith('/') else posixpath.normpath(posixpath.join('3D', path)) if path else '3D/3dmodel.model'
-            visit(path, item.get('objectid'), [transform(item)], f'build:{i}')
+            def visit(name, oid, chain, key):
+                obj = models[name][1][oid]
+                mesh = next((n for n in obj if n.tag.split('}')[-1] == 'mesh'), None)
+                if mesh is not None:
+                    vertices = next(n for n in mesh if n.tag.split('}')[-1] == 'vertices')
+                    points = []
+                    for vertex in vertices:
+                        point = tuple(float(vertex.get(k)) for k in ('x', 'y', 'z'))
+                        for matrix in chain:
+                            point = tuple(sum(point[j] * matrix[j * 3 + i] for j in range(3)) + matrix[9 + i] for i in range(3))
+                        if not all(math.isfinite(v) for v in point):
+                            raise RuntimeError('nonfinite 3MF vertex')
+                        points.append(point)
+                    if not points:
+                        raise RuntimeError('empty part geometry')
+                    # Paint subdivision trees depend on triangle vertex order.
+                    # Refuse rather than emit an inside-out solid or guess a
+                    # paint-tree permutation when flattening a reflected leaf.
+                    if transform_mirrors(chain):
+                        if painted:
+                            raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
+                                               'export an unmirrored source or a geometry-only model')
+                        _refuse_mirrored_order_paint(mesh)
+                        mesh = _rewound(mesh)
+                    leaves.extend(_volume_leaves(manifest, key, mesh, points))
+                    return
+                components = next(n for n in obj if n.tag.split('}')[-1] == 'components')
+                for i, component in enumerate(components):
+                    path = next((v for k, v in component.attrib.items() if k.split('}')[-1] == 'path'), None)
+                    path = path.lstrip('/') if path and path.startswith('/') else posixpath.normpath(posixpath.join(posixpath.dirname(name), path)) if path else name
+                    visit(path, component.get('objectid'), [transform(component)] + chain, f'{key}/{i}')
+
+            root = models['3D/3dmodel.model'][0]
+            build = next(n for n in root if n.tag.split('}')[-1] == 'build')
+            for i, item in enumerate(build):
+                if object_ids is not None and item.get('objectid') not in object_ids:
+                    continue
+                if item.get('printable', '1') != '1':
+                    raise RuntimeError('nonprintable build item requires explicit selection')
+                path = next((v for k, v in item.attrib.items() if k.split('}')[-1] == 'path'), None)
+                path = path.lstrip('/') if path and path.startswith('/') else posixpath.normpath(posixpath.join('3D', path)) if path else '3D/3dmodel.model'
+                visit(path, item.get('objectid'), [transform(item)], f'build:{i}')
+        return tuple(leaves)
+
+    # One parse per decode scope (#1246): a painted fit measures several
+    # scales of one plate, and the parsed leaves do not depend on the scale.
+    # The meshes are never changed in place (every writer deep-copies), so
+    # sharing them is safe.
+    leaves = list(painted_geometry.scoped(
+        ('geometry_leaves', frozenset(object_ids) if object_ids is not None else None, painted),
+        read_leaves, source=source))
     if scale != 1.0:
         leaves[:] = [(k, m, [tuple(c * scale for c in pt) for pt in pts]) for k, m, pts in leaves]
     rotations = {}
@@ -468,38 +579,53 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             features_by_mesh[mesh_id] = _part_feature_filaments(part, filament_tool, feature_notes)
         group = group_of.get(item_of(part['instance_key']))
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
-        new_mesh = copy.deepcopy(mesh)
-        for node in new_mesh.iter():
-            node.tag = tag(node.tag.split('}')[-1])
-        for tri in new_mesh.find(tag('triangles')):
-            # Core per-triangle material properties name resources this rebuilt
-            # package does not carry; leaving them would emit a dangling
-            # reference. The face colors themselves stay disclosed through the
-            # inventory's face_colors_ignored note (Phase C, #1110 C10).
-            for attr in ('pid', 'p1', 'p2', 'p3'):
-                tri.attrib.pop(attr, None)
-            mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
+        if measure:
+            # Measure only (#1246): the placed points and the counts the
+            # report carries, without copying the mesh or rewriting it. The
+            # paint remap the written export runs is still run (once per
+            # distinct code per scope), so a code it refuses is refused here.
+            triangle_count = _child_count(mesh, 'triangles')
             if painted:
-                code = tri.get('paint_color')
-                if code:
-                    tri.set('paint_color', painted_geometry.remap_code(code, paint_table))
-                elif mmu_key is not None:
-                    # PrusaSlicer paint, translated to the paint_color form the
-                    # Orca destination reads, remapped through the same table
-                    # (registry rule mmu-segmentation-paint-translation).
-                    tri.set('paint_color', painted_geometry.remap_code(tri.get(mmu_key), paint_table))
-            else:
-                tri.attrib.pop('paint_color', None)
-            if mmu_key is not None:
-                del tri.attrib[mmu_key]
-        placed = []
-        move = [float(v) for v in item_shifts[str(part['object_id'])]] if item_shifts is not None else delta
-        for vertex, point in zip(new_mesh.find(tag('vertices')), points):
-            xyz = tuple(point[a] + move[a] for a in range(3))
-            placed.append(xyz)
-            for a, axis in enumerate(('x', 'y', 'z')):
-                vertex.set(axis, repr(xyz[a]))
-        obj.append(new_mesh)
+                painted_geometry.scoped(
+                    ('paint_remap', key, frozenset(object_ids) if object_ids is not None else None,
+                     tuple(sorted(paint_table.items()))),
+                    lambda: _check_paint_remap(mesh, paint_table), source=source)
+            move = [float(v) for v in item_shifts[str(part['object_id'])]] if item_shifts is not None else delta
+            placed = [tuple(point[a] + move[a] for a in range(3)) for point in points]
+        else:
+            new_mesh = copy.deepcopy(mesh)
+            for node in new_mesh.iter():
+                node.tag = tag(node.tag.split('}')[-1])
+            for tri in new_mesh.find(tag('triangles')):
+                # Core per-triangle material properties name resources this rebuilt
+                # package does not carry; leaving them would emit a dangling
+                # reference. The face colors themselves stay disclosed through the
+                # inventory's face_colors_ignored note (Phase C, #1110 C10).
+                for attr in ('pid', 'p1', 'p2', 'p3'):
+                    tri.attrib.pop(attr, None)
+                mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
+                if painted:
+                    code = tri.get('paint_color')
+                    if code:
+                        tri.set('paint_color', painted_geometry.remap_code(code, paint_table))
+                    elif mmu_key is not None:
+                        # PrusaSlicer paint, translated to the paint_color form the
+                        # Orca destination reads, remapped through the same table
+                        # (registry rule mmu-segmentation-paint-translation).
+                        tri.set('paint_color', painted_geometry.remap_code(tri.get(mmu_key), paint_table))
+                else:
+                    tri.attrib.pop('paint_color', None)
+                if mmu_key is not None:
+                    del tri.attrib[mmu_key]
+            placed = []
+            move = [float(v) for v in item_shifts[str(part['object_id'])]] if item_shifts is not None else delta
+            for vertex, point in zip(new_mesh.find(tag('vertices')), points):
+                xyz = tuple(point[a] + move[a] for a in range(3))
+                placed.append(xyz)
+                for a, axis in enumerate(('x', 'y', 'z')):
+                    vertex.set(axis, repr(xyz[a]))
+            obj.append(new_mesh)
+            triangle_count = len(new_mesh.find(tag('triangles')))
         if group is not None:
             # Volumes of one source object stay one Orca object (assembly of
             # parts); separate objects would overlap and fail as G-code conflicts.
@@ -519,7 +645,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         box = [(min(p[a] for p in placed), max(p[a] for p in placed)) for a in range(3)]
         part_bounds.append(box)
         records.append({'part_key': part['key'], 'build_key': key, 'tool': tool, 'slot': slot,
-                        'vertices': len(points), 'triangles': len(new_mesh.find(tag('triangles'))),
+                        'vertices': len(points), 'triangles': triangle_count,
                         'bounds_mm': box})
     next_id = len(leaves) + 1
     cutter_bounds = {}
@@ -530,22 +656,25 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         cut_id = str(next_id)
         next_id += 1
         obj = ET.SubElement(resources, tag('object'), id=cut_id, type='model', name=row['name'])
-        new_mesh = copy.deepcopy(mesh)
-        for node in new_mesh.iter():
-            node.tag = tag(node.tag.split('}')[-1])
-            node.attrib.pop('paint_color', None)
-        placed = []
-        for vertex, point in zip(new_mesh.find(tag('vertices')), points):
-            xyz = tuple(point[a] + move[a] for a in range(3))
-            placed.append(xyz)
-            for a, axis in enumerate(('x', 'y', 'z')):
-                vertex.set(axis, repr(xyz[a]))
-        for tri in new_mesh.find(tag('triangles')):
-            for attr in ('pid', 'p1', 'p2', 'p3'):
-                tri.attrib.pop(attr, None)
-            for key in [k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation']:
-                del tri.attrib[key]
-        obj.append(new_mesh)
+        if measure:
+            placed = [tuple(point[a] + move[a] for a in range(3)) for point in points]
+        else:
+            new_mesh = copy.deepcopy(mesh)
+            for node in new_mesh.iter():
+                node.tag = tag(node.tag.split('}')[-1])
+                node.attrib.pop('paint_color', None)
+            placed = []
+            for vertex, point in zip(new_mesh.find(tag('vertices')), points):
+                xyz = tuple(point[a] + move[a] for a in range(3))
+                placed.append(xyz)
+                for a, axis in enumerate(('x', 'y', 'z')):
+                    vertex.set(axis, repr(xyz[a]))
+            for tri in new_mesh.find(tag('triangles')):
+                for attr in ('pid', 'p1', 'p2', 'p3'):
+                    tri.attrib.pop(attr, None)
+                for key in [k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation']:
+                    del tri.attrib[key]
+            obj.append(new_mesh)
         if row.get('settings'):
             settings_by_mesh[cut_id] = row['settings']
         # A modifier with its own extruder (#1155) prints its region with that
@@ -658,6 +787,21 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             layer_payload = None
     from . import layer_gcode as _layer_gcode_module
     from .package_remap import write_package_atomically
+    if measure:
+        # Measure only (#1246): the verdicts a fit reads -- every part's
+        # placed bounds, the build bounds and the prime tower placement
+        # (which raises exactly as below when no position clears the parts)
+        # -- with no package built, serialized or written.
+        towers = prime_tower_candidates(part_bounds, tower=tower_mm)
+        tower = towers[0] if towers else None
+        return mapping, {'source_sha256': digest(source), 'converted_sha256': None,
+                         'measure_only': True, 'parts': records,
+                         **({'layer_changes': layer_report} if layer_report is not None else {}),
+                         **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
+                         'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None,
+                         'merged_placement': item_shifts is not None,
+                         'prime_tower_xy_mm': list(tower) if tower else None,
+                         'prime_tower_candidates_mm': [list(t) for t in towers]}
     payload = {'[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
                '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
                '3D/3dmodel.model': ET.tostring(model, encoding='utf-8', xml_declaration=True),
@@ -742,6 +886,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     kind = {p['instance_key']: (p, p.get('subtype', 'normal_part'))
             for p in manifest['parts'] + manifest.get('cutters', [])}
     with zipfile.ZipFile(source) as archive:
+        # PrusaSlicer volumes (#1260) are split by inventory; a model config
+        # that cannot be read leaves them unknown, which refuses here.
+        source_colors.prusa_volume_layout(archive, strict=True)
         models = {}
         for name in archive.namelist():
             if name.endswith('.model'):
@@ -776,7 +923,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
                 if transform_mirrors(chain):
                     _refuse_mirrored_order_paint(mesh)
                     mesh = _rewound(mesh)
-                leaves.append((key, item_id, mesh, pts))
+                # A PrusaSlicer volume split (#1260) gives each volume its own leaf.
+                for sub_key, sub_mesh, sub_pts in _volume_leaves(manifest, key, mesh, pts):
+                    leaves.append((sub_key, item_id, sub_mesh, sub_pts))
                 return
             comps = next(n for n in obj if n.tag.split('}')[-1] == 'components')
             for i, comp in enumerate(comps):
@@ -1276,6 +1425,24 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
         raise RuntimeError('single-color plate mixes physical slots')
     slot = slots.pop()
     selected = {part['object_id'] for part in parts}
+    # PrusaSlicer volumes (#1260): this copy keeps every mesh byte for byte,
+    # and the slice-time adoption turns the PrusaSlicer model config into
+    # model settings, which can type a component volume but not a triangle
+    # range of one mesh. A selected object whose modifier, negative or
+    # support volume lives inside its mesh would print that volume as solid
+    # plastic, so it is refused by name.
+    with zipfile.ZipFile(source) as archive:
+        prusa_layout = source_colors.prusa_volume_layout(archive, strict=True)
+    for part in parts:
+        ancestry = part.get('ancestry') or []
+        wrapper = str(ancestry[0][1] if len(ancestry) > 1 else part.get('object_id'))
+        entry = prusa_layout.get(wrapper)
+        if entry is not None and entry['mode'] == 'mesh':
+            volumes = ', '.join(f"{v['name']!r} ({v['type']})" for v in entry['volumes']
+                                if v['type'] != 'ModelPart')
+            raise RuntimeError(f"PrusaSlicer object {wrapper} ({part['name']!r}) carries {volumes} "
+                               'inside its mesh, which the single-color plate copy cannot carry '
+                               '(it would print as solid plastic); refusing this plate')
     # A build object that carries a selected part must not also carry a part
     # of another slot: the printable flag selects whole build objects.
     for part in manifest['parts']:

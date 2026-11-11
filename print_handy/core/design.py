@@ -322,6 +322,16 @@ def convert_to_stl(source_path, dest_path) -> Path:
     second 3MF reader in the design path.
     """
     from .geometry_layout import load_parts, write_binary_stl
+    import zipfile
+    from .source_colors import negative_volumes
+    # An STL cannot subtract: a negative volume would leave its object uncut,
+    # so the conversion refuses by name (#1260). Modifier and support volumes
+    # print nothing and are left out by the loader.
+    with zipfile.ZipFile(source_path) as archive:
+        negatives = negative_volumes(archive)
+    if negatives:
+        raise DesignError("that 3MF cuts holes with negative volumes (" + ", ".join(negatives)
+                          + "), which an STL edit cannot carry; edit the model without them")
     parts, *_ = load_parts(Path(source_path))
     triangles = []
     for part in parts:

@@ -3,9 +3,8 @@
 `print-handy-ca.xml` is a byte-exact snapshot of the Community
 Applications (CA) template `templates/print-handy.xml` in the
 `catduckgnaf/catduck-unraid-templates` repository, taken from that
-repository's `main` branch (commit
-`030c596a1a10ecbe7573eafeeb7a2ca9ef16522e`) on 2026-11-11 for issue
-#1143.
+repository's head for catduckgnaf/catduck-unraid-templates#38 (the
+`:latest` change) on 2026-11-11, for issue #1143.
 
 `UnraidCaTemplateParityTests` in `tests/test_docker_release.py` parses
 this snapshot and the in-repo template (`docker/unraid/print-handy.xml`)
@@ -16,8 +15,8 @@ in-repo template and the pinned differences fails the test.
 
 ## Refresh path
 
-When the CA template changes (for example the pinned release tag bump
-on a new release):
+When the CA template changes (a release does not change it: both
+templates follow `:latest`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/catduckgnaf/catduck-unraid-templates/main/templates/print-handy.xml \
@@ -33,9 +32,9 @@ snapshot silently to make a failure go away.
 
 The two files are the same install surface, not the same file:
 
-- `Repository`: the in-repo template pins the release's multi-arch
-  index digest; the CA template names the release tag, with `Branch`
-  entries for that tag, `nightly` and `develop`.
+- `Repository`: identical, `ghcr.io/catduckgnaf/print-handy:latest`.
+  Neither template pins a version tag or digest. The CA copy also
+  offers `Branch` entries for `latest`, `nightly` and `develop`.
 - Listing metadata: `Registry`, `TemplateURL` and `Icon` are filled
   only in the CA copy; `Support` is the GitHub issue tracker in-repo
   and the Unraid forum thread in CA.

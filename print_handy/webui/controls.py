@@ -77,6 +77,7 @@ import urllib.request
 
 from .. import printers, settings
 from ..core import exclude_object as _exclude_object
+from ..core import heater_ceiling as _heater_ceiling
 from . import status as status_module
 
 ACTIONS = ("pause", "resume", "cancel")
@@ -90,11 +91,10 @@ POWER_ACTIONS = {"emergency_stop": "/printer/emergency_stop",
 # under the control route's 4096-byte cap in server.py.
 GCODE_MAX_CHARS = 2048
 HEATERS = ("nozzle", "bed")
-# The ceiling for a heater no model fact describes: a chamber on a model
+# The ceiling for a heater no model fact describes (a chamber on a model
 # with no max_chamber_c, or a Klipper heater_generic named in a raw
-# script. Low on purpose (heated chambers run 40-65 °C); the firmware's
-# own max_temp is still the real limit.
-UNKNOWN_HEATER_CEILING_C = 60.0
+# script) is core.heater_ceiling's; re-exported for callers of this module.
+UNKNOWN_HEATER_CEILING_C = _heater_ceiling.UNKNOWN_HEATER_CEILING_C
 # The family control vocabulary (FamilyControl): cancel is "stop".
 _FAMILY_ACTION = {"pause": "pause", "resume": "resume", "cancel": "stop"}
 # Which states each action may start from; anything else sends nothing.
@@ -211,90 +211,34 @@ def _live_state(adapter, view, read):
     return str(live.get("state") or "unknown")
 
 
-def _fact(adapter, name):
-    fact = getattr(adapter, "fact", None)
-    if not callable(fact):
-        return None
-    try:
-        value = fact(name)
-    except Exception:  # a model without that fact has no such limit
-        return None
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def _fitted_nozzle_type(view, printer_id):
-    """The nozzle type whose temperature limit applies to this printer.
-
-    The fitted nozzle lives in the addressed printer's hardware record
-    (written by ``/nozzle change`` and ``printer_state set``): a recorded
-    type wins over the configured ``[printer] nozzle_type``, which names
-    the nozzle the printer shipped with, not the one fitted now. No
-    record, a record naming no type, or a recorded type that cannot be
-    recognized keeps the configured behavior. A recorded ``"stock"`` is
-    an unconfirmed factory nozzle and resolves exactly like a configured
-    one (the caller maps it to the softest option).
-    """
-    configured = (view.get("printer") or {}).get("nozzle_type") or "brass"
+def _hardware_record(printer_id):
+    """The addressed printer's hardware record (``/nozzle change``,
+    ``printer_state set``), or None when there is none to read."""
     if printer_id is None:
-        return configured
+        return None
     try:
         from ..core import printer_state
         record = printer_state.load(printer_id)
     except Exception:  # no readable hardware record: configuration is all there is
-        return configured
-    recorded = (record.get("nozzle") or {}).get("type") if isinstance(record, dict) else None
-    if isinstance(recorded, str) and recorded.strip() and recorded.strip().lower() != "stock":
-        from ..core import nozzle
-        try:
-            nozzle.normalize_nozzle_type(recorded)
-        except nozzle.NozzleError:
-            return configured
-        return recorded
-    return configured
+        return None
+    return record if isinstance(record, dict) else None
 
 
 def temperature_limit(adapter, view, heater, printer_id=None):
     """The highest target this printer accepts for ``heater`` (°C).
 
-    The one place every Web UI temperature ceiling comes from: the
-    temperature routes and the raw G-code scan both ask here.
-
-    - ``nozzle``: the FITTED nozzle's safe maximum (``printer_id``'s
-      hardware record when it names a type, else the configured nozzle
-      type), and the model's ``max_hotend_c`` when it has one;
-    - ``bed``: the model's ``max_bed_c``, else the hottest bed any
-      configured material asks for;
-    - ``chamber``: the model's ``max_chamber_c`` when it has one, else
-      ``UNKNOWN_HEATER_CEILING_C``;
-    - anything else (a named heater with no model fact): the
-      conservative ``UNKNOWN_HEATER_CEILING_C``.
+    The temperature routes and the raw G-code scan both ask here, and
+    this asks ``core.heater_ceiling.ceiling`` (#1241), the one ceiling
+    print-now's G-code check, the panic purge, the OctoPrint preheat and
+    macro arguments use: the fitted nozzle is ``printer_id``'s hardware
+    record when it names one, else the configured type, and a ``stock``
+    nozzle resolves per model exactly as it does there. So every surface
+    refuses the same values for the same printer.
 
     The firmware's own ``max_temp`` remains the real limit; this is the
     ceiling the Web UI refuses to send above.
     """
-    if heater == "chamber":
-        chamber = _fact(adapter, "max_chamber_c")
-        return chamber if chamber is not None else UNKNOWN_HEATER_CEILING_C
-    if heater not in ("nozzle", "bed"):
-        return UNKNOWN_HEATER_CEILING_C
-    if heater == "nozzle":
-        from ..core import nozzle
-        nozzle_type = _fitted_nozzle_type(view, printer_id)
-        if str(nozzle_type).strip().lower() == "stock":
-            nozzle_type = "brass"  # the unconfirmed factory nozzle: the softest option
-        limits = [nozzle._nozzle_type_defaults()[nozzle.normalize_nozzle_type(nozzle_type)]
-                  ["max_temperature_c"]]
-        hotend = _fact(adapter, "max_hotend_c")
-        if hotend is not None:
-            limits.append(hotend)
-        return min(limits)
-    bed = _fact(adapter, "max_bed_c")
-    if bed is not None:
-        return bed
-    # No model fact: the hottest bed any configured material asks for.
-    temps = {**settings.DEFAULT_MATERIAL_TEMPS, **(view.get("material_temps") or {})}
-    return float(max(row["bed"] for row in temps.values()
-                     if isinstance(row, dict) and isinstance(row.get("bed"), (int, float))))
+    return _heater_ceiling.ceiling(adapter, heater, state=_hardware_record(printer_id), view=view)
 
 
 def control(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):

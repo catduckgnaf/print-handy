@@ -9,6 +9,11 @@ permissions:
   pull-requests: read
   issues: read  # the bodies of the issues this PR closes, for their checklists
 
+# One run per pull request: a newer push or description edit cancels the run in progress.
+concurrency:
+  group: contribution-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   contribution-policy:
     runs-on: ubuntu-24.04

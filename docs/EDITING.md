@@ -159,9 +159,8 @@ source filament re-resolved onto another slot), allowlisted profile
 settings (wall count, shell layers, first-layer height, wall generator,
 seam position, infill pattern), a bounded geometry repair (sink or extend
 an underside by the measured clearance gap, an outward surface offset that
-thickens thin walls, or a split into two parts where the model is already
-in separate pieces; a split through solid material is refused, because it
-would leave both parts open along the cut), and/or a mesh repair. The
+thickens thin walls, or a split into two parts at a plane), and/or a mesh
+repair. The
 proposal is shown in chat first, with a preview for geometry and mesh
 changes; applying it works on a copy, never the source file, and the job
 re-slices through the full intake so every gate runs again. A fix is never
@@ -229,6 +228,18 @@ Rules the repair keeps:
   named with the thinnest value, and the AI can propose an outward offset
   (0.05 to 1 mm) to thicken them. Offset and split write a new file, so like
   a mesh repair they are refused on multi-part and painted 3MFs.
+- **What a split does.** A split cuts the model with a flat plane across one
+  axis and closes the cut on both sides, so each part comes out as a closed
+  solid. Triangles crossing the plane are clipped at it, and the cut outline
+  is filled in, holes included: a tube cut across comes out as two shorter
+  tubes, and a ring cut through its middle as two C shapes. Before the
+  two-part 3MF is written, each part is checked to be closed with no open or
+  non-manifold edge, and the two volumes must add up to the original's;
+  otherwise nothing is written. A cut through solid material needs a closed
+  (watertight) source, so an open or non-manifold mesh is refused, with the
+  number of open and non-manifold edges named. A plane between pieces that
+  are already apart has nothing to close and works on any mesh; a plane that
+  misses the model changes nothing.
 - **Nothing left behind.** A fix is built in its own uniquely named
   `.ai-fix-*` folder inside the job folder, so two fixes on one job never
   write the same file. Declining (or an expired question) deletes it;

@@ -86,6 +86,18 @@ COMMIT_FAMILY = {
     "comittee": "committee", "commitee": "committee",
     "comitment": "commitment", "committment": "commitment",
 }
+# The different family: the operator typed "differnet" on 2026-11-11 and
+# asked whether it (and "seperate") was covered. "seperate" already was;
+# "differnet" was not — only its single-f cousin "diferent" was. Screened
+# the usual way; "differants" was dropped (three edits out, and closer to
+# "different" than to "difference"). Two gaps in the seperate family ride
+# along: "separete" and "seprate".
+DIFFERNET_FAMILY = {
+    "differnet": "different", "diffrent": "different",
+    "differant": "different", "differnetly": "differently",
+    "diffrently": "differently", "separete": "separate",
+    "seprate": "separate",
+}
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
 # "justmake" drops a space; leave correctly spelled words untouched.
@@ -581,6 +593,7 @@ ROUND5_SCREENED_TYPOS = {
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
+             **DIFFERNET_FAMILY,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,

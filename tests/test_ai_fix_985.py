@@ -208,21 +208,27 @@ def test_split_writes_a_two_part_3mf_and_a_miss_changes_nothing(tmp_path):
     assert miss['changed'] is False
 
 
-@pytest.mark.parametrize('axis, at_mm', [('z', 5.0), ('x', 5.0), ('x', 15.0)])
-def test_split_through_a_solid_is_refused_not_written_open(tmp_path, axis, at_mm):
-    # #1195 (split-piece volume): whole-triangle assignment through connected
-    # surface left both parts open along the cut. A 30 x 10 x 10 mm bar split
-    # at x = 15 came out as "volumes" of 1000 and 2000 mm3 (origin dependent,
-    # not 1500 each), with no cap at the cut. Refused now; nothing is written.
+@pytest.mark.parametrize('axis, at_mm, scale, halves', [
+    ('z', 5.0, 1.0, (500.0, 500.0)), ('x', 5.0, 1.0, (500.0, 500.0)),
+    ('x', 15.0, 3.0, (1500.0, 1500.0)), ('x', 10.0, 3.0, (1000.0, 2000.0))])
+def test_split_through_a_solid_is_cut_and_capped(tmp_path, axis, at_mm, scale, halves):
+    # #1195 found whole-triangle assignment through connected surface left
+    # both parts open along the cut: a 30 x 10 x 10 mm bar split at x = 15
+    # came out as "volumes" of 1000 and 2000 mm3 with no cap, and was then
+    # refused. #1245: the cut is clipped and capped, so the bar splits into
+    # two closed 1500 mm3 halves, written to the 3MF the intake slices.
     src = tmp_path / 'bar.stl'
-    tris = _cube()
-    if at_mm == 15.0:
-        tris = tris * [3.0, 1.0, 1.0]
-    support_clearance._write_binary_stl(src, tris)
+    support_clearance._write_binary_stl(src, _cube() * [scale, 1.0, 1.0])
     out = tmp_path / 'split.3mf'
-    with pytest.raises(ai_fix.FixError, match='cut through the solid model'):
-        ai_fix.apply_geometry(src, out, {'kind': 'split', 'axis': axis, 'at_mm': at_mm})
-    assert not out.exists()
+    report = ai_fix.apply_geometry(src, out, {'kind': 'split', 'axis': axis, 'at_mm': at_mm})
+    assert report['changed'] is True and report['parts'] == 2 and report['capped'] is True
+    assert report['cut_regions'] == 1 and report['cut_holes'] == 0
+    parts = support_clearance.leaves(out)
+    assert len(parts) == 2
+    for part, want in zip(parts, halves):
+        facts = ai_fix.mesh_repair.facts_for(part['tris'])
+        assert facts['sound'], facts
+        assert _volume(part['tris']) == pytest.approx(want, rel=1e-6)
 
 
 def test_remapped_decisions_rejects_partial_or_unknown_mapping_atomically():
