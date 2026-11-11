@@ -591,12 +591,25 @@ ROUND5_SCREENED_TYPOS = {
     "wensday": "wednesday", "withdrawl": "withdrawal",
     "withold": "withhold", "yatch": "yacht",
 }
+# Command-coverage round (2026-11-11): the pairs the command fuzzy
+# coverage guard's audit needed — the firmware-update check phrases
+# named by component ("check for zmod updates", "check for helixscreen
+# updates") fold through these, and "equivelant" is in at the operator's
+# word. Screened like the round-5 pairs above (non-word per
+# pyspellchecker, not an existing key, uniquely closest to the target).
+COMMAND_COVERAGE_TYPOS = {
+    "equivelant": "equivalent", "udpate": "update", "udpates": "updates",
+    "zomd": "zmod", "zmd": "zmod",
+    "heliscreen": "helixscreen", "helixcreen": "helixscreen",
+    "helixsceen": "helixscreen", "helixscren": "helixscreen",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
              **DIFFERNET_FAMILY,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
+             **COMMAND_COVERAGE_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 

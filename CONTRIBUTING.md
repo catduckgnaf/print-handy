@@ -35,6 +35,7 @@ Two checks enforce this. The Issue closure guard reopens an issue closed as comp
 - Follow the existing Python and configuration patterns. Do not weaken printer readiness, artifact validation, bed bounds, or confirmation gates to make a test pass.
 - For public model fixtures, use only redistributable models and record exact provenance and license in the case manifest. Keep private or non redistributable files outside the repository.
 - Update documentation when user visible behavior, setup, configuration, or supported capabilities change. Do not claim support beyond what code and tests establish.
+- A new bot command ships with its fuzzy equivalent: plain-language phrases in `print_handy/bot/runtime.py` (the task-intent suggestions) that suggest the command in chat, plus an entry for the command in `tests/bot/test_command_fuzzy_coverage.py`. That suite enumerates the command registry, so a command with no fuzzy equivalent fails CI until both exist. Misspellings of the command's key words go into the typo corpus (`TYPO_FORMS` in `print_handy/core/fuzzy_vocabulary.py`, with the pair registered in `tests/core/test_fuzzy_typos.py`) under the corpus screening rules.
 
 ## Run checks
 
