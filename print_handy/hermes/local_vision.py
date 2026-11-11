@@ -175,6 +175,12 @@ _active_providers: dict[str, str] = {}
 # key -> (message, monotonic retry time, consecutive failures)
 _failures: dict[str, tuple[str, float, int]] = {}
 _verified_files: set[str] = set()
+# Chat notices about the detector (#1194): a failure is announced once when
+# it starts, and once more when that same thing works again. The watches
+# drain them with take_notices() and post them; this module has no chat.
+_notice_lock = threading.Lock()
+_announced: set[str] = set()
+_notices: list[str] = []
 
 
 def _runtime():
@@ -216,11 +222,36 @@ def _fail(key: str, message: str) -> LocalVisionError:
     delay = min(FAILURE_RETRY_BASE_S * (2 ** (count - 1)), FAILURE_RETRY_MAX_S)
     _failures[key] = (message, time.monotonic() + delay, count)
     logger.warning("local detector: %s (retrying in %ds)", message, int(delay))
+    with _notice_lock:
+        if key not in _announced:
+            _announced.add(key)
+            _notices.append(
+                f"Local failure detector unavailable: {message}. Camera checks that rely on "
+                f"it are uncertain until it recovers; Print Handy retries on its own, first "
+                f"in about {_span(delay)}, then less often. Nothing was sent to the printer.")
     return LocalVisionError(message)
 
 
 def _clear_failure(key: str) -> None:
     _failures.pop(key, None)
+    with _notice_lock:
+        if key in _announced:
+            _announced.discard(key)
+            _notices.append("Local failure detector is working again; camera checks "
+                            "that rely on it are judged normally.")
+
+
+def _span(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    return f"{minutes} minute{'s' if minutes != 1 else ''}" if minutes >= 1 else f"{int(seconds)} seconds"
+
+
+def take_notices() -> list[str]:
+    """The pending detector failure and recovery notices, oldest first; each is returned once."""
+    with _notice_lock:
+        pending = list(_notices)
+        _notices.clear()
+    return pending
 
 
 # --- Model file ----------------------------------------------------------------

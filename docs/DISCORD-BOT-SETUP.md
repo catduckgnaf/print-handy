@@ -339,7 +339,7 @@ Once the bot is running, this is the whole conversation for one print. Every ste
 
 ![Print complete post with timelapse](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-04-print-complete.png)
 
-**The camera watchdog** only alerts, unless you enable `visual_watch.auto_pause_early`, which can pause the printer after two suspicious early-layer checks (it never cancels). Every other printer action is your tap. The in-print watch covers Moonraker (Klipper) and Bambu Lab printers only.
+**The camera watchdog** only alerts, unless you enable `visual_watch.auto_pause_early`, which can pause the printer after two independent suspicious early-layer views (it never cancels; set it back to `false` to turn it off). Every other printer action is your tap. The in-print watch covers Moonraker (Klipper) and Bambu Lab printers only; `bot check` names each printer's coverage on its camera watch row.
 
 ![Camera alert with Pause, It's fine and Stop asking for this print](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-05-camera-watchdog.png)
 

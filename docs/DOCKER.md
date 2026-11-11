@@ -122,6 +122,19 @@ Run a second *instance* instead only when you want hard process isolation betwee
 
 While a print runs, the listener checks the printer camera at layer 2, layer 5 and then periodically. A vision model classifies each frame; spaghetti, a detached part, an empty bed, a stalled print, an uncertain frame or a failed check posts the camera photo to Discord with **Pause**, **It's fine** and **Stop asking for this print** buttons. **Stop asking for this print** mutes camera posts for that print only. The next print asks again, even if it has the same filename. The optional camera watchdog posts alerts after checks. Its alert-only behavior is separate from `visual_watch.auto_pause_early`, an opt-in that can pause the printer after two suspicious early-layer checks; it is off by default. Do not describe the whole feature as incapable of affecting printer state. Camera classification is not a guarantee of safe unattended printing.
 
+Which printers have the in-print watch:
+
+| Printer family | In-print camera watch | Notes |
+|---|---|---|
+| Moonraker (Klipper) | Yes, every print on the printer (the listener) | Prints without layer numbers are checked on a timer, with one notice |
+| Bambu Lab | Yes, prints Print Handy launched (the launched-print monitor) | Prints started from Bambu Studio or the printer screen are not watched |
+| PrusaLink | No | Idle plate checks only, no in-print verdicts |
+| OctoPrint | No | Idle plate checks only, no in-print verdicts |
+| Elegoo SDCP | No | No in-print verdicts; no SDCP camera source is verified yet |
+| stock Flashforge | No | Idle plate checks only, no in-print verdicts |
+
+Both watched families follow one shared rule set: the same sensitivity profiles, the early-layer schedule for risky prints, the 150-second check deadline with a notice when a check times out, one throttled alert per camera or vision failure episode with one notice when checks work again, and the same opt-in `visual_watch.auto_pause_early`. When on, auto-pause sends one pause after two independent suspicious early-layer views (at least 60 seconds apart, with a camera frame that changed between them) while the printer still reports printing this print; it never cancels, and setting it back to `false` turns it off. `bot check` shows a **camera watch** row per printer with its family's coverage and, when the watch cannot run, why.
+
 A completely dark frame is treated as a camera problem, not a print verdict: it is never sent to the vision model and never posts as a print alert. When the watchdog reads its stills from the go2rtc fan-out and the fan-out frame is completely dark, it falls back to the direct camera snapshot once. If the frame is still dark, the check is logged and, at most once per print, a plain camera notice (with only the **Stop asking for this print** button) says the camera image is completely dark and monitoring continues. Timelapse capture applies the same rule: dark frames are skipped and counted rather than recorded, and a print whose every captured frame was dark ends with no video and a completion post that names the dark camera as the reason.
 
 It needs a Moonraker URL, a camera snapshot (`PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL`; derived from the Moonraker host when empty) and a way to judge frames: a vision endpoint (`PRINT_HANDY__SERVICES__VISION_CHAT_URL` plus the `CLIPROXY_API_KEY` secret in `.env`), a `PRINT_VISION_URL` custom endpoint, or the built-in local failure detector (`PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED=true`, #455: an ONNX detector that runs in this container, no endpoint or key; its pinned model, about 202 MB, downloads once into `/data/state/models`, SHA-256 verified). With none of the three, camera checks stay off.
@@ -138,7 +151,7 @@ Two settings tune it, settable in the mounted YAML (`visual_watch` in `config/do
 | `visual_watch.sensitivity` | `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` | `3` | How readily the watchdog alerts, 1 (quietest) to 5 (most alerts) |
 | `visual_watch.early_layers` | `PRINT_HANDY__VISUAL_WATCH__EARLY_LAYERS` | `10` | Early-layer window (layers) for risky prints |
 | `visual_watch.early_interval_s` | `PRINT_HANDY__VISUAL_WATCH__EARLY_INTERVAL_S` | `120` | Check interval (seconds) during early-layer mode for risky prints |
-| `visual_watch.auto_pause_early` | `PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY` | `false` | Optional printer control (Moonraker printers only): pauses after two independent suspicious early-layer views, at least 60 s apart with a changed camera frame, when enabled. Off by default |
+| `visual_watch.auto_pause_early` | `PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY` | `false` | Optional printer control (Moonraker and Bambu Lab printers): pauses after two independent suspicious early-layer views, at least 60 s apart with a changed camera frame, when enabled. Off by default |
 
 Sensitivity also sets the periodic check interval (30, 20, 15, 10 or 7.5 minutes for levels 1 to 5) and how many unchanged layers count as a stall; level 3 is the original behavior. Periodic checks run on a timer independent of layer events, so long layers receive timely checks. In early-layer mode for risky prints, checks run every layer change up to `early_layers` and at least every `early_interval_s` seconds. An empty bed (`empty_idle`) while printing schedules a 60-second re-check and alerts if it repeats. The full per-level table is in the [project reference](PROJECT-REFERENCE.md#camera-stall-sensitivity), and every setting is listed in [SETTINGS.md](SETTINGS.md). Restart the container after a change; settings are read once at start.
 
