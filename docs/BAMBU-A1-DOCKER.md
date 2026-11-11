@@ -16,7 +16,7 @@ Some steps work around behavior that was being fixed when this walkthrough was r
 | 6 | `delivery.methods` can only come from a mounted YAML that replaces `config/docker.yaml` |
 | 6 | The Discord Start button's idle check queries Moonraker only |
 | 6 | A started print can show as "submitted, awaiting confirmation" |
-| 6 | `/print-stop` cannot stop a Bambu print |
+| 6 | `/print-stop` could not stop a Bambu print (fixed since PR #1163) |
 | 6 | The handoff package has no preview thumbnails |
 | 7 | The summary wording says "AD5X" |
 
@@ -230,7 +230,7 @@ What to expect from the pending fixes on this step:
   ```
 
   Never resubmit. The lease refuses a second start on the printer while the first is uncertain.
-- **`/print-stop` cannot stop a Bambu print** in this version; stop it from the printer screen. The stop, pause and resume calls exist on the LAN client but the Discord command does not reach them.
+- **`/print-stop` on a Bambu print.** In the 2.1.3 image this walkthrough was run with, the command did not reach the LAN client. Since PR #1163 it sends one LAN stop, reads the nozzle and bed targets back, and says so. The printer then shows the cancelled job as an error until you acknowledge it on its screen; that is the printer, not a failed stop.
 - **No preview thumbnails** in the handoff package: the printer screen shows the file without a picture.
 
 ## 7. What is normal in the messages
