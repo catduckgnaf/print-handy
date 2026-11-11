@@ -109,6 +109,7 @@ __all__ = [
     "TARGET_CODECS",
     "VAAPI_DEVICE",
     "vaapi_device",
+    "usable_render_node",
     "CameraSource",
     "EncoderCandidate",
     "EncoderProbe",
@@ -144,36 +145,55 @@ VAAPI_DEVICE = "/dev/dri/renderD128"
 VAAPI_DEVICE_ENV = "PRINT_HANDY_VAAPI_DEVICE"
 
 
-def vaapi_device(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, environ=None, access=None) -> str:
-    """The render node VAAPI should open (#1262).
-
-    ``PRINT_HANDY_VAAPI_DEVICE`` wins when set. Otherwise the first
-    ``renderD*`` node this process can read and write whose kernel driver
-    is not ``nvidia`` (NVIDIA nodes have no VAAPI driver; NVENC reaches
-    the GPU through the NVIDIA runtime instead). A host with a second GPU
-    numbers the Intel/AMD node renderD129 or later, so the old fixed
-    renderD128 opened the wrong device or none. Falls back to
-    :data:`VAAPI_DEVICE` when nothing qualifies. Never raises.
-    """
-    environ = os.environ if environ is None else environ
-    access = access or os.access
-    override = str(environ.get(VAAPI_DEVICE_ENV) or "").strip()
-    if override:
-        return override
+def _render_driver(sys_drm, node_name) -> str | None:
+    """Kernel driver bound to a render node, or None when sysfs cannot say."""
     try:
+        return os.path.basename(os.readlink(Path(sys_drm) / node_name / "device" / "driver"))
+    except OSError:
+        return None
+
+
+def usable_render_node(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, access=None):
+    """The first accessible non-NVIDIA ``renderD*`` node, or None (#1262).
+
+    A node whose driver sysfs names (i915, amdgpu, ...) beats one whose driver
+    cannot be read (a container with a limited /sys), and an unreadable driver
+    is never treated as NVIDIA, so a limited /sys cannot hide the only GPU.
+    NVIDIA nodes are skipped: they have no VAAPI driver (NVENC reaches that
+    GPU through the NVIDIA runtime instead). Never raises.
+    """
+    access = access or os.access
+    try:
+        unknown = None
         for node in sorted(Path(dri_dir).glob("renderD*")):
             if not access(str(node), os.R_OK | os.W_OK):
                 continue
-            try:
-                driver = os.path.basename(os.readlink(Path(sys_drm) / node.name / "device" / "driver"))
-            except OSError:
-                driver = ""
+            driver = _render_driver(sys_drm, node.name)
             if driver == "nvidia":
                 continue
-            return str(node)
+            if driver:
+                return node
+            unknown = unknown or node
+        return unknown
     except Exception:  # noqa: BLE001 - device discovery must never fail an encode
-        pass
-    return VAAPI_DEVICE
+        return None
+
+
+def vaapi_device(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, environ=None, access=None) -> str:
+    """The render node VAAPI should open (#1262).
+
+    ``PRINT_HANDY_VAAPI_DEVICE`` wins when set. Otherwise the node
+    :func:`usable_render_node` finds (a host with a second GPU numbers the
+    Intel/AMD node renderD129 or later, so the old fixed renderD128 opened the
+    wrong device or none). Falls back to :data:`VAAPI_DEVICE` when nothing
+    qualifies, so a single-GPU renderD128 host is unchanged. Never raises.
+    """
+    environ = os.environ if environ is None else environ
+    override = str(environ.get(VAAPI_DEVICE_ENV) or "").strip()
+    if override:
+        return override
+    node = usable_render_node(dri_dir, sys_drm, access=access)
+    return str(node) if node else VAAPI_DEVICE
 # The one go2rtc stream name for the printer camera (#311 stage 4):
 # print_handy.go2rtc renders its generated config under this name and
 # the Activity page (print_handy.live_activity) requests it, so the
