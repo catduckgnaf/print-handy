@@ -14,8 +14,8 @@ still open is tracked in #1155's deferred list.
 
 - A row cites a test only when that test exists and runs a production entry
   point: `inventory`, `model_job.slice_job`, `orca_adapter.slice_model`,
-  `color_geometry.export_color_geometry` or `export_single_color_plate`,
-  or the Discord summary formatter. Tests that call only an internal helper
+  `slice_route.export_per_part`, `color_geometry.export_color_geometry` or
+  `export_single_color_plate`, or the Discord summary formatter. Tests that call only an internal helper
   are not cited. Where a row has no such test, the row says so.
 - "Production path" means a caller outside `tests/` reaches the code. A
   function that only tests call is named as such.
@@ -35,7 +35,7 @@ still open is tracked in #1155's deferred list.
 | 1 | Setting intent | Implemented and tested on the slice path |
 | 2 | Per-job provenance | Implemented and tested on the slice path |
 | 3 | Per-plate filament usage | **Partial**: the analysis reads every class, Orca per-feature filaments included, but nothing in production selects a plate, so whole-source jobs warn over every plate |
-| 4 | Atomic complete remapping | **Not met**: the exporters are atomic and remap feature filament keys with the parts' mapping, but the generic remapper has no production caller and the deferred items below stay open |
+| 4 | Atomic complete remapping | **Partial**: a job that only renumbers filaments slices its source project through the generic remapper, verified with the real OrcaSlicer (#1279); every other job keeps the rebuilt export, whose remaining gap is below |
 | 5 | Versioned compatibility | Implemented and tested on the slice path |
 | 6 | Safety gates preserved | Implemented; filament conditions warn by owner ruling |
 
@@ -135,28 +135,46 @@ vectors); preserve geometry and paint regions; leave the original immutable;
 fail without partial output; clean up or merge only when usage is proven;
 never silently drop colors.
 
-**Status: not met.** Three things are true at once:
+**Status: partial.** Since #1279 every per-part color slice takes one of
+two named routes, chosen by `slice_route.export_per_part` (called from
+`orca_adapter.slice_model`) and recorded in the slice's
+`geometry['slice_route']`:
 
-- The live export paths are `export_color_geometry` and
-  `export_single_color_plate` (called from `model_job`), and
-  `export_volume_plate` (called from `orca_adapter.export_geometry`). All
-  write through `package_remap.write_package_atomically`. Nothing outside
-  `color_geometry.py` calls `export_production_plate`.
-- **`package_remap.remap_package` is experimental and has no production
-  caller.** Only tests call it. The same is true of
-  `package_remap.permute_project_settings`, `remap_prusa_member` and
-  `painted_geometry.rewrite_paint_bytes`, which only `remap_package`
-  reaches. Tests on those functions show what the remapper would do, not
-  what a production export does. The feature-key helpers
-  `package_remap.remap_feature_filaments` and `remap_filament_metadata` are
-  the exception: the single-color copy calls them.
-- The exporters rebuild or collapse a package with their own code and do not
-  use the generic remapper.
+- **remap**: the job keeps the source project and only renumbers its
+  filaments (every palette filament on its own slot, one plate, no split,
+  scale, turn, plate merge or touching objects, a single-nozzle
+  multi-material printer that slices with OrcaSlicer). The source package is sliced remapped by
+  `package_remap.remap_package` and moved onto the bed by the rigid
+  translation the rebuild would apply. The rebuild's checks run first in
+  measure mode, so its refusals and placement apply to both routes.
+- **rebuild**: every other job keeps `export_color_geometry`, which rebuilds
+  the package from the parts' meshes. The reason is recorded.
+
+A remapper refusal is named. The job falls back to the rebuild only when the
+rebuild carries every filament reference the project makes; a project-wide
+feature filament or PrusaSlicer role extruder the rebuild would drop refuses
+the slice with both reasons instead. A fallback shows the operator the
+refusal before the start (`slice_route.route_notice`). The single-color
+paths (`export_single_color_plate`, `export_volume_plate`) are unchanged and
+write through `package_remap.write_package_atomically`.
+
+The real-slicer job (OrcaSlicer 2.5.0, `PRINT_HANDY_REAL_SLICER=1`) slices
+remapped corpus projects and reads the G-code: tool changes, each tool's
+temperature, the palette, walls and infill (including per-part feature
+filaments), supports, the prime-tower purge, the purge matrix, paint and
+height changes print on the filament the mapping names. That run found that
+OrcaSlicer 2.5 reads per-feature filaments as `outer_wall_filament_id`,
+`inner_wall_filament_id`, `sparse_infill_filament_id`,
+`internal_solid_filament_id`, `top_surface_filament_id` and
+`bottom_surface_filament_id`, and ignores `wall_filament`,
+`sparse_infill_filament` and `solid_infill_filament`; the
+remapper and the exports now remap both spellings as filament references.
 
 | Requirement element | What the code does | Production-path tests |
 |---|---|---|
 | Atomic write | `write_package_atomically` stages the package in a uniquely named temporary file in the target's folder (`tempfile.mkstemp`), validates it, flushes and `fsync`s it, then `os.replace`s it onto the target. Any failure removes the temporary file and leaves an existing target unchanged. With `source=` it refuses a target that resolves to the source; `remap_package` passes it, the exporters do not yet | `tests/pipeline/test_remap_exhaustive.py::test_export_single_color_plate_failure_after_staging_leaves_no_partial_output` (the replace fails after staging and nothing is left behind) |
 | Original immutable | Exporters read the source and write the target only | The test above asserts the source bytes are unchanged |
+| Slice routes (#1279) | `slice_route.plan` names the route: remap for a job that only renumbers filaments, rebuild otherwise, with the reason (a filament merge, an unloaded palette filament, a scale, split, turn, plate merge, several plates, touching objects, a toolhead printer, pause-mode height changes, a bare 3MF, PrusaSlicer object roles that differ, a filament named only for supports, a primary slicer other than OrcaSlicer). The remap route's tool mapping is the rebuild's slot order, so the confirmation shows the same slots | `tests/pipeline/test_slice_route_1279.py::test_a_job_that_only_renumbers_filaments_takes_the_remap_route`, `::test_a_job_that_changes_geometry_or_numbering_keeps_the_rebuild_and_says_why`, `::test_two_filaments_on_one_slot_keep_the_rebuild`, `::test_a_rebuild_job_never_calls_the_remapper` |
 | Rebuilt export refuses what it cannot translate | `export_color_geometry` refuses a source whose height ranges name extruders, an unmapped layer-change tool and an unmapped paint state, each by name. It names every member it does not carry in `dropped_members` and every dropped per-part setting in `dropped_part_settings` (a feature override it carries as a tool, below, is not listed) | `tests/pipeline/test_remap_exhaustive.py::test_rebuilt_export_refuses_height_range_extruders_by_name`, `::test_mmu_segmentation_export_refuses_a_paint_state_with_no_choice`, `::test_rebuilt_export_names_dropped_per_part_settings` |
 | Feature filament keys | Both exports remap them with the parts' own mapping (#1155). Single-color copy: `_declare_one_filament` sets print-wide `wall_filament`, `sparse_infill_filament`, `solid_infill_filament` and `wipe_tower_filament` that name a filament the plate prints to 1, and the object and part wall, infill and `support_filament` metadata the same way; a plate `filament_maps` list (one entry per palette filament) keeps the kept filament's entry. Rebuilt export: an object or part override is written on the part as the tool the decisions give that filament; the print-wide keys are not carried (every object names its own tool) and are named in the report with the tool each maps to. A value the mapping does not cover, past the palette or not a number is unknown usage: never a used filament and never a refusal. It is written as 0 (no specific filament) where 0 means that, removed where it does not, and named in the report's `feature_filaments` | `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_remaps_every_feature_key_with_the_parts_mapping`, `::test_single_color_plate_maps_a_feature_filament_picked_for_the_same_slot`, `::test_rebuilt_export_writes_feature_overrides_as_the_tools_the_parts_use`; slice round trip on the AD5X: `::test_non_identity_feature_remap_slices_to_gcode_that_passes_ad5x_tool_verification` |
 | Unknown per-filament arrays | `_PER_FILAMENT_KEYS` stays an allowlist. A palette-length project array it does not know is kept as authored and named as an unknown passthrough (`package_remap.unknown_palette_arrays`): in the single-color copy's `feature_filaments` and in the generic remapper's notes. Permuting every palette-length list was rejected because some only happen to have that length (a four-point bed outline on a four-filament project) | `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_names_an_unknown_palette_length_array_and_keeps_it` |
@@ -164,23 +182,24 @@ never silently drop colors.
 | Layer changes | Remapped in the rebuilt export and the single-color copy; the `color` attribute is kept because Orca's loader requires it | `tests/pipeline/test_remap_exhaustive.py::test_rebuilt_layer_change_keeps_the_color_attribute`, `::test_single_color_plate_carries_no_stale_filament_reference` |
 | Single-color copy | `_declare_one_filament` keeps the used filament's entries in every per-filament array, remaps support designations, sets height-range and layer-change extruders to 1, and drops `slice_info.config` and embedded G-code with the drop named in the report. For a per-filament array whose length is neither 1 nor the palette size it keeps the entry at the declared filament's own index when there is one, else the first entry, and logs which; it never refuses | `tests/pipeline/test_remap_exhaustive.py::test_single_color_plate_carries_no_stale_filament_reference` |
 | Opaque members | The production-plate copy keeps `Auxiliaries/` members byte for byte | No production-path test: `tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members` runs `export_production_plate`, which has no production caller |
-| Purge matrix and vector | The single-color copy keeps the used filament's diagonal matrix entry and its own pair of the flush vector. The generic remapper permutes `flush_volumes_matrix`; it refuses a non-uniform `flush_volumes_vector` under a non-identity mapping because its layout is not established, and passes a uniform one (the slicer default) through, since every reordering of it is the same list (#1155) | Single-color copy: `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_remaps_every_feature_key_with_the_parts_mapping`. No production-path test for the generic remapper's permutation, which has no production caller; library tests `tests/pipeline/test_remap_package_bambu_1155.py::test_a_realistic_bambu_project_remaps_completely`, `::test_a_non_uniform_flush_vector_still_refuses_by_name` |
-| Generic remapper on PrusaSlicer packages | `package_remap.remap_prusa_member` refuses a mapping that does not cover the whole extruder palette, then permutes every per-filament list, remaps the role extruders (0 kept; an absent one that defaults to 1 is written as filament 1's new number), permutes the wiping-volumes matrix on both axes and the load/unload vector by pair, and keeps per-extruder printer lists with their physical extruder (named when they differ). The model config's role extruders and the PrusaSlicer height members are remapped (#1155) | No production-path test (no production caller). Library tests: `tests/pipeline/test_remap_package_prusa_1155.py::test_a_prusa_package_remaps_palette_settings_roles_and_matrix`, `::test_a_mapping_that_does_not_cover_the_prusa_palette_refuses`, `::test_the_corpus_prusa_mmu_project_remaps_completely` |
-| Generic remapper on real Bambu and Orca projects | `package_remap.member_handling` classifies the standard members of a Bambu Studio / OrcaSlicer save (#1155): `plate_N.json` and `plate_N.gcode.md5` (the previous slice's records) are kept under the identity mapping and dropped by name otherwise; `cut_information.xml`, `layer_heights_profile.txt` and `brim_ear_points.txt` (object-keyed, no filament reference) are preserved and refuse by name under an object map. An object on implicit filament 1 (no extruder, or 0) has it written explicitly before a mapping that moves filament 1; a build object with no settings entry refuses that mapping by name | No production-path test (no production caller). Library tests: `tests/pipeline/test_remap_package_bambu_1155.py::test_a_realistic_bambu_project_remaps_completely`, `::test_a_sliced_project_refuses_for_its_embedded_gcode_by_name`, `::test_a_build_object_with_no_settings_entry_refuses_a_remap_that_moves_filament_1` |
-| Embedded G-code and `filament_sequence.json` | Under a non-identity mapping the single-color copy drops embedded G-code (named in `dropped_entries`) and keeps the sequence file byte for byte (named in `preserved_unremapped_entries`), because its preset record is provenance evidence about the source; the rebuilt export carries neither and names them in `dropped_members`. The generic remapper refuses both under a non-identity mapping | `tests/pipeline/test_remap_exhaustive.py::test_single_color_plate_carries_no_stale_filament_reference`, `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_keeps_the_filament_sequence_byte_for_byte_under_a_remap`, `::test_rebuilt_export_drops_the_filament_sequence_member_by_name_under_a_remap`. No production-path test for the generic refusals (no production caller); the library test is `::test_generic_remap_refuses_the_filament_sequence_only_under_a_non_identity_mapping` |
+| Purge matrix and vector | The single-color copy keeps the used filament's diagonal matrix entry and its own pair of the flush vector. The generic remapper permutes `flush_volumes_matrix`; it refuses a non-uniform `flush_volumes_vector` under a non-identity mapping because its layout is not established, and passes a uniform one (the slicer default) through, since every reordering of it is the same list (#1155) | Single-color copy: `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_remaps_every_feature_key_with_the_parts_mapping`. Remap route: `tests/pipeline/test_slice_route_1279.py::test_slice_model_slices_a_renumbering_job_through_remap_package`; real slicer: `tests/slicer/test_remap_route_real.py::test_remapped_bambu_project_prints_walls_infill_palette_temperatures_and_purge_on_the_mapped_filaments`. Refusal: library test `tests/pipeline/test_remap_package_bambu_1155.py::test_a_non_uniform_flush_vector_still_refuses_by_name` |
+| Generic remapper on PrusaSlicer packages | `package_remap.remap_prusa_member` refuses a mapping that does not cover the whole extruder palette, then permutes every per-filament list, remaps the role extruders (0 kept; an absent one that defaults to 1 is written as filament 1's new number), permutes the wiping-volumes matrix on both axes and the load/unload vector by pair, and keeps per-extruder printer lists with their physical extruder (named when they differ). The model config's role extruders and the PrusaSlicer height members are remapped (#1155) | Remap route on the corpus PrusaSlicer project, real slicer: `tests/slicer/test_remap_route_real.py::test_remapped_prusa_project_prints_painted_regions_and_base_on_the_mapped_filaments`; route choice: `tests/pipeline/test_slice_route_1279.py::test_a_prusa_project_whose_object_roles_differ_keeps_the_rebuild`. Library tests: `tests/pipeline/test_remap_package_prusa_1155.py::test_a_prusa_package_remaps_palette_settings_roles_and_matrix`, `::test_a_mapping_that_does_not_cover_the_prusa_palette_refuses`, `::test_the_corpus_prusa_mmu_project_remaps_completely` |
+| Generic remapper on real Bambu and Orca projects | `package_remap.member_handling` classifies the standard members of a Bambu Studio / OrcaSlicer save (#1155): `plate_N.json` and `plate_N.gcode.md5` (the previous slice's records) are kept under the identity mapping and dropped by name otherwise; `cut_information.xml`, `layer_heights_profile.txt` and `brim_ear_points.txt` (object-keyed, no filament reference) are preserved and refuse by name under an object map. An object on implicit filament 1 (no extruder, or 0) has it written explicitly before a mapping that moves filament 1; a build object with no settings entry refuses that mapping by name | Remap route: `tests/pipeline/test_slice_route_1279.py::test_slice_model_slices_a_renumbering_job_through_remap_package`; real slicer: `tests/slicer/test_remap_route_real.py::test_remapped_bambu_project_prints_walls_infill_palette_temperatures_and_purge_on_the_mapped_filaments`, `::test_remapped_bambu_project_prints_supports_on_the_designated_filament`, `::test_remapped_height_color_changes_print_on_the_mapped_filaments`. Library tests: `tests/pipeline/test_remap_package_bambu_1155.py::test_a_realistic_bambu_project_remaps_completely`, `::test_a_sliced_project_refuses_for_its_embedded_gcode_by_name`, `::test_a_build_object_with_no_settings_entry_refuses_a_remap_that_moves_filament_1` |
+| Embedded G-code and `filament_sequence.json` | Under a non-identity mapping the single-color copy drops embedded G-code (named in `dropped_entries`) and keeps the sequence file byte for byte (named in `preserved_unremapped_entries`), because its preset record is provenance evidence about the source; the rebuilt export carries neither and names them in `dropped_members`. The generic remapper refuses both under a non-identity mapping | `tests/pipeline/test_remap_exhaustive.py::test_single_color_plate_carries_no_stale_filament_reference`, `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_keeps_the_filament_sequence_byte_for_byte_under_a_remap`, `::test_rebuilt_export_drops_the_filament_sequence_member_by_name_under_a_remap`. Generic refusals on the slice path: `tests/pipeline/test_slice_route_1279.py::test_a_remap_refusal_falls_back_to_the_equivalent_rebuild_and_names_the_reason`, `::test_a_remap_refusal_with_a_rebuild_that_drops_a_feature_filament_refuses_by_name`; the library test is `::test_generic_remap_refuses_the_filament_sequence_only_under_a_non_identity_mapping` |
 | One read per call | A slice, an export and an inventory each run in a `painted_geometry.decode_scope`: each `.model` member is decompressed once and each painted mesh decoded once, however many consumers ask (the multi-material scan in `slice_model` included). Verdicts do not change | `tests/pipeline/test_feature_filament_remap_1155.py::test_one_slice_reads_each_model_member_once_and_decodes_paint_once`, `::test_decode_scope_never_changes_a_verdict` |
 | One inventory per color flow | The Discord color flow (`discord_color_intake.collect`) runs in a `source_colors.inventory_scope`: the question build and each `intake_color_choices` pass (two in a warning round) share one inventory of the source, keyed by its content hash. Each caller gets its own copy; only the manifest is kept, never member bytes or decoded paint, and nothing outlives the flow. A changed source hashes differently and is inventoried again | `tests/pipeline/test_discord_color_intake.py::test_discord_flow_inventories_the_source_once`, `::test_discord_flow_reinventories_a_source_changed_during_selection`; `tests/pipeline/test_filament_warn_accept.py::DiscordWarningRoundTests::test_the_warning_round_inventories_the_source_once`; timing: `tests/core/test_usage_reads_1155.py::test_a_second_inventory_in_one_flow_skips_the_paint_pass` |
 | PrusaSlicer volumes | Inventory splits each PrusaSlicer object's `ParameterModifier`, `NegativeVolume`, `SupportBlocker` and `SupportEnforcer` triangle ranges (`<volume firstid lastid>` in `Metadata/Slic3r_PE_model.config`) out of its one mesh into cutter rows (#1260); the printed part keeps its key, so no question changes. The volume-plate and multicolor exports write each as its own typed part (`modifier_part`, `negative_part`, `support_blocker`, `support_enforcer`) with its own triangles, and fit and footprint read only model-part triangles. The single-color plate copy and the slice-time conversion of a PrusaSlicer model config cannot type a range inside one mesh, so they refuse that object by name; a component volume is typed there. A range that does not cover the mesh exactly once, an unknown volume type or an unparsable model config refuses by name | `tests/core/test_prusa_volumes_1260.py::test_export_geometry_writes_the_volume_typed_never_solid`, `::test_multicolor_export_carries_the_modifier_with_its_tool`, `::test_single_color_plate_copy_refuses_a_volume_inside_the_mesh_by_name`, `::test_slice_adoption_refuses_a_volume_inside_the_mesh`, `::test_a_volume_that_cannot_be_split_exactly_is_refused_by_name` |
 | Modifier extruders | The rebuilt export writes a `modifier_part`'s own extruder as the tool the decisions give that filament. A filament no tool of the job loads is not written (the body's tool prints the region) and is named in `feature_filaments` as unknown usage | `tests/core/test_usage_reads_1155.py::test_rebuilt_export_writes_the_modifiers_own_filament_as_its_tool`, `::test_rebuilt_export_names_a_modifier_filament_the_job_does_not_load` |
 
-Open gaps, all deferred past 2.2.9 in #1155:
+Open gap:
 
-- **No production caller.** `remap_package` is still experimental: every
-  production export rebuilds or collapses the package with its own code, so
-  the generic remapper's completeness on real projects (above) is library
-  evidence only.
-- **Rebuilt export behavior change.** `export_color_geometry` refuses
-  extruder-bearing height ranges instead of translating them.
+- **Rebuilt export behavior change.** On the rebuild route,
+  `export_color_geometry` refuses extruder-bearing height ranges instead of
+  translating them. A job that only renumbers filaments takes the remap
+  route, which translates them
+  (`tests/pipeline/test_slice_route_1279.py::test_a_height_range_extruder_is_translated_on_the_remap_route`).
+  The real-slicer check could not cover them: the OrcaSlicer 2.5.0 CLI did
+  not print a height range's extruder even on an unremapped project.
 
 [The remap inventory](3MF-REMAP-INVENTORY.md) lists the same members and
 their handling by path.
