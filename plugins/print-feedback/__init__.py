@@ -1403,6 +1403,22 @@ async def print_next_dispatch(event, gateway, **kwargs):
                 _owner = _mj._job_printer_id(_job)
                 pid = _routed_form(_owner)
                 live_key = _live_key_for(source, gateway, _owner)
+        if part_id is None:
+            # Several plates can go next: ask which, the same question on
+            # every transport through the shared prompt layer (#1204 item 5),
+            # instead of silently taking plan order where no Discord picker
+            # exists. A pick is a choice, not an approval: the bed-clear
+            # confirmation below is still asked for the picked plate.
+            asked = print_next.plate_question(plan)
+            if asked is not None:
+                plate_q, plate_labels, plate_ids = asked
+                picked = await _confirm(
+                    adapter, source, metadata, 'print-next-plate', plate_q, plate_labels,
+                    (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+                    live_key=live_key)
+                if picked not in plate_labels[:-1]:
+                    raise print_next.NextPlateError('no plate was picked (cancelled, Later or expired)')
+                target = print_next.resolve_next(plan, part_id=plate_ids[plate_labels.index(picked)])
         from print_handy.hermes import discord_print_summary as print_summary
         job, plate = print_summary.find_job(target['gcode'])
         seconds = (plate or {}).get('seconds')
@@ -4631,7 +4647,15 @@ async def print_again_dispatch(event, gateway, **kwargs):
                            if previous else 'A reprint; it gets its own new print number when it starts. ')
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f"Preparing to start {target['title']}. {number_line}{estimate}.")
+            # A reprint of a project plate is a new logical run (#1008
+            # acceptance item 5): name it before the start so the start
+            # record carries the new run id and the original plan's counters
+            # never move. Bookkeeping only; the approval above is this
+            # start's own and is not reused.
+            await asyncio.to_thread(pc.arm_reprint_run, target)
             ok, detail = await print_next.start(target)
+            if not ok:
+                await asyncio.to_thread(pc.disarm_reprint_run, target)
             if ok:
                 # Queue bookkeeping lands in the job owner's own queue file,
                 # never another printer's (P2-135).
