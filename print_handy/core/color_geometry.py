@@ -226,7 +226,7 @@ def _part_feature_filaments(part, filament_tool, notes):
 
 @painted_geometry.decode_scoped
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
-                          identity_tools=False, tower_mm=None, layer_mode=None):
+                          identity_tools=False, tower_mm=None, layer_mode=None, *, ranges_carried=False):
     """object_ids limits export to those build objects (one authored plate);
     scale shrinks the selection uniformly before bed centering.
 
@@ -254,10 +254,17 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     item_shifts, refuses a resized export (the shifts were planned at
     authored size), an unknown or unexported object, a non-authored
     scale, and any rotation that is not a rigid rotation.
+
+    ranges_carried (#1279) is for a measure-only call by the remap route
+    (slice_route), which slices the source package with its height ranges
+    remapped instead of this export: the height-range refusal below is then
+    not this export's to make. A written export always refuses them.
     """
     if layer_mode not in (None, 'pause'):
         raise RuntimeError("layer_mode must be None or 'pause'")
     measure = target is None
+    if ranges_carried and not measure:
+        raise RuntimeError('only a measure-only export may leave height ranges to its caller')
     manifest = inventory(source)
     full_parts = manifest['parts']
     if object_ids is not None:
@@ -281,7 +288,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         # PrusaSlicer volumes (#1260) are split by inventory; a model config
         # that cannot be read leaves them unknown, which refuses here.
         source_colors.prusa_volume_layout(_archive, strict=True)
-        if 'Metadata/layer_config_ranges.xml' in source_members and \
+        if not ranges_carried and 'Metadata/layer_config_ranges.xml' in source_members and \
                 b'opt_key="extruder"' in _archive.read('Metadata/layer_config_ranges.xml'):
             raise RuntimeError('source carries Metadata/layer_config_ranges.xml height-range '
                                'extruder assignments, which the rebuilt geometry export cannot '

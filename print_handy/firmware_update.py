@@ -42,6 +42,7 @@ import re
 import time
 import urllib.error
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 UPDATE_STATUS_PATH = "/machine/update/status"
 UPDATE_REFRESH_PATH = "/machine/update/refresh"
@@ -149,6 +150,10 @@ class Component:
     # the OS distribution in /machine/system_info when the Update Manager
     # could not read the component's checkout.
     source: str = "update_manager"
+    # Why Moonraker marks the component invalid (``is_valid: false``), for
+    # instance a dirty repo. Moonraker refuses to update an invalid component,
+    # so Print Handy never offers or requests one (#1295).
+    invalid: str | None = None
 
     @property
     def update_available(self) -> bool:
@@ -171,6 +176,11 @@ class Component:
 @dataclass(frozen=True)
 class UpdateStatus:
     components: tuple = ()          # tuple[Component, ...]
+    # Moonraker's own GitHub API budget (unauthenticated: 60 requests an hour
+    # across every repo it checks). At 0, git and web components read "?"
+    # until the reset time, a UNIX timestamp.
+    github_remaining: int | None = None
+    github_reset: float | None = None
 
     def component(self, name):
         # ZMod's Moonraker names the component "Z-Mod"; callers ask for "zmod".
@@ -224,6 +234,11 @@ def parse_update_status(payload) -> UpdateStatus:
     for name, raw in info.items():
         if not isinstance(raw, dict):
             raise FirmwareError(f"Moonraker's update-status entry for {name!r} was not an object")
+        if not raw:
+            # An empty entry is a placeholder, not a component: ZMod's Moonraker
+            # lists `moonraker` and `klipper` as {} beside its real `moon` and
+            # `klippy` entries (live AD5X, 2026-11-11, #1295).
+            continue
         current = _version_str(raw.get("version")) or _version_str(raw.get("current_version"))
         remote = (_version_str(raw.get("remote_version"))
                   or _version_str(raw.get("available_version"))
@@ -231,8 +246,67 @@ def parse_update_status(payload) -> UpdateStatus:
         count = raw.get("package_count")
         components.append(Component(name=str(name), current=current, remote=remote,
                                     package_count=count if isinstance(count, int)
-                                    and not isinstance(count, bool) else 0))
-    return UpdateStatus(tuple(components))
+                                    and not isinstance(count, bool) else 0,
+                                    invalid=_invalid_reason(raw)))
+    remaining = payload["result"].get("github_requests_remaining")
+    reset = payload["result"].get("github_limit_reset_time")
+    return UpdateStatus(
+        tuple(components),
+        github_remaining=remaining if isinstance(remaining, int)
+        and not isinstance(remaining, bool) else None,
+        github_reset=float(reset) if isinstance(reset, (int, float))
+        and not isinstance(reset, bool) else None)
+
+
+def _invalid_reason(raw):
+    """Moonraker's reason a component is invalid, or None when it is valid.
+
+    Only an explicit ``is_valid: false`` counts. The reason is Moonraker's own
+    warnings, joined, so the operator sees what Moonraker sees.
+    """
+    if raw.get("is_valid") is not False:
+        return None
+    warnings = [" ".join(str(w).split()) for w in raw.get("warnings") or ()
+                if str(w).strip()]
+    return "; ".join(warnings) or "Moonraker marks it invalid"
+
+
+def _edited_moonraker_conf_hint(status, entry):
+    """The fix when ZMod's own moonraker.conf was edited, or None.
+
+    ZMod's moonraker.conf lives in the Z-Mod repo and starts "Do not edit this
+    file. All edits should be made to mod_data/user.moonraker.conf". An
+    installer that appends to it (HelixScreen's does) makes the repo dirty, and
+    Moonraker then refuses to update ZMod.
+    """
+    if entry is None or entry.firmware_family != "zmod":
+        return None
+    zmod = status.component("zmod")
+    if zmod is None or not zmod.invalid or "moonraker.conf" not in zmod.invalid:
+        return None
+    return ("ZMod's `moonraker.conf` has been edited (an installer such as "
+            "HelixScreen's appends its own section to it), so Moonraker sees the "
+            "Z-Mod repo as modified and will not update it. ZMod says added "
+            "sections belong in `mod_data/user.moonraker.conf`. Moonraker "
+            "write-protects files inside ZMod's repo, so neither Fluidd's editor "
+            "nor Print Handy can fix this; it takes a shell on the printer (SSH): "
+            "copy the added section into `mod_data/user.moonraker.conf`, run "
+            "`git checkout -- moonraker.conf` in the Z-Mod repo (`/usr/data/zmod/zmod` "
+            "on the AD5X), restart Moonraker, and run `/print-firmware` again.")
+
+
+def _github_limit_note(status):
+    """Why versions read "?" when Moonraker has used up its GitHub budget."""
+    if status.github_remaining != 0 or not status.remotes_unknown:
+        return None
+    when = ""
+    if status.github_reset:
+        when = (" It resets at "
+                + datetime.fromtimestamp(status.github_reset, timezone.utc).strftime("%H:%M UTC")
+                + ".")
+    return ("Moonraker has used up GitHub's hourly limit for update checks "
+            "(60 an hour without a GitHub token), which is why latest versions "
+            f"read as not reported.{when} Check again after that.")
 
 
 def fetch_status(transport, *, refresh=False) -> UpdateStatus:
@@ -405,6 +479,9 @@ def _component_line(component, *, eligible):
             return f"- **system**: {component.package_count} system packages available"
         return "- system: system packages up to date"
     current = component.current or "version not reported"
+    if component.update_available and component.invalid:
+        return (f"- **{component.name}**: {current} -> {component.remote} available, "
+                f"but Moonraker will not apply it ({component.invalid})")
     if component.update_available:
         line = f"- **{component.name}**: {current} -> {component.remote} available"
         if eligible:
@@ -441,6 +518,9 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
         lines.append(f"\nThe printer did not report the latest version for {names}, so "
                      "Print Handy cannot tell whether an update exists for "
                      f"{'it' if len(unknown) == 1 else 'them'}. Check in Fluidd or Mainsail.")
+        limit = _github_limit_note(status)
+        if limit:
+            lines.append(limit)
     elif not status.updates_available:
         lines.append("\nEverything Print Handy can check here is up to date.")
     if entry is not None and entry.vendor in FORK_VENDORS:
@@ -454,9 +534,14 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
                      f"{os_version or 'an unreadable version'} but the `zmod` component "
                      f"is {zmod.current if zmod else 'unreadable'}. ZMod pairs the OS and "
                      "the `zmod` component in their first two version numbers, and "
-                     "component updates fail while they disagree. Update the ZMod base "
-                     "from USB instead — `/print-firmware guide zmod` walks through it.")
-    elif pairing == "match":
+                     "component updates fail while they disagree (ZMod's docs say a mismatch "
+                     "causes instability). Fluidd or Mainsail shows the OS version under System, "
+                     "Distribution. `/print-firmware guide zmod` walks through the update, "
+                     "including when ZMod requires the USB route.")
+    hint = _edited_moonraker_conf_hint(status, entry)
+    if hint:
+        lines.append("\n**ZMod cannot update:** " + hint)
+    if pairing == "match":
         lines.append("\nZMod base and component versions pair correctly "
                      f"({'.'.join(str(p) for p in version_parts(os_version)[:2])}.x).")
     if mcu_state == "mismatch" and mcu_versions is not None:
@@ -590,6 +675,14 @@ def prepare_update(transport, entry, component_token) -> PreparedUpdate:
                               f"**{component.name}**, so Print Handy cannot tell whether "
                               "an update exists and will not request one. Check in Fluidd "
                               "or Mainsail. Nothing was sent.")
+    if component.invalid:
+        hint = _edited_moonraker_conf_hint(status, entry) if \
+            _component_key(component.name) == "zmod" else None
+        raise FirmwareRefusal(f"Moonraker marks **{component.name}** invalid "
+                              f"({component.invalid}) and refuses to update it, so Print "
+                              "Handy will not request one. "
+                              + (hint + " " if hint else "")
+                              + "Nothing was sent.")
     if not component.update_available:
         raise FirmwareRefusal(f"**{component.name}** is already up to date "
                               f"({component.current or 'version not reported'}); there is "
@@ -781,31 +874,55 @@ async def confirmed_update(transport, entry, component_token, ask) -> str:
 GUIDE_VERIFY_LINE = ("When the printer is back, run `/print-firmware` and Print Handy will "
                      "read and verify the versions it now reports.")
 
-ZMOD_GUIDE = """**Updating the ZMod base firmware (guided — you do these steps at the printer)**
+ZMOD_GUIDE = """**Updating ZMod (guided: you do these steps in Fluidd or Mainsail, or at the printer)**
 
-This is the ZMod base layer: the firmware image ZMod itself runs from. It is
-separate from the components `/print-firmware update` can apply — there is no
-API for the base layer, so Print Handy cannot do these steps for you. This
-guide is the checklist, in ZMod's documented order.
+Print Handy cannot do these steps for you: ZMod updates itself through its
+web UI or a USB drive, and neither has an API Print Handy can drive. This
+guide is the checklist, in the order ZMod's setup guide gives
+("Updating the Mod"). Most updates need no USB drive.
 
-1. Make sure the printer is idle and stays powered. Have a USB drive the
-   printer can read (FAT/FAT32) ready.
-2. Easiest path — the `ZFLASH` macro: insert the USB drive, then run
-   `ZFLASH` from the printer's console (Fluidd/Mainsail). It checks for the
-   latest ZMod release, downloads it to the USB drive, verifies the MD5
-   hash, and installs it after a reboot.
-3. Or by hand: download the latest ZMod release for your model from ZMod's
-   releases, put it on the USB drive exactly as ZMod's setup guide
-   describes, insert the drive and reboot the printer.
-4. Wait for the install to finish — ZMod's docs say it can take up to about
-   40 minutes on the AD5X, with two reboots (one to extract, one to
-   initialise). Do not remove the USB drive or switch the printer off
-   during the install. Your `mod_data` settings are preserved across the
-   update.
-5. Afterwards, the printer's OS version and its `zmod` component version
-   must pair in their first two numbers (OS 1.9.x with ZMod 1.9.x). If the
-   report still shows component updates, apply them one at a time with
-   `/print-firmware update <component>`.
+1. Find out which kind of update this is. In Fluidd or Mainsail, open
+   Settings, Software Update, and press Check for updates. If ZMod shows
+   "Update Z-Mod via USB", it is a firmware-level update: use step 3 or
+   4, even if you updated recently. Otherwise use step 2.
+2. Routine update, no USB drive: update ZMod and its modules from that
+   same Software Update page.
+   - Many errors on the first check are normal: the plugins are not part
+     of the firmware and download separately. Press Check for updates
+     again, then restore and update each module one by one. The printer
+     reboots partway through.
+   - A component `/print-firmware` reports with a real available version
+     can also be applied here with `/print-firmware update <component>`.
+     A component whose latest version shows as not reported (Moonraker
+     says `?`, usual for the `zmod`, `klipper` and `moonraker` git
+     components) can only be updated from the Software Update page.
+   Then go to step 5.
+3. USB update with the `ZFLASH` macro: use a USB drive formatted FAT,
+   FAT16 or FAT32 (MBR). Insert it and power the printer on. Without the
+   native screen, the drive must be in **before** you power on. Then run
+   `ZFLASH` from the printer's console in Fluidd or Mainsail. It checks
+   for the latest ZMod release, downloads it to the USB drive, verifies
+   the MD5 hash, and installs it after a reboot. It saves a trip to your
+   computer, not a trip to the printer: the drive still has to be in it.
+   You can leave the drive in for future updates.
+4. Or a USB update by hand: download the latest ZMod release for your
+   model, copy the file to the root of the USB drive without unpacking
+   it, power the printer off, insert the drive and power on. Wait for
+   the reboot and the success message without removing the drive; ZMod's
+   docs say this can take up to about 40 minutes on the AD5X, with two
+   reboots. Then remove the drive and power cycle the printer.
+   After either USB update your `mod_data` settings are kept. Finish with
+   step 2 to bring the modules up to date.
+5. Check the version pairing: the OS version (Fluidd or Mainsail, System,
+   Distribution) must match the first two numbers of the ZMod version
+   (OS 1.9.x with ZMod 1.9.x). ZMod's docs say mismatched versions cause
+   instability. `/print-firmware` checks this pairing for you and names a
+   mismatch.
+6. If you use Klipper 13 and `/print-firmware` reports the MCU out of step
+   after a `klipper` update, run `UPDATE_MCU FORCE=13` at the printer.
+   Not a bare `UPDATE_MCU` here: without `FORCE` it switches the MCU to
+   the other firmware, which on a Klipper 13 install is the native one.
+   This is a check after the components, not a step every update needs.
 
 """ + GUIDE_VERIFY_LINE
 

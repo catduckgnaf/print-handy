@@ -793,6 +793,78 @@ def test_zmod_guide_covers_zflash_md5_pairing_and_verification():
     assert "`/print-firmware`" in fw.GUIDE_VERIFY_LINE
 
 
+def test_zmod_guide_routes_unappliable_components_to_software_update():
+    # ZMod's "Updating the Mod" (wiki Setup.md, tag 1.7.6) finishes in
+    # Fluidd/Mainsail, Settings, Software Update, one module at a time. The
+    # components Moonraker reports `?` for are refused by `/print-firmware
+    # update`, so the guide must not send every component there (#1274).
+    text = fw.guide_text("zmod", AD5X)
+    assert "`/print-firmware update <component>`" in text
+    assert "Software Update" in text
+    assert "Fluidd or Mainsail" in text
+    assert "`?`" in text
+    assert "one by one" in text
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert step2.index("/print-firmware update") < step2.index("only be updated from the Software Update")
+
+
+def test_zmod_guide_puts_the_routine_no_usb_update_first():
+    # ZMod's "Updating the Mod" (wiki Setup): the normal path is Software
+    # Update in Fluidd/Mainsail with no USB drive; USB is required only when
+    # ZMod shows "Update Z-Mod via USB". First-check errors are expected.
+    text = fw.guide_text("zmod", AD5X)
+    step1 = text.split("\n1. ", 1)[1].split("\n2. ", 1)[0]
+    assert "Check for updates" in step1
+    assert '"Update Z-Mod via USB"' in step1 and "even if you updated recently" in step1
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert "no USB drive" in step2
+    assert "errors on the first check are normal" in step2
+    assert "restore and update each module one by one" in step2
+    assert "reboots" in step2
+    assert text.index("Routine update") < text.index("`ZFLASH`")
+
+
+def test_zmod_guide_usb_steps_follow_zmods_drive_rules():
+    # ZFLASH downloads to the USB drive and installs on reboot, so the drive
+    # must be in; without the native screen it goes in before power on.
+    # A manual install copies the file, not unpacked, to the root, power off.
+    text = fw.guide_text("zmod", AD5X)
+    step3 = text.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+    assert "FAT32 (MBR)" in step3
+    assert "**before** you power on" in step3 and "native screen" in step3
+    assert "downloads it to the USB drive" in step3
+    step4 = text.split("\n4. ", 1)[1].split("\n5. ", 1)[0]
+    assert "without unpacking" in step4 and "power the printer off" in step4
+    assert "without removing the drive" in step4
+
+
+def test_zmod_guide_and_mismatch_report_say_where_the_os_version_is():
+    text = fw.guide_text("zmod", AD5X)
+    step5 = text.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
+    assert "System" in step5 and "Distribution" in step5
+    assert "first two numbers" in step5 and "instability" in step5
+    report = fw.firmware_report(FakeTransport(system_info=SYSTEM_INFO_180), AD5X)
+    assert "System, Distribution" in report and "instability" in report
+
+
+def test_zmod_guide_closing_mcu_step_names_force_13_never_bare():
+    # A bare UPDATE_MCU toggles the MCU firmware (back to native on a
+    # Klipper 13 install); the closing step must name FORCE=13 and be
+    # conditional on the report, matching the MCU-mismatch report line.
+    text = fw.guide_text("zmod", AD5X)
+    step6 = text.split("\n6. ", 1)[1].split(fw.GUIDE_VERIFY_LINE, 1)[0]
+    assert "`UPDATE_MCU FORCE=13`" in step6
+    assert "Klipper 13" in step6 and "out of step" in step6
+    assert "`/print-firmware` reports" in step6
+    assert step6.index("FORCE=13") < step6.index("bare `UPDATE_MCU`")
+    for line in text.splitlines():
+        if "`UPDATE_MCU`" in line:
+            assert "bare" in line or "without" in line, line
+    # No ZFLASH2 / ZFLASH3: ZMod's sources at 1.7.6 (docs in every
+    # language, the macro configs and their history) name only ZFLASH.
+    assert "ZFLASH2" not in text and "ZFLASH3" not in text
+
+
 def test_stock_guide_covers_every_documented_pre_and_post_step():
     text = fw.guide_text("stock", AD5X)
     for needle in ("DISABLE_PLUGIN", "recommend", "timelapse", "notify",
@@ -976,3 +1048,71 @@ def test_update_refuses_a_component_whose_latest_version_is_unknown():
     transport = FakeTransport(status=STATUS_LIVE_ZMOD_UNREADABLE, system_info=SYSTEM_INFO_LIVE_ZMOD)
     with pytest.raises(fw.FirmwareRefusal, match="does not report the latest version of .*Z-Mod.*Nothing was sent"):
         fw.prepare_update(transport, AD5X, "zmod")
+
+
+# ------------------------------------------- live ZMod read, 2026-11-11 (#1295)
+
+# Recorded from the owner's AD5X on ZMod 1.7.5-2 (2026-11-11): Moonraker now
+# reads every checkout, lists `moonraker` and `klipper` as empty placeholders
+# beside ZMod's real `moon` and `klippy`, and marks Z-Mod invalid because
+# HelixScreen's installer appended a section to ZMod's own moonraker.conf.
+DIRTY_WARNING = "Repo is dirty.  Detected the following modified files: ['moonraker.conf']"
+STATUS_LIVE_ZMOD_DIRTY = {"result": {
+    "busy": False, "github_rate_limit": 60, "github_requests_remaining": 57,
+    "github_limit_reset_time": 1794435078.0,
+    "version_info": {
+        "moonraker": {}, "klipper": {},
+        "Z-Mod": {"configured_type": "git_repo", "channel": "dev", "version": "1.7.5-2",
+                  "remote_version": "1.7.6-17", "is_valid": False, "is_dirty": True,
+                  "warnings": [DIRTY_WARNING], "anomalies": []},
+        "klippy": {"configured_type": "git_repo", "version": "13.761-5",
+                   "remote_version": "13.761-7", "is_valid": True, "warnings": [],
+                   "anomalies": ["Repo has untracked source files: ['klippy/extras/quickswap.py']"]},
+        "fluidd": {"configured_type": "web", "version": "v1.37.17",
+                   "remote_version": "v1.37.22", "is_valid": True, "warnings": []},
+        "recommend": {"configured_type": "git_repo", "version": "1.1.7-0",
+                      "remote_version": "1.1.7-0", "is_valid": True, "warnings": []}}}}
+SYSTEM_INFO_175 = {"result": {"system_info": {"distribution": {
+    "name": "zmod 1.7.5 -> 1.7.5-2", "version": "1.7.5"}}}}
+
+
+def test_issue_1295_empty_placeholder_entries_are_not_components():
+    status = fw.parse_update_status(STATUS_LIVE_ZMOD_DIRTY)
+    assert [c.name for c in status.components] == ["Z-Mod", "klippy", "fluidd", "recommend"]
+    text = fw.firmware_report(FakeTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175), AD5X)
+    assert "version not reported" not in text
+    assert "did not report the latest version" not in text
+
+
+def test_issue_1295_an_invalid_zmod_repo_is_reported_with_the_fix_not_offered():
+    text = fw.firmware_report(FakeTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175), AD5X)
+    zline = next(line for line in text.splitlines() if line.startswith("- **Z-Mod**"))
+    assert "1.7.5-2 -> 1.7.6-17 available" in zline
+    assert "Moonraker will not apply it" in zline and "moonraker.conf" in zline
+    assert "/print-firmware update Z-Mod" not in text
+    assert "`mod_data/user.moonraker.conf`" in text and "HelixScreen" in text
+    # A valid component on the same printer is still offered.
+    assert "`/print-firmware update klippy`" in text
+
+
+def test_issue_1295_an_invalid_component_is_refused_before_anything_is_sent():
+    transport = ApplyTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175)
+    with pytest.raises(fw.FirmwareRefusal) as refused:
+        fw.prepare_update(transport, AD5X, "zmod")
+    assert "invalid" in str(refused.value) and "user.moonraker.conf" in str(refused.value)
+    assert "Nothing was sent" in str(refused.value)
+    assert transport.posts == []
+    assert fw.prepare_update(transport, AD5X, "klippy").name == "klippy"
+    assert transport.posts == []
+
+
+def test_issue_1295_a_spent_github_budget_is_named_with_its_reset_time():
+    payload = {"result": {"github_requests_remaining": 0,
+                          "github_limit_reset_time": 1794435078.0,
+                          "version_info": {"klippy": {"version": "13.761-5",
+                                                      "remote_version": "?"}}}}
+    text = fw.firmware_report(FakeTransport(payload, SYSTEM_INFO_175), GENERIC)
+    assert "GitHub's hourly limit" in text and "UTC" in text
+    # With budget left, "?" is not blamed on the limit.
+    payload["result"]["github_requests_remaining"] = 12
+    assert "hourly limit" not in fw.firmware_report(FakeTransport(payload), GENERIC)

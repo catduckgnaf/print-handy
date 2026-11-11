@@ -29,7 +29,21 @@ mocked Moonraker responses in `tests/test_firmware_update.py`.
   guided manual flows for the ZMod base and the stock Flashforge
   firmware under it (AD5X family). Print Handy performs none of those
   steps; the guide ends by asking you to run `/print-firmware` so the
-  resulting versions are verified.
+  resulting versions are verified. `guide zmod` follows ZMod's
+  "Updating the Mod": check for updates in Fluidd or Mainsail first.
+  A routine update needs no USB drive and runs from the Software
+  Update section (errors on the first check are normal; check again,
+  then restore and update each module one at a time). A component
+  with a real available version can also go through
+  `/print-firmware update`; a component reported as `?` only through
+  Software Update. Only when ZMod shows "Update Z-Mod via USB" does
+  the guide send you to USB: the `ZFLASH` macro (it downloads the
+  release to the USB drive, so the drive must be in, and in before
+  power on without the native screen) or a manual install. It then
+  checks the OS and ZMod version pairing (System, Distribution) and
+  closes with `UPDATE_MCU FORCE=13` only if the report shows a
+  Klipper 13 MCU out of step. It names no `ZFLASH2` / `ZFLASH3`
+  macros: ZMod's sources at 1.7.6 name only `ZFLASH`.
 
 There is no automatic applying and no background updater. Availability
 may be reported (see the update alerts below); only a person confirms an
@@ -40,6 +54,24 @@ AD5X on ZMod 1.7.5-2 does this for every git component), that row says
 "latest version not reported" and the report says Print Handy cannot
 tell whether an update exists. It never says "up to date" for such a
 component, and `/print-firmware update` refuses it rather than guess.
+
+Moonraker's GitHub checks are unauthenticated, 60 requests an hour across
+every repo on the printer. When that budget is spent, latest versions read
+`?` until it resets, and the report says so with the reset time. Empty
+placeholder entries (ZMod's Moonraker lists `moonraker` and `klipper` as
+empty beside its real `moon` and `klippy`) are not components and are not
+listed. A component Moonraker marks invalid (`is_valid: false`, for
+example a modified repo) is reported with Moonraker's reason and is never
+offered or requested, because Moonraker refuses to update it. On ZMod the
+usual cause is an edited `moonraker.conf`: an installer such as
+HelixScreen's appends its own section to ZMod's file, which ZMod says
+must not be edited. Moonraker write-protects every file inside a repo its
+update manager manages, so this cannot be fixed from Fluidd's editor or from
+Print Handy; it takes a shell on the printer (SSH). Copy the added section
+into `mod_data/user.moonraker.conf`, run `git checkout -- moonraker.conf` in
+the Z-Mod repo (the `path` of Moonraker's `[update_manager Z-Mod]`,
+`/usr/data/zmod/zmod` on the AD5X), and restart Moonraker
+([#1295](https://github.com/catduckgnaf/print-handy/issues/1295)).
 
 ## ZMod update alerts in chat
 
@@ -86,7 +118,7 @@ When the alert has no button, it says why in one line and how instead:
 
 | Case | How it is detected | The alert says |
 |---|---|---|
-| Moonraker marks the Z-Mod install not valid | `is_valid: false` (or `corrupt`) on the component, for example a checkout another installer changed; Moonraker refuses to update it | Check Fluidd or Mainsail: Settings, Software Update |
+| Moonraker marks the Z-Mod install not valid | `is_valid: false` (or `corrupt`) on the component, for example a checkout another installer changed; Moonraker refuses to update it | `/print-firmware` shows what changed and how to fix it (above) |
 | The printer does not report the update | Moonraker's remote is `?`, the GitHub release is newer | Update from Fluidd or Mainsail: Settings, Software Update |
 | The release needs USB | Its first two numbers differ from the ZMod base you installed from USB | Insert a USB drive and run `ZFLASH` (`/print-firmware guide zmod`) |
 | The base and component do not pair | The OS and `zmod` versions differ in their first two numbers | The base updates from USB first: `ZFLASH` |
@@ -118,13 +150,13 @@ against ZMod's own update instructions and the 1.7.6 release):
   exposes (every Update Manager component, the OS ↔ `zmod` pairing,
   Klipper 13 MCU currency), and applying one Moonraker component
   update at a time behind a confirmation, guarded as below.
-- **Not covered: a ZMod release step.** Going from one ZMod release
-  to the next (1.7.5 to 1.7.6, say) is a **base** update, not a
-  component update. ZMod's own update instructions install the
-  release from USB first (the `ZFLASH` macro or a manual USB
-  install) and use the Software Update section in Fluidd or
-  Mainsail for component updates afterwards. Print Handy guides the
-  base step (`/print-firmware guide zmod`) and performs none of it.
+- **Not covered: a ZMod update itself.** ZMod updates from the
+  Software Update section in Fluidd or Mainsail, with no USB drive,
+  unless ZMod shows "Update Z-Mod via USB". That message marks a
+  firmware-level update, which must go through USB (the `ZFLASH`
+  macro or a manual USB install) even if you updated recently.
+  Print Handy guides both routes (`/print-firmware guide zmod`) and
+  performs none of either.
   The component apply path moves components **within** the installed
   base; it does not take a printer across a release step, and the
   pairing refusal exists because ZMod component updates fail when
@@ -214,7 +246,7 @@ guides.
 
 | Family (registry keys) | What Print Handy can report | Apply? | How the update is actually done |
 |---|---|---|---|
-| **ZMod, AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro** (`flashforge.*`, Moonraker) | Every Update Manager component (`zmod`, `klipper`, `moonraker`, Fluidd/Mainsail, plugins incl. Print Handy's own), plus the OS↔`zmod` pairing check and Klipper 13 MCU currency | **Yes, components only**, guarded as above | Components: `/print-firmware update <component>`. ZMod base: USB or the `ZFLASH` macro (downloads the release to USB, verifies MD5, installs on reboot), `guide zmod`. Stock firmware underneath: touchscreen / USB, `guide stock` |
+| **ZMod, AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro** (`flashforge.*`, Moonraker) | Every Update Manager component (`zmod`, `klipper`, `moonraker`, Fluidd/Mainsail, plugins incl. Print Handy's own), plus the OS↔`zmod` pairing check and Klipper 13 MCU currency | **Yes, components only**, guarded as above | Components: `/print-firmware update <component>`. ZMod itself: Software Update in Fluidd/Mainsail, no USB, unless ZMod shows "Update Z-Mod via USB"; then the `ZFLASH` macro (downloads the release to the USB drive, verifies MD5, installs on reboot) or a manual USB install, `guide zmod`. Stock firmware underneath: touchscreen / USB, `guide stock` |
 | **Generic Klipper + Sovol SV06** (`klipper.generic`, `sovol.sv06`, Moonraker) | Every Update Manager component, as the operator configured it in `moonraker.conf` | **Yes**, same guarded path, minus the ZMod layers | `/print-firmware update <component>`; what it updates is the operator's own Update Manager configuration |
 | **Elegoo Neptune 4 family** (`elegoo.neptune4*`, Moonraker, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Elegoo's `ELEGOO_UPDATE_DIR` USB package via the touchscreen; touchscreen firmware separately via TF card. Elegoo warns that updating to official Klipper/Moonraker/Fluidd "will make the machine not work properly" |
 | **Creality Klipper, K1 family, Ender-3 V3 family** (`creality.*`, vendor fork) | The fork's component versions, information only | **No, hard excluded** | Creality touchscreen OTA / Creality Cloud, or Creality's USB package |
