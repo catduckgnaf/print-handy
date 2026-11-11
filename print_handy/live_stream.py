@@ -108,6 +108,8 @@ __all__ = [
     "GO2RTC_STREAM_NAME",
     "TARGET_CODECS",
     "VAAPI_DEVICE",
+    "vaapi_device",
+    "usable_render_node",
     "CameraSource",
     "EncoderCandidate",
     "EncoderProbe",
@@ -140,6 +142,58 @@ CAMERA_KINDS = ("mjpeg", "rtsp", "webrtc", "snapshot")
 TARGET_CODECS = ("h264", "vp8")
 ENCODER_PREFERENCES = ("auto", "vaapi", "qsv", "nvenc", "cpu")
 VAAPI_DEVICE = "/dev/dri/renderD128"
+VAAPI_DEVICE_ENV = "PRINT_HANDY_VAAPI_DEVICE"
+
+
+def _render_driver(sys_drm, node_name) -> str | None:
+    """Kernel driver bound to a render node, or None when sysfs cannot say."""
+    try:
+        return os.path.basename(os.readlink(Path(sys_drm) / node_name / "device" / "driver"))
+    except OSError:
+        return None
+
+
+def usable_render_node(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, access=None):
+    """The first accessible non-NVIDIA ``renderD*`` node, or None (#1262).
+
+    A node whose driver sysfs names (i915, amdgpu, ...) beats one whose driver
+    cannot be read (a container with a limited /sys), and an unreadable driver
+    is never treated as NVIDIA, so a limited /sys cannot hide the only GPU.
+    NVIDIA nodes are skipped: they have no VAAPI driver (NVENC reaches that
+    GPU through the NVIDIA runtime instead). Never raises.
+    """
+    access = access or os.access
+    try:
+        unknown = None
+        for node in sorted(Path(dri_dir).glob("renderD*")):
+            if not access(str(node), os.R_OK | os.W_OK):
+                continue
+            driver = _render_driver(sys_drm, node.name)
+            if driver == "nvidia":
+                continue
+            if driver:
+                return node
+            unknown = unknown or node
+        return unknown
+    except Exception:  # noqa: BLE001 - device discovery must never fail an encode
+        return None
+
+
+def vaapi_device(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, environ=None, access=None) -> str:
+    """The render node VAAPI should open (#1262).
+
+    ``PRINT_HANDY_VAAPI_DEVICE`` wins when set. Otherwise the node
+    :func:`usable_render_node` finds (a host with a second GPU numbers the
+    Intel/AMD node renderD129 or later, so the old fixed renderD128 opened the
+    wrong device or none). Falls back to :data:`VAAPI_DEVICE` when nothing
+    qualifies, so a single-GPU renderD128 host is unchanged. Never raises.
+    """
+    environ = os.environ if environ is None else environ
+    override = str(environ.get(VAAPI_DEVICE_ENV) or "").strip()
+    if override:
+        return override
+    node = usable_render_node(dri_dir, sys_drm, access=access)
+    return str(node) if node else VAAPI_DEVICE
 # The one go2rtc stream name for the printer camera (#311 stage 4):
 # print_handy.go2rtc renders its generated config under this name and
 # the Activity page (print_handy.live_activity) requests it, so the
@@ -663,8 +717,8 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
 
     Scales to `max_height` keeping aspect (width ``-2``, so it stays even),
     caps at `fps` and `bitrate_kbps`, and encodes with the candidate's
-    encoder. VAAPI candidates initialise ``-vaapi_device
-    /dev/dri/renderD128`` before the input and use the
+    encoder. VAAPI candidates initialise ``-vaapi_device`` with
+    :func:`vaapi_device` (renderD128 by default) before the input and use the
     ``format=nv12,hwupload`` tail on the scale filter (the analogous form
     for ``vp8_vaapi``); CPU H.264 uses ``libx264 -preset ultrafast`` and
     CPU VP8 uses ``libvpx -deadline realtime``.
@@ -697,7 +751,7 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
 
     argv = [executable, "-hide_banner", "-nostdin"]
     if chosen.vendor == "vaapi":
-        argv += ["-vaapi_device", VAAPI_DEVICE]
+        argv += ["-vaapi_device", vaapi_device()]
     argv += ["-i", input_url, "-an"]
     if chosen.vendor == "vaapi":
         video_filter = f"scale=-2:{max_height},format=nv12,hwupload"

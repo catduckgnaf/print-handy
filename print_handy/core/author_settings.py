@@ -367,6 +367,27 @@ def prusa_project(data):
     return _prusa(data)
 
 
+def _int_or_none(raw):
+    raw = str(raw if raw is not None else '').strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def prusa_volume_type(volume):
+    """The PrusaSlicer volume type of a Slic3r_PE_model.config <volume> element (#1260).
+
+    PrusaSlicer 2.4 and later write volume_type (ModelPart, ParameterModifier,
+    NegativeVolume, SupportBlocker, SupportEnforcer); older files write only
+    the modifier flag, where 1 is a modifier and anything else a model part.
+    The value is returned as written, so an unrecognized type stays visible.
+    """
+    meta = {m.get('key'): (m.get('value') or '').strip() for m in volume.findall('metadata')
+            if m.get('key') is not None}
+    kind = meta.get('volume_type')
+    if kind:
+        return kind
+    return 'ParameterModifier' if meta.get('modifier') == '1' else 'ModelPart'
+
+
 def parse_prusa_model(data):
     """Per-object settings from a PrusaSlicer Slic3r_PE_model.config member.
 
@@ -375,7 +396,9 @@ def parse_prusa_model(data):
     document order, each with <metadata type="volume" .../> entries. 'name' and 'extruder'
     are structural; every other key is a Prusa config name, translated through PRUSA_KEYS
     exactly like the project-level config (a key with no translation is dropped).
-    Returns {object_id: {'name', 'extruder', 'settings', 'volumes': [...]}}.
+    Returns {object_id: {'name', 'extruder', 'settings', 'volumes': [...]}}; each volume
+    also carries its 'type' (prusa_volume_type) and its 'firstid'/'lastid' triangle range
+    (None when absent or not a number).
     """
     out = {}
     try:
@@ -409,7 +432,10 @@ def parse_prusa_model(data):
         volumes = []
         for volume in obj.findall('volume'):
             v_name, v_extruder, v_settings = entries(volume)
-            volumes.append({'name': v_name, 'extruder': v_extruder, 'settings': v_settings})
+            volumes.append({'name': v_name, 'extruder': v_extruder, 'settings': v_settings,
+                            'type': prusa_volume_type(volume),
+                            'firstid': _int_or_none(volume.get('firstid')),
+                            'lastid': _int_or_none(volume.get('lastid'))})
         out[str(oid)] = {'name': name, 'extruder': extruder, 'settings': settings, 'volumes': volumes}
     return out
 

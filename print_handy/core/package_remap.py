@@ -16,8 +16,16 @@ package and nothing else:
   mapping removes falls back to 0 (the object's own filament) with the
   fallback named in the report — never a value past the new palette;
 - object and part extruders in model_settings.config (and in a PrusaSlicer
-  Slic3r_PE_model.config, whose palette lists and support extruders in
-  Slic3r_PE.config are permuted the same way);
+  Slic3r_PE_model.config, with its object and volume role extruders);
+- a PrusaSlicer Slic3r_PE.config (#1155): the mapping must cover its whole
+  palette or the remap refuses; then every per-filament list (palette,
+  temperatures, cooling, filament gcode and every filament_* option) is
+  permuted, the role extruders (perimeter, infill, solid infill, support,
+  support interface, wipe tower) are remapped, and the wiping-volumes
+  matrix is permuted on both axes. Per-extruder printer lists (nozzle,
+  retraction, offsets) stay with their physical extruder; one that differs
+  between extruders is named as kept. The PrusaSlicer height members
+  (custom G-code per print height, layer config ranges) are remapped too;
 - triangle paint: paint_color states are remapped and mmu_segmentation
   states are translated to paint_color (see painted_geometry);
 - per-layer tool changes (an unmapped one refuses, as in
@@ -95,6 +103,8 @@ RANGES = 'Metadata/layer_config_ranges.xml'
 SLICE_INFO = 'Metadata/slice_info.config'
 FILAMENT_SEQUENCE = 'Metadata/filament_sequence.json'
 MODEL = '3D/3dmodel.model'
+PRUSA_LAYER_GCODE = 'Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml'
+PRUSA_RANGES = 'Metadata/Prusa_Slicer_layer_config_ranges.xml'
 
 # Per-filament project keys live in color_geometry (its _PER_FILAMENT_KEYS is
 # the established list); imported lazily to avoid a module cycle.
@@ -254,7 +264,12 @@ _SLICE_RECORD = re.compile(r'Metadata/plate_\d+\.(?:json|gcode\.md5)$')
 # that renumbers objects refuses them by name (their key semantics, resource
 # id or 1-based object index, are not established here).
 _OBJECT_KEYED = frozenset({'Metadata/cut_information.xml', 'Metadata/layer_heights_profile.txt',
-                           'Metadata/brim_ear_points.txt'})
+                           'Metadata/brim_ear_points.txt',
+                           # The PrusaSlicer equivalents, and the SLA point files both write.
+                           'Metadata/Prusa_Slicer_cut_information.xml',
+                           'Metadata/Slic3r_PE_layer_heights_profile.txt',
+                           'Metadata/Slic3r_PE_sla_support_points.txt',
+                           'Metadata/Slic3r_PE_sla_drain_holes.txt'})
 
 
 def _is_preserved(name):
@@ -268,7 +283,7 @@ def _is_preserved(name):
 
 
 _HANDLED = frozenset({PROJECT, MODEL_SETTINGS, PRUSA_CONFIG, PRUSA_MODEL, RANGES,
-                      SLICE_INFO, layer_gcode.MEMBER})
+                      SLICE_INFO, layer_gcode.MEMBER, PRUSA_LAYER_GCODE, PRUSA_RANGES})
 
 
 def member_handling(name):
@@ -399,7 +414,8 @@ def remap_ranges(data, mapping, object_map=None):
     """Remap layer_config_ranges.xml bytes: extruder options and object ids.
 
     Non-extruder options are settings, not filament references; they pass
-    through untouched (the adoption pass restricts them separately). A range
+    through untouched (the adoption pass restricts them separately). Extruder
+    0 means the object's own filament (both slicers) and stays 0. A range
     naming an extruder the mapping does not cover, or — when an object map
     is supplied — an object it does not name, refuses.
     """
@@ -422,6 +438,8 @@ def remap_ranges(data, mapping, object_map=None):
             extruder = int(raw)
         except ValueError:
             raise RuntimeError(f'layer_config_ranges.xml names an invalid extruder {raw!r}') from None
+        if extruder == 0:
+            return match.group(0)
         if extruder not in mapping:
             raise RuntimeError(f'layer_config_ranges.xml names extruder {extruder}, which the '
                                'filament mapping does not cover')
@@ -518,31 +536,203 @@ def explicit_object_extruders(data, mapping, object_ids, *, member):
     return out, made
 
 
+# PrusaSlicer per-filament options in Slic3r_PE.config: one entry per
+# extruder, following the filament loaded in it. The palette lists and every
+# filament_* option, plus the filament-side temperature, cooling and gcode
+# options and the cumulative preset records.
+_PRUSA_FILAMENT_KEYS = re.compile(
+    r'(?:extruder_colour|filament_.*|(?:first_layer_)?temperature|(?:first_layer_)?bed_temperature'
+    r'|chamber_(?:minimal_)?temperature|idle_temperature|fan_always_on|cooling|(?:min|max|bridge)_fan_speed'
+    r'|disable_fan_first_layers|full_fan_speed_layer|fan_below_layer_time|slowdown_below_layer_time'
+    r'|min_print_speed|(?:start|end)_filament_gcode|overhang_fan_speed_\d|enable_dynamic_fan_speeds'
+    r'|compatible_(?:printers|prints)_condition_cummulative|inherits_cummulative)')
+# PrusaSlicer per-extruder printer options: properties of the physical
+# extruder (nozzle, retraction, offset), which stays where it is when the
+# filaments are renumbered, so these lists are never permuted.
+_PRUSA_EXTRUDER_KEYS = re.compile(
+    r'(?:extruder_offset|nozzle_diameter|retract_.*|deretract_speed|wipe|min_layer_height|max_layer_height'
+    r'|travel_(?:ramping_lift|max_lift|slope|lift_before_obstacle)|extruder_.*)')
+# Role extruders: 1-based extruder numbers, 0 meaning the object's own.
+PRUSA_ROLE_KEYS = ('perimeter_extruder', 'infill_extruder', 'solid_infill_extruder',
+                   'support_material_extruder', 'support_material_interface_extruder',
+                   'wipe_tower_extruder')
+# The role extruders whose PrusaSlicer default is extruder 1 (the wipe tower's
+# is 0). An object with no extruder prints these, so an absent one is the
+# package's implicit filament 1.
+_PRUSA_ROLE_DEFAULT_1 = PRUSA_ROLE_KEYS[:5]
+_PRUSA_LINE = re.compile(r'^(\s*;\s*)([A-Za-z0-9_]+)(\s*=\s?)(.*)$')
+
+
+def _split_prusa_list(value):
+    """(items, separator) of a PrusaSlicer list value; items keep their raw text.
+
+    String lists are ';'-separated and may quote items (a quoted gcode item
+    can hold ';' itself); number lists are ','-separated.
+    """
+    if '"' in value or ';' in value:
+        items, current, quoted, escaped = [], [], False, False
+        for char in value:
+            if escaped:
+                current.append(char)
+                escaped = False
+            elif char == '\\' and quoted:
+                current.append(char)
+                escaped = True
+            elif char == '"':
+                current.append(char)
+                quoted = not quoted
+            elif char == ';' and not quoted:
+                items.append(''.join(current))
+                current = []
+            else:
+                current.append(char)
+        items.append(''.join(current))
+        return items, ';'
+    return value.split(','), ','
+
+
+def prusa_palette_count(data):
+    """Number of extruders a Slic3r_PE.config's palette names, or None."""
+    lengths = []
+    for line in data.decode('utf-8', 'replace').splitlines():
+        match = _PRUSA_LINE.match(line)
+        if match and match.group(2) in ('extruder_colour', 'filament_colour', 'filament_type'):
+            value = match.group(4).strip()
+            if value:
+                lengths.append(len(_split_prusa_list(value)[0]))
+    return max(lengths) if lengths else None
+
+
 def remap_prusa_member(data, mapping):
-    """Permute a Slic3r_PE.config's palette lists and remap its support extruders."""
-    lines = data.decode('utf-8', 'replace').splitlines()
-    out = []
+    """Remap a PrusaSlicer Slic3r_PE.config by `mapping`; returns (bytes, notes).
+
+    The mapping must cover the whole palette (every extruder the palette
+    names, and nothing past it), or the remap refuses: a partial permutation
+    would leave some filaments' settings in source order and print the
+    wrong colors. Then every per-filament list is permuted into destination
+    order, the role extruders are remapped (0 stays 0), the wiping-volumes
+    matrix is permuted on both axes and the load/unload vector by extruder
+    pair (one with all entries equal is the same under any order). A list
+    whose shape is not one entry per extruder refuses by name. Per-extruder
+    printer lists stay with their physical extruder; one that differs
+    between extruders, and any other unknown palette-length list, is kept
+    as authored and named in the notes.
+    """
+    count = prusa_palette_count(data)
+    identity = all(source == dest for source, dest in mapping.items())
+    if count is None:
+        if identity:
+            return data, []
+        raise RuntimeError(f'{PRUSA_CONFIG} names no extruder palette, so a non-identity '
+                           'filament mapping cannot be applied to it')
+    if sorted(mapping) != list(range(1, count + 1)):
+        raise RuntimeError(f'filament mapping covers source filament(s) {sorted(mapping)}, but the '
+                           f'{PRUSA_CONFIG} palette has {count} extruder(s); refusing a partial '
+                           'remap that would leave filaments in source order')
+    order = [source for source, _dest in sorted(mapping.items(), key=lambda kv: kv[1])]
+    notes = []
+    text = data.decode('utf-8', 'replace')
+    lines = text.splitlines()
+    out, seen = [], set()
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(';') and '=' in stripped:
-            key, _, value = stripped[1:].partition('=')
-            key, value = key.strip(), value.strip()
-            if key in ('extruder_colour', 'filament_colour', 'filament_type'):
-                items = [item.strip() for item in value.split(';')] if value else []
-                if items and len(items) == len(mapping) and set(mapping) == set(range(1, len(items) + 1)):
-                    order = [s for s, _d in sorted(mapping.items(), key=lambda kv: kv[1])]
-                    value = ';'.join(items[s - 1] for s in order)
-                    line = f'; {key} = {value}'
-            elif key in ('support_material_extruder', 'support_material_interface_extruder'):
-                try:
-                    designation = int(value)
-                except ValueError:
-                    designation = None
-                if designation:
-                    value = str(mapping.get(designation, 0))
-                    line = f'; {key} = {value}'
+        match = _PRUSA_LINE.match(line)
+        if not match:
+            out.append(line)
+            continue
+        prefix, key, equals, value = match.groups()
+        seen.add(key)
+        raw = value.strip()
+        new = None
+        if key in PRUSA_ROLE_KEYS:
+            try:
+                designation = int(raw)
+            except ValueError:
+                raise RuntimeError(f'{PRUSA_CONFIG} {key} value {raw!r} is not an extruder number') from None
+            if designation:
+                if designation not in mapping:
+                    raise RuntimeError(f'{PRUSA_CONFIG} {key} names extruder {designation}, past the '
+                                       f'{count}-extruder palette')
+                new = str(mapping[designation])
+        elif key == 'wiping_volumes_matrix':
+            items, sep = _split_prusa_list(raw)
+            if len(items) != count * count:
+                raise RuntimeError(f'{PRUSA_CONFIG} wiping_volumes_matrix has {len(items)} entries, '
+                                   f'not the {count}x{count} the palette requires; refusing to permute it')
+            new = sep.join(items[(a - 1) * count + (b - 1)] for a in order for b in order)
+        elif key == 'wiping_volumes_extruders':
+            items, sep = _split_prusa_list(raw)
+            if not raw.strip():
+                pass
+            elif len(items) != 2 * count:
+                # The size is checked before the uniform shortcut: a uniform
+                # vector of the wrong length is as malformed as any other.
+                raise RuntimeError(f'{PRUSA_CONFIG} wiping_volumes_extruders has {len(items)} entries, '
+                                   f'not the two per extruder a {count}-extruder palette requires')
+            elif len(set(item.strip() for item in items)) > 1:
+                new = sep.join(item for source in order for item in items[2 * source - 2:2 * source])
+        elif raw and count >= 2:
+            items, sep = _split_prusa_list(raw)
+            if _PRUSA_FILAMENT_KEYS.fullmatch(key):
+                if len(items) == count:
+                    new = sep.join(items[source - 1] for source in order)
+                elif len(items) != 1:
+                    raise RuntimeError(f'{PRUSA_CONFIG} per-filament list {key} has {len(items)} '
+                                       f'entries for a {count}-extruder palette; its shape is not '
+                                       'understood')
+            elif (len(items) == count and not identity
+                  and len(set(item.strip() for item in items)) > 1):
+                kind = ('per-extruder printer setting, kept with its physical extruder'
+                        if _PRUSA_EXTRUDER_KEYS.fullmatch(key)
+                        else 'not a known per-filament list; kept as authored (unknown passthrough)')
+                notes.append(f'{PRUSA_CONFIG} {key} has one entry per extruder: {kind}')
+        if new is not None and new != raw:
+            line = f'{prefix}{key}{equals}{new}'
         out.append(line)
-    return ('\n'.join(out) + ('\n' if lines else '')).encode()
+    if mapping[1] != 1:
+        # An object with no extruder prints the role extruders, and an absent
+        # one defaults to extruder 1: write it, so those objects keep the
+        # filament the mapping moves (implicit extruder 1, #1155).
+        implicit = [key for key in _PRUSA_ROLE_DEFAULT_1 if key not in seen]
+        out += [f'; {key} = {mapping[1]}' for key in implicit]
+        if implicit:
+            notes.append(f'{PRUSA_CONFIG} set no {", ".join(implicit)} (default extruder 1); '
+                         f'written as {mapping[1]}, where filament 1 now sits')
+    trailing = '\n' if text.endswith('\n') else ''
+    return ('\n'.join(out) + trailing).encode(), notes
+
+
+def remap_prusa_model_roles(data, mapping):
+    """Remap object and volume role extruders in a Slic3r_PE_model.config; 0 stays 0."""
+    keys = '|'.join(PRUSA_ROLE_KEYS).encode()
+
+    def fix(match):
+        key, raw = match.group(2).decode(), match.group(3).decode()
+        try:
+            value = int(raw)
+        except ValueError:
+            raise RuntimeError(f'{PRUSA_MODEL} {key} value {raw!r} is not an extruder number') from None
+        if value == 0:
+            return match.group(0)
+        if value not in mapping:
+            raise RuntimeError(f'{PRUSA_MODEL} names {key} {value}, which the filament mapping '
+                               'does not cover')
+        return match.group(1) + str(mapping[value]).encode() + match.group(4)
+    return re.sub(rb'(<metadata[^>]*key="(' + keys + rb')" value=")([^"]*)(")', fix, data)
+
+
+def remap_prusa_layer_gcode(data, mapping):
+    """Remap the extruder of each PrusaSlicer per-height entry; 0 stays 0, unmapped refuses."""
+    def fix_code(match):
+        def fix(attr):
+            value = int(attr.group(2))
+            if value == 0:
+                return attr.group(0)
+            if value not in mapping:
+                raise RuntimeError(f'{PRUSA_LAYER_GCODE} names extruder {value}, which the '
+                                   'filament mapping does not cover')
+            return attr.group(1) + str(mapping[value]).encode() + attr.group(3)
+        return re.sub(rb'(\bextruder=")(\d+)(")', fix, match.group(0))
+    return re.sub(rb'<code\b[^>]*>', fix_code, data)
 
 
 def _remap_model_member(data, mapping):
@@ -573,11 +763,26 @@ def _validate_consistency(payload, mapping, object_map=None):
                 if int(raw) > dest_count:
                     raise RuntimeError(f'remapped {name} still names {key.decode()} '
                                        f'{raw.decode()}, outside the destination numbering')
-        elif name == RANGES:
+        elif name in (RANGES, PRUSA_RANGES):
             for raw in re.findall(rb'<option opt_key="extruder">(\d+)</option>', data):
-                if not 1 <= int(raw) <= dest_count:
+                if not 0 <= int(raw) <= dest_count:
                     raise RuntimeError('remapped layer_config_ranges.xml still names an '
                                        'extruder outside the destination numbering')
+        elif name == PRUSA_CONFIG:
+            count = prusa_palette_count(data)
+            if count is not None and count != dest_count:
+                raise RuntimeError(f'remapped {PRUSA_CONFIG} palette does not match the destination '
+                                   'numbering')
+            for key, raw in re.findall(r'^\s*;\s*(' + '|'.join(PRUSA_ROLE_KEYS) + r')\s*=\s*(\d+)\s*$',
+                                       data.decode('utf-8', 'replace'), re.M):
+                if int(raw) > dest_count:
+                    raise RuntimeError(f'remapped {PRUSA_CONFIG} still names {key} {raw}, outside the '
+                                       'destination numbering')
+        elif name == PRUSA_LAYER_GCODE:
+            for raw in re.findall(rb'<code\b[^>]*\bextruder="(\d+)"', data):
+                if int(raw) > dest_count:
+                    raise RuntimeError(f'remapped {PRUSA_LAYER_GCODE} still names extruder '
+                                       f'{raw.decode()}, outside the destination numbering')
         elif name == SLICE_INFO:
             for raw in re.findall(rb'<filament[^>]*\bid="(\d+)"', data):
                 if not 1 <= int(raw) <= dest_count:
@@ -742,6 +947,8 @@ def remap_package(source, target, mapping, object_map=None):
                     notes.append(f'object(s) {made} printed implicit filament 1; written explicitly '
                                  f'before the remap so they keep it (now filament {mapping[1]})')
             out = remap_extruder_metadata(out, mapping, member=name)
+            if name == PRUSA_MODEL:
+                out = remap_prusa_model_roles(out, mapping)
             if name == MODEL_SETTINGS:
                 out, metadata_notes = remap_filament_metadata(out, mapping, order, palette_count,
                                                               member=name)
@@ -757,9 +964,12 @@ def remap_package(source, target, mapping, object_map=None):
                 out = re.sub(rb'(<metadata key="object_id" value=")(\d+)(")', fix_id, out)
             payload[name] = out
         elif name == PRUSA_CONFIG:
-            payload[name] = remap_prusa_member(data, mapping)
-        elif name == RANGES:
+            payload[name], prusa_notes = remap_prusa_member(data, mapping)
+            notes += prusa_notes
+        elif name in (RANGES, PRUSA_RANGES):
             payload[name] = remap_ranges(data, mapping, object_map or None)
+        elif name == PRUSA_LAYER_GCODE:
+            payload[name] = remap_prusa_layer_gcode(data, mapping)
         elif name == SLICE_INFO:
             payload[name] = remap_slice_info(data, mapping)
         elif name == layer_gcode.MEMBER:

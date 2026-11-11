@@ -61,6 +61,15 @@ The scan covers operating system packages and the bundled binaries Syft can iden
 
 Releases carry their own SBOM (#1158): a publication run of the Publish Docker workflow generates an SPDX SBOM of the published multi-architecture image and uploads it as a run artifact, and the Release SBOM workflow (`.github/workflows/release-sbom.yml`) generates the SBOM for a release's image tag and attaches it to that GitHub release when the release is published.
 
+## Release watches
+
+Two weekly workflows watch for upstream releases Print Handy cares about. Both are notification only: neither edits a pin or a baseline, neither opens a bump PR, and each opens at most one deduplicated issue per release, closing it again once Print Handy catches up.
+
+- **Upstream watch** (`.github/workflows/upstream-watch.yml`, Mondays 13:37 UTC, `scripts/check_upstream_releases.py`): the bundled tools Print Handy pins manually (OrcaSlicer, go2rtc, Spoolman, Bambu Studio). It compares each pin with the upstream GitHub releases and reports under the `upstream-watch` label as `Upstream release: <Component> <version>`. An issue from it means a pin is behind; bumping the pin is a separate decision.
+- **Firmware watch** (`.github/workflows/firmware-watch.yml`, Tuesdays 13:47 UTC, `scripts/check_firmware_releases.py`): printer firmware Print Handy audits but does not bundle, starting with ZMod. It compares each watched firmware's latest final GitHub release against the **audited baseline** recorded in this repository (for ZMod, the audited-against version in [ZMOD.md](ZMOD.md)) and reports under the `firmware-watch` label as `Firmware release: <Firmware> <version>`. An issue from it means a release exists that Print Handy has not audited yet; the follow-up is a feature-by-feature audit in the pattern of #562 and #1269, and the issue closes when that audit moves the baseline. **A notice is not an audit**: it says the release exists, nothing about what the release changes for Print Handy, and the baseline never moves on its own.
+
+The other supported families were evaluated for the firmware watch in #1271. OctoPrint, Marlin, Prusa Buddy and QIDI publish GitHub releases but have no audited baseline recorded here yet; Klipper and Moonraker version by tags, not GitHub releases; stock Flashforge, Bambu Lab, Sovol, Elegoo, Creality and Anycubic firmware has no reliable machine-readable feed. None of those is watched today, and no page scraping fills the gap: a family joins the watch only when it has both a reliable feed and a recorded baseline to compare against.
+
 ## Review cadence and exceptions
 
 - Read the weekly report and update pins when a fixed upstream release exists. Bump the pin, its checksum or digest, and this table together.

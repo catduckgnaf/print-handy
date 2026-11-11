@@ -462,9 +462,11 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
     if mcu_state == "mismatch" and mcu_versions is not None:
         host, mcu = mcu_versions
         lines.append(f"\n**MCU out of step:** Klipper on the host is {host} but the MCU "
-                     f"firmware is {mcu}. On Klipper 13, run ZMod's `UPDATE_MCU` macro "
-                     "(or your install's MCU update step) to bring the MCU in step "
-                     "before printing.")
+                     f"firmware is {mcu}. On ZMod's Klipper 13, run "
+                     "`UPDATE_MCU FORCE=13` at the printer (or your install's MCU "
+                     "update step) to bring the MCU in step before printing. A bare "
+                     "`UPDATE_MCU` switches the MCU to the other firmware, which on "
+                     "a Klipper 13 install is the native one.")
     if entry is not None and entry.firmware_family == "zmod":
         lines.append("\nNot covered by this check: the ZMod base itself and the stock "
                      "Flashforge firmware underneath it update by hand — "

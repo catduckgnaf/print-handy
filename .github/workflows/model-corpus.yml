@@ -64,6 +64,14 @@ jobs:
         env:
           PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
         run: python -m pytest -v -rs tests/corpus/test_wedge_root_real_models.py
+      - name: Painted fit measures like the written export on real painted models
+        # #1246: the measure-only painted fit equals the written export's
+        # reports and verdicts on corpus-v1's painted 3MFs (shard 1, to keep
+        # it off the shard that runs the two steps above).
+        if: matrix.shard == 1
+        env:
+          PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
+        run: python -m pytest -v -rs -k corpus tests/pipeline/test_painted_fit_measure_1246.py
       - name: Run fake-Discord corpus shard
         env:
           PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models

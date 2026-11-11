@@ -390,9 +390,16 @@ RULES = (
          "sends N to M; a one-filament collapse keeps the used source filament's entries (not entry "
          "1's), because a plate that uses filament 2 must not inherit filament 1's temperatures, "
          "density or profile id. An array whose length matches neither the palette nor a known shape "
-         "refuses the remap.",
+         "refuses the remap. In a PrusaSlicer Slic3r_PE.config (#1155) the mapping must cover the whole "
+         "extruder palette or the remap refuses; every per-filament list is then permuted, the role "
+         "extruders (perimeter, infill, solid infill, support, support interface, wipe tower) are "
+         "remapped with 0 kept, an absent role extruder that defaults to 1 is written as filament 1's "
+         "new number, the wiping-volumes matrix is permuted on both axes and the load/unload vector by "
+         "extruder pair, and per-extruder printer lists stay with their physical extruder.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
-          "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
+          "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries",
+          "tests/pipeline/test_remap_package_prusa_1155.py::test_a_prusa_package_remaps_palette_settings_roles_and_matrix",
+          "tests/pipeline/test_remap_package_prusa_1155.py::test_a_mapping_that_does_not_cover_the_prusa_palette_refuses"),
          ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
          {"order": "destination_order_of_mapped_sources"}),
     Rule("flush-matrix-permutation", "purge_permutation", "any", "any", "orca", _ORCA,

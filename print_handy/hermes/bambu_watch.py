@@ -39,8 +39,8 @@ post) so the whole lifecycle is testable offline with fakes.
 """
 from __future__ import annotations
 
+import functools
 import logging
-import os
 import threading
 import time
 from pathlib import Path
@@ -58,6 +58,10 @@ logger = logging.getLogger(__name__)
 
 POLL_S = 30.0
 MAX_MONITOR_S = 48 * 3600.0
+# The overall deadline of one camera check, the Moonraker listener's
+# (VISUAL_CHECK_DEADLINE_S): a camera or verdict endpoint that never answers
+# is abandoned and the operator told, instead of holding the monitor.
+CHECK_DEADLINE_S = 150.0
 _ACTIVE = ("printing", "paused")
 _TERMINAL = {"complete": "complete", "cancelled": "cancelled", "error": "error", "standby": "complete"}
 
@@ -96,12 +100,12 @@ def _too_big_text():
 
 
 def write_frame(filename, image) -> Path:
-    """Save one camera frame where chat posts can attach it (the listener's frame dir)."""
-    target = Path(os.environ.get("PRINT_WATCH_FRAME_DIR") or _config.cache_dir() / "print-watch")
-    target.mkdir(parents=True, exist_ok=True)
-    path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
-    path.write_bytes(image)
-    return path
+    """Save one camera frame where chat posts can attach it (the listener's frame dir).
+
+    The shared writer (visual_watch.write_frame) prunes the folder to the
+    newest frames, so alert and status frames no longer pile up.
+    """
+    return _vw.write_frame(filename, image)
 
 
 def status_camera(adapter):
@@ -196,7 +200,7 @@ def vision_context(adapter) -> str:
 
 
 def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat_id=None, buttonless=None,
-                         identity=None):
+                         identity=None, printer_id=None):
     """Post one watchdog alert with its snapshot, the Moonraker alert's shape (#294 stage 3).
 
     Same delivery as the listener's _visual_alert: the button post
@@ -235,6 +239,8 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
     try:
         from . import print_alert_buttons as pab
         kwargs = {"mention_user_id": mention} if mention else {}
+        if printer_id:
+            kwargs["printer_id"] = printer_id
         if pab.post_visual_alert(token, chat_id, text, filename, path, identity=identity, **kwargs):
             return path
         log("bambu visual button post failed; falling back to text")
@@ -256,7 +262,7 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
 
 
 def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, buttonless=None,
-                        identity=None):
+                        identity=None, printer_id=None):
     """Post the once-per-print dark-camera notice (#476), the listener's shape.
 
     A camera problem, not a print alert: plain text on buttonless
@@ -278,7 +284,8 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
         return
     try:
         from . import print_alert_buttons as pab
-        if pab.post_visual_dark_notice(token, chat_id, text, filename, identity=identity):
+        if pab.post_visual_dark_notice(token, chat_id, text, filename, identity=identity,
+                                       **({"printer_id": printer_id} if printer_id else {})):
             return
         log("bambu visual dark button post failed; falling back to text")
     except Exception as exc:
@@ -287,7 +294,7 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
 
 
 def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_id=None, buttonless=None,
-                              identity=None):
+                              identity=None, printer_id=None):
     """Post a watchdog alert with no snapshot: the camera capture itself failed.
 
     The listener's _visual_alert_text shape: the visual alert's text and
@@ -317,6 +324,8 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
     try:
         from . import print_alert_buttons as pab
         kwargs = {"mention_user_id": mention} if mention else {}
+        if printer_id:
+            kwargs["printer_id"] = printer_id
         if pab.post_visual_text_alert(token, chat_id, text, filename, identity=identity, **kwargs):
             return
         log("bambu visual text button post failed; falling back to text")
@@ -335,10 +344,17 @@ class BambuPrintMonitor:
     """Poll one launched Bambu print to its end; post its completion, with the final image
     and, when a capture session ran, the print's timelapse alongside it (#295).
 
-    Alert-only by construction: the monitor reads status and the camera and
-    posts to chat. It holds no printer-control callable at all — the
-    watchdog's Pause is the operator pressing the alert's button, which the
-    gateway routes to the adapter's control("pause") (print_stop.pause).
+    Alert-only unless the operator opted in: the monitor reads status and
+    the camera and posts to chat. Its one printer action is the opt-in
+    early-layer auto-pause (visual_watch.auto_pause_early), decided by the
+    same shared rule as the Moonraker listener (visual_watch.
+    auto_pause_decision: a risky print, two independent suspicious views)
+    and sent through the same code as the alert's Pause button
+    (``auto_pause``, which start_monitor wires to print_alert_buttons'
+    pause path, print_stop.pause). Without ``auto_pause`` it holds no
+    printer-control callable at all — the watchdog's Pause is the operator
+    pressing the alert's button, which the gateway routes to the adapter's
+    control("pause") (print_stop.pause).
     The pause post (#460, via family_control.PauseAlerts) works the same
     way: a printing -> paused transition posts the shared pause alert,
     whose Resume/Cancel buttons the gateway routes to family_control.
@@ -349,6 +365,8 @@ class BambuPrintMonitor:
                  dark_notice=None, text_alert=None,
                  camera_source_fn=None, begin_fn=None, encode_fn=None,
                  pause_alerts=None, event_recorder=None,
+                 auto_pause=None, watch_mode_fn=None, printer_id=None,
+                 check_deadline_s=None,
                  clock=time.monotonic, wall=time.time, sleep=time.sleep,
                  poll_s=POLL_S, capture_poll_s=5.0):
         self.filename = filename or ""
@@ -381,12 +399,26 @@ class BambuPrintMonitor:
         self._session = None
         self._last_frame = None
         self._last_layer = None
-        self._last_periodic_at = None
-        # When the last camera-failure text alert went out. A failed
-        # capture never advances the watch's snapshot baseline, so due()
-        # keeps offering a probe on every poll while the camera is down;
-        # this stamp is what keeps that from becoming an alert per poll.
-        self._last_camera_failure_alert_at = None
+        # The shared policy pieces the Moonraker listener uses too: the
+        # early-layer schedule for a risky print (watch_mode_fn: () ->
+        # (mode, settled), retried until the start context is found), the
+        # opt-in auto-pause (auto_pause: (filename, identity) -> reply
+        # text; None keeps the monitor alert-only), this print's roster
+        # printer, and the overall check deadline (None runs checks inline,
+        # as offline tests do; start_monitor sets CHECK_DEADLINE_S).
+        self._auto_pause = auto_pause
+        self._watch_mode_fn = watch_mode_fn
+        self._watch_mode_settled = watch_mode_fn is None
+        self._printer_id = printer_id
+        self._check_deadline_s = check_deadline_s
+        self._check_thread = None
+        self._check_started_at = None
+        self._check_timeout_noticed = False
+        self._monitor_stopped = False  # set when run() stops: a late check result is dropped
+        # A failed capture never advances the watch's snapshot baseline, so
+        # due() keeps offering a probe on every poll while the camera is
+        # down; the watch's FailureEpisode keeps that from becoming an
+        # alert per poll (shared with timeouts and verdict failures).
         self.outcome = None
 
     # -- capture lifecycle (#295) --------------------------------------------
@@ -428,7 +460,12 @@ class BambuPrintMonitor:
         return session
 
     def _stop_capture(self, state):
-        """Stop the session, whatever state it is in. Never raises."""
+        """Stop the session, whatever state it is in. Never raises.
+
+        Every way out of run() passes here, so this also marks the monitor
+        stopped: a camera check still running drops its result.
+        """
+        self._monitor_stopped = True
         session, self._session = self._session, None
         if session is not None:
             try:
@@ -549,7 +586,7 @@ class BambuPrintMonitor:
                 if not capture_attempted:
                     capture_attempted = True
                     self._session = self._begin_capture()
-                if self._session is not None and state == "printing":
+                if self._session is not None and state == "printing" and not self._check_running():
                     # A pause holds the session open but takes no frames,
                     # exactly as the other launched-print monitors do.
                     self._session.tick(self._last_layer)
@@ -588,38 +625,161 @@ class BambuPrintMonitor:
             step = min(self._capture_poll_s, self._poll_s - elapsed)
             self._sleep(step)
             elapsed += step
-            if self._session is not None:
+            if self._session is not None and not self._check_running():
                 self._session.tick(self._last_layer)
+
+    def _check_running(self):
+        """True while a camera check's thread is still running.
+
+        The capture session takes no frame meanwhile: the camera serves one
+        caller at a time, as it did when the monitor waited for each check.
+        Status polling goes on regardless.
+        """
+        thread = self._check_thread
+        return thread is not None and thread.is_alive()
 
     def poll_active(self, st):
         """One active-print poll: the camera watchdog's trigger (#294 stage 3).
 
-        Mirrors the Moonraker listener: while the print is printing, the
-        shared VisualPrintWatch policy decides from layer and time when a
-        check is due (layer 2, layer 5, periodic, stall probes). Where the
-        firmware reports no layer, the policy cannot run — the periodic
-        interval from the same sensitivity profile still applies, driven
-        by the poll cadence, exactly as the issue specifies.
+        Mirrors the Moonraker listener with the shared VisualPrintWatch
+        policy: while the print is printing, layer changes drive the layer
+        2 / layer 5 / stall checks (``due``) and the clock drives the
+        periodic, early-layer and empty-bed re-checks (``tick``), both at
+        the poll cadence. A risky print (visual_watch.risky_job on its start
+        context) gets the early-layer schedule. Where the firmware reports
+        no layer, ``tick`` runs the clock-only schedule and the operator is
+        told once. A check still running (or hung past its deadline) skips
+        this poll's check.
         """
         if self._watch is None or self._verdict is None or self._alert is None:
             return
+        self._post_detector_notices()
+        self._last_state = st.get("state")
         if st.get("state") != "printing":
+            return
+        self._settle_watch_mode()
+        if not self._check_slot_free():
             return
         layer = st.get("layer")
         layer = layer if isinstance(layer, int) and not isinstance(layer, bool) else None
+        elapsed = st.get("print_duration")
+        elapsed = (float(elapsed) if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+                   and elapsed >= 0 else None)
         now = self._wall()
         if layer is not None:
-            reason = self._watch.due(layer, now, snapshot_changed=None)
+            reason = self._watch.due(layer, now, snapshot_changed=None) or self._watch.tick(layer, now)
         else:
-            if self._last_periodic_at is None:
-                self._last_periodic_at = now
-                return
-            if now - self._last_periodic_at < self._watch.profile["periodic_s"]:
-                return
-            self._last_periodic_at = now
-            reason = "periodic"
+            reason = self._watch.tick(None, now, elapsed_s=elapsed)
+            if reason:
+                self._note_layerless_watch()
         if reason:
+            self._run_check(reason, layer)
+
+    def _settle_watch_mode(self):
+        """Pick the early-layer or normal schedule once the start context exists. Never raises."""
+        if self._watch_mode_settled:
+            return
+        try:
+            mode, settled = self._watch_mode_fn()
+        except Exception as exc:
+            log(f"bambu camera watch mode lookup failed file={self.filename!r}: {exc!r}")
+            return
+        self._watch.set_mode(mode)
+        self._watch_mode_settled = bool(settled)
+        if mode == _vw.WATCH_MODE_EARLY:
+            log(f"bambu camera watch mode=early_layer file={self.filename!r}: every layer for "
+                f"{self._watch.early_layers} layers, at least every {self._watch.early_interval_s}s")
+
+    def _note_layerless_watch(self):
+        """Post, once per print, that the watch runs on a timer: the printer reports no layers."""
+        if self._watch.layerless_noticed:
+            return
+        self._watch.layerless_noticed = True
+        minutes = max(1, round(self._watch.profile["periodic_s"] / 60))
+        text = (f"Camera watch: {print_summary.safe_label(self.filename, 'print')} reports no layer "
+                f"numbers, so I'm checking the camera on a timer instead, about every {minutes} "
+                "minutes. Stall detection needs layer numbers and is off for this print.")
+        log(f"bambu camera watch file={self.filename!r}: no layer numbers reported; checking on a timer")
+        try:
+            self._post(text)
+        except Exception as exc:
+            log(f"bambu layerless notice failed for {self.filename!r}: {exc!r}")
+
+    def _post_detector_notices(self):
+        """Post the local detector's pending failure and recovery notices. Never raises."""
+        try:
+            if not local_vision.watch_uses_detector():
+                return
+            for text in local_vision.take_notices():
+                log(f"bambu camera watch: {text}")
+                self._post(text)
+        except Exception as exc:
+            log(f"bambu local detector notice failed: {exc!r}")
+
+    def _check_slot_free(self):
+        """True when no earlier check is still running (single flight).
+
+        A check that overran the deadline is abandoned: the operator is told
+        once that this print is unmonitored while the watch retries (the
+        Moonraker listener's timeout notice, same throttle), and no new check
+        starts until the stuck one returns.
+        """
+        thread = self._check_thread
+        if thread is None or not thread.is_alive():
+            self._check_thread = None
+            return True
+        if (not self._check_timeout_noticed and self._check_deadline_s is not None
+                and self._clock() - self._check_started_at >= self._check_deadline_s):
+            self._check_timeout_noticed = True
+            self._check_timed_out()
+        return False
+
+    def _run_check(self, reason, layer):
+        """Start one camera check, under the overall deadline when one is set.
+
+        With a deadline the check runs on its own thread and this returns at
+        once: the monitor keeps polling (a print that ends or changes while a
+        check hangs is seen on the next poll), and the next polls'
+        ``_check_slot_free`` tells the operator once the check overruns.
+        """
+        if self._check_deadline_s is None:
             self.visual_check(reason, layer)
+            return
+        self._check_started_at = self._clock()
+        self._check_timeout_noticed = False
+        thread = threading.Thread(target=self.visual_check, args=(reason, layer), daemon=True,
+                                  name=f"bambu-check-{self.filename}")
+        self._check_thread = thread
+        thread.start()
+
+    def _abandoned(self):
+        """True inside a check thread whose result must be dropped.
+
+        A check that overran its deadline (as the listener cancels its task):
+        the operator was already told the print is unmonitored, and the frame
+        it judged is old. Or a check still running when the monitor stopped
+        (the print ended or was superseded): its verdict is about a print
+        this monitor no longer watches.
+        """
+        thread = self._check_thread
+        return (thread is not None and thread is threading.current_thread()
+                and (self._check_timeout_noticed or self._monitor_stopped))
+
+    def _check_timed_out(self):
+        """The current check overran its deadline: log it and alert (throttled). Never raises."""
+        self.check_timeouts = getattr(self, "check_timeouts", 0) + 1
+        log(f"bambu visual check timed out file={self.filename!r} after {self._check_deadline_s:.0f}s "
+            f"(timeouts so far: {self.check_timeouts}); the camera or the vision endpoint did not answer")
+        try:
+            if not self._watch.failure_alert_due(self._wall()):
+                log(f"bambu visual timeout alert suppressed for {self.filename!r}: "
+                    "already alerted within the periodic interval")
+            elif self._visual_muted():
+                log(f"bambu visual alert suppressed for muted print {self.filename!r}")
+            elif self._text_alert is not None:
+                self._text_alert(self.filename, _vw.TIMEOUT_ALERT_TEXT, identity=self._identity)
+        except Exception as exc:
+            log(f"bambu visual timeout alert failed file={self.filename!r}: {exc!r}")
 
     def _record_watchdog_event(self, verdict, *, action):
         """Best-effort #981 event recording beside this print watch.
@@ -649,6 +809,7 @@ class BambuPrintMonitor:
         image = None
         try:
             image = self._camera_fn()
+            captured_at = self._wall()
             if _vw.frame_dark(image):
                 # #476: a completely dark frame is a camera fact, never a
                 # print verdict — no vision call, no stall baseline, no
@@ -694,29 +855,81 @@ class BambuPrintMonitor:
                 suspicious = True
             log(f"bambu visual check file={self.filename!r} reason={reason} layer={layer} "
                 f"changed={changed} verdict={verdict} detail={detail!r}")
+            if self._abandoned():
+                log(f"bambu visual check discarded file={self.filename!r} reason={reason} "
+                    f"verdict={verdict}: it overran its deadline")
+                return
+            # A verdict call that could not judge the frame is a watch failure
+            # (one throttled episode with failed snapshots and timeouts); any
+            # real judgement ends the episode, with one notice if it alerted.
+            watch_failed = verdict == "uncertain" and detail == _vw.VISION_FAILED_DETAIL
+            if not watch_failed and watch.failures.recovered() and not self._visual_muted():
+                self._post(_vw.recovery_text(print_summary.safe_label(self.filename, "print")))
+            # The opt-in early-layer auto-pause: the Moonraker rule, shared
+            # (visual_watch.note_verdict and auto_pause_decision).
+            early = watch.in_early_window(layer)
+            signature = _vw.frame_signature(image) if verdict in _vw.AUTO_PAUSE_VERDICTS else None
+            streak = watch.note_verdict(verdict, layer, printer_id=self._printer_id,
+                                        print_identity=self._identity, signature=signature,
+                                        frame_age_s=self._wall() - captured_at, now=self._wall())
+            if verdict in _vw.AUTO_PAUSE_VERDICTS and early and not watch.last_counted:
+                log(f"bambu visual check file={self.filename!r} reason={reason}: suspicious frame not "
+                    f"counted toward auto-pause: {watch.last_evidence}")
             if suspicious:
                 if self._visual_muted():
                     log(f"bambu visual alert suppressed for muted print {self.filename!r}")
                     self._record_watchdog_event(verdict, action="suppressed")
+                elif watch_failed and not watch.failure_alert_due(self._wall()):
+                    log(f"bambu visual failure alert suppressed for {self.filename!r}: "
+                        "already alerted within the periodic interval")
+                    self._record_watchdog_event(verdict, action="suppressed")
                 else:
-                    self._alert(self.filename, image,
-                                _vw.stall_alert_text(layer, verdict, detail)
-                                if reason == "stalled_layers" else
-                                f"{reason} at layer {layer or 'unknown'}: {verdict}; "
-                                f"{detail or 'visual check needs operator review'}",
-                                identity=self._identity)
-                    self._record_watchdog_event(verdict, action="alert")
+                    pause_now, pause_why = _vw.auto_pause_decision(
+                        watch.pause_members,
+                        enabled=self._auto_pause is not None and _vw.watch_settings()["auto_pause_early"],
+                        already_paused=watch.auto_paused, printer_id=self._printer_id,
+                        print_identity=self._identity, state=getattr(self, "_last_state", None),
+                        verdict=verdict, frame_counted=watch.last_counted,
+                        frame_age_s=self._wall() - captured_at, mode=watch.mode,
+                        in_early_window=early)
+                    if streak and not pause_now:
+                        log(f"bambu auto-pause not sent file={self.filename!r}: {pause_why}")
+                    if pause_now:
+                        watch.auto_paused = True  # once per print, reserved before posting
+                    text = (_vw.stall_alert_text(layer, verdict, detail)
+                            if reason == "stalled_layers" else
+                            f"{reason} at layer {layer or 'unknown'}: {verdict}; "
+                            f"{detail or 'visual check needs operator review'}")
+                    if pause_now:
+                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {pause_why}, "
+                                 "so I am pausing the print. It is not cancelled.")
+                    self._alert(self.filename, image, text, identity=self._identity)
+                    self._record_watchdog_event(verdict, action="auto_pause" if pause_now else "alert")
+                    if pause_now:
+                        # The alert's own Pause path: it re-reads the printer
+                        # and refuses a different file or a printer that is
+                        # no longer printing.
+                        log(f"bambu auto-pause early layers file={self.filename!r} layer={layer} "
+                            f"streak={streak}: sending pause")
+                        reply = self._auto_pause(self.filename, self._identity)
+                        log(f"bambu auto-pause early layers file={self.filename!r}: {reply}")
+                        self._post(f"Auto-pause: {print_summary.safe_label(self.filename, 'print')}\n{reply}")
             else:
                 self._record_watchdog_event(verdict, action="none")
         except Exception as exc:
             log(f"bambu visual check failed file={self.filename!r} reason={reason}: {exc!r}")
+            if self._abandoned():
+                return  # the timeout already told the operator
             if image is not None:
                 try:
-                    if self._visual_muted():
+                    if self._watch is not None and not self._watch.failure_alert_due(self._wall()):
+                        log(f"bambu visual failure alert suppressed for {self.filename!r}: "
+                            "already alerted within the periodic interval")
+                    elif self._visual_muted():
                         log(f"bambu visual alert suppressed for muted print {self.filename!r}")
                     else:
                         self._alert(self.filename, image,
-                                    f"{reason} at layer {layer or 'unknown'}: the vision check could not be completed, "
+                                    f"{reason} at layer {layer or 'unknown'}: {_vw.VISION_FAILED_DETAIL}, "
                                     "so treat this as unreviewed and check the print on the printer screen",
                                     identity=self._identity)
                 except Exception as alert_exc:
@@ -726,41 +939,27 @@ class BambuPrintMonitor:
                 # attach — but the operator still gets an alert: a dead
                 # camera must not silently leave the print unmonitored
                 # (the Moonraker watchdog's P2-8 rule, mirrored here).
-                # Throttled separately, though: the failed capture never
-                # updates the watch's snapshot baseline, so due() offers
-                # another probe on the next poll (~30 s) for as long as
-                # the camera stays down — without a throttle each probe
-                # would repost this alert instead of waiting out the
-                # profile's periodic interval like a normal alert cycle.
-                # Probes keep running; only the alert is throttled, so a
-                # camera that recovers is picked up on the next poll.
+                # Throttled, though: the failed capture never updates the
+                # watch's snapshot baseline, so due() offers another probe
+                # on the next poll (~30 s) for as long as the camera stays
+                # down. The watch's FailureEpisode (shared with timeouts and
+                # verdict failures) lets the first failure alert and then at
+                # most one more per periodic interval. Probes keep running;
+                # only the alert is throttled, so a camera that recovers is
+                # picked up on the next poll.
                 try:
-                    if self._visual_muted():
-                        log(f"bambu visual alert suppressed for muted print {self.filename!r}")
-                    elif self._camera_failure_alert_throttled():
+                    if self._watch is not None and not self._watch.failure_alert_due(self._wall()):
                         log(f"bambu visual camera-failure alert suppressed for {self.filename!r}: "
                             "already alerted within the periodic interval")
+                    elif self._visual_muted():
+                        log(f"bambu visual alert suppressed for muted print {self.filename!r}")
                     else:
                         self._text_alert(self.filename,
                                          f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
                                          "so this print is unmonitored until the camera answers again; check the camera",
                                          identity=self._identity)
-                        self._last_camera_failure_alert_at = self._wall()
                 except Exception as alert_exc:
                     log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
-
-    def _camera_failure_alert_throttled(self):
-        """True when a camera-failure alert already went out inside the interval.
-
-        The interval is the watch profile's periodic_s — the same spacing
-        the watch's normal alert cycle uses (900 s at the default
-        sensitivity) — so a dead camera nags no more often than a healthy
-        one would be checked. With no watch wired there is no interval to
-        honor and nothing throttles.
-        """
-        if self._last_camera_failure_alert_at is None or self._watch is None:
-            return False
-        return self._wall() - self._last_camera_failure_alert_at < self._watch.profile["periodic_s"]
 
     def _visual_muted(self):
         """True when this print's watchdog posts were muted (#476). Never raises."""
@@ -824,6 +1023,34 @@ def _default_verdict(adapter, streak=None):
     return verdict
 
 
+def _default_auto_pause(filename, identity, *, printer_id=None):
+    """The opt-in early-layer auto-pause: the camera alert's Pause button path.
+
+    print_alert_buttons.handle_click("pause") routes a Bambu printer to
+    print_stop.pause, which re-reads the LAN state, checks that the alerted
+    file is the one printing, and sends one pause; it never cancels.
+    """
+    from . import print_alert_buttons as pab
+    alert = {"kind": "visual", "filename": filename, "identity": identity}
+    if printer_id:
+        alert["printer_id"] = str(printer_id)
+    return pab.handle_click("pause", alert)
+
+
+def _default_watch_mode(filename):
+    """``(mode, settled)`` for this print's camera watch from its start context.
+
+    The same rule as the Moonraker listener (visual_watch.risky_job on the
+    recorded start context): a risky print gets the early-layer schedule.
+    ``settled`` is False while no context is recorded yet, so the monitor
+    asks again on the next poll.
+    """
+    from . import print_records
+    context = print_records.load_context(filename) if filename else {}
+    mode = _vw.WATCH_MODE_EARLY if _vw.risky_job(context) else _vw.WATCH_MODE_NORMAL
+    return mode, bool(context)
+
+
 def _post_watch_not_running(filename, post):
     """One notice at the launch: the camera watch is on but cannot run, and why. Never raises."""
     try:
@@ -853,17 +1080,22 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
         log(f"bambu monitor not started for {filename!r}: no chat is configured to post to")
         return None
     try:
-        watch = verdict = alert = dark_notice = text_alert = None
+        watch = verdict = alert = dark_notice = text_alert = auto_pause = None
         from . import moonraker_event_listener as mel
         if _config.cfg()["visual_watch"]["enabled"] and mel._vision_ready():
-            watch = _vw.VisualPrintWatch()
+            settings = _vw.watch_settings(_config.cfg())
+            watch = _vw.VisualPrintWatch(early_layers=settings["early_layers"],
+                                         early_interval_s=settings["early_interval_s"])
             # One escalation streak per monitored print (#455): a fresh
             # FailureStreak here is the per-print reset — the monitor
             # (and its streak) is discarded when the print ends.
             verdict = _default_verdict(adapter, streak=local_vision.FailureStreak())
-            alert = deliver_visual_alert
-            dark_notice = deliver_dark_notice
-            text_alert = deliver_visual_text_alert
+            # Every camera post names this print's roster printer, so the
+            # alert buttons act on it and never on the default printer.
+            alert = functools.partial(deliver_visual_alert, printer_id=printer_id)
+            dark_notice = functools.partial(deliver_dark_notice, printer_id=printer_id)
+            text_alert = functools.partial(deliver_visual_text_alert, printer_id=printer_id)
+            auto_pause = functools.partial(_default_auto_pause, printer_id=printer_id)
         elif _config.cfg()["visual_watch"]["enabled"]:
             _post_watch_not_running(filename, post or _default_post)
         if camera_source_fn is None and hasattr(adapter, "camera_frame_source"):
@@ -881,7 +1113,11 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             watch=watch, verdict=verdict, alert=alert, dark_notice=dark_notice,
             text_alert=text_alert,
             camera_source_fn=camera_source_fn, capture_poll_s=interval,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id))
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id),
+            auto_pause=auto_pause, printer_id=printer_id,
+            watch_mode_fn=(functools.partial(_default_watch_mode, filename)
+                           if watch is not None else None),
+            check_deadline_s=CHECK_DEADLINE_S)
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"bambu-watch-{filename}"))
         thread = factory(monitor.run)

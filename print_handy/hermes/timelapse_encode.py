@@ -63,13 +63,15 @@ GPU_ENCODERS = (("vaapi", "h264_vaapi"), ("nvenc", "h264_nvenc"), ("qsv", "h264_
 DRI_DIR = Path("/dev/dri")
 
 
-def dri_status(dri_dir=None, *, access=None) -> tuple[bool, str]:
+def dri_status(dri_dir=None, *, access=None, sys_drm="/sys/class/drm", environ=None) -> tuple[bool, str]:
     """(usable, note) for the Intel/AMD render device (#455).
 
     Usable only when a ``renderD*`` node exists AND this process can read
     and write it: a /dev/dri mapped without the device's group (the usual
     Unraid/Compose mistake) is named as such instead of being tried and
-    failing inside ffmpeg. Never raises.
+    failing inside ffmpeg. NVIDIA render nodes do not count (no VAAPI
+    driver), and ``PRINT_HANDY_VAAPI_DEVICE`` is judged as set: the answer
+    always agrees with :func:`live_stream.vaapi_device` (#1262). Never raises.
     """
     dri_dir = Path(dri_dir) if dri_dir is not None else DRI_DIR
     access = access or os.access
@@ -79,9 +81,18 @@ def dri_status(dri_dir=None, *, access=None) -> tuple[bool, str]:
         nodes = sorted(dri_dir.glob("renderD*"))
         if not nodes:
             return False, f"{dri_dir} has no renderD* render node"
-        for node in nodes:
-            if access(str(node), os.R_OK | os.W_OK):
-                return True, f"{node} is usable"
+        environ = os.environ if environ is None else environ
+        if str(environ.get(live_stream.VAAPI_DEVICE_ENV) or "").strip():
+            chosen = live_stream.vaapi_device(environ=environ)
+            if access(chosen, os.R_OK | os.W_OK):
+                return True, f"{chosen} is usable (set by {live_stream.VAAPI_DEVICE_ENV})"
+            return False, (f"{chosen} (set by {live_stream.VAAPI_DEVICE_ENV}) is missing or not "
+                           f"readable and writable (add the device's group: group_add / --group-add)")
+        node = live_stream.usable_render_node(dri_dir, sys_drm, access=access)
+        if node is not None:
+            return True, f"{node} is usable"
+        if all(live_stream._render_driver(sys_drm, n.name) == "nvidia" for n in nodes):
+            return False, f"{dri_dir} has only NVIDIA render nodes (no VAAPI driver; NVENC uses the NVIDIA runtime)"
         uid = os.getuid() if hasattr(os, "getuid") else "?"
         return False, (f"{nodes[0]} is not readable and writable by uid {uid} "
                        f"(add the device's group: group_add / --group-add)")

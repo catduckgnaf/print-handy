@@ -40,6 +40,46 @@ AD5X on ZMod 1.7.5-2 does this for every git component), that row says
 tell whether an update exists. It never says "up to date" for such a
 component, and `/print-firmware update` refuses it rather than guess.
 
+## What "update ZMod from Print Handy" covers and does not cover
+
+For a ZMod printer, in one place (verified end to end in
+[#1270](https://github.com/catduckgnaf/print-handy/issues/1270)
+against ZMod's own update instructions and the 1.7.6 release):
+
+- **Covered, in Print Handy:** reporting the state the printer
+  exposes (every Update Manager component, the OS ↔ `zmod` pairing,
+  Klipper 13 MCU currency), and applying one Moonraker component
+  update at a time behind a confirmation, guarded as below.
+- **Not covered: a ZMod release step.** Going from one ZMod release
+  to the next (1.7.5 to 1.7.6, say) is a **base** update, not a
+  component update. ZMod's own update instructions install the
+  release from USB first (the `ZFLASH` macro or a manual USB
+  install) and use the Software Update section in Fluidd or
+  Mainsail for component updates afterwards. Print Handy guides the
+  base step (`/print-firmware guide zmod`) and performs none of it.
+  The component apply path moves components **within** the installed
+  base; it does not take a printer across a release step, and the
+  pairing refusal exists because ZMod component updates fail when
+  the base and the `zmod` component do not pair.
+- **Not covered: the stock firmware underneath.** 1.7.6's "AD5X:
+  support for firmware 3.1.8" is compatibility (ZMod 1.7.6 runs on
+  stock 3.1.8), not a requirement: the pairing rule pairs the ZMod
+  OS with the `zmod` component, not with the stock firmware.
+  Updating the stock firmware stays a guided manual step
+  (`/print-firmware guide stock`).
+- **The `?` catch, in practice.** On the one live install shape
+  documented here (an AD5X on ZMod 1.7.5-2), Moonraker reports `?`
+  as the latest version for every **git** component (`zmod`,
+  `klipper`, `moonraker`) because it cannot read those checkouts.
+  For those components the apply path is unreachable in practice:
+  Print Handy refuses them with the "latest version not reported"
+  reason rather than guess. The path does work for a component that
+  reports a real available version (the web-served Fluidd
+  component is the known case on that install) and on any install
+  whose Moonraker can read its checkouts. Whether a given install
+  reports real versions is something only that install can show;
+  the report states what it read either way.
+
 ## Safety rules (stage 2 apply)
 
 - **Eligibility is a property of the printer profile**, from
@@ -62,7 +102,11 @@ component, and `/print-firmware update` refuses it rather than guess.
   restarting) and reports exactly one of: updated to the new version;
   still showing the update as available (treat as failed); or the
   printer did not come back (unverified). A successful POST alone never
-  counts as success.
+  counts as success. When an update does fail, ZMod's own recovery
+  for a damaged mod is reinstalling it from USB (the printer's boot
+  check says so and points at `ZFLASH`), which is the base guide's
+  flow; Print Handy reports the failure and does not attempt a
+  repair itself.
 - **ZMod pairing blocks apply.** When the printer's OS version and its
   `zmod` component version disagree in their first two components
   (OS 1.8.x with ZMod 1.9.x, say), ZMod component updates fail, so
@@ -82,7 +126,17 @@ unreadable data is simply not reported, never presented as a mismatch.
   judged, and only when both versions parse: differing release triples
   are reported with ZMod's `UPDATE_MCU` step named. This judgement is
   Print Handy's conservative reading of the documented fields, not a
-  Klipper protocol guarantee.
+  Klipper protocol guarantee. Print Handy never runs `UPDATE_MCU`
+  itself. It is a printer-side step (ZMod's script also stops the
+  native firmware service while it works), so after a `klipper`
+  component update the sequence is: apply the component, re-run
+  `/print-firmware`, and if the MCU reads out of step, run
+  `UPDATE_MCU FORCE=13` at the printer, in that order. Name the
+  version: ZMod's `UPDATE_MCU` without `FORCE` switches the MCU to
+  the *other* firmware (on a Klipper 13 install, back to the native
+  Klipper build), which is the step ZMod's wiki gives before removing
+  the mod or updating the stock firmware, not after a Klipper 13
+  update.
 
 Not covered by any check: the ZMod base itself and the stock firmware
 underneath it. The report on a ZMod printer says so and names the two

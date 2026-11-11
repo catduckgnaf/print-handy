@@ -301,6 +301,11 @@ def test_report_names_an_mcu_mismatch_when_the_data_exposes_one():
     transport = FakeTransport(status=STATUS_K13, mcu=_mcu_payload("v0.12.0-289"))
     text = fw.firmware_report(transport, AD5X)
     assert "MCU out of step" in text and "UPDATE_MCU" in text
+    # ZMod's bare UPDATE_MCU toggles the MCU firmware: on a Klipper 13
+    # install it flashes the native build, the opposite of in step.
+    # The report must name the explicit Klipper 13 form.
+    assert "UPDATE_MCU FORCE=13" in text
+    assert "run ZMod's `UPDATE_MCU` macro" not in text
 
 
 def test_report_is_silent_about_the_mcu_when_it_cannot_be_read():

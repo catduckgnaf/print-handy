@@ -33,7 +33,7 @@ from pathlib import Path
 
 import websockets
 
-from .. import __version__, ai_routes, debug_mode, go2rtc, healthcheck, logs, printers, settings
+from .. import __version__, ai_routes, camera_url, debug_mode, go2rtc, healthcheck, logs, printers, settings
 from ..core import delivery, filament_color, launch_state, printer_clock, spool_canon, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
@@ -68,6 +68,26 @@ logger = logging.getLogger(__name__)
 _PROBLEM = re.compile(r"\b(failed|failure|error|lost|refused|could not|cannot|unreachable|timed out)\b", re.I)
 
 
+_log_day = {}
+
+
+def _log_file():
+    """Today's legacy listener log file, ``<LOG stem>-YYYY-MM-DD.log``.
+
+    The file used to grow for ever. It now follows the shared log files'
+    rule (logs.DailyFileHandler): one dated file per day beside LOG, never
+    renamed (several listener processes can share the folder), and dated
+    files older than logs.FILE_RETENTION_DAYS are pruned once a day.
+    """
+    day = datetime.now().strftime("%Y-%m-%d")
+    path = LOG.with_name(f"{LOG.stem}-{day}{LOG.suffix or '.log'}")
+    if _log_day.get(LOG) != day:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        logs.prune(LOG, logs.FILE_RETENTION_DAYS, today=day)
+        _log_day[LOG] = day
+    return path
+
+
 def log(line):
     """Record one listener event: the legacy log file, and the shared logger (stderr, journald, docker logs).
 
@@ -75,8 +95,7 @@ def log(line):
     when it is called, if any, is kept. Credentials are redacted in both places.
     """
     line = logs.redact(str(line))
-    LOG.parent.mkdir(parents=True, exist_ok=True)
-    with LOG.open("a") as fh:
+    with _log_file().open("a") as fh:
         fh.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {line}\n")
     logger.log(logging.WARNING if _PROBLEM.search(line) else logging.INFO, "%s", line,
                exc_info=sys.exc_info() if sys.exc_info()[0] else None)
@@ -2784,7 +2803,9 @@ SNAPSHOT_BUDGET_S = 15.0
 def _fetch_snapshot(url, *, budget_s=None, clock=time.monotonic):
     budget_s = SNAPSHOT_BUDGET_S if budget_s is None else budget_s
     deadline = clock() + budget_s
-    request = urllib.request.Request(url)
+    # Credentials in the URL travel as a Basic header, never as part of the
+    # host urllib resolves (and names in its errors).
+    request = camera_url.request(url)
     chunks, size = [], 0
     with urllib.request.urlopen(request, timeout=8) as response:
         while True:
@@ -2921,15 +2942,22 @@ def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
         return False
 
 
-def _auto_pause_early(filename, identity):
+def _auto_pause_early(filename, identity, printer_id=None):
     """Send PAUSE through the alert pause path (#837) for the early-layer auto-pause (#913).
 
     The same code the camera alert's Pause button runs: status readback,
     a same-file check, one /printer/print/pause, then a paused readback.
     It never cancels. Returns the pause path's reply text.
+
+    The pause is bound to this listener's printer, as the alert record is
+    (print_alert_buttons._visual_extra): without it a multi-printer roster
+    refused the pause as an alert of unknown printer.
     """
     from . import print_alert_buttons as pab
+    printer_id = printer_id or _watch_printer_id()
     alert = {"kind": "visual", "filename": filename, "identity": identity}
+    if printer_id:
+        alert["printer_id"] = str(printer_id)
     return pab.handle_click("pause", alert)
 
 
@@ -3074,10 +3102,8 @@ def _visual_alert(filename, image, reason, identity=None):
         emit_queued("watchdog_offer", reason)
     except Exception:
         pass
-    target = Path(os.environ.get("PRINT_WATCH_FRAME_DIR") or _config.cache_dir() / "print-watch")
-    target.mkdir(parents=True, exist_ok=True)
-    path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
-    path.write_bytes(image)
+    # The shared frame folder keeps only the newest frames (visual_watch.prune_frames).
+    path = _visual_watch.write_frame(filename, image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
     # A watchdog alert asking for a decision pings the starter (#1095),
     # once per episode: the decision is made once here and threaded to
@@ -3963,18 +3989,45 @@ class Listener:
                 return
             try:
                 from . import print_alert_buttons as pab
-                last = watch.camera_failure_alert_at
+                # One failure episode with the camera and verdict failures
+                # (visual_watch.FailureEpisode): the first alerts, repeats
+                # wait out the periodic interval.
+                if not watch.failure_alert_due(_watch_now()):
+                    log(f"visual timeout alert suppressed for {filename!r}: "
+                        "already alerted within the periodic interval")
+                    return
                 if await asyncio.to_thread(pab.visual_muted, filename, identity):
                     return
-                if last is not None and _watch_now() - last < watch.profile["periodic_s"]:
-                    return
-                watch.camera_failure_alert_at = _watch_now()
                 await asyncio.to_thread(
-                    _visual_alert_text, filename,
-                    "Camera watch check timed out; this print is unmonitored while the watch retries. "
-                    "Check the camera and vision endpoint.", identity=identity)
+                    _visual_alert_text, filename, _visual_watch.TIMEOUT_ALERT_TEXT, identity=identity)
             except Exception as alert_exc:
                 log(f"visual timeout alert failed file={filename!r}: {alert_exc!r}")
+
+    async def _note_watch_failure(self, filename, identity):
+        """Count one failed check for this print. True when its alert should go out now.
+
+        Muted prints still count (so their episode ends normally), but never alert.
+        """
+        if not self.visual_watch.failure_alert_due(_watch_now()):
+            log(f"visual failure alert suppressed for {filename!r}: "
+                "already alerted within the periodic interval")
+            return False
+        from . import print_alert_buttons as pab
+        if await asyncio.to_thread(pab.visual_muted, filename, identity):
+            log(f"visual alert suppressed for muted print {filename!r}")
+            return False
+        return True
+
+    async def _note_watch_working(self, filename, identity):
+        """A check judged a frame: end any failure episode, and say so once if it had alerted."""
+        if not self.visual_watch.failures.recovered():
+            return
+        from . import print_alert_buttons as pab
+        if await asyncio.to_thread(pab.visual_muted, filename, identity):
+            return
+        log(f"camera watch working again for {filename!r}")
+        await asyncio.to_thread(post, _with_printer_name(
+            _visual_watch.recovery_text(clean(filename))))
 
     async def _visual_check_once(self, reason, layer):
         """Capture and classify a print frame; notify humans only, never actuate.
@@ -4087,6 +4140,12 @@ class Listener:
                     self.visual_frames[filename] = prior
                 await self._dark_frame_check(reason, layer)
                 return
+            # A verdict call that could not judge the frame is a watch
+            # failure (one episode with failed snapshots and timeouts, one
+            # throttle); any real judgement ends the episode.
+            watch_failed = verdict == "uncertain" and detail == _visual_watch.VISION_FAILED_DETAIL
+            if not watch_failed:
+                await self._note_watch_working(filename, identity)
             # #981: what the watch did with this verdict, for the
             # always-on event recording after the alert block below.
             event_action = "none"
@@ -4096,6 +4155,10 @@ class Listener:
                 from . import print_alert_buttons as pab
                 if await asyncio.to_thread(pab.visual_muted, filename, identity):
                     log(f"visual alert suppressed for muted print {filename!r}")
+                    event_action = "suppressed"
+                elif watch_failed and not self.visual_watch.failure_alert_due(_watch_now()):
+                    log(f"visual failure alert suppressed for {filename!r}: "
+                        "already alerted within the periodic interval")
                     event_action = "suppressed"
                 elif stale():
                     log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
@@ -4162,10 +4225,7 @@ class Listener:
             log(f"visual check failed file={filename!r} reason={reason}: {exc!r}")
             if image is not None:
                 try:
-                    from . import print_alert_buttons as pab
-                    if await asyncio.to_thread(pab.visual_muted, filename, identity):
-                        log(f"visual alert suppressed for muted print {filename!r}")
-                    else:
+                    if await self._note_watch_failure(filename, identity):
                         await asyncio.to_thread(
                             _visual_alert, filename, image,
                             f"{reason} at layer {layer or 'unknown'}: the vision check could not be completed, "
@@ -4179,17 +4239,11 @@ class Listener:
                 # camera must not silently leave the print unmonitored.
                 # Throttled like the Bambu watch: a dead camera never moves
                 # the snapshot baseline, so probes keep coming; the alert
-                # goes out at most once per periodic interval per print.
+                # goes out at most once per periodic interval per print
+                # (visual_watch.FailureEpisode, shared with timeouts and
+                # verdict failures).
                 try:
-                    from . import print_alert_buttons as pab
-                    last = self.visual_watch.camera_failure_alert_at
-                    if await asyncio.to_thread(pab.visual_muted, filename, identity):
-                        log(f"visual alert suppressed for muted print {filename!r}")
-                    elif last is not None and _watch_now() - last < self.visual_watch.profile["periodic_s"]:
-                        log(f"visual camera-failure alert suppressed for {filename!r}: "
-                            "already alerted within the periodic interval")
-                    else:
-                        self.visual_watch.camera_failure_alert_at = _watch_now()
+                    if await self._note_watch_failure(filename, identity):
                         await asyncio.to_thread(
                             _visual_alert_text, filename,
                             f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
@@ -4207,7 +4261,9 @@ class Listener:
                 self.filename = filename
                 self.visual_watch.reset()
                 self.local_streak.reset()
-                self.visual_frames.pop(filename, None)
+                # Only the current print's baseline frame is kept: the old
+                # pop of the new name left one frame per past print behind.
+                self.visual_frames.clear()
         if "message" in print_stats:
             self.pause_message = print_stats.get("message") or ""
         if new_state is None or new_state == self.state:
@@ -4856,7 +4912,10 @@ class Listener:
         layer produced no event and no periodic check (V12: 49 minutes).
         Single-flight: a check still running skips this beat.
         """
-        if self.state != "printing" or not _config.cfg()["visual_watch"]["enabled"]:
+        if not _config.cfg()["visual_watch"]["enabled"]:
+            return None
+        self._post_detector_notices()
+        if self.state != "printing":
             return None
         task = self.last_visual_task
         if task is not None and not task.done():
@@ -4876,6 +4935,23 @@ class Listener:
             self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
             return reason
         return None
+
+    def _post_detector_notices(self):
+        """Post the local detector's pending failure and recovery notices (local_vision.take_notices).
+
+        Only while the watch judges with the detector: a detector the watch
+        does not use has nothing to tell the operator. Never raises.
+        """
+        try:
+            if not _local_vision.watch_uses_detector():
+                return
+            for text in _local_vision.take_notices():
+                log(f"camera watch: {text}")
+                task = asyncio.create_task(asyncio.to_thread(post, _with_printer_name(text)))
+                self.background_tasks.add(task)
+                task.add_done_callback(self.background_tasks.discard)
+        except Exception as exc:
+            log(f"local detector notice failed: {exc!r}")
 
     def _watch_ready(self):
         """The listener's camera-check gate: a camera exists and a frame can be judged.

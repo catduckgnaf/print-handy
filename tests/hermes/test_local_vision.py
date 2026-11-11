@@ -38,6 +38,8 @@ def _fresh_detector_state(monkeypatch):
     monkeypatch.setattr(lv, "_failures", {})
     monkeypatch.setattr(lv, "_prefetching", {})
     monkeypatch.setattr(lv, "_verified_files", set())
+    monkeypatch.setattr(lv, "_announced", set())
+    monkeypatch.setattr(lv, "_notices", [])
     monkeypatch.setattr(lv, "_ort", None)
     monkeypatch.setattr(lv, "_ort_error", None)
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)

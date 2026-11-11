@@ -85,6 +85,21 @@ def model_member(source, name):
         return read_member(archive, name)
 
 
+def scoped(key, compute, *, source):
+    """compute() once per decode scope for ``key`` and the bytes of ``source``.
+
+    Outside a scope it always computes. The source's path, size and mtime
+    are part of the key, so a rewritten file is computed again.
+    """
+    cache = _SCOPE.get()
+    if cache is None:
+        return compute()
+    key = ('scoped', _file_key(source), key)
+    if key not in cache:
+        cache[key] = compute()
+    return cache[key]
+
+
 PAINT_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
 MMU_RE = re.compile(rb'(?:slic3rpe:)?mmu_segmentation="([0-9A-Fa-f]+)"')
 _TRIANGLE_TAG_RE = re.compile(rb'<(?:\w+:)?triangle\b[^>]*>')
@@ -286,10 +301,13 @@ def leaf_states(source, part):
     """{'states': {state: leaves}, 'unpainted': n} for one inventory part's mesh.
 
     part['ancestry'] ends at the mesh object: [[model_path, object_id], ...].
+    A row with 'triangle_ranges' (a PrusaSlicer volume split out of its
+    object's one mesh, #1260) counts only the triangles in those ranges.
     """
     model_path, mesh_id = part['ancestry'][-1]
+    ranges = tuple(tuple(r) for r in part.get('triangle_ranges') or ())
     cache = _SCOPE.get()
-    key = ('leaf', _file_key(source), model_path, str(mesh_id)) if cache is not None else None
+    key = ('leaf', _file_key(source), model_path, str(mesh_id), ranges) if cache is not None else None
     if key is not None and key in cache:
         row = cache[key]
         return {'states': dict(row['states']), 'unpainted': row['unpainted']}
@@ -305,7 +323,9 @@ def leaf_states(source, part):
         raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
     body = model[slice(*span)]
     counter, unpainted = collections.Counter(), 0
-    for tri in re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body):
+    for index, tri in enumerate(re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body)):
+        if ranges and not any(first <= index <= last for first, last in ranges):
+            continue
         m = PAINT_RE.search(tri.group(0)) or MMU_RE.search(tri.group(0))
         if m:
             counter.update(decode_states(m.group(1).decode()))

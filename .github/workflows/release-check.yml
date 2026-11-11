@@ -48,6 +48,13 @@ on:
 permissions:
   contents: read
 
+# One run per pull request: a newer push to the same PR cancels the run in progress. Every other
+# event (push to main, a dispatch) gets a group of its own, so those runs are never cancelled or
+# replaced while queued.
+concurrency:
+  group: release-check-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   release-check:
     runs-on: ubuntu-24.04

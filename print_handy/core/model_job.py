@@ -5516,9 +5516,14 @@ PAINTED_SCALE_STEPS = (1.0, 0.95, 0.9, 0.87, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.
 
 def painted_plate_scale(src, view, object_ids, ceiling=1.0, tower_mm=None):
     """Largest ladder scale <= ceiling at which this plate plus its prime tower
-    fits the bed. Pure geometry export, no slicer, no printer.
-    tower_mm is the tower width to reserve (0 for a printer that purges into its chute)."""
-    import tempfile
+    fits the bed. Pure geometry measurement, no slicer, no printer.
+    tower_mm is the tower width to reserve (0 for a printer that purges into its chute).
+
+    Each step is measured, not written (#1246): the export's measure-only
+    mode runs the same checks and gives the same part bounds and tower
+    verdict as a written export, without building a 3MF nobody reads.
+    """
+    from . import painted_geometry
     from .color_geometry import export_color_geometry
     # The exact ceiling is tried first, whatever its size: the confirm
     # prompt's scaling records arbitrary cumulative scales (99%, 105%),
@@ -5526,13 +5531,13 @@ def painted_plate_scale(src, view, object_ids, ceiling=1.0, tower_mm=None):
     # the operator approved. The ladder below is the fallback for a
     # ceiling that does not fit as-is; it only ever shrinks.
     steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
-    with tempfile.TemporaryDirectory(prefix='painted-fit-') as tmp:
+    with painted_geometry.decode_scope():
         for scale in steps:
             if scale > ceiling + 1e-9:
                 continue
             try:
-                _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view, object_ids=object_ids, scale=scale,
-                                                 tower_mm=tower_mm)
+                _, geometry = export_color_geometry(src, None, view, object_ids=object_ids, scale=scale,
+                                                    tower_mm=tower_mm)
             except RuntimeError:
                 continue
             if all(0 <= ax[0] and ax[1] <= BED_LIMIT_MM for row in geometry['parts'] for ax in row['bounds_mm'][:2]):
@@ -5560,16 +5565,17 @@ def painted_plate_layout(src, view, object_ids, scale, tower_mm=None):
     every failure returns None and the caller words the refusal without
     measured numbers.
     """
-    import tempfile
+    from . import painted_geometry
     from .color_geometry import export_color_geometry
     try:
-        with tempfile.TemporaryDirectory(prefix='painted-layout-') as tmp:
-            # Measure towerless (#839): the part bounds do not depend on
-            # tower placement, but the export raises when no tower position
-            # clears the parts — exactly the no-fit case this measurement
-            # exists to explain. The tower size is reported from tower_mm
-            # below, not from a placement that may not exist.
-            _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view,
+        # Measure towerless (#839): the part bounds do not depend on
+        # tower placement, but the export raises when no tower position
+        # clears the parts — exactly the no-fit case this measurement
+        # exists to explain. The tower size is reported from tower_mm
+        # below, not from a placement that may not exist. Measured, not
+        # written (#1246).
+        with painted_geometry.decode_scope():
+            _, geometry = export_color_geometry(src, None, view,
                                                 object_ids=object_ids, scale=scale, tower_mm=0.0)
     except Exception:
         return None
@@ -5590,7 +5596,18 @@ def painted_plate_layout(src, view, object_ids, scale, tower_mm=None):
 
 
 def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
-    """One shared scale for every authored plate of a painted source."""
+    """One shared scale for every authored plate of a painted source.
+
+    The whole fit runs in one decode scope and one inventory scope, so the
+    source is read, inventoried and parsed once for every plate and step.
+    """
+    from . import painted_geometry
+    from .source_colors import inventory_scope
+    with painted_geometry.decode_scope(), inventory_scope():
+        return _painted_fit(src, view, plates, ceiling, tower_mm)
+
+
+def _painted_fit(src, view, plates, ceiling, tower_mm):
     scale, blocking = ceiling, None
     for plate in plates:
         ids = {str(o) for o in plate['object_ids']}
@@ -5607,7 +5624,20 @@ def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
 
 
 def painted_fit_for_job(src, decisions, state=None):
-    """Intake helper: shared painted-plate scale for an exact-source decision."""
+    """Intake helper: shared painted-plate scale for an exact-source decision.
+
+    The whole fit runs in one inventory scope (#1153): every geometry export
+    it tries (up to one per ladder step per plate) and the plate manifest
+    ask for the source's color manifest, and inside the scope a source whose
+    bytes hash the same is inventoried once. Each caller still gets its own
+    copy, and nothing outlives the call.
+    """
+    from .source_colors import inventory_scope
+    with inventory_scope():
+        return _painted_fit_for_job(src, decisions, state)
+
+
+def _painted_fit_for_job(src, decisions, state=None):
     from .source_colors import inventory
     manifest = inventory(src)
     view = _per_part_view(manifest, decisions)
