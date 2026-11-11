@@ -11,6 +11,9 @@ the short unmatched reply only — the roll-test of the no-LLM standalone mode f
 Prompts are inline keyboards. Callback data is the platform-neutral
 ``pbq:<clarify_id>:<index>`` id; a clarify id is 32 hex characters, so the
 whole value is about 38 bytes, inside Telegram's 64-byte callback limit.
+Listener alerts posted with buttons (#1291) carry the alert store's own
+``pbalert:<action>:<aid>`` ids instead and resolve through the same
+claim-then-act path as a Discord alert click.
 Forum chats map ``message_thread_id`` to the source ``thread_id``, the same
 scoping Discord threads get.
 """
@@ -228,7 +231,10 @@ class StandaloneAdapter(BasePlatformAdapter):
         """Resolve one inline-keyboard press. Always answers the callback query."""
         if not isinstance(query, dict):
             return False
-        parsed = parse_custom_id(query.get("data"))
+        data = query.get("data")
+        if isinstance(data, str) and data.startswith("pbalert:"):
+            return await self._handle_alert_callback(query, data)
+        parsed = parse_custom_id(data)
         query_id = query.get("id")
         sender = query.get("from") or {}
         user_id = str(sender.get("id") or "")
@@ -263,6 +269,61 @@ class StandaloneAdapter(BasePlatformAdapter):
         await answer("")
         who = str(sender.get("first_name") or sender.get("username") or "Someone")
         await self.close_prompt(cid, f"{who} chose {label}")
+        return True
+
+    async def _handle_alert_callback(self, query, data):
+        """Resolve one press on a listener alert's inline keyboard (#1291).
+
+        The listener recorded the alert (``print_alert_buttons``) when it
+        posted the alert with its buttons; a press claims it exactly like
+        a Discord click — peek, check, take once — and ``handle_click``
+        re-reads the printer before acting. The gate is the allow-list
+        every prompt answer passes; an alert press is not a print-start
+        approval, so the separate approval gate does not apply. The press
+        counts only in the chat the alert was posted to, the same rule
+        prompts follow (#335).
+        """
+        from print_handy.hermes import print_alert_buttons as pab
+
+        query_id = query.get("id")
+        sender = query.get("from") or {}
+        user_id = str(sender.get("id") or "")
+
+        async def answer(text):
+            await self._answer_callback(query_id, text)
+
+        parsed = pab.parse_custom_id(data)
+        if parsed is None:
+            await answer("")
+            return False
+        action, aid = parsed
+        if not self._is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
+            await answer("Not allowed. Nothing changed.")
+            return True
+        alert = await asyncio.to_thread(pab.peek, aid)
+        if not alert:
+            await answer("That alert is old or was already answered. Nothing sent.")
+            return True
+        posted_chat = str(alert.get("telegram_chat_id") or "")
+        press_chat = str(((query.get("message") or {}).get("chat") or {}).get("id") or "")
+        if posted_chat and press_chat and press_chat != posted_chat:
+            await answer("Not allowed. Nothing changed.")
+            return True
+        if not await asyncio.to_thread(pab.take, aid):
+            await answer("That alert is old or was already answered. Nothing sent.")
+            return True
+        outcome = await asyncio.to_thread(pab.handle_click, action, alert)
+        await answer("")
+        message = query.get("message") or {}
+        if message.get("message_id") and press_chat:
+            try:
+                await asyncio.to_thread(self._call, "editMessageReplyMarkup",
+                                        {"chat_id": press_chat, "message_id": message["message_id"],
+                                         "reply_markup": {"inline_keyboard": []}})
+            except Exception:
+                logger.debug("could not strip the alert keyboard", exc_info=True)
+        if press_chat:
+            await self.send(chat_id=press_chat, content=str(outcome))
         return True
 
     async def _answer_callback(self, query_id, text):

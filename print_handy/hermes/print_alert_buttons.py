@@ -1204,6 +1204,56 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
         return False
 
 
+def telegram_keyboard(aid: str, kind: str) -> list[list[dict[str, str]]]:
+    """The alert's buttons as a Telegram inline keyboard (#1291).
+
+    Derived from the Discord ``components`` so both platforms offer the
+    same actions under the same ``pbalert:<action>:<aid>`` ids; a press
+    parses with the same ``parse_custom_id`` and runs the same
+    ``handle_click``. The longest id is well inside Telegram's 64-byte
+    callback limit.
+    """
+    return [[{"text": button["label"], "callback_data": button["custom_id"]}
+             for button in row["components"]] for row in components(aid, kind)]
+
+
+def post_telegram_with_buttons(token: str, chat_id: str, content: str, kind: str, filename: str,
+                               connection: str | None = None, printer_id: str | None = None,
+                               identity: Any = None) -> bool:
+    """Post the alert to a Telegram chat with its buttons as an inline keyboard (#1291).
+
+    The Telegram mirror of ``post_with_buttons``: the same recorded alert
+    and the same actions; the press comes back through the Telegram
+    adapter's callback polling. The Telegram message/chat ids are stored
+    under their own keys — ``retire_alerts`` edits Discord messages by
+    ``message_id``/``channel_id`` and must never see Telegram ids there.
+    False means the caller should fall back to plain text.
+    """
+    if not token or not chat_id:
+        return False
+    extra: dict[str, Any] = {}
+    if connection:
+        extra["connection"] = connection
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
+    if identity:
+        extra["identity"] = str(identity)
+    aid = record(kind, filename, **extra)
+    from print_handy.bot import telegram_rest
+    ok, detail = telegram_rest.send(token, str(chat_id), content,
+                                    reply_markup={"inline_keyboard": telegram_keyboard(aid, kind)})
+    if not ok:
+        take(aid)
+        return False
+    with _LOCK:
+        data = _load()
+        if aid in data:
+            data[aid].update(telegram_message_id=str(detail), telegram_chat_id=str(chat_id))
+            _save(data)
+    return True
+
+
 def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str, ...] = ("shutdown", "error", "pause", "paused"),
                   *, headline: str = "Printer firmware stopped.", printer_id: str | None = None) -> int:
     """Strip the buttons from stale alerts for this job and say why, so a dead Cancel button is not left behind.
