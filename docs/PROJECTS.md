@@ -79,6 +79,16 @@ Nothing starts automatically. Without camera data, the normal
 post-completion picker still works, while the optional camera empty-bed
 offer requires an actual empty-bed observation.
 
+Typing `/print-next <plan id>` without naming a plate, when two or more
+plates are left, first asks **Which plate is next?** with one choice per
+remaining plate and **Later**. The question is the same on Discord,
+Telegram, Matrix and web chat: it goes through the shared chat prompt
+layer, so the platforms without the Discord plate picker can pick a plate
+out of plan order too. Choice labels are cut once to the shortest button
+label any platform keeps whole, so every platform shows the same labels.
+Picking a plate is not an approval: the picked plate still asks for its
+own bed-clear confirmation, and Later starts nothing.
+
 ## Reprinting a project
 
 `/print-again` understands the plate labels. `/print-again 82B` reprints
@@ -94,17 +104,43 @@ confirmation, each following plate is offered by the completion message
 and started with `/print-again next` behind its own fresh bed-clear
 confirmation, and `/print-again stop` drops the rest. No approval is
 inherited between plates, and a reprint run never changes the original
-project's completion counts. Only plates that were actually printed can
+project's completion counts.
+
+A reprint is its own logical run. An entire-project reprint gets a new
+`project_run_id` (for example `run-3f9c2a7b1d04`), shared by all of its
+plates, and so does a reprint of one plate; the original plates keep
+`project_run_id: original`. The new run id is recorded on the reprint's
+start and completion records, every physical attempt still has its own
+`print_attempt_id`, and a completion on a reprint run never credits the
+original plan: its `completed_quantity` stays where the original run
+left it. **Remaining unprinted plates** is the exception on purpose: it
+finishes the original run, so those plates still count toward it. Each
+start uses the approval asked for that start; an approval or a queued
+plate's start claim is never reused for another plate. Only plates that were actually printed can
 be reprinted; a plate that never printed stays on the next-plate flow
 above. Legacy print numbers keep their exact old meaning: `/print-again 82`
 still resolves print #82 first, and the scope question is what turns it
 into a project reprint.
 
-**Not implemented yet:** a dedicated project run id recorded on reprint
-records, collecting across multiple chat messages, ZIP importing, and
-project management in Web UI. Those remain acceptance criteria of
-[#1204](https://github.com/catduckgnaf/print-handy/issues/1204) (the
-successor of [#1008](https://github.com/catduckgnaf/print-handy/issues/1008)).
+`/print-again list` groups a project's prints: a standalone print stays
+one line, while the prints of one project are listed together under one
+project line (its number, title, plate count and how many plates are
+finished), each with its print number and exact plate alias such as
+`plate 82B (Left arm)`. A project counts as one entry toward the list's
+length, so grouping never pushes a standalone print off the list.
+
+## Project readout in the Web UI
+
+The Web UI's [Projects page](WEBUI.md#projects-page) (`/projects`, and
+`/api/projects` as JSON) shows each project's components, plates,
+quantities, every attempt per plate and its run, and whether the project
+is complete or can be resumed. It reads the job's manifest, the live plan
+file and the print records; it keeps no store of its own and starts
+nothing.
+
+**Not implemented yet:** collecting across multiple chat messages and ZIP
+importing. Those remain open on [#1204](https://github.com/catduckgnaf/print-handy/issues/1204),
+the successor of [#1008](https://github.com/catduckgnaf/print-handy/issues/1008).
 An AI design's parts enter the project flow above, but the design does
 not yet declare assembly roles or placements for them, and the
 engineering-grade assembly generation described in

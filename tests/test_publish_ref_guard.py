@@ -25,8 +25,12 @@ SHA = "a" * 40
 class FakeWorld:
     """Answers the git and gh calls the guard makes."""
 
-    def __init__(self, on_main=(SHA,), tags=None, ci=("success",), issues=None):
+    def __init__(self, on_main=(SHA,), tags=None, ci=("success",), issues=None,
+                 releases=None):
         self.on_main = set(on_main)
+        # GitHub releases by tag: {"isDraft": bool, "isPrerelease": bool}.
+        # Default: every tag has a published, non-prerelease release.
+        self.releases = releases
         self.tags = tags if tags is not None else {"2.2.7": "b" * 40}
         self.ci = list(ci)
         self.issues = issues if issues is not None else [
@@ -45,6 +49,14 @@ class FakeWorld:
             return 0, "\n".join(self.ci) + ("\n" if self.ci else "")
         if args[:3] == ["gh", "issue", "list"]:
             return 0, json.dumps(self.issues)
+        if args[:3] == ["gh", "release", "view"]:
+            tag = args[3]
+            releases = self.releases
+            if releases is None:
+                releases = {t: {"isDraft": False, "isPrerelease": False} for t in self.tags}
+            if tag not in releases:
+                return 1, ""
+            return 0, json.dumps(releases[tag])
         raise AssertionError(f"unexpected command {args}")
 
 
@@ -174,6 +186,23 @@ class EntryPoints(unittest.TestCase):
         self.assertEqual(guard.check_retag({"RETAG_VERSION": "2.2.8"}, off_main), 1)
         self.assertEqual(guard.check_retag({"RETAG_VERSION": "latest"}, good), 2)
 
+    def test_retag_requires_a_published_github_release(self):
+        # #1141: a tag on main is not enough. :latest must only ever point at a
+        # version that was actually released, so the tag needs a published
+        # GitHub release that is neither a draft nor a prerelease.
+        tags = {"2.2.7": "b" * 40}
+        env_ = {"RETAG_VERSION": "2.2.7", "GITHUB_REPOSITORY": "owner/repo"}
+        published = FakeWorld(on_main=("b" * 40,), tags=tags)
+        self.assertEqual(guard.check_retag(env_, published), 0)
+        no_release = FakeWorld(on_main=("b" * 40,), tags=tags, releases={})
+        self.assertEqual(guard.check_retag(env_, no_release), 1)
+        draft = FakeWorld(on_main=("b" * 40,), tags=tags,
+                          releases={"2.2.7": {"isDraft": True, "isPrerelease": False}})
+        self.assertEqual(guard.check_retag(env_, draft), 1)
+        pre = FakeWorld(on_main=("b" * 40,), tags=tags,
+                        releases={"2.2.7": {"isDraft": False, "isPrerelease": True}})
+        self.assertEqual(guard.check_retag(env_, pre), 1)
+
 
 class WorkflowContract(unittest.TestCase):
     def load(self, name):
@@ -211,6 +240,10 @@ class WorkflowContract(unittest.TestCase):
         copy = next(i for i, r in enumerate(runs) if "imagetools create" in r)
         self.assertLess(check, copy)
         self.assertFalse(any("buildx build" in r for r in runs))
+        # The release lookup needs the repository and a token (#1141).
+        check_env = steps[check].get("env", {})
+        self.assertEqual(check_env.get("GH_TOKEN"), "${{ github.token }}")
+        self.assertEqual(wf["permissions"], {"contents": "read", "packages": "write"})
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .. import printers, settings
 from . import filament_color, spoolman_client
+from .gcode_lines import Anchor
 
 STATE = str(settings.state_dir() / "printer_hardware.json")
 
@@ -505,16 +506,23 @@ def recorded_nozzle_type(state):
     return (state.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
 
 
-def _header_numbers(text, key):
+# The GcodeLines anchors for the two header questions that do not start with a
+# fixed literal; offline verification declares them in its one scan (#1153 item 7).
+TOOL_LINE_ANCHOR = Anchor(r"[ \t]*T\d")
+TOOL_SLOTS_ANCHOR = Anchor(r";\s*hermes_tool_slots\s*=")
+
+
+def _header_numbers(text, key, lines=None):
     """The numbers of an Orca config line (`; nozzle_temperature = 220,210`), or [] when absent or not numeric."""
-    match = re.search(rf"^; {re.escape(key)} = (.+)$", text or "", re.M)
+    pattern = rf"^; {re.escape(key)} = (.+)$"
+    match = lines.search(pattern, f"; {key} = ") if lines is not None else re.search(pattern, text or "", re.M)
     try:
         return [float(piece) for piece in match.group(1).split(",")] if match else []
     except ValueError:
         return []
 
 
-def gcode_tool_temperatures(state, materials, text, fetch_filament=None):
+def gcode_tool_temperatures(state, materials, text, fetch_filament=None, lines=None):
     """Temperatures a multi-filament G-code must carry, checked per tool against its own header, or None.
 
     The header lists each filament's nozzle target (already raised by the nozzle-type offset). Every
@@ -522,13 +530,20 @@ def gcode_tool_temperatures(state, materials, text, fetch_filament=None):
     filament that heats the nozzle at the start (the first T command, else T0) sets the job's
     nozzle temperature. None when the header does not list one target per filament (not Orca output): the
     caller then keeps the active spool's targets.
+
+    ``lines`` is the caller's GcodeLines scan of ``text`` (offline verification, #1153 item 7): the same
+    lookups, answered from that one scan instead of a pass each.
     """
     from .nozzle import effective_nozzle_temperature
     listed = [" ".join(str(m).split()) for m in materials]
-    header = _header_numbers(text, "nozzle_temperature_initial_layer") or _header_numbers(text, "nozzle_temperature")
+    header = (_header_numbers(text, "nozzle_temperature_initial_layer", lines)
+              or _header_numbers(text, "nozzle_temperature", lines))
     if len(header) != len(listed):
         return None
-    tools = [int(n) for n in re.findall(r"^[ \t]*T(\d+)\b", text or "", re.M)]
+    tool_pattern = r"^[ \t]*T(\d+)\b"
+    found = (lines.findall(tool_pattern, TOOL_LINE_ANCHOR) if lines is not None
+             else re.findall(tool_pattern, text or "", re.M))
+    tools = [int(n) for n in found]
     start = min(tools[0] if tools else 0, len(listed) - 1)
     used = {t for t in tools if t < len(listed)} | {start}
     offset = effective_nozzle_temperature(recorded_nozzle_type(state), 200.0) - 200.0
@@ -559,7 +574,7 @@ def gcode_tool_temperatures(state, materials, text, fetch_filament=None):
     return {"nozzle": int(nozzle) if float(nozzle).is_integer() else nozzle, "bed": resolved[min(resolved)]["bed"]}
 
 
-def _job_map_spool_ids(state, text):
+def _job_map_spool_ids(state, text, lines=None):
     """The spool ids an artifact's `hermes_tool_slots` map names, in tool order.
 
     The map is the artifact's own record of what it was sliced for: dict
@@ -567,7 +582,9 @@ def _job_map_spool_ids(state, text):
     slots, whose bound spool the slot record supplies. Unparseable or
     absent maps name nothing.
     """
-    match = re.search(r"^;\s*hermes_tool_slots\s*=\s*(.+)$", text or "", re.M)
+    pattern = r"^;\s*hermes_tool_slots\s*=\s*(.+)$"
+    match = (lines.search(pattern, TOOL_SLOTS_ANCHOR) if lines is not None
+             else re.search(pattern, text or "", re.M))
     if not match:
         return []
     try:
@@ -591,7 +608,7 @@ def _job_map_spool_ids(state, text):
     return ids
 
 
-def gcode_temperatures(state, materials, fetch_filament=None, text=None):
+def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=None):
     """The temperatures a G-code sliced for ``materials`` (its filament_type list) must carry,
     resolved for the same spool slice_temperatures used: the spool the artifact's
     hermes_tool_slots map names when it names exactly one, else the active spool when its
@@ -600,17 +617,19 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None):
     A multi-filament G-code (``text`` given) is checked per tool against its own header instead
     (gcode_tool_temperatures). Two slot spools with that material and different targets are
     ambiguous and refuse.
+    ``lines`` (a GcodeLines scan of ``text``) answers the header lookups from the caller's one scan.
     """
     labels = {" ".join(str(m).split()) for m in materials or () if str(m).strip()}
     spool = state.get("spool") or {}
     if text is not None and len([m for m in materials or () if str(m).strip()]) > 1:
-        per_tool = gcode_tool_temperatures(state, [m for m in materials if str(m).strip()], text, fetch_filament)
+        per_tool = gcode_tool_temperatures(state, [m for m in materials if str(m).strip()], text, fetch_filament,
+                                           lines=lines)
         if per_tool is not None:
             return per_tool
     if len(labels) != 1:
         return slice_temperatures(state, None, fetch_filament)[0]
     label = labels.pop()
-    mapped = _job_map_spool_ids(state, text)
+    mapped = _job_map_spool_ids(state, text, lines)
     if len(mapped) == 1:
         # The artifact names the one spool it was sliced for (P2-272):
         # resolve that spool, not whichever spool is active now — launch

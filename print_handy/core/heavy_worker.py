@@ -19,7 +19,7 @@ ALLOWED = {
     ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
     ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
     ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
-    ('model_parts', 'combine'),
+    ('model_parts', 'combine'), ('model_job', 'painted_fit_for_job'),
 }
 
 

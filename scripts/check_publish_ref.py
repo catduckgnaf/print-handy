@@ -21,8 +21,9 @@ Candidate runs (``publish`` is not ``true``) are never blocked and never
 move ``:latest``. Nightly is a separate workflow and is not covered here.
 
 The same reachability check is reused by the one-off latest-retag
-workflow (``--retag-latest-to VERSION``): it requires the tag to exist and
-be reachable from main, and nothing else, because the point of that
+workflow (``--retag-latest-to VERSION``): it requires the tag to exist, be
+reachable from main, and have a published GitHub release that is neither a
+draft nor a prerelease (#1141), and nothing else, because the point of that
 workflow is to repair ``:latest`` quickly.
 
 Environment: PUBLISH_VERSION, PUBLISH, GITHUB_REF, GITHUB_SHA,
@@ -111,6 +112,26 @@ def checklist_issue_closed(repo, version, runner=run):
     if not matches:
         return False, False
     return True, all(issue.get("state", "").upper() == "CLOSED" for issue in matches)
+
+
+def release_state(repo, version, runner=run):
+    """``"published"``, ``"draft"``, ``"prerelease"`` or ``"missing"`` for the
+    GitHub release of tag ``version``."""
+    code, out = runner([
+        "gh", "release", "view", version, "--repo", repo,
+        "--json", "isDraft,isPrerelease",
+    ])
+    if code != 0:
+        return "missing"
+    try:
+        info = json.loads(out or "{}")
+    except ValueError:
+        return "missing"
+    if info.get("isDraft"):
+        return "draft"
+    if info.get("isPrerelease"):
+        return "prerelease"
+    return "published"
 
 
 def publish_problems(version, ref, sha, repo, runner=run):
@@ -214,13 +235,27 @@ def check_retag(env, runner=run):
         print(f"Tag {version} ({commit[:12]}) is not reachable from main; refusing to "
               "point :latest at it.")
         return 1
-    print(f"Tag {version} ({commit[:12]}) is reachable from main.")
+    repo = env.get("GITHUB_REPOSITORY", "")
+    state = release_state(repo, version, runner)
+    if state != "published":
+        reason = {
+            "missing": "has no GitHub release",
+            "draft": "only has a draft GitHub release",
+            "prerelease": "is marked as a prerelease on GitHub",
+        }[state]
+        print(f"Tag {version} {reason}; :latest only points at a published release. "
+              "Publish the release first, or pick a version that was released.")
+        return 1
+    print(f"Tag {version} ({commit[:12]}) is reachable from main and has a published release.")
     return 0
 
 
 def main(argv):
     if len(argv) > 1 and argv[1] == "--retag-latest-to":
-        return check_retag({"RETAG_VERSION": argv[2] if len(argv) > 2 else ""})
+        return check_retag({
+            "RETAG_VERSION": argv[2] if len(argv) > 2 else "",
+            "GITHUB_REPOSITORY": os.environ.get("GITHUB_REPOSITORY", ""),
+        })
     return check_publish(os.environ)
 
 
