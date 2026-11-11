@@ -824,6 +824,20 @@ class ClosedTableToleranceTests(unittest.TestCase):
         self.assertEqual(self.local.read_bytes(), before)  # nothing was written
         self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
 
+    def test_empty_save_still_reports_a_violation_left_in_the_file(self):
+        # Regression (review of #1103, head 128793f0): a save carrying no
+        # catalog field returned before the no-op check, so it reported
+        # no warning although the file still carries a tolerated key.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        before = self.local.read_bytes()
+        changed, warnings = self.config.write_changes_reporting(
+            {}, config_path=self.local, environ={})
+        self.assertEqual(changed, [])
+        self.assertEqual(warnings, ["[notify] mqtt_password"])
+        self.assertEqual(self.local.read_bytes(), before)  # nothing was written
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+
     def test_noop_save_after_the_violation_is_removed_clears_the_warnings(self):
         self.local.write_text("notify:\n  mqtt_password: hunter2\n")
         self.save_roast_off()

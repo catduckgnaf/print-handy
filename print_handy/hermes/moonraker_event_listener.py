@@ -3689,11 +3689,17 @@ class Listener:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
                     log(f"native screen error {key} file={self.filename!r}")
+                    episode = f"native-error:{key[0]}:{key[1]}"
                     mention = starter_pings.ping_for(
-                        "alert", job_key=self.filename,
-                        episode=f"native-error:{key[0]}:{key[1]}") or None
-                    await asyncio.to_thread(post, native_error_text(self.filename, key),
-                                            **({"mention_user_id": mention} if mention else {}))
+                        "alert", job_key=self.filename, episode=episode) or None
+                    delivered = await asyncio.to_thread(
+                        post, native_error_text(self.filename, key),
+                        **({"mention_user_id": mention} if mention else {}))
+                    if not delivered and mention:
+                        # The post failed, so the recorded ping never landed:
+                        # release it, as post_alert does, so the next post of
+                        # this error can still ping the starter.
+                        starter_pings.release_ping("alert", job_key=self.filename, episode=episode)
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)

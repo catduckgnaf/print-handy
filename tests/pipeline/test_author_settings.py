@@ -621,6 +621,20 @@ def test_a_foreign_slice_attributes_designer_and_operator_values(tmp_path):
     assert "unattributed" not in {row["selected_reason"] for row in rows.values()}
 
 
+def test_a_foreign_slice_compares_to_the_exact_embedded_preset_without_a_changed_list(tmp_path):
+    # #1155 evidence: the exact-preset comparison over the production slice
+    # path. No changed-settings list exists, so the embedded print preset in
+    # Metadata/filament_sequence.json is the evidence: a value equal to the
+    # preset is inherited, never a guessed designer change.
+    source = bambu_project(tmp_path / "preset.3mf", {"wall_loops": "4", "different_settings_to_system": [""]},
+                           extra={"Metadata/filament_sequence.json": json.dumps(
+                               {"print": [{"setting": {"wall_loops": "4"}}]}).encode()})
+    _process, provenance = sliced_process(tmp_path, source)
+    row = provenance["conversion_provenance"]["settings"]["wall_loops"]
+    assert row["source_preset_value"] == "4"
+    assert row["origin"] == "inherited"
+
+
 def _with_application(path, application):
     with zipfile.ZipFile(path) as archive:
         entries = {info.filename: archive.read(info) for info in archive.infolist()}

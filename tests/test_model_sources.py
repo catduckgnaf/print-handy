@@ -64,3 +64,21 @@ def test_sources_page_lists_every_registry_entry(monkeypatch):
         assert source.label in html
     assert "Direct file link" in html
     assert "Dropbox" in html
+
+
+def test_sources_page_status_uses_the_real_credential_state(monkeypatch, tmp_path):
+    # Regression (review of #1100): the page test above stubs
+    # credential_state, so the real function never ran for the listing
+    # sites. MakerOnline has no saved credential at all, and the real
+    # credential_state raised KeyError for it, so the page failed.
+    monkeypatch.setattr(site_accounts, "token_path", lambda site: tmp_path / site)
+    for account in site_accounts.LOGIN_SITES.values():
+        monkeypatch.delenv(account.env_name, raising=False)
+    status = {row[0]: row[3] for row in sources_page.sources_rows()}
+    assert status["MakerOnline"] == "No key needed"
+    assert status["Cults3D"] == "Needs your API key"
+    assert status["Thingiverse"] == "Not connected"
+    assert status["Printables"] == "Ready"
+    html = sources_page.render_sources_page()
+    for source in model_sources.SOURCES:
+        assert source.label in html

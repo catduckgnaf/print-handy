@@ -848,6 +848,11 @@ def claim_project_number(json_path: Any, number: Any) -> int | None:
         return number
 
 
+def is_reprint_run(run_id: Any) -> bool:
+    """True for a minted reprint run id ('run-...'); False for 'original' or none."""
+    return isinstance(run_id, str) and run_id.startswith("run-")
+
+
 def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
     plan_id = data.get("multipart_plan_id")
     required = _plan_parts(data.get("required_parts"))
@@ -860,6 +865,12 @@ def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
     # A cancelled/failed/unknown physical outcome is never a completed
     # component. Real print records carry success=True/False/None.
     if "success" in data and data.get("success") is not True:
+        return plan_id, plan_is_complete(plan_id)
+    if is_reprint_run(data.get("project_run_id")):
+        # A reprint run (#1008 acceptance item 5) is its own logical run: its
+        # plates are counted from its own print records, never credited to
+        # the original plan, so the original project stays historically
+        # complete and its completed_quantity never moves.
         return plan_id, plan_is_complete(plan_id)
     try:
         existing = json.loads(json_path.read_text(encoding="utf-8"))
@@ -967,7 +978,24 @@ def write_completed_record(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def write_start_record(context: Mapping[str, Any]) -> str:
-    """Create the in-progress JSON record for a just-started print and return its path."""
+    """Create the in-progress JSON record for a just-started print and return its path.
+
+    A /print-again start of a project plate was armed with a new reprint run
+    id (print_control.arm_reprint_run, #1008 acceptance item 5). The run id
+    is consumed here, once, and written into ``context`` itself, so the
+    completion sidecar the caller saves from the same context carries it to
+    the completion record too. Any other start keeps its own run id.
+    """
+    if isinstance(context, dict) and context.get("project_id"):
+        try:
+            from . import print_control
+
+            gcode = (context.get("slicer_settings") or {}).get("local_gcode")
+            run_id = print_control.take_reprint_run(gcode)
+        except Exception:
+            run_id = None  # bookkeeping never blocks a start record
+        if run_id:
+            context["project_run_id"] = run_id
     data = build_record_data(str(context["job_key"]), stats={"state": "printing"}, context=context)
     digest = _record_id(data)
     path = _avoid_collision(_record_path_for(data, digest), digest)
