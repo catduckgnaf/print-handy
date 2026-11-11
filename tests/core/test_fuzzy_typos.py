@@ -113,6 +113,12 @@ DOUBLE_LETTER_TYPOS = {
 # every one. Screen against existing typo/token keys and REAL_WORDS.
 # Avoid legitimate lookalikes (e.g., planing, meting, siting, griping).
 # All pairs inherit typo-fold, canonical, scoring and chat lookup coverage.
+# Five pairs were removed again in the round-5 fix (see ROUND5_SCREENED
+# below): "cliping", "greting", "shiped", "shiping" and "shoping" fold
+# fine, but their correct words are re-routed by the lookup carry itself
+# (clipping -> clicking, greeting -> getting, shipped -> skipped,
+# shipping/shopping -> skipping, verified identical on the base commit),
+# the same pre-existing quirk that blocks "skil" -> "skill".
 EXTENDED_DOUBLE_LETTER_TYPOS = {
     # gg: 12 pairs
     "agressive": "aggressive",
@@ -149,7 +155,7 @@ EXTENDED_DOUBLE_LETTER_TYPOS = {
     "setled": "settled",
     "cuting": "cutting",
     "flaten": "flatten",
-    # ee: 14 pairs
+    # ee: 13 pairs
     "agrement": "agreement",
     "agrements": "agreements",
     "betwen": "between",
@@ -163,7 +169,6 @@ EXTENDED_DOUBLE_LETTER_TYPOS = {
     "spech": "speech",
     "wekly": "weekly",
     "freze": "freeze",
-    "greting": "greeting",
     # ss: 19 pairs
     "adres": "address",
     "asignment": "assignment",
@@ -184,7 +189,7 @@ EXTENDED_DOUBLE_LETTER_TYPOS = {
     "glases": "glasses",
     "guesing": "guessing",
     "expresed": "expressed",
-    # pp: 20 pairs
+    # pp: 16 pairs
     "aplication": "application",
     "aplications": "applications",
     "apointment": "appointment",
@@ -200,10 +205,6 @@ EXTENDED_DOUBLE_LETTER_TYPOS = {
     "hapen": "happen",
     "hapened": "happened",
     "maping": "mapping",
-    "shiped": "shipped",
-    "shiping": "shipping",
-    "shoping": "shopping",
-    "cliping": "clipping",
     "skiping": "skipping",
     # rr: 16 pairs
     "borowed": "borrowed",
@@ -528,9 +529,31 @@ BATCH2_TITLE_TYPOS = {
     "sukl": "skull", "swro": "sword", "tawre": "tower",
     "tewre": "tower", "vsaa": "vase", "vsai": "vase",
 }
+# Round 5 for PR #1191, at the operator's word ("add 20 more words. fix
+# errors", 2026-11-10): 20 more screened pairs, held to the usual screen
+# (absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS; not a real English
+# word per pyspellchecker; target a real word) plus the carry screen the
+# 179-pair round's CI failures taught: the correct word itself must be
+# carried unchanged by the lookup carry in both phrasings, because a
+# word the carry re-routes (clipping, greeting, shipping, shipped,
+# shopping — and "skill" before them) cannot be carried correctly no
+# matter how clean the fold is. One further passed candidate,
+# "zealos" -> "zealous", was left out to land exactly 20.
+ROUND5_SCREENED_TYPOS = {
+    "argueing": "arguing", "frusterated": "frustrated",
+    "inocculate": "inoculate", "medeval": "medieval",
+    "occurance": "occurrence", "peircing": "piercing",
+    "preceed": "precede", "preferance": "preference",
+    "referance": "reference", "rehersal": "rehearsal",
+    "relevent": "relevant", "repitition": "repetition",
+    "secretay": "secretary", "siezure": "seizure",
+    "twelth": "twelfth", "unforseen": "unforeseen",
+    "wensday": "wednesday", "withdrawl": "withdrawal",
+    "withold": "withhold", "yatch": "yacht",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **OPERATOR_MINED_4, **DOUBLE_LETTER_TYPOS,
-             **EXTENDED_DOUBLE_LETTER_TYPOS,
+             **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 
