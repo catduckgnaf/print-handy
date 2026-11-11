@@ -540,8 +540,7 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
                      "including when ZMod requires the USB route.")
     hint = _edited_moonraker_conf_hint(status, entry)
     if hint:
-        lines.append("
-**ZMod cannot update:** " + hint)
+        lines.append("\n**ZMod cannot update:** " + hint)
     if pairing == "match":
         lines.append("\nZMod base and component versions pair correctly "
                      f"({'.'.join(str(p) for p in version_parts(os_version)[:2])}.x).")
