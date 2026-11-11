@@ -1,0 +1,62 @@
+name: Issue closure guard
+
+# An issue closed as completed must have every checklist item in its body
+# ticked, or marked "moved to #N" / "deferred to #N" / "tracked in #N". If any
+# item is still open, this reopens the issue and names the items. Closing as
+# "not planned" is never blocked. Issue text is read through the API into a
+# JSON file and never interpolated into a command.
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-closure-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  issue-closure:
+    if: github.event.issue.state_reason == 'completed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Read the issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs'), path = require('path');
+            const {data: issue} = await github.rest.issues.get({...context.repo, issue_number: context.payload.issue.number});
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'issue.json'), JSON.stringify({body: issue.body || ''}));
+      - name: Check the checklist
+        id: closure
+        run: |
+          set +e
+          python scripts/check_issue_closure.py --metadata "$RUNNER_TEMP/issue.json" > "$RUNNER_TEMP/closure.out"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/closure.out"
+      - name: Reopen and say what is still open
+        if: steps.closure.outputs.status == '1'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs'), path = require('path');
+            const out = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'closure.out'), 'utf8').trim();
+            const number = context.payload.issue.number;
+            await github.rest.issues.update({...context.repo, issue_number: number, state: 'open'});
+            await github.rest.issues.createComment({...context.repo, issue_number: number, body:
+              'Reopened by the issue closure guard: this was closed as completed with checklist items still open.\n\n' +
+              out + '\n\nTick each finished item in the issue body with where it was done, mark the rest ' +
+              '"moved to #N" once another issue owns them, then close again. Close as "not planned" if the work ' +
+              'is being dropped. See CONTRIBUTING.md, "Closing an issue".'});
+      - name: Regression tests
+        run: python -B -m unittest discover -s tests -p test_contribution_policy.py
