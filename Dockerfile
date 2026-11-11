@@ -281,6 +281,15 @@ RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
     cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
     cd /app && python -c "from print_handy.core import _bounds_native" && \
     cd / && rm -rf /tmp/bounds-wheel
+# Bytecode for the working copy (#1153). .dockerignore keeps every
+# __pycache__ out of the context, /app is root-owned and the processes run
+# as handy, so without this step nothing can write bytecode and every bot
+# start and every heavy-worker spawn compiles model_job, prepared_intake
+# and the plugin from source again (about 0.4 s of a bot start and 0.75 s
+# of each worker spawn's imports, measured). COPY keeps the source mtimes
+# the .pyc files record, so they stay valid; a failed compile fails the
+# build rather than shipping a module that cannot import.
+RUN python -m compileall -q -j 0 /app/print_handy /app/plugins
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \

@@ -13,7 +13,7 @@ import time
 import pytest
 
 from print_handy import settings
-from print_handy.core import model_job
+from print_handy.core import fuzzy, model_job
 from tests.core.test_gcode_lines_equivalence import _Adapter, new_answers, old_answers
 from tests.gcode_factory import TOOLPATH
 from tests.perf.test_perf_gate import check_gate, paired_ratio
@@ -78,3 +78,69 @@ def test_settings_read_cache_perf_gate(home_layer):
     ratio, cached_s, _ = paired_ratio(lambda: settings._read(home_layer),
                                       lambda: settings._read_uncached(home_layer))
     assert not check_gate("settings_read_cached", ratio, cached_s)
+
+
+# ---------------------------------------------------------------- loaded-spools near-miss scoring
+
+PLAIN_MESSAGES = ("can you print this for me tonight please", "hello there", "make it 20% bigger",
+                  "what is the bed temperature right now?", "whta colors are loded",
+                  "the loaded filament is tangled again and I need help")
+
+
+def _old_loaded_fuzzy(plugin, text):
+    """plugins/print-feedback _loaded_spools_fuzzy over the frozen pre-#1153 scorer."""
+    from tests.core.test_fuzzy_score_equivalence import old_fuzzy_score
+    text = ' '.join(str(text or '').split()).strip()
+    best = {}
+    for family, phrases in (("loaded", plugin._LOADED_FUZZY_PHRASES), ("other", plugin._LOADED_FUZZY_RIVALS)):
+        for phrase in phrases:
+            score = old_fuzzy_score(text, phrase)
+            if score > best.get(family, 0):
+                best[family] = score
+    scored = [(score, family) for family, score in best.items() if score]
+    if not scored:
+        return False
+    decision = fuzzy.decide(scored)
+    return decision.kind == "direct" and decision.best == "loaded"
+
+
+def _new_loaded_fuzzy(plugin):
+    # Cold memo on every run: each timed message is folded as if it were new,
+    # and the fixed phrases are folded once per run, not once per process.
+    fuzzy._canonical_memo.cache_clear()
+    fuzzy._phonetic.cache_clear()
+    return [plugin._loaded_spools_fuzzy(text) for text in PLAIN_MESSAGES]
+
+
+def test_loaded_spools_fuzzy_does_the_required_work():
+    from tests.core.test_fuzzy_score_equivalence import _plugin
+    plugin = _plugin()
+    answers = _new_loaded_fuzzy(plugin)
+    assert answers == [_old_loaded_fuzzy(plugin, text) for text in PLAIN_MESSAGES]
+    assert answers.count(True) == 1
+
+
+def test_loaded_spools_fuzzy_perf_gate():
+    from tests.core.test_fuzzy_score_equivalence import _plugin
+    plugin = _plugin()
+    ratio, new_s, _ = paired_ratio(lambda: _new_loaded_fuzzy(plugin),
+                                   lambda: [_old_loaded_fuzzy(plugin, text) for text in PLAIN_MESSAGES])
+    assert not check_gate("loaded_spools_fuzzy", ratio, new_s)
+
+
+# ---------------------------------------------------------------- protected-settings baseline scan
+
+def test_baseline_config_scan_does_the_required_work(plate):
+    from tests.pipeline.test_slice_reads_1153 import _old_effective_config
+    from print_handy.core import slice_guard
+    found = slice_guard._effective_config(plate)
+    assert found == _old_effective_config(plate)
+    assert plate.count("\n") > 50_000
+
+
+def test_baseline_config_scan_perf_gate(plate):
+    from tests.pipeline.test_slice_reads_1153 import _old_effective_config
+    from print_handy.core import slice_guard
+    ratio, new_s, _ = paired_ratio(lambda: slice_guard._effective_config(plate),
+                                   lambda: _old_effective_config(plate))
+    assert not check_gate("baseline_config_scan", ratio, new_s)

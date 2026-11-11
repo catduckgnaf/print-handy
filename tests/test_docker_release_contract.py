@@ -599,6 +599,27 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertTrue(download["uses"].startswith("actions/download-artifact@"))
         self.assertEqual(download["with"]["pattern"], "digest-*")
 
+    def test_runtime_compiles_the_working_copy_to_bytecode(self):
+        """#1153 cold import: nothing in the running image can write bytecode.
+
+        .dockerignore drops every __pycache__, /app is copied as root and the
+        processes run as handy, so the working copy must be compiled at build
+        time, after its last source change and before the user switch, or
+        every bot start and heavy-worker spawn compiles it from source again.
+        """
+        ignore = (ROOT / ".dockerignore").read_text()
+        self.assertIn("**/__pycache__", ignore)
+        runtime = (ROOT / "Dockerfile").read_text().split("AS runtime", 1)[1]
+        step = "RUN python -m compileall -q -j 0 /app/print_handy /app/plugins"
+        self.assertIn(step, runtime)
+        compiled = runtime.index(step)
+        self.assertLess(runtime.index("COPY . ."), compiled)
+        # The native bounds module lands in /app before the compile, and no
+        # later step copies or rewrites Python source in /app.
+        self.assertLess(runtime.index("cp \"$so\" /app/print_handy/core/"), compiled)
+        self.assertLess(compiled, runtime.index("USER handy"))
+        self.assertNotRegex(runtime[compiled + len(step):], r"(?m)^(?:COPY|ADD)\s+(?!docker/|--from)")
+
     def test_no_light_variant_and_no_orca_build_still_fails_closed(self):
         """#353: no workflow publishes or validates a -light image any more.
 
