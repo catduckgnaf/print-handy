@@ -125,6 +125,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -179,6 +180,11 @@ LOOPBACK_NAMES = frozenset({"localhost"})
 # off by default for plain HTTP on a trusted LAN (Unraid WebUI link);
 # set [webui] cookie_secure = true when exposed via an HTTPS reverse proxy.
 SESSION_COOKIE = "webui_session"
+# The web chat's per-browser cookie on an install with no login (#1145):
+# a random id that scopes this browser's chat transcript. With a login,
+# the login session scopes it instead and this cookie is not used.
+CHAT_COOKIE = "webui_chat"
+_CHAT_COOKIE_VALUE = re.compile(r"[A-Za-z0-9_-]{32,64}")
 SESSION_TTL_S = 12 * 60 * 60  # 12 hours
 # Remembered sessions ("Keep me signed in on this browser" on the login
 # form): a 30-day session whose id is persisted only as its SHA-256 hash
@@ -780,7 +786,7 @@ class _Handler(BaseHTTPRequestHandler):
         # Failed-guess backoff shares the login form's per-address counter.
         # A locked-out address is refused before any hashing, even with the
         # right token; _deny_header turns that into a 429.
-        address = self.client_address[0]
+        address = self._client_ip()
         throttle = self.server.login_throttle
         if throttle.retry_after(address):
             return False
@@ -790,10 +796,24 @@ class _Handler(BaseHTTPRequestHandler):
         throttle.record_failure(address)
         return False
 
+    def _client_ip(self):
+        """The address the login throttle counts this request under.
+
+        The socket's peer, unless the peer is one of the configured
+        ``[webui] trusted_proxies``: then the client the proxy reports
+        in X-Forwarded-For (access.client_address). A forwarded-for
+        header from anyone else is ignored."""
+        peer = self.client_address[0] if self.client_address else ""
+        trusted = getattr(self.server, "trusted_proxies", ())
+        if not trusted:
+            return peer
+        return access_module.client_address(
+            peer, self.headers.get_all("X-Forwarded-For") or (), trusted)
+
     def _deny_header(self):
         """401 for a missing or wrong header token; 429 with Retry-After
         while this address is locked out after repeated wrong tokens."""
-        wait = self.server.login_throttle.retry_after(self.client_address[0])
+        wait = self.server.login_throttle.retry_after(self._client_ip())
         if wait:
             self._send(429, json.dumps({"ok": False, "reason": "too many failed attempts",
                                         "retry_after": wait}, indent=1, sort_keys=True),
@@ -998,13 +1018,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._chat_page()
             elif path == "/chat/state":
                 self._json(200, chat_module.chat_state(
-                    self._chat_service() if self._web_chat_enabled() else None))
+                    self._chat_view(issue=False) if self._web_chat_enabled() else None))
             elif path == "/upload":
-                self._send(200, upload_module.render_upload_page(
-                    self.server.settings_data, form_token=self._form_token(),
-                    theme=self._theme(),
-                    nav=data_module.nav_for(self.server.settings_data)),
-                    "text/html; charset=utf-8")
+                self._send(200, self._upload_page_html(), "text/html; charset=utf-8")
             elif path == "/sources":
                 self._send(200, sources_module.render_sources_page(
                     theme=self._theme(),
@@ -1581,6 +1597,7 @@ class _Handler(BaseHTTPRequestHandler):
             server.sessions.clear()
             self._rotate_form_token()
             self._revoke_remembered_sessions()
+            self._revoke_upload_links()
 
     def _rotate_form_token(self):
         """Replace the config form token after an access-rule change.
@@ -1612,6 +1629,20 @@ class _Handler(BaseHTTPRequestHandler):
             except OSError as exc:
                 log.warning("webui: could not delete remembered sessions file: %s", exc)
                 _save_remembered_sessions(self.server)
+
+    def _revoke_upload_links(self):
+        """Revoke every no-login upload link: the login was set or changed.
+
+        A link minted while the install was open (or under the old
+        password) must not keep working once the owner sets a login.
+        The link store is rebound to the new credential's fingerprint,
+        so even a link the rewrite missed fails the fingerprint check.
+        A failure is logged, never raised: the login change stands."""
+        try:
+            upload_module.revoke_all_links(
+                self.server.settings_data, self.server.access.credential_fingerprint())
+        except OSError as exc:
+            log.warning("webui: could not revoke the upload links: %s", exc)
 
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
@@ -1676,7 +1707,7 @@ class _Handler(BaseHTTPRequestHandler):
         data = self._walkthrough_data()
         if not access.required or not walkthrough_module.login_change_requested(data, form):
             return False
-        address = self.client_address[0]
+        address = self._client_ip()
         throttle = self.server.login_throttle
         wait = throttle.retry_after(address)
         current = (form.get(walkthrough_module.CURRENT_PASSWORD_FIELD) or [""])[0]
@@ -1722,6 +1753,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.sessions.clear()
             self._rotate_form_token()
             self._revoke_remembered_sessions()
+            self._revoke_upload_links()
             self._redirect(payload, headers=[self._start_session()]
                            if self.server.access.required else [])
         elif kind == "redirect":
@@ -1798,7 +1830,7 @@ class _Handler(BaseHTTPRequestHandler):
         username = (form.get(pages.LOGIN_USER_FIELD) or [""])[0]
         # Failed-login backoff: a locked-out address is refused before any
         # hashing, so a flood costs the server nothing and guessing stalls.
-        address = self.client_address[0]
+        address = self._client_ip()
         throttle = self.server.login_throttle
         wait = throttle.retry_after(address)
         if wait:
@@ -1820,9 +1852,47 @@ class _Handler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8")
             return
         throttle.record_success(address)
+        self._rehash_after_login(provided)
         remember = (form.get(pages.LOGIN_REMEMBER_FIELD) or [""])[0].strip().lower() \
             in _REMEMBER_TRUTHY
         self._redirect("/", headers=[self._start_session(remember=remember)])
+
+    def _rehash_after_login(self, password):
+        """Upgrade a password saved at an older PBKDF2 cost, once.
+
+        Runs after a successful sign-in. The re-hashed file is the same
+        login, so nothing issued under it is revoked: the server adopts
+        the new Access, and the remembered-session store and the upload
+        links are rebound to its fingerprint (which names the stored
+        hash). A failed write is logged and the sign-in stands; the
+        next sign-in tries again."""
+        server = self.server
+        access = server.access
+        if not access.needs_rehash:
+            return
+        lock = getattr(server, "access_sync_lock", None) or contextlib.nullcontext()
+        with lock:
+            if server.access is not access:
+                return
+            data = server.settings_data
+            old_fingerprint = access.credential_fingerprint()
+            try:
+                if not access_module.rehash_password(data, access, password):
+                    return
+            except OSError as exc:
+                log.warning("webui: could not re-hash the saved password: %s", exc)
+                return
+            server.access = access_module.resolve(
+                data, server.bind_host, server.webui_environ)
+            server.access_stamp = _access_stamp(data)
+            new_fingerprint = server.access.credential_fingerprint()
+            if getattr(server, "remembered_sessions", None):
+                _save_remembered_sessions(server)
+            try:
+                upload_module.rebind_links(data, old_fingerprint, new_fingerprint)
+            except OSError as exc:
+                log.warning("webui: could not rebind the upload links: %s", exc)
+            log.info("webui: the saved password was re-hashed at the current cost")
 
     def _logout(self):
         # Ends only the caller's own session, so no form token is needed:
@@ -1987,11 +2057,57 @@ class _Handler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8")
             return
         ft = self._form_token()
+        view = self._chat_view()
         self._send(200, chat_module.render_chat_page(
-            self._chat_service(), form_token=ft, notice=notice, error=error,
+            view, form_token=ft, notice=notice, error=error,
             theme=self._theme(),
             nav=data_module.nav_for(self.server.settings_data)),
-            "text/html; charset=utf-8")
+            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+
+    def _cookie_value(self, name):
+        raw = self.headers.get("Cookie") or ""
+        if not raw:
+            return ""
+        jar = SimpleCookie()
+        try:
+            jar.load(raw)
+        except Exception:  # a malformed Cookie header carries nothing
+            return ""
+        morsel = jar.get(name)
+        return morsel.value if morsel is not None else ""
+
+    def _chat_view(self, issue=True):
+        """This browser's view of the web chat: its own transcript only.
+
+        Web chat is one conversation per Web UI session (#1145), never a
+        shared outbox. The scope is the login session when the browser
+        has one; on an install with no login it is the browser's own
+        chat cookie, issued here on first use (``issue``). A request
+        with neither (and ``issue`` off, as for the state poll) gets a
+        fresh scope that holds nothing."""
+        from ..bot.web import scope_for
+        secret = self._valid_session_id()
+        if not secret and self.server.access.required and self.headers.get(TOKEN_HEADER):
+            # A header client (no cookies) signed in with the access
+            # token: one conversation for the token holder. The request
+            # was already authorized by that header to get here.
+            secret = "\x00access-token-client"
+        if not secret:
+            secret = self._cookie_value(CHAT_COOKIE)
+            if not _CHAT_COOKIE_VALUE.fullmatch(secret or ""):
+                secret = secrets.token_urlsafe(32)
+                if issue:
+                    self._new_chat_cookie = secret
+        return self._chat_service().view(scope_for(secret))
+
+    def _chat_cookie_headers(self):
+        """The Set-Cookie header for a chat cookie issued on this request."""
+        value = getattr(self, "_new_chat_cookie", None)
+        if not value:
+            return []
+        flags = "; Secure" if self._cookie_secure() else ""
+        return [("Set-Cookie", f"{CHAT_COOKIE}={value}; HttpOnly; SameSite=Strict; "
+                               f"Path=/; Max-Age={REMEMBER_TTL_S}{flags}")]
 
     def _chat_form(self):
         """The parsed, authorized chat form, or None (refusal sent)."""
@@ -2015,11 +2131,11 @@ class _Handler(BaseHTTPRequestHandler):
         if not text:
             self._redirect("/chat")
             return
-        if not self._chat_service().submit(text):
+        if not self._chat_view().submit(text):
             self._chat_page(error="Too many messages in the last minute; "
                                   "give the bot a moment to catch up.")
             return
-        self._redirect("/chat")
+        self._redirect("/chat", headers=self._chat_cookie_headers())
 
     def _chat_choice_post(self):
         form = self._chat_form()
@@ -2041,7 +2157,7 @@ class _Handler(BaseHTTPRequestHandler):
             # or the press was refused — which used to redirect in
             # silence. Both come back as the page with an explanation.
             try:
-                label = self._chat_service().answer(clarify_id, index)
+                label = self._chat_view().answer(clarify_id, index)
             except Exception:
                 self._chat_page(error="That answer didn't reach the bot "
                                       "in time. The question is still "
@@ -2056,28 +2172,70 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- uploads ------------------------------------------------------------
 
-    def _read_upload_body(self):
-        """(fields, files, None) or (None, None, (code, reason)).
+    def _credential_fingerprint(self):
+        """The fingerprint upload links are minted and checked under."""
+        return self.server.access.credential_fingerprint()
 
-        The upload routes are the one place a multipart body is read:
-        the shared form reader's 64 KB urlencoded rule does not apply,
-        but the body is still capped before it is read — at the upload
-        module's size limit plus a small multipart overhead allowance.
-        """
+    def _upload_page_html(self, notice=None, error=None):
+        return upload_module.render_upload_page(
+            self.server.settings_data, form_token=self._form_token(),
+            notice=notice, error=error, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data),
+            fingerprint=self._credential_fingerprint())
+
+    def _receive_upload(self, handle):
+        """Receive one multipart upload body and hand it to ``handle``.
+
+        The body is streamed to a spool file in the inbox, never read
+        into memory whole (upload.parse_multipart_stream). Before a
+        byte is read: at most MAX_CONCURRENT_UPLOADS uploads are
+        received at once (503 with Retry-After otherwise), the
+        Content-Length must fit the size cap (413), and the inbox
+        quota must have room for it (507 with the plain reason).
+        ``handle(fields, files)`` gets the parsed text fields and
+        ``[(filename, spool path)]``; whatever spool file it does not
+        move into the inbox is removed afterwards. Returns None, or
+        ``(code, reason)`` when the body was refused (the connection is
+        then closed, since an unread body cannot be skipped)."""
         content_type = self.headers.get("Content-Type") or ""
         if not content_type.startswith("multipart/form-data"):
-            return None, None, (415, "uploads must be multipart/form-data")
+            self.close_connection = True
+            return 415, "uploads must be multipart/form-data"
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            return None, None, (400, "bad Content-Length")
-        if length < 0 or length > upload_module.MAX_UPLOAD_BYTES + 65536:
-            return None, None, (413, "upload too large")
-        raw = self.rfile.read(length) if length else b""
-        fields, files = upload_module.parse_multipart(raw, content_type)
-        if fields is None:
-            return None, None, (400, "could not read the upload form")
-        return {name: [value] for name, value in fields.items()}, files, None
+            self.close_connection = True
+            return 400, "bad Content-Length"
+        if length < 0 or length > (upload_module.MAX_UPLOAD_BYTES
+                                   + upload_module.MULTIPART_OVERHEAD_BYTES):
+            self.close_connection = True
+            return 413, "upload too large"
+        data = self.server.settings_data
+        full = upload_module.quota_refusal(
+            data, max(0, length - upload_module.MULTIPART_OVERHEAD_BYTES))
+        if full is not None:
+            self.close_connection = True
+            return 507, full
+        if not upload_module.UPLOAD_SLOTS.try_acquire():
+            self.close_connection = True
+            return 503, upload_module.BUSY_MESSAGE
+        files = []
+        try:
+            try:
+                fields, files = upload_module.parse_multipart_stream(
+                    self.rfile, length, content_type, upload_module.spool_dir(data))
+            except upload_module.UploadError as exc:
+                self.close_connection = True
+                return exc.status, str(exc)
+            except OSError:
+                log.exception("webui: could not receive an upload")
+                self.close_connection = True
+                return 500, "the upload could not be received; nothing was saved"
+            handle({name: [value] for name, value in fields.items()}, files)
+            return None
+        finally:
+            upload_module.discard_spooled(files)
+            upload_module.UPLOAD_SLOTS.release()
 
     def _upload_post(self):
         content_type = self.headers.get("Content-Type") or ""
@@ -2085,7 +2243,7 @@ class _Handler(BaseHTTPRequestHandler):
             # Gate before the body is read: an upload body can run to
             # the shared download budget (~200 MiB), so an
             # unauthenticated client must not be able to make the
-            # server buffer and parse one. The gate is the GET rule
+            # server receive and parse one. The gate is the GET rule
             # (access open, the header token, or a login session —
             # session first, so a browser request does not trip the
             # header throttle); it does not replace the POST rule
@@ -2094,30 +2252,35 @@ class _Handler(BaseHTTPRequestHandler):
             # cannot save a file.
             if self.server.access.required and not (
                     self._session_authorized() or self._header_authorized()):
+                self.close_connection = True
                 self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
                 return
-            fields, files, error = self._read_upload_body()
-            if error:
-                self._html_refusal(error[0], error[1], "/upload")
-                return
-            if not self._post_authorized(fields):
-                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
-                return
-            if not files:
-                self._html_refusal(400, "no file was attached", "/upload")
-                return
-            saved, reason = upload_module.save_upload(
-                self.server.settings_data, files[0][0], files[0][1])
-            if saved is None:
-                self._html_refusal(400, reason, "/upload")
-                return
-            self._send(200, upload_module.render_upload_page(
-                self.server.settings_data, form_token=self._form_token(),
-                notice=f"{saved.name} is in the inbox. Pick it up in chat "
-                       "to slice and print it.",
-                theme=self._theme(),
-                nav=data_module.nav_for(self.server.settings_data)),
-                "text/html; charset=utf-8")
+
+            def handle(fields, files):
+                if not self._post_authorized(fields):
+                    self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                    return
+                if not files:
+                    self._html_refusal(400, "no file was attached", "/upload")
+                    return
+                saved, reason = upload_module.save_upload(
+                    self.server.settings_data, files[0][0], files[0][1])
+                if saved is None:
+                    self._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
+                                       else 400, reason, "/upload")
+                    return
+                self._send(200, self._upload_page_html(
+                    notice=f"{saved.name} is in the inbox. Pick it up in chat "
+                           "to slice and print it."), "text/html; charset=utf-8")
+
+            refused = self._receive_upload(handle)
+            if refused:
+                headers = [("Retry-After", "30")] if refused[0] == 503 else []
+                self._send(refused[0], shell.page(
+                    "error", f'<p class="error">{html.escape(refused[1])}</p>'
+                             '<p><a href="/upload">Back</a></p>',
+                    path="/upload", theme=self._theme()),
+                    "text/html; charset=utf-8", headers=headers)
             return
         form, error = self._read_form()
         if error:
@@ -2128,26 +2291,36 @@ class _Handler(BaseHTTPRequestHandler):
             return
         action = (form.get("action") or [""])[0]
         notice = error_text = None
+        data = self.server.settings_data
         if action == "create_link":
-            token = upload_module.create_link(self.server.settings_data)
+            token = upload_module.create_link(data, self._credential_fingerprint())
+            days = upload_module.LINK_TTL_S // 86400
             notice = (f"Upload link created: /u/{token} — copy it now; "
-                      "only a digest of it is kept, so it cannot be shown again.")
+                      "only a digest of it is kept, so it cannot be shown again. "
+                      f"It works for {days} days, or until you revoke it or the "
+                      "Web UI login changes.")
         elif action == "revoke_link":
-            if upload_module.revoke_link(self.server.settings_data,
-                                         (form.get("digest") or [""])[0]):
+            if upload_module.revoke_link(data, (form.get("digest") or [""])[0]):
                 notice = "Upload link revoked."
             else:
                 error_text = "that upload link is already gone"
+        elif action == "delete_file":
+            name = (form.get("name") or [""])[0]
+            if upload_module.delete_inbox_file(data, name):
+                notice = f"{name} was deleted from the inbox."
+            else:
+                error_text = "that file is no longer in the inbox"
         else:
             error_text = "unknown upload action"
-        self._send(200, upload_module.render_upload_page(
-            self.server.settings_data, form_token=self._form_token(),
-            notice=notice, error=error_text, theme=self._theme(),
-            nav=data_module.nav_for(self.server.settings_data)),
-            "text/html; charset=utf-8")
+        self._send(200, self._upload_page_html(notice=notice, error=error_text),
+                   "text/html; charset=utf-8")
+
+    def _link_valid(self, token):
+        return upload_module.link_valid(self.server.settings_data, token,
+                                        self._credential_fingerprint())
 
     def _token_upload_page(self, token):
-        if not upload_module.link_valid(self.server.settings_data, token):
+        if not self._link_valid(token):
             self._send(404, upload_module.render_token_page(
                 error="This upload link is not valid. Ask for a fresh one."),
                 "text/html; charset=utf-8")
@@ -2156,48 +2329,53 @@ class _Handler(BaseHTTPRequestHandler):
                    "text/html; charset=utf-8")
 
     def _token_upload_submit(self, token):
-        if not upload_module.link_valid(self.server.settings_data, token):
-            self._send(404, upload_module.render_token_page(
-                error="This upload link is not valid. Ask for a fresh one."),
-                "text/html; charset=utf-8")
-            return
-        fields, files, error = self._read_upload_body()
-        if error:
-            self._send(error[0], upload_module.render_token_page(error=error[1]),
+        invalid = "This upload link is not valid. Ask for a fresh one."
+        if not self._link_valid(token):
+            self.close_connection = True
+            self._send(404, upload_module.render_token_page(error=invalid),
                        "text/html; charset=utf-8")
             return
-        # Check the token again after the read: reading a large upload
-        # can take a while, and a link revoked in that window must not
-        # still deliver a file into the inbox. This re-check is only
-        # the early refusal — the guarantee is in save_upload_for_link,
-        # which makes the final validity decision and the write one
-        # atomic step against revocation.
-        if not upload_module.link_valid(self.server.settings_data, token):
-            self._send(404, upload_module.render_token_page(
-                error="This upload link is not valid. Ask for a fresh one."),
+
+        def handle(fields, files):
+            # Check the token again after the read: reading a large
+            # upload can take a while, and a link revoked (or expired)
+            # in that window must not still deliver a file into the
+            # inbox. This re-check is only the early refusal — the
+            # guarantee is in save_upload_for_link, which makes the
+            # final validity decision and the write one atomic step
+            # against revocation.
+            if not self._link_valid(token):
+                self._send(404, upload_module.render_token_page(error=invalid),
+                           "text/html; charset=utf-8")
+                return
+            if not files:
+                self._send(400, upload_module.render_token_page(
+                    error="No file was attached."), "text/html; charset=utf-8")
+                return
+            saved, reason = upload_module.save_upload_for_link(
+                self.server.settings_data, token, files[0][0], files[0][1],
+                self._credential_fingerprint())
+            if saved is None and reason is None:
+                # Revoked after the re-check above but before the write;
+                # the atomic check-and-save refused the delivery.
+                self._send(404, upload_module.render_token_page(error=invalid),
+                           "text/html; charset=utf-8")
+                return
+            if saved is None:
+                self._send(507 if reason.startswith(upload_module.INBOX_FULL) else 400,
+                           upload_module.render_token_page(error=reason),
+                           "text/html; charset=utf-8")
+                return
+            self._send(200, upload_module.render_token_page(
+                notice=f"{saved.name} is in the inbox. It will be picked up "
+                       "and confirmed there before anything prints."),
                 "text/html; charset=utf-8")
-            return
-        if not files:
-            self._send(400, upload_module.render_token_page(
-                error="No file was attached."), "text/html; charset=utf-8")
-            return
-        saved, reason = upload_module.save_upload_for_link(
-            self.server.settings_data, token, files[0][0], files[0][1])
-        if saved is None and reason is None:
-            # Revoked after the re-check above but before the write;
-            # the atomic check-and-save refused the delivery.
-            self._send(404, upload_module.render_token_page(
-                error="This upload link is not valid. Ask for a fresh one."),
-                "text/html; charset=utf-8")
-            return
-        if saved is None:
-            self._send(400, upload_module.render_token_page(error=reason),
-                       "text/html; charset=utf-8")
-            return
-        self._send(200, upload_module.render_token_page(
-            notice=f"{saved.name} is in the inbox. It will be picked up "
-                   "and confirmed there before anything prints."),
-            "text/html; charset=utf-8")
+
+        refused = self._receive_upload(handle)
+        if refused:
+            headers = [("Retry-After", "30")] if refused[0] == 503 else []
+            self._send(refused[0], upload_module.render_token_page(error=refused[1]),
+                       "text/html; charset=utf-8", headers=headers)
 
     def _config_preview(self):
         got = self._config_form()
@@ -2427,6 +2605,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.remembered_sessions = _load_remembered_sessions(
         data, server.access.credential_fingerprint())
     server.login_throttle = access_module.LoginThrottle()
+    # The reverse proxies whose X-Forwarded-For names the client for the
+    # throttle; none by default, so the header is never read (#1145).
+    server.trusted_proxies = settings.trusted_proxy_networks(
+        (data or {}).get("webui", {}).get("trusted_proxies", ""))
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
     # GET /api/status (polled by Home Assistant) reuses one snapshot for a

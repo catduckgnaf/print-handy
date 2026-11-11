@@ -49,7 +49,8 @@ class WebUISettingsTests(unittest.TestCase):
                                          "controls_enabled": False,
                                          "cookie_secure": False,
                                          "chat_llm_enabled": True,
-                                         "chat_enabled": True})
+                                         "chat_enabled": True,
+                                         "trusted_proxies": ""})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:

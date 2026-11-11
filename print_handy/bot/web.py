@@ -22,6 +22,15 @@ existing auth, and inside the bot the operator is the single user
 answered by the same person who is signed in, through the same prompt
 machinery a Discord approval uses.
 
+Each Web UI session is its own conversation (#1145), never one shared
+outbox: the server passes a per-session scope (:func:`scope_for`, a
+digest of the login session id or, with no login, of the browser's
+chat cookie), the scope rides as the BotCore source's ``thread_id`` so
+BotCore keys its chat session per Web UI session, and every post goes
+to the transcript of the scope it was made for. Two sessions never see
+or answer each other's messages and questions; a post that belongs to
+no session (a startup notice) is shown to all of them.
+
 ``[webui] chat_llm_enabled`` mirrors ``[discord] chat_llm_enabled``:
 with it off, web chat is a pure bot — commands, design's deterministic
 parts and every handler still run, but no stray-chat model lane
@@ -39,6 +48,8 @@ Web UI's own auth decision, as before.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import hashlib
 import logging
 import threading
 import time
@@ -52,10 +63,47 @@ OPERATOR_ID = "webui"
 CHAT_ID = "webui"
 RATE_LIMIT_PER_MINUTE = 20
 OUTBOX_LIMIT = 200
+# Web UI sessions whose transcripts are kept; the least recently used
+# one is forgotten past this.
+MAX_SCOPES = 64
+
+
+# The web chat scope the running turn belongs to (a per-session id, see
+# scope_for). Set around every BotCore turn and button press the service
+# starts; asyncio tasks and asyncio.to_thread copy it, so a reply sent
+# from deep inside a flow (or from a task that flow spawned) lands in the
+# transcript of the session that started it even when the send carries
+# no thread metadata.
+_CURRENT_SCOPE = contextvars.ContextVar("webui_chat_scope", default="")
+
+
+def scope_for(session_secret):
+    """The web chat scope for one Web UI session.
+
+    ``session_secret`` is the browser's login-session id, or its chat
+    cookie on an install with no login. The scope is a one-way digest
+    of it under its own label, so the value that ends up in a BotCore
+    session key, a receipt or a log never reveals the cookie (nor the
+    remembered-session store's key, a plain SHA-256 of the session id).
+    Empty in, empty out: the unscoped default transcript."""
+    secret = str(session_secret or "")
+    if not secret:
+        return ""
+    digest = hashlib.sha256(b"print-handy web chat scope\x00" + secret.encode("utf-8"))
+    return "s" + digest.hexdigest()[:32]
 
 
 class WebAdapter(BasePlatformAdapter):
-    """Delivers BotCore's posts into an outbox list the Web UI polls."""
+    """Delivers BotCore's posts into per-session outboxes the Web UI polls.
+
+    Each Web UI session is its own conversation: its turns run with the
+    session's scope as the source's ``thread_id`` (so BotCore keys its
+    sessions, open questions, typed answers and recent links per Web UI
+    session), and every post goes to the outbox of the scope it names —
+    the ``thread_id`` metadata a handler passes, else the scope of the
+    turn that is running. A post with neither (a startup notice) is
+    shared: every session sees it, since it belongs to none of them.
+    """
 
     name = "webui"
     message_limit = 4000
@@ -69,56 +117,85 @@ class WebAdapter(BasePlatformAdapter):
         super().__init__([OPERATOR_ID], approver=OPERATOR_ID, **kwargs)
         self._outbox = outbox
 
+    @staticmethod
+    def _scope(metadata=None):
+        thread = (metadata or {}).get("thread_id")
+        return str(thread) if thread else _CURRENT_SCOPE.get()
+
+    def prompt_scope(self, clarify_id):
+        """The scope a prompt was asked in, or "" for a shared one.
+
+        Read from the registry's session key first ("webui:webui:<scope>:
+        webui", the thread segment), else from the recorded row."""
+        key = self.registry.session_key(clarify_id)
+        parts = str(key or "").split(":")
+        if len(parts) >= 3 and parts[0] == self.name and parts[2]:
+            return parts[2]
+        with _prompts_guard(self):
+            row = self._prompts.get(str(clarify_id)) or {}
+        return str(row.get("scope") or "")
+
     async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
         # The chat page cannot attach files, so an attachment becomes
         # a note naming the file — never the marker itself, whose server
         # path is not the reader's business. Markers go through the same
         # restricted compatibility path as on the other platforms.
+        scope = self._scope(metadata)
         body, files = rest.outgoing(str(content or ""), files)
         if body or not files:
             for start in range(0, max(len(body), 1), self.message_limit):
                 self._outbox.append({"kind": "message",
-                                     "content": body[start:start + self.message_limit]})
+                                     "content": body[start:start + self.message_limit]},
+                                    scope)
         for path in files:
             self._outbox.append({"kind": "message",
-                                 "content": f"📎 {path.name}"})
+                                 "content": f"📎 {path.name}"}, scope)
         return SendResult(True, message_id="web")
 
     async def send_clarify(self, chat_id, question, choices, clarify_id,
                            session_key, metadata=None):
+        scope = self._scope(metadata)
         labels = [str(choice) for choice in choices]
         self._record_prompt(clarify_id, {"choices": labels,
-                                         "question": str(question)})
+                                         "question": str(question),
+                                         "scope": scope})
         self._outbox.append({"kind": "prompt", "clarify_id": str(clarify_id),
-                             "question": str(question), "choices": labels})
+                             "question": str(question), "choices": labels}, scope)
         return SendResult(True, message_id=str(clarify_id))
 
     async def close_prompt(self, clarify_id, note):
+        scope = self.prompt_scope(clarify_id)
         with _prompts_guard(self):
             self._prompts.pop(str(clarify_id), None)
         self._outbox.append({"kind": "prompt_closed",
                              "clarify_id": str(clarify_id),
-                             "note": str(note or "")})
+                             "note": str(note or "")}, scope)
 
 
 class WebChatService:
-    """One BotCore for web chat, on its own event loop thread."""
+    """One BotCore for web chat, on its own event loop thread.
+
+    The transcript is kept per scope (one per Web UI session, see
+    scope_for): a session sees its own entries and the shared ones
+    (posts that belong to no session), never another session's. Every
+    method takes the ``scope``; the default "" is the unscoped
+    transcript a caller without sessions uses. :meth:`view` binds one.
+    """
 
     def __init__(self, cfg):
         self.cfg = cfg
         self._lock = threading.Lock()
-        self._entries = []          # outbox dicts, oldest first
+        self._transcripts = {}      # scope -> outbox dicts, oldest first
+        self._shared = []           # entries every scope sees
         self._seq = 0
         self._sent_at = []          # submit timestamps for the rate limit
+        self._inflight = {}         # scope -> process() turns not yet finished
 
         outer = self
 
         class _Outbox:
-            def append(self, entry):
-                with outer._lock:
-                    outer._seq += 1
-                    outer._entries.append({"seq": outer._seq, **entry})
-                    del outer._entries[:-OUTBOX_LIMIT]
+            def append(self, entry, scope=""):
+                outer._append(entry, scope)
 
         self.adapter = WebAdapter(_Outbox())
         webui = cfg.get("webui") or {}
@@ -126,16 +203,44 @@ class WebChatService:
             None, cfg, platform_name="webui", adapter=self.adapter,
             chat_id=CHAT_ID,
             use_llm=bool(webui.get("chat_llm_enabled", True)))
-        self.source = runtime.make_source(
-            OPERATOR_ID, CHAT_ID, platform_name="webui")
+        self.source = self._source("")
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._run_loop, name="webui-chat", daemon=True)
         self._thread.start()
         self._message_count = 0
-        self._inflight = 0          # process() turns not yet finished
         if chat_enabled(cfg):
             asyncio.run_coroutine_threadsafe(self._announce_startup(), self._loop)
+
+    @staticmethod
+    def _source(scope):
+        """The BotCore source for one scope: the operator in the web chat,
+        with the scope as the thread, so session_key() differs per Web UI
+        session while the chat (and so the gateway's routing) is the same."""
+        return runtime.make_source(OPERATOR_ID, CHAT_ID, thread_id=scope or None,
+                                   platform_name="webui")
+
+    def _append(self, entry, scope=""):
+        """Record one outbox entry in its scope's transcript (or the shared
+        one). The oldest scopes are forgotten past MAX_SCOPES, and each
+        transcript keeps its newest OUTBOX_LIMIT entries."""
+        scope = str(scope or "")
+        with self._lock:
+            self._seq += 1
+            row = {"seq": self._seq, **entry}
+            if not scope:
+                self._shared.append(row)
+                del self._shared[:-OUTBOX_LIMIT]
+                return
+            entries = self._transcripts.pop(scope, None)
+            if entries is None:
+                entries = []
+            # Most recently used last, so the trim drops the stalest.
+            self._transcripts[scope] = entries
+            entries.append(row)
+            del entries[:-OUTBOX_LIMIT]
+            while len(self._transcripts) > MAX_SCOPES:
+                self._transcripts.pop(next(iter(self._transcripts)))
 
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
@@ -150,7 +255,8 @@ class WebChatService:
         announcements, once per service, fail-soft exactly as there.
         Only web chat's own receipts: the chat bot's process shares the
         receipt folder, and its live intakes are not this process's to
-        call interrupted.
+        call interrupted. A receipt names the session it came from (its
+        thread), so its notice goes to that session's transcript.
         """
         try:
             from ..core import prepared_intake
@@ -165,16 +271,32 @@ class WebChatService:
         except Exception:
             logger.exception("could not announce a pending launch")
 
+    async def _in_scope(self, scope, coro_fn):
+        """Run one turn (or press) with the scope set for every send it makes."""
+        token = _CURRENT_SCOPE.set(str(scope or ""))
+        try:
+            return await coro_fn()
+        finally:
+            _CURRENT_SCOPE.reset(token)
+
     # -- operator side ------------------------------------------------------
+
+    def view(self, scope):
+        """This service bound to one scope (what the chat page renders)."""
+        return ScopedChat(self, scope)
 
     def _enabled(self):
         """The page's own switch, read live from the settings mapping."""
         return chat_enabled(self.cfg)
 
-    def submit(self, text):
-        """Queue one operator message. False when rate-limited or off."""
+    def submit(self, text, scope=""):
+        """Queue one operator message in ``scope``. False when rate-limited or off.
+
+        The rate limit counts every scope together: it guards the bot
+        (and the model budget), which the sessions share."""
         if not self._enabled():
             return False
+        scope = str(scope or "")
         now = time.time()
         with self._lock:
             self._sent_at[:] = [t for t in self._sent_at if now - t < 60]
@@ -183,17 +305,15 @@ class WebChatService:
             self._sent_at.append(now)
             self._message_count += 1
             count = self._message_count
-            self._seq += 1
-            self._entries.append({"seq": self._seq, "kind": "operator",
-                                  "content": str(text or "")})
-        event = runtime.make_event(self.source, text, f"web-{count}")
-        with self._lock:
-            self._inflight += 1
-        future = asyncio.run_coroutine_threadsafe(self.core.process(event), self._loop)
-        future.add_done_callback(self._process_done)
+            self._inflight[scope] = self._inflight.get(scope, 0) + 1
+        self._append({"kind": "operator", "content": str(text or "")}, scope)
+        event = runtime.make_event(self._source(scope), text, f"web-{count}")
+        future = asyncio.run_coroutine_threadsafe(
+            self._in_scope(scope, lambda: self.core.process(event)), self._loop)
+        future.add_done_callback(lambda done: self._process_done(done, scope))
         return True
 
-    def _process_done(self, future):
+    def _process_done(self, future, scope=""):
         """A finished turn: failures are logged and posted, never silent.
 
         The future used to be discarded, so a handler exception
@@ -202,54 +322,98 @@ class WebChatService:
         itself goes to the log.
         """
         with self._lock:
-            self._inflight -= 1
+            left = self._inflight.get(scope, 0) - 1
+            if left > 0:
+                self._inflight[scope] = left
+            else:
+                self._inflight.pop(scope, None)
         if future.cancelled():
             return
         exc = future.exception()
         if exc is not None:
             logger.exception("web chat message handling failed", exc_info=exc)
-            self.adapter._outbox.append({
+            self._append({
                 "kind": "message",
                 "content": "Something went wrong with that message, so it "
-                           "wasn't acted on. The error was logged."})
+                           "wasn't acted on. The error was logged."}, scope)
 
-    def busy(self):
-        """True while a submitted message's turn is still running."""
+    def busy(self, scope=""):
+        """True while a message this scope submitted is still running."""
         with self._lock:
-            return self._inflight > 0
+            return self._inflight.get(str(scope or ""), 0) > 0
 
-    def answer(self, clarify_id, index):
-        """Press a button on the open prompt, as the signed-in operator.
+    def answer(self, clarify_id, index, scope=""):
+        """Press a button on an open prompt, as the signed-in operator.
 
-        Resolves nothing when the page's switch is off.
+        Only a prompt this scope can see — its own, or a shared one —
+        can be pressed from it; another session's prompt resolves
+        nothing. Resolves nothing when the page's switch is off.
         """
         if not self._enabled():
             return None
+        scope = str(scope or "")
+        owner = self.adapter.prompt_scope(clarify_id)
+        if owner and owner != scope:
+            logger.info("refused web chat press on prompt %s from another session",
+                        clarify_id)
+            return None
         future = asyncio.run_coroutine_threadsafe(
-            self.adapter.answer_choice(clarify_id, index, user_id=OPERATOR_ID),
+            self._in_scope(owner or scope, lambda: self.adapter.answer_choice(
+                clarify_id, index, user_id=OPERATOR_ID)),
             self._loop)
         return future.result(timeout=10)
 
     # -- rendering side -------------------------------------------------------
 
-    def entries(self, since=0):
+    def entries(self, since=0, scope=""):
+        """This scope's transcript and the shared entries, oldest first."""
         with self._lock:
-            return [entry for entry in self._entries if entry["seq"] > since]
+            own = self._transcripts.get(str(scope or ""), []) if scope else []
+            rows = [entry for entry in (*self._shared, *own) if entry["seq"] > since]
+        return sorted(rows, key=lambda entry: entry["seq"])
 
-    def open_prompt(self):
-        """{clarify_id, question, choices} for the open prompt, or None.
+    def open_prompt(self, scope=""):
+        """{clarify_id, question, choices} for this scope's open prompt, or None.
 
         The page answers by clarify id (the button-press path every
         platform uses), so the open prompt is the newest recorded one
         the registry still holds open — flows register their questions
-        under their own session keys, not the chat session's.
+        under their own session keys, not the chat session's — among
+        the prompts this scope may see: its own and the shared ones.
         """
+        scope = str(scope or "")
         for cid, row in reversed(self.adapter.prompts_snapshot()):
+            owner = self.adapter.prompt_scope(cid)
+            if owner and owner != scope:
+                continue
             if self.adapter.registry.is_open(cid):
                 return {"clarify_id": str(cid),
                         "question": row.get("question") or "",
                         "choices": list(row.get("choices") or [])}
         return None
+
+
+class ScopedChat:
+    """One Web UI session's view of the web chat service."""
+
+    def __init__(self, service, scope):
+        self.service = service
+        self.scope = str(scope or "")
+
+    def submit(self, text):
+        return self.service.submit(text, self.scope)
+
+    def answer(self, clarify_id, index):
+        return self.service.answer(clarify_id, index, self.scope)
+
+    def entries(self, since=0):
+        return self.service.entries(since, self.scope)
+
+    def busy(self):
+        return self.service.busy(self.scope)
+
+    def open_prompt(self):
+        return self.service.open_prompt(self.scope)
 
 
 def chat_llm_enabled(cfg):
@@ -269,5 +433,5 @@ def chat_enabled(cfg):
     return bool((cfg.get("webui") or {}).get("chat_enabled", True))
 
 
-__all__ = ["CHAT_ID", "OPERATOR_ID", "WebAdapter", "WebChatService",
-           "chat_enabled", "chat_llm_enabled"]
+__all__ = ["CHAT_ID", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
+           "chat_enabled", "chat_llm_enabled", "scope_for"]
