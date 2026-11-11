@@ -43,7 +43,7 @@ MODES = ("pad", "crop")
 # the GPU passed through to the container (docs/DOCKER.md) and are only
 # ever used when configured.
 ENCODERS = ("cpu", "vaapi", "qsv", "nvenc")
-VAAPI_DEVICE = "/dev/dri/renderD128"  # the same device live_stream.VAAPI_DEVICE names
+VAAPI_DEVICE = "/dev/dri/renderD128"  # default only; live_stream.vaapi_device() picks the real node (#1262)
 
 _CODEC_ARGS = {
     "cpu": ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
@@ -64,7 +64,11 @@ def encoder_args(encoder: str = "cpu") -> list[str]:
 
 def encoder_input_args(encoder: str = "cpu") -> list[str]:
     """ffmpeg args that must precede ``-i`` for an encoder choice (VAAPI's device)."""
-    return ["-vaapi_device", VAAPI_DEVICE] if str(encoder or "").strip().lower() == "vaapi" else []
+    if str(encoder or "").strip().lower() != "vaapi":
+        return []
+    from .. import live_stream  # lazy: keep this module's import cheap
+
+    return ["-vaapi_device", live_stream.vaapi_device()]
 
 
 def encoder_filter(encoder: str, base_filter: str) -> str:

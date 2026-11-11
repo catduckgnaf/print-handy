@@ -108,6 +108,7 @@ __all__ = [
     "GO2RTC_STREAM_NAME",
     "TARGET_CODECS",
     "VAAPI_DEVICE",
+    "vaapi_device",
     "CameraSource",
     "EncoderCandidate",
     "EncoderProbe",
@@ -140,6 +141,39 @@ CAMERA_KINDS = ("mjpeg", "rtsp", "webrtc", "snapshot")
 TARGET_CODECS = ("h264", "vp8")
 ENCODER_PREFERENCES = ("auto", "vaapi", "qsv", "nvenc", "cpu")
 VAAPI_DEVICE = "/dev/dri/renderD128"
+VAAPI_DEVICE_ENV = "PRINT_HANDY_VAAPI_DEVICE"
+
+
+def vaapi_device(dri_dir="/dev/dri", sys_drm="/sys/class/drm", *, environ=None, access=None) -> str:
+    """The render node VAAPI should open (#1262).
+
+    ``PRINT_HANDY_VAAPI_DEVICE`` wins when set. Otherwise the first
+    ``renderD*`` node this process can read and write whose kernel driver
+    is not ``nvidia`` (NVIDIA nodes have no VAAPI driver; NVENC reaches
+    the GPU through the NVIDIA runtime instead). A host with a second GPU
+    numbers the Intel/AMD node renderD129 or later, so the old fixed
+    renderD128 opened the wrong device or none. Falls back to
+    :data:`VAAPI_DEVICE` when nothing qualifies. Never raises.
+    """
+    environ = os.environ if environ is None else environ
+    access = access or os.access
+    override = str(environ.get(VAAPI_DEVICE_ENV) or "").strip()
+    if override:
+        return override
+    try:
+        for node in sorted(Path(dri_dir).glob("renderD*")):
+            if not access(str(node), os.R_OK | os.W_OK):
+                continue
+            try:
+                driver = os.path.basename(os.readlink(Path(sys_drm) / node.name / "device" / "driver"))
+            except OSError:
+                driver = ""
+            if driver == "nvidia":
+                continue
+            return str(node)
+    except Exception:  # noqa: BLE001 - device discovery must never fail an encode
+        pass
+    return VAAPI_DEVICE
 # The one go2rtc stream name for the printer camera (#311 stage 4):
 # print_handy.go2rtc renders its generated config under this name and
 # the Activity page (print_handy.live_activity) requests it, so the
@@ -663,8 +697,8 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
 
     Scales to `max_height` keeping aspect (width ``-2``, so it stays even),
     caps at `fps` and `bitrate_kbps`, and encodes with the candidate's
-    encoder. VAAPI candidates initialise ``-vaapi_device
-    /dev/dri/renderD128`` before the input and use the
+    encoder. VAAPI candidates initialise ``-vaapi_device`` with
+    :func:`vaapi_device` (renderD128 by default) before the input and use the
     ``format=nv12,hwupload`` tail on the scale filter (the analogous form
     for ``vp8_vaapi``); CPU H.264 uses ``libx264 -preset ultrafast`` and
     CPU VP8 uses ``libvpx -deadline realtime``.
@@ -697,7 +731,7 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
 
     argv = [executable, "-hide_banner", "-nostdin"]
     if chosen.vendor == "vaapi":
-        argv += ["-vaapi_device", VAAPI_DEVICE]
+        argv += ["-vaapi_device", vaapi_device()]
     argv += ["-i", input_url, "-an"]
     if chosen.vendor == "vaapi":
         video_filter = f"scale=-2:{max_height},format=nv12,hwupload"
