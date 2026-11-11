@@ -32,7 +32,8 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse", "nest", "upstate", "fir", "skill", "firmware"]
+              "states", "parse", "nest", "upstate", "fir", "skill", "firmware",
+              "fluid", "fluids"]
 # Second mining pass over the operator's chat history (same aggregate-only
 # rule: pairs, never message text). "iddint" maps to the apostrophe-less
 # form the matcher canonicalizes to, and "seel" is kept deliberately: it is
@@ -126,6 +127,92 @@ FIRMWARE_FAMILY = {
     "firmwre": "firmware", "firmwware": "firmware",
     "fimrware": "firmware", "firware": "firmware",
     "firwmare": "firmware", "frimware": "firmware",
+}
+# The firmware component families: second scope addition to #1290
+# (2026-11-11, at the operator's word — the firmware fuzzy items exist
+# so update checks can be named by product: "check for zmod updates",
+# "check for helixscreen updates"). The intent patterns now name the
+# components the /print-firmware report names — zmod, klipper,
+# moonraker, fluidd, mainsail, helixscreen — and each name gets the
+# firmware family's treatment. The names themselves were checked the
+# way "skill" and "firmware" were: no word in REAL_WORDS, the typo
+# table's values or the intent vocabulary sits within two edits of any
+# of them, so the bounded corrector has nothing to re-route them to
+# and none needs a REAL_WORDS shield or a DO_NOT_MAP pin ("zmod", at
+# four letters, is below the corrector's length floor entirely). The
+# reverse direction did bite: naming "fluidd" in the patterns put it
+# in the intent vocabulary, one edit from the real words "fluid" and
+# "fluids", which the corrector then rewrote to "fluidd" in the lookup
+# carry — so "fluid" and "fluids" are shielded in REAL_WORDS and
+# pinned in DO_NOT_MAP, the "skill" treatment for the neighbours of a
+# newly named word. The
+# pairs are the single-edit family per name, screened the usual way
+# (not a real word per pyspellchecker, absent from TYPO_FORMS,
+# TOKEN_FORMS and REAL_WORDS, uniquely closest to the name, fuzzy
+# score 99): every letter drop, every adjacent transposition and every
+# internal doubling — the firmware family's scope. Screened out:
+# "kipper" and "fluid" (real words per the spellchecker; "fluid" is
+# also fluidd's own base word), every zmod drop and transposition
+# ("zmd", "zomd" and family score 75-86, not 99 — a three/four-letter
+# slip cannot meet the score bar, the "ifrmware" shape), the
+# first-letter slips "oonraker" (94), "luidd" (91), "ainsail" (93),
+# "elixscreen" (95), "lfuidd" (83), "lkipper" (86), "ehlixscreen" (91),
+# "aminsail" (88), "omonraker" (89) and "lipper" (92) on score, and
+# the edge doublings ("zzmod", "zmodd", "kklipper", "mmoonraker",
+# "moonrakerr", "ffluidd", "mmainsail", "mainsaill", "hhelixscreen",
+# "helixscreenn": screened clean but outside the family's scope, the
+# "ffirmware" / "firmwaree" rule). Already carried before this round,
+# so not re-added: "kliper" and "klippr" (TOKEN_FORMS) and "klipperr"
+# (TYPO_FORMS).
+FIRMWARE_COMPONENT_TYPOS = {
+    # zmod: only the internal doublings meet the score bar (see above).
+    "zmmod": "zmod", "zmood": "zmod",
+    # klipper
+    "kilpper": "klipper", "kliipper": "klipper", "klipepr": "klipper",
+    "klippe": "klipper", "klippeer": "klipper", "klippper": "klipper",
+    "klippre": "klipper", "kllipper": "klipper", "klpiper": "klipper",
+    "klpper": "klipper",
+    # moonraker
+    "monoraker": "moonraker", "monraker": "moonraker",
+    "moonaker": "moonraker", "moonarker": "moonraker",
+    "moonnraker": "moonraker", "moonraaker": "moonraker",
+    "moonraekr": "moonraker", "moonraer": "moonraker",
+    "moonrake": "moonraker", "moonrakeer": "moonraker",
+    "moonrakker": "moonraker", "moonrakr": "moonraker",
+    "moonrakre": "moonraker", "moonrkaer": "moonraker",
+    "moonrker": "moonraker", "moonrraker": "moonraker",
+    "mooonraker": "moonraker", "mooraker": "moonraker",
+    "moornaker": "moonraker",
+    # fluidd ("fluid" itself is a real word, never a key)
+    "flidd": "fluidd", "fliudd": "fluidd", "flluidd": "fluidd",
+    "fludd": "fluidd", "fludid": "fluidd", "fluiddd": "fluidd",
+    "fluiidd": "fluidd", "fluuidd": "fluidd", "fuidd": "fluidd",
+    "fulidd": "fluidd",
+    # mainsail
+    "maainsail": "mainsail", "maiinsail": "mainsail",
+    "mainail": "mainsail", "mainasil": "mainsail",
+    "mainnsail": "mainsail", "mainsaail": "mainsail",
+    "mainsai": "mainsail", "mainsaiil": "mainsail",
+    "mainsal": "mainsail", "mainsali": "mainsail",
+    "mainsial": "mainsail", "mainsil": "mainsail",
+    "mainssail": "mainsail", "maisail": "mainsail",
+    "maisnail": "mainsail", "manisail": "mainsail",
+    "mansail": "mainsail", "miansail": "mainsail",
+    "minsail": "mainsail",
+    # helixscreen
+    "heelixscreen": "helixscreen", "heilxscreen": "helixscreen",
+    "heixscreen": "helixscreen", "heliixscreen": "helixscreen",
+    "heliscreen": "helixscreen", "helisxcreen": "helixscreen",
+    "helixcreen": "helixscreen", "helixcsreen": "helixscreen",
+    "helixsccreen": "helixscreen", "helixsceen": "helixscreen",
+    "helixsceren": "helixscreen", "helixscree": "helixscreen",
+    "helixscreeen": "helixscreen", "helixscren": "helixscreen",
+    "helixscrene": "helixscreen", "helixscrreen": "helixscreen",
+    "helixsrceen": "helixscreen", "helixsreen": "helixscreen",
+    "helixsscreen": "helixscreen", "helixxscreen": "helixscreen",
+    "hellixscreen": "helixscreen", "helxiscreen": "helixscreen",
+    "helxscreen": "helixscreen", "hleixscreen": "helixscreen",
+    "hlixscreen": "helixscreen",
 }
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
@@ -626,6 +713,7 @@ ROUND5_SCREENED_TYPOS = {
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
              **DIFFERNET_FAMILY, **FIRMWARE_FAMILY,
+             **FIRMWARE_COMPONENT_TYPOS,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,

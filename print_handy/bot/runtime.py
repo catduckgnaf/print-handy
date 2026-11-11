@@ -275,8 +275,14 @@ _TASK_INTENT_SUGGESTIONS = (
     # Maintenance and firmware
     (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+|some\s+)?maintenance{_END}", re.I), "/print-maintenance"),
     (re.compile(rf"^(?:what\s+)?maintenance\s+(?:is\s+)?(?:due|needed){_END}", re.I), "/print-maintenance"),
-    (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?firmware{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?firmware\s+update{_END}", re.I), "/print-firmware"),
+    # Update checks may name the product, not just the word "firmware"
+    # (#1290): the names are the components the /print-firmware report
+    # names. Every form lands on the bare command, whose own form is
+    # the read-only report — a check never routes to the update form,
+    # and the confirm discipline stays the command's own.
+    (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+|any\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}check\s+for\s+(?:a\s+|an\s+|any\s+)?(?:the\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen)\s+updates?{_END}", re.I), "/print-firmware"),
     # Symptoms with a dedicated troubleshooting flow
     (re.compile(rf"^(?:the\s+|my\s+)?nozzle\s+is\s+clogged{_END}", re.I), "/print-troubleshoot clog"),
     (re.compile(rf"^clogged\s+nozzle{_END}", re.I), "/print-troubleshoot clog"),
