@@ -50,6 +50,15 @@ validation for filament_slots and tool_count reads it, and a model whose setting
 class (filament_slots above 1 outside multi_slot, tool_count above 1 outside multi_tool) is refused
 when the profile loads.
 
+Accessories (#1198): hardware fitted to one unit, recorded per printer in the top-level
+[accessories] settings list, can confer a further color system no model may declare:
+"shared_tool" (N passive tools, one shared extruder and one shared heater; the Bondtech INDX
+toolchanger on a Klipper host). The adapter resolves the EFFECTIVE system from model plus
+accessories: PrinterAdapter.color_system returns "shared_tool" when a configured accessory
+confers it, and PrinterAdapter.tool_based (multi_tool or shared_tool) names the printers whose
+positions are tools under an identity tool mapping. A printer with no accessories keeps exactly
+the model's own system and behavior. See printers/accessories.py.
+
 Where printer specifics live, and which responsibilities sit behind PrinterAdapter:
 
   responsibility                 flashforge.ad5x (ZMod)                  klipper.generic / sovol.sv06
@@ -144,7 +153,11 @@ CONNECTIONS = ("moonraker", "octoprint", "offline", "bambulab_lan", "flashforge_
 #   multi_slot  one extruder fed by several filament slots (an IFS-style feeder; the AD5X pair
 #               and the single-nozzle Bambu AMS models)
 #   multi_tool  several independent toolheads, each with its own extruder and filament (the Creator pair)
-COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool")
+#   shared_tool several passive tools served by one shared extruder and one shared heater
+#               (the Bondtech INDX toolchanger, #1198). Accessory-conferred only: it is a
+#               member so the effective system an adapter resolves can be named and checked,
+#               but PrinterModel refuses it below — no model may declare it as a trait.
+COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool", "shared_tool")
 # Start G-code families. Each printer runs only its own; see start_code_problems.
 START_CODES = ("zmod", "klipper_macro", "marlin", "bambu", "flashforge_stock", "prusa", "elegoo_sdcp", "elegoo_inline",
                "qidi", "creality", "anycubic")
@@ -281,6 +294,9 @@ class PrinterModel:
     color_system: str = "single"
 
     def __post_init__(self):
+        if self.color_system == "shared_tool":
+            raise ValueError(f"model {self.key}: color_system 'shared_tool' is conferred by an "
+                             "accessory (printers/accessories.py, #1198), never a model trait")
         if self.color_system not in COLOR_SYSTEMS:
             raise ValueError(f"model {self.key}: color_system must be one of {COLOR_SYSTEMS}, "
                              f"got {self.color_system!r}")
@@ -357,8 +373,28 @@ class PrinterAdapter(ABC):
         self.model = model
 
     @property
+    def accessories(self) -> tuple:
+        """The accessory profiles configured on this printer ([accessories], #1198).
+
+        Resolved from the adapter's own config, so a job adapter built on a
+        per-printer view sees that printer's accessories. A config with no
+        accessories resolves to an empty tuple and behavior is unchanged.
+        """
+        from .accessories import configured_accessories
+        return configured_accessories(self.config)
+
+    @property
     def color_system(self) -> str:
-        """The model's color architecture (COLOR_SYSTEMS); the model is the only authority for it."""
+        """The printer's EFFECTIVE color architecture (COLOR_SYSTEMS).
+
+        The model's class is the authority, unless a configured accessory
+        confers its own system (#1198): the Bondtech INDX accessory makes a
+        Klipper printer "shared_tool" whatever its model says. With no
+        accessories this is exactly the model's color_system.
+        """
+        for profile in self.accessories:
+            if profile.confers_color_system:
+                return profile.confers_color_system
         return self.model.color_system
 
     @property
@@ -372,6 +408,22 @@ class PrinterAdapter(ABC):
         IFS slots: tools are fixed positions (slicer tool i always prints with toolhead i),
         each with its own filament. [printer] tool_count names them; filament_slots stays 1."""
         return self.color_system == "multi_tool"
+
+    @property
+    def shared_tool(self) -> bool:
+        """Passive tools on one shared extruder and heater (an accessory-conferred
+        tool changer, the Bondtech INDX shape, #1198): positions are tools under
+        the identity mapping, but there is one heater, so per-tool temperatures
+        resolve through the shared-heater path and docked tools have no
+        temperature state at all."""
+        return self.color_system == "shared_tool"
+
+    @property
+    def tool_based(self) -> bool:
+        """Positions are tools, not filament slots: a multi_tool model's toolheads
+        or a shared_tool accessory's tools. The tool-shaped intake, label and
+        mapping seams key on this; the heater-shaped seams stay separate."""
+        return self.multi_tool or self.shared_tool
 
     @property
     def key(self) -> str:

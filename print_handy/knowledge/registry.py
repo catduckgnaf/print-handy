@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIRMWARES = ("zmod", "klipper", "marlin", "prusa")
 # Mirrors print_handy.printers.base.COLOR_SYSTEMS (kept local so this read-only
 # loader imports no printer code); the registry drift test asserts the two agree.
-COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool")
+COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool", "shared_tool")
 # Thermal capabilities (issue #720): structured per-model facts, never
 # inferred from "enclosed". Unknown is a first-class, explicit value.
 ENCLOSURES = ("enclosed", "open", "unknown")

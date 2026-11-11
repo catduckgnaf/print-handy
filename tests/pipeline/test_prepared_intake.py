@@ -2457,7 +2457,7 @@ def _projection_mj(fetch_failed=False):
              intake_spool_weights=weights,
              intake_spool_projection=lambda *a, **k: [],
              format_spool_projection=lambda *a, **k: 'projection',
-             _job_adapter=lambda job: S(multi_tool=False))
+             _job_adapter=lambda job: S(multi_tool=False, tool_based=False))
 
 
 def test_spool_projection_warns_when_the_weights_are_cached_not_live(monkeypatch):

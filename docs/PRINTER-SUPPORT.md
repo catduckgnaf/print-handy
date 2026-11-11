@@ -42,6 +42,8 @@ Pick the route that matches what the printer runs.
 
 The generic model refuses multi-color and multi-plate sources. It slices with the generic Klipper templates (`templates/orca/klipper_generic`), so check the slicer profiles as well as the numbers. [Configuration](CONFIGURATION-YAML.md) covers the settings file.
 
+**Klipper accessory: Bondtech INDX.** A Klipper printer over Moonraker (the generic model or a Klipper vendor line, such as a Sovol SV08) fitted with a Bondtech INDX tool changer is supported as an accessory, not as a separate model: record it in the top-level accessories list and the printer gains a shared-tool shape (passive tools, one shared extruder and heater, per-color tool questions, and the INDX `CHANGE_TOOL` slicing form). Bondtech officially recognizes the Sovol SV08 and SV08 Max and the Voron Trident R2 integrations, plus custom CoreXY machines as a class; a Voron 2.4 integration exists but is unverified, and no RatRig V-Core integration is published. The Prusa first-party INDX build for the CORE One line is not this accessory. See [Accessories](ACCESSORIES.md) for detection, the record format and the named INDX refusal states. Support is established by offline tests; no live INDX printer has been run yet.
+
 **Marlin behind OctoPrint.** Select `octoprint.marlin`, set `services.octoprint_url`, supply the OctoPrint API key as a secret, and override the placeholder dimensions the same way. Four Enders already have presets with real dimensions. See [OctoPrint + Marlin](OCTOPRINT-MARLIN.md).
 
 **Anything else** (a vendor LAN protocol, a cloud-only printer) needs a new adapter, which is a larger contribution. Open a request first so the approach is agreed before code is written.

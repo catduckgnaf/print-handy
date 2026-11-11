@@ -464,6 +464,34 @@ Each printer's runtime state lives in its own folder, `state/printers/<id>/` und
 | `printers.bed_mm` | file only | — | This entry's `printer.bed_mm` override (two positive numbers): a custom build volume, e.g. for an Other/generic printer whose measured bed differs from the model default |
 | `printers.max_print_height_mm` | file only | — | This entry's `printer.max_print_height_mm` override (a positive number), the companion to `printers.bed_mm` |
 
+## Accessories list
+
+A config file may also declare a **list of accessories** (`accessories:` in YAML, `[[accessories]]` in TOML): hardware fitted to the printer that did not ship with its model, such as a tool changer. The list is top-level, like the printers list, and file only: it cannot come from the environment, and it is not a key inside a `[[printers]]` entry. Each entry names a registered accessory by `key`; an unknown or misspelled key is refused by name at startup, never silently dropped. A printer with no accessories list behaves exactly as before. What counts as an accessory, and the full guide, are in [Accessories](ACCESSORIES.md).
+
+The one accessory registered today is the Bondtech INDX tool changer for a Klipper printer reached over Moonraker:
+
+```toml
+[[accessories]]
+key = "bondtech.indx"
+tool_count = 4
+
+[[accessories.tools]]
+tool = 0
+nozzle_size_mm = 0.4
+nozzle_type = "cht"
+filament = "PLA"
+```
+
+| YAML key | Environment variable | Docker value | What it does |
+|---|---|---|---|
+| `accessories.key` | file only | — | Required. A registered accessory key, for example `bondtech.indx` |
+| `accessories.tool_count` | file only | — | INDX only. The number of tools fitted: a whole number, at least 2, with no maximum (dock space on the host is the limit) |
+| `accessories.tools.tool` | file only | — | INDX only. The 0-based tool index this record describes; unique and below `tool_count` |
+| `accessories.tools.nozzle_size_mm` | file only | — | INDX only. The tool's nozzle size in millimeters, above 0; recorded manually, it is not detectable from the printer |
+| `accessories.tools.nozzle_type` | file only | — | INDX only. The tool's nozzle type: `cht` or `standard` |
+| `accessories.tools.filament` | file only | — | INDX only. The filament name recorded for the tool; recorded manually, it is not detectable from the printer |
+| `accessories.tools.heats` | file only | — | INDX only. `true` by default. A tool with `heats = false` is a no-heat dock position (a pen, cutter or camera): it counts toward `tool_count` and must carry no nozzle or filament record |
+
 ## Compose variables
 
 These configure the Compose deployment, not Print Handy itself. Set them in `.env`.

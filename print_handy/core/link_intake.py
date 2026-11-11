@@ -346,10 +346,10 @@ async def collect_link(event, adapter, state, root, timeout=300):
     except FileExistsError:
         return {'action': 'skip', 'reason': 'duplicate model-link event'}
     try:
-        multi_tool = printers.current().multi_tool
+        multi_tool = printers.current().tool_based
         selections = [resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(configured_slots(state).items())]
-        # A multi_tool printer's positions are toolheads, never slots (#346).
+        # A tool_based printer's positions are tools, never slots (#346, #1198).
         labels = build_tool_labels(selections) if multi_tool else build_slot_labels(selections)
         if not labels or len(labels) > position_limit() or len(set(labels)) != len(labels):
             raise ValueError('requires one to four distinct configured toolheads' if multi_tool

@@ -337,8 +337,10 @@ class OverrideTests(unittest.TestCase):
             "ai": {"allowed_users", "edit_requests_per_hour", "small", "chat", "heavy"},
         }
         # "printers" is the resolved [[printers]] roster (#333): a list, not a section, so it is
-        # pinned separately below rather than as another expected section.
-        self.assertEqual(set(inventory), set(expected) | {"printers"})
+        # pinned separately below rather than as another expected section. "accessories" is the
+        # resolved [accessories] list (#1198): likewise a list, empty without a fitted accessory.
+        self.assertEqual(set(inventory), set(expected) | {"printers", "accessories"})
+        self.assertEqual(inventory["accessories"], [])
         for section, keys in expected.items():
             with self.subTest(section=section):
                 self.assertEqual(set(inventory[section]), keys)

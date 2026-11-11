@@ -1,0 +1,14 @@
+# Accessories registry: bondtech. See README.md in this directory for the schema.
+#
+# One [[accessory]] per registered accessory. The loader-side code profiles
+# live in print_handy/printers/accessories.py, and tests pin each entry
+# against that code so this file cannot silently drift from it.
+
+[[accessory]]
+key = "bondtech.indx"
+label = "Bondtech INDX"
+kind = "toolchanger"
+confers_color_system = "shared_tool"
+connections = ["moonraker"]
+detection = "Moonraker configfile settings carrying an [indx] section, an [mcu indxmcu] section, and an [extruder] with sensor_type \"indx\"; the tool count comes from [gcode_macro TOOL_POSITIONS] tool_count"
+notes = "Variable tool count with no upstream cap; passive tools with no heater of their own, one shared extruder and one shared heater on the Smart Head; a docked tool cannot be heated."

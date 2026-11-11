@@ -372,6 +372,15 @@ def _check_keys(home, extra, source):
                                     "([[printers]] in TOML, a list under printers: in YAML)")
             cleaned[section] = values
             continue
+        if section == "accessories":
+            # The accessories list (#1198) is shaped exactly like the roster:
+            # a list of tables, never in the defaults tree; its entries are
+            # validated in validate() (_check_accessories).
+            if not isinstance(values, list) or not all(isinstance(entry, dict) for entry in values):
+                raise SettingsError(f"{source}: [accessories] must be a list of accessory entries "
+                                    "([[accessories]] in TOML, a list under accessories: in YAML)")
+            cleaned[section] = values
+            continue
         if section not in home:
             if (section == "notify" and isinstance(values, dict)
                     and values and all((section, key) in OPTIONAL_KEYS for key in values)):
@@ -875,6 +884,41 @@ def _check_roster(raw):
                 stub[key] = value
         stubs.append(stub)
     return stubs
+
+
+def _check_accessories(raw):
+    """Validate a top-level [accessories] list (#1198); return its entries.
+
+    Each entry names a registered accessory by ``key``; an unknown or
+    misspelled key is refused by name here, never silently dropped. An INDX
+    entry's tool record is parsed by the accessories registry, and its
+    problems surface as SettingsError. Entries are returned as written, so
+    the adapter resolves the same records the operator configured.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+        raise SettingsError("[accessories] must be a list of accessory entries "
+                            "([[accessories]] in TOML, a list under accessories: in YAML)")
+    from .printers import accessories as _accessories
+    entries, seen = [], set()
+    for index, entry in enumerate(raw):
+        key = entry.get("key")
+        label = f"[accessories] entry {key!r}" if isinstance(key, str) and key \
+            else f"[accessories] entry {index + 1}"
+        if not isinstance(key, str) or key not in _accessories.ACCESSORIES:
+            raise SettingsError(f"{label}: unknown accessory {key!r} "
+                                f"(known accessories: {', '.join(sorted(_accessories.ACCESSORIES))})")
+        if key in seen:
+            raise SettingsError(f"[accessories] entry {key!r}: this accessory is configured twice")
+        seen.add(key)
+        if key == "bondtech.indx":
+            try:
+                _accessories.parse_indx_tools(entry)
+            except ValueError as exc:
+                raise SettingsError(f"[accessories] entry {key!r}: {exc}") from None
+        entries.append(copy.deepcopy(entry))
+    return entries
 
 
 def _project_entry(data, stub):
@@ -2016,6 +2060,11 @@ def validate(data):
     stubs = _check_roster(raw_roster) if raw_roster is not None else None
     if stubs is not None:
         _project_entry(data, stubs[0])
+    # [accessories] (#1198): a top-level list of fitted accessories, global to
+    # the instance like the roster it sits beside; it is validated here and
+    # carried on the resolved settings, and it is NOT added to [[printers]]
+    # roster entries in this shape.
+    accessories = _check_accessories(data.pop("accessories", None))
     material_temps = data.setdefault("material_temps", {})
     for family, defaults in DEFAULT_MATERIAL_TEMPS.items():
         profile = material_temps.setdefault(family, defaults.copy())
@@ -2135,6 +2184,7 @@ def validate(data):
     else:
         entries = [_capture_entry(data, None)]
     data["printers"] = entries
+    data["accessories"] = accessories
     for key, value in data["paths"].items():
         if key in ("ffmpeg", "piper") and "/" not in value:
             continue  # a bare name is looked up on PATH
