@@ -19,7 +19,7 @@ FREE_TEXT_HOOKS = {
     "guided_dispatch", "design_dispatch", "typed_quantity_dispatch", "upload_wait_dispatch",
     "model_link_dispatch", "runout_intake_dispatch", "roast_dispatch", "print_again_dispatch",
     "edit_dispatch", "loaded_spools_dispatch", "purchase_dispatch", "spool_dispatch",
-    "print_reboot_dispatch",
+    "print_reboot_dispatch", "upload_collection_dispatch",
 }
 
 
