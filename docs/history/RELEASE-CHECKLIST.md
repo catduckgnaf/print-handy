@@ -69,6 +69,11 @@ before merging; it fails closed.
 
 1. Merge order: automation/hardening PRs first, baselines PR, then the
    bump PR. Verify CI fully green on each exact head before merging.
+   Pushes to `main` keep only the newest queued `ci.yml` run, so a
+   commit merged in a burst may have no CI run of its own. Before
+   re-recording baselines or tagging, check that the commit has a
+   green run; if its run was replaced, dispatch `ci.yml` on it (on
+   the tag, once tagged) and wait for green.
 2. Tag `X.Y.Z` on the bump merge commit and push the tag **once**.
    Never move a published tag; a re-cut needs catduck's explicit call
    (audit A6).

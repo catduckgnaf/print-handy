@@ -55,7 +55,8 @@ _HEADER = "# Written by Print Handy guided printer onboarding (#537). Edit freel
 _ENTRY_ORDER = ("id", "model", "name", "chat_id", "moonraker_url", "moonraker_ws_url",
                 "octoprint_url", "camera_snapshot_url", "lan_host", "lan_serial",
                 "lan_access_code_env", "start_confirm_s", "link_host", "api_key_env",
-                "host", "nozzle_type", "tool_count", "bed_mm", "max_print_height_mm")
+                "host", "nozzle_type", "tool_count", "bed_mm", "max_print_height_mm",
+                "accessories")
 
 # The legacy per-printer keys a conversion removes from the file, per section —
 # exactly the file-side list settings._check_mixed_shape refuses alongside a
@@ -84,7 +85,7 @@ def _file_entry(entry):
         if key not in entry:
             continue
         value = entry[key]
-        if value is None or value == "":
+        if value is None or value == "" or value == []:
             continue
         out[key] = value
     return out
@@ -135,10 +136,16 @@ def _converted_entry(resolved):
             default = list(default)
         if resolved[key] != default:
             entry[key] = resolved[key]
+    if resolved.get("accessories"):
+        # The printer's fitted accessories (#1198) stay on it: a single-printer
+        # config's top-level list moves onto this entry (_strip_legacy drops
+        # the top-level copy, which a roster refuses).
+        entry["accessories"] = copy.deepcopy(resolved["accessories"])
     return entry
 
 
 def _strip_legacy(candidate):
+    candidate.pop("accessories", None)  # carried onto the converted entry (#1198)
     for section, keys in _LEGACY_KEYS.items():
         values = candidate.get(section)
         if not isinstance(values, dict):

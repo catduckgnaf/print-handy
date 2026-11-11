@@ -199,14 +199,17 @@ FIRMWARE_COMPONENT_TYPOS = {
     "maisnail": "mainsail", "manisail": "mainsail",
     "mansail": "mainsail", "miansail": "mainsail",
     "minsail": "mainsail",
-    # helixscreen
+    # helixscreen ("heliscreen", "helixcreen", "helixsceen" and
+    # "helixscren" from this family are registered in
+    # COMMAND_COVERAGE_TYPOS instead — #1298's registration is the
+    # canonical one for the keys both rounds screened in)
     "heelixscreen": "helixscreen", "heilxscreen": "helixscreen",
     "heixscreen": "helixscreen", "heliixscreen": "helixscreen",
-    "heliscreen": "helixscreen", "helisxcreen": "helixscreen",
-    "helixcreen": "helixscreen", "helixcsreen": "helixscreen",
-    "helixsccreen": "helixscreen", "helixsceen": "helixscreen",
+    "helisxcreen": "helixscreen",
+    "helixcsreen": "helixscreen",
+    "helixsccreen": "helixscreen",
     "helixsceren": "helixscreen", "helixscree": "helixscreen",
-    "helixscreeen": "helixscreen", "helixscren": "helixscreen",
+    "helixscreeen": "helixscreen",
     "helixscrene": "helixscreen", "helixscrreen": "helixscreen",
     "helixsrceen": "helixscreen", "helixsreen": "helixscreen",
     "helixsscreen": "helixscreen", "helixxscreen": "helixscreen",
@@ -710,6 +713,18 @@ ROUND5_SCREENED_TYPOS = {
     "wensday": "wednesday", "withdrawl": "withdrawal",
     "withold": "withhold", "yatch": "yacht",
 }
+# Command-coverage round (2026-11-11): the pairs the command fuzzy
+# coverage guard's audit needed — the firmware-update check phrases
+# named by component ("check for zmod updates", "check for helixscreen
+# updates") fold through these, and "equivelant" is in at the operator's
+# word. Screened like the round-5 pairs above (non-word per
+# pyspellchecker, not an existing key, uniquely closest to the target).
+COMMAND_COVERAGE_TYPOS = {
+    "equivelant": "equivalent", "udpate": "update", "udpates": "updates",
+    "zomd": "zmod", "zmd": "zmod",
+    "heliscreen": "helixscreen", "helixcreen": "helixscreen",
+    "helixsceen": "helixscreen", "helixscren": "helixscreen",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
              **DIFFERNET_FAMILY, **FIRMWARE_FAMILY,
@@ -717,6 +732,7 @@ ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
+             **COMMAND_COVERAGE_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 

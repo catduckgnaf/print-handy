@@ -275,14 +275,40 @@ _TASK_INTENT_SUGGESTIONS = (
     # Maintenance and firmware
     (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+|some\s+)?maintenance{_END}", re.I), "/print-maintenance"),
     (re.compile(rf"^(?:what\s+)?maintenance\s+(?:is\s+)?(?:due|needed){_END}", re.I), "/print-maintenance"),
-    # Update checks may name the product, not just the word "firmware"
-    # (#1290): the names are the components the /print-firmware report
-    # names. Every form lands on the bare command, whose own form is
-    # the read-only report — a check never routes to the update form,
-    # and the confirm discipline stays the command's own.
-    (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen){_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+|any\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen)\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}check\s+for\s+(?:a\s+|an\s+|any\s+)?(?:the\s+)?(?:firmware|zmod|klipper|moonraker|fluidd|mainsail|helixscreen)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?firmware{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?firmware\s+update{_END}", re.I), "/print-firmware"),
+    # Update checks phrased as "check for ... updates", including the ones
+    # named by component (zmod, helixscreen, ...) — the plain check above
+    # only matched the literal word "firmware" in two narrow shapes, so
+    # "can you check for zmod updates?" dead-ended (catduck, 2026-11-11).
+    # The component set also carries the fluidd/mainsail names and the
+    # bare "check <name>" form from #1290; every form lands on the bare
+    # command, whose own form is the read-only report — a check never
+    # routes to the update form, and the confirm discipline stays the
+    # command's own.
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+)?firmware\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+|an\s+|any\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
+    # Colors, macros, live view, plate reference, setup and help: the
+    # registered commands that had no plain-language route at all. Every
+    # command carries a fuzzy equivalent (the coverage guard in
+    # tests/bot/test_command_fuzzy_coverage.py enumerates the registry
+    # and fails a command that has none).
+    (re.compile(rf"^{_LEAD}(?:choose|pick|assign|set)\s+(?:the\s+)?colors?\s+for\s+(?:the|this|that)\s+(?:print|job|parts?){_END}", re.I), "/print-colors"),
+    (re.compile(rf"^{_LEAD}(?:choose|pick|assign)\s+(?:the\s+)?colors?{_END}", re.I), "/print-colors"),
+    (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?macros{_END}", re.I), "/print-macros"),
+    (re.compile(rf"^(?:what|which)\s+macros\s+(?:are\s+there|do\s+i\s+have|can\s+i\s+run){_END}", re.I), "/print-macros"),
+    (re.compile(rf"^{_LEAD}run\s+a\s+macro{_END}", re.I), "/print-macros"),
+    (re.compile(rf"^{_LEAD}(?:start|open|show|watch)\s+(?:me\s+)?(?:the\s+)?live\s+(?:camera|view|stream|feed){_END}", re.I), "/print-live"),
+    (re.compile(rf"^{_LEAD}watch\s+(?:the\s+)?print\s+live{_END}", re.I), "/print-live"),
+    (re.compile(rf"^{_LEAD}(?:calibrate\s+(?:the\s+)?plate|plate\s+calibration|capture\s+(?:the\s+)?plate\s+reference){_END}", re.I), "/print-plate-calibrate"),
+    (re.compile(rf"^{_LEAD}add\s+(?:a\s+|an\s+|another\s+)?printer{_END}", re.I), "/print-handy add-printer"),
+    (re.compile(rf"^(?:please\s+)?(?:set\s+up|setup)\s+print\s+handy{_END}", re.I), "/print-handy setup"),
+    (re.compile(rf"^(?:please\s+)?what\s+can\s+you\s+do{_END}", re.I), "/print-help"),
+    (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?commands{_END}", re.I), "/print-help"),
     # Symptoms with a dedicated troubleshooting flow
     (re.compile(rf"^(?:the\s+|my\s+)?nozzle\s+is\s+clogged{_END}", re.I), "/print-troubleshoot clog"),
     (re.compile(rf"^clogged\s+nozzle{_END}", re.I), "/print-troubleshoot clog"),

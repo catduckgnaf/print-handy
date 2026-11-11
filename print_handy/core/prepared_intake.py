@@ -1597,7 +1597,7 @@ async def _spool_projection_text(mj, job, manifest, state, copies):
         weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
         rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
         text = mj.format_spool_projection(
-            rows, position_noun='Toolhead' if mj._job_adapter(job).multi_tool else 'Slot')
+            rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
         if getattr(weights, 'fetch_failed', False):
             # The amounts above fell back to the slot record because
             # Spoolman did not answer (#839): say so on the same post, or
@@ -3004,11 +3004,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             purge.require_jacker_capacity(manifest, job_adapter, state)
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
-        # A multi_tool printer's positions are toolheads, never slots (#346).
-        labels = (mj.build_tool_labels(selections) if job_adapter.multi_tool
+        # A tool_based printer's positions are tools, never slots (#346, #1198).
+        labels = (mj.build_tool_labels(selections) if job_adapter.tool_based
                   else mj.build_slot_labels(selections))
         if not labels or len(labels) > mj.position_limit(job_adapter) or len(set(labels)) != len(labels):
-            raise ValueError('requires one to four distinct configured toolheads' if job_adapter.multi_tool
+            raise ValueError('requires one to four distinct configured toolheads' if job_adapter.tool_based
                              else 'requires one to four distinct configured slots')
         # A job with a plate selection is asked only about the selected
         # plates' colors; unselected plates never prompt (#1110 Phase B).
@@ -3082,7 +3082,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
                          'mode': 'single_color' if mode == 1 else 'per_part'}
             if mode != 1:
-                if job_adapter.multi_tool:
+                if job_adapter.tool_based:
                     # One colour per toolhead (#346): more distinct source colours
                     # than toolheads can never be assigned; refuse before asking.
                     from .source_colors import distinct_source_colours
@@ -3095,9 +3095,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
                 rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
                 choices = {}
-                taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
+                taken = {}  # tool -> source colour already assigned to it (tool_based only)
                 for row in rows:
-                    if job_adapter.multi_tool:
+                    if job_adapter.tool_based:
                         from .source_colors import prompt_source_colour
                         colour = prompt_source_colour(manifest, row)
                         offered = [(label, sel) for label, sel in zip(labels, selections)
@@ -3595,7 +3595,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         def _color_of(sel):
             sel = sel or {}
             color = str(sel.get('color') or '').strip()
-            noun = 'Toolhead' if mj._job_adapter(latest).multi_tool else 'Slot'
+            noun = 'Toolhead' if mj._job_adapter(latest).tool_based else 'Slot'
             from .printer_state import display_material
             material = display_material(sel.get('material'))
             return ' '.join(v for v in (color[:1].upper() + color[1:], material) if v) or f"{noun} {sel.get('slot')}"
@@ -4875,6 +4875,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # #1279: a job that only renumbers filaments slices its source project
+        # remapped; when the remapper refused the project and the rebuilt
+        # export was equivalent, the refusal is named here before the start.
+        from .slice_route import route_notice
+        notice = route_notice(provenance)
+        if notice:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=notice)
         # Orca said supports are needed and the slice ran without them: ask before anything else
         # (bed-clear, upload, start). Only this finding asks; other warnings are information.
         finding = slice_warnings.support_finding(sliced)
@@ -5026,7 +5033,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         job_adapter = None
         try:
             job_adapter = mj._job_adapter(exact_job)  # the exact job's printer, never "the current one" (#335)
-            if job_adapter.multi_tool:  # toolheads, not a slot map (#346)
+            if job_adapter.tool_based:  # tools, not a slot map (#346, #1198)
                 mapping = (exact_job or {}).get('tool_mapping') or {}
                 if mapping:
                     records = mj.configured_slots(state)

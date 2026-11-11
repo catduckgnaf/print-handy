@@ -151,6 +151,19 @@ mv dot-config .config
             if name.startswith("printers."):
                 self.assertNotRegex(env, r"PRINT_HANDY__PRINTERS__[A-Z0-9_]+__")
 
+    def test_accessories_rows_document_every_accessory_entry_key(self):
+        # printers.accessories (#1198) is a list of tables, file only, absent
+        # from the defaults tree like the roster it lives on; its entry and
+        # tool-record keys are documented in their own table under
+        # "Accessories list", pinned here against the registry's key lists.
+        from print_handy.printers import accessories
+        section = DOCS.split("## Accessories list\n", 1)[1].split("\n## ", 1)[0]
+        rows = set(re.findall(r"^\| `([a-z_\[\].]+)` \|", section, re.M))
+        expected = {key for keys in accessories.ENTRY_KEYS.values() for key in keys}
+        expected |= {f"tools[].{key}" for key in accessories.INDX_TOOL_KEYS}
+        self.assertEqual(rows, expected)
+        self.assertEqual(self.rows["printers.accessories"].strip(), "file only")
+
     def test_env_example_lists_every_scalar_setting(self):
         for (section, key), value in self.inventory.items():
             if key is not None and is_scalar(value):

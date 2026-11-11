@@ -11,6 +11,8 @@ from . import facts, guard
 
 
 class SnapmakerAdapter(KlipperAdapter):
+    # Not a Bondtech INDX host (#1198): the INDX code inherited from KlipperAdapter never runs here.
+    supported_accessories = frozenset()
     facts = facts.U1
 
     def fact(self, name):

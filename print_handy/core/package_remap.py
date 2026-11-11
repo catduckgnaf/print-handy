@@ -1,7 +1,11 @@
 """Generic atomic 3MF package remapping (#1110 criterion 4, Phase C).
 
-Status: remap_package is EXPERIMENTAL and has no production caller; only
-write_package_atomically is used by the live exporters (#1155).
+Production caller (#1279): slice_route.export_per_part, which orca_adapter
+slice_model calls for every per-part color job, slices the source project
+remapped by remap_package when the job keeps the project and only renumbers
+its filaments (the "remap" route), and keeps export_color_geometry for every
+other job (the "rebuild" route); slice_route names the route each job takes.
+The exporters in color_geometry write through write_package_atomically.
 
 The geometry exporters in color_geometry rebuild or collapse a package for a
 specific job. This module is the mapping-driven package remapper the Phase C
@@ -117,12 +121,18 @@ def _per_filament_key(key):
 # filament number, 0 meaning no specific filament (the object's own, or for
 # the tower the filaments in play). They are filament references, so every
 # export that renumbers filaments remaps them with the parts' own mapping.
+# OrcaSlicer 2.5 reads the *_filament_id spellings (one per wall and surface
+# feature, same 0-or-filament values); the real slicer ignores the older
+# wall/sparse/solid spellings, which a project may still carry (#1279).
+ORCA_FEATURE_ID_KEYS = ('outer_wall_filament_id', 'inner_wall_filament_id', 'sparse_infill_filament_id',
+                        'internal_solid_filament_id', 'top_surface_filament_id',
+                        'bottom_surface_filament_id')
 FEATURE_FILAMENT_KEYS = ('wall_filament', 'sparse_infill_filament', 'solid_infill_filament',
-                         'wipe_tower_filament')
+                         'wipe_tower_filament') + ORCA_FEATURE_ID_KEYS
 # The same references as object or part metadata in model_settings.config,
 # plus the per-object support designations.
 OBJECT_FILAMENT_KEYS = ('wall_filament', 'sparse_infill_filament', 'solid_infill_filament',
-                        'support_filament', 'support_interface_filament')
+                        'support_filament', 'support_interface_filament') + ORCA_FEATURE_ID_KEYS
 # Plate filament maps (model_settings.config <plate> metadata): one entry per
 # palette filament naming the nozzle that filament prints from, so the list is
 # positional and follows the palette order like any per-filament array.
@@ -865,12 +875,13 @@ def write_package_atomically(target, payload, validate=None, *, source=None):
 def remap_package(source, target, mapping, object_map=None):
     """Atomically remap every filament reference of a 3MF package by `mapping`.
 
-    EXPERIMENTAL: no production code path calls this function. The live
-    export paths (export_color_geometry, export_single_color_plate and
-    adopt_job_settings in color_geometry) import only write_package_atomically
-    from this module; remap_package is exercised by tests alone (see
-    docs/history/3MF-CONVERSION-EVIDENCE.md). Do not cite it as evidence that a
-    production export remaps a package.
+    Production path (#1279): slice_route.export_per_part calls this for a
+    per-part color job that keeps the source project and only renumbers its
+    filaments, and slices the result (see slice_route for which job takes
+    which route, and docs/history/3MF-CONVERSION-EVIDENCE.md for the tests).
+    A RuntimeError raised here names the reason; the slice route falls back
+    to the rebuilt export only when that carries every filament reference,
+    and otherwise refuses the slice with the reason.
 
     mapping is {source extruder: destination filament}; object_map, when
     given, is {source object id: destination object id} applied to every
@@ -884,7 +895,9 @@ def remap_package(source, target, mapping, object_map=None):
     source, target = Path(source), Path(target)
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
-        payload = {name: archive.read(name) for name in names}
+        # Served from the slice's decode scope when one is active (#1279):
+        # the slice path has already read the .model members once.
+        payload = {name: painted_geometry.read_member(archive, name) for name in names}
     identity = all(mapping[n] == n for n in mapping)
     notes, rewritten, dropped = [], [], []
     object_ids = build_object_ids(payload.get(MODEL))
