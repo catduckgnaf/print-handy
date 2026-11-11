@@ -7,7 +7,7 @@ The Web UI is a local page for two jobs:
 - **Status:** whether Print Handy, its bot, printer listener and Spoolman are up, plus the doctor checks.
 - **Configuration:** a picker-based editor for the catalogued settings in the same YAML settings file Print Handy already loads.
 
-It is **on by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. On first boot the Web UI serves openly and offers the setup walkthrough. There is no token on the local network, and a login exists only once you set one. See [First boot and logins](#first-boot-and-logins).
+It is **on by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. On first boot the Web UI serves openly and offers the setup walkthrough. That is by design: the walkthrough has to run before any login exists, so set a password in its Login step before you expose port 8088 beyond a network you trust. There is no token on the local network, and a login exists only once you set one. See [First boot and logins](#first-boot-and-logins).
 
 The YAML file remains the only source of truth. The Web UI does not keep a second copy of the configuration: its status comes from the effective settings, and a confirmed configuration save writes only the settings-file layer: the file named by `PRINT_HANDY_CONFIG`, or `config/local.yaml` when no file is named. See [YAML configuration](CONFIGURATION-YAML.md) for the full precedence order.
 

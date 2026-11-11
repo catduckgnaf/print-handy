@@ -2,6 +2,9 @@ name: Clean-directory Compose startup
 
 # Builds and runs only an ephemeral local image on a GitHub-hosted runner.
 # No registry push, publication, deployment, live adapter, or self-hosted runner.
+# readme-quickstart runs README.md's own "Get started" blocks verbatim (one documented
+# substitution: the downloads come from this checkout) and asks the bot for /print-help
+# through the Web UI chat. See tests/docker/readme_quickstart.py.
 on:
   pull_request:
     paths:
@@ -9,6 +12,7 @@ on:
       - 'docker/**'
       - 'docker-compose.yml'
       - '.env.example'
+      - 'README.md'
       - 'tests/docker/**'
       - '.github/workflows/compose-clean-start.yml'
   workflow_dispatch:
@@ -37,3 +41,20 @@ jobs:
         run: docker buildx build --load --tag "$IMAGE" --build-arg APP_CHANNEL="$APP_CHANNEL" --build-arg ORT_FLAVOR="$ORT_FLAVOR" --build-arg WITH_ORCA="$WITH_ORCA" --build-arg WITH_GO2RTC="$WITH_GO2RTC" --build-arg WITH_BAMBU="$WITH_BAMBU" .
       - name: First boot from absent bind sources and verify persistence
         run: tests/docker/clean_compose_start.sh "$IMAGE"
+
+  readme-quickstart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE: print-handy-readme-quickstart:${{ github.run_id }}
+      APP_CHANNEL: development
+      ORT_FLAVOR: cpu
+      WITH_ORCA: "false"
+      WITH_GO2RTC: "false"
+      WITH_BAMBU: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build local image without publishing
+        run: docker buildx build --load --tag "$IMAGE" --build-arg APP_CHANNEL="$APP_CHANNEL" --build-arg ORT_FLAVOR="$ORT_FLAVOR" --build-arg WITH_ORCA="$WITH_ORCA" --build-arg WITH_GO2RTC="$WITH_GO2RTC" --build-arg WITH_BAMBU="$WITH_BAMBU" .
+      - name: README quickstart, verbatim, to a /print-help reply in the Web UI chat
+        run: python3 tests/docker/readme_quickstart.py "$IMAGE"

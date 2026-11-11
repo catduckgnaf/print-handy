@@ -179,7 +179,7 @@ and commands; profile provenance; no unexplained broad substitutions.
 | Profile provenance | See criterion 2 | See criterion 2 |
 | No unexplained substitution | Each rule names its keys, values or profile. `compat_registry.get_rule` raises for an unknown id | No production-path test; the registry lookup test is `tests/pipeline/test_compat_registry.py::test_registry_lookup_refuses_an_unknown_id` |
 
-[Printer profiles](PRINTER-PROFILES.md) holds the rule table and the
+[Printer profiles](../PRINTER-PROFILES.md) holds the rule table and the
 decisions deliberately left out of the registry.
 
 ## Criterion 6: Safety
@@ -215,7 +215,7 @@ plate selection, and it authorizes one slicing run.
   (`tests/pipeline/test_foreign_project_adoption.py`) and the ForgeBridge
   edge cases (`tests/pipeline/test_forgebridge_edge_cases.py`) establish the
   kept, replaced and dropped contract summarized in
-  [Printer profiles](PRINTER-PROFILES.md). Print Handy follows ForgeBridge's
+  [Printer profiles](../PRINTER-PROFILES.md). Print Handy follows ForgeBridge's
   published rules; no PrintNomad code, fixtures or dependencies are used.
 - `model_job.filament_usage_by_selection` (slicer-reported per-plate grams
   by selection) predates the usage analysis.
