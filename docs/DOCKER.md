@@ -337,7 +337,7 @@ The current release is 2.2.9. Its index digest, read from GHCR on 2026-11-11, is
 ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec
 ```
 
-That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
+That digest is the amd64 and arm64 index, not one architecture's image. The Unraid templates (in-repo and Community Applications) never pin it: their `Repository` is `:latest`, so Unraid offers each release as a normal container update. Pin on your own install only if you want to hold a version. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
 
 Confirm a tag still points where you think before you pin it:
 
@@ -349,7 +349,7 @@ The `Digest:` line of the index is the value to pin. The per-architecture lines 
 
 ### Change an existing Unraid install
 
-This is the edit. It is not applied by installing this repository.
+This is an optional, per-install edit for holding a version. The templates stay on `:latest`; installing either template never applies it.
 
 1. Copy the live template first: `/boot/config/plugins/dockerMan/templates-user/my-print-handy.xml` to a dated `.bak` beside it.
 2. Change only the `Repository` element, from the moving tag to the digest:
