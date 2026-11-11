@@ -2863,7 +2863,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # cancelled until the operator picks Cancel.
                     try:
                         fit_fraction = await _heavy(orca_adapter.largest_fitting_fraction,
-                                                    path, state, mj.INCH_TO_MM, copy_limit=1)
+                                                    path, fit_state, mj.INCH_TO_MM, copy_limit=1)
                     except Exception:
                         logger.exception('inch fit search failed')
                         fit_fraction = None
@@ -3180,8 +3180,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             try:
                 options = await fit_status.run('trying rotations and smaller sizes',
                                                _heavy(orca_adapter.fit_options, path,
-                                                      {**state, 'fit_rearrange_checked': True}
-                                                      if rearrange_checked else state))
+                                                      {**fit_state, 'fit_rearrange_checked': True}
+                                                      if rearrange_checked else fit_state))
             except Exception as exc:
                 receipt['status'] = 'FIT_UNKNOWN'
                 receipt['fit_error'] = str(exc)
@@ -3238,7 +3238,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 split_plan = await fit_status.run('trying a split onto separate plates at 100%',
                                                   _heavy(split_fit.split_plan_100, path,
                                                          int((state.get('bed_mm') or BED)[0]),
-                                                         brim_policy=options.get('brim_policy'), state=state))
+                                                         brim_policy=options.get('brim_policy'), state=fit_state))
             except Exception:
                 split_plan = None
             try:

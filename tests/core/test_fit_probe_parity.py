@@ -162,3 +162,45 @@ def test_intake_fit_state_names_the_job_printer_model(monkeypatch):
     assert pi._fit_state(state, {}) is state  # no id: the default printer
     with pytest.raises(pi.settings.SettingsError, match='gone'):
         pi._fit_state(state, {'printer_id': 'gone'})
+
+
+def test_split_planner_reads_the_job_printers_exclusions(monkeypatch):
+    # The per-part fit and the 100% split planner run in the intake worker too:
+    # they take the job printer's exclusion from the state, like the Orca probe.
+    from print_handy.core import split_fit
+    a1_mini_like = ((0, 0), (18, 0), (18, 28), (0, 28))
+    _two_models(monkeypatch, (), a1_mini_like)
+    assert split_fit._declared_exclusions({'printer_model': 'other-fixture'}) == \
+        split_fit._exclusion_rectangles(list(a1_mini_like))
+    assert split_fit._declared_exclusions({}) == []  # the default printer declares none
+    _two_models(monkeypatch, a1_mini_like, ())
+    assert split_fit._declared_exclusions({'printer_model': 'other-fixture'}) == []
+
+
+def test_every_intake_fit_probe_gets_the_job_printer_state():
+    # #1232 moved four probes onto fit_state; the inch-size search, the rotations and
+    # smaller-sizes search and the 100% split planner still read the default printer's
+    # exclusions through the plain state. Every fit probe call takes fit_state.
+    import ast
+    import inspect
+    from print_handy.core import prepared_intake as pi
+    probes = {('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'largest_fitting_scale'),
+              ('orca_adapter', 'largest_fitting_fraction'), ('orca_adapter', 'fit_options'),
+              ('split_fit', 'split_plan_100')}
+    seen = []
+    for node in ast.walk(ast.parse(inspect.getsource(pi))):
+        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', None) == '_heavy' and node.args):
+            continue
+        func = node.args[0]
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and (func.value.id, func.attr) in probes):
+            continue
+        args = [*node.args[1:], *(k.value for k in node.keywords)]
+        # The state handed over as the probe's printer state; `state.get('bed_mm')` for the
+        # bed size is the same either way and is not counted.
+        attr_owners = {id(n.value) for arg in args for n in ast.walk(arg) if isinstance(n, ast.Attribute)}
+        names = {n.id for arg in args for n in ast.walk(arg)
+                 if isinstance(n, ast.Name) and id(n) not in attr_owners}
+        seen.append(func.attr)
+        assert 'fit_state' in names and 'state' not in names, f'{func.attr} probe at line {node.lineno}'
+    assert {'fit_options', 'largest_fitting_fraction', 'split_plan_100', 'orca_plate_capacity'} <= set(seen)
