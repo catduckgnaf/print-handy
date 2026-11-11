@@ -1023,7 +1023,7 @@ class SpoolmanLanTests(unittest.TestCase):
         self.assertEqual(url.text, "http://127.0.0.1:8000")
         self.assertEqual(url.get("Display"), "advanced")
 
-    def test_compose_keeps_the_safe_default(self):
+    def test_compose_publishes_only_the_web_ui_port_and_keeps_spoolman_on_loopback(self):
         service = COMPOSE["services"]["combined"]
         # The only active port mapping is the Web UI's; the Spoolman LAN
         # mapping stays a comment and Spoolman stays loopback by default.
