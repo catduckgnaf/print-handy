@@ -219,13 +219,16 @@ services:
       start_period: 90s
       retries: 3
   # Docker creates absent bind sources as root. Initialize only application data
-  # directories once, then keep the long-running service rootless.
+  # directories once, then keep the long-running service rootless. A folder it
+  # cannot create or chown (an NFS or SMB share that refuses chown, a read-only
+  # mapping) stops it with one message naming the folder and the fix, and the
+  # application does not start (#1144).
   print-handy-init:
     image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
     user: "0:0"
     entrypoint: [/bin/sh, -ec]
     command:
-      - 'for path in /data/state /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$$path" && chown 1000:1000 "$$path"; done'
+      - 'for path in /data/state /data/archive /data/records /data/cache /data/spoolman; do if ! mkdir -p "$$path" || ! chown 1000:1000 "$$path"; then echo "Print Handy init: cannot create $$path or make it owned by 1000:1000 (the line above has the reason). On the host this is the folder mapped to $$path. Fix it on the host: sudo chown -R 1000:1000 ./data (your PRINT_HANDY_DATA folder, and PRINT_HANDY_SPOOLMAN_DATA if set), then docker compose up -d again. On an NFS or SMB share that refuses chown, set the owner to 1000:1000 on the server; on a read-only mapping, remove the :ro." >&2; exit 1; fi; done'
     restart: "no"
     cap_drop: [ALL]
     cap_add: [CHOWN]
