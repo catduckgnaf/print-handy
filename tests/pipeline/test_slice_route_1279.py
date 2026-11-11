@@ -225,3 +225,11 @@ def test_a_remap_refusal_with_height_ranges_refuses_rather_than_take_the_rebuild
                                                         "Metadata/filament_sequence.json": SEQUENCE})
     with pytest.raises(slice_route.RemapRefused, match="filament_sequence.json.*height-range extruder"):
         _slice(source, tmp_path, {1: 3, 2: 1})
+
+
+def test_a_filament_named_only_for_supports_keeps_the_rebuild(tmp_path):
+    """Loaded only when the job generates supports (#867), decided after the package is written."""
+    source = two_part_source(tmp_path / "s.3mf", palette=PALETTE + [("#00FF00", "PLA")],
+                             project={"support_filament": "3"})
+    plan = slice_route.plan(source, decisions(source, {1: 3, 2: 1, 3: 2}))
+    assert plan["route"] == "rebuild" and "filament 3 prints only supports" in plan["reason"], plan

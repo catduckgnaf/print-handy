@@ -24,6 +24,8 @@ import pytest
 
 from print_handy.core import model_job, orca_adapter, source_colors
 
+from tests.corpus.make_models import box, t_shape, write_3mf
+
 from .test_orca_real import WORK
 
 REAL = os.environ.get("PRINT_HANDY_REAL_SLICER") == "1"
@@ -256,12 +258,18 @@ def test_remapped_bambu_project_prints_walls_infill_palette_temperatures_and_pur
 
 
 def test_remapped_bambu_project_prints_supports_on_the_designated_filament():
-    """Corpus needs-supports (a T bracket on filament 1) with the designer's support filament 2, swapped."""
+    """The corpus needs-supports T bracket (filament 1) beside a block on filament 2, with the designer's
+    support filament 2, swapped. Built with the corpus generator: a filament the project names only for
+    supports keeps the rebuild (it is loaded only when supports are generated), so filament 2 also
+    prints a part here."""
     WORK.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=WORK) as tmp:
         tmp = Path(tmp)
-        source = edited("needs-supports", tmp, palette=[("#FFFFFF", "PLA"), ("#101010", "PLA")],
-                        project={"support_filament": "2", "support_interface_filament": "2"})
+        source = tmp / "supports.3mf"
+        write_3mf(source, [("T bracket", 1, t_shape(60, 12, 40, 6, 30), (80, 90)),
+                           ("Block", 2, box(12, 12, 6), (170, 170))],
+                  [("Plate 1", [0, 1])], [("#FFFFFF", "PLA"), ("#101010", "PLA")], support=True,
+                  project_extra={"support_filament": "2", "support_interface_filament": "2"})
         slot_of = {1: 2, 2: 1}
         filament_map = {1: 2, 2: 1}
         state = job_state()
@@ -269,9 +277,10 @@ def test_remapped_bambu_project_prints_supports_on_the_designated_filament():
         gcode = out.read_text(errors="replace")
         moves_ = assert_common(gcode, provenance, folder, state, slot_of, filament_map)
         support = {tool for tool, feature, *_ in moves_ if feature and feature.startswith("Support")}
-        walls = {tool for tool, feature, *_ in moves_ if feature in WALLS}
         assert support == {filament_map[2] - 1}, f"supports print on tools {support}"
-        assert walls == {filament_map[1] - 1}, f"walls print on tools {walls}"
+        walls = tools_by(moves_, provenance["geometry"], WALLS)
+        filament_of = {p["key"]: p["source_extruder"] for p in source_colors.inventory(source)["parts"]}
+        assert walls == {part: filament_map[n] - 1 for part, n in filament_of.items()}, walls
 
 
 def test_remapped_height_color_changes_print_on_the_mapped_filaments():

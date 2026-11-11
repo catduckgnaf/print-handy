@@ -1127,12 +1127,8 @@ def _unasked_is_unknown(row, asked, what):
 # OrcaSlicer per-feature filament keys (project_settings.config and per-object /
 # per-part metadata). Bambu Studio writes none of them; a project that names
 # none keeps these classes 'not_carried_by_format'.
-# OrcaSlicer 2.5 spells them *_filament_id, one per wall and surface feature
-# (#1279: the real slicer prints those and ignores the older spellings).
-_ORCA_FEATURE_KEYS = {'wall': ('wall_filament', 'outer_wall_filament_id', 'inner_wall_filament_id'),
-                      'infill': ('sparse_infill_filament', 'solid_infill_filament',
-                                 'sparse_infill_filament_id', 'internal_solid_filament_id',
-                                 'top_surface_filament_id', 'bottom_surface_filament_id')}
+_ORCA_FEATURE_KEYS = {'wall': ('wall_filament',),
+                      'infill': ('sparse_infill_filament', 'solid_infill_filament')}
 
 
 def _orca_feature_usage(path, plate_parts, project, palette_ids):

@@ -22,7 +22,8 @@ the route, writes the package and names the route in the report's
   whose footprints touch (the rebuild joins them into one assembly), an
   identity toolhead numbering (``multi_tool`` printers), a pause-mode height
   change, a source with no slicer project, PrusaSlicer object roles that
-  differ, and a printer whose primary slicer is not OrcaSlicer (Bambu Studio
+  differ, a filament the project names only for supports, and a printer
+  whose primary slicer is not OrcaSlicer (Bambu Studio
   for Bambu Lab printers, or Flash Studio), where the remap route has no
   real-slicer verification. The single-color paths
   (``export_single_color_plate``) are not per-part jobs and never come here.
@@ -150,6 +151,17 @@ def plan(source, decisions, *, item_shifts=None, object_ids=None, scale=None, fi
                       if str(f.get('source_extruder', '')).isdigit()})
     if not palette:
         return rebuild('the source names no filament palette')
+    # A filament the project names only for supports is loaded only when the
+    # job generates supports (support_tool_pointers, #867), which is decided
+    # after the package is written; the remap numbering would always load it.
+    designated = manifest.get('support_filaments') or {}
+    printing = ({p.get('source_extruder') for p in manifest['parts']}
+                | {row.get('source_extruder') for row in manifest.get('layer_changes') or []})
+    support_only = sorted({e for e in (designated.get('base'), designated.get('interface'))
+                           if e and e not in printing}) if not manifest.get('painted') else []
+    if support_only:
+        return rebuild(f'palette filament {support_only[0]} prints only supports, which this job '
+                       'loads only when it generates supports')
     slot_of = {}
     for number in palette:
         picks = []
