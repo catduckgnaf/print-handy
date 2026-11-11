@@ -53,6 +53,7 @@ KNOWN = (
     "printers",
     "recent_model_links.json",
     "reprint_queue.json",
+    "reprint_runs.json",
     "roast_state.json",
     "runout_pause.json",
     "screen_sync_pending.json",

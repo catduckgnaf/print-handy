@@ -39,7 +39,7 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job.printer_state, 'check', lambda *a, **k: (True, [], {}))
     # Verify-time re-resolution sees Spoolman down: material defaults.
     monkeypatch.setattr(printer_state, 'gcode_temperatures',
-                        lambda state, materials, fetch=None, text=None: dict(DEFAULTS))
+                        lambda state, materials, fetch=None, text=None, **_: dict(DEFAULTS))
     return path
 
 
@@ -88,6 +88,6 @@ def test_with_gcode_temperatures_prefers_recorded_without_resolving(monkeypatch)
 
 def test_with_gcode_temperatures_ignores_a_malformed_record(monkeypatch):
     monkeypatch.setattr(printer_state, 'gcode_temperatures',
-                        lambda state, materials, fetch=None, text=None: dict(DEFAULTS))
+                        lambda state, materials, fetch=None, text=None, **_: dict(DEFAULTS))
     out = model_job._with_gcode_temperatures(dict(STATE), GCODE, recorded={'nozzle': 'hot'})
     assert out['temps_c'] == DEFAULTS
