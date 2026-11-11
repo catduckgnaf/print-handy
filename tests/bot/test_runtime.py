@@ -282,6 +282,23 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
     assert model_file(SimpleNamespace(media_urls=paths)) is None
 
 
+def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
+    # #1204 item 3: a dropped .zip is cached so prepared intake can open it
+    # as a source archive; it is never a model file of its own, so the
+    # single-file callers (design, edit) still see no model.
+    discord, core = make(cfg)
+    archive = tmp_path / "Rack.zip"
+    archive.write_bytes(b"PK\x05\x06" + b"\0" * 18)
+    message = discord.message(attachments=[fake_discord.FakeAttachment(archive)])
+    paths = run(core.save_attachments(message))
+    assert len(paths) == 1 and paths[0].endswith("_Rack.zip")
+    from types import SimpleNamespace
+    from print_handy.core.prepared_intake import archive_files, model_file, model_files
+    event = SimpleNamespace(media_urls=paths)
+    assert model_file(event) is None and model_files(event) == []
+    assert [str(p) for p in archive_files(event)] == paths
+
+
 def test_status_has_no_hermes_modules_field(cfg):
     discord, core = make(cfg)
     status = core.status(True)
