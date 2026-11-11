@@ -32,7 +32,7 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse", "nest", "upstate", "fir"]
+              "states", "parse", "nest", "upstate", "fir", "skill"]
 # Second mining pass over the operator's chat history (same aggregate-only
 # rule: pairs, never message text). "iddint" maps to the apostrophe-less
 # form the matcher canonicalizes to, and "seel" is kept deliberately: it is
@@ -114,12 +114,14 @@ OPERATOR_MINED_4 = {
 # triples the letter. Same curation rules as the rounds above: every
 # key verified absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS, not
 # a real English word per pyspellchecker, and its word a real word
-# carrying the double. Six candidates were rejected by that screen:
+# carrying the double. Five candidates were rejected by that screen:
 # "alow" and "instal" (real words), "eror" and "isue" (already in
-# TOKEN_FORMS), "yelow" (already in the table), and "skil" -> "skill"
-# (the lookup carry re-routes the word "skill" itself to "still", so
-# the pair cannot be carried correctly — verified with no table entry
-# present; that routing quirk is outside this round's scope).
+# TOKEN_FORMS), and "yelow" (already in the table). "skil" -> "skill"
+# was also held back in that round: the lookup carry re-routed the word
+# "skill" itself to "still", so the pair could not be carried correctly
+# (verified with no table entry present). #1290 fixed that routing —
+# the real word "skill" is shielded in REAL_WORDS — so the pair is in
+# the table below now.
 DOUBLE_LETTER_TYPOS = {
     "acces": "access", "acess": "access", "acros": "across",
     "actualy": "actually", "addres": "address", "alowed": "allowed",
@@ -141,7 +143,7 @@ DOUBLE_LETTER_TYPOS = {
     "permision": "permission", "posible": "possible", "presure": "pressure",
     "proces": "process", "profesional": "professional", "progres": "progress",
     "puley": "pulley", "referal": "referral", "sesion": "session",
-    "smal": "small", "sory": "sorry",
+    "skil": "skill", "smal": "small", "sory": "sorry",
     "speling": "spelling", "spelings": "spellings", "stil": "still",
     "succes": "success", "sucess": "success", "suround": "surround",
     "terible": "terrible", "teritory": "territory", "tisue": "tissue",
@@ -158,7 +160,8 @@ DOUBLE_LETTER_TYPOS = {
 # fine, but their correct words are re-routed by the lookup carry itself
 # (clipping -> clicking, greeting -> getting, shipped -> skipped,
 # shipping/shopping -> skipping, verified identical on the base commit),
-# the same pre-existing quirk that blocks "skil" -> "skill".
+# the same pre-existing quirk that blocked "skil" -> "skill" until #1290
+# shielded "skill" in REAL_WORDS (those five words are still re-routed).
 EXTENDED_DOUBLE_LETTER_TYPOS = {
     # gg: 12 pairs
     "agressive": "aggressive",
@@ -576,8 +579,8 @@ BATCH2_TITLE_TYPOS = {
 # 179-pair round's CI failures taught: the correct word itself must be
 # carried unchanged by the lookup carry in both phrasings, because a
 # word the carry re-routes (clipping, greeting, shipping, shipped,
-# shopping — and "skill" before them) cannot be carried correctly no
-# matter how clean the fold is. One further passed candidate,
+# shopping) cannot be carried correctly no matter how clean the fold
+# is. "skill" sat in that class too until #1290. One further passed candidate,
 # "zealos" -> "zealous", was left out to land exactly 20.
 ROUND5_SCREENED_TYPOS = {
     "argueing": "arguing", "frusterated": "frustrated",
