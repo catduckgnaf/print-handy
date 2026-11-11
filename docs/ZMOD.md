@@ -303,7 +303,7 @@ Two boundaries to know:
   result is then packaged like any other job. A file already on the printer
   can still be remapped from the printer's own screen; that is ZMod's
   domain.
-- **Nothing here is live-hardware verified yet.** The format behaviour above
+- **Nothing here is live-hardware verified yet.** The format behavior above
   is pinned by offline tests and ZMod's published documentation; the
   on-printer checks (starting a packaged print on 1.7.5, Fluidd/Mainsail
   listing metadata, the native screen's display of a packaged print, and

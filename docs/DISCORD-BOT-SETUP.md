@@ -57,7 +57,7 @@ Use one bot token for one bot. Running two bots on the same token makes both ans
 Stop the old owner before starting the new one.
 More generally: **one token, one instance per channel.** Two running instances that serve the same print
 channel (a leftover second instance next to the container is the classic case) each receive every message in
-it and both act, which looks exactly like random bot misbehaviour. Sharing one token across instances is
+it and both act, which looks exactly like random bot misbehavior. Sharing one token across instances is
 supported only with a separate channel per instance, see [multi-instance](MULTI-INSTANCE.md). The standalone
 bot logs a warning when Discord hands it a second READY on a live session, one sign of a competing login.
 
