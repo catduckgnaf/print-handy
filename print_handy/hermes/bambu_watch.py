@@ -414,6 +414,7 @@ class BambuPrintMonitor:
         self._check_thread = None
         self._check_started_at = None
         self._check_timeout_noticed = False
+        self._monitor_stopped = False  # set when run() stops: a late check result is dropped
         # A failed capture never advances the watch's snapshot baseline, so
         # due() keeps offering a probe on every poll while the camera is
         # down; the watch's FailureEpisode keeps that from becoming an
@@ -459,7 +460,12 @@ class BambuPrintMonitor:
         return session
 
     def _stop_capture(self, state):
-        """Stop the session, whatever state it is in. Never raises."""
+        """Stop the session, whatever state it is in. Never raises.
+
+        Every way out of run() passes here, so this also marks the monitor
+        stopped: a camera check still running drops its result.
+        """
+        self._monitor_stopped = True
         session, self._session = self._session, None
         if session is not None:
             try:
@@ -580,7 +586,7 @@ class BambuPrintMonitor:
                 if not capture_attempted:
                     capture_attempted = True
                     self._session = self._begin_capture()
-                if self._session is not None and state == "printing":
+                if self._session is not None and state == "printing" and not self._check_running():
                     # A pause holds the session open but takes no frames,
                     # exactly as the other launched-print monitors do.
                     self._session.tick(self._last_layer)
@@ -619,8 +625,18 @@ class BambuPrintMonitor:
             step = min(self._capture_poll_s, self._poll_s - elapsed)
             self._sleep(step)
             elapsed += step
-            if self._session is not None:
+            if self._session is not None and not self._check_running():
                 self._session.tick(self._last_layer)
+
+    def _check_running(self):
+        """True while a camera check's thread is still running.
+
+        The capture session takes no frame meanwhile: the camera serves one
+        caller at a time, as it did when the monitor waited for each check.
+        Status polling goes on regardless.
+        """
+        thread = self._check_thread
+        return thread is not None and thread.is_alive()
 
     def poll_active(self, st):
         """One active-print poll: the camera watchdog's trigger (#294 stage 3).
@@ -719,7 +735,13 @@ class BambuPrintMonitor:
         return False
 
     def _run_check(self, reason, layer):
-        """Run one camera check, under the overall deadline when one is set."""
+        """Start one camera check, under the overall deadline when one is set.
+
+        With a deadline the check runs on its own thread and this returns at
+        once: the monitor keeps polling (a print that ends or changes while a
+        check hangs is seen on the next poll), and the next polls'
+        ``_check_slot_free`` tells the operator once the check overruns.
+        """
         if self._check_deadline_s is None:
             self.visual_check(reason, layer)
             return
@@ -729,20 +751,19 @@ class BambuPrintMonitor:
                                   name=f"bambu-check-{self.filename}")
         self._check_thread = thread
         thread.start()
-        thread.join(self._check_deadline_s)
-        if thread.is_alive():
-            self._check_timeout_noticed = True
-            self._check_timed_out()
 
     def _abandoned(self):
-        """True inside a check thread that overran its deadline (as the listener cancels its task).
+        """True inside a check thread whose result must be dropped.
 
-        Its late result must not alert or pause: the operator was already
-        told the print is unmonitored, and the frame it judged is old.
+        A check that overran its deadline (as the listener cancels its task):
+        the operator was already told the print is unmonitored, and the frame
+        it judged is old. Or a check still running when the monitor stopped
+        (the print ended or was superseded): its verdict is about a print
+        this monitor no longer watches.
         """
         thread = self._check_thread
         return (thread is not None and thread is threading.current_thread()
-                and self._check_timeout_noticed)
+                and (self._check_timeout_noticed or self._monitor_stopped))
 
     def _check_timed_out(self):
         """The current check overran its deadline: log it and alert (throttled). Never raises."""

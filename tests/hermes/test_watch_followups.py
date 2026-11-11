@@ -104,7 +104,13 @@ def test_bambu_hung_check_hits_the_deadline_and_says_so_once():
     try:
         started = time.monotonic()
         monitor.poll_active(_st(2))
-        assert time.monotonic() - started < 2  # the monitor was not held by the camera
+        # The check runs on its own thread: the poll returns at once, well
+        # inside the deadline, and nothing is said before the deadline passes.
+        assert time.monotonic() - started < 0.2
+        assert getattr(monitor, "check_timeouts", 0) == 0 and texts == []
+        time.sleep(0.3)
+        wall.t += 30
+        monitor.poll_active(_st(3))  # the next poll past the deadline says so, once
         assert monitor.check_timeouts == 1
         assert texts == [vw.TIMEOUT_ALERT_TEXT]
         wall.t += 30
@@ -115,6 +121,66 @@ def test_bambu_hung_check_hits_the_deadline_and_says_so_once():
     monitor._check_thread.join(5)
     assert len(texts) == 1  # the abandoned check's late failure posts nothing more
     assert monitor._check_slot_free() is True
+
+
+def test_bambu_monitor_keeps_polling_and_sees_the_end_while_a_check_hangs():
+    # A check that hangs inside its deadline must not hold the status polls:
+    # the print finishing meanwhile is seen on the next poll, and the hung
+    # check's late (suspicious) verdict posts nothing about a finished print.
+    release = threading.Event()
+    calls = []
+
+    def camera():
+        calls.append(1)
+        if len(calls) == 1:
+            release.wait(10)
+        return _frame(len(calls))
+
+    reads = iter([_st(2), _st(3), _st(3, state="complete")])
+    statuses = []
+
+    def status_fn():
+        st = next(reads)
+        statuses.append(st["state"])
+        return st
+
+    alerts, texts, posts = [], [], []
+    wall = Clock(10_000.0)
+    monitor = bambu_watch.BambuPrintMonitor(
+        "part.gcode.3mf", status_fn=status_fn, camera_fn=camera, post=posts.append,
+        watch=vw.VisualPrintWatch(sensitivity=3), verdict=lambda image, prompt: ("spaghetti", "a mess"),
+        alert=lambda filename, image, reason, identity=None: alerts.append(reason),
+        text_alert=lambda filename, reason, identity=None: texts.append(reason),
+        event_recorder=lambda **kw: None, clock=wall, wall=wall, sleep=wall.sleep, poll_s=10,
+        check_deadline_s=150.0)
+    try:
+        started = time.monotonic()
+        assert monitor.run() == "complete"
+        assert time.monotonic() - started < 5  # never held for the check's deadline
+        assert statuses == ["printing", "printing", "complete"]
+        assert monitor._check_thread is not None and monitor._check_thread.is_alive()
+    finally:
+        release.set()
+    monitor._check_thread.join(5)
+    assert alerts == [] and texts == []  # the late verdict is dropped: the monitor stopped
+
+
+def test_bambu_capture_takes_no_frame_while_a_check_holds_the_camera():
+    release = threading.Event()
+    ticks = []
+    monitor, posts, alerts, texts, wall = _bambu(camera=lambda: release.wait(5) or _frame(1),
+                                                 check_deadline_s=150.0)
+    monitor._session = type("Session", (), {"tick": lambda self, layer: ticks.append(layer)})()
+    try:
+        monitor.poll_active(_st(2))
+        assert monitor._check_running()
+        monitor._sleep_between_polls(tick=True)
+        assert ticks == []
+    finally:
+        release.set()
+    monitor._check_thread.join(5)
+    monitor._sleep_between_polls(tick=True)
+    assert ticks
 
 
 # -- 2. prints without layer numbers: one notice (Bambu; Moonraker in test_watch_coverage) --
