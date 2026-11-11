@@ -154,7 +154,9 @@ def _wait_webui(timeout=120):
         try:
             status, _, _ = _request("GET", "/healthz")
             return status
-        except OSError as exc:
+        except (OSError, http.client.HTTPException) as exc:
+            # A refused or reset connection, a timeout, or a half-written answer while the
+            # server starts: all mean "not answering yet", so keep waiting.
             last = f"{type(exc).__name__}: {exc}"
         time.sleep(2)
     raise QuickstartError(f"Web UI on port {WEBUI_PORT} did not answer HTTP within {timeout}s ({last})")
@@ -244,7 +246,9 @@ def main(argv):
         subprocess.run(["docker", "rm", "-f", printer], capture_output=True)
         shutil.rmtree(work, ignore_errors=True)
         if work.exists():
-            subprocess.run(["sudo", "rm", "-rf", str(work)])
+            # -n: never wait on a password prompt; a runner without passwordless sudo just
+            # leaves the temporary directory behind.
+            subprocess.run(["sudo", "-n", "rm", "-rf", str(work)])
 
 
 if __name__ == "__main__":

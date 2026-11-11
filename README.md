@@ -13,7 +13,7 @@ Discord is optional too: the same bot runs on Telegram or Matrix, and the local 
 
 Current release: **2.2.7**
 
-**Try it:** on a 64-bit Linux machine with Docker, it is two downloads, one `.env` edit and `docker compose up -d`, then `/print-help` in your chat. The copy-paste block is in [Get started](#get-started).
+**Try it:** on a 64-bit Linux machine with Docker, it is two downloads, a few lines in `.env` and `docker compose up -d`, then `/print-help` in your chat. The copy-paste block is in [Get started](#get-started).
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 

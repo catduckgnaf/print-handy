@@ -82,6 +82,30 @@ class ReadmeQuickstartExtraction(unittest.TestCase):
             quickstart._request = original
         self.assertEqual(asked, ["/healthz"])
 
+    def test_webui_wait_retries_a_half_written_answer(self):
+        # A server still starting can drop a connection mid-answer
+        # (http.client.HTTPException, not an OSError); that is "not yet", not a failure.
+        calls = []
+
+        def flaky_request(method, path, body=None, headers=None):
+            calls.append(path)
+            if len(calls) == 1:
+                raise quickstart.http.client.RemoteDisconnected("closed mid-answer")
+            return (503, "", "")
+
+        original, sleep = quickstart._request, quickstart.time.sleep
+        quickstart._request, quickstart.time.sleep = flaky_request, lambda _s: None
+        try:
+            self.assertEqual(quickstart._wait_webui(timeout=5), 503)
+        finally:
+            quickstart._request, quickstart.time.sleep = original, sleep
+        self.assertEqual(calls, ["/healthz", "/healthz"])
+
+    def test_cleanup_sudo_never_prompts(self):
+        source = (ROOT / "tests/docker/readme_quickstart.py").read_text(encoding="utf-8")
+        self.assertIn('["sudo", "-n", "rm"', source)
+        self.assertNotIn('["sudo", "rm"', source)
+
     def test_missing_env_key_fails_by_name(self):
         with self.assertRaisesRegex(AssertionError, "NOT_THERE"):
             quickstart.set_env_value("A=1\n", "NOT_THERE", "x")

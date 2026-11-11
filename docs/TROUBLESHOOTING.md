@@ -15,7 +15,7 @@ It checks the machine, the settings, the slicer and the services you configured,
 
 1. **Compose refuses to start and names `PRINT_HANDY_IMAGE`.** There is no default image. Set `PRINT_HANDY_IMAGE` in `.env` to the digest in [Pinning the image](DOCKER.md#pinning-the-image), then `docker compose up -d` again.
 2. **The bot is online but ignores what you type.** Turn on **Message Content Intent** on the Discord Developer Portal's **Bot** page and restart the bot. The rest of the checklist is in [Discord bot setup, Recovery](DISCORD-BOT-SETUP.md#recovery).
-3. **Every message gets two answers, or none.** Two copies of Print Handy are running on one bot token, often an old install next to the container. Stop the extra one: one token, one instance per channel (see [Discord bot setup](DISCORD-BOT-SETUP.md#4-give-them-to-print-handy)).
+3. **Every message gets two answers.** Two copies of Print Handy are running on one bot token, often an old install next to the container. Stop the extra one: one token, one instance per channel (see [Discord bot setup](DISCORD-BOT-SETUP.md#4-give-them-to-print-handy)).
 
 ## Where the answers live
 
