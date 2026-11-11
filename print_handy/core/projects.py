@@ -140,6 +140,31 @@ def from_files(intake_id: str, source_kind: str, sources: list[dict],
     }
 
 
+DESIGN_SOURCE_KIND = "ai_design"
+
+
+def from_design(intake_id: str, sources: list[dict], design: dict,
+                title: str | None = None) -> dict:
+    """Entry point for a multi-part AI design's handoff (#1204 item 4).
+
+    The same manifest :func:`from_files` builds for uploads and links, so a
+    design's parts get the same components, plates and next-plate flow. The
+    design adds only where they came from: its session and turn, and each
+    component's declared part name. Provenance, never an approval.
+    """
+    if not isinstance(design, dict) or not design.get("session_id"):
+        raise ValueError("a design project needs the design session it came from")
+    project = from_files(intake_id, DESIGN_SOURCE_KIND, sources,
+                         title=title or design.get("title"))
+    declared = {str(row.get("file")): str(row.get("part"))
+                for row in design.get("parts") or [] if row.get("file") and row.get("part")}
+    for component in project["components"]:
+        if component["name"] in declared:
+            component["design_part"] = declared[component["name"]]
+    project["design"] = {"session_id": str(design["session_id"]), "turn": design.get("turn")}
+    return project
+
+
 def plate_info(index: int, part_keys=None) -> dict:
     """Execution-plan fields kept independent of a not-yet-allocated number."""
     return {

@@ -87,7 +87,8 @@ The model writes the part, but it never gets to run anything general:
 
 The model is asked for a parametric, print-aware file: every dimension a
 named variable with a comment, millimeters, one solid lying flat on the
-bed, chamfers instead of overhangs past 45 degrees, walls of at least
+bed (or several declared parts, each one solid: see
+[Designs with several parts](#designs-with-several-parts)), chamfers instead of overhangs past 45 degrees, walls of at least
 1.2 mm, 0.2-0.3 mm clearance on holes and mating parts, and a size that
 fits the configured printer. The file starts with three comment lines the
 engine reads back: `// Part:` (what it is), `// Size:` (the intended
@@ -121,6 +122,34 @@ A turn that asks the model starts with a short "Designing it now" note,
 and the chat shows the bot typing until the part is posted, because
 checking and repairing can take a minute or two. Undo and plain parameter
 changes are quick and skip the note.
+
+## Designs with several parts
+
+Most designs are one piece. When a request needs several separate printed
+parts (too big for the bed, or pieces that must come apart or move), the
+model declares them: a `// Parts: center tray, left arm, right arm` header
+line and a top-level selector `part = 0;`, where 0 shows every part side by
+side and N renders part N alone. Print Handy renders the layout for the
+preview, then each part on its own by setting the selector in the source
+(the same edit-the-source rule as parameter changes), and checks each part
+the way it checks a one-piece design: one solid, on the bed, fits the
+printer. A finding names its part ("part 2 (left arm): ..."). A part that
+does not render, a Parts line without the selector, or the same name twice
+goes back to the model for a repair within the same budget. The reply
+lists each part with its measured size; the Size line describes the
+layout and is not compared. At most 12 parts.
+
+**Slice it** on a multi-part design hands all of its parts to the normal
+intake together, exactly as if the files had been dropped in one message:
+the same "Print all 3 / Choose files" question, colors, fit, slicing and
+start question. The parts become one `project_v1` project (see
+[Multi-part print projects](PROJECTS.md)) with source kind `ai_design`, the
+design's name as its title, and each component naming its declared part.
+When the slicer makes several plates, the remaining plates are offered
+after each successful plate and each one is started separately behind its
+own confirmation. Slice it is never an approval: nothing slices or prints
+without intake's usual questions, and no plate inherits another plate's
+approval. A one-piece design is handed over exactly as before.
 
 ## Honest limits
 
@@ -225,4 +254,4 @@ normal confirmation flow.
 
 Against the reference design (the fixture in `tests/corpus/design/mac_mini_rack_issue_998/`), it fails both 88.5 mm ears on panel clearance and warns on the 214 mm tray's 3 mm bed margin.
 
-Not checked (and said so in every summary): fastener fit, load and heat, and slicer toolpaths. The design engine does not call these checks yet; the manifest declarations above are the surface a multi-part design session or the AI design handoff declares on, and `review(..., project=manifest)` is the call it makes.
+Not checked (and said so in every summary): fastener fit, load and heat, and slicer toolpaths. The design engine does not call these checks yet; the manifest declarations above are the surface a multi-part design session declares on, and `review(..., project=manifest)` is the call it makes. The multi-part design handoff ([Designs with several parts](#designs-with-several-parts)) records each part as a manifest component but does not yet declare a role or an assembly placement, so a review of it would fall back to file-name inference.

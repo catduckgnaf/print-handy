@@ -2283,14 +2283,35 @@ async def _pick_files(adapter, source, key, rows, timeout):
     return [rows[i] for i in sorted(pick)]
 
 
+def with_design_origin(job, record):
+    """An upload job set marked as a multi-part AI design's handoff (#1204 item 4).
+
+    The design hands its part files over like a multi-file drop, with the
+    design record in the event metadata. The record only names the job and
+    its provenance; every question, fit check and approval after this is the
+    upload path's own. A record that does not name exactly these files is
+    ignored, never half-applied.
+    """
+    names = {str(row.get('file')) for row in (record or {}).get('parts') or []}
+    if (not isinstance(record, dict) or not record.get('session_id') or len(job.get('sources') or []) < 2
+            or {r.get('name') for r in job['sources']} != names):
+        return job
+    job.update(design=dict(record), title=str(record.get('title') or job.get('title')))
+    return job
+
+
 def _combined_source(job, rows, paths, combined):
     """JOB.json source fields for a multi-file job: one row per file, and the combined project for older readers."""
     parts = [dict(row, downloaded_file=str(path)) for row, path in zip(rows, paths)]
     selected = {'kind': 'parts', 'name': Path(combined['path']).name, 'title': _parts_title(rows),
                 'files': [_file_name(r) for r in rows]}
     from . import projects
-    source_kind = 'uploaded_files' if job.get('site') == 'upload' else 'linked_files'
-    project = projects.from_files(job['intake_id'], source_kind, parts, title=job.get('title'))
+    if job.get('design'):  # a multi-part AI design's parts (#1204 item 4): the same builder
+        project = projects.from_design(job['intake_id'], parts, job['design'], title=job.get('title'))
+        source_kind = project['source_kind']
+    else:
+        source_kind = 'uploaded_files' if job.get('site') == 'upload' else 'linked_files'
+        project = projects.from_files(job['intake_id'], source_kind, parts, title=job.get('title'))
     return {'selected_source': selected, 'selected_sources': parts,
             'downloaded_file': combined['path'], 'combined_objects': combined['objects'],
             'project': project, 'project_id': project['project_id'],
@@ -2652,7 +2673,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 job = reuse_job(reuse)
                 url = reuse.get('url')
         elif uploads:
-            job = upload_job_set(uploads)
+            job = with_design_origin(upload_job_set(uploads), event_metadata.get('design_handoff'))
         else:
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
@@ -2757,7 +2778,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
         # and slicer all read this copy. The user's bytes are kept under source/original/.
         await asyncio.to_thread(intake_working_copy, path)
-        if job['site'] == 'upload':
+        if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         job['audit'] = await _with_stop(adapter, source, key, metadata, large_model_notice(path),
                                         _heavy(mj.audit, path))
