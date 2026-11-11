@@ -58,6 +58,24 @@ OPERATOR_MINED_2 = {
 OPERATOR_MINED_3 = {
     "epsecially": "especially", "mispellings": "misspellings",
 }
+# The acknowledge family: the operator typed "acknowladge" on 2026-11-10
+# and asked for it plus more like it. Each variant was screened the usual
+# way (not a real word per the spellchecker, no table collision, exactly
+# one edit from its target and uniquely closest to it). "aknowledge" was
+# screened out, not guessed: it is one edit from both "acknowledge" and
+# "knowledge", so it is ambiguous. "acknowledgment" is a legitimate
+# variant spelling, never a key here.
+ACKNOWLEDGE_FAMILY = {
+    "acknowladge": "acknowledge", "acknowlege": "acknowledge",
+    "acknowlegde": "acknowledge", "acknowldege": "acknowledge",
+    "acknowladged": "acknowledged", "acknowleged": "acknowledged",
+    "acknowladges": "acknowledges", "acknowleges": "acknowledges",
+    "acknowladging": "acknowledging", "acknowleging": "acknowledging",
+    "acknowladgement": "acknowledgement",
+    "acknowlegement": "acknowledgement",
+    "aknowledgement": "acknowledgement",
+    "acknowladgements": "acknowledgements",
+}
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
 # "justmake" drops a space; leave correctly spelled words untouched.
@@ -552,7 +570,8 @@ ROUND5_SCREENED_TYPOS = {
     "withold": "withhold", "yatch": "yacht",
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
-             **OPERATOR_MINED_3, **OPERATOR_MINED_4, **DOUBLE_LETTER_TYPOS,
+             **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **OPERATOR_MINED_4,
+             **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
