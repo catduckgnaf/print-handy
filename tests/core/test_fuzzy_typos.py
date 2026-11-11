@@ -32,7 +32,7 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse", "nest", "upstate", "fir", "skill"]
+              "states", "parse", "nest", "upstate", "fir", "skill", "firmware"]
 # Second mining pass over the operator's chat history (same aggregate-only
 # rule: pairs, never message text). "iddint" maps to the apostrophe-less
 # form the matcher canonicalizes to, and "seel" is kept deliberately: it is
@@ -97,6 +97,35 @@ DIFFERNET_FAMILY = {
     "differant": "different", "differnetly": "differently",
     "diffrently": "differently", "separete": "separate",
     "seprate": "separate",
+}
+# The firmware family: scope addition to #1290 (2026-11-11, at the
+# operator's word — "include the fuzzy items for firmware"). The word
+# itself first: "firmware" is carried unchanged today, but only because
+# it is a literal word in the task-intent patterns, so the corrector
+# short-circuits on vocabulary membership; it was missing from
+# REAL_WORDS, the shield every other correct_typos consumer consults.
+# It is shielded now and pinned in DO_NOT_MAP, so the protection no
+# longer depends on the pattern literals keeping the word. The pairs
+# are the single-edit family, screened the usual way (not a real word
+# per pyspellchecker, absent from TYPO_FORMS, TOKEN_FORMS and
+# REAL_WORDS, uniquely closest to "firmware", fuzzy score 99): every
+# letter drop, every adjacent transposition, the e-insertion and the
+# w-doubling. Screened out: "firmwear" and "firmwaer" (already in
+# TOKEN_FORMS, so canonical already routes them), "firmwares" (the
+# word's own plural — a genuine form, used as one in this repo;
+# canonical's stemmer already routes it to "firmware", and plurals are
+# a token-layer route, not typo keys), "ifrmware" (first-letter
+# transposition scores 88, not 99), and the vowel swaps "fermware" /
+# "firmwere" and edge doublings "ffirmware" / "firmwaree" (screened
+# clean but not added — the family is the drop, transposition and
+# internal-doubling slips).
+FIRMWARE_FAMILY = {
+    "firmare": "firmware", "firmawre": "firmware",
+    "firmeware": "firmware", "firmwae": "firmware",
+    "firmwar": "firmware", "firmwrae": "firmware",
+    "firmwre": "firmware", "firmwware": "firmware",
+    "fimrware": "firmware", "firware": "firmware",
+    "firwmare": "firmware", "frimware": "firmware",
 }
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
@@ -596,7 +625,7 @@ ROUND5_SCREENED_TYPOS = {
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
-             **DIFFERNET_FAMILY,
+             **DIFFERNET_FAMILY, **FIRMWARE_FAMILY,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
