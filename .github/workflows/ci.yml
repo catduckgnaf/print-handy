@@ -10,11 +10,15 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-# One run per pull request: a newer push to the same PR cancels the run in progress. Every other
-# event (push to main, a dispatch) gets a group of its own, so those runs are never cancelled or
-# replaced while queued; the docker-publish guard needs a successful CI run on the exact tagged commit.
+# One run per pull request: a newer push to the same PR cancels the run in progress.
+# Pushes to main share one group without cancel-in-progress: the running main run always finishes,
+# and a burst of merges keeps only the newest queued run instead of a full CI per merge.
+# develop promotes the newest CI-green main commit, and the docker-publish guard accepts any
+# successful CI run on the tagged commit, so a release tag on a commit whose queued run was
+# replaced is covered by dispatching CI on that tag. A dispatch gets a group of its own and is
+# never cancelled or replaced.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && 'main-push' || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
