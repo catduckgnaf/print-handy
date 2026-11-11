@@ -30,6 +30,18 @@ Bambu is not served here: its listener is event-driven (MQTT) and
 already implemented; #460 wires its sink to the same family_control
 posts (``family_control.BambuEventSink``).
 
+Uncertain launch leases (#1147). A start whose response was lost leaves
+the printer's launch lease uncertain, and every later start refuses until
+it settles. On Moonraker the listener settles it from what the printer
+reports; this domain does the same for its families (OctoPrint, PrusaLink,
+SDCP, stock Flashforge), from the status it already polls: the printer
+printing or paused on the lease's own file settles it as started
+(``launch_state.settle_observed``), and the printer idle with both heater
+targets at 0 for the Moonraker listener's ABANDONED_START_COLD_S, never
+showing that file running, releases it as not started
+(``launch_state.release_abandoned``, which leaves a live print-now's
+``submitting`` row alone). Nothing is sent to the printer for either.
+
 The listener never writes to the printer. The only printer writes in
 this feature are the Resume/Cancel an operator explicitly presses,
 routed by the gateway to ``family_control.FamilyControl`` — plus, for
@@ -112,6 +124,7 @@ class FamilyListener:
         self._failures = 0
         self._last_beat_at = None
         self._prev_state: str | None = None
+        self._lease_watch = None  # moonraker_event_listener.AbandonedStartWatch, built on first use
         self._current: dict | None = None
         self._restored: dict | None = self._load_record()
 
@@ -216,7 +229,49 @@ class FamilyListener:
             self._process(state, filename, status or {})
         except Exception as exc:
             log(f"family listener ({self.connection}) transition handling failed: {exc!r}")
+        try:
+            self._settle_lease(state, filename, status or {})
+        except Exception as exc:
+            log(f"family listener ({self.connection}) launch lease settle failed: {exc!r}")
         self._beat(True, state)
+
+    # -- uncertain launch leases (#1147) ---------------------------------------
+
+    def _settle_lease(self, state, filename, status, now=None):
+        """Settle this printer's submitting/uncertain lease from one status read, as Moonraker does."""
+        from ..core import launch_state
+        row = launch_state.held(self._printer_id)
+        if row is None or not row.get("remote"):
+            return None
+        remote = row["remote"]
+        if state in _ACTIVE:
+            if filename and launch_state.same_remote(filename, remote):
+                settled = launch_state.settle_observed(self._printer_id, filename)
+                if settled:
+                    log(f"launch lease settled: the printer reports {filename!r}, so the earlier "
+                        f"{settled['phase']} start reached it")
+                    self._lease_watch_for().retire(remote)
+                return "started" if settled else None
+            return None  # another file is running; the lease is not this read's story
+        if filename and not launch_state.same_remote(filename, remote):
+            return None  # the printer reports another (earlier) file; nothing about this start
+        idle = "standby" if state in _TERMINAL or state == "standby" else state
+        watch = self._lease_watch_for()
+        watch.retain([remote])
+        if watch.observe(remote, idle, status.get("hotend_target_c"), status.get("bed_target_c"),
+                         now=now):
+            watch.retire(remote)
+            released = launch_state.release_abandoned(self._printer_id, remote)
+            if released:
+                log(f"launch lease released: the printer stayed idle and cold without printing {remote!r}")
+                return "not_started"
+        return None
+
+    def _lease_watch_for(self):
+        if self._lease_watch is None:
+            from . import moonraker_event_listener as mel
+            self._lease_watch = mel.AbandonedStartWatch()
+        return self._lease_watch
 
     def _process(self, state, filename, status):
         prev, self._prev_state = self._prev_state, state

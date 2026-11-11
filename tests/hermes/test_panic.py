@@ -261,18 +261,18 @@ def test_purge_clamps_parameters():
     def mock_reader():
         return readings.pop(0) if len(readings) > 1 else readings[0]
 
-    # Test excessive mm and out of range temps
+    # Excessive mm is clamped; a low temp is raised to the 180 C floor.
     res = panic.purge(
         mm=999,  # clamped to 150
-        temp=300,  # clamped to 260
+        temp=120,  # raised to 180
         reader=mock_reader,
         gcode_sender=mock_sender,
     )
 
     assert res["ok"] is True
     assert res["mm"] == 150
-    assert res["temp"] == 260
-    assert "M104 S260" in scripts_sent
+    assert res["temp"] == 180
+    assert "M104 S180" in scripts_sent
     # 150 mm chunked into 15 x 10 mm
     assert scripts_sent.count("G1 E10 F150") == 15
     assert scripts_sent[-1] == "M104 S0"
@@ -339,3 +339,104 @@ def test_purge_fails_if_heater_target_not_zero():
 
     assert res["ok"] is False
     assert "heater target readback is 210.0, not 0" in res["error"]
+
+
+
+# ============================================================================
+# #1147: one heater ceiling (the printer profile's), refused above, never clamped
+# ============================================================================
+
+class _CeilingAdapter:
+    """A printer whose profile caps the hotend at `hotend` C."""
+
+    def __init__(self, hotend, config=None):
+        self._hotend = hotend
+        self.config = config or {"printer": {"nozzle_type": "hardened_steel"}}
+
+    def fact(self, name):
+        if name == "max_hotend_c":
+            return self._hotend
+        raise KeyError(name)
+
+
+def _idle_reader():
+    readings = [
+        {"print_stats": {"state": "standby"}, "webhooks": {"state": "ready"},
+         "filament_switch_sensor head_switch_sensor": {"filament_detected": True}, "extruder": {"target": 0}},
+        {"extruder": {"target": 0}},
+    ]
+    return lambda: readings.pop(0) if len(readings) > 1 else readings[0]
+
+
+def test_1147_purge_above_the_profile_ceiling_is_refused_and_sends_nothing():
+    sent = []
+    res = panic.purge(temp=255, reader=_idle_reader(), gcode_sender=sent.append,
+                      adapter=_CeilingAdapter(250), state={})
+    assert res["ok"] is False and "above this printer's 250 C nozzle ceiling" in res["error"]
+    assert "Nothing sent" in res["error"] and sent == []
+
+
+def test_1147_purge_at_the_profile_ceiling_runs():
+    sent = []
+    res = panic.purge(temp=250, reader=_idle_reader(), gcode_sender=sent.append,
+                      adapter=_CeilingAdapter(250), state={})
+    assert res["ok"] is True and "M104 S250" in sent
+
+
+def test_1147_purge_ceiling_follows_the_fitted_nozzle_not_a_fixed_260():
+    """The old fixed 260 C cap is gone: the ceiling is the fitted nozzle's and the model's."""
+    sent = []
+    res = panic.purge(temp=280, reader=_idle_reader(), gcode_sender=sent.append,
+                      adapter=_CeilingAdapter(300), state={"nozzle": {"type": "hardened_steel"}})
+    assert res["ok"] is True and "M104 S280" in sent
+
+
+def test_1147_the_ad5x_profile_caps_the_purge_at_300_c():
+    from print_handy import printers, settings
+    ad5x = printers.get("flashforge.ad5x", settings.current())
+    sent = []
+    res = panic.purge(temp=310, reader=_idle_reader(), gcode_sender=sent.append, adapter=ad5x,
+                      state={"nozzle": {"type": "hardened_steel"}})
+    assert res["ok"] is False and "300 C nozzle ceiling" in res["error"] and sent == []
+
+
+# ============================================================================
+# #1147: ph-force-restart acts on the printer it is given
+# ============================================================================
+
+def test_1147_force_restart_without_an_id_uses_the_default_printers_call_path(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pc, "_call", lambda path, **kw: calls.append(("default", path)) or {})
+    monkeypatch.setattr(pc, "_send", lambda path, **kw: calls.append(("send", path, kw.get("printer_id"))) or {})
+    with mock.patch("time.sleep", return_value=None):
+        res = panic.force_restart(status_reader=lambda: {"klippy": "ready"}, wait_s=1, poll_s=0.01)
+    assert res["ok"] is True
+    assert calls == [("default", "/printer/emergency_stop"), ("default", "/printer/firmware_restart")]
+
+
+def test_1147_force_restart_with_an_id_acts_on_that_printer_only(monkeypatch):
+    from print_handy import settings
+    monkeypatch.setattr(settings, "by_id", lambda pid, data=None: {"id": pid, "model": "flashforge.ad5x"})
+    monkeypatch.setattr(settings, "default_printer_id", lambda data=None: "main")
+    calls, read = [], []
+    monkeypatch.setattr(pc, "_call", lambda path, **kw: calls.append(("default", path)) or {})
+    monkeypatch.setattr(pc, "_send", lambda path, **kw: calls.append(("send", path, kw.get("printer_id"))) or {})
+    monkeypatch.setattr(pc, "status", lambda printer_id=None: read.append(printer_id) or {"klippy": "ready"})
+    with mock.patch("time.sleep", return_value=None):
+        res = panic.force_restart(printer_id="shelf", wait_s=1, poll_s=0.01)
+    assert res["ok"] is True
+    assert calls == [("send", "/printer/emergency_stop", "shelf"), ("send", "/printer/firmware_restart", "shelf")]
+    assert read and set(read) == {"shelf"}
+
+
+def test_1147_force_restart_cli_takes_a_printer_id_and_refuses_an_unknown_one(monkeypatch, capsys):
+    seen = []
+    fake = lambda printer_id=None: seen.append(printer_id) or {"ok": True}  # noqa: E731
+    with mock.patch.object(panic, "force_restart", fake):
+        assert panic.main(["force-restart"]) == 0 and seen == [None]
+        assert panic.main(["force-restart", "shelf"]) == 0 and seen[-1] == "shelf"
+        assert panic.main(["force-restart", "--printer", "shelf"]) == 0 and seen[-1] == "shelf"
+    capsys.readouterr()
+    assert panic.main(["force-restart", "no-such-printer"]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False and "no-such-printer" in out["error"] and "Nothing sent" in out["error"]

@@ -4968,6 +4968,15 @@ class Listener:
         except Exception as exc:
             log(f"launch lease settle failed: {exc!r}")
 
+    @staticmethod
+    def _clock_adapter():
+        """This listener's printer adapter: its roster entry's, else the configured printer's (#1147)."""
+        from .. import listeners as _listeners
+        pid = _listeners.instance_printer_id()
+        if pid:
+            return printers.get(settings.by_id(pid)["model"], settings.view_for(pid))
+        return printers.current()
+
     def _sync_printer_clock(self, why):
         """Set the printer's clock from this host's when it is off and the printer is idle.
 
@@ -4979,10 +4988,11 @@ class Listener:
             return
         try:
             res = launch_state.sync_printer_clock(_config.cfg()["services"]["moonraker_url"],
-                                                  settings.current()["discord"]["timezone"], log=log)
+                                                  settings.current()["discord"]["timezone"], log=log,
+                                                  adapter=self._clock_adapter())
             if res.startswith("failed"):
                 self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
-            if res not in ("ok", "off", "skipped:printer not idle"):
+            if res not in ("ok", "off", "skipped:printer not idle", launch_state.NOT_ZMOD):
                 log(f"printer clock sync ({why}): {res}")
         except Exception as exc:
             self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S

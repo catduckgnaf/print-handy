@@ -508,7 +508,9 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
     if refused:
         return False, refused
     runner = [str(model_job)] if model_job else [sys.executable, "-m", MODEL_JOB_MODULE]
-    argv = [*runner, "print-now", str(gcode)]
+    # The operator's bed-clear confirmation for exactly this artifact (#1147): print-now refuses
+    # without it, and the SHA binds it to the G-code verified just above.
+    argv = [*runner, "print-now", str(gcode), "--bed-clear-sha256", str(target["gcode_sha256"])]
     if target.get("accept_spool_change"):
         argv.append("--accept-spool-change")
     if target.get("reprint"):

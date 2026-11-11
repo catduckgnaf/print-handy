@@ -6,6 +6,11 @@ import re
 
 from ..base import MultiColorUnsupported, PrinterAdapter, basic_status
 
+# Heater ceilings from the printer profile (#1147), read through fact() by
+# core.heater_ceiling. Flashforge's published AD5X specification gives a 300 C
+# nozzle maximum; models without an entry have no such fact.
+HEATER_FACTS = {"flashforge.ad5x": {"max_hotend_c": 300.0}}
+
 
 class ZmodAdapter(PrinterAdapter):
     has_native_screen = True
@@ -21,6 +26,10 @@ class ZmodAdapter(PrinterAdapter):
     def native(self):
         from . import zmod
         return zmod
+
+    def fact(self, name):
+        """A heater-ceiling fact for this model; KeyError when the profile has none."""
+        return HEATER_FACTS[self.key][name]
 
     def machine_start_gcode(self, template_start, mesh="auto"):
         # Exactly what orca_adapter built inline before the adapter existed.
