@@ -50,6 +50,9 @@ step) serving:
   AI design sessions (#388, stage 3;
   :mod:`print_handy.webui.designs`), with per-session file downloads
   under ``GET /designs/<id>/<scad|stl|preview>``.
+- ``GET /projects`` and ``GET /api/projects`` — the read-only
+  multi-part project readout (#1204; :mod:`print_handy.webui.projects`),
+  read from each job's ``project_v1`` manifest and the print records.
 - ``GET /layers`` and ``GET /layers/<job>/<file>`` — a read-only view of
   one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
   pause, or exclude control, and nothing here changes chat confirm.
@@ -147,6 +150,7 @@ from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
 from . import printers_page
+from . import projects as projects_module
 from . import shell
 from . import sources as sources_module
 from . import spools as spools_module
@@ -1016,6 +1020,11 @@ class _Handler(BaseHTTPRequestHandler):
                            "text/html; charset=utf-8")
             elif path.startswith("/designs/"):
                 self._design_route(path[len("/designs/"):])
+            elif path in ("/projects", "/api/projects"):
+                # The read-only multi-part project readout (#1204 item 5).
+                self._send(*projects_module.respond(
+                    self.server.settings_data, path, theme=self._theme(),
+                    nav=data_module.nav_for(self.server.settings_data)))
             elif path == "/layers" or path.startswith("/layers/"):
                 archive = layers_module.archive_root(self.server.settings_data)
                 rest = path[len("/layers/"):] if path.startswith("/layers/") else ""
