@@ -4875,6 +4875,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # #1279: a job that only renumbers filaments slices its source project
+        # remapped; when the remapper refused the project and the rebuilt
+        # export was equivalent, the refusal is named here before the start.
+        from .slice_route import route_notice
+        notice = route_notice(provenance)
+        if notice:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=notice)
         # Orca said supports are needed and the slice ran without them: ask before anything else
         # (bed-clear, upload, start). Only this finding asks; other warnings are information.
         finding = slice_warnings.support_finding(sliced)
