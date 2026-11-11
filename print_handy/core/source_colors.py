@@ -3,6 +3,9 @@
 Source extruders are one based. Physical IFS slots are separate identifiers.
 Never infer a slot from RGB or flatten a painted project without consent.
 """
+import contextlib
+import contextvars
+import copy
 import json
 import math
 import re
@@ -453,11 +456,50 @@ def _prusa_volume_matches(parts, parsed):
             yield part, entry, (volumes[index] if matched else {})
 
 
-@painted_geometry.decode_scoped
+_INVENTORY_SCOPE = contextvars.ContextVar('source_colors_inventory_scope', default=None)
+
+
+@contextlib.contextmanager
+def inventory_scope():
+    """Reuse inventory() results by source content for the duration of one flow (#1155).
+
+    A color flow (the Discord collect, which builds its questions and then
+    runs intake_color_choices once or twice) asked for the same source's
+    inventory up to three times, and each pass decoded every painted triangle
+    again. Inside this scope a source whose bytes hash the same is
+    inventoried once; each caller gets its own copy, so no caller can change
+    another's manifest. Only the manifest is kept, never member bytes or
+    decoded paint, and nothing outlives the scope. A changed source hashes
+    differently and is inventoried again. Scopes nest; the outermost owns the
+    cache.
+    """
+    if _INVENTORY_SCOPE.get() is not None:
+        yield
+        return
+    token = _INVENTORY_SCOPE.set({})
+    try:
+        yield
+    finally:
+        _INVENTORY_SCOPE.reset(token)
+
+
 def inventory(path):
+    """The color/part manifest of the source at path (see _inventory)."""
     from .intake_resources import check_source
     path = Path(path)
     check_source(path)
+    cache = _INVENTORY_SCOPE.get()
+    if cache is None:
+        return _inventory(path)
+    import hashlib
+    key = (path.suffix.lower(), hashlib.sha256(path.read_bytes()).hexdigest())
+    if key not in cache:
+        cache[key] = _inventory(path)
+    return copy.deepcopy(cache[key])
+
+
+@painted_geometry.decode_scoped
+def _inventory(path):
     if path.suffix.lower() != '.3mf':
         # Non-3MF sources have no palette, but every decision is still bound to the file bytes.
         res = {'source_sha256': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
@@ -497,12 +539,21 @@ def inventory(path):
                         raw = meta.get('extruder')
                     if raw is not None and (not raw.isdigit() or int(raw) < 1):
                         raise RuntimeError('invalid source extruder assignment')
-                    parts.append({'key': f"{obj.get('id')}:{part.get('id')}",
-                                  'object_id': obj.get('id'), 'part_id': part.get('id'),
-                                  'name': pm.get('name') or meta.get('name') or f"Object {obj.get('id')}",
-                                  'object_name': meta.get('name'),
-                                  'subtype': part.get('subtype') or 'normal_part',
-                                  'source_extruder': int(raw) if raw else None, 'status': 'planned'})
+                    row = {'key': f"{obj.get('id')}:{part.get('id')}",
+                           'object_id': obj.get('id'), 'part_id': part.get('id'),
+                           'name': pm.get('name') or meta.get('name') or f"Object {obj.get('id')}",
+                           'object_name': meta.get('name'),
+                           'subtype': part.get('subtype') or 'normal_part',
+                           'source_extruder': int(raw) if raw else None, 'status': 'planned'}
+                    # A modifier part that names its own extruder prints the
+                    # region it covers with that filament (#1155). One that
+                    # names none, 0, or its object's own filament changes
+                    # nothing and is not recorded.
+                    own = (pm.get('extruder') or '').strip()
+                    if (part is not obj and row['subtype'] == 'modifier_part'
+                            and own not in ('', '0') and own != (meta.get('extruder') or '').strip()):
+                        row['modifier_extruder'] = int(own)
+                    parts.append(row)
         for name in names:
             if name.lower().endswith('.model'):
                 # Same test as walking every node, without building a million-element tree
@@ -688,11 +739,11 @@ def require_plate_usage_known(manifest, selected_plate_ids=None):
 # source filament IDs are retained end to end; loaded slots and physical
 # nozzles are destination concepts and never appear in a usage record.
 
-_USAGE_CLASSES = ('objects', 'painting', 'layer_changes', 'height_ranges',
+_USAGE_CLASSES = ('objects', 'painting', 'layer_changes', 'height_ranges', 'modifiers',
                   'wall', 'infill', 'support', 'interface', 'tower')
 
 # Prompt label for a filament a plate uses only through one usage class.
-_CLASS_LABELS = {'height_ranges': 'height-range', 'wall': 'wall', 'infill': 'infill',
+_CLASS_LABELS = {'height_ranges': 'height-range', 'modifiers': 'modifier', 'wall': 'wall', 'infill': 'infill',
                  'tower': 'prime tower', 'painting': 'painted-region',
                  'layer_changes': 'layer-change', 'support': 'support',
                  'interface': 'support interface', 'objects': 'object'}
@@ -1045,6 +1096,91 @@ def _height_range_extruders(path, object_plates, parts, palette_ids):
     return out, None
 
 
+def _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids):
+    """The modifiers class row for one plate (#1155).
+
+    A Bambu/OrcaSlicer modifier_part that names its own extruder prints the
+    region it covers with that filament (inventory records it as
+    modifier_extruder; one that inherits or repeats its object's filament is
+    not recorded). A value outside the project palette is unknown usage,
+    never a used filament (#1184).
+    """
+    found, outside = set(), set()
+    for cutter in manifest.get('cutters') or []:
+        value = cutter.get('modifier_extruder')
+        if not value:
+            continue
+        if str(plate_id) not in (object_plates.get(str(cutter.get('object_id'))) or ()):
+            continue
+        (found if value in palette_ids else outside).add(value)
+    if outside:
+        return _usage_row('unknown', reason=f'a modifier part names filament(s) {sorted(outside)}, '
+                                             'outside the project palette')
+    return _usage_row('known', found, evidence='modifier_part extruder assignments in '
+                                               'Metadata/model_settings.config')
+
+
+PRUSA_LAYER_GCODE = 'Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml'
+PRUSA_LAYER_RANGES = 'Metadata/Prusa_Slicer_layer_config_ranges.xml'
+
+
+def _prusa_layer_usage(path):
+    """{'layer_changes': reason, 'height_ranges': reason} for PrusaSlicer per-layer files (#1155).
+
+    PrusaSlicer writes height-based tool and color changes to
+    Prusa_Slicer_custom_gcode_per_print_z.xml (<code> entries) and per-range
+    settings to Prusa_Slicer_layer_config_ranges.xml. The exports do not
+    carry either member, so an entry that changes the filament (a tool or
+    color change, or a range extruder other than 0, the object's own) makes
+    that class UNKNOWN with the reason, never known and empty. Pauses and
+    custom G-code change no filament. An unreadable member is unknown too.
+    A class with nothing to report is absent from the result.
+    """
+    out = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            members = {name: archive.read(name) for name in (PRUSA_LAYER_GCODE, PRUSA_LAYER_RANGES)
+                       if name in names}
+    except Exception as exc:
+        reason = f'PrusaSlicer per-layer members could not be read: {exc}'
+        return {'layer_changes': reason, 'height_ranges': reason}
+    from . import layer_gcode
+    if PRUSA_LAYER_GCODE in members:
+        try:
+            root = ET.fromstring(members[PRUSA_LAYER_GCODE])
+        except ET.ParseError:
+            out['layer_changes'] = f'{PRUSA_LAYER_GCODE} could not be parsed'
+        else:
+            changes = [node for node in root.iter() if node.tag.split('}')[-1] == 'code'
+                       and layer_gcode.kind_of(dict(node.attrib)) == 'tool_change']
+            if changes:
+                heights = sorted({node.get('print_z') for node in changes if node.get('print_z')})
+                out['layer_changes'] = (
+                    f'{PRUSA_LAYER_GCODE} changes the filament by height'
+                    + (f" (at {', '.join(heights)} mm)" if heights else '')
+                    + '; PrusaSlicer per-layer color and tool changes are not carried into the '
+                      'print, so the plate may print other colors than the source shows')
+    if PRUSA_LAYER_RANGES in members:
+        try:
+            root = ET.fromstring(members[PRUSA_LAYER_RANGES])
+        except ET.ParseError:
+            out['height_ranges'] = f'{PRUSA_LAYER_RANGES} could not be parsed'
+        else:
+            named = []
+            for option in root.iter():
+                if option.tag.split('}')[-1] != 'option' or option.get('opt_key') != 'extruder':
+                    continue
+                raw = str(option.text or '').strip()
+                if raw != '0':
+                    named.append(raw)
+            if named:
+                out['height_ranges'] = (
+                    f'{PRUSA_LAYER_RANGES} assigns extruder(s) {sorted(set(named))} to height '
+                    'ranges; PrusaSlicer height-range extruders are not carried into the print')
+    return out
+
+
 def _painting_usage(path, manifest, plate_parts):
     """The painting class row for one plate's parts (painted_geometry states).
 
@@ -1118,6 +1254,7 @@ def _plate_usage(path, manifest):
     palette_ids = {int(row['source_extruder']) for row in manifest.get('filaments') or []
                    if row.get('source_extruder') is not None}
     range_extruders, range_unknown = _height_range_extruders(path, object_plates, parts, palette_ids)
+    prusa_layers = _prusa_layer_usage(path)
     project = _project_settings(path)
     # The filaments a color question of this source already maps (part rows,
     # height-change rows, support rows, the palette of a painted source).
@@ -1163,6 +1300,15 @@ def _plate_usage(path, manifest):
             classes['height_ranges'] = _usage_row(
                 'known', range_extruders.get(str(plate_id), ()),
                 evidence='Metadata/layer_config_ranges.xml extruder ranges for this plate')
+        # PrusaSlicer's own per-layer members (#1155): never known-empty when
+        # they change the filament.
+        for name in ('layer_changes', 'height_ranges'):
+            if prusa_layers.get(name) and classes[name]['status'] != 'unknown':
+                classes[name] = _usage_row('unknown', reason=prusa_layers[name])
+        # Modifier parts with their own extruder (#1155).
+        classes['modifiers'] = _unasked_is_unknown(
+            _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids),
+            asked, 'a modifier part')
         # Wall / infill: PrusaSlicer names per-feature extruders in its
         # config, OrcaSlicer in its per-feature filament keys; a Bambu Studio
         # project carries no distinct assignment (not_carried_by_format).

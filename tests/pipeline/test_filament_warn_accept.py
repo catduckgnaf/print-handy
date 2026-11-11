@@ -467,6 +467,27 @@ class DiscordWarningRoundTests(unittest.TestCase):
         self.assertEqual(ack['via'], 'discord_color_choices')
         self.assertTrue(any('disagree' in w for w in ack['warnings']))
 
+    def test_the_warning_round_inventories_the_source_once(self):
+        # #1155 paint pass cost: the question build plus both intake passes of
+        # the warning round were three full inventories of the source.
+        from unittest.mock import patch
+        from .test_color_intake import state as discord_state
+        from .test_discord_color_intake import Adapter
+        from print_handy.core.discord_color_intake import collect
+        job_path = self._job()
+        real = sc.component_parts
+        passes = []
+
+        def counting(archive):
+            passes.append(archive.filename)
+            return real(archive)
+
+        with patch.object(sc, 'component_parts', counting):
+            result = asyncio.run(collect(job_path, discord_state(), Adapter([0, 0, 0, 0]),
+                                         'offline', 'colors-warn-once', timeout=1))
+        self.assertEqual(result['status'], 'COLOR_CHOICES_SAVED')
+        self.assertEqual(len(passes), 1, passes)
+
     def test_cancelling_the_warning_saves_nothing(self):
         from .test_color_intake import state as discord_state
         from .test_discord_color_intake import Adapter
