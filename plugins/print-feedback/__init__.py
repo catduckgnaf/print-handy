@@ -4218,10 +4218,15 @@ async def print_stop_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'deterministic print stop handled'}
 
 
+def _command_matches(text, command, with_args=False):
+    """The text half of _control_preamble: ``text`` (already stripped) is ``command``, or with_args its argument form."""
+    return text == command or with_args and text.startswith(command + ' ')
+
+
 def _control_preamble(event, gateway, command, with_args=False):
     """Shared gate for the /print-resume, /print-again and /print-reboot commands."""
     text = str(getattr(event, 'text', '')).strip()
-    if not (text == command or with_args and text.startswith(command + ' ')):
+    if not _command_matches(text, command, with_args):
         return None, None
     return _control_gate(event, gateway)
 
@@ -6289,6 +6294,54 @@ _DISPATCH_HOOKS = (
     plate_calibrate_dispatch,
     nozzle_dispatch,
 )
+
+# The dispatch class of each command hook (#1153 item 10). A hook listed
+# here answers only its own slash command: its first statement tests the
+# message text exactly as its gate below does and returns None otherwise,
+# before it reads the source, the gateway or any state. The Router tests
+# the gate once per message and skips the hook when it fails, which is the
+# answer the hook would have given. Every other hook takes free text
+# (typed replies, links, plain-language asks, open prompts) and always runs.
+# tests/bot/test_dispatch_classes.py holds each gate to its hook.
+_COMMAND_GATES = {
+    maintenance_dispatch: ('/print-maintenance', True),
+    coldpull_dispatch: ('/print-coldpull', False),
+    lookup_dispatch: ('/print-lookup', True),
+    source_dispatch: ('/print-source', False),
+    troubleshoot_dispatch: ('/print-troubleshoot', True),
+    macros_dispatch: ('/print-macros', True),
+    firmware_dispatch: ('/print-firmware', True),
+    calibration_dispatch: ('/print-calibration', True),
+    print_next_dispatch: ('/print-next', True),
+    exclude_dispatch: ('/exclude', True),
+    print_stop_dispatch: ('/print-stop', False),
+    print_resume_dispatch: ('/print-resume', False),
+    bed_down_dispatch: ('/print-bed-down', False),
+    live_dispatch: ('/print-live', True),
+    plate_calibrate_dispatch: ('/print-plate-calibrate', True),
+    nozzle_dispatch: ('/nozzle', True),
+}
+
+
+def _gate(command, with_args):
+    def gate(text):
+        return _command_matches(text, command, with_args)
+    gate.command = command
+    return gate
+
+
+for _hook, (_command, _with_args) in _COMMAND_GATES.items():
+    _hook.dispatch_gate = _gate(_command, _with_args)
+
+
+def _color_selection_gate(text):
+    return text.startswith('/print-colors ')
+
+
+_color_selection_gate.command = '/print-colors'
+color_selection_dispatch.dispatch_gate = _color_selection_gate
+del _hook, _command, _with_args
+
 
 def register(ctx):
     """Install the handler set on the bot's Router (the only host left)."""
