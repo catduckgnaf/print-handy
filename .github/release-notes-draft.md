@@ -4,7 +4,10 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.9, also 
 
 2.2.8 was a test tag that was never released from main. 2.2.9 is the release that follows 2.2.7, so these notes cover everything since 2.2.7. If you upgrade an existing install, read "Upgrade and compatibility" first.
 
-## What you can do
+## Encoder preference
+
+Timelapse assembly defaults to CPU `libx264` and does not probe GPU encoders. Explicit `auto` still tries VAAPI → NVENC → QSV → CPU, and explicit hardware choices remain available. GPU encoding remains the default for live Discord streaming. Existing timelapse configurations that explicitly set `auto` retain that behavior. (#1282)
+
 
 ### Print when the filament data is imperfect
 - Filament problems no longer block a print. A plate whose filament usage cannot be fully determined, a support filament outside the project palette, a slicer report that disagrees with the geometry, and a damaged usage claim in the source file now stop once with the warnings named. You can accept them and print. The acceptance is recorded on the job and covers one slicing run, so a reslice asks again. (#1190)

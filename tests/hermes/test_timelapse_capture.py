@@ -494,7 +494,14 @@ class CaptureSettingsValidationTests(unittest.TestCase):
         self.assertEqual(timelapse["capture_interval_s"], 5.0)
         self.assertEqual(timelapse["capture_max_frames"], 3600)
         self.assertEqual(timelapse["capture_max_bytes"], 536870912)
-        self.assertEqual(timelapse["capture_encoder"], "auto")
+        self.assertEqual(timelapse["capture_encoder"], "cpu")
+
+    def test_compose_encoder_fallback_matches_the_settings_default(self):
+        # The Compose file sets the env var even when the operator does not, so its
+        # fallback, not settings.py, is the effective default for every Compose install.
+        compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("${PRINT_HANDY__TIMELAPSE__CAPTURE_ENCODER:-cpu}", compose)
+        self.assertEqual(settings.load(environ={})["timelapse"]["capture_encoder"], "cpu")
 
     def test_env_overrides(self):
         data = settings.load(environ={

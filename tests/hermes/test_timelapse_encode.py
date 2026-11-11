@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import live_stream
+from print_handy import settings
 from print_handy.hermes import _config
 from print_handy.hermes import moonraker_event_listener as mel
 from print_handy.hermes import plan_timelapse
@@ -32,8 +33,37 @@ def vendors(cands):
 
 # --------------------------------------------------------------- selection
 
+def test_settings_default_capture_encoder_is_cpu_and_explicit_auto_is_preserved():
+    data = {"services": {}}
+    settings._validate_timelapse(data)
+    assert data["timelapse"]["capture_encoder"] == "cpu"
+
+    data = {"services": {}, "timelapse": {"capture_encoder": "auto"}}
+    settings._validate_timelapse(data)
+    assert data["timelapse"]["capture_encoder"] == "auto"
+
+
+def test_live_stream_encoder_default_and_auto_order_are_unchanged():
+    data = {"services": {}}
+    settings._validate_live_stream(data)
+    assert data["live_stream"]["encoder"] == "auto"
+    candidates = live_stream.encoder_candidates(probe(), target_codec="h264")
+    assert vendors(candidates) == ["vaapi", "nvenc", "qsv", "cpu"]
+
+
+def test_default_capture_encoder_is_cpu():
+    assert timelapse_encode.capture_preference({}) == "cpu"
+    assert vendors(timelapse_encode.candidates("cpu", probe())) == ["cpu", "vaapi", "nvenc", "qsv"]
+
+
 def test_auto_order_is_vaapi_nvenc_qsv_cpu():
     assert vendors(timelapse_encode.candidates("auto", probe())) == ["vaapi", "nvenc", "qsv", "cpu"]
+
+
+def test_explicit_auto_and_vaapi_preferences_remain_available():
+    assert vendors(timelapse_encode.candidates("auto", probe())) == ["vaapi", "nvenc", "qsv", "cpu"]
+    assert vendors(timelapse_encode.candidates("vaapi", probe()))[0] == "vaapi"
+    assert timelapse_encode.capture_preference({"timelapse": {"capture_encoder": "auto"}}) == "auto"
 
 
 def test_explicit_preference_moves_first_and_cpu_stays_last():
