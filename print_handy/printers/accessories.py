@@ -28,6 +28,7 @@ mapped back to a material.
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,7 +44,14 @@ class AccessoryProfile:
     # when it does not shape positions. "shared_tool" exists only here.
     confers_color_system: str | None = None
     # Vendor connection types the accessory can attach over (CONNECTIONS).
+    # Enforced: settings refuse the accessory on a printer whose connection
+    # is not listed, and an adapter never resolves it (host_refusal).
     connections: tuple[str, ...] = ()
+    # The host printers whose adapters implement this accessory, in words
+    # for the refusal message. The code gate is the adapter class's own
+    # ``supported_accessories``: an adapter that does not list the key never
+    # takes the accessory's code paths, even when it inherits them.
+    hosts: str = ""
     # The verified detection signal, or "manual only" when there is none.
     detection: str = "manual only"
     notes: str = ""
@@ -56,6 +64,7 @@ ACCESSORIES: dict[str, AccessoryProfile] = {
         kind="toolchanger",
         confers_color_system="shared_tool",
         connections=("moonraker",),
+        hosts="the plain Klipper adapter (klipper.generic and the Sovol Klipper models)",
         detection=(
             "Moonraker configfile settings carrying an [indx] section, an "
             "[mcu indxmcu] section, and an [extruder] with sensor_type "
@@ -72,9 +81,12 @@ ACCESSORIES: dict[str, AccessoryProfile] = {
 def configured_accessories(config: dict | None) -> tuple[AccessoryProfile, ...]:
     """The accessory profiles a settings dict configures, in file order.
 
-    ``config`` is a settings-shaped dict; its top-level "accessories" list
-    holds one table per fitted accessory, each naming its registry ``key``.
-    An unknown key is a ValueError naming it, never a silently dropped entry.
+    ``config`` is a settings-shaped dict: one printer's view, whose top-level
+    "accessories" list is THAT printer's accessories (settings projects each
+    [[printers]] entry's own ``accessories`` into its view, exactly as it
+    projects the entry's model and connection). An unknown key is a
+    ValueError naming it, never a silently dropped entry. Callers resolving
+    an adapter's shape use bound_accessories, which adds the host gates.
     """
     entries = (config or {}).get("accessories") or []
     profiles = []
@@ -87,6 +99,95 @@ def configured_accessories(config: dict | None) -> tuple[AccessoryProfile, ...]:
                 f"{', '.join(sorted(ACCESSORIES))})")
         profiles.append(ACCESSORIES[key])
     return tuple(profiles)
+
+
+def host_refusal(profile: AccessoryProfile, model: Any, adapter_cls: Any = None) -> str | None:
+    """Why ``profile`` cannot attach to a printer of ``model``, or None when it can.
+
+    Two gates, both from the profile's own host requirements: the model's
+    vendor connection must be one the accessory attaches over, and the
+    adapter class (``adapter_cls``, default the model's registered adapter)
+    must list the accessory in its ``supported_accessories``. The second
+    gate is what keeps INDX code paths that live in the Klipper adapter
+    from reaching the OctoPrint and vendor adapters that inherit from it.
+    """
+    connection = getattr(getattr(model, "vendor", None), "connection", None)
+    if connection not in profile.connections:
+        return (f"{profile.label} ({profile.key}) attaches only to a printer reached over "
+                f"{' or '.join(profile.connections)}; {model.key} connects over {connection}")
+    adapter_cls = adapter_cls or getattr(model, "adapter", None)
+    if profile.key not in getattr(adapter_cls, "supported_accessories", ()):
+        return (f"{profile.label} ({profile.key}) is supported only on {profile.hosts}; "
+                f"{model.key} uses an adapter with no {profile.label} support")
+    return None
+
+
+def bound_accessories(adapter: Any) -> tuple[AccessoryProfile, ...]:
+    """The accessory profiles that actually apply to ``adapter``'s printer.
+
+    Only an adapter built on its own printer's view resolves accessories:
+    the view's [printer] model must be the adapter's model (an adapter for
+    another model built on this view, such as a job recorded for a
+    different model, is not this printer and gets none), and every profile
+    must pass host_refusal for the adapter's own class. Settings already
+    refuse a misplaced accessory by name; this is the runtime guard that
+    keeps one printer's accessory off every other adapter. An adapter with
+    no config or model (a bare test double) has no accessories.
+    """
+    config = getattr(adapter, "config", None)
+    model = getattr(adapter, "model", None)
+    if not isinstance(config, dict) or model is None or not config.get("accessories"):
+        return ()
+    if (config.get("printer") or {}).get("model") != getattr(model, "key", None):
+        return ()
+    return tuple(profile for profile in configured_accessories(config)
+                 if host_refusal(profile, model, type(adapter)) is None)
+
+
+# Keys an accessory entry may carry, per accessory; anything else is refused
+# by name (a misspelled tool_count must never silently default).
+ENTRY_KEYS: dict[str, tuple[str, ...]] = {
+    "bondtech.indx": ("key", "tool_count", "tools"),
+}
+INDX_TOOL_KEYS = ("tool", "nozzle_size_mm", "nozzle_type", "filament", "heats")
+
+
+def check_entries(raw: Any, model: Any) -> list[dict]:
+    """Validate one printer's accessories list against its model; return it.
+
+    ``raw`` is the list of accessory tables configured for one printer and
+    ``model`` that printer's PrinterModel. Every problem is a ValueError
+    naming it: an entry that is not a table, an unknown or misspelled
+    accessory key, the same accessory twice, an unknown entry key, an
+    accessory whose host gates refuse this model (host_refusal), and an
+    INDX tool record problem. Entries come back as deep copies of what was
+    written, so the adapter resolves the records the operator configured.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+        raise ValueError(f"accessories must be a list of accessory tables, got {raw!r}")
+    entries, seen = [], set()
+    for index, entry in enumerate(raw):
+        key = entry.get("key")
+        if not isinstance(key, str) or key not in ACCESSORIES:
+            raise ValueError(f"accessory entry {index + 1}: unknown accessory {key!r} "
+                             f"(known accessories: {', '.join(sorted(ACCESSORIES))})")
+        if key in seen:
+            raise ValueError(f"accessory {key!r} is configured twice")
+        seen.add(key)
+        allowed = ENTRY_KEYS.get(key, ("key",))
+        unknown = sorted(set(entry) - set(allowed))
+        if unknown:
+            raise ValueError(f"accessory {key!r}: unknown key(s) {', '.join(unknown)} "
+                             f"(entry keys: {', '.join(allowed)})")
+        refusal = host_refusal(ACCESSORIES[key], model)
+        if refusal:
+            raise ValueError(refusal)
+        if key == "bondtech.indx":
+            parse_indx_tools(entry)
+        entries.append(copy.deepcopy(entry))
+    return entries
 
 
 def accessory_entry(config: dict | None, key: str) -> dict | None:
@@ -160,7 +261,11 @@ def parse_indx_tools(entry: dict) -> tuple[ToolRecord, ...]:
     for raw in raw_tools:
         if not isinstance(raw, dict):
             raise ValueError(f"an INDX tool entry must be a table, got {raw!r}")
-        tool = raw.get("tool", raw.get("index"))
+        unknown = sorted(set(raw) - set(INDX_TOOL_KEYS))
+        if unknown:
+            raise ValueError(f"INDX tool entry {raw.get('tool')!r}: unknown key(s) "
+                             f"{', '.join(unknown)} (tool keys: {', '.join(INDX_TOOL_KEYS)})")
+        tool = raw.get("tool")
         if isinstance(tool, bool) or not isinstance(tool, int):
             raise ValueError(f"INDX tool index must be a whole number, got {tool!r}")
         if not 0 <= tool < count:
@@ -341,3 +446,16 @@ def indx_machine_overrides(tools: Any) -> dict[str, Any]:
         "max_layer_height": [f"{0.28:g}"] * count,
         "min_layer_height": [f"{0.08:g}"] * count,
     }
+
+
+def slice_machine_overrides(adapter: Any) -> dict[str, Any]:
+    """The Orca machine-profile overrides ``adapter``'s own accessories require.
+
+    Empty unless the adapter's printer itself has a bound INDX accessory
+    (bound_accessories: its own view, its own host gates), so a slice for
+    any other printer, in the same roster or not, never takes the INDX
+    tool change G-code or the expanded tool arrays.
+    """
+    if "bondtech.indx" not in {profile.key for profile in bound_accessories(adapter)}:
+        return {}
+    return indx_machine_overrides(indx_entry(adapter.config) or {})

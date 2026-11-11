@@ -1970,8 +1970,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if shared_tool:
             # The host template is single-extruder: expand it to the tool
             # count and set the INDX tool change G-code (#1198).
-            from ..printers.accessories import indx_entry, indx_machine_overrides
-            machine.update(indx_machine_overrides(indx_entry(printer.config) or {}))
+            from ..printers.accessories import slice_machine_overrides
+            machine.update(slice_machine_overrides(printer))
             configs[0].write_text(json.dumps(machine, indent=2) + '\n')
         job_bed = slot_temps[order[0]][0]['bed']
         filament_paths = []

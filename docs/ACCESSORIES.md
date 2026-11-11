@@ -12,7 +12,9 @@ A thing is an accessory when all five of these hold:
 4. **A verified detection signal, or a manual record.** Detection reads the printer's own published objects or config and allows an operator override. Nothing is detected from a guessed object name.
 5. **One position-shaping accessory at a time.** A tool changer or filament system accessory determines the printer's effective color architecture and positions. Sensor and thermal accessories stack alongside it.
 
-An unknown or misspelled accessory key is refused by name in settings validation. It is never silently dropped. See [Settings](SETTINGS.md) for the `[[accessories]]` list.
+Accessories are per printer. With a printers list, each one goes in an `accessories` list on the entry of the printer it is fitted to; a single-printer config with no printers list may use a top-level list instead, which is that one printer's. A top-level list beside a printers list is refused, because it would not say which printer has the hardware. Only the printer that carries an accessory changes behavior: every other printer keeps exactly its own shape, intake, readiness and slicing.
+
+An unknown or misspelled accessory key, an unknown key inside an entry, and an accessory on a printer it does not attach to are all refused by name in settings validation. Nothing is silently dropped or silently applied elsewhere. See [Settings](SETTINGS.md), **Accessories list**, for every key.
 
 ## Bondtech INDX
 
@@ -35,35 +37,36 @@ Per-tool nozzle size, nozzle type and filament are not detectable at all upstrea
 
 ### INDX setup example
 
-Record INDX in the settings file as a top-level accessories list (TOML form shown; the YAML form is a list under `accessories:` with the same keys):
+Record INDX on the printer it is fitted to. With a printers list, that is the printer's own entry:
 
-```toml
-[[accessories]]
-key = "bondtech.indx"
-tool_count = 4
-
-[[accessories.tools]]
-tool = 0
-nozzle_size_mm = 0.4
-nozzle_type = "cht"
-filament = "PLA"
-
-[[accessories.tools]]
-tool = 1
-nozzle_size_mm = 0.4
-nozzle_type = "cht"
-filament = "PETG"
-
-[[accessories.tools]]
-tool = 2
-nozzle_size_mm = 0.6
-nozzle_type = "cht"
-filament = "PLA"
-
-[[accessories.tools]]
-tool = 3
-heats = false
+```yaml
+printers:
+  - id: trident
+    model: klipper.generic
+    moonraker_url: http://trident.example:7125
+    accessories:
+      - key: bondtech.indx
+        tool_count: 4
+        tools:
+          - tool: 0
+            nozzle_size_mm: 0.4
+            nozzle_type: cht
+            filament: PLA
+          - tool: 1
+            nozzle_size_mm: 0.4
+            nozzle_type: cht
+            filament: PETG
+          - tool: 2
+            nozzle_size_mm: 0.6
+            nozzle_type: cht
+            filament: PLA
+          - tool: 3
+            heats: false
 ```
+
+A single-printer config with no printers list uses the same entry as a top-level list (`accessories:` in YAML, `[[accessories]]` with `[[accessories.tools]]` in TOML).
+
+INDX attaches only to a printer reached over Moonraker whose adapter handles it: `klipper.generic` and the Sovol Klipper models (the SV08 and SV08 Max among them). It is refused by name on any other printer: Bambu Lab, PrusaLink, OctoPrint and Elegoo SDCP printers do not connect over Moonraker, and the Moonraker printers with their own vendor adapter (the Flashforge ZMod models, QIDI, Creality, Elegoo Neptune, Anycubic and Snapmaker) are not INDX hosts in Print Handy.
 
 Nozzle types are `cht` or `standard`. Tool indexes are 0-based and must stay below `tool_count`.
 

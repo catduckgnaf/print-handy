@@ -50,8 +50,9 @@ validation for filament_slots and tool_count reads it, and a model whose setting
 class (filament_slots above 1 outside multi_slot, tool_count above 1 outside multi_tool) is refused
 when the profile loads.
 
-Accessories (#1198): hardware fitted to one unit, recorded per printer in the top-level
-[accessories] settings list, can confer a further color system no model may declare:
+Accessories (#1198): hardware fitted to one unit, recorded on that printer's own [[printers]]
+entry (``accessories``; a single-printer config with no roster may use a top-level list), can
+confer a further color system no model may declare:
 "shared_tool" (N passive tools, one shared extruder and one shared heater; the Bondtech INDX
 toolchanger on a Klipper host). The adapter resolves the EFFECTIVE system from model plus
 accessories: PrinterAdapter.color_system returns "shared_tool" when a configured accessory
@@ -361,6 +362,11 @@ class PrinterAdapter(ABC):
     # Slicers ([printer] slicer values) whose output this printer's guards have been checked against; None trusts
     # every slicer the vendor allows. A slicer outside it is refused as primary and as fallback.
     verified_slicers: tuple[str, ...] | None = None
+    # Accessory keys (printers/accessories.py, #1198) whose code paths this adapter class
+    # implements. Empty by default: an adapter takes an accessory's shape only when its own
+    # class lists the key, so a subclass that inherits accessory code (the OctoPrint and
+    # vendor Klipper adapters) never runs it unless it opts in here.
+    supported_accessories: frozenset[str] = frozenset()
 
     def __init__(self, config: dict[str, Any] | None = None, model: PrinterModel | None = None):
         if config is None:
@@ -374,14 +380,19 @@ class PrinterAdapter(ABC):
 
     @property
     def accessories(self) -> tuple:
-        """The accessory profiles configured on this printer ([accessories], #1198).
+        """The accessory profiles fitted to THIS printer (#1198).
 
-        Resolved from the adapter's own config, so a job adapter built on a
-        per-printer view sees that printer's accessories. A config with no
-        accessories resolves to an empty tuple and behavior is unchanged.
+        Accessories are per printer: a [[printers]] entry's own ``accessories``
+        list, projected into that printer's settings view (settings.view_for).
+        They resolve only for an adapter built on its own printer's view and
+        only where the accessory's host gates pass for this adapter's class
+        (accessories.bound_accessories), so one printer's accessory never
+        reaches another printer or an adapter that did not opt in. No
+        accessories (or no config at all) is an empty tuple, and behavior is
+        exactly the model's.
         """
-        from .accessories import configured_accessories
-        return configured_accessories(self.config)
+        from .accessories import bound_accessories
+        return bound_accessories(self)
 
     @property
     def color_system(self) -> str:
@@ -416,7 +427,7 @@ class PrinterAdapter(ABC):
         the identity mapping, but there is one heater, so per-tool temperatures
         resolve through the shared-heater path and docked tools have no
         temperature state at all."""
-        return self.color_system == "shared_tool"
+        return any(profile.confers_color_system == "shared_tool" for profile in self.accessories)
 
     @property
     def tool_based(self) -> bool:

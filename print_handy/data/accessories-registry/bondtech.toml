@@ -10,5 +10,6 @@ label = "Bondtech INDX"
 kind = "toolchanger"
 confers_color_system = "shared_tool"
 connections = ["moonraker"]
+hosts = "the plain Klipper adapter (klipper.generic and the Sovol Klipper models)"
 detection = "Moonraker configfile settings carrying an [indx] section, an [mcu indxmcu] section, and an [extruder] with sensor_type \"indx\"; the tool count comes from [gcode_macro TOOL_POSITIONS] tool_count"
 notes = "Variable tool count with no upstream cap; passive tools with no heater of their own, one shared extruder and one shared heater on the Smart Head; a docked tool cannot be heated."

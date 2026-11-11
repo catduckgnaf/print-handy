@@ -16,6 +16,10 @@ _PLAIN_TOOL_CHANGE = re.compile(r"^\s*T(\d+)\b", re.M)
 
 
 class KlipperAdapter(PrinterAdapter):
+    # The Bondtech INDX accessory's code paths live here (#1198). Subclasses
+    # (OctoPrint and the vendor Klipper adapters) reset this to empty: they
+    # inherit the code but are not INDX hosts.
+    supported_accessories = frozenset({"bondtech.indx"})
 
     @property
     def _indx_entry(self):

@@ -223,9 +223,13 @@ PRINTER_ENTRY_INT_KEYS = ("start_confirm_s", "tool_count")
 # volume, spelled exactly as [printer]'s keys. File-only: a list is not
 # expressible in the indexed environment spelling.
 PRINTER_ENTRY_GEOMETRY_KEYS = ("bed_mm", "max_print_height_mm")
+# The printer's fitted accessories (#1198): a list of accessory tables, validated
+# by printers/accessories.py against this entry's model. File-only like the
+# geometry lists, and per printer: it is projected into this printer's view only.
+PRINTER_ENTRY_LIST_KEYS = ("accessories",)
 PRINTER_ENTRY_KEYS = frozenset({"id", "model", "chat_id",
                                 *PRINTER_ENTRY_STR_KEYS, *PRINTER_ENTRY_INT_KEYS,
-                                *PRINTER_ENTRY_GEOMETRY_KEYS})
+                                *PRINTER_ENTRY_GEOMETRY_KEYS, *PRINTER_ENTRY_LIST_KEYS})
 PRINTER_ENTRY_ENV_TYPES = {key: str for key in ("chat_id", *PRINTER_ENTRY_STR_KEYS)}
 PRINTER_ENTRY_ENV_TYPES.update({key: int for key in PRINTER_ENTRY_INT_KEYS})
 PRINTER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -373,9 +377,11 @@ def _check_keys(home, extra, source):
             cleaned[section] = values
             continue
         if section == "accessories":
-            # The accessories list (#1198) is shaped exactly like the roster:
-            # a list of tables, never in the defaults tree; its entries are
-            # validated in validate() (_check_accessories).
+            # A single-printer config's accessories list (#1198), shaped like
+            # the roster: a list of tables, never in the defaults tree. It is
+            # that one printer's; validate() refuses it beside a [[printers]]
+            # list (each entry carries its own) and checks its entries
+            # against the model (_check_accessories).
             if not isinstance(values, list) or not all(isinstance(entry, dict) for entry in values):
                 raise SettingsError(f"{source}: [accessories] must be a list of accessory entries "
                                     "([[accessories]] in TOML, a list under accessories: in YAML)")
@@ -496,6 +502,9 @@ def _from_env(home, environ, declared=None):
                 if key in ("id", "model"):
                     raise SettingsError(f"${name}: [printers] {key} is part of the entry's identity in "
                                         "the config file and cannot be overridden from the environment")
+                if key in PRINTER_ENTRY_LIST_KEYS:
+                    raise SettingsError(f"${name}: [printers] {key} is a list of tables, set in the "
+                                        "config file only; the environment cannot express it")
                 if key not in PRINTER_ENTRY_ENV_TYPES:
                     raise SettingsError(f"${name}: unknown [printers] entry key {key!r} "
                                         f"(entry keys: {', '.join(sorted(PRINTER_ENTRY_KEYS))})")
@@ -880,45 +889,29 @@ def _check_roster(raw):
                     raise SettingsError(f"[printers] entry {pid!r}: {key} should be a whole "
                                         f"number, got {value!r}")
                 stub[key] = value
+            elif key == "accessories":
+                stub[key] = _check_accessories(value, model, f"[printers] entry {pid!r} accessories")
             else:
                 stub[key] = value
         stubs.append(stub)
     return stubs
 
 
-def _check_accessories(raw):
-    """Validate a top-level [accessories] list (#1198); return its entries.
+def _check_accessories(raw, model, label):
+    """Validate one printer's accessories list (#1198) against its model; return it.
 
-    Each entry names a registered accessory by ``key``; an unknown or
-    misspelled key is refused by name here, never silently dropped. An INDX
-    entry's tool record is parsed by the accessories registry, and its
-    problems surface as SettingsError. Entries are returned as written, so
-    the adapter resolves the same records the operator configured.
+    ``label`` names where the list was written ("[printers] entry 'x'" or the
+    single-printer "[accessories]"). Every refusal from the accessories
+    registry (an unknown or misspelled accessory or entry key, the same
+    accessory twice, a host whose connection or adapter the accessory does
+    not attach to, a bad INDX tool record) surfaces as a SettingsError
+    naming that place; nothing is silently dropped.
     """
-    if raw is None:
-        return []
-    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
-        raise SettingsError("[accessories] must be a list of accessory entries "
-                            "([[accessories]] in TOML, a list under accessories: in YAML)")
     from .printers import accessories as _accessories
-    entries, seen = [], set()
-    for index, entry in enumerate(raw):
-        key = entry.get("key")
-        label = f"[accessories] entry {key!r}" if isinstance(key, str) and key \
-            else f"[accessories] entry {index + 1}"
-        if not isinstance(key, str) or key not in _accessories.ACCESSORIES:
-            raise SettingsError(f"{label}: unknown accessory {key!r} "
-                                f"(known accessories: {', '.join(sorted(_accessories.ACCESSORIES))})")
-        if key in seen:
-            raise SettingsError(f"[accessories] entry {key!r}: this accessory is configured twice")
-        seen.add(key)
-        if key == "bondtech.indx":
-            try:
-                _accessories.parse_indx_tools(entry)
-            except ValueError as exc:
-                raise SettingsError(f"[accessories] entry {key!r}: {exc}") from None
-        entries.append(copy.deepcopy(entry))
-    return entries
+    try:
+        return _accessories.check_entries(raw, model)
+    except ValueError as exc:
+        raise SettingsError(f"{label}: {exc}") from None
 
 
 def _project_entry(data, stub):
@@ -933,6 +926,9 @@ def _project_entry(data, stub):
     model = printer_registry.MODELS[stub["model"]]
     printer = data.setdefault("printer", {})
     printer["model"], printer["vendor"] = stub["model"], model.vendor.key
+    # This printer's own accessories (#1198), already validated against its
+    # model; a view never carries another printer's accessories.
+    data["accessories"] = copy.deepcopy(stub.get("accessories") or [])
     if "name" in stub:
         printer["name"] = stub["name"]
     # nozzle_type / tool_count are [printer] overrides: set only when the entry sets them. The
@@ -1013,6 +1009,8 @@ def _capture_entry(data, stub):
     for key in PRINTER_ENTRY_GEOMETRY_KEYS:
         if key in printer:
             entry[key] = printer[key]
+    if data.get("accessories"):
+        entry["accessories"] = copy.deepcopy(data["accessories"])
     return entry
 
 
@@ -1061,6 +1059,7 @@ def _validate_entry(stub):
         "prusa": {"link_host": stub.get("link_host", "")},
         "elegoo_sdcp": {"host": stub.get("host", "") if model.vendor.key == "elegoo_sdcp" else ""},
         "flashforge_stock": {"host": stub.get("host", "") if model.vendor.key == "flashforge_stock" else ""},
+        "accessories": stub.get("accessories") or [],
     }
     for key in ("lan_access_code_env", "start_confirm_s"):
         if key in stub:
@@ -2057,14 +2056,20 @@ def validate(data):
     # singleton sections, so every check below validates that entry exactly as it validates a
     # legacy config; the resolved roster itself is captured once those sections are normalised.
     raw_roster = data.pop("printers", None)
+    # Accessories are per printer (#1198). With a roster each entry carries its
+    # own `accessories`; a top-level list would not say which printer has the
+    # hardware, so it is refused by name rather than applied to every printer.
+    # Without a roster (a single-printer config) the top-level list is that one
+    # printer's, validated against its model below.
+    top_accessories = data.pop("accessories", None)
+    if raw_roster is not None and top_accessories:
+        raise SettingsError("[accessories] at the top level applies only to a single-printer config "
+                            "with no [[printers]] list; with a printers list, put each accessory on the "
+                            "entry of the printer it is fitted to (an `accessories` list inside that "
+                            "[[printers]] entry)")
     stubs = _check_roster(raw_roster) if raw_roster is not None else None
     if stubs is not None:
         _project_entry(data, stubs[0])
-    # [accessories] (#1198): a top-level list of fitted accessories, global to
-    # the instance like the roster it sits beside; it is validated here and
-    # carried on the resolved settings, and it is NOT added to [[printers]]
-    # roster entries in this shape.
-    accessories = _check_accessories(data.pop("accessories", None))
     material_temps = data.setdefault("material_temps", {})
     for family, defaults in DEFAULT_MATERIAL_TEMPS.items():
         profile = material_temps.setdefault(family, defaults.copy())
@@ -2116,6 +2121,10 @@ def validate(data):
     key = _model_key(data["printer"].get("model"), data["printer"].get("vendor"))
     model = printer_registry.MODELS[key]
     data["printer"]["model"], data["printer"]["vendor"] = key, model.vendor.key
+    if stubs is None:
+        # The single printer's top-level accessories list (#1198), checked
+        # against the model it resolved to; the roster case was projected above.
+        data["accessories"] = _check_accessories(top_accessories, model, "[accessories]")
     nozzle_size = data["printer"]["nozzle_diameter_mm"]
     if nozzle_size not in model.supported_nozzle_sizes:
         supported = ", ".join(f"{s:g}" for s in sorted(model.supported_nozzle_sizes))
@@ -2184,7 +2193,6 @@ def validate(data):
     else:
         entries = [_capture_entry(data, None)]
     data["printers"] = entries
-    data["accessories"] = accessories
     for key, value in data["paths"].items():
         if key in ("ffmpeg", "piper") and "/" not in value:
             continue  # a bare name is looked up on PATH
