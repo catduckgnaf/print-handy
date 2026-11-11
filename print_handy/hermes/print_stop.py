@@ -240,13 +240,18 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
     if after["state"] in ACTIVE:
         return True, (f"Cancel sent, but the printer still reports {after['state']} after {wait_s:.0f}s. "
                       "Check the printer screen. Not retrying.")
+    # Read the heater targets back (#1147) rather than assume the stop turned them off:
+    # Moonraker from extruder/heater_bed, Bambu from its LAN snapshot's nozzle and bed targets.
+    if adapter is None:
+        heaters = heaters_after_stop(lambda: moonraker_heater_targets(printer_id), poll_s=poll_s)
+    else:
+        heaters = heaters_after_stop(
+            lambda: status_heater_targets(adapter.normalize_status(adapter.client().snapshot())),
+            poll_s=poll_s)
     if adapter is not None and after["state"] == "error":
         # A Bambu printer reports a stopped job as FAILED until the operator clears it on the screen.
-        return True, "Stopped. The printer shows the cancelled job as an error until you acknowledge it on its screen."
-    heaters = ""
-    if adapter is None:
-        # Moonraker: read the heater targets back (#1147) rather than assume the cancel turned them off.
-        heaters = heaters_after_stop(lambda: moonraker_heater_targets(printer_id), poll_s=poll_s)
+        return True, ("Stopped. The printer shows the cancelled job as an error until you acknowledge it "
+                      f"on its screen.{heaters}")
     return True, f"Stopped. Printer now reports {after['state']}.{heaters}"
 
 

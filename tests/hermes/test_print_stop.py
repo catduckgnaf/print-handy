@@ -303,11 +303,25 @@ def test_bambu_status_reads_the_lan_snapshot_not_moonraker(monkeypatch):
 
 
 def test_bambu_cancel_sends_one_lan_stop_and_explains_the_error_state(monkeypatch):
-    adapter, _ = _bambu(monkeypatch, [bst("printing"), bst("printing"), bst("error")])
+    cold = {**bst("error"), "hotend_target_c": 0, "bed_target_c": 0}
+    adapter, _ = _bambu(monkeypatch, [bst("printing"), bst("printing"), bst("error"), cold])
     with mock.patch.object(print_stop, "_call") as call, mock.patch.object(print_stop.time, "sleep"):
         sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
-    assert sent and "acknowledge it on its screen" in text
+    assert sent and "acknowledge it on its screen" in text and "still set" not in text
     adapter.control.assert_called_once_with("stop")
+    call.assert_not_called()
+
+
+def test_1147_bambu_cancel_reads_the_heater_targets_back_and_sends_nothing_more(monkeypatch):
+    """Bambu gets the same heater read-back as Moonraker and the other families (#1147 printer scope)."""
+    warm = {**bst("finish"), "hotend_target_c": 220, "bed_target_c": 0}
+    adapter, client = _bambu(monkeypatch, [bst("printing"), bst("finish")] + [warm] * 40)
+    clock = iter(range(0, 1000))
+    with mock.patch.object(print_stop, "_call") as call, mock.patch.object(print_stop.time, "sleep"),             mock.patch.object(print_stop.time, "monotonic", side_effect=lambda: float(next(clock))):
+        sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
+    assert sent and "the nozzle heater is still set to 220 C" in text
+    assert "did not send anything to change it" in text
+    adapter.control.assert_called_once_with("stop")  # the one stop; nothing sent for the heater
     call.assert_not_called()
 
 
