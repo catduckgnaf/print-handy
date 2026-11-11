@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 from print_handy.hermes import maintenance
@@ -79,5 +79,7 @@ def test_listener_history_totals_are_hours_not_seconds(monkeypatch):
     # A run recorded at 2.0 total hours with 0.5 h printed since must not
     # read as thousands of hours and retrigger the reminder at once.
     state = {"runs": [{"kind": "full", "hours_total": 2.0,
-                       "at": datetime(2026, 10, 12, tzinfo=timezone.utc).isoformat()}]}
+                       # Recent on purpose: a fixed date ages past full_days and
+                       # makes the reminder due by the calendar, not the hours.
+                       "at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()}]}
     assert maintenance.reminder_text(state, mel._maintenance_history_totals(), idle=True) is None
