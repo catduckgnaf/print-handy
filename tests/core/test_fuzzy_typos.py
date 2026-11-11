@@ -76,6 +76,16 @@ ACKNOWLEDGE_FAMILY = {
     "aknowledgement": "acknowledgement",
     "acknowladgements": "acknowledgements",
 }
+# The commit family: the operator typed "comitted" on 2026-11-10 and, told
+# it was one edit from both "committed" and "omitted", ruled the committed
+# reading wins (the table already carries "commited" -> "committed" on the
+# same basis). Before this round, canonical("comitted") even mangled the
+# word to "comit". The five cousins screened clean the usual way.
+COMMIT_FAMILY = {
+    "comitted": "committed", "commiting": "committing",
+    "comittee": "committee", "commitee": "committee",
+    "comitment": "commitment", "committment": "commitment",
+}
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
 # "justmake" drops a space; leave correctly spelled words untouched.
@@ -570,7 +580,8 @@ ROUND5_SCREENED_TYPOS = {
     "withold": "withhold", "yatch": "yacht",
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
-             **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **OPERATOR_MINED_4,
+             **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
+             **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
