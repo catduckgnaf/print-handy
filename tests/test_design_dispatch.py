@@ -1126,3 +1126,80 @@ def test_will_call_model_matches_the_no_model_paths(tmp_path):
     assert not eng.will_call_model(fresh, "make it 5 mm taller", previous=HOOK)
     assert eng.will_call_model(fresh, "add a second hook", previous=HOOK)
     assert eng.will_call_model({"edit_mode": "mesh"}, "make it 5 mm taller", previous="base();")
+
+
+# ------------------------------------------- #1206 Low items: no-model paths, unprintable baselines
+
+def _dispatch_no_endpoint(text, adapter, choice):
+    with mock.patch.object(plugin, "_design_transport", return_value=(None, "")), \
+            mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+            mock.patch.object(core_prompts, "wait_for_response", return_value=choice):
+        return asyncio.run(plugin.design_dispatch(_event(text), _gateway(adapter)))
+
+
+def test_undo_and_parameter_edits_need_no_design_endpoint(design_env, fake_render):
+    """#1206 Low: with no endpoint, "undo" and a plain parameter edit were
+    refused as "not set up" although neither calls the model."""
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch_no_endpoint("make it 5 mm taller", adapter, design.CHANGE_LABEL)
+    assert out["reason"] == "design awaiting revision"
+    assert "height: 3 → 8" in next(c for c in adapter.sent if "Design turn 2" in (c or ""))
+    out = _dispatch_no_endpoint("undo", adapter, design.CHANGE_LABEL)
+    assert out["reason"] == "design awaiting revision"
+    assert "Back to version 1" in next(c for c in adapter.sent if "Design turn 3" in (c or ""))
+    assert not any(c == plugin.DESIGN_WORKING_NOTE for c in adapter.sent[-3:])
+    # A change that needs the model is still refused, and nothing runs.
+    refused = _dispatch_no_endpoint("add a second hook", adapter, design.CANCEL_LABEL)
+    assert refused["reason"] == "design model not configured"
+    # The session is still waiting, so a typed button word still works.
+    assert _dispatch_no_endpoint("never mind", adapter, design.CANCEL_LABEL)["reason"] \
+        == "design cancelled"
+    assert len(fake.calls) == 1
+
+
+def test_design_switched_off_still_refuses_undo(design_env, fake_render):
+    adapter = FakeAdapter()
+    _dispatch("/print-design a hook", adapter, scripted([HOOK]), design.CHANGE_LABEL)
+    design_env["design"]["enabled"] = False
+    out = _dispatch_no_endpoint("undo", adapter, design.CANCEL_LABEL)
+    assert out["reason"] == "design not enabled"
+
+
+def _unprintable_baseline(tmp_path):
+    def fake_baseline(self, session):
+        findings = [["fail", "the mesh has problems: not watertight"]]
+        session["findings"] = findings
+        return _fake_result(session, tmp_path, findings=findings)
+    return fake_baseline
+
+
+def test_a_dropped_model_that_is_not_a_solid_is_shown_but_never_handed_over(
+        design_env, tmp_path):
+    """#1206 Low: the baseline of a dropped model committed "fail" findings
+    and Slice it handed it over, though a mesh that is not a printable solid
+    is never handed to intake. It is shown, with the problem named, and
+    Slice it is refused (typed or pressed) with the way to print it as is."""
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "baseline_turn", _unprintable_baseline(tmp_path)), \
+            mock.patch.object(plugin, "_design_handoff") as handoff:
+        out = _dispatch_event(_media_event("/print-design", _plate_stl(tmp_path)), adapter,
+                              scripted([GOOD]), design.SLICE_LABEL)
+        assert out == {"action": "skip", "reason": "design not printable"}
+        post = next(c for c in adapter.sent if "Design turn 1" in (c or ""))
+        assert "Heads-up: the mesh has problems: not watertight" in post
+        assert "not a printable solid" in adapter.sent[-1]
+        assert "without a design phrase" in adapter.sent[-1]
+        (session,) = _sessions(tmp_path)
+        assert session["status"] == "awaiting_revision"
+        # "slice it" typed at the waiting session is refused the same way.
+        again = _dispatch_event(_event("slice it"), adapter, scripted([GOOD]),
+                                design.CANCEL_LABEL)
+        assert again == {"action": "skip", "reason": "design not printable"}
+    handoff.assert_not_called()
+
+
+def test_unprintable_lists_only_fail_findings():
+    assert design.unprintable([["warn", "a"], ["fail", "b"], ("fail", "c")]) == ["b", "c"]
+    assert design.unprintable(None) == [] and design.unprintable([["warn", "a"]]) == []
