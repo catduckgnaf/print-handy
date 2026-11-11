@@ -245,6 +245,43 @@ class VariablesContractTests(unittest.TestCase):
         self.assertEqual([], problems(gaps, EXEMPTIONS, set(inv)))
 
 
+class AccessoriesSurfaceVerdictTests(unittest.TestCase):
+    """printers.accessories (#1198) is a per-printer list of tables, absent from
+    the defaults tree like the [[printers]] roster it lives on, so the inventory
+    walk above cannot see it. Its verdict on every surface is pinned here:
+
+      defaults  none: no accessory is the default, and the resolved view's
+                ``accessories`` is an empty list
+      env       file only: the indexed roster override is refused by name
+      webui     no field: the catalog addresses global fields only; the
+                roster is not one of them (webui/catalog.py)
+      consumer  printers/accessories.py reads it for the adapter's shape
+      docs      docs/SETTINGS.md rows (pinned in tests/test_docker_release.py)
+      unraid    no entry: the template carries no Print Handy settings
+    """
+
+    def test_defaults_are_empty(self):
+        self.assertNotIn("accessories", settings._read(settings.HOME))
+        data = settings.load(local=False, environ={})
+        self.assertEqual(data["accessories"], [])
+        self.assertNotIn("accessories", data["printers"][0])
+
+    def test_env_is_refused_by_name(self):
+        self.assertIn("accessories", settings.PRINTER_ENTRY_LIST_KEYS)
+        self.assertNotIn("accessories", settings.PRINTER_ENTRY_ENV_TYPES)
+
+    def test_webui_has_no_field(self):
+        self.assertFalse([f for f in CATALOG if "accessor" in f"{f.section}.{f.key}"])
+
+    def test_consumer_reads_it(self):
+        source = (ROOT / "print_handy" / "printers" / "accessories.py").read_text()
+        self.assertIn('.get("accessories")', source)
+
+    def test_unraid_template_has_no_entry(self):
+        template = (ROOT / "docker" / "unraid" / "print-handy.xml").read_text()
+        self.assertNotIn("ACCESSOR", template.upper())
+
+
 class RatchetFixtureTests(unittest.TestCase):
     """The ratchet itself, proven on synthetic variables (not by breaking main)."""
 

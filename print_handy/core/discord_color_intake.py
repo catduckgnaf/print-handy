@@ -57,10 +57,10 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
     if job.get('color_manifest', {}).get('source_sha256') != source_hash:
         raise ValueError('source changed before Discord presentation')
     job_adapter = _job_adapter(job)
-    multi_tool = job_adapter.multi_tool
+    multi_tool = job_adapter.tool_based
     selections = [resolve_filament_selection(state, dict(label, slot=int(slot)))
                   for slot, label in sorted(configured_slots(state).items())]
-    # A multi_tool printer's positions are toolheads, never slots (#346).
+    # A tool_based printer's positions are tools, never slots (#346, #1198).
     labels = build_tool_labels(selections) if multi_tool else build_slot_labels(selections)
     if not labels or len(labels) > position_limit(job_adapter) or len(set(labels)) != len(labels):
         raise ValueError('Discord requires one to four distinct configured toolheads' if multi_tool

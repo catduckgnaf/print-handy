@@ -1471,7 +1471,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # export is a 3MF channel; a non-3MF source carries no tool assignment
     # and keeps the plain path below.
     identity_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
-                           and getattr(printer, 'multi_tool', False)
+                           and getattr(printer, 'tool_based', False)
                            and source.suffix.lower() == '.3mf')
     # A single-color decision that chose pauses at the height color changes
     # (#870) slices through the geometry export too: the export writes the
@@ -1545,7 +1545,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # A single-colour decision naming one toolhead takes the same identity
     # path with every part on that toolhead: the pick becomes the geometry's
     # tool and that toolhead's own filament profile, never T0 (P1-73, P1-117).
-    multi_tool = bool(color_decisions and getattr(printer, 'multi_tool', False)
+    shared_tool = bool(getattr(printer, 'shared_tool', False))
+    multi_tool = bool(color_decisions and getattr(printer, 'tool_based', False)
                       and (color_decisions.get('mode') == 'per_part' or identity_single))
     if color_decisions and color_decisions.get('mode') == 'per_part':
         from .color_geometry import export_color_geometry
@@ -1959,9 +1960,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         used = {int(tool): int(position) for tool, position in mapping.items()}
         order = sorted(used)
         records = [state['filament_slots'][str(used[tool])] for tool in order]
+        # A multi_tool toolhead has its own heater; a shared_tool tool is
+        # heated by the one shared heater after pickup (#1198), so its
+        # temperatures resolve with shared_heater=True.
         slot_temps = dict(zip(order, multicolor_slot_temperatures(
-            state, records, _fetch_filament, shared_heater=False, label='toolhead',
+            state, records, _fetch_filament, shared_heater=shared_tool,
+            label='tool' if shared_tool else 'toolhead',
             reference_material=(state.get('spool') or {}).get('material'))))
+        if shared_tool:
+            # The host template is single-extruder: expand it to the tool
+            # count and set the INDX tool change G-code (#1198).
+            from ..printers.accessories import slice_machine_overrides
+            machine.update(slice_machine_overrides(printer))
+            configs[0].write_text(json.dumps(machine, indent=2) + '\n')
         job_bed = slot_temps[order[0]][0]['bed']
         filament_paths = []
         for tool in range(int(printer.tool_count)):

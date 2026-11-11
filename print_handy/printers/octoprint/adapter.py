@@ -6,6 +6,8 @@ from .client import OctoPrintClient, OctoPrintError
 
 
 class OctoPrintAdapter(KlipperAdapter):
+    # Not a Bondtech INDX host (#1198): the INDX code inherited from KlipperAdapter never runs here.
+    supported_accessories = frozenset()
     transport = 'octoprint'
 
     def client(self):

@@ -4968,7 +4968,7 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
     if not manifest.get('source_sha256'):
         manifest['source_sha256'] = file_sha256(job['downloaded_file'])
     adapter = _job_adapter(job)
-    multi_tool = adapter.multi_tool
+    multi_tool = adapter.tool_based
     # The slot questions below are built from the record's slot map, so they serve the
     # record-bound multi_slot printers (and, tool-shaped, the multi_tool pair). A Bambu
     # AMS model is multi_slot by class (#671) but not record-bound: its filament slots
@@ -5483,9 +5483,9 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         # multi_tool model's toolheads, not the configured printer's IFS
         # slots (a Creator-configured process has filament_slots=1) (P1-72).
         verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim),
-                                   capacity=position_limit(adapter), multi_tool=adapter.multi_tool)
+                                   capacity=position_limit(adapter), multi_tool=adapter.tool_based)
         if verdict['mode'] == 'merge':
-            merged_slice = (_slice_merged_multi_tool if adapter.multi_tool else _slice_merged)
+            merged_slice = (_slice_merged_multi_tool if adapter.tool_based else _slice_merged)
             try:
                 result = merged_slice(job, job_path, src, manifest, decisions, view, verdict, st, brim_override, work)
             except plate_merge.SplitNeeded as exc:
@@ -5494,7 +5494,7 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
                 return result
     job['plate_merge'] = {k: v for k, v in verdict.items()
                           if k not in ('shifts', 'placed_bounds_mm', 'yaw_by_object')}
-    if _job_adapter(job).multi_tool:
+    if _job_adapter(job).tool_based:
         # The split fallbacks below are IFS-shaped (per-slot plates finalized
         # through the native slot contract). A toolhead printer prints a
         # multi-colour job as one merged plate or not at all (#346).
