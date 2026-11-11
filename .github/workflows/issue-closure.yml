@@ -44,6 +44,11 @@ jobs:
           python scripts/check_issue_closure.py --metadata "$RUNNER_TEMP/issue.json" > "$RUNNER_TEMP/closure.out"
           echo "status=$?" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/closure.out"
+      - name: Fail when the check itself broke
+        # 0 = finished, 1 = items open (reopen below); anything else is a crash
+        # and must fail loudly rather than reopen the issue.
+        if: steps.closure.outputs.status != '0' && steps.closure.outputs.status != '1'
+        run: exit 1
       - name: Reopen and say what is still open
         if: steps.closure.outputs.status == '1'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

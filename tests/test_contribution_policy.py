@@ -297,6 +297,11 @@ Variables reason: The new option was checked on every surface: defaults tree, en
                 with contextlib.redirect_stdout(out):
                     self.assertEqual(status, closure.main(["--metadata", str(path)]))
             self.assertIn("0 unticked", out.getvalue())
+            # A broken run exits 2, never 1: the workflow reopens the issue only on 1.
+            path.write_text("not json", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(2, closure.main(["--metadata", str(path)]))
+                self.assertEqual(2, closure.main(["--metadata", str(Path(directory) / "missing.json")]))
 
 if __name__ == "__main__":
     unittest.main()
