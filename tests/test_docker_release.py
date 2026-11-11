@@ -226,7 +226,7 @@ class SanitizedExamplesTests(unittest.TestCase):
         # the real files, but the positive direction — a real LAN
         # address, including a zero-padded one, still parses and would
         # be flagged — was asserted nowhere.
-        assert _parse_dotted_quad("192.168.250.135").is_private
+        assert _parse_dotted_quad("192.168.1.135").is_private
         assert _parse_dotted_quad("192.168.001.1").is_private
         # The Bambu version string zero-strips to a valid PUBLIC address
         # (2.9.1.70), so the scan parses it and does not flag it — that,
