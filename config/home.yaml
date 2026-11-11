@@ -350,9 +350,8 @@ timelapse:
   capture_max_frames: 3600
   capture_max_bytes: 536870912
   # Encoder preference for the Stage 3 encode (auto | vaapi | nvenc | qsv |
-  # cpu). Capture itself never encodes; the value is recorded now so the
-  # encode stage needs no settings change.
-  capture_encoder: auto
+  # cpu). Capture itself never encodes; auto probes GPU encoders first.
+  capture_encoder: cpu
 logging:
   level: INFO
   format: text

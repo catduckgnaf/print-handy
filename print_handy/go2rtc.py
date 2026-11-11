@@ -262,7 +262,7 @@ def transcode_plan(data=None, *, probe=None, run=None) -> dict | None:
     ffmpeg = data.get("paths", {}).get("ffmpeg") or "ffmpeg"
     if probe is None:
         probe = timelapse_encode.probe_ffmpeg(ffmpeg, run=run)
-    candidate = timelapse_encode.candidates(str(section.get("encoder") or "auto"), probe)[0]
+    candidate = timelapse_encode.candidates(str(section.get("encoder") or "cpu"), probe)[0]
     return {"candidate": candidate,
             "ffmpeg": ffmpeg,
             "max_height": int(section.get("max_height") or 720),
