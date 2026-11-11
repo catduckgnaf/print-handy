@@ -3,7 +3,10 @@
 Same toolhead model and print geometry as the Creator 5; the Pro adds the enclosed
 frame, active chamber heating and air filtration, which the Orca template records
 (support_chamber_temp_control / support_air_filtration) without changing the tool
-model. ZMod documents no Klipper 13 support on the Creator models. Quirks and
+model. On the Creator models ZMod 1.7.6 runs its stock-Klipper configuration;
+its one documented Klipper 13 piece there is the opt-in KLIPPER_C5 parameter
+(SAVE_ZMOD_DATA KLIPPER_C5=1, default 0), which uses the Klipper 13 input
+shapers. Print Handy does not detect it. Quirks and
 templates as for the Creator 5 (see creator5.py); templates:
 templates/orca/flashforge_creator5_pro, derived from OrcaSlicer's upstream
 Flashforge Creator 5 Pro profile.
