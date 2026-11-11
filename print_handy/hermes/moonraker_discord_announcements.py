@@ -583,11 +583,30 @@ def pending_roast_facts(state, message=None):
     return dict(facts), (str(value.get("key")) or None) if value.get("key") else None
 
 
+def elapsed_print_seconds(stats):
+    """How long the print ran, start to end, from the printer's own stats, or None (#1282).
+
+    Klipper's ``total_duration`` runs from the moment the job started printing; its
+    ``print_duration`` leaves out everything before the first extrusion (heating, leveling,
+    purge) and pauses. The roast says "concluded in", which is the span a person watched:
+    an AD5X job open 8m 14s with about 3 minutes of warmup reported "5m". Moonraker
+    history rows carry the same two fields. ``print_duration`` stays the fallback for a
+    source that reports only it.
+    """
+    stats = stats or {}
+    for key in ("total_duration", "print_duration"):
+        value = stats.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return None
+
+
 def roast_facts(job, plate, stats=None, now=None):
     """What is actually known about a finished print, for the local roast.
 
-    Only facts with a source: the printer's own print duration (else the
-    sliced estimate), the plate's material, color and sliced grams, the
+    Only facts with a source: the printer's own elapsed time for the job
+    (:func:`elapsed_print_seconds`; else the sliced estimate), the plate's
+    material, color and sliced grams, the
     roster printer name, how many times this job has been launched (the
     per-launch number registry), and the local finish hour. Missing stays
     missing. Never raises.
@@ -595,8 +614,8 @@ def roast_facts(job, plate, stats=None, now=None):
     facts = {}
     try:
         stats = stats or {}
-        duration = stats.get("print_duration")
-        if not isinstance(duration, (int, float)) or duration <= 0:
+        duration = elapsed_print_seconds(stats)
+        if duration is None:
             duration = (plate or {}).get("seconds")
         if isinstance(duration, (int, float)) and duration > 0:
             facts["duration_s"] = float(duration)
@@ -698,6 +717,7 @@ def finalize_from_history(job_key):
         return None
     job = jobs[0]
     stats = {"state": HISTORY_STATE.get(job["status"], "error"), "print_duration": job.get("print_duration"),
+             "total_duration": job.get("total_duration"),
              "filament_used": job.get("filament_used"), "start_time": job.get("start_time")}
     ended = job.get("end_time")
     completed_at = datetime.fromtimestamp(ended, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ended else None

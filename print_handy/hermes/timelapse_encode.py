@@ -24,7 +24,8 @@ Encoder selection is shared, as the issue requires:
   there is exactly one place that knows each vendor's argv.
 
 The sizing strategy mirrors the shrink's: a budget-derived bitrate
-(90% of the cap over the video's duration), then a second attempt at
+(90% of the cap over the video's duration, never above
+:data:`MAX_KBITS_PER_FRAME` per output frame), then a second attempt at
 70%. A hardware encoder that fails — or produces an oversize file on
 both attempts — falls through to the next candidate; CPU is always the
 last candidate, and a total failure returns None. Nothing here raises
@@ -383,6 +384,30 @@ def plan_playback(frame_count, settings=None):
     return fps_int, indices
 
 
+def playback_summary(count, settings=None) -> str:
+    """How the assembled frames relate to the captured ones, for the assembly log (#1282).
+
+    The playback plan can skip captured frames (decimation), repeat them (a short capture
+    stretched to ``min_length_s``) and repeat the last one (``hold_last_frame_s``), so the
+    assembled count alone ("109 frame(s)" from a 99-frame capture) reads as a miscount.
+    """
+    n = int(count)
+    fps, indices = plan_playback(n, settings)
+    if n <= 0 or indices == list(range(n)):
+        return f"{len(indices)} frame(s)"
+    hold = int(round(float(settings["hold_last_frame_s"]) * fps)) if settings else 0
+    body = indices[:len(indices) - hold] if hold else indices
+    shown = len(set(body))
+    parts = [f"{n} captured"]
+    if shown < n:
+        parts.append(f"{n - shown} skipped to fit the target length")
+    if len(body) > shown:
+        parts.append(f"+{len(body) - shown} repeated to reach the minimum length")
+    if hold:
+        parts.append(f"+{hold} holding the last frame {float(settings['hold_last_frame_s']):g} s")
+    return f"{len(indices)} frame(s) ({', '.join(parts)})"
+
+
 def expected_playback_frames(count, data=None) -> int:
     """Frames the assembled video holds for ``count`` captured frames (at least 1)."""
     return max(1, len(plan_playback(count, playback_settings(data))[1]))
@@ -538,9 +563,25 @@ def caption_with_number(text, job_key, filename=None) -> str:
     return text
 
 
+# A ceiling on the budget bitrate (#1282). The budget alone spends the whole upload cap on any
+# clip: an 11 s, 10 fps, 720p capture got 6275k (8.7 MB) where a third of that looks the same,
+# because a printer camera's frames are mostly a still background. 300 kbit per output frame
+# (about 0.33 bits per pixel at 1280x720) is still generous: 3000k at 10 fps, 9000k at 30 fps.
+# Long clips are unaffected; their budget is already lower.
+MAX_KBITS_PER_FRAME = 300
+
+
+def encode_kbps(frame_count, fps, max_bytes) -> int:
+    """The first-attempt bitrate: 90% of the cap over the duration, capped per frame, floor 200k."""
+    fps = float(fps or PLAYBACK_FPS)
+    duration = max(1.0, int(frame_count) / fps)
+    budget = int(max_bytes * 8 * 0.90 / duration / 1000)
+    return max(200, min(budget, int(MAX_KBITS_PER_FRAME * fps)))
+
+
 def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLAYBACK_FPS,
                     probe=None, ffmpeg=None, run=None, log=None, validate=None,
-                    playback=None) -> Path | None:
+                    playback=None, frames_note=None) -> Path | None:
     """Assemble frames into target under max_bytes, or None on total failure.
 
     Candidates run in selection order; each gets the two-attempt
@@ -561,9 +602,9 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
         with playback_frames(frames_dir, playback) as (planned_dir, planned_fps, _count):
             return assemble_frames(planned_dir, target, max_bytes=max_bytes, preference=preference,
                                    fps=planned_fps, probe=probe, ffmpeg=ffmpeg, run=run, log=log,
-                                   validate=validate)
-    duration = max(1.0, len(frames) / float(fps or PLAYBACK_FPS))
-    kbps = max(200, int(max_bytes * 8 * 0.90 / duration / 1000))
+                                   validate=validate,
+                                   frames_note=playback_summary(len(frames), playback))
+    kbps = encode_kbps(len(frames), fps, max_bytes)
     if validate is None:
         # Injected fake runners write placeholder bytes; only the real
         # ffmpeg path can be held to a real decode.
@@ -572,7 +613,8 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
     partial = unique_partial(target)
     try:
         return _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
-                         probe, ffmpeg, run, log, validate)
+                         probe, ffmpeg, run, log, validate,
+                         frames_note=frames_note or f"{len(frames)} frame(s)")
     finally:
         partial.unlink(missing_ok=True)
 
@@ -602,7 +644,7 @@ def selection_note(preference, ordered, probe, *, dri_note=None, nvidia_note=Non
 
 
 def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
-              probe, ffmpeg, run, log, validate):
+              probe, ffmpeg, run, log, validate, *, frames_note):
     if probe is None:
         probe = probe_ffmpeg(ffmpeg, run=run)
     ordered = candidates(preference, probe, ffmpeg=ffmpeg, run=run)
@@ -632,7 +674,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
                 if candidate.vendor == "cpu" and gpu_failures:
                     log("timelapse encode fell back to CPU (libx264) after GPU failure: "
                         + "; ".join(gpu_failures))
-                log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
+                log(f"timelapse assembled {frames_note} -> {target} "
                     f"({target.stat().st_size} bytes, {candidate.encoder} at {attempt_kbps}k)")
                 return target
             partial.unlink(missing_ok=True)
@@ -644,7 +686,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
         log("timelapse encode falling back to CPU (libx264, constant quality) after: "
             + "; ".join(gpu_failures))
     fitted = _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
-                                        ffmpeg, run, log, validate)
+                                        ffmpeg, run, log, validate, frames_note=frames_note)
     if fitted is not None:
         return fitted
     log(f"timelapse assembly failed for {frames_dir}: no encoder produced a video "
@@ -659,7 +701,7 @@ _FALLBACK_WIDTHS = (1280, 960, 640)
 
 
 def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
-                               ffmpeg, run, log, validate):
+                               ffmpeg, run, log, validate, *, frames_note=None):
     """Last resort: software libx264 at constant quality until the video fits max_bytes."""
     for width in _FALLBACK_WIDTHS:
         for crf in _FALLBACK_CRF:
@@ -679,7 +721,7 @@ def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, f
                     partial.unlink(missing_ok=True)
                     continue
                 os.replace(partial, target)
-                log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
+                log(f"timelapse assembled {frames_note or f'{len(frames)} frame(s)'} -> {target} "
                     f"({target.stat().st_size} bytes, libx264 crf {crf}, width {width})")
                 return target
             partial.unlink(missing_ok=True)

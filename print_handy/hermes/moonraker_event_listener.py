@@ -4412,9 +4412,9 @@ class Listener:
                 if new_state == "error":
                     await asyncio.to_thread(capture_stop, self.filename, "error")
                     facts = {}
-                    duration = self.last_stats.get("print_duration")
-                    if isinstance(duration, (int, float)) and duration > 0:
-                        facts["duration_s"] = float(duration)
+                    duration = announcer.elapsed_print_seconds(self.last_stats)
+                    if duration is not None:
+                        facts["duration_s"] = duration
                     mention = starter_pings.ping_for("error", job_key=self.filename) or None
                     await asyncio.to_thread(
                         post, _with_status_roast(
