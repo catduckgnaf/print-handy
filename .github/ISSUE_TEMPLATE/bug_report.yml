@@ -31,6 +31,13 @@ body:
       description: The exact inputs and flow — model link or file type, the Discord command or UI path, and the settings that matter. Note whether this was offline analysis or a live printer flow.
     validations:
       required: true
+  - type: textarea
+    id: regression_test
+    attributes:
+      label: Regression test
+      description: Optional for reporters; maintainers fill it in before work starts. The smallest automated check that fails today and must pass once this is fixed (the input, what is asserted, and which suite it belongs in), or why only a live printer can show it. The fix's pull request names this test and the commit it fails on.
+    validations:
+      required: false
   - type: input
     id: version
     attributes:
