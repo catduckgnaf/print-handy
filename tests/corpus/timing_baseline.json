@@ -925,24 +925,36 @@
    "wall_s": 0.11
   },
   "parts-512-four-color/direct": {
-   "first_prompt_s": 0.74,
-   "fit_check_s": 0.16,
+   "first_prompt_s": 1.0,
+   "fit_check_s": 0.2,
    "original": {
     "first_prompt_s": 0.68,
     "fit_check_s": 0.01,
     "wall_s": 4.74
    },
-   "wall_s": 4.2
+   "raised_from": {
+    "first_prompt_s": 0.68,
+    "fit_check_s": 0.01,
+    "wall_s": 4.74
+   },
+   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.74 s (2026-11-03); the 2.2.5 re-record raised it to 5.35 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.68 s to 1.05 s, fit_check 0.01 s to 0.24 s on this 512-part job); 2.2.6 measured 5.20 s and 2.2.7 kept it. The 3.77 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
+   "wall_s": 5.2
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.76,
-   "fit_check_s": 0.16,
+   "first_prompt_s": 0.99,
+   "fit_check_s": 0.19,
    "original": {
     "first_prompt_s": 0.67,
     "fit_check_s": 0.01,
     "wall_s": 4.75
    },
-   "wall_s": 3.92
+   "raised_from": {
+    "first_prompt_s": 0.67,
+    "fit_check_s": 0.01,
+    "wall_s": 4.75
+   },
+   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.75 s (2026-11-03); the 2.2.5 re-record raised it to 5.50 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.67 s to 1.08 s, fit_check 0.01 s to 0.21 s on this 512-part job); 2.2.6 measured 5.21 s and 2.2.7 kept it. The 3.79 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
+   "wall_s": 5.21
   },
   "parts-one-plate/direct": {
    "first_prompt_s": 0.04,
