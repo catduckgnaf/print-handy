@@ -476,6 +476,50 @@ Each printer's runtime state lives in its own folder, `state/printers/<id>/` und
 | `printers.tool_count` | `PRINT_HANDY__PRINTERS__<ID>__TOOL_COUNT` | — | This entry's `printer.tool_count` override, for multi-tool models |
 | `printers.bed_mm` | file only | — | This entry's `printer.bed_mm` override (two positive numbers): a custom build volume, e.g. for an Other/generic printer whose measured bed differs from the model default |
 | `printers.max_print_height_mm` | file only | — | This entry's `printer.max_print_height_mm` override (a positive number), the companion to `printers.bed_mm` |
+| `printers.accessories` | file only | — | The hardware fitted to this printer that did not ship with its model, such as a Bondtech INDX tool changer: a list of accessory entries (see **Accessories list** below). It belongs to this printer only; no other printer in the list sees it |
+
+## Accessories list
+
+An accessory is hardware fitted to one printer that did not ship with its model, such as a tool changer. Accessories are **per printer**: each one is recorded on the printer it is fitted to, and only that printer's behavior changes. Every other printer, in the same list or not, keeps exactly its own shape. What counts as an accessory, and the full guide, are in [Accessories](ACCESSORIES.md).
+
+Where the list goes:
+
+- **With a printers list**, put an `accessories` list inside the entry of the printer that has the hardware (`printers.accessories` above). A top-level `accessories` list beside a printers list is refused at startup by name, because it would not say which printer has the hardware.
+- **Without a printers list** (the single-printer default), a top-level `accessories` list (`[[accessories]]` in TOML) is that one printer's. When guided onboarding later adds a second printer, it moves the list onto the first printer's entry for you.
+
+The list is file only: it cannot come from the environment, and `PRINT_HANDY__PRINTERS__<ID>__ACCESSORIES` is refused by name. The Web UI has no field for it (its catalog addresses global fields only, the same verdict as the rest of the printers list). The Unraid template carries no settings beyond its container set, so it has no accessories entry either.
+
+Each entry names a registered accessory by `key`. Startup refuses, by name, an unknown or misspelled accessory key, an unknown key inside an entry or a tool record, the same accessory twice on one printer, and an accessory on a printer it does not attach to. A printer with no accessories behaves exactly as before.
+
+The one accessory registered today is the Bondtech INDX tool changer. It attaches only to a printer reached over Moonraker whose adapter handles it: `klipper.generic` and the Sovol Klipper models. It is refused on Bambu Lab, PrusaLink, OctoPrint and Elegoo SDCP printers (their connection is not Moonraker) and on the Moonraker printers with their own vendor adapter (the Flashforge ZMod models, QIDI, Creality, Elegoo Neptune, Anycubic and Snapmaker).
+
+```yaml
+printers:
+  - id: trident
+    model: klipper.generic
+    moonraker_url: http://trident.example:7125
+    accessories:
+      - key: bondtech.indx
+        tool_count: 4
+        tools:
+          - tool: 0
+            nozzle_size_mm: 0.4
+            nozzle_type: cht
+            filament: PLA
+```
+
+Accessory entry keys (inside one item of `printers.accessories`, or of the single-printer top-level list):
+
+| Entry key | What it does |
+|---|---|
+| `key` | Required. A registered accessory key, for example `bondtech.indx` |
+| `tool_count` | INDX only. The number of tools fitted: a whole number, at least 2, with no maximum (dock space on the host is the limit) |
+| `tools` | INDX only. A list of per-tool records, keys below; tools without a record are allowed |
+| `tools[].tool` | INDX only. The 0-based tool index this record describes; unique and below `tool_count` |
+| `tools[].nozzle_size_mm` | INDX only. The tool's nozzle size in millimeters, above 0; recorded manually, it is not detectable from the printer |
+| `tools[].nozzle_type` | INDX only. The tool's nozzle type: `cht` or `standard` |
+| `tools[].filament` | INDX only. The filament name recorded for the tool; recorded manually, it is not detectable from the printer |
+| `tools[].heats` | INDX only. `true` by default. A tool with `heats: false` is a no-heat dock position (a pen, cutter or camera): it counts toward `tool_count` and must carry no nozzle or filament record |
 
 ## Compose variables
 

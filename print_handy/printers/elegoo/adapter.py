@@ -15,6 +15,8 @@ from . import guard, profiles
 
 
 class ElegooNeptuneAdapter(KlipperAdapter):
+    # Not a Bondtech INDX host (#1198): the INDX code inherited from KlipperAdapter never runs here.
+    supported_accessories = frozenset()
     facts: dict = {}  # the printer's sourced facts (facts.py), set by each printer's subclass
     verified_slicers = ("orca",)
 

@@ -66,6 +66,25 @@ def test_printer_registry_matches_code_profiles(registry):
         assert (ROOT / entry.profile).is_file()
 
 
+def test_creator_models_state_the_zmod_176_klipper_13_position(registry):
+    """ZMod 1.7.6 documents one opt-in Klipper 13 piece on the Creator models,
+    KLIPPER_C5 (the Klipper 13 input shapers; wiki Global.md at tag 1.7.6).
+    The pre-1.7.6 sentence "ZMod documents no Klipper 13 support on the
+    Creator models" must not come back on any shipped surface (#1273)."""
+    old = "no Klipper 13 support"
+    creators = {"flashforge.creator5", "flashforge.creator5_pro"}
+    entries = {e.key: e for e in registry.printers if e.key in creators}
+    assert set(entries) == creators
+    for key, entry in entries.items():
+        assert old not in entry.notes, key
+        assert "KLIPPER_C5" in entry.notes and "input shapers" in entry.notes, key
+    for module in ("creator5.py", "creator5_pro.py"):
+        text = (ROOT / "print_handy/printers/flashforge" / module).read_text(encoding="utf-8")
+        assert old not in text, module
+    from print_handy.printers.flashforge import creator5_pro
+    assert "KLIPPER_C5" in creator5_pro.__doc__
+
+
 def test_broken_registry_is_rejected(tmp_path):
     _copy_registry_tree(tmp_path)
     flows = tmp_path / "knowledge" / "data" / "troubleshooting.toml"

@@ -1160,6 +1160,22 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
     return changed
 
 
+def _job_filaments(filament, filament_paths):
+    """The job's filament profile with one entry per loaded filament in each per-filament list (#1279).
+
+    filament_paths are the per-tool profiles in tool order. A key every one of
+    them sets as a one-entry list becomes the list of their entries; every
+    other key keeps the base profile's value.
+    """
+    profiles = [json.loads(Path(path).read_text()) for path in filament_paths]
+    merged = dict(filament)
+    for key in set().union(*profiles) if profiles else ():
+        values = [profile.get(key) for profile in profiles]
+        if all(isinstance(value, list) and len(value) == 1 for value in values):
+            merged[key] = [value[0] for value in values]
+    return merged
+
+
 def support_tool_pointers(manifest, decisions, mapping, multi_tool):
     """{support process key: tool index} for a project's designated support filament (#867).
 
@@ -1471,7 +1487,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # export is a 3MF channel; a non-3MF source carries no tool assignment
     # and keeps the plain path below.
     identity_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
-                           and getattr(printer, 'multi_tool', False)
+                           and getattr(printer, 'tool_based', False)
                            and source.suffix.lower() == '.3mf')
     # A single-color decision that chose pauses at the height color changes
     # (#870) slices through the geometry export too: the export writes the
@@ -1545,14 +1561,24 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # A single-colour decision naming one toolhead takes the same identity
     # path with every part on that toolhead: the pick becomes the geometry's
     # tool and that toolhead's own filament profile, never T0 (P1-73, P1-117).
-    multi_tool = bool(color_decisions and getattr(printer, 'multi_tool', False)
+    shared_tool = bool(getattr(printer, 'shared_tool', False))
+    multi_tool = bool(color_decisions and getattr(printer, 'tool_based', False)
                       and (color_decisions.get('mode') == 'per_part' or identity_single))
     if color_decisions and color_decisions.get('mode') == 'per_part':
-        from .color_geometry import export_color_geometry
+        # Two routes (#1279, slice_route): a job that keeps the source project
+        # and only renumbers its filaments slices the source package remapped
+        # by package_remap.remap_package; every other per-part job slices the
+        # package export_color_geometry rebuilds. geometry['slice_route'] names
+        # the route taken and why.
+        from .slice_route import export_per_part
         input_path = folder / 'geometry.3mf'
-        mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
-                                                  object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=multi_tool, tower_mm=tower_mm)
+        # The remap route is verified with OrcaSlicer only: a configured Flash
+        # Studio or a Bambu Studio primary keeps the rebuild.
+        route_slicer = ('flash_studio' if printer.config.get('slicer', {}).get('flash_studio_path')
+                        else slicer_choice(printer))
+        mapping, geometry = export_per_part(source, input_path, color_decisions, item_shifts=item_shifts,
+                                            object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
+                                            identity_tools=multi_tool, tower_mm=tower_mm, slicer=route_slicer)
         author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted
@@ -1959,9 +1985,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         used = {int(tool): int(position) for tool, position in mapping.items()}
         order = sorted(used)
         records = [state['filament_slots'][str(used[tool])] for tool in order]
+        # A multi_tool toolhead has its own heater; a shared_tool tool is
+        # heated by the one shared heater after pickup (#1198), so its
+        # temperatures resolve with shared_heater=True.
         slot_temps = dict(zip(order, multicolor_slot_temperatures(
-            state, records, _fetch_filament, shared_heater=False, label='toolhead',
+            state, records, _fetch_filament, shared_heater=shared_tool,
+            label='tool' if shared_tool else 'toolhead',
             reference_material=(state.get('spool') or {}).get('material'))))
+        if shared_tool:
+            # The host template is single-extruder: expand it to the tool
+            # count and set the INDX tool change G-code (#1198).
+            from ..printers.accessories import slice_machine_overrides
+            machine.update(slice_machine_overrides(printer))
+            configs[0].write_text(json.dumps(machine, indent=2) + '\n')
         job_bed = slot_temps[order[0]][0]['bed']
         filament_paths = []
         for tool in range(int(printer.tool_count)):
@@ -2162,6 +2198,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         private.write_bytes(source.read_bytes())
         input_path = private
         command[-1] = str(private)
+    # The remap route (#1279) slices the source project itself, whose palette
+    # has one entry per job filament: it adopts every loaded filament
+    # profile, not the base profile's one entry, so its per-filament lists
+    # (and a PrusaSlicer object's extruders) keep their numbering.
+    _adopted_filament = (_job_filaments(filament, filament_paths)
+                         if (geometry.get('slice_route') or {}).get('route') == 'remap' else filament)
     if input_path.suffix.lower() == '.3mf':
         # Every 3MF the slicer reads is a private copy here (orca_input.3mf or a derived
         # geometry.3mf): give prefixed core elements the raw names the slicer expects (#814).
@@ -2175,7 +2217,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm))
         # Then the copy takes the job's own machine, process and filament values (#868): a derived
         # plate is a byte copy of a foreign project, and its settings must not reach Orca.
-        rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
+        rewritten.update(adopt_job_settings(input_path, {**machine, **process, **_adopted_filament}))
         _project_copy_converted = True
     # Never accept stale output if a failed slicer leaves the preceding artifact behind.
     output.unlink(missing_ok=True)
@@ -2246,7 +2288,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         geometry['thin_feature_profile'] = 'arachne flex (AD5X Flexy Ring guide)'
         configs[1].write_text(json.dumps(process, indent=2) + '\n')
         if input_path.suffix.lower() == '.3mf':
-            rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
+            rewritten.update(adopt_job_settings(input_path, {**machine, **process, **_adopted_filament}))
         output.unlink(missing_ok=True)
         (folder / 'result.json').unlink(missing_ok=True)
         result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
