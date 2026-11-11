@@ -47,7 +47,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
                           "coldpull_dispatch", "lookup_dispatch", "source_dispatch", "troubleshoot_dispatch",
                           "macros_dispatch", "firmware_dispatch", "calibration_dispatch",
                           "typed_quantity_dispatch"]
-    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
+    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
     assert router.platform_handlers["discord"], "listener button handlers were not registered"
 
 
@@ -302,7 +302,7 @@ def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
 def test_status_has_no_hermes_modules_field(cfg):
     discord, core = make(cfg)
     status = core.status(True)
-    assert status["mode"] == "standalone" and status["handlers"] == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
+    assert status["mode"] == "standalone" and status["handlers"] == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
     assert "hermes_modules" not in status
 
