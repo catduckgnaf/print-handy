@@ -1048,3 +1048,71 @@ def test_update_refuses_a_component_whose_latest_version_is_unknown():
     transport = FakeTransport(status=STATUS_LIVE_ZMOD_UNREADABLE, system_info=SYSTEM_INFO_LIVE_ZMOD)
     with pytest.raises(fw.FirmwareRefusal, match="does not report the latest version of .*Z-Mod.*Nothing was sent"):
         fw.prepare_update(transport, AD5X, "zmod")
+
+
+# ------------------------------------------- live ZMod read, 2026-11-11 (#1295)
+
+# Recorded from the owner's AD5X on ZMod 1.7.5-2 (2026-11-11): Moonraker now
+# reads every checkout, lists `moonraker` and `klipper` as empty placeholders
+# beside ZMod's real `moon` and `klippy`, and marks Z-Mod invalid because
+# HelixScreen's installer appended a section to ZMod's own moonraker.conf.
+DIRTY_WARNING = "Repo is dirty.  Detected the following modified files: ['moonraker.conf']"
+STATUS_LIVE_ZMOD_DIRTY = {"result": {
+    "busy": False, "github_rate_limit": 60, "github_requests_remaining": 57,
+    "github_limit_reset_time": 1794435078.0,
+    "version_info": {
+        "moonraker": {}, "klipper": {},
+        "Z-Mod": {"configured_type": "git_repo", "channel": "dev", "version": "1.7.5-2",
+                  "remote_version": "1.7.6-17", "is_valid": False, "is_dirty": True,
+                  "warnings": [DIRTY_WARNING], "anomalies": []},
+        "klippy": {"configured_type": "git_repo", "version": "13.761-5",
+                   "remote_version": "13.761-7", "is_valid": True, "warnings": [],
+                   "anomalies": ["Repo has untracked source files: ['klippy/extras/quickswap.py']"]},
+        "fluidd": {"configured_type": "web", "version": "v1.37.17",
+                   "remote_version": "v1.37.22", "is_valid": True, "warnings": []},
+        "recommend": {"configured_type": "git_repo", "version": "1.1.7-0",
+                      "remote_version": "1.1.7-0", "is_valid": True, "warnings": []}}}}
+SYSTEM_INFO_175 = {"result": {"system_info": {"distribution": {
+    "name": "zmod 1.7.5 -> 1.7.5-2", "version": "1.7.5"}}}}
+
+
+def test_issue_1295_empty_placeholder_entries_are_not_components():
+    status = fw.parse_update_status(STATUS_LIVE_ZMOD_DIRTY)
+    assert [c.name for c in status.components] == ["Z-Mod", "klippy", "fluidd", "recommend"]
+    text = fw.firmware_report(FakeTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175), AD5X)
+    assert "version not reported" not in text
+    assert "did not report the latest version" not in text
+
+
+def test_issue_1295_an_invalid_zmod_repo_is_reported_with_the_fix_not_offered():
+    text = fw.firmware_report(FakeTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175), AD5X)
+    zline = next(line for line in text.splitlines() if line.startswith("- **Z-Mod**"))
+    assert "1.7.5-2 -> 1.7.6-17 available" in zline
+    assert "Moonraker will not apply it" in zline and "moonraker.conf" in zline
+    assert "/print-firmware update Z-Mod" not in text
+    assert "`mod_data/user.moonraker.conf`" in text and "HelixScreen" in text
+    # A valid component on the same printer is still offered.
+    assert "`/print-firmware update klippy`" in text
+
+
+def test_issue_1295_an_invalid_component_is_refused_before_anything_is_sent():
+    transport = ApplyTransport(STATUS_LIVE_ZMOD_DIRTY, SYSTEM_INFO_175)
+    with pytest.raises(fw.FirmwareRefusal) as refused:
+        fw.prepare_update(transport, AD5X, "zmod")
+    assert "invalid" in str(refused.value) and "user.moonraker.conf" in str(refused.value)
+    assert "Nothing was sent" in str(refused.value)
+    assert transport.posts == []
+    assert fw.prepare_update(transport, AD5X, "klippy").name == "klippy"
+    assert transport.posts == []
+
+
+def test_issue_1295_a_spent_github_budget_is_named_with_its_reset_time():
+    payload = {"result": {"github_requests_remaining": 0,
+                          "github_limit_reset_time": 1794435078.0,
+                          "version_info": {"klippy": {"version": "13.761-5",
+                                                      "remote_version": "?"}}}}
+    text = fw.firmware_report(FakeTransport(payload, SYSTEM_INFO_175), GENERIC)
+    assert "GitHub's hourly limit" in text and "UTC" in text
+    # With budget left, "?" is not blamed on the limit.
+    payload["result"]["github_requests_remaining"] = 12
+    assert "hourly limit" not in fw.firmware_report(FakeTransport(payload), GENERIC)
