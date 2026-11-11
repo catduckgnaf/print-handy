@@ -150,6 +150,10 @@ EXEMPTIONS = {
     # model retired by #1002 is no longer a setting at all, so it needs no
     # exemption here; a config still carrying it gets the unknown-setting warning.
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
+    # webui.trusted_proxies (#1145) decides whose X-Forwarded-For the
+    # failed-login limit believes: a trust boundary set by whoever deploys
+    # the reverse proxy, so it is file-only by design (docs/SETTINGS.md).
+    ("webui", "trusted_proxies"): (frozenset({"webui"}), "#1145"),
     # webui.require_auth, webui.controls_enabled and webui.cookie_secure
     # carried webui-surface exemptions until the first-boot parity program's
     # settings-completeness pass gave all three catalog fields; the

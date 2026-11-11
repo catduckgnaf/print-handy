@@ -165,6 +165,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
                  ("webui", "chat_llm_enabled"): bool,
                  ("webui", "chat_enabled"): bool,
+                 ("webui", "trusted_proxies"): str,
                  ("design", "enabled"): bool, ("design", "chat_url"): str,
                  ("design", "model"): str, ("design", "api_key_env"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
@@ -1271,6 +1272,30 @@ def _validate_matrix(data):
     matrix["upload_max_bytes"] = _positive(data, "matrix", "upload_max_bytes", int)
 
 
+def trusted_proxy_networks(value):
+    """``[webui] trusted_proxies`` as a tuple of ip_network objects.
+
+    The value is a comma- or space-separated string (or a list) of IP
+    addresses and CIDR networks; empty means no proxy is trusted.
+    Raises ValueError naming the first entry that is not an address or
+    a network."""
+    import ipaddress
+    if isinstance(value, (list, tuple)):
+        items = [str(item) for item in value]
+    else:
+        items = str(value or "").replace(",", " ").split()
+    networks = []
+    for item in items:
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            raise ValueError(f"{item!r} is not an IP address or network") from None
+    return tuple(networks)
+
+
 def _validate_webui(data):
     """The [webui] section (#286). Absent in an older config means the defaults.
 
@@ -1333,6 +1358,23 @@ def _validate_webui(data):
     chat_page = webui.setdefault("chat_enabled", True)
     if not isinstance(chat_page, bool):
         raise SettingsError(f"[webui] chat_enabled must be true or false, got {chat_page!r}")
+    # trusted_proxies (#1145): the reverse proxies whose X-Forwarded-For
+    # header names the client for the login throttle. IP addresses or
+    # CIDR networks, comma- or space-separated; empty (the default)
+    # trusts no proxy, so the header is never read. Stored normalized
+    # as one comma-separated string.
+    proxies = webui.setdefault("trusted_proxies", "")
+    if proxies is None:
+        proxies = ""
+    if not isinstance(proxies, (str, list, tuple)):
+        raise SettingsError("[webui] trusted_proxies must be a list of IP addresses or "
+                            f"networks, got {proxies!r}")
+    try:
+        networks = trusted_proxy_networks(proxies)
+    except ValueError as exc:
+        raise SettingsError(f"[webui] trusted_proxies: {exc}; use IP addresses or CIDR "
+                            "networks such as 192.0.2.10 or 198.51.100.0/24") from None
+    webui["trusted_proxies"] = ",".join(str(net) for net in networks)
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")
