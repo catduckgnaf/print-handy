@@ -13,11 +13,14 @@ VisualPrintWatch only decides when a check is due.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
+import threading
 import time
 import urllib.request
+from pathlib import Path
 from typing import NamedTuple
 
 from .. import ai_routes
@@ -29,6 +32,181 @@ VISUAL_VERDICTS = {"ok", "air", "spaghetti", "detached", "empty_idle", "uncertai
 VISUAL_ALERT_VERDICTS = {"air", "spaghetti", "detached", "uncertain"}
 VISUAL_HEALTHY_VERDICTS = {"ok", "safe"}
 VISUAL_SUSPICIOUS_VERDICTS = {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
+
+# The detail of the "uncertain" a verdict call returns when it could not judge
+# the frame at all (a broken endpoint or detector, #467's generic wording).
+# Watches treat it as a watch failure, part of a failure episode, not as a
+# fresh judgement of the print.
+VISION_FAILED_DETAIL = "the vision check could not be completed"
+
+
+class FailureEpisode:
+    """One print's run of consecutive camera-watch failures, for the alert throttle.
+
+    A failure is a check that produced no usable judgement: the snapshot
+    failed, the whole check overran its deadline, or the verdict call
+    could not judge the frame. The first failure of an episode alerts at
+    once; while the episode lasts, at most one more alert per
+    ``interval_s`` (the watch's periodic interval) goes out, so a dead
+    camera or endpoint nags no more often than a healthy print is
+    checked. A check that judges a frame ends the episode, and
+    :meth:`recovered` says whether the operator heard about it, so the
+    watch can say once that it is working again. Pure policy, no I/O;
+    shared by every family with an in-print watch.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.failures = 0
+        self.alerted_at = None
+
+    def failed(self, now, interval_s):
+        """Count one failure. True when it should alert now."""
+        self.failures += 1
+        if self.alerted_at is not None and now - self.alerted_at < interval_s:
+            return False
+        self.alerted_at = now
+        return True
+
+    def recovered(self):
+        """End the episode. True when it had alerted (a recovery notice is owed)."""
+        owed = self.failures > 0 and self.alerted_at is not None
+        self.reset()
+        return owed
+
+
+def recovery_text(label):
+    """The one notice that ends an alerted failure episode."""
+    return (f"Camera watch: {label} is being checked again; the camera and the vision "
+            "check answered. Nothing was sent to the printer.")
+
+
+TIMEOUT_ALERT_TEXT = ("Camera watch check timed out; this print is unmonitored while the watch "
+                      "retries. Check the camera and vision endpoint.")
+
+
+# Alert frames (the photos attached to camera alerts and status answers) are
+# written to one folder shared by every watch. They are only needed until the
+# post that carries them is delivered, so the folder keeps the newest
+# FRAME_KEEP files and drops any older than FRAME_KEEP_DAYS.
+FRAME_KEEP = 200
+FRAME_KEEP_DAYS = 14
+
+
+def frame_dir():
+    """Where alert frames are written: PRINT_WATCH_FRAME_DIR, else <cache>/print-watch."""
+    return Path(os.environ.get("PRINT_WATCH_FRAME_DIR") or _config.cache_dir() / "print-watch")
+
+
+def prune_frames(directory, *, keep=None, max_age_s=None, now=None):
+    """Delete alert frames beyond the newest ``keep`` or older than ``max_age_s``. Never raises.
+
+    The defaults are FRAME_KEEP and FRAME_KEEP_DAYS. Only ``*.jpg`` files
+    directly in ``directory`` are considered. Returns the removed paths.
+    """
+    now = time.time() if now is None else now
+    keep = FRAME_KEEP if keep is None else keep
+    max_age_s = FRAME_KEEP_DAYS * 86400 if max_age_s is None else max_age_s
+    try:
+        frames = []
+        for item in Path(directory).glob("*.jpg"):
+            try:
+                frames.append((item.stat().st_mtime, item))
+            except OSError:
+                continue
+    except OSError:
+        return []
+    frames.sort(key=lambda pair: pair[0], reverse=True)
+    removed = []
+    for index, (mtime, item) in enumerate(frames):
+        if index >= keep or now - mtime > max_age_s:
+            try:
+                item.unlink()
+                removed.append(item)
+            except OSError:
+                pass  # another process removed it, or the folder is read only
+    return removed
+
+
+def write_frame(filename, image):
+    """Save one alert frame where a chat post can attach it, then prune the folder."""
+    target = frame_dir()
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
+    path.write_bytes(image)
+    prune_frames(target)
+    return path
+
+
+# Which printer families have the in-print camera watch, by adapter
+# connection. Everything else gets idle plate checks only (auto light-off,
+# the next-plate offer), never in-print verdicts. Auto-pause is the same
+# opt-in decision (auto_pause_decision) on every watched family.
+IN_PRINT_WATCH = {
+    "moonraker": "every print on the printer, from the listener",
+    "bambulab_lan": "prints Print Handy launched, from the launched-print monitor",
+}
+FAMILY_NAMES = {
+    "moonraker": "Moonraker (Klipper)",
+    "bambulab_lan": "Bambu Lab",
+    "prusalink": "PrusaLink",
+    "octoprint": "OctoPrint",
+    "elegoo_sdcp": "Elegoo SDCP",
+    "flashforge_stock": "stock Flashforge",
+    "offline": "offline (no printer connection)",
+}
+
+
+def coverage_report(cfg, api_key):
+    """``[(ok, detail)]``: the camera watch per configured printer, for ``bot check``.
+
+    Each printer's family coverage (:func:`watch_coverage`) and whether the
+    watch can run at all (a vision route, :func:`watch_unavailable_reason`).
+    Offline: no camera, endpoint or download is touched. A route pinned with
+    ``vision.watch_source`` that cannot work is a failed row; an install with
+    no route at all keeps the watch off by design, so it only says so.
+    """
+    section = (cfg or {}).get("visual_watch") or {}
+    if section.get("enabled") is False:
+        return [(True, "off (visual_watch.enabled is false)")]
+    try:
+        reason = watch_unavailable_reason(api_key, prefetch=False)
+    except Exception as exc:
+        reason = f"the vision route could not be checked ({exc})"
+    pinned = local_vision.watch_source(cfg) in ("endpoint", "local")
+    entries = [e for e in (cfg or {}).get("printers") or [] if isinstance(e, dict)]
+    if not entries:
+        entries = [{"id": "", "model": ((cfg or {}).get("printer") or {}).get("model")}]
+    rows = []
+    for entry in entries:
+        connection = None
+        try:
+            from .. import printers as _printers
+            model = _printers.MODELS.get(str(entry.get("model") or ""))
+            connection = getattr(getattr(model, "vendor", None), "connection", None)
+        except Exception:
+            connection = None
+        watched, text = watch_coverage(connection)
+        label = f"{entry['id']}: " if entry.get("id") and len(entries) > 1 else ""
+        if watched and reason:
+            rows.append((not pinned, f"{label}{text}; not running: {reason}"))
+        elif watched:
+            mode = "auto-pause on" if watch_settings(cfg)["auto_pause_early"] else "alert-only"
+            rows.append((True, f"{label}{text} ({mode})"))
+        else:
+            rows.append((True, f"{label}{text}"))
+    return rows
+
+
+def watch_coverage(connection):
+    """``(watched, text)``: whether a printer family has the in-print watch, in plain words."""
+    name = FAMILY_NAMES.get(connection, connection or "this printer family")
+    scope = IN_PRINT_WATCH.get(connection)
+    if scope:
+        return True, f"{name}: in-print watch for {scope}"
+    return False, f"{name}: no in-print watch (idle plate checks only)"
 
 # Stage 2 stall wording (#455 item 4): a stall alert names its differential
 # instead of implying one cause. The stall signal itself — layers advanced
@@ -150,29 +328,78 @@ FRAME_CHANGE_PIXEL_DELTA = 6
 FRAME_CHANGE_MIN_FRACTION = 0.01
 
 
-def _decode_gray(image, size):
-    """Decode a JPEG to grayscale at roughly ``size``, cheaply.
+# The 64x48 grayscale thumbnail _frame_changed compares (the stall test).
+FRAME_THUMB_SIZE = (64, 48)
 
-    ``draft`` lets the JPEG decoder scale down by up to 8x while decoding,
-    so a full-resolution frame is never materialized just to be shrunk.
+
+class FrameFacts(NamedTuple):
+    """What one camera check needs from a frame, from a single decode.
+
+    ``dark`` is the frame_dark answer, ``thumb`` the FRAME_THUMB_SIZE
+    grayscale bytes _frame_changed compares, ``signature`` the
+    frame_signature bytes. ``thumb`` and ``signature`` are None when the
+    frame cannot be decoded (and ``dark`` is then False, frame_dark's rule).
     """
-    from PIL import Image
+    dark: bool
+    thumb: bytes | None
+    signature: bytes | None
+
+
+# A check asks three questions of the same frame (is it dark, did it change
+# since the last one, what is its signature), and the last check's frame is
+# asked again as the "before" of the next comparison. Each used to decode the
+# full-resolution JPEG on its own. The facts are computed once per distinct
+# frame and kept for the few most recent frames (small: two thumbnails each).
+_FACTS_CACHE_SIZE = 8
+_facts_cache = {}
+_facts_lock = threading.Lock()
+
+
+def _frame_key(image):
+    return hashlib.blake2b(image, digest_size=16).digest()
+
+
+def _compute_facts(image):
+    from PIL import Image, ImageStat
     import io as _io
-    frame = Image.open(_io.BytesIO(image))
     try:
-        frame.draft("L", size)
+        gray = Image.open(_io.BytesIO(image)).convert("L")
     except Exception:
-        pass
-    return frame.convert("L")
+        return FrameFacts(False, None, None)
+    stat = ImageStat.Stat(gray)
+    dark = stat.mean[0] < DARK_MEAN_MAX and stat.extrema[0][1] <= DARK_PIXEL_MAX
+    return FrameFacts(bool(dark), gray.resize(FRAME_THUMB_SIZE).tobytes(),
+                      gray.resize(FRAME_SIGNATURE_SIZE).tobytes())
+
+
+def frame_facts(image):
+    """The :class:`FrameFacts` of one JPEG frame; the frame is decoded at most once.
+
+    Anything that is not bytes, or cannot be decoded, has no thumbnail or
+    signature and is not dark. Never raises.
+    """
+    if isinstance(image, FrameFacts):
+        return image
+    if not isinstance(image, (bytes, bytearray)) or not image:
+        return FrameFacts(False, None, None)
+    image = bytes(image)
+    key = _frame_key(image)
+    with _facts_lock:
+        cached = _facts_cache.get(key)
+        if cached is not None:
+            _facts_cache[key] = _facts_cache.pop(key)  # most recent last
+            return cached
+    facts = _compute_facts(image)
+    with _facts_lock:
+        _facts_cache[key] = facts
+        while len(_facts_cache) > _FACTS_CACHE_SIZE:
+            _facts_cache.pop(next(iter(_facts_cache)))
+    return facts
 
 
 def frame_signature(image):
     """The comparison signature of one frame (bytes), or None when it cannot be decoded."""
-    try:
-        gray = _decode_gray(image, (FRAME_SIGNATURE_SIZE[0] * 4, FRAME_SIGNATURE_SIZE[1] * 4))
-        return gray.resize(FRAME_SIGNATURE_SIZE).tobytes()
-    except Exception:
-        return None
+    return frame_facts(image).signature
 
 
 def frames_differ(before, after):
@@ -340,24 +567,24 @@ def frame_dark(image):
     handling (a vision failure alerts, it never silently passes).
     """
     try:
-        from PIL import Image, ImageStat
-        import io as _io
-        gray = Image.open(_io.BytesIO(image)).convert("L")
-        stat = ImageStat.Stat(gray)
-        return stat.mean[0] < DARK_MEAN_MAX and stat.extrema[0][1] <= DARK_PIXEL_MAX
+        return frame_facts(image).dark
     except Exception:
         return False
 
 
 def _frame_changed(before, after, threshold=None):
-    """Cheap whole-frame perceptual difference; false means visually unchanged."""
-    from PIL import Image, ImageChops, ImageStat
-    import io as _io
-    a = Image.open(_io.BytesIO(before)).convert("L").resize((64, 48))
-    b = Image.open(_io.BytesIO(after)).convert("L").resize((64, 48))
+    """Cheap whole-frame perceptual difference; false means visually unchanged.
+
+    The mean grey-level difference of the two frames' FRAME_THUMB_SIZE
+    thumbnails (:func:`frame_facts`, so neither frame is decoded again for
+    this). Raises when either frame cannot be decoded, as before.
+    """
+    a, b = frame_facts(before).thumb, frame_facts(after).thumb
+    if a is None or b is None:
+        raise ValueError("a camera frame could not be decoded for comparison")
     if threshold is None:
         threshold = _visual_profile()["diff"]
-    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0] >= threshold
+    return sum(abs(x - y) for x, y in zip(a, b)) / len(a) >= threshold
 
 
 def _strip_json_fence(text):
@@ -383,7 +610,7 @@ def chat_key_ready(api_key) -> bool:
     return bool(api_key())
 
 
-def watch_unavailable_reason(api_key):
+def watch_unavailable_reason(api_key, *, prefetch=True):
     """Why no frame can be judged right now, in plain words; "" when one can.
 
     The judging routes are PRINT_VISION_URL, vision_chat_url with its key,
@@ -393,8 +620,14 @@ def watch_unavailable_reason(api_key):
     only the endpoint routes, and "auto" (the default) counts any of them.
     When the detector would be the route and its model is missing, this
     also starts the background model download (local_vision.prefetch_model),
-    so the download never happens inside a camera check.
+    so the download never happens inside a camera check. ``prefetch=False``
+    (the offline ``bot check``) only reports.
     """
+    if not prefetch:
+        def _start_download():
+            return None
+    else:
+        _start_download = local_vision.prefetch_model
     source = local_vision.watch_source()
     if source == "local":
         if local_vision.detector_ready():
@@ -405,7 +638,7 @@ def watch_unavailable_reason(api_key):
             # detector is not ready; the in-print watch under "local"
             # still judges with the detector only.
             return ""
-        local_vision.prefetch_model()
+        _start_download()
         return ("vision.watch_source is local but the local failure detector is not "
                 f"ready: {local_vision.detector_status()[1]}")
     if os.environ.get("PRINT_VISION_URL"):
@@ -423,7 +656,7 @@ def watch_unavailable_reason(api_key):
                 "(set services.vision_chat_url with CLIPROXY_API_KEY, which a local or "
                 "LAN endpoint does not need, or PRINT_VISION_URL)")
     if local_vision.enabled():
-        local_vision.prefetch_model()
+        _start_download()
         return f"the local failure detector is not ready: {local_vision.detector_status()[1]}"
     return ("no vision endpoint (set services.vision_chat_url with CLIPROXY_API_KEY, which a "
             "local or LAN endpoint does not need, or PRINT_VISION_URL, or enable the local "
@@ -516,7 +749,7 @@ def _detector_verdict(image, streak=None):
     except Exception as exc:
         logger.warning("vision check failed via local detector: %s: %s",
                        type(exc).__name__, exc)
-        return "uncertain", "the vision check could not be completed"
+        return "uncertain", VISION_FAILED_DETAIL
 
 
 def _local_verdict(image, streak=None):
@@ -655,7 +888,7 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         logger.warning("vision check failed via %s: %s: %s",
                        "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
                        type(exc).__name__, exc)
-        return "uncertain", "the vision check could not be completed"
+        return "uncertain", VISION_FAILED_DETAIL
     verdict = str(parsed.get("verdict", "uncertain")).casefold()
     if verdict not in VISUAL_VERDICTS:
         # Model-output drift fails closed: an unrecognized verdict is
@@ -716,6 +949,10 @@ class VisualPrintWatch:
             return (isinstance(elapsed, (int, float))
                     and 0 <= elapsed < self.early_layers * EARLY_SECONDS_PER_LAYER)
         return False
+
+    def failure_alert_due(self, now):
+        """Count one watch failure for this print; True when it should alert now."""
+        return self.failures.failed(now, self.profile["periodic_s"])
 
     def note_empty_idle(self, now):
         """An empty-bed verdict while printing: re-check soon (#913).
@@ -844,9 +1081,11 @@ class VisualPrintWatch:
         self.last_evidence = ""
         self.last_counted = False
         self.auto_paused = False
-        # When the last camera-failure (no snapshot) alert went out, for
-        # the throttle: at most one per periodic interval per print.
-        self.camera_failure_alert_at = None
+        # This print's camera-watch failure episode (FailureEpisode): failed
+        # snapshots, check timeouts and verdict calls that could not judge
+        # share one throttle, at most one alert per periodic interval, and
+        # one notice when checks work again.
+        self.failures = FailureEpisode()
         # The clock-only schedule for a print without layer numbers: whether
         # it has started, the one notice saying so, the fallback clock, and
         # the printing time the last beat saw (for the early window).

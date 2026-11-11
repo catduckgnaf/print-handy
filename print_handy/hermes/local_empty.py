@@ -408,7 +408,8 @@ def capture_frame(cfg=None) -> bytes:
         raise LocalEmptyError("services.camera_snapshot_url is not configured")
     import urllib.request
     try:
-        request = urllib.request.Request(url)
+        from .. import camera_url
+        request = camera_url.request(url)
         with urllib.request.urlopen(request, timeout=8) as response:
             image = response.read(8 * 1024 * 1024 + 1)
     except Exception as exc:

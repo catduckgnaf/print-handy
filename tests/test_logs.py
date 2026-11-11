@@ -333,7 +333,7 @@ def test_listener_log_writes_the_legacy_file_and_the_shared_logger(tmp_path, mon
             raise OSError("socket closed")
         except OSError:
             listener.log(f"connection lost: token=abc12345secret; retry in 5s")
-    written = (tmp_path / "logs" / "listener.log").read_text()
+    written = logs.current_file(tmp_path / "logs" / "listener.log").read_text()
     assert "post ok target=discord:1" in written and "abc12345secret" not in written
     ok, lost = caplog.records
     assert (ok.levelno, lost.levelno) == (logging.INFO, logging.WARNING)
