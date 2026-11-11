@@ -907,8 +907,10 @@ def check_design(info, *, notes=None, cfg=None, declared=True) -> list:
     """Checks of a rendered part against its declaration and the printer.
 
     Returns [(level, text)] with level "fail" (never handed over: the mesh is
-    not a printable solid) or "warn" (printable, but not what was intended,
-    or not proven to fit). The texts are written for the model's repair
+    not a printable solid; a model turn with one is refused, and a dropped
+    model's baseline with one is shown but kept from intake, see
+    ``unprintable``) or "warn" (printable, but not what was intended, or not
+    proven to fit). The texts are written for the model's repair
     prompt and are shown to the user when a finding survives the repairs.
     ``declared=False`` skips the Size comparison (a deterministic parameter
     edit leaves the header's Size line stale by design).
@@ -966,6 +968,13 @@ def check_attempt(attempt, *, notes=None, cfg=None, declared=True) -> list:
         for level, text in check_design(part["info"], cfg=cfg, declared=False):
             findings.append((level, f"part {part['index']} ({part['name']}): {text}"))
     return findings
+
+
+def unprintable(findings) -> list:
+    """The "fail" texts among a version's findings: why it is not a printable
+    solid. A version with any is never handed to intake (#1206)."""
+    return [str(f[1]) for f in (findings or [])
+            if isinstance(f, (list, tuple)) and len(f) == 2 and f[0] == "fail"]
 
 
 # --------------------------------------------------------------------- rendering
@@ -1652,7 +1661,7 @@ class DesignEngine:
         return result
 
     def _refuse_unprintable(self, session, findings):
-        failed = [text for level, text in findings if level == "fail"]
+        failed = unprintable(findings)
         if failed:
             self._discard_attempts(session)
             raise DesignError("the design rendered, but it is not a printable solid: "
