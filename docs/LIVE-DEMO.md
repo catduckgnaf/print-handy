@@ -20,7 +20,7 @@ no build step and no backend.
 - Journeys: a happy path, a too-big refusal with the shrink size
   that fits offered, a spools query, a help journey that shows the
   command list, and unmatched free text, which gets the real bot's
-  short did-not-understand reply and a pointer to `/print-help` —
+  short did-not-understand reply and a pointer to `/print-help`,
   not the command list.
 - A Reset button restarts the session clean.
 - Uploads are theatre only: a picked or dropped file shows its name

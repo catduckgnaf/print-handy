@@ -170,6 +170,52 @@ def test_a_failed_sign_in_does_not_rehash(tmp_path):
         httpd.server_close()
 
 
+
+def test_the_header_path_rehashes_once_and_keeps_upload_links(tmp_path):
+    # #1243: a client that only ever sends the saved password as the
+    # X-WebUI-Token header (the Home Assistant integration) upgrades an
+    # old hash the same way the login form does.
+    data = load_settings(tmp_path)
+    write_old_hash(data)
+    httpd, port = start(data)
+    try:
+        assert httpd.access.needs_rehash
+        # An upload link minted under the old hash keeps working after it.
+        token = upload.create_link(data, httpd.access.credential_fingerprint())
+        assert call(port, "GET", "/api/status", headers={server.TOKEN_HEADER: PASSWORD})[0] == 200
+        after = saved(data)
+        assert after["iterations"] == access._ITERATIONS
+        assert after["username"] == "owner"
+        assert not httpd.access.needs_rehash
+        assert call(port, "GET", "/api/status", headers={server.TOKEN_HEADER: PASSWORD})[0] == 200
+        assert saved(data) == after  # once only
+        assert call(port, "GET", f"/u/{token}")[0] == 200
+        # The form still signs in with the same password, with no second re-hash.
+        assert login(port)[0] == 303
+        assert saved(data) == after
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_a_wrong_header_or_the_environment_token_never_rehashes(tmp_path):
+    data = load_settings(tmp_path)
+    write_old_hash(data)
+    before = saved(data)
+    environ = {"WEBUI_ACCESS_TOKEN": "env-token-xyz"}
+    httpd, port = start(data, environ=environ)
+    try:
+        assert call(port, "GET", "/api/status",
+                    headers={server.TOKEN_HEADER: "wrong passphrase here"})[0] == 401
+        assert call(port, "GET", "/api/status",
+                    headers={server.TOKEN_HEADER: "env-token-xyz"})[0] == 200
+        assert saved(data) == before
+        assert httpd.access.needs_rehash
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 # -- trusted proxies ----------------------------------------------------------
 
 NETS = (ipaddress.ip_network("192.0.2.2/32"), ipaddress.ip_network("198.51.100.0/24"))

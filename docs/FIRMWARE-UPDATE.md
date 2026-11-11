@@ -9,7 +9,7 @@ each supported printer family, and why. It matches the code in
 tests are wrong or this page is stale; both are bugs.
 
 Nothing here is live-hardware verified unless a row says so. The ZMod /
-AD5X behaviour rests on ZMod's and Moonraker's documentation and on
+AD5X behavior rests on ZMod's and Moonraker's documentation and on
 mocked Moonraker responses in `tests/test_firmware_update.py`.
 
 ## The commands

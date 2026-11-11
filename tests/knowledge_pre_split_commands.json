@@ -19,7 +19,7 @@
   "command": "START_PRINT BED_TEMP=<bed C> EXTRUDER_TEMP=<nozzle C> MESH=<mesh profile>",
   "description": "ZMod start macro on the ZMod Flashforge models (AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro). Owns heating, homing and mesh loading for the job; the slicer template emits it and Print Handy checks the temperatures and MESH= argument against the job instead of inventing its own startup.",
   "safety": "Heats the nozzle and bed and moves the toolhead. Only ever runs as part of a confirmed print start, never from a lookup.",
-  "notes": "An explicit Z_OFFSET argument is not part of the normal flow; the saved or native-screen offset is the authority (see docs/AD5X-CONTRACT.md). Scope: Print Handy's Orca templates emit this exact START_PRINT line for all five ZMod models (print_handy/templates/orca/flashforge_*); the AD5X-specific authority rules in the notes live in docs/AD5X-CONTRACT.md."
+  "notes": "An explicit Z_OFFSET argument is not part of the normal flow; the saved or native-screen offset is the authority (see docs/history/AD5X-CONTRACT.md). Scope: Print Handy's Orca templates emit this exact START_PRINT line for all five ZMod models (print_handy/templates/orca/flashforge_*); the AD5X-specific authority rules in the notes live in docs/history/AD5X-CONTRACT.md."
  },
  {
   "id": "zmod.end-print",

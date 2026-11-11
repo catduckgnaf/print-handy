@@ -37,7 +37,9 @@ Fail closed, by name, rather than guess:
 - flush_volumes_vector: its layout semantics are not established in this
   repository (only "two entries per filament" in one synthetic fixture), so
   any remap that would have to permute it refuses and names the key. The
-  identity mapping needs no permutation and passes it through untouched.
+  identity mapping needs no permutation and passes it through untouched, and
+  so does a vector whose entries are all equal (the slicer default, a run of
+  140s): every reordering of it is the same list, whatever its layout (#1155).
 - Metadata/filament_sequence.json under a non-identity mapping: what real
   packages store there beyond the embedded preset record is not established,
   and the preset record is provenance evidence about the *source*, so the
@@ -45,10 +47,27 @@ Fail closed, by name, rather than guess:
 - Embedded plate G-code (Metadata/plate_N.gcode): bare G-code is never
   rewritten in this converter, and its tool commands would contradict the
   new numbering, so its presence refuses the remap.
-- Any member with no classification in MEMBER_HANDLING refuses by name.
+- Any member with no classification (member_handling) refuses by name.
   Classified opaque members (thumbnails, relationship parts, vendor
   records, Auxiliaries/) carry no filament reference the repository knows
   and are preserved byte-for-byte.
+- The standard Bambu Studio / OrcaSlicer members are classified (#1155):
+  the last slice's plate records (Metadata/plate_N.json, which names the
+  filaments that slice used, and plate_N.gcode.md5) are kept under the
+  identity mapping and dropped by name under any other, because they
+  describe a slice of the old numbering and the slicer rewrites them on the
+  next slice; the object-keyed records with no filament reference
+  (cut_information.xml, layer_heights_profile.txt, brim_ear_points.txt) are
+  preserved, and refuse by name when an object map would renumber the
+  objects they key on.
+- Implicit extruder 1 (#1155): a Bambu/Orca object with no extruder, or
+  extruder 0, prints filament 1. Under a mapping that moves filament 1 the
+  object's extruder is written explicitly before remapping, so its unpainted
+  faces keep their filament; a build object with no settings entry to carry
+  it refuses by name rather than print the wrong filament. A PrusaSlicer
+  package is not given object extruders: there an object without one prints
+  the print-wide role extruders of Slic3r_PE.config, which an object
+  extruder would override.
 
 Atomicity (the C1 shell, on the staged-write pattern): the whole
 mapping is validated before any byte is written; the new package is written
@@ -75,6 +94,7 @@ PRUSA_MODEL = 'Metadata/Slic3r_PE_model.config'
 RANGES = 'Metadata/layer_config_ranges.xml'
 SLICE_INFO = 'Metadata/slice_info.config'
 FILAMENT_SEQUENCE = 'Metadata/filament_sequence.json'
+MODEL = '3D/3dmodel.model'
 
 # Per-filament project keys live in color_geometry (its _PER_FILAMENT_KEYS is
 # the established list); imported lazily to avoid a module cycle.
@@ -222,6 +242,19 @@ def unknown_palette_arrays(settings, count):
 
 _PRESERVED_EXACT = frozenset({'[Content_Types].xml', '_rels/.rels', '3D/_rels/3dmodel.model.rels'})
 _GCODE_MEMBER = re.compile(r'Metadata/plate_\d+\.gcode$')
+# Bambu Studio / OrcaSlicer records of the last slice (#1155): plate_N.json
+# lists the filament ids and colors that slice used and the object bounding
+# boxes; plate_N.gcode.md5 is the checksum of that slice's G-code. The slicer
+# rewrites both on the next slice, and both are true only of the old
+# numbering.
+_SLICE_RECORD = re.compile(r'Metadata/plate_\d+\.(?:json|gcode\.md5)$')
+# Records keyed by object with no filament reference (#1155): the cut-object
+# links, variable layer heights and brim ear points. Kept byte-for-byte, as no
+# filament number appears in them; they key on object ids, so an object map
+# that renumbers objects refuses them by name (their key semantics, resource
+# id or 1-based object index, are not established here).
+_OBJECT_KEYED = frozenset({'Metadata/cut_information.xml', 'Metadata/layer_heights_profile.txt',
+                           'Metadata/brim_ear_points.txt'})
 
 
 def _is_preserved(name):
@@ -239,13 +272,22 @@ _HANDLED = frozenset({PROJECT, MODEL_SETTINGS, PRUSA_CONFIG, PRUSA_MODEL, RANGES
 
 
 def member_handling(name):
-    """'remap', 'preserve', 'refuse-gcode', 'refuse-sequence' or None (unclassified)."""
+    """How remap_package treats a member, or None when it is unclassified.
+
+    'remap', 'preserve', 'slice-record' (kept under the identity mapping,
+    dropped by name otherwise), 'object-keyed' (preserved; refused by name
+    under an object map), 'refuse-gcode' or 'refuse-sequence'.
+    """
     if name in _HANDLED:
         return 'remap'
     if name == FILAMENT_SEQUENCE:
         return 'refuse-sequence'
     if _GCODE_MEMBER.search(name):
         return 'refuse-gcode'
+    if _SLICE_RECORD.search(name):
+        return 'slice-record'
+    if name in _OBJECT_KEYED:
+        return 'object-keyed'
     if name.lower().endswith('.model'):
         return 'remap'  # paint attributes only; geometry bytes otherwise untouched
     if _is_preserved(name):
@@ -307,6 +349,8 @@ def permute_project_settings(settings, mapping, *, source_count=None):
         if key == 'flush_volumes_matrix':
             continue  # permuted below, on both axes
         if key == 'flush_volumes_vector':
+            if len(set(map(str, value))) <= 1:
+                continue  # every reordering of a uniform vector is itself, whatever the layout
             if any(mapping[n] != n for n in range(1, count + 1)):
                 raise RuntimeError('flush_volumes_vector cannot be remapped: its layout semantics '
                                    'are not established, so no permutation of it is honest; the '
@@ -417,6 +461,63 @@ def remap_extruder_metadata(data, mapping, *, member):
     return re.sub(rb'(<metadata[^>]*key="extruder" value=")(\d+)(")', fix, data)
 
 
+_OBJECT_BLOCK = re.compile(rb'(<object\b[^>]*\bid="(\d+)"[^>]*>)(.*?)(</object>)', re.S)
+_OBJECT_EXTRUDER = re.compile(rb'(<metadata[^>]*key="extruder" value=")(\d+)(")')
+
+
+def _object_level_extruder(body):
+    """The extruder an object block names before its first part or volume, or None."""
+    child = re.search(rb'<(?:part|volume)\b', body)
+    found = _OBJECT_EXTRUDER.search(body[:child.start()] if child else body)
+    return int(found.group(2)) if found else None
+
+
+def build_object_ids(model):
+    """Object ids the 3D/3dmodel.model build places (the objects that print)."""
+    return [raw.decode() for raw in re.findall(rb'<item\b[^>]*\bobjectid="(\d+)"', model or b'')]
+
+
+def explicit_object_extruders(data, mapping, object_ids, *, member):
+    """Write each object's implicit filament 1 explicitly when the mapping moves filament 1.
+
+    An object whose Bambu/Orca model_settings.config entry names no
+    extruder, or extruder 0, prints filament 1. The extruder remap rewrites only values that are
+    written, so under a mapping that moves filament 1 such an object, and
+    every unpainted face and inheriting part of it, would print the filament
+    that now sits in slot 1. This writes extruder 1 on it first, so the
+    remap that follows takes it to mapping[1]. Part- and volume-level 0
+    still means "inherit the object's", which is now explicit. A build
+    object with no settings entry refuses by name. Returns (bytes, ids made
+    explicit); unchanged bytes when the mapping keeps filament 1.
+    """
+    if mapping.get(1, 1) == 1:
+        return data, []
+    made, seen = [], set()
+
+    def fix(match):
+        head, oid, body, tail = match.group(1), match.group(2).decode(), match.group(3), match.group(4)
+        seen.add(oid)
+        child = re.search(rb'<(?:part|volume)\b', body)
+        own, rest = (body[:child.start()], body[child.start():]) if child else (body, b'')
+        found = _OBJECT_EXTRUDER.search(own)
+        if found and int(found.group(2)) != 0:
+            return match.group(0)
+        made.append(oid)
+        if found:
+            own = own[:found.start()] + found.group(1) + b'1' + found.group(3) + own[found.end():]
+        else:
+            own = b'<metadata key="extruder" value="1"/>' + own
+        return head + own + rest + tail
+
+    out = _OBJECT_BLOCK.sub(fix, data)
+    missing = [oid for oid in object_ids if oid not in seen]
+    if missing:
+        raise RuntimeError(f'{member} has no entry for build object(s) {missing}, so their implicit '
+                           'filament 1 cannot be written explicitly; refusing a remap that moves '
+                           'filament 1 rather than print them with the wrong filament')
+    return out, made
+
+
 def remap_prusa_member(data, mapping):
     """Permute a Slic3r_PE.config's palette lists and remap its support extruders."""
     lines = data.decode('utf-8', 'replace').splitlines()
@@ -458,7 +559,7 @@ def _remap_model_member(data, mapping):
     return painted_geometry.rewrite_paint_bytes(data, table)
 
 
-def _validate_consistency(payload, mapping):
+def _validate_consistency(payload, mapping, object_map=None):
     """Re-read the staged package: every filament reference resolves under the mapping."""
     dest_count = len(mapping)
     for name, data in payload.items():
@@ -498,6 +599,16 @@ def _validate_consistency(payload, mapping):
                 if value is None or value > dest_count:
                     raise RuntimeError(f'remapped project {key} still names a filament outside '
                                        'the destination numbering')
+    if mapping.get(1, 1) != 1 and MODEL_SETTINGS in payload:
+        settings_member = MODEL_SETTINGS
+        explicit = {match.group(2).decode() for match in _OBJECT_BLOCK.finditer(payload[settings_member])
+                    if _object_level_extruder(match.group(3)) not in (None, 0)}
+        object_map = object_map or {}
+        implicit = [object_map.get(oid, oid) for oid in build_object_ids(payload.get(MODEL))
+                    if object_map.get(oid, oid) not in explicit]
+        if implicit:
+            raise RuntimeError(f'remapped {settings_member} leaves build object(s) {implicit} on '
+                               'implicit filament 1, which the mapping moves')
     if layer_gcode.MEMBER in payload:
         for row in layer_gcode.parse(payload[layer_gcode.MEMBER]):
             if row['kind'] == 'tool_change' and row['source_extruder'] not in set(mapping.values()):
@@ -570,7 +681,19 @@ def remap_package(source, target, mapping, object_map=None):
         names = archive.namelist()
         payload = {name: archive.read(name) for name in names}
     identity = all(mapping[n] == n for n in mapping)
-    notes, rewritten = [], []
+    notes, rewritten, dropped = [], [], []
+    object_ids = build_object_ids(payload.get(MODEL))
+    renumbers = any(k != v for k, v in object_map.items())  # an identity object map renumbers nothing
+    # A PrusaSlicer package is excluded: an object with no extruder there
+    # prints the print-wide role extruders of Slic3r_PE.config, and writing
+    # an object extruder would override those roles (remap_prusa_member).
+    settings_member = MODEL_SETTINGS if MODEL_SETTINGS in payload else None
+    prusa_package = PRUSA_CONFIG in payload or PRUSA_MODEL in payload
+    if settings_member is None and not prusa_package and mapping.get(1, 1) != 1 and object_ids:
+        raise RuntimeError(f'the package has no object settings member for build object(s) '
+                           f'{object_ids}, so their implicit filament 1 cannot be written '
+                           'explicitly; refusing a remap that moves filament 1 rather than '
+                           'print them with the wrong filament')
     order = [s for s, _d in sorted(mapping.items(), key=lambda kv: kv[1])]
     palette_count = len(mapping)
     if PROJECT in payload:
@@ -593,7 +716,18 @@ def remap_package(source, target, mapping, object_map=None):
             raise RuntimeError('Metadata/filament_sequence.json cannot be remapped: its sequence '
                                'semantics are not established, and its embedded preset record is '
                                'provenance evidence about the source; refusing a non-identity remap')
-        if handling == 'preserve':
+        if handling == 'object-keyed' and renumbers:
+            raise RuntimeError(f'3MF member {name} keys on object ids whose numbering is not '
+                               'established here; refusing to renumber objects under it')
+        if handling == 'slice-record' and not identity:
+            # The last slice's record, true only of the old numbering; the
+            # slicer writes a new one on the next slice.
+            del payload[name]
+            dropped.append({'member': name, 'reason': 'record of the previous slice under the '
+                                                      'old filament numbering; the next slice '
+                                                      'writes a new one'})
+            continue
+        if handling in ('preserve', 'object-keyed', 'slice-record'):
             continue
         data = payload[name]
         if name == PROJECT:
@@ -601,7 +735,13 @@ def remap_package(source, target, mapping, object_map=None):
             notes += project_notes
             payload[name] = json.dumps(project, indent=4).encode()
         elif name in (MODEL_SETTINGS, PRUSA_MODEL):
-            out = remap_extruder_metadata(data, mapping, member=name)
+            out = data
+            if name == settings_member:
+                out, made = explicit_object_extruders(out, mapping, object_ids, member=name)
+                if made:
+                    notes.append(f'object(s) {made} printed implicit filament 1; written explicitly '
+                                 f'before the remap so they keep it (now filament {mapping[1]})')
+            out = remap_extruder_metadata(out, mapping, member=name)
             if name == MODEL_SETTINGS:
                 out, metadata_notes = remap_filament_metadata(out, mapping, order, palette_count,
                                                               member=name)
@@ -636,13 +776,15 @@ def remap_package(source, target, mapping, object_map=None):
             payload[name] = _remap_model_member(data, mapping)
         if payload[name] != data:
             rewritten.append(name)
-    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping),
+    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping, object_map),
                              source=source)
     from .orca_adapter import digest
     return {'source_sha256': digest(source), 'converted_sha256': digest(target),
             'mapping': {str(k): v for k, v in sorted(mapping.items())},
             'object_map': object_map, 'rewritten_entries': sorted(rewritten),
-            'preserved_entries': sorted(n for n in names if n not in rewritten),
+            'preserved_entries': sorted(n for n in names if n not in rewritten
+                                        and n in payload),
+            'dropped_entries': dropped,
             'notes': notes,
             'governing_rules': ['per-filament-array-permutation', 'flush-matrix-permutation',
                                 'flush-vector-unestablished-refusal', 'support-designation-remap',

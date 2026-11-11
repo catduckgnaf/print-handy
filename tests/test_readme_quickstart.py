@@ -101,6 +101,54 @@ class ReadmeQuickstartExtraction(unittest.TestCase):
             quickstart._request, quickstart.time.sleep = original, sleep
         self.assertEqual(calls, ["/healthz", "/healthz"])
 
+    def test_requests_carry_the_cookies_the_web_ui_set(self):
+        # Web chat is per browser session (#1145): the script must send back
+        # the chat cookie or it never sees its own /print-help reply.
+        sent = []
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self, cookies):
+                self._cookies = cookies
+
+            def getheaders(self):
+                return [("Set-Cookie", c) for c in self._cookies]
+
+            def getheader(self, name):
+                return None
+
+            def read(self):
+                return b""
+
+        class FakeConnection:
+            replies = [["ph_chat=abc; HttpOnly; SameSite=Strict; Path=/"], []]
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def request(self, method, path, body=None, headers=None):
+                sent.append(dict(headers or {}))
+
+            def getresponse(self):
+                return FakeResponse(FakeConnection.replies.pop(0))
+
+            def close(self):
+                pass
+
+        original_conn, saved = quickstart.http.client.HTTPConnection, dict(quickstart._COOKIES)
+        quickstart.http.client.HTTPConnection = FakeConnection
+        quickstart._COOKIES.clear()
+        try:
+            quickstart._request("GET", "/chat")
+            quickstart._request("GET", "/chat")
+        finally:
+            quickstart.http.client.HTTPConnection = original_conn
+            quickstart._COOKIES.clear()
+            quickstart._COOKIES.update(saved)
+        self.assertNotIn("Cookie", sent[0])
+        self.assertEqual(sent[1].get("Cookie"), "ph_chat=abc")
+
     def test_cleanup_sudo_never_prompts(self):
         source = (ROOT / "tests/docker/readme_quickstart.py").read_text(encoding="utf-8")
         self.assertIn('["sudo", "-n", "rm"', source)

@@ -273,17 +273,20 @@ def _exclusion_rectangles(polygon):
     return rects
 
 
-def _declared_exclusions():
-    """Bed exclusion rectangles (x0, y0, x1, y1) declared by the current printer model.
+def _declared_exclusions(state=None):
+    """Bed exclusion rectangles (x0, y0, x1, y1) declared by the job printer's model.
 
-    Read from the model adapter's sourced facts (``bed_exclude_area``, a
-    polygon in bed coordinates) and decomposed into the disjoint zones the
-    polygon actually covers (see :func:`_exclusion_rectangles`). Models that
-    declare none — and any lookup problem — mean no exclusions.
+    The model is ``state['printer_model']`` when the caller names it (intake
+    does, see prepared_intake._fit_state), else the default printer's, the
+    only printer of a single-printer install (#1195). Read from the model
+    adapter's sourced facts (``bed_exclude_area``, a polygon in bed
+    coordinates) and decomposed into the disjoint zones the polygon actually
+    covers (see :func:`_exclusion_rectangles`). Models that declare none — and
+    any lookup problem — mean no exclusions.
     """
     try:
         from .. import printers
-        key = settings.current()['printer'].get('model')
+        key = (state or {}).get('printer_model') or settings.current()['printer'].get('model')
         model = printers.MODELS.get(key) if key else None
         facts = getattr(getattr(model, 'adapter', None), 'facts', None) or {}
         polygon = list(getattr(facts.get('bed_exclude_area'), 'value', None) or ())
@@ -539,7 +542,7 @@ def per_part_fit(source, bed=None, height=None, exclusions=None, brim_policy=Non
     usable = (bed_x - 2 * (edge + feature), bed_y - 2 * (edge + feature))
     usable_no_brim = (bed_x - 2 * edge, bed_y - 2 * edge)
     if exclusions is None:
-        exclusions = _declared_exclusions()
+        exclusions = _declared_exclusions(state)
     exclusions = [tuple(float(v) for v in rect) for rect in exclusions]
     manifest = inventory(source)
     names = {}
@@ -779,7 +782,7 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
         groups.setdefault(object_to_plate.get(object_id, 1), {})[object_id] = keys
 
     if exclusions is None:
-        exclusions_eff = _declared_exclusions()
+        exclusions_eff = _declared_exclusions(state)
     else:
         exclusions_eff = [tuple(float(v) for v in rect) for rect in exclusions]
     result = []

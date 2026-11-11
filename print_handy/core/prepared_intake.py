@@ -1141,6 +1141,13 @@ def model_files(event):
             if (path := Path(str(p))).suffix.lower() in MODEL_FILE_EXTS and path.is_file()]
 
 
+def archive_files(event):
+    """Dropped .zip archives of model sources (#1204 item 3); a .3mf is never one of these."""
+    from .source_archive import ARCHIVE_EXTS
+    return [path for p in (getattr(event, 'media_urls', None) or [])
+            if (path := Path(str(p))).suffix.lower() in ARCHIVE_EXTS and path.is_file()]
+
+
 def model_file(event):
     """Single-file compatibility selector for existing design/edit callers."""
     hits = model_files(event)
@@ -1171,6 +1178,46 @@ def upload_job_set(paths):
         'sources': [{'n': i, 'name': name, 'title': Path(name).stem, 'path': str(path)}
                     for i, (name, path) in enumerate(zip(names, paths), 1)],
     }
+
+
+ARCHIVE_STAGING_KEEP_S = 7 * 24 * 3600
+
+
+def archive_job(archives, staging):
+    """A dropped ZIP as the same parts inventory a multi-file upload gets (#1204 item 3).
+
+    source_archive enumerates and extracts the printable STL/3MF entries
+    (everything else is reported, never extracted); the extracted files go
+    through upload_job_set unchanged, so the part chooser, combiner and
+    project manifest are the ones every other source uses. Each source row
+    keeps its path inside the archive.
+    """
+    import shutil
+    import time as _time
+    from . import source_archive
+    if len(archives) != 1:
+        raise source_archive.ArchiveRefused(
+            f'that message has {len(archives)} ZIP files; send one ZIP per message.')
+    staging = Path(staging)
+    with contextlib.suppress(OSError):
+        for old in staging.parent.glob('*.archive'):
+            if old != staging and _time.time() - old.stat().st_mtime > ARCHIVE_STAGING_KEEP_S:
+                shutil.rmtree(old, ignore_errors=True)
+    paths, report = source_archive.extract(archives[0], staging)
+    job = upload_job_set(paths)
+    for row, part in zip(job['sources'], report['printable']):
+        row['archive_path'] = part['archive_path']
+    stem = Path(re.sub(r'^doc_[0-9a-f]{12}_', '', Path(archives[0]).name)).stem
+    report['archive'] = Path(re.sub(r'^doc_[0-9a-f]{12}_', '', Path(archives[0]).name)).name
+    job['source_kind'] = 'upload_archive'
+    job['source_archive'] = report
+    if len(paths) > 1:
+        job.update(title=f'{stem} ({len(paths)} files)', model_id=stem, slug=_slug(stem) or 'uploaded-archive')
+    return job
+
+
+def _slug(text):
+    return re.sub(r'[^a-z0-9]+', '-', str(text).lower()).strip('-')[:60]
 
 
 def gcode_3mf_message(name):
@@ -2287,14 +2334,40 @@ async def _pick_files(adapter, source, key, rows, timeout):
     return [rows[i] for i in sorted(pick)]
 
 
+def with_design_origin(job, record):
+    """An upload job set marked as a multi-part AI design's handoff (#1204 item 4).
+
+    The design hands its part files over like a multi-file drop, with the
+    design record in the event metadata. The record only names the job and
+    its provenance; every question, fit check and approval after this is the
+    upload path's own. A record that does not name exactly these files is
+    ignored, never half-applied.
+    """
+    if not isinstance(record, dict) or not record.get('session_id'):
+        return job
+    rows = record.get('parts')
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return job  # malformed metadata is ignored, never a crash of the upload's intake
+    names = {str(row.get('file')) for row in rows}
+    if len(job.get('sources') or []) < 2 or {r.get('name') for r in job['sources']} != names:
+        return job
+    job.update(design=dict(record), title=str(record.get('title') or job.get('title')))
+    return job
+
+
 def _combined_source(job, rows, paths, combined):
     """JOB.json source fields for a multi-file job: one row per file, and the combined project for older readers."""
     parts = [dict(row, downloaded_file=str(path)) for row, path in zip(rows, paths)]
     selected = {'kind': 'parts', 'name': Path(combined['path']).name, 'title': _parts_title(rows),
                 'files': [_file_name(r) for r in rows]}
     from . import projects
-    source_kind = 'uploaded_files' if job.get('site') == 'upload' else 'linked_files'
-    project = projects.from_files(job['intake_id'], source_kind, parts, title=job.get('title'))
+    if job.get('design'):  # a multi-part AI design's parts (#1204 item 4): the same builder
+        project = projects.from_design(job['intake_id'], parts, job['design'], title=job.get('title'))
+        source_kind = project['source_kind']
+    else:
+        source_kind = {'upload_archive': 'uploaded_archive', 'upload_collection': 'uploaded_collection'}.get(
+            job.get('source_kind')) or ('uploaded_files' if job.get('site') == 'upload' else 'linked_files')
+        project = projects.from_files(job['intake_id'], source_kind, parts, title=job.get('title'))
     return {'selected_source': selected, 'selected_sources': parts,
             'downloaded_file': combined['path'], 'combined_objects': combined['objects'],
             'project': project, 'project_id': project['project_id'],
@@ -2619,14 +2692,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     source = event.source
     url = None if reuse else model_link(event.text)
     uploads = [] if (url or reuse) else model_files(event)
+    # A ZIP is opened only when the message has no STL/3MF of its own (#1204 item 3).
+    archives = [] if (url or reuse or uploads) else archive_files(event)
     mid = getattr(event, 'message_id', None)
-    if not (url or uploads or reuse) or not mid:
+    if not (url or uploads or archives or reuse) or not mid:
         raise ValueError('plain model link requires a stable Discord message ID')
     iid = mj.intake_id_from_message(source, mid)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     receipt_path = root / (iid + '.json')
     origin = (url or (f'reprint:{reuse.get("intake_id")}' if reuse else None)
+              or (f'upload-archive:{Path(archives[0]).name}' if archives else None)
               or (f'upload:{upload_job(uploads[0])["sources"][0]["name"]}' if len(uploads) == 1
                   else f'upload-project:{len(uploads)}-files'))
     receipt = {'intake_id': iid, 'url': origin, 'status': 'INSPECTING_SOURCE',
@@ -2671,7 +2747,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 job = reuse_job(reuse)
                 url = reuse.get('url')
         elif uploads:
-            job = upload_job_set(uploads)
+            job = with_design_origin(upload_job_set(uploads), event_metadata.get('design_handoff'))
+            collected = event_metadata.get('upload_collection')
+            if isinstance(collected, dict) and len(uploads) > 1:
+                # Collected over several messages (#1204 item 2): the same
+                # inventory, marked so the project records where it came from.
+                job['source_kind'] = 'upload_collection'
+                job['upload_collection'] = collected
+            skipped = archive_files(event)
+            if skipped:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata, content=(
+                    f"I left out {', '.join(re.sub(r'^doc_[0-9a-f]{12}_', '', p.name) for p in skipped)}: "
+                    'a ZIP is opened only when it is sent in its own message.'))
+        elif archives:
+            job = await asyncio.to_thread(archive_job, archives, root / (iid + '.archive'))
+            from .source_archive import summary as _archive_summary
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=_archive_summary(job['source_archive']))
         else:
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
@@ -2776,7 +2868,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
         # and slicer all read this copy. The user's bytes are kept under source/original/.
         await asyncio.to_thread(intake_working_copy, path)
-        if job['site'] == 'upload':
+        if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         job['audit'] = await _with_stop(adapter, source, key, metadata, large_model_notice(path),
                                         _heavy(mj.audit, path))
@@ -2863,7 +2955,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # cancelled until the operator picks Cancel.
                     try:
                         fit_fraction = await _heavy(orca_adapter.largest_fitting_fraction,
-                                                    path, state, mj.INCH_TO_MM, copy_limit=1)
+                                                    path, fit_state, mj.INCH_TO_MM, copy_limit=1)
                     except Exception:
                         logger.exception('inch fit search failed')
                         fit_fraction = None
@@ -3180,8 +3272,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             try:
                 options = await fit_status.run('trying rotations and smaller sizes',
                                                _heavy(orca_adapter.fit_options, path,
-                                                      {**state, 'fit_rearrange_checked': True}
-                                                      if rearrange_checked else state))
+                                                      {**fit_state, 'fit_rearrange_checked': True}
+                                                      if rearrange_checked else fit_state))
             except Exception as exc:
                 receipt['status'] = 'FIT_UNKNOWN'
                 receipt['fit_error'] = str(exc)
@@ -3238,7 +3330,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 split_plan = await fit_status.run('trying a split onto separate plates at 100%',
                                                   _heavy(split_fit.split_plan_100, path,
                                                          int((state.get('bed_mm') or BED)[0]),
-                                                         brim_policy=options.get('brim_policy'), state=state))
+                                                         brim_policy=options.get('brim_policy'), state=fit_state))
             except Exception:
                 split_plan = None
             try:
