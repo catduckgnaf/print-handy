@@ -212,6 +212,32 @@ def take(scope: str, collection_id=None, now=None) -> dict | None:
         return row
 
 
+class IntakeFailed(Exception):
+    """``run_intake`` could not prepare the collected files (not a person's cancel)."""
+
+
+def restore(scope: str, row, now=None) -> bool:
+    """Reopen a taken collection after its intake failed, so Done can be pressed again.
+
+    Never replaces a collection opened in the same scope since; returns
+    whether the row was put back.
+    """
+    now = time.time() if now is None else now
+    with _lock:
+        rows = _live(_load(), now)
+        if scope in rows:
+            return False
+        row = {k: v for k, v in row.items() if k != 'closed_at'}
+        row['updated_at'] = now
+        rows[scope] = row
+        _save(rows)
+    try:
+        (_files_root() / row['collection_id'] / 'collection.json').unlink(missing_ok=True)
+    except OSError:
+        pass
+    return True
+
+
 def _write_closed_marker(row) -> None:
     """Keep the taken collection's file list beside its files, for the expiry sweep."""
     folder = _files_root() / row['collection_id']
@@ -290,7 +316,8 @@ async def handle(event, adapter, *, printer_id, files, run_intake, timeout=None,
 
     ``files`` are the message's STL/3MF uploads and ``archives`` its ZIPs
     (a ZIP is a project by itself, never collected); ``run_intake(paths, row)``
-    runs the normal intake on the collected files and returns its result.
+    runs the normal intake on the collected files and returns its result. When
+    it raises (``IntakeFailed`` or any error), the collection is reopened.
     None means: this message is not about a collection, handle it exactly
     as before.
     """
@@ -376,4 +403,13 @@ async def _finish(scope, collection_id, say, run_intake):
         return {'action': 'skip', 'reason': 'empty upload collection'}
     sweep()
     await say(f"Done adding. Preparing the project from {len(files)} file{'s' if len(files) != 1 else ''}.")
-    return await run_intake([f['path'] for f in files], row)
+    try:
+        return await run_intake([f['path'] for f in files], row)
+    except Exception:
+        # The intake broke, not the person: the collection is reopened with its
+        # files so "done adding" can try again, instead of being lost.
+        restore(scope, row)
+        await say('The project could not be prepared, so it stays open with its '
+                  f"{len(files)} file{'s' if len(files) != 1 else ''}. Type \"done adding\" to try again "
+                  'or "cancel project" to discard it. Nothing was sliced or started.')
+        return {'action': 'skip', 'reason': 'upload collection intake failed; collection reopened'}

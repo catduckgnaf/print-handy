@@ -223,3 +223,36 @@ def test_a_zip_is_never_collected(store, tmp_path):
                                    ask=chat.ask, archives=[z]))
     assert result['reason'] == 'archive not collected' and 'not collected' in chat.sent[0]
     assert uc.current(uc.scope_key(src())) is None and chat.questions == []
+
+
+def test_a_failed_intake_reopens_the_collection(store, tmp_path):
+    """Review of #1220: Done took the collection before intake ran, so an intake
+    failure lost it. It is reopened with its files and Done works again."""
+    a = upload(tmp_path, 'arm_left.stl', b'left', 1)
+    b = upload(tmp_path, 'arm_right.stl', b'right', 2)
+    chat = Chat(['Done adding'])
+
+    async def broken(paths, row):
+        raise uc.IntakeFailed('new model intake unavailable')
+
+    first = S(source=src(), text='add to project', message_id='m1')
+    result = asyncio.run(uc.handle(first, chat, printer_id='ad5x', files=[a, b], run_intake=broken,
+                                   ask=chat.ask))
+    assert result['reason'] == 'upload collection intake failed; collection reopened'
+    assert 'stays open' in chat.sent[-1]
+    row = uc.current(uc.scope_key(src(), 'ad5x'))
+    assert row is not None and 'closed_at' not in row and len(row['files']) == 2
+    assert all(Path(f['path']).is_file() for f in row['files'])
+    # Typing "done adding" now runs the intake on the same two files.
+    assert run(chat, src(), text='done adding')['reason'] == 'intake ran'
+    assert [p.name for p in chat.intakes[0][0]] == ['arm_left.stl', 'arm_right.stl']
+    assert uc.current(uc.scope_key(src(), 'ad5x')) is None
+
+
+def test_restore_never_replaces_a_newer_collection(store, tmp_path):
+    scope = uc.scope_key(src(), 'ad5x')
+    uc.add(scope, [upload(tmp_path, 'old.stl', b'old', 1)])
+    old = uc.take(scope)
+    uc.add(scope, [upload(tmp_path, 'new.stl', b'new', 2)])
+    assert uc.restore(scope, old) is False
+    assert [f['name'] for f in uc.current(scope)['files']] == ['new.stl']

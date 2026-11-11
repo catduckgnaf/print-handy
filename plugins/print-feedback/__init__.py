@@ -4985,6 +4985,9 @@ def _is_affirmative_followup(text: str) -> bool:
     return any(re.search(p, t) for p in patterns)
 
 
+_INTAKE_UNAVAILABLE_REASON = 'new model intake unavailable; no start authorized'
+
+
 async def model_link_dispatch(event, gateway, **kwargs):
     source = getattr(event, 'source', None)
     if (source is None or not _is_bot_platform(source)
@@ -5150,7 +5153,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
                 metadata={'thread_id': source.thread_id} if source.thread_id else None)
         except Exception:
             logger.exception('New model intake failure delivery also failed')
-        return {'action': 'skip', 'reason': 'new model intake unavailable; no start authorized'}
+        return {'action': 'skip', 'reason': _INTAKE_UNAVAILABLE_REASON}
     # A question beside the model is answered from the job the intake just
     # prepared; edits were applied inside the intake (edit_hook above).
     if instruction and edit_hook is None:
@@ -5204,7 +5207,10 @@ async def upload_collection_dispatch(event, gateway, **kwargs):
                 'collection_id': row['collection_id'],
                 'files': [{k: f.get(k) for k in ('n', 'name', 'sha256', 'size', 'message_id')}
                           for f in row.get('files') or []]}})
-        return await model_link_dispatch(collected, gateway)
+        result = await model_link_dispatch(collected, gateway)
+        if isinstance(result, dict) and result.get('reason') == _INTAKE_UNAVAILABLE_REASON:
+            raise upload_collection.IntakeFailed(result['reason'])  # reopen the collection
+        return result
 
     return await upload_collection.handle(
         event, adapter, printer_id=_channel_printer_id(source, gateway), files=files,

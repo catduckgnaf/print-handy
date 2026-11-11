@@ -192,3 +192,20 @@ def test_archive_files_selects_zip_only(tmp_path):
     event = S(media_urls=[str(z), str(three), str(tmp_path / 'missing.zip')])
     assert prepared_intake.archive_files(event) == [z]
     assert prepared_intake.model_files(event) == [three]  # a 3MF keeps its own path
+
+
+@pytest.mark.parametrize('second', ['a/arm.stl', 'a//arm.stl', 'a\arm.stl', './a/arm.stl'])
+def test_two_entries_with_one_path_are_refused(tmp_path, second):
+    """Review of #1220: extraction keyed parts by path, so a repeated path listed
+    two parts in the report but extracted one. The ZIP is refused instead."""
+    path = tmp_path / 'dup.zip'
+    import warnings
+    with warnings.catch_warnings(), zipfile.ZipFile(path, 'w') as z:
+        warnings.simplefilter('ignore')  # zipfile warns on an exact duplicate name
+        z.writestr('a/arm.stl', _stl(1))
+        z.writestr(second, _stl(2))
+    with pytest.raises(ArchiveRefused, match='same path'):
+        source_archive.inspect(path)
+    with pytest.raises(ArchiveRefused, match='same path'):
+        source_archive.extract(path, tmp_path / 'out')
+    assert not (tmp_path / 'out').exists()

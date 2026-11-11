@@ -12,7 +12,8 @@ Safety rules, all enforced before a single byte is written:
 
 * the archive is refused outright when any entry is encrypted, a symlink,
   an absolute path, a drive path or a path that climbs out with ``..``
-  (ZIP-slip), and when it is not a readable ZIP at all;
+  (ZIP-slip), when two file entries share one path, and when it is not a
+  readable ZIP at all;
 * bounds on the number of entries, each printable file's uncompressed
   size, the total uncompressed size and every entry's compression ratio
   (a ZIP bomb) are checked from the directory, and the extraction itself
@@ -137,9 +138,16 @@ def inspect(path) -> dict:
         infos = archive.infolist()
         if len(infos) > MAX_ENTRIES:
             raise ArchiveRefused(f'{label} has {len(infos):,} entries; the limit is {MAX_ENTRIES:,}.')
-        printable, ignored, total = [], [], 0
+        printable, ignored, total, seen = [], [], 0, set()
         for info in infos:
             member = _safe_member_path(info.filename)
+            if not info.is_dir():
+                # Two entries with one path (after normalizing "\\", "//" and "./")
+                # are ambiguous: extraction would keep one and the report list both.
+                if str(member) in seen:
+                    raise ArchiveRefused(f'{label} has two entries with the same path ({member}); '
+                                         'send a ZIP where every file has its own name.')
+                seen.add(str(member))
             if info.flag_bits & 0x1:
                 raise ArchiveRefused(f'{label} is encrypted ({info.filename}); send an unencrypted ZIP.')
             if _is_symlink(info):
