@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from print_handy import settings
 from print_handy.webui import config as config_api
+from print_handy.webui import data as data_module
 from print_handy.webui import pages as pages_module
 from print_handy.webui import server
 from print_handy.webui.catalog import field_by_id
@@ -279,13 +280,12 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(data["logging"]["level"], "DEBUG")
             self.assertEqual(data["discord"]["chat_id"], "12345")
 
-    def test_wrapped_on_save_pins_the_following_data_switch(self):
-        # Stage 5 follow rule through the settings page: data_enabled is
-        # unset, so the form shows it as wrapped_enabled's value (off).
-        # A save that turns Wrapped on must pin the Data value the form
-        # showed — otherwise the restart silently turns the Data tab on
-        # even though the submitted form had it off, and the followed
-        # value is lost exactly as if it had been written explicitly.
+    def test_wrapped_on_save_leaves_the_data_switch_following(self):
+        # #1229 (option 1): data_enabled is unset, so the form shows it
+        # as wrapped_enabled's value (off). A save that turns only
+        # Wrapped on must not write data_enabled: the key stays unset
+        # and the Data tab keeps following Wrapped, as SETTINGS.md and
+        # WEBUI.md document.
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(
                 tmp, "timelapse:\n  wrapped_enabled: false\n")
@@ -295,17 +295,44 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(code, 200, body)
             saved = settings._read(local)
             self.assertIs(saved["timelapse"]["wrapped_enabled"], True)
-            self.assertIs(saved["timelapse"]["data_enabled"], False)
+            self.assertNotIn("data_enabled", saved["timelapse"])
             reloaded = settings.load(local=local, environ={})
             self.assertIs(reloaded["timelapse"]["wrapped_enabled"], True)
-            self.assertIs(reloaded["timelapse"]["data_enabled"], False)
-            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], True)
+            self.assertIs(reloaded["timelapse"]["data_enabled"], True)
+            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], False)
+            self.assertTrue(data_module.data_enabled(reloaded))
 
-    def test_wrapped_off_save_pins_the_following_data_switch(self):
+    def test_wrapped_save_then_reload_shows_the_data_tab_on(self):
+        # #1229 regression, end to end: start from wrapped_enabled false
+        # with data_enabled unset, save Wrapped on through /config, then
+        # reload (a fresh server on the saved file). The Data tab is on:
+        # its toggle renders checked and GET /data is not refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "timelapse:\n  wrapped_enabled: false\n")
+            code, _body = self.request(port, "GET", "/data")
+            self.assertEqual(code, 403)
+            _code, _body, csrf = self.get_config(port, section="wrapped")
+            code, body = self.save_flow(
+                port, environ, csrf, **{"timelapse.wrapped_enabled": "true"})
+            self.assertEqual(code, 200, body)
+            data = settings.load(local=local, environ=environ)
+            httpd = server.make_server(data, environ=environ, port=0,
+                                       snapshot_func=lambda: FAKE_SNAPSHOT)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(httpd.shutdown)
+            self.addCleanup(httpd.server_close)
+            fresh = httpd.server_address[1]
+            _code, page, _csrf = self.get_config(fresh, section="wrapped")
+            self.assertIn("checked", row_segment(page, "timelapse.data_enabled"))
+            code, _body = self.request(fresh, "GET", "/data")
+            self.assertEqual(code, 200)
+
+    def test_wrapped_off_save_leaves_the_data_switch_following(self):
         # The mirror direction: data_enabled unset and shown on (it
-        # follows wrapped_enabled: true); turning Wrapped off in a save
-        # must not drag the Data tab off with it — the Data value the
-        # form showed (on) is pinned by the same save.
+        # follows wrapped_enabled: true). Turning only Wrapped off
+        # leaves data_enabled unset, so the Data tab follows it off.
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(
                 tmp, "timelapse:\n  wrapped_enabled: true\n")
@@ -315,11 +342,38 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(code, 200, body)
             saved = settings._read(local)
             self.assertIs(saved["timelapse"]["wrapped_enabled"], False)
-            self.assertIs(saved["timelapse"]["data_enabled"], True)
+            self.assertNotIn("data_enabled", saved["timelapse"])
             reloaded = settings.load(local=local, environ={})
-            self.assertIs(reloaded["timelapse"]["wrapped_enabled"], False)
-            self.assertIs(reloaded["timelapse"]["data_enabled"], True)
+            self.assertIs(reloaded["timelapse"]["data_enabled"], False)
+            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], False)
+
+    def test_changing_the_data_toggle_pins_it(self):
+        # Changing the Data toggle itself is the operator's explicit
+        # choice: that save writes data_enabled, even in the same save
+        # as a Wrapped change, and it stops following from then on.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "timelapse:\n  wrapped_enabled: true\n")
+            _code, _body, csrf = self.get_config(port, section="wrapped")
+            code, body = self.save_flow(
+                port, environ, csrf, **{"timelapse.wrapped_enabled": None,
+                                        "timelapse.data_enabled": "true"})
+            # Data was shown on and submitted on: unchanged, not pinned.
+            self.assertEqual(code, 200, body)
+            self.assertNotIn("data_enabled", settings._read(local)["timelapse"])
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "timelapse:\n  wrapped_enabled: false\n")
+            _code, _body, csrf = self.get_config(port, section="wrapped")
+            code, body = self.save_flow(
+                port, environ, csrf, **{"timelapse.data_enabled": "true"})
+            self.assertEqual(code, 200, body)
+            saved = settings._read(local)
+            self.assertIs(saved["timelapse"]["data_enabled"], True)
+            self.assertIs(saved["timelapse"]["wrapped_enabled"], False)
+            reloaded = settings.load(local=local, environ={})
             self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], True)
+            self.assertTrue(data_module.data_enabled(reloaded))
 
     def test_status_page_links_to_config(self):
         with tempfile.TemporaryDirectory() as tmp:
