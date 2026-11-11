@@ -141,16 +141,18 @@ def _request(method, path, body=None, headers=None):
 def _wait_webui(timeout=120):
     """Wait until the Web UI answers HTTP on its port.
 
-    Not /healthz: that route is the chat bot's heartbeat verdict, and with no
-    platform token in CI the bot never starts, so it answers 503 for good while
-    the Web UI and its in-process chat work. Any HTTP answer from / means the
-    server is up; ask_for_help then checks what / actually says.
+    Polls /healthz and takes any answer, 503 included: that route is the chat
+    bot's heartbeat verdict, and with no platform token in CI the bot never
+    starts, so it stays 503 while the Web UI and its in-process chat work. Not
+    / either: the first browser navigation to / is the one-time redirect to the
+    walkthrough (walkthrough.offer_once), which ask_for_help checks, so the
+    wait must not spend it.
     """
     deadline = time.monotonic() + timeout
     last = "no connection"
     while time.monotonic() < deadline:
         try:
-            status, _, _ = _request("GET", "/", headers={"Accept": "text/html"})
+            status, _, _ = _request("GET", "/healthz")
             return status
         except OSError as exc:
             last = f"{type(exc).__name__}: {exc}"
