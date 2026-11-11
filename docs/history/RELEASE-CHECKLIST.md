@@ -185,4 +185,4 @@ release checklist issues and the release workflows.
 | A12 | 2.2.2 | Internal notes missed merged PRs and #655's changes for existing installs had no Upgrade line. | `check_release.py` coverage; §2 Upgrade rule. |
 | A13 | 2.2.6 | At the 2.2.6 freeze the internal `Unreleased` section covered only 8 of 25 merged PRs — A12 live again. Found by the 2.2.6 pre-flight sweep; fixed in the bump PR. | `check_release.py` fails closed on exactly this. |
 | A14 | 2.2.6 | Timing baselines were last re-recorded for 2.2.5. | §1 baselines step, done for 2.2.6 from main CI run 42346828094. |
-| A15 | 2.2.5 | The digest pin lands only after publish and needed its own follow-up PR; forgetting it strands the template on the old digest. | §6 digest-pin step. |
+| A15 | 2.2.5 | The digest pin lands only after publish and needed its own follow-up PR; forgetting it strands the template on the old digest. | Superseded: templates follow `:latest` and never pin (#1266); §6 keeps only the DOCKER.md digest PR. |
