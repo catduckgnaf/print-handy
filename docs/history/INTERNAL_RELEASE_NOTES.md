@@ -36,6 +36,7 @@ Merged PRs in the range, one line each:
 - #1144: one-time non-destructive state migration; no hermes mount for new installs (PR #1215).
 - No-reply commit addresses are not personal email in the public-text policy (PR #1231).
 - Restore the 19 corpus model.3mf files #1111 re-zipped (#1155) (PR #1237).
+- Re-record the 2.2.9 slicing-speed baselines from CI run 42975457360; parts-512 keeps its 2.2.7 entry (#1197) (PR #1244).
 - CONTRIBUTING required-checks text matches branch protection exactly (#1141) (PR #1236).
 - Retag requires a published release; post-release issue verifies the :latest digest (#1141) (PR #1234).
 - Name the real Unraid .config folder and drop the stale Compose path count (#1143) (PR #1233).
