@@ -420,7 +420,7 @@ def test_one_slice_reads_each_model_member_once_and_decodes_paint_once(tmp_path)
 
 def test_decode_scope_never_changes_a_verdict(tmp_path):
     source = _painted_source(tmp_path / "painted.3mf")
-    plain = source_colors.inventory.__wrapped__(source)  # outside any scope
+    plain = source_colors._inventory.__wrapped__(Path(source))  # outside any scope
     with painted_geometry.decode_scope():
         scoped = source_colors.inventory(source)
         again = source_colors.inventory(source)
