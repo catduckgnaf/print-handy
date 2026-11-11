@@ -618,23 +618,47 @@ async def _design_handoff(event, gateway, adapter, session, stl_path):
 
     The design flow slices and prints nothing itself: prepare_link runs its
     own fit, colour and confirmation gates from here, unchanged.
+
+    A multi-part design (#1204 item 4) hands its part files over together,
+    exactly like several files dropped in one message, so they become one
+    project_v1 project through the same builder and continue plate by plate
+    through the same next-plate flow. Slice it is not an approval: intake
+    still asks before anything starts, and each later plate asks again.
     """
     import copy as _copy
     import uuid as _uuid
+    from print_handy.core import design as _design
     from print_handy.core import printer_state
     from print_handy.core.link_intake import PromptCancelled
     from print_handy.core.prepared_intake import prepare_link
     source = event.source
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
-    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                       content='Handing the design to the normal intake — it asks the usual '
-                               'questions before anything is sliced.')
+    try:
+        part_paths, record = _design.multipart_handoff(_design_root(_config.cfg()), session)
+    except _design.DesignError as exc:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f'The design could not be handed to intake: {exc} '
+                                   'Nothing was sliced or started.')
+        return {'action': 'skip', 'reason': 'design intake handoff failed'}
+    if part_paths:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f'Handing the {len(part_paths)} parts of the design to the normal '
+                                   'intake as one project — it asks the usual questions before '
+                                   'anything is sliced, and each plate is started separately.')
+    else:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='Handing the design to the normal intake — it asks the usual '
+                                   'questions before anything is sliced.')
     handed = _copy.copy(event)
     handed.text = ''
-    handed.media_urls = [str(stl_path)]
+    handed.media_urls = [str(p) for p in part_paths] or [str(stl_path)]
     handed.message_id = f"design-{session['id']}-{_uuid.uuid4().hex[:8]}"
     handed.metadata = dict(getattr(event, 'metadata', None) or {})
     handed.metadata['live_session_key'] = gateway._session_key_for_source(source)
+    if record is not None:
+        handed.metadata['design_handoff'] = record
+    else:
+        handed.metadata.pop('design_handoff', None)
     root = _state_dir() / 'model-link-intakes'
     pid = _routed_printer_id(source, gateway)
     candidates = _undecided_printer_ids(source, gateway) if not pid else None
