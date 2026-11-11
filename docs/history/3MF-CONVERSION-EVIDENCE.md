@@ -112,9 +112,17 @@ that are fixed too, with tests in `tests/core/test_usage_reads_1155.py`
   tool and color changes) and `Metadata/Prusa_Slicer_layer_config_ranges.xml`
   (range extruders) are read. The exports do not carry either, so an entry
   that changes the filament makes `layer_changes` or `height_ranges`
-  `unknown` with that reason, never known and empty. Pauses, custom G-code
-  and range extruder 0 change no filament. An unparsable member is
-  `unknown`.
+  `unknown` with that reason, never known and empty. Pauses, custom G-code,
+  range extruder 0 and a range naming its object's own extruder change no
+  filament. An unparsable member is `unknown`.
+- A PrusaSlicer modifier volume (`volume_type` `ParameterModifier`, or the
+  older `modifier` flag, in `Metadata/Slic3r_PE_model.config`) that names an
+  extruder other than 0 and its object's own makes the `modifiers` class
+  `unknown` with the volume named. PrusaSlicer stores the volume as a
+  triangle range of its object's one mesh, which inventory does not split,
+  so the region is not carried with its own filament; it is never a used
+  filament or a new question. Tests: `tests/core/test_prusa_modifier_usage_1155.py`
+  (through `inventory`).
 
 ## Criterion 4: Atomic complete remapping
 
