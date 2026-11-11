@@ -287,7 +287,14 @@ def test_an_object_map_refuses_the_object_keyed_cut_record_by_name(tmp_path):
     source = bambu_project(tmp_path / "project.3mf")
     with pytest.raises(RuntimeError, match=r"cut_information\.xml keys on object ids"):
         package_remap.remap_package(source, tmp_path / "out.3mf", {1: 1, 2: 2, 3: 3},
-                                    object_map={2: 2, 4: 4})
+                                    object_map={2: 5, 4: 4})
+
+
+def test_an_identity_object_map_keeps_the_object_keyed_cut_record(tmp_path):
+    source = bambu_project(tmp_path / "project.3mf")
+    target = tmp_path / "out.3mf"
+    package_remap.remap_package(source, target, {1: 1, 2: 2, 3: 3}, object_map={2: 2, 4: 4})
+    assert _members(target)["Metadata/cut_information.xml"] ==         _members(source)["Metadata/cut_information.xml"]
 
 
 def test_a_non_uniform_flush_vector_still_refuses_by_name(tmp_path):

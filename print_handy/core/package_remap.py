@@ -683,6 +683,7 @@ def remap_package(source, target, mapping, object_map=None):
     identity = all(mapping[n] == n for n in mapping)
     notes, rewritten, dropped = [], [], []
     object_ids = build_object_ids(payload.get(MODEL))
+    renumbers = any(k != v for k, v in object_map.items())  # an identity object map renumbers nothing
     # A PrusaSlicer package is excluded: an object with no extruder there
     # prints the print-wide role extruders of Slic3r_PE.config, and writing
     # an object extruder would override those roles (remap_prusa_member).
@@ -715,7 +716,7 @@ def remap_package(source, target, mapping, object_map=None):
             raise RuntimeError('Metadata/filament_sequence.json cannot be remapped: its sequence '
                                'semantics are not established, and its embedded preset record is '
                                'provenance evidence about the source; refusing a non-identity remap')
-        if handling == 'object-keyed' and object_map:
+        if handling == 'object-keyed' and renumbers:
             raise RuntimeError(f'3MF member {name} keys on object ids whose numbering is not '
                                'established here; refusing to renumber objects under it')
         if handling == 'slice-record' and not identity:
