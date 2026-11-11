@@ -33,7 +33,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 - [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
 - [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
 - [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)
-- [Device best practices](DEVICE-BEST-PRACTICES.md) · [AD5X integration contract](AD5X-CONTRACT.md)
+- [Device best practices](DEVICE-BEST-PRACTICES.md)
 
 ## Troubleshooting
 
@@ -55,7 +55,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 
 - [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
 - [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
-- Historical and internal records, not setup instructions, live in [`history/`](history/): [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
+- Historical and internal records, not setup instructions, live in [`history/`](history/): [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md), the [AD5X implementation contract](history/AD5X-CONTRACT.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
 - [3MF remap inventory](history/3MF-REMAP-INVENTORY.md): which 3MF references a conversion remaps, and where each one lives.
 - [3MF conversion evidence matrix](history/3MF-CONVERSION-EVIDENCE.md): the criterion-by-criterion evidence for the foreign 3MF conversion work.
 - [Geometry soundness audit](history/GEOMETRY_AUDIT.md): what the sizing, rotation, mirroring, bed fit and support checks cover, and their known limits.
