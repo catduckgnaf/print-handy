@@ -791,6 +791,85 @@ async def _run_design_turn(engine, session, instruction, adapter, source, metada
 # Slice it / Change it / Cancel question is open and waiting for an answer.
 _DESIGN_BUSY: dict = {}
 
+_DESIGN_UNEXPECTED_FAILURE = (
+    'That design change did not work, and I could not tell why from here. Nothing was '
+    'sliced or started. If it keeps happening, run `/print-handy bundle` and share the '
+    'bundle so it can be looked into.')
+
+
+def _design_owner(source):
+    """The per-user design key: one design conversation per user per channel/thread."""
+    return f"{source.chat_id}:{source.thread_id or ''}:{getattr(source, 'user_id', '')}"
+
+
+@contextlib.contextmanager
+def _design_claim(owner):
+    """Hold the owner's design claim (P2-151) for one whole design dispatch:
+    every turn, and the question after it. Released however it ends."""
+    _DESIGN_BUSY[owner] = 'turn'
+    try:
+        yield
+    finally:
+        _DESIGN_BUSY.pop(owner, None)
+
+
+async def _design_busy_reply(adapter, source):
+    """The refusal for a second design request while the owner's claim is held."""
+    if adapter is not None:
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='A design turn is already running — let it finish, '
+                                   'then send your change again. Nothing was changed.')
+    return {'action': 'skip', 'reason': 'design turn already running'}
+
+
+def _design_engine(cfg, complete):
+    """The design engine over the same session folder _design_root reads."""
+    from print_handy.core import design
+    return design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
+                               complete, cfg=cfg)
+
+
+async def _no_design_model(messages):
+    """The engine's model seam when no endpoint is configured. Only the
+    no-model paths (undo, a plain parameter edit) run then, so reaching
+    this is a change that needs the model (#1206)."""
+    from print_handy.core import design
+    raise design.DesignError('that change needs the design model, and no design endpoint '
+                             'is configured (see docs/DESIGN.md).')
+
+
+def _design_failure_text(exc):
+    """What to post when a design turn raises: the engine's own words for a
+    DesignError, and an honest "could not tell why" (logged) for anything else."""
+    from print_handy.core import design
+    if isinstance(exc, design.DesignError):
+        return f'That design change did not work: {exc} Nothing was sliced or started.'
+    logger.error('design turn failed unexpectedly', exc_info=exc)
+    return _DESIGN_UNEXPECTED_FAILURE
+
+
+async def _design_slice(event, gateway, adapter, engine, session, stl_path):
+    """Slice it: hand the version on screen to prepared intake, unless it is not
+    a printable solid. Only a dropped model's own baseline (or an undo back to
+    it) can be one; model turns with a "fail" finding are refused in the engine.
+    Such a mesh is never handed over (#1206), so the session waits instead."""
+    from print_handy.core import design
+    failed = design.unprintable(session.get('findings'))
+    if failed:
+        engine.awaiting_revision(session)
+        source = event.source
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(
+            chat_id=source.chat_id, metadata=metadata,
+            content=('This version is not a printable solid (' + '; '.join(failed) + '), so I '
+                     'will not hand it to the intake. Say a change that fixes it, or "cancel". '
+                     'To print the file as it is, drop it again without a design phrase: the '
+                     'intake checks it on its own before anything is sliced.'))
+        return {'action': 'skip', 'reason': 'design not printable'}
+    engine.mark_handed_off(session)
+    return await _design_handoff(event, gateway, adapter, session, stl_path)
+
 
 async def design_dispatch(event, gateway, **kwargs):
     """Serialize design turns per owner around _design_dispatch_turns (P2-151).
@@ -813,7 +892,7 @@ async def design_dispatch(event, gateway, **kwargs):
     if not _is_print_discord_event(event):
         return None
     source = event.source
-    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    owner = _design_owner(source)
     if owner in _DESIGN_BUSY:
         text = str(getattr(event, 'text', '') or '').strip()
         if _design_command_args(text) is None and text.startswith('/'):
@@ -834,19 +913,9 @@ async def design_dispatch(event, gateway, **kwargs):
         if _design_command_args(text) is None and not _design.find_session_for_owner(
                 _design_root(_config.cfg()), owner):
             return None  # no live design session: not a design message
-        adapter = _adapter_for(gateway, source)
-        if adapter is None:
-            return {'action': 'skip', 'reason': 'design turn already running'}
-        metadata = {'thread_id': source.thread_id} if source.thread_id else None
-        await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='A design turn is already running — let it finish, '
-                                   'then send your change again. Nothing was changed.')
-        return {'action': 'skip', 'reason': 'design turn already running'}
-    _DESIGN_BUSY[owner] = 'turn'
-    try:
+        return await _design_busy_reply(_adapter_for(gateway, source), source)
+    with _design_claim(owner):
         return await _design_dispatch_turns(event, gateway, **kwargs)
-    finally:
-        _DESIGN_BUSY.pop(owner, None)
 
 
 async def _design_dispatch_turns(event, gateway, **kwargs):
@@ -887,7 +956,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     from print_handy.core.prepared_intake import model_file
     cfg = _config.cfg()
     root = _design_root(cfg)
-    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    owner = _design_owner(source)
     session = design.find_session_for_owner(root, owner)
 
     # Resolve what this message asks for before any state changes.
@@ -939,13 +1008,19 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
     complete, _kind = _design_transport(cfg)
+    engine = _design_engine(cfg, complete or _no_design_model)
+    # A button word, an undo or a plain parameter edit of the waiting
+    # design needs no model, so a missing endpoint does not refuse it (#1206).
+    model_free = (complete is None and intent[0] == "revision" and session is not None
+                  and (design.typed_choice(text) is not None
+                       or not engine.will_call_model(session, text)))
     design_raw = (cfg.get('design') or {}).get('enabled')
     if design_raw is False:
         await say('Design is not set up: design.enabled is false — set design.enabled = true '
                   '(PRINT_HANDY__DESIGN__ENABLED=true) or remove it to turn design on when a '
                   'model is configured — see docs/DESIGN.md. Nothing was designed.')
         return {'action': 'skip', 'reason': 'design not enabled'}
-    if complete is None:
+    if complete is None and not model_free:
         if design_raw is True:
             await say('Design is enabled but no design model is configured: set '
                       '[design] chat_url/model (or the [llm] values they inherit). '
@@ -957,8 +1032,6 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                   '(or the [llm] values they inherit), or PRINT_HANDY__DESIGN__ENABLED=true with '
                   'a design endpoint — see docs/DESIGN.md. Nothing was designed.')
         return {'action': 'skip', 'reason': 'design not enabled'}
-    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
-                                 complete, cfg=cfg)
     note = ''
     try:
         kind, instruction, file_path, link_url = intent
@@ -973,9 +1046,10 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                 await say('Design cancelled. The files stay in the session folder for a while; '
                           'nothing was sliced or started.')
                 return {'action': 'skip', 'reason': 'design cancelled'}
-            if chosen == design.SLICE_LABEL and current_stl is not None and current_stl.is_file():
-                engine.mark_handed_off(session)
-                return await _design_handoff(event, gateway, adapter, session, current_stl)
+            if chosen == design.SLICE_LABEL and (
+                    design.unprintable(session.get('findings'))
+                    or (current_stl is not None and current_stl.is_file())):
+                return await _design_slice(event, gateway, adapter, engine, session, current_stl)
             if chosen == design.CHANGE_LABEL:
                 await say('Say the change in your next message — e.g. "make it 5 mm taller".')
                 return {'action': 'skip', 'reason': 'design awaiting revision'}
@@ -1045,15 +1119,31 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         await say(f'{asked.question}\n(Answer in your next message — or say "you pick" and '
                   'I will choose a sensible size and tell you what I assumed.)')
         return {'action': 'skip', 'reason': 'design asked a question'}
-    except design.DesignError as exc:
-        await say(f'That design change did not work: {exc} Nothing was sliced or started.')
+    except Exception as exc:
+        await say(_design_failure_text(exc))
         return {'action': 'skip', 'reason': 'design turn failed'}
-    except Exception:
-        logger.exception('design turn failed unexpectedly')
-        await say('That design change did not work, and I could not tell why from here. Nothing was sliced or started. '
-                  'If it keeps happening, run `/print-handy bundle` and share the bundle so it can be looked into.')
-        return {'action': 'skip', 'reason': 'design turn failed'}
-    owner_phase_key = owner
+    return await _design_conversation(event, gateway, adapter, engine, result, note=note)
+
+
+async def _design_conversation(event, gateway, adapter, engine, result, *, note=''):
+    """Post a design turn, then ask "What next for this design?" until the
+    owner slices it, asks for a change, or cancels.
+
+    Shared by /print-design and the edit chat's geometry route (#1206), so
+    both post the same reply (what was made, measured, assumed, and any
+    check finding that survived the repairs), take the same typed answers
+    (a button word or number is that button, any other text is the next
+    turn), and mark the owner's claim "prompt" while the question is open
+    so design_dispatch answers typed text there.
+    """
+    from print_handy.core import design
+    source = event.source
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    owner_phase_key = _design_owner(source)
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
     timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     while True:
         session = result['session']
@@ -1086,8 +1176,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
             # only other text is a change.
             answer = design.typed_choice(answer) or answer
         if answer == design.SLICE_LABEL:
-            engine.mark_handed_off(session)
-            return await _design_handoff(event, gateway, adapter, session, result['stl_path'])
+            return await _design_slice(event, gateway, adapter, engine, session,
+                                       result['stl_path'])
         if answer == design.CHANGE_LABEL:
             engine.awaiting_revision(session)
             await say('Say the change in your next message — e.g. "make it 5 mm taller". '
