@@ -127,6 +127,7 @@ def test_measured_reports_equal_written_ones(tmp_path):
 @pytest.mark.skipif(not CORPUS, reason='corpus-v1 not downloaded here; the model-corpus workflow '
                                        'sets PRINT_HANDY_PRIVATE_CORPUS')
 @pytest.mark.parametrize('rel', CORPUS_PAINTED)
+@pytest.mark.timeout(900)  # a written export of a 4 MB painted model takes seconds per step
 def test_corpus_painted_models_measure_and_fit_like_the_written_export(rel):
     path = Path(CORPUS) / rel
     manifest, decisions = _decisions(path)
