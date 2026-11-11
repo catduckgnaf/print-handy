@@ -42,6 +42,35 @@ class PollAlertTests(unittest.IsolatedAsyncioTestCase):
             await self.poll(lis, E0102)
             self.assertEqual(post.call_count, 2)
 
+    async def test_a_failed_post_releases_its_starter_ping(self):
+        # Regression (review of #1098): the ping was recorded before the
+        # post and never released when the post failed, so the next post
+        # of the same error episode pinged nobody.
+        lis = mel.Listener()
+        lis.state, lis.filename = "printing", "Ghost.gcode"
+        lis.native_error_alerted = None
+        with mock.patch.object(mel, "post", return_value=False) as post, \
+                mock.patch.object(mel, "log"), \
+                mock.patch.object(mel, "save_native_error_alerted"), \
+                mock.patch.object(mel.starter_pings, "ping_for", return_value="42"), \
+                mock.patch.object(mel.starter_pings, "release_ping") as release:
+            await self.poll(lis, E0102)
+        self.assertEqual(post.call_args.kwargs, {"mention_user_id": "42"})
+        release.assert_called_once_with("alert", job_key="Ghost.gcode", episode="native-error:E0102:3")
+
+    async def test_a_delivered_post_keeps_its_starter_ping(self):
+        lis = mel.Listener()
+        lis.state, lis.filename = "printing", "Ghost.gcode"
+        lis.native_error_alerted = None
+        with mock.patch.object(mel, "post", return_value=True) as post, \
+                mock.patch.object(mel, "log"), \
+                mock.patch.object(mel, "save_native_error_alerted"), \
+                mock.patch.object(mel.starter_pings, "ping_for", return_value="42"), \
+                mock.patch.object(mel.starter_pings, "release_ping") as release:
+            await self.poll(lis, E0102)
+        self.assertEqual(post.call_count, 1)
+        release.assert_not_called()
+
     async def test_idle_errors_do_not_alert(self):
         lis = mel.Listener()
         lis.state = "standby"
