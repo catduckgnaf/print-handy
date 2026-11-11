@@ -42,6 +42,7 @@ import re
 import time
 import urllib.error
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 UPDATE_STATUS_PATH = "/machine/update/status"
 UPDATE_REFRESH_PATH = "/machine/update/refresh"
@@ -149,6 +150,10 @@ class Component:
     # the OS distribution in /machine/system_info when the Update Manager
     # could not read the component's checkout.
     source: str = "update_manager"
+    # Why Moonraker marks the component invalid (``is_valid: false``), for
+    # instance a dirty repo. Moonraker refuses to update an invalid component,
+    # so Print Handy never offers or requests one (#1295).
+    invalid: str | None = None
 
     @property
     def update_available(self) -> bool:
@@ -171,6 +176,11 @@ class Component:
 @dataclass(frozen=True)
 class UpdateStatus:
     components: tuple = ()          # tuple[Component, ...]
+    # Moonraker's own GitHub API budget (unauthenticated: 60 requests an hour
+    # across every repo it checks). At 0, git and web components read "?"
+    # until the reset time, a UNIX timestamp.
+    github_remaining: int | None = None
+    github_reset: float | None = None
 
     def component(self, name):
         # ZMod's Moonraker names the component "Z-Mod"; callers ask for "zmod".
@@ -224,6 +234,11 @@ def parse_update_status(payload) -> UpdateStatus:
     for name, raw in info.items():
         if not isinstance(raw, dict):
             raise FirmwareError(f"Moonraker's update-status entry for {name!r} was not an object")
+        if not raw:
+            # An empty entry is a placeholder, not a component: ZMod's Moonraker
+            # lists `moonraker` and `klipper` as {} beside its real `moon` and
+            # `klippy` entries (live AD5X, 2026-11-11, #1295).
+            continue
         current = _version_str(raw.get("version")) or _version_str(raw.get("current_version"))
         remote = (_version_str(raw.get("remote_version"))
                   or _version_str(raw.get("available_version"))
@@ -231,8 +246,64 @@ def parse_update_status(payload) -> UpdateStatus:
         count = raw.get("package_count")
         components.append(Component(name=str(name), current=current, remote=remote,
                                     package_count=count if isinstance(count, int)
-                                    and not isinstance(count, bool) else 0))
-    return UpdateStatus(tuple(components))
+                                    and not isinstance(count, bool) else 0,
+                                    invalid=_invalid_reason(raw)))
+    remaining = payload["result"].get("github_requests_remaining")
+    reset = payload["result"].get("github_limit_reset_time")
+    return UpdateStatus(
+        tuple(components),
+        github_remaining=remaining if isinstance(remaining, int)
+        and not isinstance(remaining, bool) else None,
+        github_reset=float(reset) if isinstance(reset, (int, float))
+        and not isinstance(reset, bool) else None)
+
+
+def _invalid_reason(raw):
+    """Moonraker's reason a component is invalid, or None when it is valid.
+
+    Only an explicit ``is_valid: false`` counts. The reason is Moonraker's own
+    warnings, joined, so the operator sees what Moonraker sees.
+    """
+    if raw.get("is_valid") is not False:
+        return None
+    warnings = [" ".join(str(w).split()) for w in raw.get("warnings") or ()
+                if str(w).strip()]
+    return "; ".join(warnings) or "Moonraker marks it invalid"
+
+
+def _edited_moonraker_conf_hint(status, entry):
+    """The fix when ZMod's own moonraker.conf was edited, or None.
+
+    ZMod's moonraker.conf lives in the Z-Mod repo and starts "Do not edit this
+    file. All edits should be made to mod_data/user.moonraker.conf". An
+    installer that appends to it (HelixScreen's does) makes the repo dirty, and
+    Moonraker then refuses to update ZMod.
+    """
+    if entry is None or entry.firmware_family != "zmod":
+        return None
+    zmod = status.component("zmod")
+    if zmod is None or not zmod.invalid or "moonraker.conf" not in zmod.invalid:
+        return None
+    return ("ZMod's `moonraker.conf` has been edited (an installer such as "
+            "HelixScreen's appends its own section to it), so Moonraker sees the "
+            "Z-Mod repo as modified and will not update it. ZMod says added "
+            "sections belong in `mod_data/user.moonraker.conf`: move the added "
+            "section there, remove it from `moonraker.conf`, restart Moonraker, "
+            "and run `/print-firmware` again.")
+
+
+def _github_limit_note(status):
+    """Why versions read "?" when Moonraker has used up its GitHub budget."""
+    if status.github_remaining != 0 or not status.remotes_unknown:
+        return None
+    when = ""
+    if status.github_reset:
+        when = (" It resets at "
+                + datetime.fromtimestamp(status.github_reset, timezone.utc).strftime("%H:%M UTC")
+                + ".")
+    return ("Moonraker has used up GitHub's hourly limit for update checks "
+            "(60 an hour without a GitHub token), which is why latest versions "
+            f"read as not reported.{when} Check again after that.")
 
 
 def fetch_status(transport, *, refresh=False) -> UpdateStatus:
@@ -405,6 +476,9 @@ def _component_line(component, *, eligible):
             return f"- **system**: {component.package_count} system packages available"
         return "- system: system packages up to date"
     current = component.current or "version not reported"
+    if component.update_available and component.invalid:
+        return (f"- **{component.name}**: {current} -> {component.remote} available, "
+                f"but Moonraker will not apply it ({component.invalid})")
     if component.update_available:
         line = f"- **{component.name}**: {current} -> {component.remote} available"
         if eligible:
@@ -441,6 +515,9 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
         lines.append(f"\nThe printer did not report the latest version for {names}, so "
                      "Print Handy cannot tell whether an update exists for "
                      f"{'it' if len(unknown) == 1 else 'them'}. Check in Fluidd or Mainsail.")
+        limit = _github_limit_note(status)
+        if limit:
+            lines.append(limit)
     elif not status.updates_available:
         lines.append("\nEverything Print Handy can check here is up to date.")
     if entry is not None and entry.vendor in FORK_VENDORS:
@@ -456,7 +533,10 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
                      "the `zmod` component in their first two version numbers, and "
                      "component updates fail while they disagree. Update the ZMod base "
                      "from USB instead — `/print-firmware guide zmod` walks through it.")
-    elif pairing == "match":
+    hint = _edited_moonraker_conf_hint(status, entry)
+    if hint:
+        lines.append("\n**ZMod cannot update:** " + hint)
+    if pairing == "match":
         lines.append("\nZMod base and component versions pair correctly "
                      f"({'.'.join(str(p) for p in version_parts(os_version)[:2])}.x).")
     if mcu_state == "mismatch" and mcu_versions is not None:
@@ -590,6 +670,14 @@ def prepare_update(transport, entry, component_token) -> PreparedUpdate:
                               f"**{component.name}**, so Print Handy cannot tell whether "
                               "an update exists and will not request one. Check in Fluidd "
                               "or Mainsail. Nothing was sent.")
+    if component.invalid:
+        hint = _edited_moonraker_conf_hint(status, entry) if \
+            _component_key(component.name) == "zmod" else None
+        raise FirmwareRefusal(f"Moonraker marks **{component.name}** invalid "
+                              f"({component.invalid}) and refuses to update it, so Print "
+                              "Handy will not request one. "
+                              + (hint + " " if hint else "")
+                              + "Nothing was sent.")
     if not component.update_available:
         raise FirmwareRefusal(f"**{component.name}** is already up to date "
                               f"({component.current or 'version not reported'}); there is "

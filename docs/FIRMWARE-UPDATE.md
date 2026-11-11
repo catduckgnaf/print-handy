@@ -40,6 +40,20 @@ AD5X on ZMod 1.7.5-2 does this for every git component), that row says
 tell whether an update exists. It never says "up to date" for such a
 component, and `/print-firmware update` refuses it rather than guess.
 
+Moonraker's GitHub checks are unauthenticated, 60 requests an hour across
+every repo on the printer. When that budget is spent, latest versions read
+`?` until it resets, and the report says so with the reset time. Empty
+placeholder entries (ZMod's Moonraker lists `moonraker` and `klipper` as
+empty beside its real `moon` and `klippy`) are not components and are not
+listed. A component Moonraker marks invalid (`is_valid: false`, for
+example a modified repo) is reported with Moonraker's reason and is never
+offered or requested, because Moonraker refuses to update it. On ZMod the
+usual cause is an edited `moonraker.conf`: an installer such as
+HelixScreen's appends its own section to ZMod's file, which ZMod says
+must not be edited. Move that section into `mod_data/user.moonraker.conf`,
+remove it from `moonraker.conf`, and restart Moonraker
+([#1295](https://github.com/catduckgnaf/print-handy/issues/1295)).
+
 ## What "update ZMod from Print Handy" covers and does not cover
 
 For a ZMod printer, in one place (verified end to end in
