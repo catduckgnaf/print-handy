@@ -251,15 +251,52 @@ def _validate_args(arg_tokens) -> tuple:
     return tuple(validated)
 
 
-def prepare_run(transport, name_token, arg_tokens=(), registry=None, printer=None) -> PreparedRun:
+def _require_heater_ceilings(args, adapter) -> None:
+    """Refuse a temperature argument above the printer's heater ceiling (#1147).
+
+    The ceiling is core.heater_ceiling's, the one every temperature path uses.
+    Only arguments the ceiling module names as heater targets (BED_TEMP,
+    EXTRUDER_TEMP, ...) with a numeric value are checked; the printer's own
+    config decides what any other argument means. With temperature arguments
+    and no printer to ask, the run is refused rather than sent unchecked.
+    """
+    from .core import heater_ceiling
+    targets = []
+    for token in args:
+        key, _, value = token.partition("=")
+        heater = heater_ceiling.macro_arg_heater(key)
+        if heater is None:
+            continue
+        try:
+            targets.append((key, heater, float(value)))
+        except ValueError:
+            continue
+    if not targets:
+        return
+    if adapter is None:
+        try:
+            from . import printers
+            adapter = printers.current()
+        except Exception:
+            raise MacroRefusal("Print Handy could not read this printer's heater limits, so a macro with "
+                               "temperature arguments was not prepared. Nothing was sent.") from None
+    for key, heater, value in targets:
+        problem = heater_ceiling.refusal(adapter, heater, value)
+        if problem:
+            raise MacroRefusal(f"{key}={value:g}: {problem}. Nothing was sent.")
+
+
+def prepare_run(transport, name_token, arg_tokens=(), registry=None, printer=None,
+                heater_adapter=None) -> PreparedRun:
     """Validate one run request against the live printer; send nothing.
 
     Re-discovers the macro set at run time (the printer is the authority —
     a name typed from memory is never trusted), resolves the typed name
     against the discovered names case-insensitively (Klipper's own macro
     name convention), refuses internal and unknown names, validates the
-    KEY=VALUE arguments, and checks the printer is not printing or paused.
-    The returned PreparedRun carries the exact script line the operator
+    KEY=VALUE arguments, holds temperature arguments to the printer's heater
+    ceiling (``heater_adapter``, else the configured printer), and checks the
+    printer is not printing or paused. The returned PreparedRun carries the exact script line the operator
     will be asked to confirm.
     """
     try:
@@ -296,6 +333,7 @@ def prepare_run(transport, name_token, arg_tokens=(), registry=None, printer=Non
                            "`/print-macros` to see the names it actually defines — a typed name "
                            "is never sent on trust. Nothing was sent.")
     args = _validate_args(arg_tokens)
+    _require_heater_ceilings(args, heater_adapter)
     script = " ".join((canonical, *args))
     try:
         state = print_state(transport)

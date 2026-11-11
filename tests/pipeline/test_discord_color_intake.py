@@ -169,6 +169,53 @@ def test_discord_flow_rechecks_the_source_by_hash_not_a_full_inventory(tmp_path,
     assert len(calls) == 2
 
 
+def _count_inventory_passes(monkeypatch):
+    """Count the real inventory passes: each one resolves the build's parts once."""
+    real = source_colors.component_parts
+    passes = []
+
+    def counting(archive):
+        passes.append(archive.filename)
+        return real(archive)
+
+    monkeypatch.setattr(source_colors, 'component_parts', counting)
+    return passes
+
+
+def test_discord_flow_inventories_the_source_once(tmp_path, monkeypatch):
+    # #1155 paint pass cost: the question build and intake_color_choices each
+    # ran a full inventory (every painted triangle decoded again). One flow
+    # now shares one inventory of the source by its content hash.
+    p = source(tmp_path)
+    jp = tmp_path / 'JOB.json'
+    jp.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                              'color_manifest': source_colors.inventory(p)}))
+    passes = _count_inventory_passes(monkeypatch)
+    result = asyncio.run(collect(jp, state(), Adapter([0, 1, 0, 0]), 'offline', 'colors-once', timeout=1))
+    assert result['status'] == 'COLOR_CHOICES_SAVED'
+    assert passes == [str(p)]
+    # Nothing outlives the flow: a later call inventories again.
+    source_colors.inventory(p)
+    assert len(passes) == 2
+
+
+def test_discord_flow_reinventories_a_source_changed_during_selection(tmp_path, monkeypatch):
+    # The shared inventory is keyed by content, so a changed source is never
+    # served the old manifest: it is inventoried again and refused.
+    p = source(tmp_path)
+    jp = tmp_path / 'JOB.json'
+    jp.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                              'color_manifest': source_colors.inventory(p)}))
+    with source_colors.inventory_scope():
+        first = source_colors.inventory(p)
+        first['parts'].clear()  # a caller's copy is its own
+        assert source_colors.inventory(p)['parts']
+        passes = _count_inventory_passes(monkeypatch)
+        p.write_bytes(p.read_bytes() + b'changed')
+        source_colors.inventory(p)
+    assert passes == [str(p)]
+
+
 def test_discord_flow_refuses_a_source_changed_during_selection(tmp_path):
     p = source(tmp_path)
     jp = tmp_path / 'JOB.json'

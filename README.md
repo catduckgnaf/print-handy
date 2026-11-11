@@ -11,7 +11,9 @@
 
 Discord is optional too: the same bot runs on Telegram or Matrix, and the local Web UI covers status, settings and spools on the machine itself. AI extras are add-ons, never the price of entry.
 
-Current release: **2.2.7**
+Current release: **2.2.9**
+
+**Try it:** on a 64-bit Linux machine with Docker, it is two downloads, a few lines in `.env` and `docker compose up -d`, then `/print-help` in your chat. The copy-paste block is in [Get started](#get-started).
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -70,19 +72,17 @@ Docker is the easy route: one container, everything inside. You need a 64-bit Li
 
 ```bash
 mkdir print-handy && cd print-handy
-curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.7/docker-compose.yml
-curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.7/.env.example -o .env
-mkdir -p data/state data/hermes data/archive data/records data/cache data/spoolman
-sudo chown -R 1000:1000 data    # the container runs as uid 1000
+curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/docker-compose.yml
+curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/.env.example -o .env
 ```
 
 Edit `.env` and fill in these:
 
-- `PRINT_HANDY_IMAGE`: Compose has no default image and refuses to start without one. Use the pinned digest from [Pinning the image](docs/DOCKER.md#pinning-the-image), in the form `ghcr.io/catduckgnaf/print-handy@sha256:...`. Not `:latest`.
+- `PRINT_HANDY_IMAGE`: set this yourself; Compose has no default image and stops with a message naming the variable until it is set. That is deliberate: a default would be a tag, and a tag can move or be republished, so the image you run could change under you without a decision. Use the pinned digest from [Pinning the image](docs/DOCKER.md#pinning-the-image), in the form `ghcr.io/catduckgnaf/print-handy@sha256:...`. Not `:latest`.
 - `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID`: the bot token and the channel it should serve. [Discord bot setup](docs/DISCORD-BOT-SETUP.md) walks through making both in about 15 minutes. For [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md), set `PRINT_HANDY__BOT__PLATFORM` and that platform's token instead.
 - `PRINT_HANDY__SERVICES__MOONRAKER_URL`: your printer's address, for example `http://192.0.2.50:7125` on a Klipper printer. Bambu, Prusa, Elegoo and the rest use their own variables; the [printer guides](docs/PRINTER-SUPPORT.md) name them.
 
-Then start it and look around:
+You do not create any folders: the first `docker compose up -d` makes `./data` and its subfolders and hands them to the container's user (uid 1000), and it creates no `data/hermes` folder (an install that already has one keeps it; see [State volume rename](docs/DOCKER.md#state-volume-rename-225)). Then start it and look around:
 
 ```bash
 docker compose up -d
@@ -126,7 +126,7 @@ Print Handy groups printers by **how they connect**, because that is what decide
 
 | Your printer connects by… | What you get | Which printers |
 |---|---|---|
-| **Moonraker (Klipper)** | The full flow: guided slicing, gated print start, progress, alerts and timelapses | Flashforge AD5X, AD5M, AD5M Pro, Creator 5 and Creator 5 Pro running ZMod; Elegoo Neptune 4 family; Qidi Q1 Pro, X-Plus and X-Max lines; Creality K1 and Ender-3 V3 Klipper line; Anycubic Kobra 2 line on Moonraker-exposed firmware (see the Anycubic doc's stock-firmware caveat); Sovol SV01 through SV08, including the ACE, Plus, Zero, and M1D, on Klipper; Snapmaker U1 tool changer (published-spec support, not verified on hardware). **Any other Klipper printer** can use the generic Klipper profile. See [ZMod](docs/ZMOD.md) · [Elegoo](docs/ELEGOO.md) · [Qidi](docs/QIDI.md) · [Creality](docs/CREALITY.md) · [Anycubic](docs/ANYCUBIC.md) · [Sovol](docs/SOVOL.md) · [Snapmaker](docs/SNAPMAKER.md) |
+| **Moonraker (Klipper)** | The full flow: guided slicing, gated print start, progress, alerts and timelapses | Flashforge AD5X, AD5M, AD5M Pro, Creator 5 and Creator 5 Pro running ZMod; Elegoo Neptune 4 family; Qidi Q1 Pro, X-Plus and X-Max lines and the X-Smart 3; Creality K1 and Ender-3 V3 Klipper line; Anycubic Kobra 2 line on Moonraker-exposed firmware (see the Anycubic doc's stock-firmware caveat); Sovol SV01 through SV08, including the ACE, Plus, Zero, and M1D, on Klipper; Snapmaker U1 tool changer (published-spec support, not verified on hardware). **Any other Klipper printer** can use the generic Klipper profile. See [ZMod](docs/ZMOD.md) · [Elegoo](docs/ELEGOO.md) · [Qidi](docs/QIDI.md) · [Creality](docs/CREALITY.md) · [Anycubic](docs/ANYCUBIC.md) · [Sovol](docs/SOVOL.md) · [Snapmaker](docs/SNAPMAKER.md) |
 | **Bambu Lab LAN** | Slicing, G-code checks and Bambu packaging, with opt-in LAN status, upload and gated print start | A1, A1 mini, P1P, P1S, P2S, X1, X1 Carbon, X1E, H2S, A2L and the dual-nozzle H2D, H2D Pro, H2C and X2D. The H3C tool changer has initial support only (facts and HMS data recorded; not yet selectable). See [Bambu Lab printers](docs/BAMBU-LAB.md) |
 | **PrusaLink** | Slicing plus opt-in LAN status, upload and gated print start | MK4S, CORE One, XL and MINI+. See [Prusa printers](docs/PRUSA.md) |
 | **Flashforge stock LAN** | Built-in profile over the printer's own LAN API; no Moonraker, no ZMod | Every Flashforge model Print Handy knows is listed here, with the route that actually applies to it: **AD5X** has the built-in stock-firmware profile. **AD5M, AD5M Pro, Creator 5 and Creator 5 Pro** have no stock-firmware profile yet; those printers are supported on ZMod (the Moonraker row above). See [Stock Flashforge printers](docs/FLASHFORGE-STOCK.md) |

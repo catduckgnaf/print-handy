@@ -16,7 +16,8 @@ def _handler(tmp_path):
     calls = []
     handler = SimpleNamespace(server=server,
                               _rotate_form_token=lambda: calls.append("rotate"),
-                              _revoke_remembered_sessions=lambda: calls.append("revoke"))
+                              _revoke_remembered_sessions=lambda: calls.append("revoke"),
+                              _revoke_upload_links=lambda: calls.append("links"))
     return handler, data, calls
 
 
@@ -32,7 +33,7 @@ def test_a_login_saved_elsewhere_takes_effect_without_a_restart(tmp_path):
     _sync(handler)
     assert handler.server.access.mode == access.PASSWORD
     assert handler.server.sessions == {}
-    assert calls == ["rotate", "revoke"]
+    assert calls == ["rotate", "revoke", "links"]
 
 
 def test_an_unchanged_login_file_changes_nothing(tmp_path):

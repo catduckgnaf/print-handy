@@ -2,6 +2,13 @@
 
 # Unreleased
 
+# Version 2.2.9
+
+**Release Date:** Unreleased until tagged. Set when the tag is cut.
+**Note on 2.2.8:** the 2.2.8 tag sits on a test-release commit that is not on main, and main's `__version__` stayed "2.2.7". 2.2.9 is the release that follows 2.2.7; its range is 2.2.7..main.
+**Owner rulings recorded in this range:** no filament condition hard-blocks a print; filament problems warn and the operator can accept them (PRs #1190, #1213). The first-run setup gate is reversed on purpose: an install with no credential serves the Web UI openly (PR #1116).
+**Still owed (owner-deferred):** the owner released 2.2.9 without the AD5X "Release 2.2.9 live checks" and the older owed live checks; every one stays tracked on #1082 (real-printer runs of the filament warn-and-accept and fallback rounds, reprint start verdicts, alert buttons and `/print-stop`, the stock-firmware bay selection from PR #1221, real-camera passes for the camera watch changes, live chat-platform runs of the delivery fixes and per-session web chat, the README quickstart on a real clean host, GPU encode and inference, the Discord Activity sitting, the #1103 live check and Pages enablement). The deferral is recorded on the release checklist #1197.
+
 - The in-repo Unraid template (`docker/unraid/print-handy.xml`) takes the same install-surface slimming the Community Applications template received: from ninety-odd fields to eight — the Web UI port, a single **Appdata** path mounting all of `/data` (the separate state/archive/records/cache/Spoolman-data/account-tokens mappings and the legacy `/data/hermes` path fold into it; the host folders under appdata are unchanged, so an existing install's data layout already matches), the **Timelapse Archive** path (default inside Appdata), the bundled/external Spoolman URL choice (kept, now shown in Advanced View), the container timezone and the GPU passthrough entries (the `/dev/dri` device entry — new to this file, mirroring the CA template — and both NVIDIA variables, now in Advanced View instead of hidden). Every removed setting stays settable in the mounted config file or the Web UI, and every secret through the profile `.env` inside the Appdata path or a variable added by hand. The metadata differences from the CA file (digest-pinned `Repository`, GitHub support link, no Branch/TemplateURL/Icon) stay: this file is the release reference, not the listing. The Orca bump flow no longer records the bundled Orca version in this file (the channel field is gone), and DOCKER.md's template-shaped passages (the Spoolman LAN opt-in, account tokens, the GPU steps, the state-volume rename) describe the slimmed surface. Existing installs are untouched: Unraid keeps a created container's saved paths and variables until the operator edits them.
 - The Hermes install method and the `bot.mode: hermes` runtime mode are removed, clean break. `scripts/install-hermes.sh`, the top-level `hermes/` payload (profile templates, skills, systemd units), the Hermes plugin manifest and the plugin-owned clarify renderer (`print_handy/hermes/clarify_ui.py`) are deleted; the setup wizard and guided setup no longer offer a mode choice. The bot is the only runtime: its own prompt registry is the one question path, design resolves only its `[design]`/`[llm]` HTTP endpoint (the `ctx.llm` fallback is gone), and the handler module's agent-only hooks (receipt, stray-chat claim, tool-call guards) are deleted with the host that ran them. A config that still states `bot.mode: hermes` is refused at load with a named message telling the operator the install/mode was removed and to run the standalone bot or the Docker image; the removed `paths.hermes_bin` / `paths.hermes_agent` / `paths.hermes_restart_helper` keys and the `discord.clarify_ui` setting are gone from the schema. Not renamed here: the `print_handy/hermes/` package name, the plugin's location and `paths.hermes_home` are renamed in the follow-on PRs of the broader cleanup plan (this PR is its dead-code removal step); the `/data/hermes` legacy volume fallback (#914) still applies, and the generic `[llm]`/`[agent]` endpoint lanes stay (an endpoint that happens to be a Hermes agent API is still just an endpoint). Standalone behavior is unchanged: same handlers, same bot-drawn questions, same bot check rows except the ones that described the Hermes install.
 - The in-container timelapse capture knobs join the Web UI settings catalog: `timelapse.capture_trigger` (a picker carrying exactly the settings choice set: interval, layer, both), `timelapse.capture_interval_s`, `timelapse.capture_max_frames` and `timelapse.capture_max_bytes` are now editable on the /config page's Timelapse group and written to the settings file through the same validated write-back as every other field, so the four matching Unraid template variables can be removed — the settings live in the config file like everything else. The four variables leave the #657 cross-surface contract's exemption list (the ratchet only shrinks); `timelapse.capture_encoder` keeps its exemption. The capture loop already read all four from the loaded settings, so no runtime behavior changes.
@@ -9,6 +16,120 @@
 
 - Orca plugin-key hardening (#1087): imported projects and derived plates no longer carry the `slicing_pipeline_plugin` or `plugins` keys into a slice (stripped at intake with the other foreign machine keys), and `slicing_pipeline_plugin` joins the protected settings slice_guard checks against approved baselines; the shared (AD5X) baseline now records its empty value from the recorded slice. Both keys are inert today (Orca's CLI never loads plugins), so nothing changes for existing projects: this is insurance against an upstream release turning CLI plugin loading on, and the upstream bump flow now stops for a human if `src/OrcaSlicer.cpp` ever references the plugin system.
 - Restored GPU inference builds for the local failure detector (#455): the `ORT_FLAVOR` build argument (`cpu` default, `openvino`, `cuda`) from #1036 is back in the Dockerfile, the manual Docker image validation workflow takes the flavor as an input again, and DOCKER.md's GPU section again documents the self-built flavors. #1034's squash commit had dropped the build-side work while the detector-side provider selection stayed; the default (`cpu`) changes nothing and the published image keeps the CPU ONNX Runtime build. GPU inference is not verified on real hardware.
+
+- Compose state migration (#1144, PR #1215): stock Compose no longer mounts `./data/hermes`; a `print-handy-migrate` one-shot service (application user, data folder read-only) runs the entrypoint's copy rules once before the main service: never overwrite, resumable through `.migration-incomplete`, recorded by `.migrated-from-legacy`. `print-handy-init` creates and chowns the data folders, so the README quickstart lost its manual `mkdir`/`chown` lines. Rollback to 2.2.4 or earlier reads the legacy folder as it was at upgrade time. The Unraid template is unchanged (one Appdata path, the entrypoint runs the same rules).
+- Printer control remainder (#1147, PR #1221): one heater ceiling (`core.heater_ceiling`) from the printer profile for the print-now G-code check, the panic purge (was a fixed 260 C, now the profile maximum, refused rather than clamped above it), OctoPrint preheat and macro temperature arguments; the AD5X profile records `max_hotend_c` 300 C, which also lowers the Web UI ceiling for a hardened-steel AD5X from 450 C. `/print-stop` reads heater targets back. `print-now` requires `--bed-clear-confirmed` for every caller (chat passes it). Stock Flashforge `/printGcode` names the IFS bay (`useMatlStation`, `materialMappings`), not hardware-verified. ZMod-only `DATE_SET`; uncertain launch leases on polled families settle from printer status; spool reconcile no longer holds the hardware-record lock across a Spoolman call; `bin/ph-force-restart` takes a printer id. Also #1153 item 9 (duplicate start-path reads).
+- Web UI hardening remainder (#1145, PR #1219): streamed, capped uploads (2 concurrent, 2 GiB inbox quota, per-file delete, cleaned names), upload links that expire after 7 days, are revoked on any login change and are stored 0600 (links minted earlier stop working); PBKDF2-HMAC-SHA256 at 600,000 iterations with the count stored per hash and re-hash on the next `/login` success; `webui.trusted_proxies` (file and env only, no catalog field by design, no Unraid template field) for the login throttle behind a proxy; one web chat conversation per Web UI session (64 sessions kept in memory).
+- Data tab rule (#1229, PR #1239): while `timelapse.data_enabled` is unset it follows `timelapse.wrapped_enabled`; a Web UI save writes it only when the Data toggle itself changed.
+- Multi-part projects (#1204 item 5, PR #1218): read-only Web UI Projects page (`/projects`, `/api/projects`), the next-plate question on every transport through the shared prompt layer, grouped `/print-again list`, and a fresh `project_run_id` for a whole-project reprint whose completions never credit the original plan. The rest of #1204 (multi-message collection, source ZIP intake, multi-part AI design handoff) is held for 2.3.0.
+- Filament usage reads (#1155, PRs #1217 and #1238): feature filament keys remapped with the parts' mapping and unknown arrays named; modifier extruders counted when a color question maps them, warned (unknown usage) when not; PrusaSlicer layer and height-range files read and warned about; one inventory per color flow. The question set and usage verdict of every 3MF in `tests/` are unchanged.
+
+Merged PRs in the range, one line each:
+
+- #1155: count modifier extruders, read PrusaSlicer layer files, one inventory per color flow (PR #1238).
+- #1145: finish Web UI hardening: streamed capped uploads, expiring links, PBKDF2 600k, trusted proxies, per-session web chat (PR #1219).
+- Fail offline-tests on any GitHub Action not pinned to a commit SHA (#1141) (PR #1235).
+- #1147: finish the printer-control remainder, and #1153 item 9 (duplicate start reads) (PR #1221).
+- Fuzzy vocabulary: operator-mined misspellings, double-letter rounds, round 5, and the acknowladge and comitted families (PR #1191).
+- Finish #1156 (README quickstart CI check, remaining openers and accuracy fixes) (PR #1224).
+- Data tab keeps following Wrapped after a Wrapped-only save (#1229) (PR #1239).
+- #1144: one-time non-destructive state migration; no hermes mount for new installs (PR #1215).
+- No-reply commit addresses are not personal email in the public-text policy (PR #1231).
+- Restore the 19 corpus model.3mf files #1111 re-zipped (#1155) (PR #1237).
+- Re-record the 2.2.9 slicing-speed baselines from CI run 42975457360; parts-512 keeps its 2.2.7 entry (#1197) (PR #1244).
+- CONTRIBUTING required-checks text matches branch protection exactly (#1141) (PR #1236).
+- Retag requires a published release; post-release issue verifies the :latest digest (#1141) (PR #1234).
+- Name the real Unraid .config folder and drop the stale Compose path count (#1143) (PR #1233).
+- The bed fit probe reads the job printer's exclusions, not the default's (#1195) (PR #1232).
+- #1204: Web UI project readout, next-plate question on every transport, grouped /print-again list, reprint runs (PR #1218).
+- #1153 remainder: one-scan verify, painted fit off the GIL, classified dispatch, settings parse cache (PR #1222).
+- #1155: remap feature filament keys with the parts' mapping, name unknown arrays, read each model member once (PR #1217).
+- Name the Compose port test for what it pins (PR #1228).
+- A Web UI save with no catalog fields still reports a tolerated key (PR #1227).
+- A failed native-screen error post releases its starter ping (PR #1226).
+- The Sources page renders MakerOnline instead of failing (PR #1225).
+- #1206: edit-chat geometry route runs the design conversation; close the open Low items (PR #1216).
+- #1189: the three remaining filament refusals print from a named fallback slot after acceptance (PR #1213).
+- Rename the release-notes guide and remove em dashes from DOCKER.md and WEBUI.md (#1156, #1196) (PR #1212).
+- Acknowledge a model turn and keep typing until the part posts (#1206) (PR #1211).
+- Keep the question's answer, retry no-code replies, honest failure wording (#1206) (PR #1210).
+- #1155 part C: harden the package write shell, remap refusals and the 3MF evidence page (PR #1201).
+- Undo is a stack; a restored parameter edit skips its stale Size check (#1206) (PR #1209).
+- Typed answers at the design question reach the design; typed button words act as buttons (#1206) (PR #1208).
+- #1192: a stored service key must not follow a service URL to a new host (PR #1199).
+- #1155 B: per-plate usage under-counts become counted or unknown, gated on an unchanged question set (PR #1203).
+- Link and anchor check in CI, move release procedure docs out of the user tree (#1196) (PR #1207).
+- Pin base images by digest, build GPU flavors, test the installed wheel, document ZMod hook names (#1196) (PR #1205).
+- #1155 A: no extra PrusaSlicer wall question, whole-source multi-plate filament warnings, hash-only Discord source check (PR #1202).
+- Fix residual geometry fit probe clearance (PR #1175).
+- Finish #1156 residuals (internal release history move, DOCKER version framing) (PR #1193).
+- Timing-gate coverage for typed and print-next paths, baseline bookkeeping corrected (#1142) (PR #1188).
+- Parity probes assert, and wrapped_ai_video becomes wrapped_video with an alias (#1157) (PR #1185).
+- Convert filament refusals to warn-and-accept (owner ruling) (PR #1190).
+- CA/in-repo template parity test and #1143 docs remainders (PR #1178).
+- Report empty bed during Bambu print (PR #1187).
+- Schedule interval captures against absolute deadlines (#1150) (PR #1179).
+- Fix claimed Wrapped route authentication in regression tests (PR #1181).
+- Align static demo wording with the production bot and pin it with a contract test (#1031) (PR #1177).
+- A reslice with supports invalidates the previous artifact's clearance acknowledgement (#1151) (PR #1174).
+- Delivery fixes - starter pings, web chat ownership, attachment markers, thread starvation (#1146) (PR #1172).
+- Fix the main-branch offline test red left by #1165, #1168, #1169 and the #1129 train (PR #1186).
+- Third-party license table completion, release SBOM, Web UI source footer (#1158) (PR #1171).
+- Print cumulative drift on every raise and document the gate as built (#1142) (PR #1170).
+- Per-plate filament usage - source analysis, selected-plate prompts, readiness blocking (#1110 Phase B) (PR #1129).
+- Complete conversion provenance - real versions, governing rules, authoritative artifact (#1110 Phase A) (PR #1128).
+- Finish independent speed improvements (#1153) (PR #1165).
+- Harden claimed access and controls (PR #1168).
+- Make camera watch coverage reliable (#1148) (PR #1169).
+- Harden G-code bounds and yolo safety (PR #1164).
+- Voice and accuracy pass, first-run quickstart, privacy scrub (PR #1138).
+- Record intent-aware conversion provenance (PR #1111).
+- Prove clean-directory Compose first boot (PR #1167).
+- Finish the tech-debt sweep after the hosted-mode removal (PR #1159).
+- Percent-safe video text, background compile, caching, safer sharing, adaptive timelapse (PR #1162).
+- Drop the image VOLUME declaration and correct the Unraid template (PR #1135).
+- Publish guard, :latest repair, timing gate and release-process fixes (PR #1139).
+- Wedge-root support gap, mirrored 3MF winding, Reorient size, cutter centering, soundness tests (PR #1137).
+- Correct printer control routing and start verdicts (PR #1163).
+- Self-checking design loop, one question at most, undo, plain replies; fix typed answers at the design question (PR #1136).
+- Five-surface setup parity suite S1-S9 (first-boot parity program, plan section 3) (PR #1121).
+- Compare upstream commit pins against release tag commits (PR #1134).
+- Move the screenshots section up under the intro (PR #1126).
+- Guided setup parity - platform, camera, and Web UI login steps (PR #1117).
+- One shared setup-completion record for every surface (PR #1112).
+- Catalog fields for the Web UI access-model settings (parity PR-8) (PR #1114).
+- Serve first boot openly - reverse the setup gate, Web UI on by default (PR #1116).
+- Data tab splits from Wrapped; both on by default (settings restructure stage 5) (PR #1107).
+- Telegram and Matrix settings hide until configured (settings restructure stage 4) (PR #1104).
+- A pre-existing closed-table key no longer blocks every save (PR #1103).
+- Settings page shows one section at a time (settings restructure stage 3) (PR #1101).
+- Publish the Web UI port in stock Compose by default (PR #1118).
+- Web chat - the full bot in the browser, through BotCore (PR #1106).
+- Drop the stale restart-helper comment from home.toml (PR #1125).
+- Raw G-code scripts get the temperature ceiling and a state gate (PR #1105).
+- Ping the print's starter on alerts that need them (#1095) (PR #1098).
+- Gather the AI settings into one group (settings restructure stage 2) (PR #1099).
+- Request duckcatgnaf review on every pull request (PR #1124).
+- Relicense under AGPL-3.0-only (PR #1123).
+- Web UI upload page and inbox upload links (PR #1102).
+- Slim the in-repo Unraid template to the install surface (PR #1108).
+- One model-source registry and a Sources page (PR #1100).
+- Regroup Web UI settings by what they serve (settings restructure stage 1) (PR #1097).
+- Remove the Hermes install method and the hermes runtime mode (PR #1109).
+- Fact banks outrank the title reaction, cull weak title lines (PR #1096).
+- Timelapse capture knobs join the settings catalog (PR #1094).
+- Stop flagging bottom chamfers, and stop recommending supports that cannot fit (PR #1093).
+- Stop killing healthy listeners when the health probe crashes (PR #1092).
+- Strip and protect the OrcaSlicer plugin keys (#1087) (PR #1090).
+- Build the family idle-plate context from the serving printer's facts (PR #1088).
+- Post the completion roast under the timelapse (PR #1089).
+- Bump the bundled OrcaSlicer to v2.5.0 final (PR #1091).
+- Build the Bambu watch context from the model's facts (PR #1086).
+- Build the Moonraker watch context from the serving printer (AD5X sweep) (PR #1085).
+- Pin the 2.2.7 image digest (Refs #1072) (PR #1081).
+- Enforce queued artifact hashes and stable duplicate-start identities (PR #1078).
+- Remove PR/issue numbers from guides, add printer picker (PR #1077).
+- Restore the ORT_FLAVOR GPU inference builds lost from #1036 (PR #1076).
 
 # Version 2.2.7
 

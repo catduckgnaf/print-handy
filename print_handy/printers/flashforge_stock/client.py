@@ -4,7 +4,11 @@ Protocol facts are from the public Flashforge API docs for the Adventurer 5M ser
 (Parallel-7/flashforge-api-docs, firmware 3.2.7 and 5.1.8, and GhostTypes/ff-5mp-api):
 every request is a POST carrying serialNumber and checkCode, /detail returns status,
 /uploadGcode takes one multipart file, and /printGcode starts a file already on the
-printer. A non-zero code is a refusal. Code 2 means the printer is busy.
+printer. A non-zero code is a refusal. Code 2 means the printer is busy. On the AD5X,
+/printGcode names the IFS bay a tool feeds from with useMatlStation, gcodeToolCnt and
+materialMappings (toolId 0-based, slotId 1-based, #RRGGBB colors), per the AD5X
+endpoint schema (Parallel-7/flashforge-api-docs, firmware 1.2.1); not yet verified
+on a real printer.
 
 This client is dumb transport. Occupancy, the bed-clear approval, and the submission
 lease live in the print path, never here. upload() never starts a print: print=false
@@ -123,18 +127,42 @@ class StockClient:
             raise StockLanError("stock LAN upload name mismatch")
         return filename
 
-    def print_gcode(self, filename, leveling=True):
-        """Start a file already on the printer. levelCheck is the only start option sent."""
+    def print_gcode(self, filename, leveling=True, bay=None):
+        """Start a file already on the printer, fed from one IFS bay when ``bay`` is given.
+
+        ``bay`` is the T0 -> slot mapping (``material_mapping``); with it the start
+        carries useMatlStation, gcodeToolCnt 1 and that one mapping, so the printer
+        is told which bay feeds the print instead of choosing for itself (#1147).
+        """
         if not filename or Path(filename).name != filename:
             raise StockLanError("invalid stock print filename")
         serial, code = _credentials()
-        self._send(PRINT_PATH, {
+        body = {
             "serialNumber": serial,
             "checkCode": code,
             "fileName": filename,
             "levelingBeforePrint": bool(leveling),
-        })
+        }
+        if bay is not None:
+            body.update(useMatlStation=True, gcodeToolCnt=1, materialMappings=[_checked_mapping(bay)])
+        self._send(PRINT_PATH, body)
         return filename
+
+    @staticmethod
+    def material_mapping(slot, *, material, tool_color, slot_color):
+        """The one /printGcode materialMappings entry for T0 fed from IFS ``slot`` (1-based)."""
+        return _checked_mapping({"toolId": 0, "slotId": slot, "materialName": material,
+                                 "toolMaterialColor": tool_color, "slotMaterialColor": slot_color})
+
+    @staticmethod
+    def slot_info(detail, slot):
+        """(materialName, materialColor as #RRGGBB or None) /detail reports for one IFS bay."""
+        station = (detail or {}).get("matlStationInfo") if isinstance(detail, dict) else None
+        for item in (station.get("slotInfos") if isinstance(station, dict) else None) or ():
+            if isinstance(item, dict) and item.get("slotId") == slot:
+                name = str(item.get("materialName") or "").strip()
+                return name, _hex_color(item.get("materialColor"))
+        return "", None
 
     @staticmethod
     def status_of(detail):
@@ -182,6 +210,35 @@ class StockClient:
             present = item.get("hasFilament")
             result[raw] = present if isinstance(present, bool) else None
         return result
+
+
+_HEX = "0123456789ABCDEF"
+
+
+def _hex_color(value):
+    """'#RRGGBB' (upper case) from a color string, or None when it is not one."""
+    text = str(value or "").split(";", 1)[0].strip().upper()
+    if not text.startswith("#"):
+        text = "#" + text
+    if len(text) == 9:  # #RRGGBBAA: the alpha is not part of the mapping
+        text = text[:7]
+    return text if len(text) == 7 and all(c in _HEX for c in text[1:]) else None
+
+
+def _checked_mapping(mapping):
+    """A materialMappings entry the firmware schema accepts, else StockLanError (nothing is sent)."""
+    if not isinstance(mapping, dict):
+        raise StockLanError("stock IFS bay mapping malformed")
+    slot, tool = mapping.get("slotId"), mapping.get("toolId")
+    if type(slot) is not int or not 1 <= slot <= 4 or tool != 0:
+        raise StockLanError("stock IFS bay mapping must be T0 to a slot from 1 through 4")
+    material = str(mapping.get("materialName") or "").strip()
+    if not material or any(mark in material for mark in ('"', "\\", "\r", "\n")):
+        raise StockLanError("stock IFS bay mapping needs a material name")
+    colors = {key: _hex_color(mapping.get(key)) for key in ("toolMaterialColor", "slotMaterialColor")}
+    if None in colors.values():
+        raise StockLanError("stock IFS bay mapping needs #RRGGBB colors")
+    return {"toolId": 0, "slotId": slot, "materialName": material, **colors}
 
 
 def _urlopen_post(url, body, content_type):

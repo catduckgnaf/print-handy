@@ -483,6 +483,20 @@ def settle_observed(printer, observed_file):
     return dict(row)
 
 
+def held(printer):
+    """The printer's held submitting/uncertain lease row, or None. Never creates a database.
+
+    What a polling listener asks before settling (#1147): a printer that never
+    launched has no database, and a ``leased`` row is a launch still deciding.
+    """
+    printer = printer or settings.default_printer_id()
+    if not os.environ.get("PRINT_HANDY_LAUNCH_DB") and not (settings.printer_state_dir(printer) / "jobs.db").is_file():
+        return None
+    with transaction(printer) as con:
+        row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
+    return dict(row) if row is not None and row["phase"] != "leased" else None
+
+
 def pending(printer=None):
     """Held leases: one printer's, or every roster printer's when none is named."""
     if printer is not None or os.environ.get("PRINT_HANDY_LAUNCH_DB"):
@@ -585,6 +599,8 @@ def clock_warning(skew):
 # Asia/Yekaterinburg), which need not be the operator's. The zone gap learned from a
 # readback, per Moonraker URL, so later syncs land right the first time.
 _CLOCK_ZONE_GAP_S = {}
+# The outcome for a printer without ZMod's DATE_SET: nothing is sent, nothing is logged.
+NOT_ZMOD = "skipped:not a ZMod printer"
 # A residual this close to a whole quarter hour, and no larger than any two real zones can
 # differ by, is the printer reading the stamp in another zone rather than a failed set.
 _ZONE_STEP_S = 900
@@ -592,7 +608,20 @@ _ZONE_TOLERANCE_S = 120
 _MAX_ZONE_GAP_S = 26 * 3600  # two zones differ by at most UTC+14 minus UTC-12
 
 
-def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
+def clock_sync_supported(adapter):
+    """Whether this printer has ZMod's DATE_SET macro: a ZMod (Flashforge) printer behind Moonraker (#1147).
+
+    DATE_SET is a ZMod macro. Stock Klipper, Sovol, Creality and every other
+    Moonraker printer has no such command, so clock sync never sends it to them.
+    The vendor profile's start code is the authority (the same one that marks
+    a printer as ZMod everywhere else); an adapter that cannot say is not ZMod.
+    """
+    vendor = getattr(getattr(adapter, "model", None), "vendor", None)
+    return (getattr(adapter, "connection", None) == "moonraker"
+            and getattr(vendor, "start_code", None) == "zmod")
+
+
+def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None, adapter=None):
     """Make an idle ZMOD printer's clock match this host's: Print Handy is the time source.
 
     ZMOD printers lose their clock on every power cycle (ZMod sets 2026-01-01 at boot) and
@@ -603,6 +632,10 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
     when the readback is off by a whole time-zone gap (the printer's own zone differs), it
     sets once more corrected by that gap and remembers it. Never raises;
     PRINT_HANDY_CLOCK_SYNC=0 turns it off. Outcomes: off, ok, skipped:<why>, failed:<why>.
+
+    ``adapter`` is the printer's adapter (the configured printer when None). A
+    printer that is not ZMod (clock_sync_supported) is skipped before any request:
+    DATE_SET is ZMod's macro, not Klipper's.
     """
     import json
     import urllib.parse
@@ -612,6 +645,15 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
     say = log or (lambda m: None)
     if os.environ.get("PRINT_HANDY_CLOCK_SYNC", "1").strip().lower() in ("0", "false", "no", "off"):
         return "off"
+    try:
+        if adapter is None:
+            from .. import printers
+            adapter = printers.current()
+        supported = clock_sync_supported(adapter)
+    except Exception:
+        supported = False
+    if not supported:
+        return NOT_ZMOD
     base = str(moonraker_url or "").rstrip("/")
     skew = printer_clock_skew(base)
     if skew is None:

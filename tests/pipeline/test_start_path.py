@@ -211,6 +211,9 @@ def launch(kind, rig, client):
     adapter = FakeAdapter({"sdcp": "elegoo_sdcp", "prusa": "prusalink", "stock": "flashforge_stock",
                            "bambu": "bambulab_lan"}.get(kind, kind), client)
     state = {"nozzle": {"type": "hardened_steel"}, "bed_mm": [256, 256]}
+    if kind == "stock":
+        # #1147: the stock start names its IFS bay; the record's spool for bay 1 supplies it.
+        state["filament_slots"] = {"1": {"material": "PLA", "hex": "#FFFFFF"}}
     job = {"filament_selection": {"slot": 1}, "printer_model": "bambulab.a1"}
     return getattr(model_job, KINDS[kind])(adapter, state, rig.gcode, job, None, 25, False)
 

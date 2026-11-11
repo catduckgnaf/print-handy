@@ -195,11 +195,12 @@ class TestEntrypointMigration:
         assert legacy.is_dir() and not legacy.is_symlink()
         assert (legacy / "state" / "printer_hardware.json").read_text() == "{}"
         assert "mounted" in result.stderr and "copied" in result.stderr
-        # The next start sees both volumes holding data: /data/state keeps
-        # winning with the both-hold-data warning, and nothing is linked.
+        # The next start finds the one-time record (#1144): /data/state keeps
+        # winning, the stale legacy volume is ignored and never copied again,
+        # and nothing is linked.
         result = run_entrypoint_with_path(tmp_path, ["true"], shim_dir)
         assert (tmp_path / "state").is_dir() and not (tmp_path / "state").is_symlink()
-        assert "WARNING" in result.stderr and "both" in result.stderr
+        assert "already copied" in result.stderr
 
     def test_an_interrupted_mountpoint_copy_is_completed_on_the_next_start(self, tmp_path):
         # A copy that dies partway (full disk, killed container) must not
@@ -217,8 +218,7 @@ class TestEntrypointMigration:
         script.write_text(
             "#!/bin/sh\n"
             "for last; do :; done\n"
-            "mkdir -p \"$last/state\"\n"
-            "printf '{\"truncated' > \"$last/state/printer_hardware.json\"\n"
+            "printf '{\"truncated' > \"$last\"\n"
             "exit 1\n")
         script.chmod(0o755)
         both = tmp_path / "both-shims"
@@ -228,12 +228,20 @@ class TestEntrypointMigration:
         with pytest.raises(subprocess.CalledProcessError):
             run_entrypoint_with_path(tmp_path, ["true"], both)
         state = tmp_path / "state"
-        assert (state / "state" / "printer_hardware.json").read_text() == '{"truncated'
+        # The half-written file sits in the run's private scratch directory
+        # (#1144, #1215 review), which the mark names: the real name never
+        # holds partial data, and no temporary name is derived from it.
+        assert not (state / "state" / "printer_hardware.json").exists()
+        scratch = Path((state / ".migration-incomplete").read_text().strip())
+        assert scratch.parent == state and scratch.name.startswith(".ph-migrating.")
+        assert (scratch / "entry").read_text() == '{"truncated'
         result = run_entrypoint_with_path(tmp_path, ["true"], mount_shim)
         assert state.is_dir() and not state.is_symlink()
         assert (state / "state" / "printer_hardware.json").read_text() == "{}"
         assert not (state / ".migration-incomplete").exists()
-        assert "did not finish" in result.stderr and "copied" in result.stderr
+        assert not scratch.exists()
+        assert not list(state.glob(".ph-migrating.*"))
+        assert "did not finish" in result.stderr
 
     def test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied(self, tmp_path):
         # The unstubbed detector against a real bind mount (a folder bound

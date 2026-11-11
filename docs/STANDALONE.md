@@ -2,6 +2,8 @@
 
 This is the bot with no Docker around it: links, files, color buttons, slicing and printer alerts, all from one Python process. No AI needed. Also runs on Telegram or Matrix. One token, one bot; two copies means two answers to everything.
 
+It is for a machine that already runs Python services and would rather not run Docker. What it does not include is everything the Docker image bundles: OrcaSlicer, Spoolman, OpenSCAD, ffmpeg and go2rtc are yours to install, if you want what they do. You install the slicer yourself ([native install, step 2](INSTALL.md#2-orcaslicer)) and point `services.spoolman_url` at a Spoolman you run. If that sounds like work, [Docker](DOCKER.md) is the shorter road.
+
 An OpenAI-compatible LLM is an optional extra for replying to free text. To run on Telegram instead of Discord, set `bot.platform` to `telegram` and follow
 [Telegram bot setup](TELEGRAM-BOT-SETUP.md). The Telegram bot is a pure bot with no LLM at all, unmatched
 text gets the short “didn't understand” reply even when `[llm]` is configured for another platform.
