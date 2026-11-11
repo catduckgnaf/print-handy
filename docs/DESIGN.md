@@ -46,6 +46,12 @@ the same posture as roasts. The `[design] enabled` switch is tri-state:
 - **`enabled = true`:** forced on; an unconfigured endpoint is then a
   visible "no design model is configured" failure, not a silent off.
 
+A design that is already waiting for your change keeps working without an
+endpoint for the steps that need no model: "undo" or "go back to version
+2", a plain parameter change ("make it 5 mm taller"), and the typed button
+words. Anything else answers with the same "not set up" or "not
+configured" reply. With `enabled = false` nothing runs.
+
 Where the model comes from:
 
 - **The `[design]` settings pick the model.**
@@ -138,6 +144,10 @@ changes are quick and skip the note.
   …") next to the measured dimensions instead of staying silent.
 - Dropping a model with `/print-design` and no instruction previews the
   model exactly as dropped — no model call is made for that first look.
+  If the dropped mesh is not a printable solid (not watertight, or no
+  volume), the preview names the problem and **Slice it** is refused for
+  that version; say a change that fixes it, or drop the file again without a
+  design phrase to print it as it is, where the intake checks it on its own.
 - Mesh edits (below) can only do what a mesh allows; a change that needs the
   original design's parameters is refused in plain words, not faked.
 
