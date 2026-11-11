@@ -1122,29 +1122,85 @@ def _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids)
 
 PRUSA_LAYER_GCODE = 'Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml'
 PRUSA_LAYER_RANGES = 'Metadata/Prusa_Slicer_layer_config_ranges.xml'
+PRUSA_MODEL_CONFIG = 'Metadata/Slic3r_PE_model.config'
+
+
+def _prusa_object_extruders(data):
+    """({object id: extruder the object prints}, [(object id, volume name, extruder)] modifiers).
+
+    From a Slic3r_PE_model.config: an object that names no extruder, or 0,
+    prints PrusaSlicer's default extruder 1. A modifier volume is one whose
+    volume_type is ParameterModifier (PrusaSlicer 2.4 and later) or, in older
+    files without volume_type, whose modifier flag is 1. A modifier is listed
+    when it names an extruder other than 0 and other than its object's.
+    Raises ET.ParseError for an unparsable member.
+    """
+    root = ET.fromstring(data)
+    objects, modifiers = {}, []
+
+    def meta(node):
+        return {m.get('key'): (m.get('value') or '').strip() for m in node.findall('metadata')
+                if m.get('key') is not None}
+
+    def number(raw):
+        return int(raw) if str(raw or '').isdigit() else 0
+
+    for obj in root.findall('object'):
+        oid = obj.get('id')
+        if oid is None:
+            continue
+        own = number(meta(obj).get('extruder')) or 1
+        objects[str(oid)] = own
+        for volume in obj.findall('volume'):
+            vmeta = meta(volume)
+            kind = vmeta.get('volume_type')
+            is_modifier = kind == 'ParameterModifier' or (kind is None and vmeta.get('modifier') == '1')
+            extruder = number(vmeta.get('extruder'))
+            if is_modifier and extruder and extruder != own:
+                modifiers.append((str(oid), vmeta.get('name') or f'volume of object {oid}', extruder))
+    return objects, modifiers
 
 
 def _prusa_layer_usage(path):
-    """{'layer_changes': reason, 'height_ranges': reason} for PrusaSlicer per-layer files (#1155).
+    """{class: reason} for PrusaSlicer per-layer files and modifier volumes (#1155).
 
     PrusaSlicer writes height-based tool and color changes to
     Prusa_Slicer_custom_gcode_per_print_z.xml (<code> entries) and per-range
     settings to Prusa_Slicer_layer_config_ranges.xml. The exports do not
     carry either member, so an entry that changes the filament (a tool or
-    color change, or a range extruder other than 0, the object's own) makes
-    that class UNKNOWN with the reason, never known and empty. Pauses and
-    custom G-code change no filament. An unreadable member is unknown too.
-    A class with nothing to report is absent from the result.
+    color change, or a range extruder other than 0 and other than its
+    object's own) makes that class UNKNOWN with the reason, never known and
+    empty. Pauses and custom G-code change no filament. A PrusaSlicer
+    modifier volume is stored as a triangle range of its object's one mesh
+    (Slic3r_PE_model.config), which inventory does not split, so one that
+    names its own extruder makes the modifiers class UNKNOWN: its region does
+    not print with that filament. An unreadable member is unknown too. A
+    class with nothing to report is absent from the result.
     """
     out = {}
     try:
         with zipfile.ZipFile(path) as archive:
             names = set(archive.namelist())
-            members = {name: archive.read(name) for name in (PRUSA_LAYER_GCODE, PRUSA_LAYER_RANGES)
+            members = {name: archive.read(name)
+                       for name in (PRUSA_LAYER_GCODE, PRUSA_LAYER_RANGES, PRUSA_MODEL_CONFIG)
                        if name in names}
     except Exception as exc:
         reason = f'PrusaSlicer per-layer members could not be read: {exc}'
         return {'layer_changes': reason, 'height_ranges': reason}
+    object_extruders = {}
+    if PRUSA_MODEL_CONFIG in members and 'Metadata/Slic3r_PE.config' in names:
+        try:
+            object_extruders, modifiers = _prusa_object_extruders(members[PRUSA_MODEL_CONFIG])
+        except ET.ParseError:
+            out['modifiers'] = f'{PRUSA_MODEL_CONFIG} could not be parsed'
+        else:
+            if modifiers:
+                named = ', '.join(f'{name!r} (object {oid}) names extruder {extruder}'
+                                  for oid, name, extruder in modifiers)
+                out['modifiers'] = (
+                    f'a PrusaSlicer modifier volume names its own extruder: {named}; PrusaSlicer '
+                    'modifier volumes are part of their object\'s mesh and are not carried into the '
+                    'print, so that region may print another color than the source shows')
     from . import layer_gcode
     if PRUSA_LAYER_GCODE in members:
         try:
@@ -1168,12 +1224,18 @@ def _prusa_layer_usage(path):
             out['height_ranges'] = f'{PRUSA_LAYER_RANGES} could not be parsed'
         else:
             named = []
-            for option in root.iter():
-                if option.tag.split('}')[-1] != 'option' or option.get('opt_key') != 'extruder':
+            for obj in root.iter():
+                if obj.tag.split('}')[-1] != 'object':
                     continue
-                raw = str(option.text or '').strip()
-                if raw != '0':
-                    named.append(raw)
+                own = str(object_extruders.get(str(obj.get('id')), ''))
+                for option in obj.iter():
+                    if option.tag.split('}')[-1] != 'option' or option.get('opt_key') != 'extruder':
+                        continue
+                    raw = str(option.text or '').strip()
+                    # 0 is the object's own filament, and so is the object's
+                    # own extruder named again: neither changes the filament.
+                    if raw not in ('0', own):
+                        named.append(raw)
             if named:
                 out['height_ranges'] = (
                     f'{PRUSA_LAYER_RANGES} assigns extruder(s) {sorted(set(named))} to height '
@@ -1305,10 +1367,14 @@ def _plate_usage(path, manifest):
         for name in ('layer_changes', 'height_ranges'):
             if prusa_layers.get(name) and classes[name]['status'] != 'unknown':
                 classes[name] = _usage_row('unknown', reason=prusa_layers[name])
-        # Modifier parts with their own extruder (#1155).
+        # Modifier parts with their own extruder (#1155); a PrusaSlicer
+        # modifier volume is never carried, so it is unknown even when a
+        # question maps its filament.
         classes['modifiers'] = _unasked_is_unknown(
             _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids),
             asked, 'a modifier part')
+        if prusa_layers.get('modifiers') and classes['modifiers']['status'] != 'unknown':
+            classes['modifiers'] = _usage_row('unknown', reason=prusa_layers['modifiers'])
         # Wall / infill: PrusaSlicer names per-feature extruders in its
         # config, OrcaSlicer in its per-feature filament keys; a Bambu Studio
         # project carries no distinct assignment (not_carried_by_format).
