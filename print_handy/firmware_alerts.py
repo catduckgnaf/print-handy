@@ -311,35 +311,64 @@ def offers(obs: Observation) -> list:
 
 # ------------------------------------------------------------------ state
 
-def state_path(state_dir) -> Path:
+# Each surface that delivers alerts keeps its own state file: the chat
+# bot (Discord, Telegram or Matrix: one per install) the plain name, the
+# Web UI (its own process, its own web chat) a suffixed one. Each process
+# then writes only its own file, so the two never lose each other's
+# writes, and each announces a release once on its own surface. A skip
+# is the person's answer about the release, so every surface honors a
+# skip pressed on any of them (skipped_everywhere).
+WEBUI_SURFACE = "webui"
+
+
+def surface_for(platform_name) -> str:
+    """The state surface for a delivering platform ("" for the chat bot)."""
+    return WEBUI_SURFACE if str(platform_name or "") == WEBUI_SURFACE else ""
+
+
+def state_path(state_dir, surface="") -> Path:
+    if surface:
+        return Path(state_dir) / f"{Path(STATE_NAME).stem}.{surface}.json"
     return Path(state_dir) / STATE_NAME
 
 
-def load(state_dir) -> dict:
+def load(state_dir, surface="") -> dict:
     try:
-        data = json.loads(state_path(state_dir).read_text(encoding="utf-8"))
+        data = json.loads(state_path(state_dir, surface).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def save(state_dir, data) -> None:
-    path = state_path(state_dir)
+def skipped_everywhere(state_dir) -> dict:
+    """Every release skipped on any surface: {key: when}."""
+    out = {}
+    for surface in ("", WEBUI_SURFACE):
+        skipped = load(state_dir, surface).get("skipped")
+        if isinstance(skipped, dict):
+            out.update(skipped)
+    return out
+
+
+def save(state_dir, data, surface="") -> None:
+    path = state_path(state_dir, surface)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
     os.replace(tmp, path)
 
 
-def to_announce(offer_list, state) -> list:
+def to_announce(offer_list, state, skipped=None) -> list:
     """The offers not yet announced in this state (restart-safe dedupe).
 
     An offer is new when its release was never announced, or was
     announced without a button and can now be applied. A skipped
-    release is never announced again.
+    release is never announced again: skipped in this state, or in
+    ``skipped`` (skipped_everywhere: a skip pressed on another surface).
     """
     announced = state.get("announced") if isinstance(state.get("announced"), dict) else {}
-    skipped = state.get("skipped") if isinstance(state.get("skipped"), dict) else {}
+    skipped = {**(state.get("skipped") if isinstance(state.get("skipped"), dict) else {}),
+               **(skipped or {})}
     fresh = []
     for offer in offer_list:
         if offer.key in skipped:

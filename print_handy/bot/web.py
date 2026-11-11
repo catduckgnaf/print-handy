@@ -44,6 +44,16 @@ deliberately no claim-based lock on this surface: an install with no
 login set up prints and approves from web chat exactly like a claimed
 one (catduck's ruling, PR #1106) — access to the page itself is the
 Web UI's own auth decision, as before.
+
+Proactive alerts reach web chat the way they reach a chat platform: the
+service runs the bot heartbeat's alert checks (``HEARTBEAT_CHECKS``) on
+its own loop, through the same BotCore methods the Discord, Telegram
+and Matrix heartbeats call. An alert belongs to no session, so it is a
+shared post every session sees; its buttons (a ZMod update alert's
+Update and Skip this version) are the prompt's own, pressed through
+:meth:`WebChatService.answer` like any other. The merge-time guard
+(tests/bot/test_command_webui_parity.py) fails a heartbeat check a chat
+platform runs that web chat neither runs nor exempts with a reason.
 """
 from __future__ import annotations
 
@@ -63,6 +73,11 @@ logger = logging.getLogger(__name__)
 OPERATOR_ID = "webui"
 CHAT_ID = "webui"
 RATE_LIMIT_PER_MINUTE = 20
+# The bot heartbeat's alert checks web chat runs too (BotCore method
+# names), and how often. Each schedules only and never raises, exactly
+# as on the chat platforms (client.py, telegram.py, matrix.py).
+HEARTBEAT_CHECKS = ("check_firmware_updates",)
+HEARTBEAT_S = 15
 OUTBOX_LIMIT = 200
 # Web UI sessions whose transcripts are kept; the least recently used
 # one is forgotten past this.
@@ -243,8 +258,11 @@ class WebChatService:
             target=self._run_loop, name="webui-chat", daemon=True)
         self._thread.start()
         self._message_count = 0
+        self._heartbeat = None
         if chat_enabled(cfg):
             asyncio.run_coroutine_threadsafe(self._announce_startup(), self._loop)
+            self._heartbeat = asyncio.run_coroutine_threadsafe(
+                self._in_scope("", self._run_heartbeat), self._loop)
 
     @staticmethod
     def _source(scope):
@@ -313,6 +331,28 @@ class WebChatService:
             await self.core.announce_pending_launch()
         except Exception:
             logger.exception("could not announce a pending launch")
+
+    async def heartbeat_once(self):
+        """One pass of the alert checks (HEARTBEAT_CHECKS); never raises.
+
+        Skipped while the page's switch is off: an alert would land in a
+        transcript nobody can see and offer buttons nobody can press.
+        Runs in the shared scope, so every alert is a shared post.
+        """
+        if not self._enabled():
+            return []
+        results = []
+        for name in HEARTBEAT_CHECKS:
+            try:
+                results.append(await getattr(self.core, name)())
+            except Exception:
+                logger.exception("web chat %s failed", name)
+        return results
+
+    async def _run_heartbeat(self):
+        while True:
+            await self.heartbeat_once()
+            await asyncio.sleep(HEARTBEAT_S)
 
     async def _in_scope(self, scope, coro_fn):
         """Run one turn (or press) with the scope set for every send it makes."""
@@ -496,5 +536,5 @@ def chat_enabled(cfg):
     return bool((cfg.get("webui") or {}).get("chat_enabled", True))
 
 
-__all__ = ["CHAT_ID", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
+__all__ = ["CHAT_ID", "HEARTBEAT_CHECKS", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
            "chat_enabled", "chat_llm_enabled", "scope_for"]

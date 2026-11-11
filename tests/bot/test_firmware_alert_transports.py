@@ -169,3 +169,157 @@ def test_the_bot_heartbeat_schedules_alerts_on_every_platform(cfg, tmp_path):
     assert run(core.check_firmware_updates()) == []
     cfg["firmware"]["update_alerts"] = False
     assert run(core.check_firmware_updates()) == []
+
+
+# ------------------------------------------------------------------ Web UI
+
+def _web(cfg, tmp_path, monkeypatch):
+    from print_handy.bot import web
+    from print_handy.hermes import _config
+    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    monkeypatch.setattr(_config, "_override", cfg)
+    service = web.WebChatService(cfg)
+    return web, service
+
+
+def _on_loop(service, coro, timeout=30):
+    return asyncio.run_coroutine_threadsafe(coro, service._loop).result(timeout=timeout)
+
+
+def _wait_prompt(view, question, timeout=10.0):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        prompt = view.open_prompt()
+        if prompt and question in prompt["question"]:
+            return prompt
+        time.sleep(0.02)
+    raise AssertionError(f"no open prompt {question!r}: {view.entries()}")
+
+
+def _wait_message(view, needle, timeout=10.0):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for entry in view.entries():
+            if entry["kind"] == "message" and needle in (entry.get("content") or ""):
+                return entry
+        time.sleep(0.02)
+    raise AssertionError(f"no message {needle!r}: {view.entries()}")
+
+
+def test_web_chat_alert_has_update_and_skip_and_runs_the_confirmed_update(
+        cfg, tmp_path, monkeypatch):
+    """The Web UI gets the same alert, buttons and confirmed apply as Discord.
+
+    The alert belongs to no Web UI session, so it is a shared post every
+    session sees; the confirmation that Update opens is the same
+    confirmed_update prompt, answered through the web chat press path.
+    """
+    web, service = _web(cfg, tmp_path, monkeypatch)
+    printer = Printer()
+    al = service.core.firmware_alerts = _alerter(service.core, printer)
+    _on_loop(service, al.check(_pid(cfg), AD5X))
+    one = service.view(web.scope_for("browser-one"))
+    two = service.view(web.scope_for("browser-two"))
+    alert = _wait_prompt(one, "ZMod update available")
+    assert alert["choices"] == [fal.UPDATE_LABEL, fal.SKIP_LABEL]
+    assert "1.7.5-2 -> 1.7.6-17" in alert["question"]
+    assert two.open_prompt()["clarify_id"] == alert["clarify_id"]  # shared
+    assert printer.posts == []
+    one.answer(alert["clarify_id"], 0)
+    confirm = _wait_prompt(two, "Update printer firmware?")
+    assert confirm["choices"] == [fw.UPDATE_LABEL, fw.CANCEL_LABEL]
+    assert printer.posts == []  # one press is never enough
+    two.answer(confirm["clarify_id"], 0)
+    _wait_message(one, "Updated **Z-Mod** to 1.7.6-17")
+    _on_loop(service, _settle(al))
+    assert printer.posts == [{"name": "Z-Mod"}]
+
+
+def test_web_chat_skip_this_version_is_remembered_on_every_surface(cfg, tmp_path, monkeypatch):
+    from print_handy import firmware_alerts as fa
+    web, service = _web(cfg, tmp_path, monkeypatch)
+    printer = Printer()
+    al = service.core.firmware_alerts = _alerter(service.core, printer)
+    _on_loop(service, al.check(_pid(cfg), AD5X))
+    view = service.view(web.scope_for("browser"))
+    alert = _wait_prompt(view, "ZMod update available")
+    view.answer(alert["clarify_id"], 1)
+    _on_loop(service, _settle(al))
+    state_dir = al._state_dir(_pid(cfg))
+    assert "zmod:1.7.6" in fa.load(state_dir, fa.WEBUI_SURFACE)["skipped"]
+    assert printer.posts == []
+    # The chat bot's own state never saw this alert, and still honors the skip.
+    assert fa.load(state_dir) == {}
+    observation = fa.observe(printer, None)
+    assert fa.to_announce(fa.offers(observation), fa.load(state_dir),
+                          skipped=fa.skipped_everywhere(state_dir)) == []
+
+
+def test_web_and_chat_alerts_keep_separate_announcement_state(cfg, tmp_path, monkeypatch):
+    """Each surface announces a release once on its own: the bot and the
+    Web UI run in different processes and must not suppress each other."""
+    from print_handy import firmware_alerts as fa
+    web, service = _web(cfg, tmp_path, monkeypatch)
+    printer = Printer()
+    al = service.core.firmware_alerts = _alerter(service.core, printer)
+    state_dir = al._state_dir(_pid(cfg))
+    fa.save(state_dir, fa.record_announced({}, fa.Offer("zmod", "1.7.5-2", "1.7.6-17",
+                                                        "zmod:1.7.6"), 1.0))
+    announced = _on_loop(service, al.check(_pid(cfg), AD5X))
+    assert [offer.key for offer in announced] == ["zmod:1.7.6"]
+    assert "zmod:1.7.6" in fa.load(state_dir, fa.WEBUI_SURFACE)["announced"]
+    for task in list(al.tasks):
+        service._loop.call_soon_threadsafe(task.cancel)
+
+
+def test_web_chat_print_firmware_update_helix_runs_the_confirmed_update(
+        cfg, tmp_path, monkeypatch):
+    """`/print-firmware update helix` in web chat: the alias resolves to the
+    live helixscreen component, the confirmation is a web chat prompt, and
+    exactly one upgrade POST names the live component."""
+    from unittest import mock
+
+    from print_handy.hermes import spool_sync
+    web, service = _web(cfg, tmp_path, monkeypatch)
+
+    class Helix:
+        def __init__(self):
+            self.version = "v1.0.7"
+            self.posts = []
+
+        def __call__(self, method, path, body=None, timeout=None):
+            if path == fw.UPDATE_UPGRADE_PATH:
+                self.posts.append(body)
+                self.version = "v1.0.8"
+                return {"result": "ok"}
+            if path in (fw.UPDATE_STATUS_PATH, fw.UPDATE_REFRESH_PATH):
+                return {"result": {"version_info": {
+                    "Z-Mod": {"version": "1.7.6", "remote_version": "1.7.6"},
+                    "helixscreen": {"version": self.version, "remote_version": "v1.0.8",
+                                    "configured_type": "web"}}}}
+            if path == fw.SYSTEM_INFO_PATH:
+                return {"result": {"system_info": {"distribution": {"version": "1.7.6"}}}}
+            if path == fw.PRINT_STATE_PATH:
+                return {"result": {"status": {"print_stats": {"state": "standby"}}}}
+            raise AssertionError(f"unexpected {method} {path}")
+
+    printer = Helix()
+    view = service.view(web.scope_for("browser"))
+    with mock.patch.object(spool_sync, "moonraker", printer), \
+            mock.patch.object(fw, "send_update", _send_fast):
+        assert view.submit("/print-firmware update helix")
+        confirm = _wait_prompt(view, "Update printer firmware?")
+        assert "**helixscreen**: v1.0.7 -> v1.0.8" in confirm["question"]
+        assert printer.posts == []
+        view.answer(confirm["clarify_id"], 0)
+        _wait_message(view, "Updated **helixscreen** to v1.0.8")
+    assert printer.posts == [{"name": "helixscreen"}]
+
+
+_REAL_SEND_UPDATE = fw.send_update
+
+
+def _send_fast(transport, prepared):
+    return _REAL_SEND_UPDATE(transport, prepared, verify_delay_s=0, sleep=lambda _s: None)

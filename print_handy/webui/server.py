@@ -2143,22 +2143,7 @@ class _Handler(BaseHTTPRequestHandler):
     # -- web chat -------------------------------------------------------------
 
     def _chat_service(self):
-        # Built lazily (the service spawns a BotCore and its own
-        # event-loop thread, so a server that never serves /chat must
-        # not pay for it), but the build is serialized: this server is
-        # threaded, and two concurrent first requests must not each
-        # build one — the loser's service would be orphaned when its
-        # assignment is overwritten, its replies rendered nowhere.
-        service = getattr(self.server, "chat_service", None)
-        if service is not None:
-            return service
-        with _chat_lock(self.server):
-            service = getattr(self.server, "chat_service", None)
-            if service is None:
-                from ..bot.web import WebChatService
-                service = WebChatService(self.server.settings_data)
-                self.server.chat_service = service
-            return service
+        return chat_service_for(self.server)
 
     def _web_chat_enabled(self):
         """[webui] chat_enabled, the chat page's own switch (PR #1106).
@@ -2767,6 +2752,53 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     return server
 
 
+def chat_service_for(server):
+    """The server's one web chat service, built on first use.
+
+    Built lazily (the service spawns a BotCore and its own event-loop
+    thread, so a server that never serves /chat must not pay for it), but
+    the build is serialized: this server is threaded, and two concurrent
+    first requests must not each build one — the loser's service would be
+    orphaned when its assignment is overwritten, its replies rendered
+    nowhere.
+    """
+    service = getattr(server, "chat_service", None)
+    if service is not None:
+        return service
+    with _chat_lock(server):
+        service = getattr(server, "chat_service", None)
+        if service is None:
+            from ..bot.web import WebChatService
+            service = WebChatService(server.settings_data)
+            server.chat_service = service
+        return service
+
+
+def start_web_alerts(server):
+    """Start web chat with the server when it has alerts to deliver.
+
+    Web chat delivers the bot heartbeat's alerts (bot/web.py
+    HEARTBEAT_CHECKS: a ZMod update alert with its Update and Skip this
+    version buttons), so waiting for the first /chat request would hold
+    an alert back until someone happened to open the page. Started only
+    when the page's switch is on, ``[firmware] update_alerts`` is on and
+    the roster has a printer that gets alerts; otherwise the service stays
+    lazy, as before. Returns the service, or None. Never raises: a failure
+    is logged and the page builds the service on first use as before.
+    """
+    try:
+        data = server.settings_data
+        from ..bot import firmware_alert
+        from ..bot.web import chat_enabled
+        if not (chat_enabled(data) and firmware_alert.enabled(data)
+                and firmware_alert.alert_printers(data)):
+            return None
+        return chat_service_for(server)
+    except Exception:
+        log.exception("could not start web chat alerts")
+        return None
+
+
 def _printer_control(data, printer_id, verb, body):
     if verb == "temperature":
         return controls_module.set_temperature(data, printer_id, body)
@@ -2788,6 +2820,7 @@ def serve(data=None, *, environ=None):
     except WebUIServerError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    start_web_alerts(server)
     host, port = server.server_address[:2]
     print(f"webui: server on http://{host}:{port}/ (status page; "
           f"configuration at /config, Ctrl-C to stop)")

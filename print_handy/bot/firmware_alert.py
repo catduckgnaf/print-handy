@@ -95,6 +95,8 @@ class FirmwareAlerter:
         self.clock = clock
         self.rng = rng or random.Random()
         self.confirm_timeout_s = confirm_timeout_s
+        # The Web UI keeps its own alert state (firmware_alerts.surface_for).
+        self.surface = fa.surface_for(getattr(core, "platform_name", ""))
         self._first_due: dict[str, float] = {}
         self._checking: set[str] = set()
         self._applying: set[str] = set()
@@ -140,7 +142,7 @@ class FirmwareAlerter:
             for printer_id, entry in alert_printers(cfg):
                 if printer_id in self._checking:
                     continue
-                state = fa.load(self._state_dir(printer_id))
+                state = fa.load(self._state_dir(printer_id), self.surface)
                 if now < self._due(printer_id, state, now):
                     continue
                 self._checking.add(printer_id)
@@ -164,32 +166,33 @@ class FirmwareAlerter:
         """One check of one printer: read, decide, announce what is new."""
         state_dir = self._state_dir(printer_id)
         now = self.clock()
-        state = fa.load(state_dir)
+        state = fa.load(state_dir, self.surface)
         try:
             transport = self.transport_for(printer_id)
             try:
                 printer_state = await asyncio.to_thread(fw.print_state, transport)
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
-                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S})
+                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S}, self.surface)
                 return []
             if printer_state not in fw.IDLE_STATES:
                 # Never during a print: ask again later, alert nothing now.
-                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S})
+                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S}, self.surface)
                 return []
             release = await asyncio.to_thread(self.releases.get)
             try:
                 observation = await asyncio.to_thread(fa.observe, transport, release)
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
-                fa.save(state_dir, {**state, "next_check_at": self._next(now)})
+                fa.save(state_dir, {**state, "next_check_at": self._next(now)}, self.surface)
                 return []
             self._failing.discard(printer_id)
-            fresh = fa.to_announce(fa.offers(observation), state)
+            fresh = fa.to_announce(fa.offers(observation), state,
+                                   skipped=fa.skipped_everywhere(state_dir))
             for offer in fresh:
                 if await self.announce(printer_id, entry, offer):
                     state = fa.record_announced(state, offer, self.clock())
-            fa.save(state_dir, {**state, "next_check_at": self._next(now)})
+            fa.save(state_dir, {**state, "next_check_at": self._next(now)}, self.surface)
             return fresh
         except Exception as exc:
             self._fail(printer_id, repr(exc))
@@ -246,7 +249,8 @@ class FirmwareAlerter:
             _close(registry, clarify_id)
         if answer == SKIP_LABEL:
             state_dir = self._state_dir(printer_id)
-            fa.save(state_dir, fa.record_skipped(fa.load(state_dir), offer.key, self.clock()))
+            fa.save(state_dir, fa.record_skipped(fa.load(state_dir, self.surface), offer.key,
+                                                 self.clock()), self.surface)
             await adapter.close_prompt(clarify_id, "Skipped. Print Handy will tell you about "
                                                    "the next ZMod release.")
             return "skipped"

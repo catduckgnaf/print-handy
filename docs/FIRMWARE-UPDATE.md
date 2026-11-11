@@ -24,7 +24,9 @@ mocked Moonraker responses in `tests/test_firmware_update.py`.
   rule). The component name is resolved against the live status just
   read, a typed name is never sent on trust, and the confirmation
   shows `component: current -> available`. There is nothing to confirm
-  when no update is available.
+  when no update is available. The name can be typed in words, and the
+  common names resolve to whatever the printer calls the component (see
+  [Component names](#component-names)).
 - `/print-firmware guide zmod` / `/print-firmware guide stock`; the
   guided manual flows for the ZMod base and the stock Flashforge
   firmware under it (AD5X family). Print Handy performs none of those
@@ -73,6 +75,39 @@ the Z-Mod repo (the `path` of Moonraker's `[update_manager Z-Mod]`,
 `/usr/data/zmod/zmod` on the AD5X), and restart Moonraker
 ([#1295](https://github.com/catduckgnaf/print-handy/issues/1295)).
 
+## Component names
+
+`/print-firmware update` takes one component, and these names all mean
+the same one. Case, spaces and hyphens do not matter, so `helix screen`,
+`Helix-Screen` and `helixscreen` are one name.
+
+| You type | It updates | Notes |
+|---|---|---|
+| `zmod`, `z-mod` | ZMod's `Z-Mod` component | |
+| `helix`, `helix screen`, `helixscreen` | `helixscreen` | |
+| `guppy`, `guppy screen`, `guppyscreen` | `guppyscreen` where the printer lists one | On ZMod, see below |
+| `klipper`, `klippy` | `klipper`, or `klippy` on ZMod | |
+| `moonraker`, `moon` | `moonraker`, or `moon` on ZMod | |
+
+The table lives in one place (`COMPONENT_ALIASES` in
+`print_handy/firmware_update.py`). A name is only ever matched against the
+components the printer just reported: an alias never makes up a component,
+and the upgrade request names the printer's own component.
+
+**GuppyScreen on ZMod.** ZMod bundles GuppyScreen (its own start script and
+binary, configured from ZMod's data folder); it is not a Moonraker Update
+Manager component. On a ZMod printer, `/print-firmware update guppy` says in
+one line that GuppyScreen ships inside ZMod and updates with ZMod, and points
+at `/print-firmware update zmod`. A printer whose Moonraker does list a
+`guppyscreen` component updates it like any other.
+
+**In plain words.** Chat suggests the command when you write it out (only a
+suggestion: nothing runs until you accept it, and then the command asks its
+own confirmation). "update helix", "update helix screen", "update guppy",
+"update zmod" or "upgrade moonraker" suggest `/print-firmware update
+<component>`; "check for guppy updates", "is there a helix update" or "helix
+update" suggest the read-only `/print-firmware` report.
+
 ## ZMod update alerts in chat
 
 On by default (`[firmware] update_alerts`, see [Settings](SETTINGS.md)).
@@ -93,6 +128,18 @@ when a new ZMod release is available, on whichever platform the bot runs
   Matrix has no buttons, so its alert names `/print-firmware update zmod`
   instead. After a bot restart an old alert's button no longer answers;
   the typed command still works.
+- **In the Web UI** the same alert appears on the chat page (`/chat`),
+  with the same **Update** and **Skip this version** buttons and the same
+  confirmation, answered from the page. The alert belongs to no one
+  browser session, so every session sees it and either can answer it, like
+  the restart notice. The Web UI starts its chat service with the server
+  when it has alerts to deliver (web chat on, alerts on, a ZMod printer on
+  the roster), so an alert does not wait for someone to open the page. It
+  runs in the Web UI process, so it announces each release once on its own
+  (`firmware_update_alerts.webui.json`) and does not suppress, or get
+  suppressed by, the bot's alert; **Skip this version** on either one
+  silences the release on both. With `[webui] chat_enabled = false` the
+  Web UI posts no alerts.
 - One alert per ZMod release, remembered in the printer's state folder
   (`firmware_update_alerts.json`), so a restart does not repeat it. Builds
   inside a release (the `-N` in `1.7.6-17`) do not alert on their own; the
