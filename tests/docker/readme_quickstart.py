@@ -79,11 +79,16 @@ def localize_downloads(script, checkout):
 
 
 def set_env_value(text, key, value):
-    """Set KEY=value on the line that names KEY (commented or not); fail if the key is absent."""
-    pattern = re.compile(rf"^#?[ \t]*{re.escape(key)}=.*$", re.M)
-    if not pattern.search(text):
-        raise QuickstartError(f".env has no {key} line for the README's edit step")
-    return pattern.sub(lambda _match: f"{key}={value}", text, count=1)
+    """Set KEY=value the way a newcomer would: on the live KEY= line, else the commented one.
+
+    A commented example can sit above the live line (`# KEY=example` then `KEY=`). Editing the
+    comment would leave the later, empty assignment in force, so the live line wins.
+    """
+    name = re.escape(key)
+    for pattern in (re.compile(rf"^{name}=.*$", re.M), re.compile(rf"^#[ \t]*{name}=.*$", re.M)):
+        if pattern.search(text):
+            return pattern.sub(lambda _match: f"{key}={value}", text, count=1)
+    raise QuickstartError(f".env has no {key} line for the README's edit step")
 
 
 def _run(args, **kwargs):

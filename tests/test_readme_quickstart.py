@@ -53,7 +53,14 @@ class ReadmeQuickstartExtraction(unittest.TestCase):
         for key in quickstart.ENV_KEYS:
             self.assertRegex(env, rf"(?m)^#?[ \t]*{key}=", key)
         edited = quickstart.set_env_value(env, "PRINT_HANDY_IMAGE", "print-handy:ci")
-        self.assertRegex(edited, r"(?m)^PRINT_HANDY_IMAGE=print-handy:ci$")
+        # Compose reads the last live assignment, so that one must carry the value.
+        live = re.findall(r"(?m)^PRINT_HANDY_IMAGE=(.*)$", edited)
+        self.assertEqual(live[-1:], ["print-handy:ci"], live)
+
+    def test_the_live_line_wins_over_a_commented_example_above_it(self):
+        text = "# KEY=example\nKEY=\n"
+        self.assertEqual(quickstart.set_env_value(text, "KEY", "v"), "# KEY=example\nKEY=v\n")
+        self.assertEqual(quickstart.set_env_value("# KEY=example\n", "KEY", "v"), "KEY=v\n")
 
     def test_missing_env_key_fails_by_name(self):
         with self.assertRaisesRegex(AssertionError, "NOT_THERE"):
