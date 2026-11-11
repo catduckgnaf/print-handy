@@ -205,7 +205,7 @@ def skip_rig(tmp_path, monkeypatch):
     path.write_text(GCODE)
     monkeypatch.setattr(model_job.printer_state, 'check', lambda *a, **k: (True, [], {}))
     monkeypatch.setattr(printer_state, 'gcode_temperatures',
-                        lambda state, materials, fetch=None, text=None: {'nozzle': 210, 'bed': 60})
+                        lambda state, materials, fetch=None, text=None, **_: {'nozzle': 210, 'bed': 60})
     adapter = _CountingAdapter()
     return path, adapter, copy.deepcopy(RIG_STATE)
 

@@ -3069,7 +3069,35 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
-def _with_gcode_temperatures(state, text, recorded=None):
+_VERIFY_LINE_PREFIXES = (
+    '; filament_type = ', '; nozzle_diameter = ', '; first_layer_height = ', '; initial_layer_print_height = ',
+    '; nozzle_temperature_initial_layer = ', '; nozzle_temperature = ',
+    'START_PRINT', 'PRINT_START', 'END_PRINT', 'PRINT_END', 'M190', 'M109', 'M104', 'M140', ';LAYER_CHANGE',
+    printer_state.TOOL_LINE_ANCHOR, printer_state.TOOL_SLOTS_ANCHOR,
+)
+
+
+def _verify_lines(text, adapter=None):
+    """One GcodeLines scan for every line-anchored question offline verification asks (#1153 item 7).
+
+    The adapter's own start and end macro names are declared too, read
+    defensively: an adapter without them, or one whose property raises,
+    simply adds nothing here, and the check that really reads the name
+    behaves exactly as before.
+    """
+    from .gcode_lines import GcodeLines
+    macros = []
+    for name in ('start_macro', 'end_macro'):
+        try:
+            value = getattr(adapter, name, None)
+        except Exception:
+            value = None
+        if isinstance(value, str):
+            macros.append(value)
+    return GcodeLines(text, _VERIFY_LINE_PREFIXES + tuple(macros))
+
+
+def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     """state with temps_c set to what this G-code's own spool resolves to (printer_state.gcode_temperatures),
     so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record.
 
@@ -3077,6 +3105,10 @@ def _with_gcode_temperatures(state, text, recorded=None):
     provenance (P2-275) — win outright when usable: re-resolving at verify
     time can see a different answer than slicing did (Spoolman down falls
     back to material defaults) and refuse a sound artifact.
+
+    ``lines`` is the caller's GcodeLines scan of ``text`` (verification
+    already has one), so the filament_type and spool-header lookups here
+    cost no extra pass.
     """
     if recorded:
         try:
@@ -3087,9 +3119,11 @@ def _with_gcode_temperatures(state, text, recorded=None):
             return {**state, 'temps_c': temps}
     from .orca_config import split_config_list
     from . import spoolman_client
-    match = re.search(r'^; filament_type = (.+)$', text, re.M)
+    if lines is None:
+        lines = _verify_lines(text)
+    listed = lines.config_value('filament_type')
     try:
-        materials = split_config_list(match.group(1).strip()) if match else []
+        materials = split_config_list(listed) if listed is not None else []
     except ValueError:
         materials = []
 
@@ -3097,7 +3131,7 @@ def _with_gcode_temperatures(state, text, recorded=None):
         record = spoolman_client.get_spool(spool_id, base_url=printer_state.spoolman_url(state))
         return None if not record or record.get('archived') else record.get('filament')
     try:
-        temps = printer_state.gcode_temperatures(state, materials, fetch, text)
+        temps = printer_state.gcode_temperatures(state, materials, fetch, text, lines=lines)
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(f"G-code temperature check failed: {exc}") from exc
     return {**state, 'temps_c': temps}
@@ -3117,10 +3151,11 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
+    lines = _verify_lines(text, adapter)
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
-    state = _with_gcode_temperatures(state, text, recorded_temps)
+    state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
     from .nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
     try:
@@ -3129,21 +3164,18 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
         raise RuntimeError("offline G-code verification failed: invalid effective nozzle temperature: " + str(exc)) from exc
     if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend, adapter):
         errors.append('startup heater prefix does not match the recorded bed and effective nozzle temperature')
-    def config(key):
-        match = re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return match.group(1).strip() if match else None
-    nozzle = config('nozzle_diameter')
+    nozzle = lines.config_value('nozzle_diameter')
     if nozzle is None or abs(float(nozzle) - state['nozzle']['diameter_mm']) > 1e-3:
         errors.append(f"nozzle {nozzle} != recorded {state['nozzle']['diameter_mm']}")
     hotend, bed = effective_nozzle_temperature(nozzle_type, float(state['temps_c']['nozzle'])), state['temps_c']['bed']
-    start_match = re.search(r'^START_PRINT\s+([^;]*)', text, re.M)
+    start_match = lines.search(r'^START_PRINT\s+([^;]*)', 'START_PRINT')
     start_args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', start_match.group(1))) if start_match else {}
     start_matches = (start_match is not None and
                      math.isclose(float(start_args.get('BED_TEMP', 'nan')), float(bed), abs_tol=1e-3) and
                      math.isclose(float(start_args.get('EXTRUDER_TEMP', 'nan')), float(hotend), abs_tol=1e-3))
     if not start_matches:
         errors.append(f'missing START_PRINT matching bed {bed} and effective hotend {hotend}')
-    if not re.search(r'^END_PRINT(?:\s|$)', text, re.M):
+    if not lines.search(r'^END_PRINT(?:\s|$)', 'END_PRINT'):
         errors.append('missing END_PRINT')
     bounds = cached_motion_bounds(raw, text)
     limits = state.get('axis_limits_mm', {'x': [0, BED_MM], 'y': [0, BED_MM], 'z': [0, state.get('max_print_height_mm', MAX_HEIGHT_MM)]})
@@ -3231,6 +3263,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
         return _verify_offline(gcode_path, st, adapter, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
+    lines=_verify_lines(text, adapter)
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
     # Screenless files remain accepted without it, but any present checksum is validated.
@@ -3239,7 +3272,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    st = _with_gcode_temperatures(st, text, recorded_temps)
+    st = _with_gcode_temperatures(st, text, recorded_temps, lines=lines)
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(st)
@@ -3256,9 +3289,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
             errors.append("native screen requires immediate startup M190 Sbed / M104 Snozzle T0 consistent with START_PRINT; later heaters do not count")
     elif mode != 1:
         errors.append(f"unknown display_off mode {mode!r}; refusing hardware-dependent G-code validation")
-    def config(key):
-        m=re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return m.group(1).strip() if m else None
+    config=lines.config_value
     nozzle=config("nozzle_diameter")
     nozzle_value=None
     if nozzle is None:
@@ -3291,8 +3322,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if not printer_state.same_material(material, st["spool"]["material"]):
             errors.append(f"G-code filament_type {material!r} != loaded {st['spool']['material']!r}")
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
-    def numeric_macro_match(pattern, bed_key, hotend_key):
-        match = re.search(pattern, text, re.M)
+    def numeric_macro_match(macro_name, bed_key, hotend_key):
+        match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)
         args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', match.group(1))) if match else {}
         try:
             return (match is not None and
@@ -3303,26 +3334,28 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     octoprint = getattr(adapter, 'transport', None) == 'octoprint'
     if octoprint:
         for command, target in (('M190', bed), ('M109', hotend)):
-            values = re.findall(rf'^{command}\s+S([\d.]+)', text, re.M)
-            if not values or not math.isclose(float(values[0]), float(target), abs_tol=1e-3):
+            first = lines.search(rf'^{command}\s+S([\d.]+)', command)
+            if not first or not math.isclose(float(first.group(1)), float(target), abs_tol=1e-3):
                 errors.append(f'missing {command} matching target {target}')
         # Validate the slicer-owned shutdown, never append a guessed end sequence.
-        if not all(re.search(rf'^{cmd}\s+S0(?:\s|$)', text, re.M) for cmd in ('M104', 'M140')):
+        if not all(lines.search(rf'^{cmd}\s+S0(?:\s|$)', cmd) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
         macro = adapter.start_macro
-        if not (numeric_macro_match(rf'^{re.escape(macro)}\s+([^;]*)', 'BED', 'HOTEND') or
-                sovol_style_start_matches(text, bed, hotend)):
+        if not (numeric_macro_match(macro, 'BED', 'HOTEND') or
+                sovol_style_start_matches(text, bed, hotend, lines=lines)):
             errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
                           " (accepted starts: the configured macro with BED/HOTEND arguments,"
                           " START_PRINT with BED_TEMP/EXTRUDER_TEMP arguments, or a bare"
                           " START_PRINT whose M190/M109 heater lines match those temperatures)")
-    elif not (numeric_macro_match(r'^PRINT_START\s+([^;]*)', 'BED', 'HOTEND') or
-              numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
+    elif not (numeric_macro_match('PRINT_START', 'BED', 'HOTEND') or
+              numeric_macro_match('START_PRINT', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
+    def ends_with(macro_name):
+        return lines.search(rf'^{re.escape(macro_name)}(?:\s|$)', macro_name)
     if not octoprint:
         if native:
-            if not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)):
+            if not (ends_with('PRINT_END') or ends_with('END_PRINT')):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
         else:
             end_macro = adapter.end_macro
@@ -3331,10 +3364,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 # A customized [printer] end_macro is the only safe end (P2-13): a file
                 # ending in a different macro would run a shutdown sequence this printer
                 # does not define, so PRINT_END/END_PRINT no longer substitute for it.
-                if not re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M):
+                if not ends_with(end_macro):
                     errors.append(f"missing {end_macro} safe end sequence")
-            elif not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-                      or re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M)):
+            elif not (ends_with('PRINT_END') or ends_with('END_PRINT') or ends_with(end_macro)):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
@@ -3357,7 +3389,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     # Lines narrower than 90% of the orifice are refused, first layer and body alike.
     if nozzle_value is not None:
         floor=0.9*nozzle_value
-        layers=re.split(r'^;LAYER_CHANGE', text, flags=re.M)
+        # The first six ;LAYER_CHANGE pieces are all this check reads (layer 0,
+        # the first layer, layers 2-5); the scan already knows where they are.
+        layers, layer_count = lines.split(';LAYER_CHANGE', 6)
         # Orca (notably with Arachne walls) writes ;WIDTH only when it changes, so a
         # layer can inherit its width from an earlier one. Carry the width in effect
         # across layers and count it once per structural feature (;TYPE) as well.
@@ -3393,10 +3427,10 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 widths.append(carried[0])
             return widths
         structural_widths(layers[0] if layers else "")
-        first=structural_widths(layers[1] if len(layers)>1 else "")
+        first=structural_widths(layers[1] if layer_count>1 else "")
         body=structural_widths("".join(layers[2:6]))
         for name,ws in (("first layer",first),("layers 2-5",body)):
-            if name == "layers 2-5" and len(layers) <= 2:
+            if name == "layers 2-5" and layer_count <= 2:
                 # Single-layer test print (e.g. first-layer calibration pad) has no subsequent layers
                 continue
             if not ws:
@@ -3862,7 +3896,7 @@ def release_start_announcement(remote):
         except OSError: pass
 
 
-def sovol_style_start_matches(text, bed, hotend):
+def sovol_style_start_matches(text, bed, hotend, lines=None):
     """Whether a START_PRINT-led job (Sovol stock style, issue #612) proves its temperatures.
 
     Sovol's own profiles lead with START_PRINT, not the PRINT_START BED/HOTEND
@@ -3878,7 +3912,10 @@ def sovol_style_start_matches(text, bed, hotend):
     passes on its heater lines: the macro would run with its arguments, so
     the arguments are the contract the file states.
     """
-    m = re.search(r'^START_PRINT\b\s*([^;]*)', text, re.M)
+    if lines is None:
+        from .gcode_lines import GcodeLines
+        lines = GcodeLines(text, ('START_PRINT', 'M190', 'M109'))
+    m = lines.search(r'^START_PRINT\b\s*([^;]*)', 'START_PRINT')
     if not m:
         return False
     args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', m.group(1)))
@@ -3890,7 +3927,7 @@ def sovol_style_start_matches(text, bed, hotend):
             return False
 
     def first_temp(command):
-        match = re.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', text, re.M)
+        match = lines.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', command)
         return float(match.group(1)) if match else None
 
     bed_line, hotend_line = first_temp('M190'), first_temp('M109')

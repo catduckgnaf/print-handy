@@ -730,12 +730,66 @@ def fuzzy_printed(query: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]
     return [row for _score_value, _pos, row in scored]
 
 
-def printed_list_text(rows: list[dict[str, Any]], limit: int = AGAIN_LIST_LIMIT) -> str:
+def printed_list_text(rows: list[dict[str, Any]], limit: int = AGAIN_LIST_LIMIT,
+                      plans_dir: Path | None = None) -> str:
+    """The /print-again list, newest first, with project plates grouped (#1008 item 6).
+
+    A standalone print is one line, exactly as before. The prints of one
+    multi-plate project are listed together under one project line, at the
+    position of the project's newest print, each child naming its exact
+    plate alias (82B) so it can be reprinted directly. ``limit`` counts the
+    top-level entries (a standalone print or a project), so grouping never
+    pushes a standalone print out of the list it would otherwise be on.
+    """
     if not rows:
         return "No archived print has been started yet."
-    lines = [f"{r['index']}. {r['title']} ({_et(r['launched_at'])})" for r in rows[:limit]]
-    more = f"\n…and {len(rows) - limit} older. Search by name: /print-again <name>" if len(rows) > limit else ""
-    return "Printed before, newest first:\n" + "\n".join(lines) + more + "\nReprint one with /print-again <number> or /print-again <name>."
+    entries: list[dict[str, Any]] = []
+    by_job: dict[str, dict[str, Any]] = {}
+    infos: dict[str, dict[str, Any] | None] = {}
+    for row in rows:
+        job_key = str(Path(str(row["job_json"])).resolve())
+        if job_key not in infos:
+            try:
+                infos[job_key] = project_for_job(Path(job_key), plans_dir=plans_dir, _rows=rows)
+            except Exception:
+                infos[job_key] = None  # an unreadable job lists as a standalone print
+        info = infos[job_key]
+        if info is None:
+            entries.append({"row": row})
+            continue
+        group = by_job.get(job_key)
+        if group is None:
+            group = by_job[job_key] = {"info": info, "children": []}
+            entries.append(group)
+        group["children"].append(row)
+    lines: list[str] = []
+    for entry in entries[:limit]:
+        if "row" in entry:
+            r = entry["row"]
+            lines.append(f"{r['index']}. {r['title']} ({_et(r['launched_at'])})")
+            continue
+        info = entry["info"]
+        plates = info["plates"]
+        done = sum(1 for p in plates if p["completed_quantity"] >= p["quantity"])
+        head = f"Project {info['project_number']}" if info["project_number"] else "Project"
+        lines.append(f"{head}: {info['title']}, {len(plates)} plates, {done} of {len(plates)} finished")
+        for r in entry["children"]:
+            plate = None
+            try:
+                launched = str(_artifact_for(Path(str(r["record"]))).resolve())
+                plate = next((p for p in plates if p.get("gcode")
+                              and str(Path(str(p["gcode"])).resolve()) == launched), None)
+            except Exception:
+                plate = None
+            ref = (plate or {}).get("ref") or (plate or {}).get("suffix")
+            label = f"plate {ref} ({plate['label']})" if plate and ref else r["title"]
+            lines.append(f"  {r['index']}. {label} ({_et(r['launched_at'])})")
+    more = (f"\n…and {len(entries) - limit} older. Search by name: /print-again <name>"
+            if len(entries) > limit else "")
+    tail = "\nReprint one with /print-again <number> or /print-again <name>."
+    if by_job:
+        tail += " Reprint one project plate with its alias, for example /print-again 82B."
+    return "Printed before, newest first:\n" + "\n".join(lines) + more + tail
 
 
 def _et(ts: float) -> str:
@@ -1010,6 +1064,14 @@ def project_scope_targets(target: dict[str, Any], scope: str,
             continue
     if not targets:
         raise NextPlateError("none of those plates has a verified earlier print to repeat")
+    # An entire-project reprint is one new logical run (#1008 acceptance
+    # item 5): every plate of it carries the same fresh run id, never
+    # 'original', so the original project's counters cannot move. The
+    # remaining scope finishes the ORIGINAL run (its unfinished plates
+    # still count toward it), so it stays on that run.
+    run_id = mint_project_run_id() if scope == "entire" else "original"
+    for t in targets:
+        t["project_run_id"] = run_id
     label = (f"entire project {info['project_number']}" if scope == "entire"
              else f"the remaining plates of project {info['project_number']}")
     for pos, t in enumerate(targets):
@@ -1103,6 +1165,116 @@ def _target_from_record(record: Path, archive: Path) -> dict[str, Any]:
     return {"plan_id": "print-again", "part_id": job_path.parent.name[:60], "label": title, "where": "",
             "title": title, "copy": int(time.time()), "quantity": 1, "reprint": True, "resliced": resliced,
             "job_json": str(job_path), "gcode": str(gcode), "gcode_sha256": _sha256(gcode)}
+
+
+REPRINT_RUNS = _config.state_file("REPRINT_RUNS_STATE", "reprint_runs.json")
+# An armed run waits for its own start record; a start that never happened
+# leaves a stale entry, which is ignored after this long.
+REPRINT_RUN_TTL_S = 1800.0
+
+
+def mint_project_run_id() -> str:
+    """A new logical reprint run id (#1008 acceptance item 5). Never 'original'."""
+    return "run-" + secrets.token_hex(6)
+
+
+def _read_runs(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _write_runs(value: dict[str, Any], path: Path) -> None:
+    if not value:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _job_is_project(job_json: Any) -> bool:
+    try:
+        job = json.loads(Path(str(job_json)).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return isinstance(job, dict) and bool(job.get("project_id")
+                                          or (job.get("multipart_plan") or {}).get("project_id")
+                                          or (job.get("project") or {}).get("project_id"))
+
+
+def arm_reprint_run(target: dict[str, Any], path: Path | None = None) -> str | None:
+    """Name the project reprint run the next start of ``target`` belongs to.
+
+    Called right before a /print-again start of a project job. A reprint is
+    a new logical run: its start record gets this run id instead of the
+    original run's, and its completion never credits the original plan's
+    counters (print_records.update_multipart_plan). Keeps the target's own
+    run id (every plate of one scoped run shares one), else mints a new one
+    and stores it on the target. A non-project job arms nothing and returns
+    None. This is bookkeeping only: it starts nothing and approves nothing.
+    """
+    if not target.get("gcode") or not _job_is_project(target.get("job_json")):
+        return None
+    run_id = target.get("project_run_id")
+    if run_id == "original":
+        # The remaining-plates scope resumes the original run: nothing armed.
+        return None
+    if not isinstance(run_id, str) or not run_id.startswith("run-"):
+        run_id = mint_project_run_id()
+    target["project_run_id"] = run_id
+    runs_path = Path(path or REPRINT_RUNS)
+    key = str(Path(str(target["gcode"])).resolve())
+    with _RegistryLock(runs_path):
+        runs = _read_runs(runs_path)
+        runs[key] = {"project_run_id": run_id, "armed_at": time.time()}
+        _write_runs(runs, runs_path)
+    return run_id
+
+
+def disarm_reprint_run(target: dict[str, Any], path: Path | None = None) -> None:
+    """Drop the armed run for ``target`` (its start did not happen)."""
+    if not target.get("gcode"):
+        return
+    runs_path = Path(path or REPRINT_RUNS)
+    if not runs_path.exists():
+        return
+    key = str(Path(str(target["gcode"])).resolve())
+    with _RegistryLock(runs_path):
+        runs = _read_runs(runs_path)
+        if runs.pop(key, None) is not None:
+            _write_runs(runs, runs_path)
+
+
+def take_reprint_run(gcode: Any, path: Path | None = None, now: float | None = None) -> str | None:
+    """Consume the run armed for ``gcode``: its id once, then None.
+
+    The start record calls this; a second start of the same G-code (a later
+    /print-next, or a duplicate record) finds nothing and stays on its own
+    run. A stale entry is dropped and returns None.
+    """
+    if not gcode:
+        return None
+    runs_path = Path(path or REPRINT_RUNS)
+    if not runs_path.exists():
+        return None
+    key = str(Path(str(gcode)).resolve())
+    now = time.time() if now is None else now
+    with _RegistryLock(runs_path):
+        runs = _read_runs(runs_path)
+        entry = runs.pop(key, None)
+        stale = [k for k, v in runs.items()
+                 if not isinstance(v, dict) or now - float(v.get("armed_at") or 0) > REPRINT_RUN_TTL_S]
+        for k in stale:
+            runs.pop(k, None)
+        _write_runs(runs, runs_path)
+    if not isinstance(entry, dict) or now - float(entry.get("armed_at") or 0) > REPRINT_RUN_TTL_S:
+        return None
+    run_id = entry.get("project_run_id")
+    return run_id if isinstance(run_id, str) and run_id.startswith("run-") else None
 
 
 def _summary():
@@ -1340,6 +1512,7 @@ def queue_project_sequence(targets: list[dict[str, Any]], path: Path | None = No
     _write_queue({"kind": "project_sequence",
                   "project_id": first.get("project_id"),
                   "project_number": first.get("project_number"),
+                  "project_run_id": first.get("project_run_id"),
                   "title": first.get("project_title") or first["title"],
                   "entries": [{"job_json": t["job_json"], "gcode": t["gcode"],
                                "title": t["title"], "gcode_sha256": t["gcode_sha256"],
@@ -1404,6 +1577,7 @@ def next_copy_target(path: Path | None = None, archive: Path | None = None,
                 "gcode": str(gcode), "gcode_sha256": expected,
                 "project_sequence": True, "project_id": q.get("project_id"),
                 "project_number": q.get("project_number"),
+                "project_run_id": q.get("project_run_id"),
                 "project_title": q.get("title"),
                 "project_plate_ref": entry.get("plate_ref"),
                 "project_plate_suffix": entry.get("plate_suffix")}

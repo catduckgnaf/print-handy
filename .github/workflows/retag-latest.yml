@@ -8,7 +8,8 @@ name: Retag latest to an existing release (manual repair)
 # Use it when :latest was moved by mistake. Dispatch it from the main branch
 # with the version :latest should point back at, for example 2.2.7. The run
 # refuses a version whose git tag does not exist or is not reachable from
-# main, and a version whose image is not on GHCR. It only runs when a
+# main, a version without a published (non-draft, non-prerelease) GitHub
+# release, and a version whose image is not on GHCR. It only runs when a
 # maintainer dispatches it.
 on:
   workflow_dispatch:
@@ -39,7 +40,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - name: Require a release tag that is reachable from main
+      - name: Require a release tag that is reachable from main and published
+        env:
+          # Reads the GitHub release for the tag (contents: read is enough).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
