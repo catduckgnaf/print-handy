@@ -504,3 +504,187 @@ def test_a_migrated_install_without_the_legacy_folder_still_gets_the_compat_link
     legacy = tmp_path / "hermes"
     assert legacy.is_symlink() and os.readlink(legacy) == str(state)
     assert (state / "record.txt").read_text() == "state\n"
+
+
+
+# --- #1144: an unwritable data folder stops the start with one message that
+# names the folder and the command that fixes it, before the migration or
+# anything else runs. chmod 0555 is the stand-in for every real cause (a share
+# that refuses chown, a read-only bind, a folder owned by another uid); root
+# ignores modes, so these cells need an unprivileged test user.
+non_root = pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                              reason="root ignores folder modes")
+DATA_FOLDERS = ["state", "state/state", "state/logs", "archive", "records",
+                "cache", "spoolman", "spoolman/config", "spoolman/logs",
+                "spoolman/backups"]
+CANNOT_START = "Print Handy: cannot start:"
+
+
+def full_layout(home: Path):
+    for rel in DATA_FOLDERS:
+        (home / rel).mkdir(parents=True, exist_ok=True)
+    seed(home / "state", "record.txt")
+
+
+def snapshot(home: Path) -> list:
+    return sorted(str(p.relative_to(home)) for p in home.rglob("*"))
+
+
+def assert_one_clear_message(result, container_path: str):
+    assert result.returncode != 0
+    assert result.stderr.count(CANNOT_START) == 1, result.stderr
+    uid, gid = os.getuid(), os.getgid()
+    assert (f"{CANNOT_START} {container_path} is not writable by the container "
+            f"user (uid {uid}, gid {gid}).") in result.stderr
+    assert f"sudo chown -R {uid}:{gid} ./data" in result.stderr
+    assert f"chown -R {uid}:{gid} /mnt/user/appdata/print-handy" in result.stderr
+    assert "print-handy-init" in result.stderr
+    # It stopped before the migration and the application: nothing else ran.
+    assert "pre-2.2.5 name keeps working" not in result.stderr
+
+
+@non_root
+@pytest.mark.parametrize("rel", ["", *DATA_FOLDERS])
+def test_an_unwritable_data_folder_stops_with_one_message_and_changes_nothing(tmp_path, rel):
+    full_layout(tmp_path)
+    before = snapshot(tmp_path)
+    locked = tmp_path / rel
+    locked.chmod(0o555)
+    try:
+        result = run_entrypoint(tmp_path)
+    finally:
+        locked.chmod(0o755)
+    assert_one_clear_message(result, "/data/" + rel if rel else "/data")
+    assert snapshot(tmp_path) == before
+    assert (tmp_path / "state" / "record.txt").read_text() == "state\n"
+
+
+@non_root
+def test_a_new_install_whose_data_root_is_unwritable_stops_before_creating_anything(tmp_path):
+    # The Unraid shape with a root-owned Appdata folder: nothing exists yet.
+    tmp_path.chmod(0o555)
+    try:
+        result = run_entrypoint(tmp_path)
+    finally:
+        tmp_path.chmod(0o755)
+    assert_one_clear_message(result, "/data")
+    assert snapshot(tmp_path) == []
+
+
+@non_root
+def test_migrate_only_mode_also_stops_on_an_unwritable_state_folder(tmp_path):
+    # Compose's print-handy-migrate service runs the same check first.
+    seed(tmp_path / "legacy", "old.txt")
+    state = tmp_path / "state"
+    state.mkdir()
+    state.chmod(0o555)
+    try:
+        result = run_mounted(tmp_path, PRINT_HANDY_STATE_MIGRATE_ONLY="1",
+                             PRINT_HANDY_LEGACY_STATE=str(tmp_path / "legacy"))
+    finally:
+        state.chmod(0o755)
+    assert_one_clear_message(result, "/data/state")
+    assert list(state.iterdir()) == []
+
+
+@non_root
+def test_an_external_spoolman_install_does_not_check_the_spoolman_folder(tmp_path):
+    full_layout(tmp_path)
+    (tmp_path / "spoolman").chmod(0o555)
+    try:
+        env = dict(os.environ, HOME=str(tmp_path), TZ="America/New_York",
+                   PRINT_HANDY_BUNDLED_SPOOLMAN="false")
+        env.pop("PRINT_HANDY_ORCA_CHANNEL", None)
+        env.pop("PRINT_HANDY_ORCA_CMD", None)
+        result = subprocess.run(["bash", str(ENTRYPOINT), "true"], env=env,
+                                capture_output=True, text=True, timeout=60)
+    finally:
+        (tmp_path / "spoolman").chmod(0o755)
+    assert result.returncode == 0, result.stderr
+    assert CANNOT_START not in result.stderr
+
+
+def test_a_healthy_install_starts_with_no_message_and_leaves_no_probe(tmp_path):
+    full_layout(tmp_path)
+    result = run_entrypoint(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert CANNOT_START not in result.stderr
+    assert not list(tmp_path.rglob(".ph-write-check.*"))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    result = run_entrypoint(fresh)                      # nothing exists yet
+    assert result.returncode == 0, result.stderr
+    assert CANNOT_START not in result.stderr
+
+
+def test_a_leftover_write_probe_is_not_data_for_the_migration(tmp_path):
+    # A start killed between the probe's mktemp and rm must not turn an empty
+    # /data/state into "both volumes hold data" and strand the legacy volume.
+    seed(tmp_path / "hermes", "old.txt")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".ph-write-check.AbC123").write_text("")
+    result = run_entrypoint(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert state.is_symlink() and os.readlink(state) == str(tmp_path / "hermes")
+
+
+# The Compose print-handy-init service (root, sh -ec): a folder it cannot
+# create or chown fails it with one message naming that folder, and it stops
+# there instead of carrying on to the next folder. The command runs as the
+# shipped YAML has it, with /data/ pointed at a sandbox and chown shimmed (a
+# test user cannot chown to 1000:1000, and the shim stands in for a share
+# that refuses it).
+INIT_FAILED = "Print Handy init: cannot create"
+
+
+def run_init(tmp_path: Path, chown_exit: int) -> subprocess.CompletedProcess:
+    import yaml
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    service = compose["services"]["print-handy-init"]
+    assert service["entrypoint"] == ["/bin/sh", "-ec"]
+    script = service["command"][0].replace("$$", "$").replace("/data/", f"{tmp_path}/data/")
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    refusal = "" if chown_exit == 0 else (
+        "echo \"chown: changing ownership of '$2': Operation not permitted\" >&2\n")
+    (shim / "chown").write_text(f"#!/bin/sh\n{refusal}exit {chown_exit}\n")
+    (shim / "chown").chmod(0o755)
+    env = dict(os.environ, PATH=f"{shim}:{os.environ['PATH']}")
+    return subprocess.run(["sh", "-ec", script], env=env, capture_output=True,
+                          text=True, timeout=60)
+
+
+def test_init_service_creates_every_folder_when_chown_works(tmp_path):
+    result = run_init(tmp_path, 0)
+    assert result.returncode == 0, result.stderr
+    assert INIT_FAILED not in result.stderr
+    for name in ("state", "archive", "records", "cache", "spoolman"):
+        assert (tmp_path / "data" / name).is_dir()
+
+
+def test_init_service_names_the_folder_whose_chown_is_refused(tmp_path):
+    result = run_init(tmp_path, 1)
+    assert result.returncode != 0
+    assert result.stderr.count(INIT_FAILED) == 1, result.stderr
+    folder = f"{tmp_path}/data/state"
+    assert f"{INIT_FAILED} {folder} or make it owned by 1000:1000" in result.stderr
+    assert "sudo chown -R 1000:1000 ./data" in result.stderr
+    assert not (tmp_path / "data" / "archive").exists()    # stopped at the first
+
+
+@non_root
+def test_init_service_stops_at_a_folder_it_cannot_create(tmp_path):
+    # Before #1144 a failed mkdir inside `mkdir && chown` did not trip -e, so
+    # the loop carried on to the next folder.
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "state").mkdir()
+    data.chmod(0o555)
+    try:
+        result = run_init(tmp_path, 0)
+    finally:
+        data.chmod(0o755)
+    assert result.returncode != 0
+    assert result.stderr.count(INIT_FAILED) == 1, result.stderr
+    assert f"{INIT_FAILED} {data}/archive or make it owned" in result.stderr

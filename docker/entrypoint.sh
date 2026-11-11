@@ -40,11 +40,12 @@ done_file="$state_home/.migrated-from-legacy"
 # A folder "has files" when it holds anything that is not a directory: a
 # regular file, a symlink (dangling or not), a socket. Empty directories are
 # structure, not data, so a tree of only empty directories reads as empty.
-# The two migration marks do not count. -H follows a symlink given as the
-# folder itself but never a symlink inside it.
+# The two migration marks and a leftover write probe (below) do not count.
+# -H follows a symlink given as the folder itself but never a symlink inside
+# it.
 _has_files() {
     [ -d "$1" ] || return 1
-    [ -n "$(find -H "$1" -mindepth 1 \( -path "$1/.migration-incomplete" -o -path "$1/.migrated-from-legacy" \) -prune -o ! -type d -print -quit 2>/dev/null)" ]
+    [ -n "$(find -H "$1" -mindepth 1 \( -path "$1/.migration-incomplete" -o -path "$1/.migrated-from-legacy" -o -path "$1/.ph-write-check.*" \) -prune -o ! -type d -print -quit 2>/dev/null)" ]
 }
 # The legacy volume is a migration source when it holds files and is not just
 # another name for /data/state (the compat symlink this script creates).
@@ -143,6 +144,60 @@ _recorded_scratch() {
     esac
     return 0
 }
+# Writable data folders (#1144). The runtime user (uid 1000 in the image) must
+# be able to write every data folder the container uses; a folder it cannot
+# write would otherwise fail later with a bare shell error under set -e, or
+# leave a half-working app, and the restart policy would loop on it. Compose's
+# print-handy-init service fixes ownership in the common case; this check
+# catches what it cannot (a share that refuses chown, a read-only bind, a
+# plain docker run or the Unraid template without the init service, rootless
+# id mapping) and prints ONE message naming the first such folder and the
+# command that fixes it, then stops. It runs before the migration and before
+# anything is created, so a refused start changes nothing. A folder that does
+# not exist yet is skipped: its parent is checked first, and mkdir creates it.
+# The probe is a temporary file made by mktemp and removed at once; it is the
+# only reliable test on network shares whose mode bits do not tell the truth.
+_can_write() {
+    local probe
+    probe="$(mktemp "$1/.ph-write-check.XXXXXX" 2>/dev/null)" || return 1
+    rm -f -- "$probe"
+}
+_unwritable_exit() {
+    local path="$1" uid gid host
+    uid="$(id -u)"; gid="$(id -g)"
+    case "$path" in
+        "$data_root") host="the folder mapped to /data (Unraid: the Appdata Storage path). Compose maps only the folders inside /data, so there it means the container is not running as uid 1000, the user the image is built for" ;;
+        "$data_root"/spoolman*) host="the folder mapped to /data/spoolman (Compose: \${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}; Unraid: spoolman inside the Appdata Storage path)" ;;
+        *) host="the folder mapped to ${path/#"$data_root"//data} (Compose: inside \${PRINT_HANDY_DATA:-./data}; Unraid: inside the Appdata Storage path)" ;;
+    esac
+    {
+        printf 'Print Handy: cannot start: %s is not writable by the container user (uid %s, gid %s).\n' "${path/#"$data_root"//data}" "$uid" "$gid"
+        printf '  On the host this is %s.\n' "$host"
+        printf '  Fix it on the host, then start the container again:\n'
+        printf '    Docker Compose:  sudo chown -R %s:%s ./data   (your PRINT_HANDY_DATA folder, and PRINT_HANDY_SPOOLMAN_DATA if set)\n' "$uid" "$gid"
+        printf '    Unraid:          chown -R %s:%s /mnt/user/appdata/print-handy   (your Appdata Storage path)\n' "$uid" "$gid"
+        printf '    Rootless Podman: podman unshare chown -R %s:%s <your data folder>\n' "$uid" "$gid"
+        printf '  With Compose, the print-handy-init service sets the owner of each top-level data folder on every up. If this still\n'
+        printf '  appears, a folder inside is owned by another user (the chown above fixes that), the folder is on an NFS or SMB share\n'
+        printf '  that ignores ownership (set the owner, or the uid/gid mount option, on the server or the mount), or it is mapped read-only (:ro).\n'
+        printf '  Nothing was changed; the container stops here instead of running without its data.\n'
+    } >&2
+    exit 73
+}
+_check_data_folders() {
+    local folder
+    local folders=("$data_root" "$state_home" "$state_home/state" "$state_home/logs"
+                   "$data_root/archive" "$data_root/records" "$data_root/cache")
+    if [ "${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}" = true ]; then
+        folders+=("$data_root/spoolman" "$data_root/spoolman/config"
+                  "$data_root/spoolman/logs" "$data_root/spoolman/backups")
+    fi
+    for folder in "${folders[@]}"; do
+        [ -d "$folder" ] || continue
+        _can_write "$folder" || _unwritable_exit "$folder"
+    done
+}
+_check_data_folders
 if [ -L "$state_home" ]; then
     echo "Print Handy: state volume is /data/state, a symlink to $(readlink "$state_home") — the legacy /data/hermes volume is in use (deprecated name; it stays accepted for at least two minor releases)." >&2
 elif [ -e "$done_file" ]; then
