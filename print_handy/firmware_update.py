@@ -287,9 +287,12 @@ def _edited_moonraker_conf_hint(status, entry):
     return ("ZMod's `moonraker.conf` has been edited (an installer such as "
             "HelixScreen's appends its own section to it), so Moonraker sees the "
             "Z-Mod repo as modified and will not update it. ZMod says added "
-            "sections belong in `mod_data/user.moonraker.conf`: move the added "
-            "section there, remove it from `moonraker.conf`, restart Moonraker, "
-            "and run `/print-firmware` again.")
+            "sections belong in `mod_data/user.moonraker.conf`. Moonraker "
+            "write-protects files inside ZMod's repo, so neither Fluidd's editor "
+            "nor Print Handy can fix this; it takes a shell on the printer (SSH): "
+            "copy the added section into `mod_data/user.moonraker.conf`, run "
+            "`git checkout -- moonraker.conf` in the Z-Mod repo (`/usr/data/zmod/zmod` "
+            "on the AD5X), restart Moonraker, and run `/print-firmware` again.")
 
 
 def _github_limit_note(status):

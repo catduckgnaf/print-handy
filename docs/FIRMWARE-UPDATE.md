@@ -50,8 +50,12 @@ example a modified repo) is reported with Moonraker's reason and is never
 offered or requested, because Moonraker refuses to update it. On ZMod the
 usual cause is an edited `moonraker.conf`: an installer such as
 HelixScreen's appends its own section to ZMod's file, which ZMod says
-must not be edited. Move that section into `mod_data/user.moonraker.conf`,
-remove it from `moonraker.conf`, and restart Moonraker
+must not be edited. Moonraker write-protects every file inside a repo its
+update manager manages, so this cannot be fixed from Fluidd's editor or from
+Print Handy; it takes a shell on the printer (SSH). Copy the added section
+into `mod_data/user.moonraker.conf`, run `git checkout -- moonraker.conf` in
+the Z-Mod repo (the `path` of Moonraker's `[update_manager Z-Mod]`,
+`/usr/data/zmod/zmod` on the AD5X), and restart Moonraker
 ([#1295](https://github.com/catduckgnaf/print-handy/issues/1295)).
 
 ## What "update ZMod from Print Handy" covers and does not cover
