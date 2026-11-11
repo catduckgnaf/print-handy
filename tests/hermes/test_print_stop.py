@@ -37,13 +37,101 @@ def test_cancel_refuses_when_file_changed():
     call.assert_not_called()
 
 
+def heaters(nozzle=0.0, bed=0.0):
+    """Moonraker's reply to the heater-target read cancel makes after the stop (#1147)."""
+    return {"result": {"status": {"extruder": {"target": nozzle}, "heater_bed": {"target": bed}}}}
+
+
+HEATER_QUERY = "/printer/objects/query?extruder=target&heater_bed=target"
+
+
+def moonraker_calls(*heater_replies):
+    """A fake _call: the cancel POST answers {}, each heater read the next reply (the last repeats)."""
+    replies = list(heater_replies) or [heaters()]
+    calls = []
+
+    def call(path, method="GET", timeout=10, **kw):
+        calls.append((path, method))
+        if path == HEATER_QUERY:
+            reply = replies.pop(0) if len(replies) > 1 else replies[0]
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        return {}
+    return call, calls
+
+
+def cancel_posts(calls):
+    return [c for c in calls if c == ("/printer/print/cancel", "POST")]
+
+
 def test_cancel_sends_once_and_reports_real_state():
     seq = [st("printing"), st("printing"), st("cancelled")]
+    fake, calls = moonraker_calls(heaters())
     with mock.patch.object(print_stop, "status", side_effect=seq), \
-            mock.patch.object(print_stop, "_call") as call, mock.patch.object(print_stop.time, "sleep"):
+            mock.patch.object(print_stop, "_call", side_effect=fake), mock.patch.object(print_stop.time, "sleep"):
         sent, text = print_stop.cancel("a.gcode", wait_s=5)
     assert sent and text == "Stopped. Printer now reports cancelled."
-    call.assert_called_once_with("/printer/print/cancel", method="POST", timeout=15)
+    assert cancel_posts(calls) == [("/printer/print/cancel", "POST")]
+    assert calls[-1] == (HEATER_QUERY, "GET")  # read back, never written
+
+
+def test_1147_cancel_reports_a_heater_left_on_and_sends_nothing_to_change_it():
+    """Item 1: a printer that keeps a heater target after the stop is reported, by name and value."""
+    seq = [st("printing"), st("cancelled")]
+    fake, calls = moonraker_calls(heaters(nozzle=215.0, bed=0.0))
+    clock = iter(range(0, 1000))
+    with mock.patch.object(print_stop, "status", side_effect=seq), \
+            mock.patch.object(print_stop, "_call", side_effect=fake), \
+            mock.patch.object(print_stop.time, "sleep"), \
+            mock.patch.object(print_stop.time, "monotonic", side_effect=lambda: float(next(clock))):
+        sent, text = print_stop.cancel("a.gcode", wait_s=5)
+    assert sent and text.startswith("Stopped. Printer now reports cancelled. But the nozzle heater is still set to 215 C")
+    assert "did not send anything" in text
+    assert cancel_posts(calls) == [("/printer/print/cancel", "POST")]  # one cancel, no heater write
+    assert all(method == "GET" for path, method in calls if path != "/printer/print/cancel")
+
+
+def test_1147_cancel_waits_for_the_cancel_macro_to_turn_the_heaters_off():
+    seq = [st("printing"), st("cancelled")]
+    fake, calls = moonraker_calls(heaters(nozzle=215.0, bed=60.0), heaters(nozzle=0.0, bed=0.0))
+    with mock.patch.object(print_stop, "status", side_effect=seq), \
+            mock.patch.object(print_stop, "_call", side_effect=fake), mock.patch.object(print_stop.time, "sleep"):
+        sent, text = print_stop.cancel("a.gcode", wait_s=5)
+    assert sent and text == "Stopped. Printer now reports cancelled."
+    assert calls.count((HEATER_QUERY, "GET")) == 2
+
+
+def test_1147_unreadable_heater_targets_are_not_reported_as_off():
+    seq = [st("printing"), st("cancelled")]
+    fake, _calls = moonraker_calls(OSError("connection reset"))
+    clock = iter(range(0, 1000))
+    with mock.patch.object(print_stop, "status", side_effect=seq), \
+            mock.patch.object(print_stop, "_call", side_effect=fake), \
+            mock.patch.object(print_stop.time, "sleep"), \
+            mock.patch.object(print_stop.time, "monotonic", side_effect=lambda: float(next(clock))):
+        sent, text = print_stop.cancel("a.gcode", wait_s=5)
+    assert sent and "could not be read back" in text and "cannot say the heaters are off" in text
+
+
+def test_1147_ad5x_zmod_cancel_sequence_is_unchanged():
+    """AD5X/ZMod pin: one /printer/print/cancel after a state re-read, then read-only polls.
+
+    The heater read-back adds GETs only; the write sequence the AD5X sees is exactly the
+    one cancel it always got, with the bot-cancel marker set first.
+    """
+    from print_handy.hermes import klipper_report
+    seq = [st("printing", "plate_1.gcode.3mf"), st("printing", "plate_1.gcode.3mf"), st("cancelled", "plate_1.gcode.3mf")]
+    fake, calls = moonraker_calls(heaters())
+    order = []
+    with mock.patch.object(print_stop, "status", side_effect=seq), \
+            mock.patch.object(klipper_report, "mark_bot_cancel", side_effect=lambda: order.append("marker")), \
+            mock.patch.object(print_stop, "_call", side_effect=lambda *a, **k: order.append(a[0]) or fake(*a, **k)), \
+            mock.patch.object(print_stop.time, "sleep"):
+        sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
+    assert sent and text == "Stopped. Printer now reports cancelled."
+    assert order[:2] == ["marker", "/printer/print/cancel"]
+    assert [c for c in calls if c[1] == "POST"] == [("/printer/print/cancel", "POST")]
 
 
 def test_cancel_never_retries_when_state_sticks():
@@ -215,11 +303,25 @@ def test_bambu_status_reads_the_lan_snapshot_not_moonraker(monkeypatch):
 
 
 def test_bambu_cancel_sends_one_lan_stop_and_explains_the_error_state(monkeypatch):
-    adapter, _ = _bambu(monkeypatch, [bst("printing"), bst("printing"), bst("error")])
+    cold = {**bst("error"), "hotend_target_c": 0, "bed_target_c": 0}
+    adapter, _ = _bambu(monkeypatch, [bst("printing"), bst("printing"), bst("error"), cold])
     with mock.patch.object(print_stop, "_call") as call, mock.patch.object(print_stop.time, "sleep"):
         sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
-    assert sent and "acknowledge it on its screen" in text
+    assert sent and "acknowledge it on its screen" in text and "still set" not in text
     adapter.control.assert_called_once_with("stop")
+    call.assert_not_called()
+
+
+def test_1147_bambu_cancel_reads_the_heater_targets_back_and_sends_nothing_more(monkeypatch):
+    """Bambu gets the same heater read-back as Moonraker and the other families (#1147 printer scope)."""
+    warm = {**bst("finish"), "hotend_target_c": 220, "bed_target_c": 0}
+    adapter, client = _bambu(monkeypatch, [bst("printing"), bst("finish")] + [warm] * 40)
+    clock = iter(range(0, 1000))
+    with mock.patch.object(print_stop, "_call") as call, mock.patch.object(print_stop.time, "sleep"),             mock.patch.object(print_stop.time, "monotonic", side_effect=lambda: float(next(clock))):
+        sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
+    assert sent and "the nozzle heater is still set to 220 C" in text
+    assert "did not send anything to change it" in text
+    adapter.control.assert_called_once_with("stop")  # the one stop; nothing sent for the heater
     call.assert_not_called()
 
 
@@ -309,7 +411,24 @@ def test_a_moonraker_roster_printer_keeps_the_moonraker_cancel(monkeypatch):
                         lambda printer_id=None: mock.Mock(connection="moonraker", transport="moonraker"))
     seq = [st("printing"), st("cancelled")]
     with mock.patch.object(print_stop, "status", side_effect=seq), \
-            mock.patch.object(print_stop, "_send") as send, mock.patch.object(print_stop.time, "sleep"):
+            mock.patch.object(print_stop, "_send", side_effect=lambda path, **kw: heaters() if path == HEATER_QUERY else {}) as send, \
+            mock.patch.object(print_stop.time, "sleep"):
         sent, _text = print_stop.cancel("a.gcode", wait_s=5, printer_id="voron")
     assert sent
-    send.assert_called_once_with("/printer/print/cancel", method="POST", timeout=15, printer_id="voron")
+    posts = [c for c in send.call_args_list if c.kwargs.get("method") == "POST"]
+    assert posts == [mock.call("/printer/print/cancel", method="POST", timeout=15, printer_id="voron")]
+    # The heater read-back goes to the same roster printer.
+    send.assert_called_with(HEATER_QUERY, printer_id="voron")
+
+
+@pytest.mark.parametrize("connection", sorted(FAMILY_STATUS_READS))
+def test_1147_family_cancel_reports_a_heater_its_status_still_shows_on(monkeypatch, connection):
+    hot = {**st("cancelled", "part.gcode"), "hotend_target_c": 0, "bed_target_c": 90}
+    adapter = _family_adapter(monkeypatch, connection, [st("printing", "part.gcode")] + [hot] * 50)
+    clock = iter(range(0, 1000))
+    from print_handy.hermes import family_control
+    monkeypatch.setattr(family_control.time, "monotonic", lambda: float(next(clock)))
+    monkeypatch.setattr(print_stop.time, "monotonic", lambda: float(next(clock)))
+    sent, text = print_stop.cancel("part.gcode", wait_s=5, printer_id="shelf")
+    assert sent and "the bed heater is still set to 90 C" in text
+    adapter.control.assert_called_once_with("stop")

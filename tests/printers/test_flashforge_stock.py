@@ -121,13 +121,18 @@ def test_a_refused_request_does_not_leak_the_check_code(creds):
     assert caught.value.__cause__ is None
 
 
-def _bays(present):
+def _bays(present, *, named=True):
+    """/detail with the IFS bays in `present` loaded; a loaded bay reports its material and color
+    the way the AD5X endpoint schema documents (MatlSlotInfo), unless named=False."""
+    def bay(n):
+        info = {"slotId": n, "hasFilament": n in present}
+        if named and n in present:
+            info.update(materialName="PLA", materialColor="#1A2B3C")
+        return info
     return {
         "status": "ready",
         "hasMatlStation": True,
-        "matlStationInfo": {
-            "slotInfos": [{"slotId": n, "hasFilament": n in present} for n in (1, 2, 3, 4)]
-        },
+        "matlStationInfo": {"slotInfos": [bay(n) for n in (1, 2, 3, 4)]},
     }
 
 
@@ -166,6 +171,7 @@ class _FakeStock:
         self.details = list(details)
         self.uploads = []
         self.started = []
+        self.bays = []
 
     def detail(self):
         return self.details.pop(0)
@@ -177,8 +183,9 @@ class _FakeStock:
         self.uploads.append(remote)
         return remote
 
-    def print_gcode(self, remote, leveling=True):
+    def print_gcode(self, remote, leveling=True, bay=None):
         self.started.append(remote)
+        self.bays.append(bay)
         self.details.append({
             "status": "printing",
             "printFileName": remote,
@@ -190,13 +197,13 @@ class _FakeStock:
         return remote
 
 
-def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None):
+def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None, gcode_text="G1 X1\n"):
     from print_handy.core import launch_state, model_job
     from print_handy.printers.flashforge_stock.adapter import StockFlashforgeAdapter
 
     events = []
     gcode = tmp_path / "plate.gcode"
-    gcode.write_text("G1 X1\n")
+    gcode.write_text(gcode_text)
     fake = _FakeStock(details)
     adapter = StockFlashforgeAdapter({
         "printer": {"model": "flashforge_stock.ad5x", "filament_slots": 4,
@@ -212,8 +219,9 @@ def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None):
     if after is not None:
         started = list(fake.started)
 
-        def print_gcode(remote, leveling=True):
+        def print_gcode(remote, leveling=True, bay=None):
             fake.started.append(remote)
+            fake.bays.append(bay)
             fake.details.append(after)
             return remote
 
@@ -383,3 +391,45 @@ def test_the_printer_check_reads_stock_detail_not_moonraker(monkeypatch):
         result, problems, facts = printer_state.check({"nozzle": {}}, adapter=adapter)  # no moonraker_url
         assert result is ok and facts["connection"] == "flashforge_stock"
         assert problems == ([] if ok else ["printer state is 'printing', not idle"])
+
+
+
+# --- #1147: the start request names the selected IFS bay (AD5X /printGcode schema) ---------------
+
+def test_1147_print_gcode_without_a_bay_sends_only_the_file_and_leveling(creds):
+    post, seen = scripted([{"code": 0}])
+    StockClient("192.0.2.10", post=post).print_gcode("plate.gcode")
+    assert "useMatlStation" not in seen[0][1] and "materialMappings" not in seen[0][1]
+
+
+def test_1147_print_gcode_names_the_bay_for_t0(creds):
+    post, seen = scripted([{"code": 0}])
+    bay = StockClient.material_mapping(3, material="PETG", tool_color="#ff8800", slot_color="#FF8800FF")
+    StockClient("192.0.2.10", post=post).print_gcode("plate.gcode", bay=bay)
+    body = seen[0][1]
+    assert body["useMatlStation"] is True and body["gcodeToolCnt"] == 1
+    assert body["materialMappings"] == [{"toolId": 0, "slotId": 3, "materialName": "PETG",
+                                         "toolMaterialColor": "#FF8800", "slotMaterialColor": "#FF8800"}]
+    assert body["fileName"] == "plate.gcode" and body["levelingBeforePrint"] is True
+
+
+@pytest.mark.parametrize("slot, material, color", [(0, "PLA", "#FFFFFF"), (5, "PLA", "#FFFFFF"),
+                                                   (1, "", "#FFFFFF"), (1, "PLA", "white"), (1, "PLA", None)])
+def test_1147_a_bay_the_schema_cannot_carry_is_refused_before_any_request(slot, material, color):
+    with pytest.raises(StockLanError):
+        StockClient.material_mapping(slot, material=material, tool_color=color, slot_color=color)
+
+
+def test_1147_stock_print_sends_the_selected_bay_with_its_detail_material_and_the_gcode_color(monkeypatch, tmp_path):
+    idle = _bays({2})
+    out, fake, _events = _stock_print(monkeypatch, tmp_path, [idle, idle], slot=2,
+                                      gcode_text="; filament_colour = #00FF00\nG1 X1\n")
+    assert out["started"] is True
+    assert fake.bays == [{"toolId": 0, "slotId": 2, "materialName": "PLA",
+                          "toolMaterialColor": "#00FF00", "slotMaterialColor": "#1A2B3C"}]
+
+
+def test_1147_stock_print_refuses_a_bay_it_cannot_name_before_upload(monkeypatch, tmp_path):
+    unnamed = _bays({1}, named=False)
+    with pytest.raises(SystemExit, match="REFUSED:.*IFS slot 1 cannot be named"):
+        _stock_print(monkeypatch, tmp_path, [unnamed, unnamed], slot=1)

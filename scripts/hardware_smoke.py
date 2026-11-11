@@ -11,7 +11,7 @@ Procedure (idle printer only; stop at the first surprise):
 1. Read-only baseline. `printer_state check` reports no mismatch; Moonraker `print_stats.state` is
    `standby` and both heater targets are 0; every slot the job uses is loaded.
 2. Start. Print a tiny, known-good single-slot job (a 20 mm calibration cube is enough) from chat or
-   with `model_job print-now <JOB.json>`. Watch for exactly one upload and one start, and a start card
+   with `model_job print-now <JOB.json> --bed-clear-confirmed`. Watch for exactly one upload and one start, and a start card
    that reads STARTED or START_PENDING, never "Didn't start". Note whether the start request is held
    open past the Moonraker timeout (#616); that is expected on a screenless ZMod printer.
 3. Confirm. The printer's file name appears in print_stats (ZMod may report 3mf_print/<name>.gcode

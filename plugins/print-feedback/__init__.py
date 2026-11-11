@@ -3264,16 +3264,17 @@ async def macros_dispatch(event, gateway, **kwargs):
     mr = spool_sync.moonraker_for(pid)
     args = str(getattr(event, 'text', '')).strip()[len('/print-macros'):].split()
     model_key = None
+    printer_adapter = None  # the chosen printer's adapter: its heater ceiling guards macro arguments (#1147)
     try:
         if pid:
             from print_handy import settings
             model_key = settings.by_id(pid, _config.cfg())["model"]
-            connection = printers.get(model_key,
-                                      settings.view_for(pid, _config.cfg())).connection
+            printer_adapter = printers.get(model_key, settings.view_for(pid, _config.cfg()))
+            connection = printer_adapter.connection
         else:
-            current = printers.current()
-            connection = current.connection
-            model_key = getattr(current, "key", None)
+            printer_adapter = printers.current()
+            connection = printer_adapter.connection
+            model_key = getattr(printer_adapter, "key", None)
     except Exception:
         logger.exception('/print-macros could not resolve the configured printer')
         connection = None
@@ -3307,7 +3308,8 @@ async def macros_dispatch(event, gateway, **kwargs):
     try:
         try:
             prepared = await asyncio.to_thread(macros.prepare_run, mr,
-                                               args[1], args[2:], printer=model_key)
+                                               args[1], args[2:], printer=model_key,
+                                               heater_adapter=printer_adapter)
         except (macros.MacroRefusal, macros.MacroError) as exc:
             message = str(exc)
         else:

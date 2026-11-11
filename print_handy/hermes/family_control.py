@@ -211,7 +211,20 @@ class FamilyControl:
             # operator clears it on the screen (print_stop.cancel's rule).
             return True, ("Stopped. The printer shows the cancelled job as an error "
                           "until you acknowledge it on its screen.")
-        return True, f"Stopped. Printer now reports {after.get('state')}."
+        heaters = ""
+        if print_stop_targets(after):
+            # The family reports heater targets: read them back (#1147) instead of assuming
+            # the stop turned the heaters off. Families that report none make no claim.
+            from . import print_stop
+            heaters = print_stop.heaters_after_stop(
+                lambda: print_stop.status_heater_targets(self.status()), poll_s=poll_s, sleep=self._sleep)
+        return True, f"Stopped. Printer now reports {after.get('state')}.{heaters}"
+
+
+def print_stop_targets(status: dict[str, Any]) -> bool:
+    """Whether a normalised status carries any heater target to read back after a stop."""
+    from . import print_stop
+    return bool(print_stop.status_heater_targets(status))
 
 
 def control_for(printer_id: str | None = None) -> FamilyControl | None:

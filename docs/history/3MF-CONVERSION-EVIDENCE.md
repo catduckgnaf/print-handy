@@ -87,7 +87,7 @@ mapping cannot be validated.
 
 | Requirement element | What the code does | Production-path tests |
 |---|---|---|
-| Per-class, per-plate analysis | `source_colors.inventory` stores `plate_usage`, built by `_plate_usage` over `_USAGE_CLASSES` (`objects`, `painting`, `layer_changes`, `height_ranges`, `wall`, `infill`, `support`, `interface`, `tower`). Each class is `known`, `unknown` or `not_carried_by_format`, with its evidence. Original source filament IDs are kept | `tests/core/test_plate_usage.py::PlateUsageAnalysisTests::test_object_assignments_are_per_plate_with_original_ids`, `::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_layer_changes_are_attributed_to_their_own_plate`, `::test_height_range_extruder_assignment_is_per_plate`, `::test_support_and_interface_designations_are_role_usage` |
+| Per-class, per-plate analysis | `source_colors.inventory` stores `plate_usage`, built by `_plate_usage` over `_USAGE_CLASSES` (`objects`, `painting`, `layer_changes`, `height_ranges`, `modifiers`, `wall`, `infill`, `support`, `interface`, `tower`). Each class is `known`, `unknown` or `not_carried_by_format`, with its evidence. Original source filament IDs are kept | `tests/core/test_plate_usage.py::PlateUsageAnalysisTests::test_object_assignments_are_per_plate_with_original_ids`, `::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_layer_changes_are_attributed_to_their_own_plate`, `::test_height_range_extruder_assignment_is_per_plate`, `::test_support_and_interface_designations_are_role_usage` |
 | Painting | `_painting_usage` decodes `paint_color` and PrusaSlicer `mmu_segmentation` states per part | `tests/core/test_plate_usage.py::PlateUsageAnalysisTests::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_unpainted_source_painting_class_is_known_empty`; `tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_states_are_decoded_per_part` |
 | Wall, infill and tower | PrusaSlicer: `_prusa_role_extruders` reads `perimeter_extruder`, `infill_extruder` and `solid_infill_extruder`, and asks a new question only when an object sets a role extruder (#1202). OrcaSlicer (#1203): `_orca_feature_usage` reads `wall_filament`, `sparse_infill_filament` and `solid_infill_filament` at project, object and part level, and `_orca_tower_usage` reads `wipe_tower_filament`, which counts only on a plate that prints a tower. A value outside the palette, or one that is not a filament number, makes the class `unknown` and is never counted as a used filament. A project that names none of these keys (Bambu Studio writes none) keeps them `not_carried_by_format` | `tests/core/test_plate_usage.py::PlateUsageAnalysisTests::test_prusa_role_extruders_are_read_from_the_prusa_config`; `tests/core/test_plate_usage.py::UsageUndercountTests::test_orca_object_wall_filament_override_is_counted`, `::test_orca_infill_override_to_an_unasked_filament_is_unknown_not_a_question`, `::test_orca_feature_filament_outside_the_palette_is_unknown`, `::test_orca_wipe_tower_filament_counts_only_where_a_tower_prints`, `::test_orca_default_feature_filaments_add_no_filament_or_question` (all through `inventory`) |
 | Unknown stays unknown | A class is `unknown` when the source should carry it but it cannot be read (a part with no extruder, a tool change with no extruder, unparsable height ranges, an out-of-palette support designation). A mismatch with the slicer-reported totals in `slice_info.config`, or a damaged record there, makes the plate unknown | `tests/core/test_plate_usage.py::PlateUsageAnalysisTests::test_layer_change_without_an_extruder_is_unknown_not_zero`, `::test_malformed_height_ranges_are_unknown_not_absent`, `::test_part_without_extruder_assignment_is_unknown`, `::test_slicer_disagreement_makes_the_plate_usage_unknown`, `::test_invalid_slicer_record_makes_the_plate_usage_unknown` |
@@ -99,9 +99,22 @@ The usage under-counts the review found (interface-only support filaments,
 height ranges keyed by resource id instead of the Bambu object index,
 extruder 0 in a range, objects with instances on two plates, unmapped
 `slice_info` filaments) were fixed in #1203, with tests in
-`tests/core/test_plate_usage.py::UsageUndercountTests`. Still open and
-deferred past 2.2.9 in #1155: modifier parts that carry their own extruder,
-and PrusaSlicer layer-change and range files, which are not read.
+`tests/core/test_plate_usage.py::UsageUndercountTests`. The two left after
+that are fixed too, with tests in `tests/core/test_usage_reads_1155.py`
+(all through `inventory`):
+
+- A Bambu or OrcaSlicer `modifier_part` that names its own extruder is the
+  `modifiers` class of its object's plates. A filament some color question
+  already maps is counted; one that none maps, or one outside the palette,
+  makes the class `unknown` (a warning to accept) and is never a used
+  filament or a new question.
+- PrusaSlicer's `Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml` (height
+  tool and color changes) and `Metadata/Prusa_Slicer_layer_config_ranges.xml`
+  (range extruders) are read. The exports do not carry either, so an entry
+  that changes the filament makes `layer_changes` or `height_ranges`
+  `unknown` with that reason, never known and empty. Pauses, custom G-code
+  and range extruder 0 change no filament. An unparsable member is
+  `unknown`.
 
 ## Criterion 4: Atomic complete remapping
 
@@ -143,6 +156,8 @@ never silently drop colors.
 | Purge matrix and vector | The single-color copy keeps the used filament's diagonal matrix entry and its own pair of the flush vector. The generic remapper permutes `flush_volumes_matrix` and refuses `flush_volumes_vector` under a non-identity mapping because its layout is not established | Single-color copy: `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_remaps_every_feature_key_with_the_parts_mapping`. No production-path test for the generic remapper's permutation, which has no production caller |
 | Embedded G-code and `filament_sequence.json` | Under a non-identity mapping the single-color copy drops embedded G-code (named in `dropped_entries`) and keeps the sequence file byte for byte (named in `preserved_unremapped_entries`), because its preset record is provenance evidence about the source; the rebuilt export carries neither and names them in `dropped_members`. The generic remapper refuses both under a non-identity mapping | `tests/pipeline/test_remap_exhaustive.py::test_single_color_plate_carries_no_stale_filament_reference`, `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_keeps_the_filament_sequence_byte_for_byte_under_a_remap`, `::test_rebuilt_export_drops_the_filament_sequence_member_by_name_under_a_remap`. No production-path test for the generic refusals (no production caller); the library test is `::test_generic_remap_refuses_the_filament_sequence_only_under_a_non_identity_mapping` |
 | One read per call | A slice, an export and an inventory each run in a `painted_geometry.decode_scope`: each `.model` member is decompressed once and each painted mesh decoded once, however many consumers ask (the multi-material scan in `slice_model` included). Verdicts do not change | `tests/pipeline/test_feature_filament_remap_1155.py::test_one_slice_reads_each_model_member_once_and_decodes_paint_once`, `::test_decode_scope_never_changes_a_verdict` |
+| One inventory per color flow | The Discord color flow (`discord_color_intake.collect`) runs in a `source_colors.inventory_scope`: the question build and each `intake_color_choices` pass (two in a warning round) share one inventory of the source, keyed by its content hash. Each caller gets its own copy; only the manifest is kept, never member bytes or decoded paint, and nothing outlives the flow. A changed source hashes differently and is inventoried again | `tests/pipeline/test_discord_color_intake.py::test_discord_flow_inventories_the_source_once`, `::test_discord_flow_reinventories_a_source_changed_during_selection`; `tests/pipeline/test_filament_warn_accept.py::DiscordWarningRoundTests::test_the_warning_round_inventories_the_source_once`; timing: `tests/core/test_usage_reads_1155.py::test_a_second_inventory_in_one_flow_skips_the_paint_pass` |
+| Modifier extruders | The rebuilt export writes a `modifier_part`'s own extruder as the tool the decisions give that filament. A filament no tool of the job loads is not written (the body's tool prints the region) and is named in `feature_filaments` as unknown usage | `tests/core/test_usage_reads_1155.py::test_rebuilt_export_writes_the_modifiers_own_filament_as_its_tool`, `::test_rebuilt_export_names_a_modifier_filament_the_job_does_not_load` |
 
 Open gaps, all deferred past 2.2.9 in #1155:
 
@@ -179,7 +194,7 @@ and commands; profile provenance; no unexplained broad substitutions.
 | Profile provenance | See criterion 2 | See criterion 2 |
 | No unexplained substitution | Each rule names its keys, values or profile. `compat_registry.get_rule` raises for an unknown id | No production-path test; the registry lookup test is `tests/pipeline/test_compat_registry.py::test_registry_lookup_refuses_an_unknown_id` |
 
-[Printer profiles](PRINTER-PROFILES.md) holds the rule table and the
+[Printer profiles](../PRINTER-PROFILES.md) holds the rule table and the
 decisions deliberately left out of the registry.
 
 ## Criterion 6: Safety
@@ -215,7 +230,7 @@ plate selection, and it authorizes one slicing run.
   (`tests/pipeline/test_foreign_project_adoption.py`) and the ForgeBridge
   edge cases (`tests/pipeline/test_forgebridge_edge_cases.py`) establish the
   kept, replaced and dropped contract summarized in
-  [Printer profiles](PRINTER-PROFILES.md). Print Handy follows ForgeBridge's
+  [Printer profiles](../PRINTER-PROFILES.md). Print Handy follows ForgeBridge's
   published rules; no PrintNomad code, fixtures or dependencies are used.
 - `model_job.filament_usage_by_selection` (slicer-reported per-plate grams
   by selection) predates the usage analysis.

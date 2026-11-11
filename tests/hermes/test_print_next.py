@@ -106,7 +106,8 @@ def test_start_runs_print_now_once_with_exact_path(tmp_path):
     ok, detail = asyncio.run(print_next.start(target, model_job=fake, idle_check=lambda: None,
                                               claims_dir=tmp_path / 'claims'))
     assert ok and 'START REQUEST ACCEPTED' in detail
-    assert log.read_text().splitlines() == [f"print-now {rows[1]['gcode']}"]
+    # #1147: the operator's bed-clear confirmation rides along, bound to the exact G-code.
+    assert log.read_text().splitlines() == [f"print-now {rows[1]['gcode']} --bed-clear-sha256 {target['gcode_sha256']}"]
 
 
 def _fake_job(tmp_path, body):

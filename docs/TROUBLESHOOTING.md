@@ -1,6 +1,21 @@
 # Troubleshooting
 
-Something broke? Ask the bot: `/print-lookup first layer not sticking` searches the same knowledge base this page is built from. Physical problem, firmware command or error code, it checks them all.
+Something broke? Start with the doctor, then the three fixes that cover most first-week trouble. For a print problem, ask the bot: `/print-lookup first layer not sticking` searches the same knowledge base this page is built from. Physical problem, firmware command or error code, it checks them all.
+
+## Start here: the doctor
+
+```bash
+docker compose exec combined python3 -m print_handy.doctor   # Docker
+python3 -m print_handy.doctor                                 # native or standalone install
+```
+
+It checks the machine, the settings, the slicer and the services you configured, and names what is wrong. It contacts those services (Moonraker, Spoolman, the bot), so run it where that is expected. A clean doctor means a healthy install, not a guaranteed print.
+
+## The three most common fixes
+
+1. **Compose refuses to start and names `PRINT_HANDY_IMAGE`.** There is no default image. Set `PRINT_HANDY_IMAGE` in `.env` to the digest in [Pinning the image](DOCKER.md#pinning-the-image), then `docker compose up -d` again.
+2. **The bot is online but ignores what you type.** Turn on **Message Content Intent** on the Discord Developer Portal's **Bot** page and restart the bot. The rest of the checklist is in [Discord bot setup, Recovery](DISCORD-BOT-SETUP.md#recovery).
+3. **Every message gets two answers, or none.** Two copies of Print Handy are running on one bot token, often an old install next to the container. Stop the extra one: one token, one instance per channel (see [Discord bot setup](DISCORD-BOT-SETUP.md#4-give-them-to-print-handy)).
 
 ## Where the answers live
 

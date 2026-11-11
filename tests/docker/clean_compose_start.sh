@@ -11,6 +11,7 @@ cleanup() {
     (cd "$work" && docker compose -p "$project" logs) || true
   fi
   (cd "$work" && docker compose -p "$project" down --volumes --remove-orphans) >/dev/null 2>&1 || true
+  docker compose -p "$project-legacy" down --volumes --remove-orphans >/dev/null 2>&1 || true
   if ! rm -rf "$work" 2> /dev/null; then
     sudo rm -rf "$work" || echo "warning: could not remove $work" >&2
   fi
@@ -33,16 +34,44 @@ test -n "$container"
 # A container that exited/restarted rather than becoming ready fails --wait above.
 test "$(docker inspect -f '{{.State.Running}}' "$container")" = true
 # Assert every source the deployment binds exists and is owned by container uid/gid.
-for path in state hermes archive records cache spoolman; do
+for path in state archive records cache spoolman; do
   test -d "$work/data/$path"
   owner=$(stat -c '%u:%g' "$work/data/$path")
   test "$owner" = 1000:1000
   printf '%s owner=%s\n' "$path" "$owner"
 done
+# A new install must not get the legacy folder (#1144): nothing mounts it.
+test ! -e "$work/data/hermes"
 # Runtime writes to each mounted source must survive container recreation.
 docker exec "$container" sh -ec 'for p in /data/state/state /data/state/logs /data/archive /data/records /data/cache /data/spoolman; do printf "persisted\n" > "$p/.clean-start-probe"; done'
 (cd "$work" && "${compose[@]}" down)
 (cd "$work" && "${compose[@]}" up -d --wait --wait-timeout 180)
 container=$(cd "$work" && "${compose[@]}" ps -q combined)
 docker exec "$container" sh -ec 'for p in /data/state/state /data/state/logs /data/archive /data/records /data/cache /data/spoolman; do test "$(cat "$p/.clean-start-probe")" = persisted; done'
+test ! -e "$work/data/hermes"
 printf '%s\n' 'clean-directory startup and writable bind persistence: PASS'
+
+# Existing install that still has the pre-2.2.5 hermes folder (#1144): the
+# migrate service must copy it into state once, leave it untouched, and never
+# let a stale copy overwrite newer state on the next start.
+legacy="$work/legacy-install"
+mkdir -p "$legacy/data/hermes/state"
+cp "$work/docker-compose.yml" "$work/compose.acceptance.yml" "$work/.env" "$legacy/"
+printf 'from legacy\n' > "$legacy/data/hermes/state/legacy-probe"
+printf 'also legacy\n' > "$legacy/data/hermes/only-in-legacy"
+# Legacy data is owned by the container user, as the earlier release left it.
+sudo chown -R 1000:1000 "$legacy/data/hermes"
+legacy_compose=(docker compose -p "$project-legacy" -f docker-compose.yml -f compose.acceptance.yml)
+(cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180)
+test "$(cat "$legacy/data/state/state/legacy-probe")" = "from legacy"
+test "$(cat "$legacy/data/state/only-in-legacy")" = "also legacy"
+test -f "$legacy/data/state/.migrated-from-legacy"
+test ! -e "$legacy/data/state/.migration-incomplete"
+test "$(cat "$legacy/data/hermes/state/legacy-probe")" = "from legacy"
+# Newer state, stale legacy: the second start must keep the newer file.
+(cd "$legacy" && "${legacy_compose[@]}" down)
+sudo sh -c "printf 'newer\n' > '$legacy/data/state/state/legacy-probe'; printf 'stale\n' > '$legacy/data/hermes/state/legacy-probe'"
+(cd "$legacy" && "${legacy_compose[@]}" up -d --wait --wait-timeout 180)
+test "$(cat "$legacy/data/state/state/legacy-probe")" = newer
+(cd "$legacy" && "${legacy_compose[@]}" down --volumes --remove-orphans)
+printf '%s\n' 'legacy hermes folder migration (one-time, never overwrites): PASS'

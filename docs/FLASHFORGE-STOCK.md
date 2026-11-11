@@ -33,7 +33,13 @@ The ZMod profiles are covered in [ZMod printers](ZMOD.md). Nothing on this page 
 - **Prints:** one tool (T0) fed from one of the four IFS bays. Print Handy
   uploads the G-code with printing disabled, reads slot occupancy back
   from `/detail`, and starts only the file it uploaded, only after the
-  bed-clear approval is consumed. Stock firmware does not speak
+  bed-clear approval is consumed. The start request names the bay: it
+  sends `useMatlStation`, `gcodeToolCnt` 1 and one `materialMappings`
+  entry mapping T0 to the job's selected bay, with the material and color
+  `/detail` reports for that bay and the G-code's own filament color. These
+  are the fields the public AD5X endpoint schema documents for
+  `/printGcode`; no real AD5X has confirmed them yet. A bay whose material
+  or color cannot be named is refused before anything is uploaded. Stock firmware does not speak
   Moonraker, and Print Handy sends it no Klipper macros, temperatures or
   fan commands; the slicer's G-code owns the print.
 - **No listener:** stock firmware has no event stream Print Handy can
