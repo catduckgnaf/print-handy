@@ -115,3 +115,51 @@ def test_baseline_verdicts_are_unchanged(tmp_path, edit, blocked):
         gcode.write_text("G1 X1\n" * 100 + f"; {key} = {edit}\n")
     result = slice_guard.enforce_approved_baseline(gcode, path=baseline)
     assert (result.status == "blocked") is blocked
+
+
+def _short_text_longer_than_a_file_name():
+    """Finalized G-code text under 4096 characters whose stat as a path fails.
+
+    slice_model hands post_slice the text (#1153). A single path component
+    over 255 bytes makes os.stat raise ENAMETOOLONG on Linux, which Python
+    3.12's Path.is_file does not swallow: post_slice used to stat any short
+    string as a candidate file name and crashed every small slice in CI.
+    """
+    from tests.core.test_settings_provenance import GOOD_GCODE
+    text = GOOD_GCODE + "; filament_z_hop_types = Normal Lift,Normal Lift\n" + "; " + "x" * 400 + "\n"
+    assert len(text) < 4096 and "\n" in text
+    return text
+
+
+@pytest.fixture
+def stat_like_python_3_12(monkeypatch):
+    """Path.is_file raising ENAMETOOLONG as Python 3.12 does on Linux.
+
+    Python 3.14 swallows the error and answers False, so without this the
+    crash would only show on 3.12 runners.
+    """
+    import errno
+    real_is_file = pathlib.Path.is_file
+
+    def is_file(self):
+        if any(len(part) > 255 for part in self.parts):
+            raise OSError(errno.ENAMETOOLONG, "File name too long", str(self))
+        return real_is_file(self)
+
+    monkeypatch.setattr(pathlib.Path, "is_file", is_file)
+
+
+def test_post_slice_reads_short_gcode_text_as_text(stat_like_python_3_12):
+    result = slice_guard.post_slice(_short_text_longer_than_a_file_name(), tool_slots={0: 1})
+    assert result.status == "ok", result.blocked
+
+
+def test_baseline_scan_reads_short_gcode_text_as_text(tmp_path, stat_like_python_3_12):
+    text = _short_text_longer_than_a_file_name()
+    assert slice_guard._effective_config(text) == _old_effective_config(text)
+    assert slice_guard._gcode_file(text) is None
+    path = tmp_path / "plate.gcode"
+    path.write_text(text)
+    assert slice_guard._gcode_file(str(path)) == path
+    assert slice_guard._gcode_file(path) == path
+    assert slice_guard._gcode_file(tmp_path / "missing.gcode") is None

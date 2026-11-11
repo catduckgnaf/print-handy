@@ -367,6 +367,10 @@ def _stem(token):
 # phrases folded on every message. Only str inputs are memoized; the cache
 # is bounded and evicts least recently used entries.
 _CANONICAL_CACHE_MAX = 4096
+# Texts of up to 512 characters are memoized. Longer texts (pasted
+# descriptions, logs) are folded uncached: they rarely repeat and would only
+# push the short, repeated texts out of the cache.
+_CANONICAL_MEMO_CHARS = 512
 
 
 def canonical(text):
@@ -380,11 +384,6 @@ def canonical(text):
     if isinstance(text, str) and len(text) <= _CANONICAL_MEMO_CHARS:
         return _canonical_memo(text)
     return _canonical(text)
-
-
-# Longer texts (pasted descriptions, logs) are folded uncached: they rarely
-# repeat and would only push the short, repeated texts out of the cache.
-_CANONICAL_MEMO_CHARS = 512
 
 
 @functools.lru_cache(maxsize=_CANONICAL_CACHE_MAX)
@@ -506,7 +505,8 @@ def _score_folded(q, t) -> int:
     # Both quick ratios bound the full ratio from above and rounding keeps
     # the order, so a bound below the floor is a 0 the full ratio would also
     # give (#1153): the common unrelated pair skips the matching-block search.
-    if round(matcher.real_quick_ratio() * 100) < FUZZY_FLOOR or             round(matcher.quick_ratio() * 100) < FUZZY_FLOOR:
+    if (round(matcher.real_quick_ratio() * 100) < FUZZY_FLOOR
+            or round(matcher.quick_ratio() * 100) < FUZZY_FLOOR):
         return 0
     score = round(matcher.ratio() * 100)
     if score < FUZZY_FLOOR or not _covered(q.split(), t.split()):

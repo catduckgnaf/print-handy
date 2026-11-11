@@ -24,6 +24,25 @@ class Result:
         return {"status": self.status, "ok": self.ok, "warnings": self.warnings,
                 "blocked": self.blocked, "effective_settings": self.effective_settings}
 
+def _gcode_file(artifact):
+    """The file a G-code argument names, or None when it is G-code text.
+
+    Callers hand either a path or the finalized text itself (slice_model reads
+    the file once for every check, #1153). Text is never a file name: it holds
+    a newline, and a long single line can make the stat itself fail
+    (ENAMETOOLONG on Linux), which must read as text, not crash the slice.
+    """
+    if isinstance(artifact, Path):
+        return artifact if artifact.is_file() else None
+    if not isinstance(artifact, str) or "\n" in artifact or len(artifact) >= 4096:
+        return None
+    try:
+        path = Path(artifact)
+        return path if path.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
 def _printer(bed, filament_slots):
     printer = settings.current()['printer']
     return tuple(bed or printer['bed_mm']), int(filament_slots or printer['filament_slots'])
@@ -482,8 +501,8 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
     r=Result(); tool_slots=tool_slots or {}; bed,filament_slots=_printer(bed,filament_slots)
     if isinstance(gcode, Path):
         text=gcode.read_text(errors="replace")
-    elif isinstance(gcode, str) and "\\n" not in gcode and len(gcode)<4096 and Path(gcode).is_file():
-        text=Path(gcode).read_text(errors="replace")
+    elif _gcode_file(gcode) is not None:
+        text=_gcode_file(gcode).read_text(errors="replace")
     else:
         text=str(gcode or "")
     low=text.lower()
@@ -615,10 +634,12 @@ def _effective_config(artifact):
     # Orca's embedded config is authoritative; G-code header includes the
     # same key/value settings emitted as comments.
     if isinstance(artifact, dict): return artifact
-    text = Path(artifact).read_text(errors="replace") if isinstance(artifact, (str, Path)) and Path(artifact).is_file() else str(artifact or "")
+    source = _gcode_file(artifact)
+    text = source.read_text(errors="replace") if source is not None else str(artifact or "")
     found = {}
     for line in text.splitlines():
-        # Only a comment line can match; skipping the toolpath before the
+        # The regex is anchored at ";", so only a line starting with ";" can
+        # match (an indented comment never could); skipping the rest before the
         # regex changes no answer and spares a match per motion line (#1153).
         if not line.startswith(";"):
             continue
@@ -663,7 +684,7 @@ def enforce_approved_baseline(artifact, path=BASELINE_PATH):
     if not Path(path).exists():
         r.warn(f"Protected-settings baseline missing; slicing allowed. Approve with: {_approve_command(path)}")
         return r
-    if not isinstance(artifact, (str, Path)) or not Path(artifact).is_file():
+    if _gcode_file(artifact) is None:
         r.warn("Protected-settings artifact unavailable; slicing allowed pending baseline check.")
         return r
     expected = json.loads(Path(path).read_text())
