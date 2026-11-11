@@ -2,9 +2,10 @@
 before model_link_dispatch, never claims an ordinary upload, and on Done
 adding hands the collected files to model_link_dispatch itself.
 
-The prompts go through the real shared choice mechanism (link_intake.ask
-and the core prompt registry) that every BotCore transport answers:
-Discord buttons, Telegram and web chat choices, Matrix numbered replies.
+The prompts go through link_intake.ask, the shared choice mechanism every
+BotCore transport answers (Discord buttons, Telegram and web chat choices,
+Matrix numbered replies); here it is scripted, so the test pins what is
+asked and what each answer does, not one transport's rendering.
 """
 import asyncio
 import importlib.util
@@ -13,7 +14,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.core import prompts, upload_collection
+from print_handy.core import link_intake, upload_collection
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -27,14 +28,21 @@ class Adapter:
         self.answers = list(answers)
         self.questions, self.sent = [], []
 
-    async def send_clarify(self, **kw):
-        self.questions.append(kw)
-        prompts.resolve_gateway_clarify(kw['clarify_id'], self.answers.pop(0))
-        return S(success=True)
-
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         self.sent.append(content)
         return S(success=True)
+
+
+@pytest.fixture(autouse=True)
+def scripted_ask(monkeypatch):
+    """link_intake.ask answered from the adapter's script; None is an expired question."""
+    async def ask(adapter, source, key, question, choices, timeout=None, live_key=None, **kw):
+        adapter.questions.append({'question': question, 'choices': list(choices), 'live_key': live_key})
+        answer = adapter.answers.pop(0)
+        if answer is None:
+            raise link_intake.PromptExpired('expired')
+        return list(choices).index(answer)
+    monkeypatch.setattr(link_intake, 'ask', ask)
 
 
 @pytest.fixture
@@ -87,13 +95,7 @@ def test_add_then_done_hands_the_collection_to_model_link_dispatch(store, tmp_pa
     monkeypatch.setattr(plugin, 'model_link_dispatch', fake_model_link)
 
     # Message 1 starts the project; its status question is answered later (Cancel here would discard).
-    first = Adapter(['__expire__'])
-
-    async def expire_clarify(**kw):
-        first.questions.append(kw)
-        prompts.resolve_gateway_clarify(kw['clarify_id'], None)
-        return S(success=True)
-    first.send_clarify = expire_clarify
+    first = Adapter([None])
     asyncio.run(plugin.upload_collection_dispatch(_event(platform, 'add to project', [left], 'm1'),
                                                   _gateway(first)))
     assert first.questions[0]['choices'] == ['Done adding', 'Cancel project']
@@ -103,6 +105,7 @@ def test_add_then_done_hands_the_collection_to_model_link_dispatch(store, tmp_pa
                                                            _gateway(second)))
     assert result == {'action': 'skip', 'reason': 'intake ran'}
     assert second.questions[0]['choices'] == ['Add to project', 'Print it on its own', 'Cancel']
+    assert second.questions[0]['live_key'] == 'session:c1:u1'  # typed replies reach it on every transport
     (event,) = handed
     assert [Path(p).name for p in event.media_urls] == ['arm.stl', 'arm.stl']
     assert [Path(p).read_bytes() for p in event.media_urls] == [b'left', b'right']
