@@ -69,7 +69,7 @@ Eligibility mirrors firmware updates: the printer must connect
 over Moonraker and its firmware family must be `zmod` or vanilla
 `klipper`. Vendor Klipper forks (Elegoo, Creality, QIDI, Anycubic) are
 refused with a plain explanation; their calibration macros and save
-behaviour are the vendor's own. Non-Moonraker printers have no
+behavior are the vendor's own. Non-Moonraker printers have no
 calibration path.
 
 Eligibility is only the gate. A calibration is then offered **only when

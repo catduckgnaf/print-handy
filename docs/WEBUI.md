@@ -385,7 +385,7 @@ If the selected settings file is a legacy TOML file, the Web UI refuses to rewri
 | `/healthz` is `503` | The Web UI answered, but the bot heartbeat is missing, stale, invalid, disconnected, or otherwise fails the bot-health evaluation. Check the bot row and the standalone bot process. |
 | A field cannot be edited | Its badge says `environment override`, or the value is not in the catalog. Change the environment variable and restart, or edit the YAML directly for an uncatalogued setting. |
 | A save is refused and the file did not change | Read the error beside the field or at the top of the form. Invalid combinations are rejected before the atomic write; the file remains byte-identical. Correct the value and preview again. |
-| Saving worked, but behaviour did not change | Restart the Print Handy process or container that consumes the setting. A running process keeps the settings it loaded at start. |
+| Saving worked, but behavior did not change | Restart the Print Handy process or container that consumes the setting. A running process keeps the settings it loaded at start. |
 | A legacy TOML save is refused | The Web UI writes YAML only. Select a YAML settings file with `PRINT_HANDY_CONFIG`, or keep editing the TOML file manually. |
 
 ## Printer controls
