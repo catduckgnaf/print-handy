@@ -98,24 +98,40 @@ def test_already_symlinked_state_is_left_untouched(tmp_path):
     assert "a symlink to" in result.stderr and "legacy /data/hermes volume is in use" in result.stderr
 
 
-# Acceptance-layout cell, deliberately gated and not run by any CI workflow:
-# accounted for by name in tests/README.md ("Fixture-vs-live rules" and the
-# live-proof roster). It runs only in the prepared acceptance layout.
+# Real-mountpoint cell. Gated by PRINT_HANDY_LAYOUT_TEST_MOUNT=1 and run by
+# the "State volume (real bind mount)" job in ci.yml (a runner VM where
+# unprivileged user+mount namespaces work; that job probes them first and
+# fails instead of skipping). The test makes the mountpoint itself: inside
+# `unshare -rm` it bind-mounts HOME/state onto itself, the same shape as the
+# Compose bind mount, so no unprivileged-hostile preparation is needed.
 @pytest.mark.container
 @pytest.mark.skipif(os.environ.get("PRINT_HANDY_LAYOUT_TEST_MOUNT") != "1",
-                    reason="needs the acceptance layout: HOME/state prepared "
-                           "as a real mountpoint with a populated legacy volume")
+                    reason="runs in the State volume (real bind mount) CI job, "
+                           "which sets PRINT_HANDY_LAYOUT_TEST_MOUNT=1")
 def test_mounted_state_volume_copies_instead_of_symlinking(tmp_path):
     """The two-bind layout: /data/state is a mountpoint, so it cannot be
-    replaced by a symlink — the entrypoint must COPY the legacy contents
+    replaced by a symlink; the entrypoint must COPY the legacy contents
     in, leave the legacy volume untouched, and clear the mark."""
+    import shlex
+    import shutil
+    unshare = shutil.which("unshare")
+    if unshare is None or subprocess.run([unshare, "-rm", "true"],
+                                         capture_output=True).returncode != 0:
+        pytest.fail("user and mount namespaces are required for this cell")
     seed(tmp_path / "hermes", "old.txt")
-    result = run_entrypoint(tmp_path)
-    assert result.returncode == 0, result.stderr
     state = tmp_path / "state"
+    state.mkdir()
+    inner = (f"mount --bind {shlex.quote(str(state))} {shlex.quote(str(state))} && "
+             f"HOME={shlex.quote(str(tmp_path))} TZ=America/New_York "
+             f"bash {shlex.quote(str(ENTRYPOINT))} true")
+    result = subprocess.run([unshare, "-rm", "bash", "-c", inner],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
     assert not state.is_symlink()
     assert (state / "old.txt").read_text() == "state\n"
+    assert (tmp_path / "hermes" / "old.txt").read_text() == "state\n"
     assert not (state / ".migration-incomplete").exists()
+    assert (state / ".migrated-from-legacy").is_file()
     assert "cannot be replaced by a symlink" in result.stderr
 
 
