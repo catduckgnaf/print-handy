@@ -29,7 +29,9 @@ Before any byte is written, the generic package remapper
 - **Remapped**: `Metadata/project_settings.config`,
   `Metadata/model_settings.config`, `Metadata/Slic3r_PE.config`,
   `Metadata/Slic3r_PE_model.config`, `Metadata/layer_config_ranges.xml`,
-  `Metadata/custom_gcode_per_layer.xml`, `Metadata/slice_info.config`, and
+  `Metadata/custom_gcode_per_layer.xml`, `Metadata/slice_info.config`, the
+  PrusaSlicer height members `Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml`
+  and `Metadata/Prusa_Slicer_layer_config_ranges.xml` (#1155), and
   the `.model` members (paint attributes only; geometry bytes otherwise
   untouched).
 - **Preserved byte-for-byte**: `[Content_Types].xml`, relationship parts,
@@ -42,7 +44,9 @@ Before any byte is written, the generic package remapper
   slicer writes new ones on the next slice; the report lists each in
   `dropped_entries`.
 - **Preserved, refused by name under an object map** (#1155): the
-  object-keyed records with no filament reference,
+  object-keyed records with no filament reference (the PrusaSlicer
+  `Prusa_Slicer_cut_information.xml`, `Slic3r_PE_layer_heights_profile.txt`
+  and the SLA point files among them),
   `Metadata/cut_information.xml`, `Metadata/layer_heights_profile.txt` and
   `Metadata/brim_ear_points.txt`. Whether they key on resource ids or on
   1-based object indexes is not established, so they are never renumbered.
@@ -136,6 +140,39 @@ A palette-length project array it does not know is passed through as
 authored and named as an unknown passthrough, never permuted by guesswork:
 some lists only happen to have palette length (a four-point bed outline on
 a four-filament project), and permuting those would corrupt them.
+
+### PrusaSlicer packages
+
+A PrusaSlicer `Metadata/Slic3r_PE.config` (#1155, registry rule
+`per-filament-array-permutation`) remaps completely or refuses:
+
+- The mapping must cover the whole extruder palette (the length of
+  `extruder_colour`, `filament_colour` or `filament_type`); a partial
+  mapping refuses by name instead of leaving some filaments' settings in
+  source order.
+- Every per-filament list is permuted into destination order: the palette
+  lists, every `filament_*` option, the print and bed temperatures, the
+  cooling and fan options, `start_filament_gcode`/`end_filament_gcode`
+  (quoted items that hold `;` stay one item) and the cumulative preset
+  records. A list of any other length than one per extruder refuses by name.
+- The role extruders `perimeter_extruder`, `infill_extruder`,
+  `solid_infill_extruder`, `support_material_extruder`,
+  `support_material_interface_extruder` and `wipe_tower_extruder` are
+  remapped, 0 (the object's own) kept. Under a mapping that moves filament 1,
+  an absent role extruder whose PrusaSlicer default is 1 is written as
+  filament 1's new number: an object with no extruder prints those roles.
+- `wiping_volumes_matrix` is permuted on both axes; `wiping_volumes_extruders`
+  (two entries per extruder, PrusaSlicer's load/unload pair) by pair, and a
+  uniform one passes. A wrong size refuses by name.
+- Per-extruder printer lists (nozzle, retraction, offsets) stay with their
+  physical extruder; one whose entries differ, and any other unknown
+  palette-length list, is kept as authored and named in the notes.
+
+`Slic3r_PE_model.config` object and volume `extruder` and role-extruder
+metadata are remapped (0 kept), and the PrusaSlicer height members remap
+each entry's extruder (0 kept; an unmapped one refuses by name). A range
+extruder 0, in either slicer's ranges member, is the object's own filament
+and stays 0.
 
 ## Prusa mmu_segmentation paint translation
 

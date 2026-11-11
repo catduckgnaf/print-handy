@@ -20,9 +20,12 @@ on:
 permissions:
   contents: read
 
+# One run per pull request: a newer push to the same PR cancels the run in progress. Every other
+# event (a dispatch) gets a group of its own, so those runs are never cancelled or
+# replaced while queued.
 concurrency:
-  group: compose-clean-start-${{ github.ref }}
-  cancel-in-progress: true
+  group: compose-clean-start-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   clean-start:

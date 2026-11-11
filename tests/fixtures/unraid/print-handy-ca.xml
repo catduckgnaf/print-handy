@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>print-handy</Name>
-  <Repository>ghcr.io/catduckgnaf/print-handy:2.2.9</Repository>
+  <Repository>ghcr.io/catduckgnaf/print-handy:latest</Repository>
   <Registry>https://github.com/catduckgnaf/print-handy/pkgs/container/print-handy</Registry>
   <Branch>
-    <Tag>2.2.9</Tag>
-    <TagDescription>Stable. A fixed release, the recommended choice for a printer you rely on. A new release does not move this tag; to update, change the Repository tag to the newer version number.</TagDescription>
+    <Tag>latest</Tag>
+    <TagDescription>Stable. Follows the newest published release, so Unraid offers each new release as a normal container update. Recommended for a printer you rely on.</TagDescription>
   </Branch>
   <Branch>
     <Tag>nightly</Tag>

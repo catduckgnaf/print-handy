@@ -657,15 +657,11 @@ mv dot-config .config
             self.fail("docker-publish.yml has no IMAGE")
         image_name = image.group(1)
         self.assertIn("docker buildx imagetools create -t \"$IMAGE:latest\"", publish)
-        # The publisher still moves :latest. The template must not: DockerMan
-        # treats Repository as the image to pull, and a moving tag is how an
-        # install drifts. Pin the multi-arch index digest (name@sha256:...).
+        # Unraid templates never pin a version: DockerMan only offers an
+        # update when the Repository tag moves, so a pinned tag or digest
+        # strands every install on the release it was created with.
         repository = UNRAID.findtext("Repository") or ""
-        self.assertTrue(repository.startswith(f"{image_name}@sha256:"))
-        self.assertRegex(repository, r"@sha256:[0-9a-f]{64}$")
-        self.assertNotIn(":latest", repository)
-        self.assertNotIn(":develop", repository)
-        self.assertNotIn(":nightly", repository)
+        self.assertEqual(repository, f"{image_name}:latest")
         self.assertEqual(UNRAID.findtext("Privileged"), "false")
         # Compose publishes exactly one port by default: the Web UI's
         # 8088, so a first boot is reachable from the host. The bundled
@@ -908,21 +904,18 @@ class UnraidCaTemplateParityTests(unittest.TestCase):
                          {("Variable", "PRINT_HANDY__SERVICES__SPOOLMAN_URL")})
 
     def test_repository_and_listing_metadata_differ_as_documented(self):
-        # The in-repo template is the release reference: it pins the
-        # multi-arch index digest. The CA template is the listing: it
-        # names the release tag DOCKER.md pins as current, offers the
-        # nightly/develop branches, and carries the listing metadata
-        # the in-repo file deliberately leaves empty.
-        docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
-        current_release = re.search(r"The current release is (\d+\.\d+\.\d+)\.", docker_doc)
-        if current_release is None:
-            self.fail("docs/DOCKER.md does not name the current release")
-        self.assertRegex(UNRAID.findtext("Repository") or "",
-                         r"^ghcr\.io/catduckgnaf/print-handy@sha256:[0-9a-f]{64}$")
-        self.assertEqual(self.CA.findtext("Repository"),
-                         f"ghcr.io/catduckgnaf/print-handy:{current_release.group(1)}")
+        # Neither template pins a version (catduck, 2026-11-11): both pull
+        # :latest, so Unraid offers each release as a normal update. The CA
+        # template is the listing: it also offers the nightly/develop
+        # branches and carries the listing metadata the in-repo file
+        # deliberately leaves empty.
+        version = re.compile(r"(@sha256:|:v?\d+(\.\d+)*$)")
+        for root in (UNRAID, self.CA):
+            repository = root.findtext("Repository") or ""
+            self.assertEqual(repository, "ghcr.io/catduckgnaf/print-handy:latest")
+            self.assertIsNone(version.search(repository))
         self.assertEqual([branch.findtext("Tag") for branch in self.CA.findall("Branch")],
-                         [current_release.group(1), "nightly", "develop"])
+                         ["latest", "nightly", "develop"])
         self.assertEqual(self.CA.findtext("Registry"),
                          "https://github.com/catduckgnaf/print-handy/pkgs/container/print-handy")
         self.assertEqual(self.CA.findtext("TemplateURL"),

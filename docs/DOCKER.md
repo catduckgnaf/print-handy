@@ -268,7 +268,7 @@ What the published image carries, per vendor (Debian trixie packages):
 
 AMD's AMF encoders are not in Debian's ffmpeg build and need AMD's proprietary runtime, so AMD encodes through VAAPI. QSV is amd64-only. On an Intel generation where the free `intel-media-va-driver` has no H.264 encode entry point, `vainfo` shows no `VAEntrypointEncSlice`/`VAEntrypointEncSliceLP` line for H.264, and the encode falls back to CPU.
 
-`timelapse.capture_encoder` picks the preference: `auto` tries VAAPI, then NVENC, then QSV, then CPU. A GPU counts only when it is really usable: an Intel/AMD GPU needs a `/dev/dri/renderD*` node the container user (uid 1000) can read and write. A `/dev/dri` mapped without its group is reported as such instead of being tried. An NVIDIA GPU needs a `/dev/nvidia*` device from the NVIDIA runtime.
+`timelapse.capture_encoder` picks the preference: `auto` tries VAAPI, then NVENC, then QSV, then CPU. A GPU counts only when it is really usable: an Intel/AMD GPU needs a `/dev/dri/renderD*` node the container user (uid 1000) can read and write and whose kernel driver is not `nvidia`. VAAPI opens the first such node (`renderD129` when an NVIDIA card took `renderD128`), not a fixed `renderD128`. To pin one, set `PRINT_HANDY_VAAPI_DEVICE` to the node path in the container environment, for example `/dev/dri/renderD129`. A `/dev/dri` mapped without its group is reported as such instead of being tried. An NVIDIA GPU needs a `/dev/nvidia*` device from the NVIDIA runtime.
 
 **Security note:** granting `/dev/dri` or an NVIDIA GPU widens the container's access to the host. A device is not a network port, and a compromised container with GPU access has more host surface than one without. That is why passthrough is opt-in and off by default in both deployment files, exactly like a host capability the operator chooses to grant.
 
@@ -350,7 +350,7 @@ The current release is 2.2.9. Its index digest, read from GHCR on 2026-11-11, is
 ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec
 ```
 
-That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
+That digest is the amd64 and arm64 index, not one architecture's image. The Unraid templates (in-repo and Community Applications) never pin it: their `Repository` is `:latest`, so Unraid offers each release as a normal container update. Pin on your own install only if you want to hold a version. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
 
 Confirm a tag still points where you think before you pin it:
 
@@ -362,7 +362,7 @@ The `Digest:` line of the index is the value to pin. The per-architecture lines 
 
 ### Change an existing Unraid install
 
-This is the edit. It is not applied by installing this repository.
+This is an optional, per-install edit for holding a version. The templates stay on `:latest`; installing either template never applies it.
 
 1. Copy the live template first: `/boot/config/plugins/dockerMan/templates-user/my-print-handy.xml` to a dated `.bak` beside it.
 2. Change only the `Repository` element, from the moving tag to the digest:

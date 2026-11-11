@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <!-- Unraid DockerMan template for the combined Print Handy container (issues #117, #214). The Community Applications listing
      lives in the catduck-unraid-templates repo; this source template is the in-repo reference for the same
-     install surface, digest-pinned to the current release.
+     install surface, following the current release through :latest.
      One container runs the Discord bot, the Moonraker listener and the bundled Spoolman API under tini and a supervisor.
-     Repository is the current release's multi-arch index digest (2.2.9), not a moving tag.
-     :latest, :develop and :nightly move; a release tag is immutable only until someone republishes it.
-     An install that already runs a tested digest keeps that digest. Do not replace it with this default.
+     Repository is :latest, the newest published release, so Unraid offers each release as a normal
+     container update. Templates never pin a version tag or digest; an operator who wants to hold a
+     version edits Repository on their own install (docs/DOCKER.md, "Pinning the image").
      The template deliberately carries only the install-time surface: the Web UI port, one Appdata
      path for all of /data, the Timelapse Archive path, the bundled/external Spoolman choice
      (advanced), the container timezone and the GPU passthrough entries. Every other setting lives
@@ -22,7 +22,7 @@
      Every step: docs/DOCKER.md, "GPU passthrough and supported combinations". -->
 <Container version="2">
   <Name>print-handy</Name>
-  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec</Repository>
+  <Repository>ghcr.io/catduckgnaf/print-handy:latest</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>

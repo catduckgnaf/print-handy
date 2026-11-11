@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import ai_routes
-from . import edit_plan, mesh_repair, support_clearance
+from . import edit_plan, mesh_repair, plane_cut, support_clearance
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +195,9 @@ _INSTRUCTION = (
     "\"offset\" pushes the whole surface outward by mm (0.05..1) and thickens thin walls and "
     "features; use it when the mesh facts report thin walls. \"split\" separates the model "
     "into two parts at at_mm along the axis, in model coordinates (for z, the height over "
-    "the build plate). A split only separates pieces that are already apart; one through "
-    "solid material is refused.\n"
+    "the build plate). The cut is capped, so both parts come out as closed solids; a cut "
+    "through solid material needs a closed (watertight) mesh and is refused on an open or "
+    "non-manifold one.\n"
     "Edit plans use this closed vocabulary (same as the chat edit pipeline):\n"
     "{\"kind\": \"supports\", \"enabled\": true|false, \"type\": \"tree\"|\"normal\", \"plate_only\": true|false}\n"
     "{\"kind\": \"rotate\", \"axis\": \"x\"|\"y\"|\"z\", \"degrees\": number -360..360}\n"
@@ -521,13 +522,12 @@ def offset_mesh(source_path, dest_path, mm) -> dict:
 
 
 def _write_split_3mf(dest_path, parts) -> None:
-    """Write a minimal core 3MF holding one object per part (name, tris)."""
+    """Write a minimal core 3MF holding one object per part (name, points, faces)."""
     import zipfile
     from xml.sax.saxutils import escape
     objects = []
     items = []
-    for index, (name, tris) in enumerate(parts, start=1):
-        points, faces = mesh_repair.weld(tris)
+    for index, (name, points, faces) in enumerate(parts, start=1):
         rows = '\n'.join(f'<vertex x="{x:.5f}" y="{y:.5f}" z="{z:.5f}"/>' for x, y, z in points.tolist())
         tris_xml = '\n'.join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces.tolist())
         objects.append(f'<object id="{index}" name="{escape(name)}" type="model"><mesh>'
@@ -553,50 +553,34 @@ def _write_split_3mf(dest_path, parts) -> None:
         archive.writestr('3D/3dmodel.model', model)
 
 
-def _cut_edges(tris, below) -> int:
-    """How many welded edges join a triangle in ``below`` to one outside it."""
-    import numpy as np
-    points, faces = mesh_repair.weld(tris)
-    n = np.int64(max(len(points), 1))
-    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=0)
-    keys = edges.min(axis=1) * n + edges.max(axis=1)
-    side = np.tile(np.asarray(below, bool), 3)
-    return int(len(np.intersect1d(keys[side], keys[~side])))
-
-
 def split_model(source_path, dest_path, axis, at_mm) -> dict:
-    """Split a single-part model into two parts at ``at_mm`` along ``axis``.
+    """Cut a single-part model into two parts at ``at_mm`` along ``axis``.
 
-    Triangles are assigned whole, by centroid -- the cut follows triangle
-    edges, it does not clip triangles -- and the two parts are written as a
-    two-object 3MF the normal intake slices as one plate with two parts.
-    A plane that misses the model changes nothing (``changed`` False).
-
-    Because no triangle is clipped and no cap is built, a plane through
-    connected surface would leave both parts open along the cut: shells
-    with no defined volume, which the slicer has to guess at (#1195). Such
-    a split is refused; a split only separates pieces that share no edge
-    (separate shells of one file, or parts that merely touch).
+    A real planar cut (``plane_cut``): triangles crossing the plane are
+    clipped, the cut outline is capped on both sides (holes included, so a
+    tube comes out as two tubes, not two cups), and each part is checked to
+    be a closed solid, the two volumes summing to the source's, before the
+    two-object 3MF is written for the normal intake to slice as one plate
+    with two parts. A cut through solid material needs a closed source; an
+    open or non-manifold mesh is refused by name (#1245, replacing the
+    #1195 refusal of every cut through solid material). A plane between
+    pieces that are already apart needs no cap and works on any mesh. A
+    plane that misses the model changes nothing (``changed`` False).
     """
     tris = mesh_repair.load_triangles(source_path)
     if not len(tris):
         raise FixError('the model has no triangles to split')
-    axis_index = 'xyz'.index(axis)
-    centroids = tris.mean(axis=1)[:, axis_index]
-    below = centroids <= at_mm
-    lower = tris[below]
-    upper = tris[~below]
-    if not len(lower) or not len(upper):
+    result = plane_cut.cut(tris, 'xyz'.index(axis), float(at_mm))
+    if result is None:
         return {'changed': False, 'parts': 1, 'output_path': str(dest_path)}
-    if _cut_edges(tris, below):
-        raise FixError(f'a split at {axis} = {at_mm:g} mm would cut through the solid model; '
-                       'this split keeps whole triangles and does not cap the cut, so both '
-                       'parts would come out as open shells, not solids. It can only '
-                       'separate pieces that are already apart, so nothing was changed')
     stem = Path(source_path).stem
-    _write_split_3mf(dest_path, [(f'{stem} part 1', lower), (f'{stem} part 2', upper)])
-    return {'changed': True, 'parts': 2,
-            'triangles': [int(len(lower)), int(len(upper))],
+    _write_split_3mf(dest_path, [(f'{stem} part 1', *result.lower),
+                                 (f'{stem} part 2', *result.upper)])
+    return {'changed': True, 'parts': 2, 'capped': result.capped,
+            'cut_regions': result.loops, 'cut_holes': result.holes,
+            'triangles': [int(len(result.lower[1])), int(len(result.upper[1]))],
+            'volumes_mm3': [round(plane_cut.volume(*result.lower), 3),
+                            round(plane_cut.volume(*result.upper), 3)],
             'output_path': str(dest_path)}
 
 
