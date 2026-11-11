@@ -167,6 +167,38 @@ def test_heat_or_another_file_never_settles_a_bambu_lease():
     assert launch_state.held("garage-a1")["phase"] == "uncertain"
 
 
+@pytest.mark.parametrize("ended", ["complete", "cancelled", "error", "standby"])
+def test_a_bambu_lease_whose_own_file_is_seen_ended_is_left_uncertain(ended):
+    # The listener first sees the printer after the print finished (or missed
+    # every active update): the lease's own file in a terminal state, heaters
+    # cold. That print may have run, so it is never released as not started,
+    # and a finished state on the same file is never "started" either (a
+    # reprint's previous run, #1147). It stays uncertain for the operator.
+    uncertain_lease("garage-a1", PACKAGE)
+    clock = Clock()
+    target = sink(clock)
+    for at in (1000.0, 1030.0, 1061.0, 1200.0):
+        clock.now = at
+        target("status", status(ended, "plate_1_abc"))
+        assert launch_state.held("garage-a1")["phase"] == "uncertain"
+    # The operator clears the screen: idle, no file, cold well past the window.
+    for at in (1300.0, 1400.0, 1500.0):
+        clock.now = at
+        target("status", status("standby"))
+    assert launch_state.held("garage-a1")["phase"] == "uncertain"
+
+
+def test_a_bambu_cold_window_already_running_stops_once_the_own_file_shows_ended():
+    uncertain_lease("garage-a1", PACKAGE)
+    settler = sink(Clock())._settler
+    assert settler.observe("standby", "", status("standby")["status"], now=1000.0) is None
+    assert settler.observe("complete", "plate_1_abc", status("complete", "plate_1_abc")["status"],
+                           now=1030.0) is None
+    assert settler.observe("standby", "", status("standby")["status"], now=1061.0) is None
+    assert settler.observe("standby", "", status("standby")["status"], now=1200.0) is None
+    assert launch_state.held("garage-a1")["phase"] == "uncertain"
+
+
 def test_the_bambu_sink_reads_the_lease_database_only_on_change_or_every_few_seconds():
     clock = Clock()
     observed = []

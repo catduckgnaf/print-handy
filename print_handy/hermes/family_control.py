@@ -767,7 +767,16 @@ class LaunchLeaseSettler:
       (``launch_state.release_abandoned``, which leaves a live
       print-now's ``submitting`` row alone);
     - heat, an unreadable target, or another file running or shown idle
-      decides nothing.
+      decides nothing;
+    - the lease's own file shown in a terminal state (complete,
+      cancelled, error, or standby still naming it) decides nothing,
+      then and on every later read for that lease. The settler may have
+      missed every active update (it first saw the printer after the
+      print ended), so a cold idle printer is no evidence the start
+      never ran; the lease stays uncertain for the operator, as the
+      uncertain path leaves it. Nor is it settled as started: a
+      completed state on the same file may be the previous run of a
+      reprint (#1147).
 
     Nothing is ever sent to the printer.
     """
@@ -775,6 +784,9 @@ class LaunchLeaseSettler:
     def __init__(self, printer_id):
         self._printer_id = printer_id
         self._watch = None  # moonraker_event_listener.AbandonedStartWatch, built on first use
+        # Leases ((token, remote file)) whose own file this settler has seen
+        # in a terminal state: never released as not started afterwards.
+        self._ended_on_own_file: set = set()
 
     def _watch_for(self):
         if self._watch is None:
@@ -800,8 +812,17 @@ class LaunchLeaseSettler:
             return None  # another file is running; the lease is not this read's story
         if filename and not launch_state.same_remote(filename, remote):
             return None  # the printer reports another (earlier) file; nothing about this start
-        idle = "standby" if state in TERMINAL_STATES else state
         watch = self._watch_for()
+        lease_key = (row.get("token"), remote)
+        if (filename and state in TERMINAL_STATES) or lease_key in self._ended_on_own_file:
+            # This lease's own file, ended: it may have run unseen. Leave it uncertain.
+            if lease_key not in self._ended_on_own_file:
+                self._ended_on_own_file.add(lease_key)
+                log(f"launch lease left uncertain: the printer shows {remote!r} {state} without this "
+                    "listener seeing it run, so it may have printed; settle it by hand")
+            watch.retire(remote)
+            return None
+        idle = "standby" if state in TERMINAL_STATES else state
         watch.retain([remote])
         if watch.observe(remote, idle, status.get("hotend_target_c"), status.get("bed_target_c"),
                          now=now):

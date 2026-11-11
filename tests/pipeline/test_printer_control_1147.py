@@ -281,6 +281,23 @@ def test_item6_heat_or_another_file_never_settles_the_lease(connection, tmp_path
     assert launch_state.held("shelf")["phase"] == "uncertain"
 
 
+@pytest.mark.parametrize("connection", ["octoprint", "prusalink", "elegoo_sdcp", "flashforge_stock"])
+@pytest.mark.parametrize("ended", ["complete", "cancelled", "error", "standby"])
+def test_item6_a_lease_whose_own_file_is_seen_ended_is_left_uncertain(connection, ended, tmp_path):
+    # First read after the print finished: the lease's own file ended, heaters
+    # cold. It may have printed unseen, so it is not released as not started,
+    # and the same file finished is not "started" (a reprint's previous run).
+    uncertain_lease("shelf", "plate_1_abc.gcode")
+    lst = listener(connection, [])
+    lst._state_path = tmp_path / "state.json"
+    cold = {"hotend_target_c": 0, "bed_target_c": 0}
+    for now in (1000.0, 1030.0, 1061.0, 1200.0):
+        assert lst._settle_lease(ended, "plate_1_abc.gcode", cold, now=now) is None
+    for now in (1300.0, 1400.0, 1500.0):  # later idle reads with no file: still not evidence
+        assert lst._settle_lease("standby", "", cold, now=now) is None
+    assert launch_state.held("shelf")["phase"] == "uncertain"
+
+
 def test_item6_a_printer_that_never_launched_gets_no_database(tmp_path, monkeypatch):
     monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
     monkeypatch.setattr(settings, "printer_state_dir", lambda printer_id=None, data=None: tmp_path / "p")
