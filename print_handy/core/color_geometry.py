@@ -509,7 +509,21 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         obj.append(new_mesh)
         if row.get('settings'):
             settings_by_mesh[cut_id] = row['settings']
-        group['cutters'].append((cut_id, row['name'], row['subtype']))
+        # A modifier with its own extruder (#1155) prints its region with that
+        # filament: written as the tool the same decisions give the filament,
+        # like a part. With no tool in this job it is unknown usage: not
+        # written (the body's tool prints the region) and named in the report.
+        modifier_tool = None
+        if row.get('modifier_extruder'):
+            modifier_tool = filament_tool(int(row['modifier_extruder']))
+            if modifier_tool is None:
+                feature_notes.append({
+                    'key': 'extruder', 'where': f"modifier {row['key']} ({row['name']})",
+                    'source_value': row['modifier_extruder'], 'status': 'unknown', 'written': None,
+                    'reason': f"modifier part names filament {row['modifier_extruder']}, which no "
+                              "tool of this job loads; recorded as unknown usage, the body's tool "
+                              'prints the region'})
+        group['cutters'].append((cut_id, row['name'], row['subtype'], modifier_tool))
         # The report's part rows carry bounds but cutter rows never did, so
         # the merged-placement proof compared part-only landed bounds
         # against all-volume authored bounds and refused sound exports
@@ -533,10 +547,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             ET.SubElement(pc, 'metadata', key='name', value=name)
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
             _write_part_settings(pc, settings_by_mesh.get(mesh_id), features_by_mesh.get(mesh_id, ()))
-        for cut_id, name, subtype in group['cutters']:
+        for cut_id, name, subtype, modifier_tool in group['cutters']:
             ET.SubElement(comps, tag('component'), objectid=cut_id)
             pc = ET.SubElement(obj_config, 'part', id=cut_id, subtype=subtype)
             ET.SubElement(pc, 'metadata', key='name', value=name)
+            if modifier_tool is not None:
+                ET.SubElement(pc, 'metadata', key='extruder', value=str(modifier_tool))
             _write_part_settings(pc, settings_by_mesh.get(cut_id))
         instance = ET.SubElement(plate, 'model_instance')
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)

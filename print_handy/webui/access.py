@@ -27,8 +27,12 @@ an unclaimed install is no longer blocked behind a setup page that
 serves nothing else. The ``SETUP`` mode name is kept only so older
 imports do not break; :func:`resolve` never returns it.
 
-The password is stored only as a salted PBKDF2-SHA256 hash; the file is
-written atomically with mode 0600. Deleting it is the reset; the
+The password is stored only as a salted PBKDF2-HMAC-SHA256 hash, with
+the iteration count it was made with (``_ITERATIONS``, 600,000: the
+OWASP minimum for PBKDF2-HMAC-SHA256). A hash saved by an older release
+at a lower count still verifies at its own count, and is re-hashed at
+the current count on the next successful sign-in with the password
+(:func:`rehash_password`). The file is written atomically with mode 0600. Deleting it is the reset; the
 environment token also signs in when the password is forgotten.
 
 A file that exists but cannot be used (unreadable, not JSON, missing
@@ -41,6 +45,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -55,7 +60,10 @@ from .. import settings
 ACCESS_FILE = "webui_access.json"
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 64
-_ITERATIONS = 200_000
+# OWASP Password Storage Cheat Sheet: at least 600,000 iterations for
+# PBKDF2-HMAC-SHA256. Stored with every hash, so raising it never breaks
+# a saved login; a lower stored count is upgraded at the next sign-in.
+_ITERATIONS = 600_000
 
 OPEN, TOKEN, PASSWORD, SETUP = "open", "token", "password", "setup"
 # A saved login file that exists but cannot be used. Nothing matches it
@@ -144,6 +152,24 @@ class Access:
         with no credential is OPEN and ``unclaimed`` instead."""
         return False
 
+    @property
+    def needs_rehash(self):
+        """True for a saved password hashed at fewer than _ITERATIONS."""
+        return self.mode == PASSWORD and self._iterations < _ITERATIONS
+
+    def password_matches(self, provided):
+        """The saved password alone (never the environment token)."""
+        if self.mode != PASSWORD or not provided:
+            return False
+        quick = hashlib.sha256(provided.encode()).digest()
+        if any(hmac.compare_digest(quick, seen) for seen in self._verified):
+            return True
+        if hmac.compare_digest(_digest(provided, self._salt, self._iterations), self._hash):
+            if len(self._verified) < 8:
+                self._verified.add(quick)
+            return True
+        return False
+
     def matches(self, provided):
         """Constant-time check of a provided token or password."""
         if not provided:
@@ -153,13 +179,7 @@ class Access:
         if self.mode == PASSWORD:
             if self._token and hmac.compare_digest(provided.encode(), self._token.encode()):
                 return True
-            quick = hashlib.sha256(provided.encode()).digest()
-            if any(hmac.compare_digest(quick, seen) for seen in self._verified):
-                return True
-            if hmac.compare_digest(_digest(provided, self._salt, self._iterations), self._hash):
-                if len(self._verified) < 8:
-                    self._verified.add(quick)
-                return True
+            return self.password_matches(provided)
         return False
 
 
@@ -188,9 +208,12 @@ class LoginThrottle:
     After ``max_failures`` failures inside ``window_s`` the address is locked
     out for ``lockout_s``; during the lockout even a correct credential is
     refused, so guessing cannot continue at full speed. One address never
-    locks another out (behind a reverse proxy every client shares the proxy's
-    address, so they share a lockout). The table is capped so spraying from
-    many addresses cannot grow memory without bound.
+    locks another out. Behind a reverse proxy every client shares the proxy's
+    address, and so a lockout, unless the proxy is listed in ``[webui]
+    trusted_proxies``: then the server keys the table by the client address
+    the proxy reports in X-Forwarded-For (:func:`client_address`). The table
+    is capped so spraying from many addresses cannot grow memory without
+    bound.
     """
 
     def __init__(self, max_failures=5, window_s=300, lockout_s=60, max_entries=1024,
@@ -238,6 +261,57 @@ class LoginThrottle:
         with self._lock:
             self._failures.pop(address, None)
             self._locked.pop(address, None)
+
+
+def parse_trusted_proxies(value):
+    """The ``[webui] trusted_proxies`` setting as a tuple of networks
+    (settings.trusted_proxy_networks; ValueError for a bad entry)."""
+    return settings.trusted_proxy_networks(value)
+
+
+def _ip(text):
+    try:
+        address = ipaddress.ip_address(str(text or "").strip().strip("[]"))
+    except ValueError:
+        return None
+    # An IPv4 client reached over an IPv6 socket arrives as ::ffff:a.b.c.d.
+    return getattr(address, "ipv4_mapped", None) or address
+
+
+def _trusted(address, networks):
+    return address is not None and any(
+        address.version == net.version and address in net for net in networks)
+
+
+def client_address(peer, forwarded_for, trusted_networks):
+    """The address a request is throttled under.
+
+    ``peer`` is the socket's address. X-Forwarded-For is honored only
+    when the peer is a configured trusted proxy (``trusted_networks``,
+    from parse_trusted_proxies): then the header is read from the right
+    (the hop the trusted proxy appended) and the first address that is
+    not itself a trusted proxy is the client. Anyone else's header is
+    ignored, so a client cannot pick a fresh address per guess, and
+    with no trusted proxy (the default) the header never counts. A
+    header that runs out, or holds something that is not an address
+    before an untrusted hop is found, leaves the request on the last
+    trusted hop's address."""
+    peer = str(peer or "")
+    current = _ip(peer)
+    if not trusted_networks or not _trusted(current, trusted_networks):
+        return peer
+    hops = []
+    for header in forwarded_for or ():
+        hops.extend(part.strip() for part in str(header or "").split(","))
+    result = str(current)
+    for hop in reversed([hop for hop in hops if hop]):
+        address = _ip(hop)
+        if address is None:
+            break
+        result = str(address)
+        if not _trusted(address, trusted_networks):
+            break
+    return result
 
 
 def access_path(data):
@@ -401,6 +475,36 @@ def save_password(data, password, confirm, username=None):
         **payload, "iterations": _ITERATIONS,
         "salt": base64.b64encode(salt).decode(),
         "hash": base64.b64encode(_digest(password, salt, _ITERATIONS)).decode()})
+
+
+def rehash_password(data, access, password):
+    """Re-hash a saved password at the current cost, after a sign-in.
+
+    ``access`` is the Access the password was just verified against and
+    ``password`` the password itself. Only a PASSWORD Access whose hash
+    is below _ITERATIONS is touched, and only when ``password`` is that
+    saved password (the environment token, which also signs in, is never
+    hashed into the file). The username stays as it is. The file is
+    re-read first and left alone when it no longer holds the hash that
+    was verified: a login changed meanwhile by another process wins.
+    Returns True when the file was rewritten. Raises OSError when the
+    write fails; the caller keeps the sign-in either way."""
+    if not access.needs_rehash or not access.password_matches(password):
+        return False
+    path = access_path(data)
+    current = _read_saved(path)
+    if (current is None or current.mode != PASSWORD or current._salt != access._salt
+            or current._hash != access._hash or current._iterations != access._iterations):
+        return False
+    salt = secrets.token_bytes(16)
+    payload = {"mode": PASSWORD}
+    if current.username:
+        payload["username"] = current.username
+    _write(path, {
+        **payload, "iterations": _ITERATIONS,
+        "salt": base64.b64encode(salt).decode(),
+        "hash": base64.b64encode(_digest(password, salt, _ITERATIONS)).decode()})
+    return True
 
 
 def save_open(data, confirmed):
