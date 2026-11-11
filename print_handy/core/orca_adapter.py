@@ -156,9 +156,12 @@ def has_cutters(source):
     source = Path(source)
     if source.suffix.lower() != '.3mf':
         return False
-    from .source_colors import cutter_ids
+    from .source_colors import cutter_ids, prusa_volume_layout
     with zipfile.ZipFile(source) as archive:
-        return bool(cutter_ids(archive))
+        # A PrusaSlicer object's modifier, negative or support volumes are
+        # triangle ranges of its one mesh (#1260): flattening would print
+        # them solid, so such a source takes the volume-plate export too.
+        return bool(cutter_ids(archive)) or bool(prusa_volume_layout(archive, strict=True))
 
 
 def has_part_settings(source):
@@ -284,11 +287,13 @@ def _parse_3mf_triangles(source):
             if mesh is not None:
                 import numpy as np
                 order = [0, 2, 1] if transform_mirrors(chain) else [0, 1, 2]
+                keep = prusa_keep.get(oid) if name == '3D/3dmodel.model' else None
                 if name in tables:
                     table = tables[name].get(oid)
                     if table is not None:
                         out.extend_indexed(transform_vertices(table.vertices, chain),
-                                            np.asarray(table.triangles).reshape((-1, 3))[:, order])
+                                            _printed_faces(np.asarray(table.triangles).reshape((-1, 3)),
+                                                           keep)[:, order])
                 else:
                     vertices = [tuple(float(v.get(k)) for k in ('x', 'y', 'z')) for v in mesh.findall('c:vertices/c:vertex', NS)]
                     faces = [tuple(int(tri.get(i)) for i in ('v1', 'v2', 'v3')) for tri in mesh.findall('c:triangles/c:triangle', NS)]
@@ -300,7 +305,8 @@ def _parse_3mf_triangles(source):
                             # vertices[a] for exactly this range.
                             raise IndexError('3MF triangle vertex index out of range')
                         face_array = np.where(face_array < 0, face_array + count, face_array)
-                        out.extend_indexed(transform_vertices(vertices, chain), face_array[:, order])
+                        out.extend_indexed(transform_vertices(vertices, chain),
+                                           _printed_faces(face_array, keep)[:, order])
             for component in obj.findall('c:components/c:component', NS):
                 external = next((v for k, v in component.attrib.items() if k.endswith('}path')), name)
                 out.extend(collect(external.lstrip('/'), component.get('objectid'),
@@ -308,6 +314,8 @@ def _parse_3mf_triangles(source):
             return out
         from .source_colors import cutter_ids
         cutters = cutter_ids(archive)
+        prusa_keep, prusa_cutters = _prusa_printed_ranges(archive)
+        cutters = {**cutters, **prusa_cutters}
         root, objects = model('3D/3dmodel.model')
         result = IndexedTriangles()
         for item in root.findall('c:build/c:item', NS):
@@ -328,6 +336,37 @@ def _parse_3mf_triangles(source):
     if not result:
         raise RuntimeError('3MF contains no printable triangles')
     return result
+
+
+def _prusa_printed_ranges(archive):
+    """({object id: model-part triangle ranges}, {(object id, component id): subtype}) (#1260).
+
+    A PrusaSlicer object written as one mesh keeps only its model-part
+    triangle ranges for fit and footprint; one written as component meshes
+    names its modifier, negative and support components like Bambu/Orca
+    cutters. Never printed volumes either way (source_colors.prusa_volume_layout).
+    """
+    from .source_colors import prusa_volume_layout
+    keep, cutters = {}, {}
+    for oid, entry in prusa_volume_layout(archive, strict=True).items():
+        if entry['mode'] == 'mesh':
+            keep[oid] = [(v['first'], v['last']) for v in entry['volumes'] if v['type'] == 'ModelPart']
+        else:
+            for volume, component in zip(entry['volumes'], entry['components']):
+                if volume['type'] != 'ModelPart':
+                    cutters[(oid, component)] = volume['subtype']
+    return keep, cutters
+
+
+def _printed_faces(faces, keep):
+    """The rows of a (n, 3) face array inside the triangle ranges `keep` (all rows when None)."""
+    if keep is None:
+        return faces
+    import numpy as np
+    mask = np.zeros(len(faces), dtype=bool)
+    for first, last in keep:
+        mask[first:last + 1] = True
+    return faces[mask]
 
 
 def _object_triangles(source, object_id):
@@ -397,8 +436,15 @@ def _object_triangles(source, object_id):
                 for t in chain:
                     vertices = [apply(p, t) for p in vertices]
                 mirrored = transform_mirrors(chain)
+                keep = prusa_keep.get(oid) if name == '3D/3dmodel.model' else None
+                index = -1
                 for triangles_node in children(mesh, 'triangles'):
                     for tri in children(triangles_node, 'triangle'):
+                        index += 1
+                        if keep is not None and not any(first <= index <= last for first, last in keep):
+                            # A PrusaSlicer modifier, negative or support
+                            # volume is never a printed face (#1260).
+                            continue
                         a, b, c = (int(tri.get(i)) for i in ('v1', 'v2', 'v3'))
                         out.append((vertices[a], vertices[c], vertices[b]) if mirrored
                                    else (vertices[a], vertices[b], vertices[c]))
@@ -406,12 +452,15 @@ def _object_triangles(source, object_id):
             for wrapper in children(obj, 'components'):
                 components.extend(children(wrapper, 'component'))
             for component in components:
+                if not active and (oid, component.get('objectid')) in prusa_cutters:
+                    continue  # a PrusaSlicer component volume that never prints (#1260)
                 external = next((v for k, v in component.attrib.items()
                                  if k.split('}')[-1] == 'path'), name)
                 out.extend(collect(external.lstrip('/'), component.get('objectid'),
                                    [transform(component)] + chain, active | {key}))
             return out
 
+        prusa_keep, prusa_cutters = _prusa_printed_ranges(archive)
         root, _objects = model('3D/3dmodel.model')
         result = []
         for build in children(root, 'build'):
@@ -889,12 +938,15 @@ def _prusa_model_settings(prusa_model, model_data, job):
     if not parsed:
         return None
     components = {}
+    printable = None
     if model_data:
         try:
             root = ET.fromstring(model_data)
         except ET.ParseError:
             root = None
         if root is not None:
+            printable = {node.get('objectid') for node in root.iter()
+                         if node.tag.split('}')[-1] == 'item' and node.get('printable', '1') != '0'}
             for node in root.iter():
                 if node.tag.split('}')[-1] != 'object' or node.get('id') is None:
                     continue
@@ -910,17 +962,31 @@ def _prusa_model_settings(prusa_model, model_data, job):
         return str(min(ext, filament_count) if filament_count else ext)
 
     config = ET.Element('config')
+    from .source_colors import PRUSA_VOLUME_SUBTYPES
     for oid, entry in parsed.items():
         ids = components.get(oid) or [oid]
         volumes = entry['volumes']
         matched = len(volumes) == len(ids)
+        others = [v for v in volumes if v.get('type', 'ModelPart') != 'ModelPart']
+        if others and (printable is None or oid in printable) and (
+                not matched or any(v['type'] not in PRUSA_VOLUME_SUBTYPES for v in others)):
+            # A modifier, negative or support volume that is a triangle range
+            # of the object's one mesh (#1260) has no part of its own to type
+            # here: as a plain part it would print as solid plastic.
+            named = ', '.join(f"{v.get('name') or 'unnamed'!r} ({v['type']})" for v in others)
+            raise RuntimeError(f'PrusaSlicer object {oid} carries {named} inside its mesh, which '
+                               'this plate cannot carry as typed volumes (they would print as solid '
+                               'plastic); refusing the slice')
         obj_el = ET.SubElement(config, 'object', id=oid)
         if entry['name']:
             ET.SubElement(obj_el, 'metadata', key='name', value=entry['name'])
         ET.SubElement(obj_el, 'metadata', key='extruder', value=extruder(entry['extruder']))
         for index, pid in enumerate(ids):
             volume = volumes[index] if matched else {}
-            part_el = ET.SubElement(obj_el, 'part', id=str(pid), subtype='normal_part')
+            # A component volume keeps its PrusaSlicer type as the Orca
+            # subtype (#1260): a modifier stays a modifier, never a solid.
+            subtype = PRUSA_VOLUME_SUBTYPES.get(volume.get('type') or 'ModelPart', 'normal_part')
+            part_el = ET.SubElement(obj_el, 'part', id=str(pid), subtype=subtype)
             name = volume.get('name') or entry['name']
             if name:
                 ET.SubElement(part_el, 'metadata', key='name', value=name)

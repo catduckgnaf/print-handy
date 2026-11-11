@@ -100,6 +100,60 @@ def _rewound(mesh):
     return mesh
 
 
+def _volume_leaves(manifest, key, mesh, points):
+    """[(instance key, mesh, points)] for one resolved mesh leaf, PrusaSlicer volumes split (#1260).
+
+    A PrusaSlicer object is one mesh holding every volume's triangles; inventory
+    names each volume's triangle ranges ('triangle_ranges' on the part row that
+    keeps the leaf's key and on each '<key>/volume<N>' cutter row). Each row
+    gets a mesh of only its own triangles, with its vertices compacted and
+    reindexed and the matching points, so a modifier, negative or support
+    volume rides as its own typed volume and is never part of the printed
+    body. The ranges must cover the leaf's triangles exactly once, or the
+    export refuses rather than print a volume as solid plastic. A leaf with
+    no split rows is returned unchanged.
+    """
+    rows = [row for row in list(manifest.get('parts') or []) + list(manifest.get('cutters') or [])
+            if row.get('triangle_ranges')
+            and (row['instance_key'] == key or row['instance_key'].startswith(key + '/volume'))]
+    if not rows:
+        return [(key, mesh, points)]
+    local = lambda node: node.tag.split('}')[-1]
+    vertices = next(n for n in mesh if local(n) == 'vertices')
+    triangles = next(n for n in mesh if local(n) == 'triangles')
+    vertex_nodes, triangle_nodes = list(vertices), list(triangles)
+    covered = sorted((first, last) for row in rows for first, last in row['triangle_ranges'])
+    expected = 0
+    for first, last in covered:
+        if first != expected or last < first:
+            raise RuntimeError(f'PrusaSlicer volume ranges of {key} do not cover its mesh exactly '
+                               'once; refusing rather than print a volume as solid plastic')
+        expected = last + 1
+    if expected != len(triangle_nodes):
+        raise RuntimeError(f'PrusaSlicer volume ranges of {key} cover {expected} triangles but its '
+                           f'mesh has {len(triangle_nodes)}; refusing rather than print a volume '
+                           'as solid plastic')
+    out = []
+    for row in rows:
+        kept = [triangle_nodes[i] for first, last in row['triangle_ranges'] for i in range(first, last + 1)]
+        used = sorted({int(tri.get(v)) for tri in kept for v in ('v1', 'v2', 'v3')})
+        if used and (used[0] < 0 or used[-1] >= len(vertex_nodes)):
+            raise RuntimeError(f'3MF triangle vertex index out of range in {key}')
+        renumber = {old: new for new, old in enumerate(used)}
+        sub = ET.Element(mesh.tag, dict(mesh.attrib))
+        sub_vertices = ET.SubElement(sub, vertices.tag, dict(vertices.attrib))
+        for old in used:
+            sub_vertices.append(copy.deepcopy(vertex_nodes[old]))
+        sub_triangles = ET.SubElement(sub, triangles.tag, dict(triangles.attrib))
+        for tri in kept:
+            node = copy.deepcopy(tri)
+            for v in ('v1', 'v2', 'v3'):
+                node.set(v, str(renumber[int(tri.get(v))]))
+            sub_triangles.append(node)
+        out.append((row['instance_key'], sub, [points[i] for i in used]))
+    return out
+
+
 def _write_part_settings(pc, settings, features=()):
     for key, value in _kept_part_settings(settings):
         ET.SubElement(pc, 'metadata', key=key, value=str(value))
@@ -182,6 +236,9 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     # object ids, remap the same member instead. Copy paths are unaffected.
     with zipfile.ZipFile(source) as _archive:
         source_members = _archive.namelist()
+        # PrusaSlicer volumes (#1260) are split by inventory; a model config
+        # that cannot be read leaves them unknown, which refuses here.
+        source_colors.prusa_volume_layout(_archive, strict=True)
         if 'Metadata/layer_config_ranges.xml' in source_members and \
                 b'opt_key="extruder"' in _archive.read('Metadata/layer_config_ranges.xml'):
             raise RuntimeError('source carries Metadata/layer_config_ranges.xml height-range '
@@ -315,7 +372,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                                            'export an unmirrored source or a geometry-only model')
                     _refuse_mirrored_order_paint(mesh)
                     mesh = _rewound(mesh)
-                leaves.append((key, mesh, points))
+                # A PrusaSlicer volume split (#1260) gives each volume its own leaf.
+                leaves.extend(_volume_leaves(manifest, key, mesh, points))
                 return
             components = next(n for n in obj if n.tag.split('}')[-1] == 'components')
             for i, component in enumerate(components):
@@ -742,6 +800,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
     kind = {p['instance_key']: (p, p.get('subtype', 'normal_part'))
             for p in manifest['parts'] + manifest.get('cutters', [])}
     with zipfile.ZipFile(source) as archive:
+        # PrusaSlicer volumes (#1260) are split by inventory; a model config
+        # that cannot be read leaves them unknown, which refuses here.
+        source_colors.prusa_volume_layout(archive, strict=True)
         models = {}
         for name in archive.namelist():
             if name.endswith('.model'):
@@ -776,7 +837,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
                 if transform_mirrors(chain):
                     _refuse_mirrored_order_paint(mesh)
                     mesh = _rewound(mesh)
-                leaves.append((key, item_id, mesh, pts))
+                # A PrusaSlicer volume split (#1260) gives each volume its own leaf.
+                for sub_key, sub_mesh, sub_pts in _volume_leaves(manifest, key, mesh, pts):
+                    leaves.append((sub_key, item_id, sub_mesh, sub_pts))
                 return
             comps = next(n for n in obj if n.tag.split('}')[-1] == 'components')
             for i, comp in enumerate(comps):
@@ -1276,6 +1339,24 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
         raise RuntimeError('single-color plate mixes physical slots')
     slot = slots.pop()
     selected = {part['object_id'] for part in parts}
+    # PrusaSlicer volumes (#1260): this copy keeps every mesh byte for byte,
+    # and the slice-time adoption turns the PrusaSlicer model config into
+    # model settings, which can type a component volume but not a triangle
+    # range of one mesh. A selected object whose modifier, negative or
+    # support volume lives inside its mesh would print that volume as solid
+    # plastic, so it is refused by name.
+    with zipfile.ZipFile(source) as archive:
+        prusa_layout = source_colors.prusa_volume_layout(archive, strict=True)
+    for part in parts:
+        ancestry = part.get('ancestry') or []
+        wrapper = str(ancestry[0][1] if len(ancestry) > 1 else part.get('object_id'))
+        entry = prusa_layout.get(wrapper)
+        if entry is not None and entry['mode'] == 'mesh':
+            volumes = ', '.join(f"{v['name']!r} ({v['type']})" for v in entry['volumes']
+                                if v['type'] != 'ModelPart')
+            raise RuntimeError(f"PrusaSlicer object {wrapper} ({part['name']!r}) carries {volumes} "
+                               'inside its mesh, which the single-color plate copy cannot carry '
+                               '(it would print as solid plastic); refusing this plate')
     # A build object that carries a selected part must not also carry a part
     # of another slot: the printable flag selects whole build objects.
     for part in manifest['parts']:

@@ -123,6 +123,183 @@ def cutter_ids(archive):
     return out
 
 
+# PrusaSlicer volume types (Slic3r_PE_model.config volume_type) and the
+# Bambu/Orca part subtype that carries each one (#1260).
+PRUSA_VOLUME_SUBTYPES = {'ModelPart': 'normal_part', 'ParameterModifier': 'modifier_part',
+                         'NegativeVolume': 'negative_part', 'SupportBlocker': 'support_blocker',
+                         'SupportEnforcer': 'support_enforcer'}
+
+
+def prusa_volume_layout(archive, strict=True):
+    """{object id: layout} for PrusaSlicer objects that carry a volume other than a model part (#1260).
+
+    PrusaSlicer writes each object as one mesh holding the triangles of all its
+    volumes; Slic3r_PE_model.config marks each volume's triangle range
+    (<volume firstid lastid>) and its type (author_settings.prusa_volume_type).
+    A modifier, negative volume, support blocker or enforcer is never printed
+    plastic, so its triangles must be split out of the object's mesh. Read only
+    when the package has no Bambu/Orca model_settings.config (which would win,
+    as inventory reads it).
+
+    layout = {'mode': 'mesh' | 'components', 'name', 'extruder' (the object's,
+    PrusaSlicer's default 1 when it names none), 'triangles' (mesh mode),
+    'components' (component object ids, components mode), 'volumes': [{'index',
+    'name', 'type', 'subtype', 'first', 'last', 'extruder', 'settings',
+    'modifier_extruder'}]}. 'components' mode is an object whose volumes are
+    separate component meshes, matched in order.
+
+    Raises RuntimeError, naming the object and volume, for anything that cannot
+    be split exactly: an unrecognized volume type, a missing or invalid range,
+    ranges that do not cover the mesh's triangles exactly once, a component
+    count that differs from the volume count, or an object with no model part.
+    An unparsable member raises too when strict (the export paths); inventory
+    reads it non-strict, where plate usage already reports it unknown.
+    """
+    from . import author_settings
+    names = archive.namelist()
+    if PRUSA_MODEL_CONFIG not in names or 'Metadata/model_settings.config' in names:
+        return {}
+    data = archive.read(PRUSA_MODEL_CONFIG)
+    try:
+        ET.fromstring(data)
+    except ET.ParseError:
+        if strict:
+            raise RuntimeError(f'{PRUSA_MODEL_CONFIG} could not be parsed, so which triangles are '
+                               'modifier, negative or support volumes is unknown; refusing rather '
+                               'than print every volume as solid plastic')
+        return {}
+    parsed = author_settings.parse_prusa_model(data)
+    wanted = {oid: entry for oid, entry in parsed.items()
+              if any(v['type'] != 'ModelPart' for v in entry['volumes'])}
+    if not wanted:
+        return {}
+    model = painted_geometry.read_member(archive, '3D/3dmodel.model') \
+        if '3D/3dmodel.model' in names else b''
+    blocks = painted_geometry._object_blocks(model)
+    out = {}
+    for oid, entry in wanted.items():
+        label = f'PrusaSlicer object {oid}' + (f" ({entry['name']!r})" if entry['name'] else '')
+        own = entry['extruder'] or 1
+        volumes = []
+        for index, volume in enumerate(entry['volumes']):
+            vname = volume['name'] or f'volume {index + 1}'
+            if volume['type'] not in PRUSA_VOLUME_SUBTYPES:
+                raise RuntimeError(f'{label} volume {vname!r} has volume type {volume["type"]!r}, '
+                                   'which this converter does not know; refusing rather than print '
+                                   'it as solid plastic')
+            row = {'index': index, 'name': vname, 'type': volume['type'],
+                   'subtype': PRUSA_VOLUME_SUBTYPES[volume['type']],
+                   'first': volume['firstid'], 'last': volume['lastid'],
+                   'extruder': volume['extruder'], 'settings': dict(volume['settings'] or {})}
+            # A modifier that names an extruder other than 0 and its object's
+            # prints its region with that filament (#1155, as Bambu/Orca
+            # modifier_extruder).
+            if (row['type'] == 'ParameterModifier' and volume['extruder']
+                    and volume['extruder'] != own):
+                row['modifier_extruder'] = volume['extruder']
+            volumes.append(row)
+        if not any(v['type'] == 'ModelPart' for v in volumes):
+            raise RuntimeError(f'{label} has no model part volume, only modifier, negative or '
+                               'support volumes; nothing of it would print')
+        span = blocks.get(str(oid))
+        if span is None:
+            raise RuntimeError(f'{PRUSA_MODEL_CONFIG} names volumes for {label}, which '
+                               '3D/3dmodel.model does not declare; refusing rather than guess '
+                               'which triangles they are')
+        body = model[slice(*span)]
+        if re.search(rb'<(?:\w+:)?mesh\b', body):
+            count = len(re.findall(rb'<(?:\w+:)?triangle\b', body))
+            expected = 0
+            for row in sorted(volumes, key=lambda v: (v['first'] is None, v['first'] or 0)):
+                if row['first'] is None or row['last'] is None or row['first'] > row['last']:
+                    raise RuntimeError(f'{label} volume {row["name"]!r} has no valid triangle range '
+                                       '(firstid/lastid), so its triangles cannot be split from the '
+                                       'mesh; refusing rather than print it as solid plastic')
+                if row['first'] != expected:
+                    raise RuntimeError(f'{label} volume triangle ranges do not cover its mesh '
+                                       f'exactly once (volume {row["name"]!r} starts at triangle '
+                                       f'{row["first"]}, expected {expected}); refusing rather than '
+                                       'guess which triangles print')
+                expected = row['last'] + 1
+            if expected != count:
+                raise RuntimeError(f'{label} volume triangle ranges cover {expected} triangles but '
+                                   f'its mesh has {count}; refusing rather than guess which '
+                                   'triangles print')
+            out[str(oid)] = {'mode': 'mesh', 'name': entry['name'], 'extruder': own,
+                             'triangles': count, 'volumes': volumes}
+        else:
+            components = [re.search(rb'objectid="([^"]+)"', c.group(0))
+                          for c in re.finditer(rb'<(?:\w+:)?component\b[^>]*>', body)]
+            components = [m.group(1).decode() if m else None for m in components]
+            if len(components) != len(volumes):
+                raise RuntimeError(f'{label} has {len(volumes)} volumes but {len(components)} '
+                                   'component meshes, so its modifier, negative or support '
+                                   'volumes cannot be matched; refusing rather than print them '
+                                   'as solid plastic')
+            out[str(oid)] = {'mode': 'components', 'name': entry['name'], 'extruder': own,
+                             'components': components, 'volumes': volumes}
+    return out
+
+
+def _split_prusa_volumes(parts, layout):
+    """Inventory rows with PrusaSlicer non-model-part volumes split out (#1260).
+
+    Mesh mode: the object's leaf row stays the printed part (same key, so no
+    question changes) restricted to its model-part triangle ranges
+    ('triangle_ranges'), and each other volume becomes its own row keyed
+    '<part key>/volume<N>' with its subtype and its own range, which inventory
+    then files under cutters. Components mode: the component leaf at a
+    non-model volume's position takes that volume's subtype.
+    """
+    out = []
+    for part in parts:
+        ancestry = part.get('ancestry') or []
+        wrapper = str(ancestry[0][1] if len(ancestry) > 1 else part.get('object_id'))
+        entry = layout.get(wrapper)
+        if entry is None:
+            out.append(part)
+            continue
+        if entry['mode'] == 'components':
+            tail = str(part.get('instance_key') or '').split('/')
+            if len(ancestry) != 2 or len(tail) != 2 or not tail[1].isdigit() \
+                    or int(tail[1]) >= len(entry['volumes']):
+                raise RuntimeError(f'PrusaSlicer object {wrapper} volumes cannot be matched to its '
+                                   'component meshes; refusing rather than print its modifier, '
+                                   'negative or support volumes as solid plastic')
+            volume = entry['volumes'][int(tail[1])]
+            if volume['type'] != 'ModelPart':
+                part['subtype'] = volume['subtype']
+                part['prusa_volume_type'] = volume['type']
+                if volume.get('modifier_extruder'):
+                    part['modifier_extruder'] = volume['modifier_extruder']
+            out.append(part)
+            continue
+        if len(ancestry) != 1:
+            raise RuntimeError(f'PrusaSlicer object {wrapper} is placed through components, so its '
+                               'volume triangle ranges cannot be matched; refusing rather than '
+                               'print its modifier, negative or support volumes as solid plastic')
+        model = [v for v in entry['volumes'] if v['type'] == 'ModelPart']
+        part['triangle_ranges'] = [[v['first'], v['last']] for v in model]
+        out.append(part)
+        for volume in entry['volumes']:
+            if volume['type'] == 'ModelPart':
+                continue
+            row = {k: v for k, v in part.items()
+                   if k not in ('settings', 'triangle_ranges', 'modifier_extruder', 'author_color',
+                                'bounds_mm', 'source_name')}
+            row.update({'key': f"{part['key']}/volume{volume['index']}",
+                        'instance_key': f"{part['instance_key']}/volume{volume['index']}",
+                        'name': volume['name'], 'subtype': volume['subtype'],
+                        'prusa_volume_type': volume['type'],
+                        'triangle_ranges': [[volume['first'], volume['last']]]})
+            if volume['settings']:
+                row['settings'] = dict(volume['settings'])
+            if volume.get('modifier_extruder'):
+                row['modifier_extruder'] = volume['modifier_extruder']
+            out.append(row)
+    return out
+
+
 def component_parts(archive):
     """Resolve build instances to mesh leaves, preserving repeated instances."""
     models = {}
@@ -451,6 +628,13 @@ def _prusa_volume_matches(parts, parsed):
         if not entry:
             continue
         volumes = entry['volumes']
+        if len(volumes) != len(rows):
+            # A PrusaSlicer object written as one mesh (#1260): its modifier,
+            # negative and support volumes are split out of the printed row,
+            # which matches the model-part volumes alone.
+            model = [v for v in volumes if v.get('type', 'ModelPart') == 'ModelPart']
+            if len(model) == len(rows):
+                volumes = model
         matched = len(volumes) == len(rows)
         for index, part in enumerate(rows):
             yield part, entry, (volumes[index] if matched else {})
@@ -593,6 +777,12 @@ def _inventory(path):
                 raise RuntimeError('3MF metadata parts contradict resolved build inventory')
             parts = mapped
         _attach_part_settings(archive, names, parts, painted)
+        # PrusaSlicer modifier, negative and support volumes are triangle
+        # ranges of their object's one mesh (#1260): split them out so they
+        # become cutter rows below, never printed plastic.
+        prusa_layout = prusa_volume_layout(archive, strict=False)
+        if prusa_layout:
+            parts = _split_prusa_volumes(parts, prusa_layout)
         # Negative parts and modifiers are cutters/settings volumes, not printed
         # bodies: never a color question, never a separate printed object.
         _annotate_parts(archive, names, parts, filaments)
@@ -1105,7 +1295,7 @@ def _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids)
     not recorded). A value outside the project palette is unknown usage,
     never a used filament (#1184).
     """
-    found, outside = set(), set()
+    found, outside, named = set(), set(), []
     for cutter in manifest.get('cutters') or []:
         value = cutter.get('modifier_extruder')
         if not value:
@@ -1113,11 +1303,14 @@ def _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids)
         if str(plate_id) not in (object_plates.get(str(cutter.get('object_id'))) or ()):
             continue
         (found if value in palette_ids else outside).add(value)
+        if value not in palette_ids:
+            named.append(f"{cutter.get('name')!r} (object {cutter.get('object_id')}) names extruder {value}")
     if outside:
-        return _usage_row('unknown', reason=f'a modifier part names filament(s) {sorted(outside)}, '
-                                             'outside the project palette')
+        return _usage_row('unknown', reason=f'a modifier part ({", ".join(named)}) names filament(s) '
+                                             f'{sorted(outside)}, outside the project palette')
     return _usage_row('known', found, evidence='modifier_part extruder assignments in '
-                                               'Metadata/model_settings.config')
+                                               'Metadata/model_settings.config, or ParameterModifier '
+                                               'volume extruders in Metadata/Slic3r_PE_model.config')
 
 
 PRUSA_LAYER_GCODE = 'Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml'
@@ -1171,11 +1364,12 @@ def _prusa_layer_usage(path):
     color change, or a range extruder other than 0 and other than its
     object's own) makes that class UNKNOWN with the reason, never known and
     empty. Pauses and custom G-code change no filament. A PrusaSlicer
-    modifier volume is stored as a triangle range of its object's one mesh
-    (Slic3r_PE_model.config), which inventory does not split, so one that
-    names its own extruder makes the modifiers class UNKNOWN: its region does
-    not print with that filament. An unreadable member is unknown too. A
-    class with nothing to report is absent from the result.
+    modifier volume is a triangle range of its object's one mesh
+    (Slic3r_PE_model.config); inventory splits it into a cutter row (#1260),
+    and _modifier_usage counts its extruder like a Bambu/Orca modifier part,
+    so only an unparsable model config makes the modifiers class UNKNOWN
+    here. An unreadable member is unknown too. A class with nothing to
+    report is absent from the result.
     """
     out = {}
     try:
@@ -1193,18 +1387,14 @@ def _prusa_layer_usage(path):
     # Metadata/model_settings.config is the exception: there inventory reads
     # each volume as its own part, so a modifier is not a hidden region.
     if PRUSA_MODEL_CONFIG in members and 'Metadata/model_settings.config' not in names:
+        # A modifier volume that names its own extruder is split out of its
+        # object's mesh by inventory (#1260) and counted from its cutter row's
+        # modifier_extruder like a Bambu/Orca modifier part; only a member
+        # that cannot be parsed (no volume is known) is unknown here.
         try:
-            object_extruders, modifiers = _prusa_object_extruders(members[PRUSA_MODEL_CONFIG])
+            object_extruders, _modifiers = _prusa_object_extruders(members[PRUSA_MODEL_CONFIG])
         except ET.ParseError:
             out['modifiers'] = f'{PRUSA_MODEL_CONFIG} could not be parsed'
-        else:
-            if modifiers:
-                named = ', '.join(f'{name!r} (object {oid}) names extruder {extruder}'
-                                  for oid, name, extruder in modifiers)
-                out['modifiers'] = (
-                    f'a PrusaSlicer modifier volume names its own extruder: {named}; PrusaSlicer '
-                    'modifier volumes are part of their object\'s mesh and are not carried into the '
-                    'print, so that region may print another color than the source shows')
     from . import layer_gcode
     if PRUSA_LAYER_GCODE in members:
         try:
@@ -1371,12 +1561,16 @@ def _plate_usage(path, manifest):
         for name in ('layer_changes', 'height_ranges'):
             if prusa_layers.get(name) and classes[name]['status'] != 'unknown':
                 classes[name] = _usage_row('unknown', reason=prusa_layers[name])
-        # Modifier parts with their own extruder (#1155); a PrusaSlicer
-        # modifier volume is never carried, so it is unknown even when a
-        # question maps its filament.
+        # Modifier parts with their own extruder (#1155), PrusaSlicer
+        # modifier volumes included (split by inventory, #1260); a PrusaSlicer
+        # model config that cannot be parsed is unknown.
+        named = [f"{c.get('name')!r} (object {c.get('object_id')}) names extruder "
+                 f"{c['modifier_extruder']}" for c in manifest.get('cutters') or []
+                 if c.get('modifier_extruder')
+                 and str(plate_id) in (object_plates.get(str(c.get('object_id'))) or ())]
         classes['modifiers'] = _unasked_is_unknown(
             _modifier_usage(manifest, plate_parts, object_plates, plate_id, palette_ids),
-            asked, 'a modifier part')
+            asked, 'a modifier part' + (f" ({', '.join(named)})" if named else ''))
         if prusa_layers.get('modifiers') and classes['modifiers']['status'] != 'unknown':
             classes['modifiers'] = _usage_row('unknown', reason=prusa_layers['modifiers'])
         # Wall / infill: PrusaSlicer names per-feature extruders in its
