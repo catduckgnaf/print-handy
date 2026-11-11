@@ -257,9 +257,7 @@ def test_malformed_design_handoff_metadata_is_ignored_not_a_crash(tmp_path, reco
     AttributeError and aborted the whole multi-file intake."""
     files = [tmp_path / "base-plate.stl", tmp_path / "top-arm.stl"]
     for f in files:
-        f.write_bytes(b"solid x
-endsolid x
-")
+        f.write_bytes(b"solid x\nendsolid x\n")
     plain = prepared_intake.upload_job_set(files)
     before = dict(plain)
     job = prepared_intake.with_design_origin(plain, record)

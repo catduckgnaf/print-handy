@@ -156,13 +156,23 @@ def _split(env, job, plan_id):
 
 
 def _dispatch_next(plans, pick, archive):
-    """/print-next through the plugin hook; returns (questions, started gcodes)."""
+    """/print-next through the plugin hook; returns (start questions, started gcodes).
+
+    Since #1218, /print-next without a plate first asks which plate is next
+    when two or more are left; that choice is never an approval. It is
+    answered with the next plate in order, and only the bed-clear start
+    questions are returned (each answered with ``pick``).
+    """
     questions, started = [], []
 
     class Transport:
         async def send_clarify(self, **kwargs):
-            questions.append(kwargs)
             import tools.clarify_gateway as cm
+            if "Which plate is next?" in kwargs["question"]:
+                assert kwargs["choices"][-1] == print_next.PLATE_LATER_LABEL
+                cm.resolve_gateway_clarify(kwargs["clarify_id"], kwargs["choices"][0])
+                return S(success=True)
+            questions.append(kwargs)
             cm.resolve_gateway_clarify(kwargs["clarify_id"], kwargs["choices"][pick])
             return S(success=True)
 
