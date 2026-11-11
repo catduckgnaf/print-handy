@@ -13,6 +13,8 @@ Discord is optional too: the same bot runs on Telegram or Matrix, and the local 
 
 Current release: **2.2.9**
 
+**Try it:** on a 64-bit Linux machine with Docker, it is two downloads, a few lines in `.env` and `docker compose up -d`, then `/print-help` in your chat. The copy-paste block is in [Get started](#get-started).
+
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
 ## See it in action
@@ -72,17 +74,15 @@ Docker is the easy route: one container, everything inside. You need a 64-bit Li
 mkdir print-handy && cd print-handy
 curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/docker-compose.yml
 curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.9/.env.example -o .env
-mkdir -p data/state data/hermes data/archive data/records data/cache data/spoolman
-sudo chown -R 1000:1000 data    # the container runs as uid 1000
 ```
 
 Edit `.env` and fill in these:
 
-- `PRINT_HANDY_IMAGE`: Compose has no default image and refuses to start without one. Use the pinned digest from [Pinning the image](docs/DOCKER.md#pinning-the-image), in the form `ghcr.io/catduckgnaf/print-handy@sha256:...`. Not `:latest`.
+- `PRINT_HANDY_IMAGE`: set this yourself; Compose has no default image and stops with a message naming the variable until it is set. That is deliberate: a default would be a tag, and a tag can move or be republished, so the image you run could change under you without a decision. Use the pinned digest from [Pinning the image](docs/DOCKER.md#pinning-the-image), in the form `ghcr.io/catduckgnaf/print-handy@sha256:...`. Not `:latest`.
 - `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID`: the bot token and the channel it should serve. [Discord bot setup](docs/DISCORD-BOT-SETUP.md) walks through making both in about 15 minutes. For [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md), set `PRINT_HANDY__BOT__PLATFORM` and that platform's token instead.
 - `PRINT_HANDY__SERVICES__MOONRAKER_URL`: your printer's address, for example `http://192.0.2.50:7125` on a Klipper printer. Bambu, Prusa, Elegoo and the rest use their own variables; the [printer guides](docs/PRINTER-SUPPORT.md) name them.
 
-Then start it and look around:
+You do not create any folders: the first `docker compose up -d` makes `./data` and its subfolders and hands them to the container's user (uid 1000), and it creates no `data/hermes` folder (an install that already has one keeps it; see [State volume rename](docs/DOCKER.md#state-volume-rename-225)). Then start it and look around:
 
 ```bash
 docker compose up -d

@@ -26,6 +26,7 @@ import json
 import math
 import os
 import re
+import time
 import tomllib
 from urllib.parse import urlsplit
 
@@ -253,9 +254,44 @@ def _merge(base, extra):
     return out
 
 
+# Parsed configuration files, keyed by what the file system says about them
+# (#1153: the Web UI's /config page and settings.load() re-parsed every layer
+# on every call). An entry is reused only while the path's stat identity is
+# unchanged; a file modified within _READ_CACHE_RACY_S of being read is never
+# stored, so a same-size rewrite inside one coarse timestamp tick cannot hide
+# behind an old entry. Callers always get their own deep copy.
+_READ_CACHE = {}
+_READ_CACHE_MAX = 64
+_READ_CACHE_RACY_S = 2.0
+
+
+def _read_identity(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (os.path.abspath(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns,
+            id(_yaml_load))
+
+
 def _read(path):
-    """Read YAML or a legacy TOML configuration file."""
+    """Read YAML or a legacy TOML configuration file (parsed once per unchanged file, see _READ_CACHE)."""
     path = Path(path)
+    identity = _read_identity(path)
+    if identity is not None:
+        cached = _READ_CACHE.get(identity)
+        if cached is not None:
+            return copy.deepcopy(cached)
+    data = _read_uncached(path)
+    if (identity is not None and _read_identity(path) == identity
+            and time.time_ns() - identity[4] > _READ_CACHE_RACY_S * 1e9):
+        if len(_READ_CACHE) >= _READ_CACHE_MAX:
+            _READ_CACHE.clear()
+        _READ_CACHE[identity] = copy.deepcopy(data)
+    return data
+
+
+def _read_uncached(path):
     try:
         if path.suffix.lower() == ".toml":
             with open(path, "rb") as f:
@@ -1349,8 +1385,8 @@ def _validate_timelapse(data):
     # records whether the operator actually set the key (the
     # mode_explicit pattern), so a followed value is never mistaken
     # for a pinned one: the Data gate keeps following wrapped_enabled
-    # while the flag is false, and a Web UI save that changes
-    # wrapped_enabled pins the shown data_enabled value explicitly.
+    # while the flag is false. A Web UI save writes data_enabled only
+    # when the operator changed the Data toggle in that save (#1229).
     if "data_enabled" in timelapse and not isinstance(timelapse["data_enabled"], bool):
         raise SettingsError(
             f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")

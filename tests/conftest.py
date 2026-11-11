@@ -108,8 +108,26 @@ def _head_sensor_unknown(request, monkeypatch):
     monkeypatch.setattr(print_control, "head_filament_loaded", lambda printer_id=None: None)
 
 
+@pytest.fixture(autouse=True)
+def _bed_clear_confirmed(request, monkeypatch):
+    """The launch tests drive print-now as if the operator had confirmed the bed clear (#1147).
+
+    print_now refuses without that confirmation; the suites written before it test what happens
+    after it, so they start with it given. Tests of the refusal itself opt out with
+    @pytest.mark.bed_clear_unconfirmed and get the production default (no confirmation).
+    """
+    if request.node.get_closest_marker("bed_clear_unconfirmed"):
+        return
+    import contextvars
+
+    from print_handy.core import model_job
+    monkeypatch.setattr(model_job, "_BED_CLEAR", contextvars.ContextVar("test_bed_clear", default=True))
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_head_sensor: run print_control's real toolhead sensor read")
+    config.addinivalue_line("markers", "bed_clear_unconfirmed: print-now gets no bed-clear confirmation "
+                                       "(the production default; see _bed_clear_confirmed)")
 
 
 class _FakeStartClock:

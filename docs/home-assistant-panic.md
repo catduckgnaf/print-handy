@@ -56,9 +56,11 @@ script:
       - action: rest_command.printer_firmware_restart
 ```
 
+On a machine with a Print Handy checkout, `bin/ph-force-restart` runs the same ladder through Print Handy (emergency stop, firmware restart, then ZMod's `REBOOT` macro if Klipper does not come back). It acts on the default printer; pass a roster printer id to restart another one, for example `bin/ph-force-restart workshop-ad5x`. An unknown id is refused and nothing is sent.
+
 ### Guarded purge
 
-Purging extrudes filament already loaded into the toolhead. On a machine with a Print Handy checkout, use the wrapper, which holds Print Handy's control lock, refuses unless the printer is idle and Klipper is ready, checks the head filament sensor, clamps the extrusion (at most 150 mm, 180 to 260 degrees C), feeds in 10 mm steps, and always sets the heater target back to 0 and reads it back:
+Purging extrudes filament already loaded into the toolhead. On a machine with a Print Handy checkout, use the wrapper, which holds Print Handy's control lock, refuses unless the printer is idle and Klipper is ready, checks the head filament sensor, clamps the extrusion (at most 150 mm, at least 180 degrees C), refuses a temperature above the printer's nozzle ceiling (the fitted nozzle type's safe maximum, lowered to the printer model's own maximum where the profile has one), feeds in 10 mm steps, and always sets the heater target back to 0 and reads it back:
 
 ```yaml
 shell_command:

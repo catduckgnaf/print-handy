@@ -3689,11 +3689,17 @@ class Listener:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
                     log(f"native screen error {key} file={self.filename!r}")
+                    episode = f"native-error:{key[0]}:{key[1]}"
                     mention = starter_pings.ping_for(
-                        "alert", job_key=self.filename,
-                        episode=f"native-error:{key[0]}:{key[1]}") or None
-                    await asyncio.to_thread(post, native_error_text(self.filename, key),
-                                            **({"mention_user_id": mention} if mention else {}))
+                        "alert", job_key=self.filename, episode=episode) or None
+                    delivered = await asyncio.to_thread(
+                        post, native_error_text(self.filename, key),
+                        **({"mention_user_id": mention} if mention else {}))
+                    if not delivered and mention:
+                        # The post failed, so the recorded ping never landed:
+                        # release it, as post_alert does, so the next post of
+                        # this error can still ping the starter.
+                        starter_pings.release_ping("alert", job_key=self.filename, episode=episode)
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)
@@ -4968,6 +4974,15 @@ class Listener:
         except Exception as exc:
             log(f"launch lease settle failed: {exc!r}")
 
+    @staticmethod
+    def _clock_adapter():
+        """This listener's printer adapter: its roster entry's, else the configured printer's (#1147)."""
+        from .. import listeners as _listeners
+        pid = _listeners.instance_printer_id()
+        if pid:
+            return printers.get(settings.by_id(pid)["model"], settings.view_for(pid))
+        return printers.current()
+
     def _sync_printer_clock(self, why):
         """Set the printer's clock from this host's when it is off and the printer is idle.
 
@@ -4979,10 +4994,11 @@ class Listener:
             return
         try:
             res = launch_state.sync_printer_clock(_config.cfg()["services"]["moonraker_url"],
-                                                  settings.current()["discord"]["timezone"], log=log)
+                                                  settings.current()["discord"]["timezone"], log=log,
+                                                  adapter=self._clock_adapter())
             if res.startswith("failed"):
                 self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
-            if res not in ("ok", "off", "skipped:printer not idle"):
+            if res not in ("ok", "off", "skipped:printer not idle", launch_state.NOT_ZMOD):
                 log(f"printer clock sync ({why}): {res}")
         except Exception as exc:
             self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S

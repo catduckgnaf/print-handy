@@ -405,13 +405,25 @@ async def _edit_ai_reply(cfg, source, prompt):
 async def _edit_geometry_route(event, gateway, source, adapter, job, instruction):
     """Route a geometry change into the design engine (#388) — refused
     up front for a multi-part 3MF, whose per-part assignments a mesh
-    edit would silently flatten."""
+    edit would silently flatten.
+
+    From the first turn on this is a design conversation, run by the same
+    plugin helpers /print-design uses (#1206): the owner's design claim is
+    held for the whole route (P2-151), the turn is acknowledged, the reply
+    shows any check finding that survived, a typed answer at the question
+    is a button word or the next change, and an unexpected failure is
+    reported honestly and still releases the claim.
+    """
     from print_handy.core import design, edit_plan, geometry_layout, orca_adapter
+    host = _h()
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
+    owner = host._design_owner(source)
+    if owner in host._DESIGN_BUSY:
+        return await host._design_busy_reply(adapter, source)
     if _edit_is_multipart(job):
         await say('That change edits the model geometry itself, and this is a multi-part '
                   'model: a geometry edit would flatten it to a single-color mesh and lose '
@@ -424,49 +436,35 @@ async def _edit_geometry_route(event, gateway, source, adapter, job, instruction
         await say('The model file for this job is no longer on disk, so I cannot edit its geometry.')
         return {'action': 'skip', 'reason': 'geometry edit: source file missing'}
     cfg = _config.cfg()
-    complete, _kind = _h()._design_transport(cfg)
+    complete, _kind = host._design_transport(cfg)
     if complete is None:
         await say('That change needs the design model, and no design endpoint is configured '
                   '— see docs/DESIGN.md. Nothing was changed.')
         return {'action': 'skip', 'reason': 'geometry edit: no design endpoint'}
-    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or _h()._config.cache_dir(),
-                                 complete, cfg=cfg)
-    owner = f"{source.chat_id}:{source.thread_id or ''}:{getattr(source, 'user_id', '')}"
-    try:
-        before = geometry_layout.describe_triangles(orca_adapter.source_triangles(source_path))
-        session = await asyncio.to_thread(engine.start_edit_session, owner, source.chat_id,
-                                          instruction, source_path)
-        result = await engine.run_turn(session, instruction)
-        after = design.validate_stl(result['stl_path'])
-        if not edit_plan.finite_triangles(orca_adapter.read_stl_triangles(result['stl_path'])):
-            raise design.DesignError('the edited mesh has non-finite coordinates, '
-                                     'so there is nothing safe to print')
-    except design.DesignError as exc:
-        await say(f'That design change did not work: {exc} Nothing was sliced or started.')
-        return {'action': 'skip', 'reason': 'geometry edit failed'}
-    delta = ''
-    if before.get('dimensions_mm') and after.get('dimensions_mm'):
-        fmt = lambda dims: ' x '.join(f'{float(v):g}' for v in dims)
-        delta = (f" Geometry check: watertight, fits are re-checked by the intake; size "
-                 f"{fmt(before['dimensions_mm'])} mm → {fmt(after['dimensions_mm'])} mm, "
-                 f"volume {float(before.get('abs_volume_mm3') or 0):,.0f} → "
-                 f"{float(after.get('abs_volume_mm3') or 0):,.0f} mm³.")
-    await say(f"**Design turn {result['session']['turns']}** — {design.summary_text(result)}{delta}")
-    timeout = _config.question_timeout_s()
-    answer = await _h()._confirm(adapter, source, metadata, 'print-design',
-                            'What next for this design?', list(design.CHOICES), timeout,
-                            live_key=gateway._session_key_for_source(source))
-    if answer == design.SLICE_LABEL:
-        engine.mark_handed_off(result['session'])
-        return await _h()._design_handoff(event, gateway, adapter, result['session'],
-                                     result['stl_path'])
-    if answer == design.CHANGE_LABEL:
-        engine.awaiting_revision(result['session'])
-        await say('Say the change in your next message.')
-        return {'action': 'skip', 'reason': 'geometry edit awaiting revision'}
-    engine.cancel(result['session'])
-    await say('Design cancelled. Nothing was sliced or started.')
-    return {'action': 'skip', 'reason': 'geometry edit cancelled'}
+    with host._design_claim(owner):
+        engine = host._design_engine(cfg, complete)
+        try:
+            before = geometry_layout.describe_triangles(orca_adapter.source_triangles(source_path))
+            session = await asyncio.to_thread(engine.start_edit_session, owner, source.chat_id,
+                                              instruction, source_path)
+            result = await host._run_design_turn(engine, session, instruction, adapter, source,
+                                                 metadata)
+            after = design.validate_stl(result['stl_path'])
+            if not edit_plan.finite_triangles(orca_adapter.read_stl_triangles(result['stl_path'])):
+                raise design.DesignError('the edited mesh has non-finite coordinates, '
+                                         'so there is nothing safe to print')
+        except Exception as exc:
+            await say(host._design_failure_text(exc))
+            return {'action': 'skip', 'reason': 'geometry edit failed'}
+        note = ''
+        if before.get('dimensions_mm') and after.get('dimensions_mm'):
+            fmt = lambda dims: ' x '.join(f'{float(v):g}' for v in dims)
+            note = (f"Geometry check: watertight, fits are re-checked by the intake; size "
+                    f"{fmt(before['dimensions_mm'])} mm → {fmt(after['dimensions_mm'])} mm, "
+                    f"volume {float(before.get('abs_volume_mm3') or 0):,.0f} → "
+                    f"{float(after.get('abs_volume_mm3') or 0):,.0f} mm³.")
+        return await host._design_conversation(event, gateway, adapter, engine, result,
+                                               note=note)
 
 
 def instruction_after_model(text, url=None):

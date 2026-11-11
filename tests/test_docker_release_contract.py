@@ -124,9 +124,11 @@ class DockerReleaseContract(unittest.TestCase):
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         services = compose["services"]
         # One container runs Print Handy; the other services are the
-        # one-shot first-boot directory initializer (#1144) and the
-        # optional profile-gated cloudflared sidecar (#311).
-        self.assertEqual(list(services), ["combined", "print-handy-init", "cloudflared"])
+        # one-shot first-boot directory initializer (#1144), the one-shot
+        # legacy state-folder migration (#1144) and the optional
+        # profile-gated cloudflared sidecar (#311).
+        self.assertEqual(list(services),
+                         ["combined", "print-handy-init", "print-handy-migrate", "cloudflared"])
         self.assertEqual(services["cloudflared"]["profiles"], ["live-stream"])
         init_service = services["print-handy-init"]
         self.assertEqual(init_service["user"], "0:0")
@@ -140,7 +142,8 @@ class DockerReleaseContract(unittest.TestCase):
         # first boot can reach it; nothing else is published.
         self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertEqual(service["depends_on"],
-                         {"print-handy-init": {"condition": "service_completed_successfully"}})
+                         {"print-handy-init": {"condition": "service_completed_successfully"},
+                          "print-handy-migrate": {"condition": "service_completed_successfully"}})
         self.assertTrue(service["init"])
         self.assertEqual(service["healthcheck"]["test"], ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         self.assertFalse(any(v.split(":")[-1].startswith("/app") for v in service["volumes"]))
@@ -159,6 +162,64 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn("rm -rf .git client client_v2 && mkdir -p client_v2/build", stage)
         self.assertNotRegex(stage, r"\b(npm|node|vite)\b")
         self.assertIn("COPY --from=spoolman-build /opt/spoolman /opt/spoolman", dockerfile)
+
+    def test_new_installs_neither_create_nor_mount_the_legacy_hermes_folder(self):
+        """#1144: no service binds a hermes folder, so a first `up` creates none."""
+        compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+        for name, service in compose["services"].items():
+            for volume in service.get("volumes", []):
+                with self.subTest(service=name, volume=volume):
+                    self.assertNotIn("hermes", volume)
+        init_command = " ".join(compose["services"]["print-handy-init"]["command"])
+        self.assertNotIn("hermes", init_command)
+        for path in ("state", "archive", "records", "cache", "spoolman"):
+            self.assertIn(f"/data/{path}", init_command)
+        # The first-run instructions do not create the folder either.
+        for doc in ("README.md", "docs/DOCKER.md"):
+            for line in (ROOT / doc).read_text().splitlines():
+                if line.lstrip().startswith(("mkdir", "sudo mkdir")):
+                    with self.subTest(doc=doc, line=line):
+                        self.assertNotIn("hermes", line)
+
+    def test_existing_installs_keep_migrating_through_the_migrate_service(self):
+        """#1144: the legacy folder is copied by a one-shot, read-only, rootless step."""
+        services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+        migrate = services["print-handy-migrate"]
+        self.assertEqual(migrate["user"], "1000:1000")
+        self.assertEqual(migrate["restart"], "no")
+        self.assertEqual(migrate["cap_drop"], ["ALL"])
+        self.assertNotIn("cap_add", migrate)
+        self.assertEqual(migrate["security_opt"], ["no-new-privileges:true"])
+        self.assertEqual(migrate["entrypoint"], ["/app/docker/entrypoint.sh"])
+        self.assertEqual(migrate["depends_on"],
+                         {"print-handy-init": {"condition": "service_completed_successfully"}})
+        self.assertEqual(migrate["environment"],
+                         {"PRINT_HANDY_STATE_MIGRATE_ONLY": "1",
+                          "PRINT_HANDY_LEGACY_STATE": "/legacy-data/hermes"})
+        self.assertEqual(migrate["volumes"],
+                         ["${PRINT_HANDY_DATA:-./data}/state:/data/state",
+                          "${PRINT_HANDY_DATA:-./data}:/legacy-data:ro"])
+        # The mode and the legacy-path override it relies on are implemented.
+        script = (ROOT / "docker" / "entrypoint.sh").read_text()
+        self.assertIn("PRINT_HANDY_STATE_MIGRATE_ONLY", script)
+        self.assertIn("PRINT_HANDY_LEGACY_STATE", script)
+
+    def test_image_variable_is_explicit_in_the_quickstarts_with_the_reason(self):
+        """#1144: no default image by design; both quickstarts say to set it and why."""
+        compose = (ROOT / "docker-compose.yml").read_text()
+        self.assertIn("${PRINT_HANDY_IMAGE:?", compose)
+        readme = (ROOT / "README.md").read_text()
+        start = readme.index("## Get started")
+        self.assertLess(readme.index("`PRINT_HANDY_IMAGE`", start),
+                        readme.index("docker compose up -d", start))
+        bullet = next(line for line in readme.splitlines() if line.startswith("- `PRINT_HANDY_IMAGE`"))
+        self.assertIn("deliberate", bullet)
+        self.assertIn("tag can move", bullet)
+        docker_md = (ROOT / "docs" / "DOCKER.md").read_text()
+        first_run = docker_md.split("## First-run configuration", 1)[1].split("###", 1)[0]
+        step_one = next(line for line in first_run.splitlines() if line.startswith("1. "))
+        self.assertIn("PRINT_HANDY_IMAGE", step_one)
+        self.assertIn("no default for it on purpose", step_one)
 
     def test_bundled_spoolman_update_check_is_disabled(self):
         """Spoolman 0.27.1's outbound update check stays off for the bundled instance.

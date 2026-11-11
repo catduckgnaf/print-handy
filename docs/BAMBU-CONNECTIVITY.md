@@ -1,8 +1,8 @@
-# Bambu Lab live connectivity, research for #187, decision input for #127
+# Bambu Lab LAN protocol evidence
 
 [Documentation home](README.md) · [Bambu Lab printers, offline](BAMBU-LAB.md) · [Printer profiles](PRINTER-PROFILES.md)
 
-**Status: the research below was the decision input for #127/#187; the staged LAN path it recommended is now implemented.** The `bambulab` vendor is `connection="bambulab_lan"`: read-only MQTT telemetry, FTPS upload and gated print start are implemented and documented in [Bambu Lab printers](BAMBU-LAB.md). This document remains the evidence record those stages were built from, read its stage-by-stage claims as the 2026-10-25 research position, not as a description of today's code. No printer was contacted and no credentials were used to produce the original research; live printer tests remain separately scoped and approved, exactly as #127 and #187 state.
+**What this page is:** the protocol evidence (MQTT telemetry, FTPS upload, print start, camera and HMS data) that Print Handy's Bambu Lab LAN support is built from. The support itself, read-only MQTT telemetry, FTPS upload and gated print start, all opt-in, is documented in [Bambu Lab printers](BAMBU-LAB.md). Read the stage-by-stage claims below as the research position of 2026-10-25, not as a description of today's code. No printer was contacted and no credentials were used to produce the research; live printer tests are scoped and approved separately.
 
 How to read the evidence labels, following [BAMBU-LAB](BAMBU-LAB.md):
 

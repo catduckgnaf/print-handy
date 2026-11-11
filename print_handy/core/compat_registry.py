@@ -381,7 +381,7 @@ RULES = (
          "state does; the states are never carried verbatim (they would print in the base slot).",
          ("tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_states_are_decoded_per_part",
           "tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_export_translates_paint_to_the_chosen_tools"),
-         ("docs/3MF-REMAP-INVENTORY.md#prusa-mmu-segmentation-paint-translation",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#prusa-mmu-segmentation-paint-translation",),
          {"source_attribute": "slic3rpe:mmu_segmentation", "destination_attribute": "paint_color",
           "encoding": "triangleselector"}),
     Rule("per-filament-array-permutation", "array_permutation", "any", "any", "orca", _ORCA,
@@ -393,7 +393,7 @@ RULES = (
          "refuses the remap.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
           "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
-         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
          {"order": "destination_order_of_mapped_sources"}),
     Rule("flush-matrix-permutation", "purge_permutation", "any", "any", "orca", _ORCA,
          "flush_volumes_matrix is the palette-count-squared row-major matrix of purge volumes between "
@@ -401,7 +401,7 @@ RULES = (
          "permutes its rows and columns by the same mapping and the diagonal stays zero; a matrix "
          "whose size is not the palette count squared refuses.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",),
-         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
          {"key": "flush_volumes_matrix", "layout": "row_major_ordered_pairs"}),
     Rule("flush-vector-unestablished-refusal", "refusal", "any", "any", "orca", _ORCA,
          "The layout semantics of flush_volumes_vector are not established from this repository (only "
@@ -411,7 +411,7 @@ RULES = (
          "the used filament's own pair, the one slice of the layout the fixture does establish.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_the_unestablished_flush_vector",
           "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
-         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
          {"key": "flush_volumes_vector", "on_nonidentity_remap": "refuse"}),
     Rule("support-designation-remap", "designation_remap", "any", "any", "orca", _ORCA,
          "Inside a remapped package, a support designation (support_filament / "
@@ -422,7 +422,7 @@ RULES = (
          "survives pointing past the new palette.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
           "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
-         ("docs/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
          {"keys": ("support_filament", "support_interface_filament"),
           "prusa_keys": ("support_material_extruder", "support_material_interface_extruder"),
           "removed_filament_fallback": 0}),
@@ -436,7 +436,7 @@ RULES = (
          "intent are preserved, never carried verbatim past the palette.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest",
           _TF + "::test_adopt_keeps_per_filament_list_shape_and_layer_range_intent"),
-         ("docs/3MF-REMAP-INVENTORY.md#height-ranges-and-object-ids",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#height-ranges-and-object-ids",),
          {"member": "Metadata/layer_config_ranges.xml", "option_key": "extruder",
           "adopt_behavior": "clamp_to_job_filament_count"}),
     Rule("remap-member-classification", "member_classification", "any", "any", "orca", _ORCA,
@@ -448,7 +448,7 @@ RULES = (
          "refuses the remap by name rather than be carried stale or dropped silently.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_unclassified_and_embedded_gcode_members",
           "tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members"),
-         ("docs/3MF-REMAP-INVENTORY.md#member-classification-and-the-object-id-policy",),
+         ("docs/history/3MF-REMAP-INVENTORY.md#member-classification-and-the-object-id-policy",),
          {"on_unclassified": "refuse", "on_embedded_gcode": "refuse"}),
 )
 

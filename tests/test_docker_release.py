@@ -226,7 +226,7 @@ class SanitizedExamplesTests(unittest.TestCase):
         # the real files, but the positive direction — a real LAN
         # address, including a zero-padded one, still parses and would
         # be flagged — was asserted nowhere.
-        assert _parse_dotted_quad("192.168.250.135").is_private
+        assert _parse_dotted_quad("192.168.1.135").is_private
         assert _parse_dotted_quad("192.168.001.1").is_private
         # The Bambu version string zero-strips to a valid PUBLIC address
         # (2.9.1.70), so the scan parses it and does not flag it — that,
@@ -606,11 +606,13 @@ mv dot-config .config
 
     def test_template_runs_the_combined_compose_service(self):
         # The combined service is the template's container; the only other
-        # Compose services are the one-shot first-boot init service (#1144)
+        # Compose services are the one-shot first-boot init service (#1144),
+        # the one-shot legacy state-folder migration service (#1144)
         # and the optional cloudflared sidecar (#311), which
         # is profile-gated, shares the combined network namespace and is a
         # separate Unraid container there — never part of this template.
-        self.assertEqual(list(COMPOSE["services"]), ["combined", "print-handy-init", "cloudflared"])
+        self.assertEqual(list(COMPOSE["services"]),
+                         ["combined", "print-handy-init", "print-handy-migrate", "cloudflared"])
         sidecar = COMPOSE["services"]["cloudflared"]
         self.assertEqual(sidecar["profiles"], ["live-stream"])
         self.assertEqual(sidecar["network_mode"], "service:combined")
@@ -920,6 +922,35 @@ class UnraidCaTemplateParityTests(unittest.TestCase):
             self.assertIn("1000", root.findtext("Requires") or "")
 
 
+class UnraidHostPathDocsTests(unittest.TestCase):
+    """#1143: the docs name the host folders an install really uses.
+
+    The single-path Unraid template maps /data/.config to `.config` in the
+    Appdata folder; only Compose (and the older multi-path template, whose
+    upgrade note renames it) uses a host folder named `dot-config`. A doc
+    sending an Unraid user to appdata `dot-config` points at a folder the
+    container never reads. Counts of Compose paths in prose drift whenever
+    a mount is added or dropped, so any count stated must match Compose."""
+
+    NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+               "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+    def test_settings_doc_names_the_unraid_config_folder(self):
+        self.assertNotRegex(DOCS, r"Unraid template maps to appdata `dot-config`")
+        self.assertNotRegex(DOCS, r"appdata `dot-config")
+        self.assertIn("`.config/print-handy/settings.yaml` in the Unraid Appdata folder", DOCS)
+
+    def test_docker_doc_compose_path_count_matches_compose(self):
+        docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
+        sentences = re.findall(r"recreate with the same (?:(\w+) )?paths", docker_doc)
+        self.assertTrue(sentences, "docs/DOCKER.md lost its Compose upgrade sentence")
+        mounts = len(COMPOSE["services"]["combined"]["volumes"])
+        for word in sentences:
+            if word:
+                with self.subTest(count=word):
+                    self.assertEqual(self.NUMBERS.get(word.lower()), mounts)
+
+
 class WebuiContainerTests(unittest.TestCase):
     """#286 stages 4-5: the Web UI is a gated supervised child, a
     healthcheck row, Compose variables and Unraid template fields —
@@ -1023,7 +1054,7 @@ class SpoolmanLanTests(unittest.TestCase):
         self.assertEqual(url.text, "http://127.0.0.1:8000")
         self.assertEqual(url.get("Display"), "advanced")
 
-    def test_compose_keeps_the_safe_default(self):
+    def test_compose_publishes_only_the_web_ui_port_and_keeps_spoolman_on_loopback(self):
         service = COMPOSE["services"]["combined"]
         # The only active port mapping is the Web UI's; the Spoolman LAN
         # mapping stays a comment and Spoolman stays loopback by default.

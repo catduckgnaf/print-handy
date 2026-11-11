@@ -3069,7 +3069,35 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
-def _with_gcode_temperatures(state, text, recorded=None):
+_VERIFY_LINE_PREFIXES = (
+    '; filament_type = ', '; nozzle_diameter = ', '; first_layer_height = ', '; initial_layer_print_height = ',
+    '; nozzle_temperature_initial_layer = ', '; nozzle_temperature = ',
+    'START_PRINT', 'PRINT_START', 'END_PRINT', 'PRINT_END', 'M190', 'M109', 'M104', 'M140', ';LAYER_CHANGE',
+    printer_state.TOOL_LINE_ANCHOR, printer_state.TOOL_SLOTS_ANCHOR,
+)
+
+
+def _verify_lines(text, adapter=None):
+    """One GcodeLines scan for every line-anchored question offline verification asks (#1153 item 7).
+
+    The adapter's own start and end macro names are declared too, read
+    defensively: an adapter without them, or one whose property raises,
+    simply adds nothing here, and the check that really reads the name
+    behaves exactly as before.
+    """
+    from .gcode_lines import GcodeLines
+    macros = []
+    for name in ('start_macro', 'end_macro'):
+        try:
+            value = getattr(adapter, name, None)
+        except Exception:
+            value = None
+        if isinstance(value, str):
+            macros.append(value)
+    return GcodeLines(text, _VERIFY_LINE_PREFIXES + tuple(macros))
+
+
+def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     """state with temps_c set to what this G-code's own spool resolves to (printer_state.gcode_temperatures),
     so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record.
 
@@ -3077,6 +3105,10 @@ def _with_gcode_temperatures(state, text, recorded=None):
     provenance (P2-275) — win outright when usable: re-resolving at verify
     time can see a different answer than slicing did (Spoolman down falls
     back to material defaults) and refuse a sound artifact.
+
+    ``lines`` is the caller's GcodeLines scan of ``text`` (verification
+    already has one), so the filament_type and spool-header lookups here
+    cost no extra pass.
     """
     if recorded:
         try:
@@ -3087,9 +3119,11 @@ def _with_gcode_temperatures(state, text, recorded=None):
             return {**state, 'temps_c': temps}
     from .orca_config import split_config_list
     from . import spoolman_client
-    match = re.search(r'^; filament_type = (.+)$', text, re.M)
+    if lines is None:
+        lines = _verify_lines(text)
+    listed = lines.config_value('filament_type')
     try:
-        materials = split_config_list(match.group(1).strip()) if match else []
+        materials = split_config_list(listed) if listed is not None else []
     except ValueError:
         materials = []
 
@@ -3097,7 +3131,7 @@ def _with_gcode_temperatures(state, text, recorded=None):
         record = spoolman_client.get_spool(spool_id, base_url=printer_state.spoolman_url(state))
         return None if not record or record.get('archived') else record.get('filament')
     try:
-        temps = printer_state.gcode_temperatures(state, materials, fetch, text)
+        temps = printer_state.gcode_temperatures(state, materials, fetch, text, lines=lines)
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(f"G-code temperature check failed: {exc}") from exc
     return {**state, 'temps_c': temps}
@@ -3117,10 +3151,11 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
+    lines = _verify_lines(text, adapter)
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
-    state = _with_gcode_temperatures(state, text, recorded_temps)
+    state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
     from .nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
     try:
@@ -3129,21 +3164,18 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
         raise RuntimeError("offline G-code verification failed: invalid effective nozzle temperature: " + str(exc)) from exc
     if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend, adapter):
         errors.append('startup heater prefix does not match the recorded bed and effective nozzle temperature')
-    def config(key):
-        match = re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return match.group(1).strip() if match else None
-    nozzle = config('nozzle_diameter')
+    nozzle = lines.config_value('nozzle_diameter')
     if nozzle is None or abs(float(nozzle) - state['nozzle']['diameter_mm']) > 1e-3:
         errors.append(f"nozzle {nozzle} != recorded {state['nozzle']['diameter_mm']}")
     hotend, bed = effective_nozzle_temperature(nozzle_type, float(state['temps_c']['nozzle'])), state['temps_c']['bed']
-    start_match = re.search(r'^START_PRINT\s+([^;]*)', text, re.M)
+    start_match = lines.search(r'^START_PRINT\s+([^;]*)', 'START_PRINT')
     start_args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', start_match.group(1))) if start_match else {}
     start_matches = (start_match is not None and
                      math.isclose(float(start_args.get('BED_TEMP', 'nan')), float(bed), abs_tol=1e-3) and
                      math.isclose(float(start_args.get('EXTRUDER_TEMP', 'nan')), float(hotend), abs_tol=1e-3))
     if not start_matches:
         errors.append(f'missing START_PRINT matching bed {bed} and effective hotend {hotend}')
-    if not re.search(r'^END_PRINT(?:\s|$)', text, re.M):
+    if not lines.search(r'^END_PRINT(?:\s|$)', 'END_PRINT'):
         errors.append('missing END_PRINT')
     bounds = cached_motion_bounds(raw, text)
     limits = state.get('axis_limits_mm', {'x': [0, BED_MM], 'y': [0, BED_MM], 'z': [0, state.get('max_print_height_mm', MAX_HEIGHT_MM)]})
@@ -3231,6 +3263,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
         return _verify_offline(gcode_path, st, adapter, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
+    lines=_verify_lines(text, adapter)
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
     # Screenless files remain accepted without it, but any present checksum is validated.
@@ -3239,7 +3272,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    st = _with_gcode_temperatures(st, text, recorded_temps)
+    st = _with_gcode_temperatures(st, text, recorded_temps, lines=lines)
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(st)
@@ -3256,9 +3289,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
             errors.append("native screen requires immediate startup M190 Sbed / M104 Snozzle T0 consistent with START_PRINT; later heaters do not count")
     elif mode != 1:
         errors.append(f"unknown display_off mode {mode!r}; refusing hardware-dependent G-code validation")
-    def config(key):
-        m=re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return m.group(1).strip() if m else None
+    config=lines.config_value
     nozzle=config("nozzle_diameter")
     nozzle_value=None
     if nozzle is None:
@@ -3291,8 +3322,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if not printer_state.same_material(material, st["spool"]["material"]):
             errors.append(f"G-code filament_type {material!r} != loaded {st['spool']['material']!r}")
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
-    def numeric_macro_match(pattern, bed_key, hotend_key):
-        match = re.search(pattern, text, re.M)
+    def numeric_macro_match(macro_name, bed_key, hotend_key):
+        match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)
         args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', match.group(1))) if match else {}
         try:
             return (match is not None and
@@ -3303,26 +3334,28 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     octoprint = getattr(adapter, 'transport', None) == 'octoprint'
     if octoprint:
         for command, target in (('M190', bed), ('M109', hotend)):
-            values = re.findall(rf'^{command}\s+S([\d.]+)', text, re.M)
-            if not values or not math.isclose(float(values[0]), float(target), abs_tol=1e-3):
+            first = lines.search(rf'^{command}\s+S([\d.]+)', command)
+            if not first or not math.isclose(float(first.group(1)), float(target), abs_tol=1e-3):
                 errors.append(f'missing {command} matching target {target}')
         # Validate the slicer-owned shutdown, never append a guessed end sequence.
-        if not all(re.search(rf'^{cmd}\s+S0(?:\s|$)', text, re.M) for cmd in ('M104', 'M140')):
+        if not all(lines.search(rf'^{cmd}\s+S0(?:\s|$)', cmd) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
         macro = adapter.start_macro
-        if not (numeric_macro_match(rf'^{re.escape(macro)}\s+([^;]*)', 'BED', 'HOTEND') or
-                sovol_style_start_matches(text, bed, hotend)):
+        if not (numeric_macro_match(macro, 'BED', 'HOTEND') or
+                sovol_style_start_matches(text, bed, hotend, lines=lines)):
             errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
                           " (accepted starts: the configured macro with BED/HOTEND arguments,"
                           " START_PRINT with BED_TEMP/EXTRUDER_TEMP arguments, or a bare"
                           " START_PRINT whose M190/M109 heater lines match those temperatures)")
-    elif not (numeric_macro_match(r'^PRINT_START\s+([^;]*)', 'BED', 'HOTEND') or
-              numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
+    elif not (numeric_macro_match('PRINT_START', 'BED', 'HOTEND') or
+              numeric_macro_match('START_PRINT', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
+    def ends_with(macro_name):
+        return lines.search(rf'^{re.escape(macro_name)}(?:\s|$)', macro_name)
     if not octoprint:
         if native:
-            if not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)):
+            if not (ends_with('PRINT_END') or ends_with('END_PRINT')):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
         else:
             end_macro = adapter.end_macro
@@ -3331,10 +3364,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 # A customized [printer] end_macro is the only safe end (P2-13): a file
                 # ending in a different macro would run a shutdown sequence this printer
                 # does not define, so PRINT_END/END_PRINT no longer substitute for it.
-                if not re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M):
+                if not ends_with(end_macro):
                     errors.append(f"missing {end_macro} safe end sequence")
-            elif not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-                      or re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M)):
+            elif not (ends_with('PRINT_END') or ends_with('END_PRINT') or ends_with(end_macro)):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
@@ -3357,7 +3389,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     # Lines narrower than 90% of the orifice are refused, first layer and body alike.
     if nozzle_value is not None:
         floor=0.9*nozzle_value
-        layers=re.split(r'^;LAYER_CHANGE', text, flags=re.M)
+        # The first six ;LAYER_CHANGE pieces are all this check reads (layer 0,
+        # the first layer, layers 2-5); the scan already knows where they are.
+        layers, layer_count = lines.split(';LAYER_CHANGE', 6)
         # Orca (notably with Arachne walls) writes ;WIDTH only when it changes, so a
         # layer can inherit its width from an earlier one. Carry the width in effect
         # across layers and count it once per structural feature (;TYPE) as well.
@@ -3393,10 +3427,10 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 widths.append(carried[0])
             return widths
         structural_widths(layers[0] if layers else "")
-        first=structural_widths(layers[1] if len(layers)>1 else "")
+        first=structural_widths(layers[1] if layer_count>1 else "")
         body=structural_widths("".join(layers[2:6]))
         for name,ws in (("first layer",first),("layers 2-5",body)):
-            if name == "layers 2-5" and len(layers) <= 2:
+            if name == "layers 2-5" and layer_count <= 2:
                 # Single-layer test print (e.g. first-layer calibration pad) has no subsequent layers
                 continue
             if not ws:
@@ -3862,7 +3896,7 @@ def release_start_announcement(remote):
         except OSError: pass
 
 
-def sovol_style_start_matches(text, bed, hotend):
+def sovol_style_start_matches(text, bed, hotend, lines=None):
     """Whether a START_PRINT-led job (Sovol stock style, issue #612) proves its temperatures.
 
     Sovol's own profiles lead with START_PRINT, not the PRINT_START BED/HOTEND
@@ -3878,7 +3912,10 @@ def sovol_style_start_matches(text, bed, hotend):
     passes on its heater lines: the macro would run with its arguments, so
     the arguments are the contract the file states.
     """
-    m = re.search(r'^START_PRINT\b\s*([^;]*)', text, re.M)
+    if lines is None:
+        from .gcode_lines import GcodeLines
+        lines = GcodeLines(text, ('START_PRINT', 'M190', 'M109'))
+    m = lines.search(r'^START_PRINT\b\s*([^;]*)', 'START_PRINT')
     if not m:
         return False
     args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', m.group(1)))
@@ -3890,7 +3927,7 @@ def sovol_style_start_matches(text, bed, hotend):
             return False
 
     def first_temp(command):
-        match = re.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', text, re.M)
+        match = lines.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', command)
         return float(match.group(1)) if match else None
 
     bed_line, hotend_line = first_temp('M190'), first_temp('M109')
@@ -7754,6 +7791,39 @@ def routine_phase(st, accepted=True):
     return "unknown"
 
 
+# The operator's bed-clear confirmation for one print-now run (#1147), set by print_now from its
+# ``bed_clear`` argument: True is an explicit confirmation for whatever this run prints (the CLI's
+# --bed-clear-confirmed), a SHA-256 binds it to exactly that G-code (print_next passes the SHA of the
+# artifact the operator confirmed). Unset, the start primitive refuses: the approval no longer lives
+# only in the callers' button flows.
+_BED_CLEAR = contextvars.ContextVar("print_now_bed_clear", default=None)
+BED_CLEAR_REFUSAL = ("REFUSED: no bed-clear approval was given for this G-code, so nothing was uploaded or "
+                     "started. Confirm the bed is clear (the chat's Start button, or print-now "
+                     "--bed-clear-confirmed at the command line), then start again.")
+
+
+def _require_bed_clear(gcode):
+    """Refuse unless the operator's bed-clear confirmation covers this exact G-code (#1147).
+
+    Runs at every transport's approval step, before anything is uploaded, and
+    yolo does not waive it: saying yolo skips the checks, never the operator's
+    word that the bed is clear.
+    """
+    grant = _BED_CLEAR.get()
+    if grant is True:
+        return
+    if isinstance(grant, str) and grant.strip().lower() == file_sha256(gcode):
+        return
+    raise SystemExit(BED_CLEAR_REFUSAL)
+
+
+def _claim_bed_clear(job_path, job, gcode, reprint=False, *, consume=True):
+    """The approval step of every transport: the operator's confirmation, then the single-use record."""
+    _require_bed_clear(gcode)
+    if job_path is not None and consume:
+        _consume_approval(job_path, job, gcode, reprint=reprint)
+
+
 def _consume_approval(job_path, job, gcode, reprint=False):
     """Single-use bed-clear approval per G-code. Refuses reuse unless an explicit new reprint approval.
     Check and record run in one launch-state transaction on the current JOB.json, never the caller's
@@ -8341,10 +8411,17 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     # A towerless G-code on a Nopoop printer would purge nowhere (#832).
     _gate("purge", purge.require_launch_safe, text, st)
     _gate("saved-mesh start", validate_saved_mesh_start, text, mesh)
-    response = _mr(st, '/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color&filament_switch_sensor%20head_switch_sensor')
+    status_query = ('/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color'
+                    '&filament_switch_sensor%20head_switch_sensor')
+    response = _mr(st, status_query)
     status = response['result']['status']
+    # #1153 item 9: the first idle check reads the status just taken instead of querying the same
+    # objects again, and the slot occupancy below reuses the /detail that check last read. Every
+    # later idle check (the retry loop, the one inside the lease) still reads the printer fresh.
+    primed = [status]
+    last_native = []
     def read_moonraker():
-        current = _mr(st, '/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color&filament_switch_sensor%20head_switch_sensor')['result']['status']
+        current = primed.pop() if primed else _mr(st, status_query)['result']['status']
         return {'state': current['webhooks']['state'], 'print': current['print_stats'],
                 'extruder': current['extruder'], 'bed': current['heater_bed']}
     if screenless:
@@ -8355,11 +8432,13 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     else:
         require_idle_settled = adapter.native.require_idle_settled
         def read_native():
-            return read_stock_detail(st)
+            detail = read_stock_detail(st)
+            last_native[:] = [detail]
+            return detail
         def require_idle():
             _require_idle_before_mapped_launch(require_idle_settled, read_moonraker, read_native)
     require_idle()
-    status = response['result']['status']
+    primed.clear()
     sensor = status.get('filament_switch_sensor head_switch_sensor', {})
     if sensor.get('enabled') is not True and not _waive(
             "head filament sensor", 'head filament sensor protection is disabled or unknown'):
@@ -8370,12 +8449,13 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     if screenless:
         occupancy = adapter.native.read_zmod_color_slots(status)
     else:
-        occupancy = read_stock_filament_slots_from_detail(read_native())
+        occupancy = read_stock_filament_slots_from_detail(last_native[-1] if last_native else read_native())
     normalize_mapping = adapter.native.normalize_mapping
     label_matches = adapter.native.screen_label_matches
     mapped = normalize_mapping(mapping, st)
-    accepted_colors = accepted_color_mismatches(job, file_sha256(g))
-    accepted_labels = accepted_label_mismatches(job, file_sha256(g))
+    sha = file_sha256(g)  # hashed once: the acknowledgements, the lease and the checkpoint all use it
+    accepted_colors = accepted_color_mismatches(job, sha)
+    accepted_labels = accepted_label_mismatches(job, sha)
     color_found = []  # every unacknowledged slot color difference, refused together below (#795)
     found_segments = []  # color and label differences in slot order, for the one combined refusal
     for tool, slot in mapped.items():
@@ -8415,7 +8495,6 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     if found_segments:
         # One refusal naming every mismatched slot, so the intake asks once (#795).
         _refuse("slot color/label", 'REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
-    sha = file_sha256(g)
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
     lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
@@ -8425,8 +8504,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
-        if job_path is not None and not yolo_active():
-            _consume_approval(job_path, job, g, reprint=reprint)
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
         _timing(job_path, 'upload_begin')
@@ -8513,7 +8591,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                 except Exception as exc:
                     logger.warning('could not record pending Spoolman usage: %s', exc)
         _announce_print_name(st, job, slots_used, g)
-        _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
+        _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
@@ -8868,6 +8946,17 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
     sha = file_sha256(gcode)
     remote = remote_name(gcode, sha, job)
+    # OctoPrint preheats from these, so they are the G-code spool's, resolved before anything is sent,
+    # and held to the printer's one heater ceiling (#1147): a preheat above it refuses before the lease.
+    try:
+        from . import heater_ceiling
+        from .nozzle import effective_nozzle_temperature
+        temps = _with_gcode_temperatures(state, Path(gcode).read_text(errors='ignore'))['temps_c']
+        hotend = effective_nozzle_temperature((state.get('nozzle') or {}).get('type', 'hardened_steel'), temps['nozzle'])
+        for heater, target in (('nozzle', hotend), ('bed', temps['bed'])):
+            heater_ceiling.require(adapter, heater, target, state=state)
+    except (RuntimeError, ValueError) as exc:
+        raise SystemExit(f'REFUSED: OctoPrint preheat: {exc}. Nothing uploaded or started.') from exc
     lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
                                  observed_file=observed)
     try:
@@ -8875,19 +8964,14 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
             client.require_ready(client.status())  # again inside the lease
         except RuntimeError as exc:
             raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
-        if job_path is not None:
-            _consume_approval(job_path, job, gcode, reprint=reprint)
+        _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
-    # OctoPrint preheats from these, so they are the G-code spool's, resolved before anything is sent.
-    temps = _with_gcode_temperatures(state, Path(gcode).read_text(errors='ignore'))['temps_c']
     # Upload and start are one uncertain step here: the client reports either failure the same way.
     lease.submitting()
     try:
         remote = client.upload(gcode, remote)
-        from .nozzle import effective_nozzle_temperature
-        hotend = effective_nozzle_temperature((state.get('nozzle') or {}).get('type', 'hardened_steel'), temps['nozzle'])
         # Claim the start (#460): the family listener must not post a second start for this print.
         try: claim_start_announcement(remote)
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
@@ -9044,8 +9128,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
                 dual=adapter.extruder_count() > 1)
         except _ams.MappingError as exc:
             raise refuse(exc) from exc
-        if job_path is not None:
-            _consume_approval(job_path, job, gcode, reprint=reprint)
+        _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
@@ -9136,8 +9219,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
             ready_status()  # again inside the lease
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        if job_path is not None:
-            _consume_approval(job_path, job, gcode, reprint=reprint)
+        _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
@@ -9223,8 +9305,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
             ready_snapshot()  # again inside the lease
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        if job_path is not None:
-            _consume_approval(job_path, job, gcode, reprint=reprint)
+        _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
@@ -9264,6 +9345,15 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
     return out
 
 
+_FILAMENT_COLOUR_RE = re.compile(r'(?im)^;\s*filament_colou?r\s*=\s*([^\n]*)$')
+
+
+def _gcode_filament_colors(text):
+    """The slicer's per-filament colors from a G-code header (`; filament_colour = #RRGGBB;...`), in order."""
+    match = _FILAMENT_COLOUR_RE.search(text or "")
+    return [part.strip() for part in match.group(1).split(";") if part.strip()] if match else []
+
+
 def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprint):
     """The stock Flashforge LAN path, mirroring _print_bambu's guard order.
 
@@ -9271,13 +9361,15 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     credentials present, G-code free of Klipper or ZMod commands, /detail idle, then
     the rest of the G-code check. Inside the lease the snapshot is taken again, the bed-clear approval is
     consumed, and only then does anything reach the printer: one upload with print
-    disabled, then /printGcode for that exact name. Upload and start are one uncertain
-    step from submitting() on. Acceptance is confirmed from a fresh /detail, never assumed.
+    disabled, then /printGcode for that exact name, naming the selected IFS bay for T0
+    (material and colors from the fresh /detail, the G-code's own color for the tool;
+    #1147). Upload and start are one uncertain step from submitting() on. Acceptance is
+    confirmed from a fresh /detail, never assumed.
     """
     def refuse(exc):
         return SystemExit(f"REFUSED: {' '.join(str(exc).split())}. Nothing uploaded or started.")
 
-    from ..printers.flashforge_stock.client import StockLanError
+    from ..printers.flashforge_stock.client import StockClient, StockLanError
     try:
         client = adapter.client()
     except (RuntimeError, StockLanError) as exc:
@@ -9291,6 +9383,25 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         if type(slot) is not int or not 1 <= slot <= adapter.slot_count:
             raise RuntimeError(f"IFS slot must be an integer from 1 through {adapter.slot_count}")
         return slot
+
+    bay = {}  # the T0 -> bay mapping /printGcode sends, from the latest ready snapshot
+
+    def bay_mapping(detail, slot, text):
+        # The printer's own report for the bay first; else the job's selection and the hardware
+        # record's spool for that bay (the record binds the four bays to spools, like the ZMod AD5X).
+        material, slot_color = StockClient.slot_info(detail, slot)
+        selection = job.get("filament_selection") if isinstance(job, dict) else None
+        selection = selection if isinstance(selection, dict) else {}
+        record = ((state or {}).get("filament_slots") or {}).get(str(slot)) or {}
+        if not material:
+            material = str(selection.get("material") or record.get("material") or "").strip()
+        slot_color = slot_color or record.get("hex")
+        tool_color = (_gcode_filament_colors(text) or [None])[0] or slot_color
+        try:
+            return StockClient.material_mapping(slot, material=material, tool_color=tool_color,
+                                                slot_color=slot_color or tool_color)
+        except StockLanError as exc:
+            raise RuntimeError(f"IFS slot {slot} cannot be named in the start request: {exc}") from None
 
     def ready_snapshot():
         detail = client.detail()
@@ -9308,6 +9419,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
             problems.append(f"IFS slot {slot} does not report filament")
         if problems:
             raise RuntimeError("; ".join(dict.fromkeys(problems)))
+        bay["mapping"] = bay_mapping(detail, slot, text)
         return reduced
 
     try:
@@ -9331,8 +9443,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
             ready_snapshot()  # again inside the lease: the first read may predate another start
         except RuntimeError as exc:
             raise refuse(exc) from exc
-        if job_path is not None:
-            _consume_approval(job_path, job, gcode, reprint=reprint)
+        _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
         lease.release()
         raise
@@ -9342,7 +9453,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         # Claim the start (#460): the family listener must not post a second start for this print.
         try: claim_start_announcement(remote)
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.print_gcode(remote)
+        client.print_gcode(remote, bay=bay["mapping"])
     except BaseException as exc:
         _submission_failed(lease, remote, "stock Flashforge", exc)
     poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.detail()), remote,
@@ -9553,46 +9664,20 @@ _HEATER_VALUE_RE = re.compile(r'[SR]\s*(' + NUMBER + r')', re.I)
 _HEATER_SET_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?SET_HEATER_TEMPERATURE\b([^;\n]*)')
 _HEATER_MACRO_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?(?:START_PRINT|PRINT_START)\b([^;\n]*)')
 _HEATER_ARG_RE = re.compile(r'([A-Z_]+)\s*=\s*(' + NUMBER + r')', re.I)
-_MACRO_HOTEND_ARGS = frozenset({"EXTRUDER_TEMP", "HOTEND", "HOTEND_TEMP", "EXTRUDER", "NOZZLE", "NOZZLE_TEMP"})
-_MACRO_BED_ARGS = frozenset({"BED_TEMP", "BED"})
-
-
-def _adapter_fact(adapter, name):
-    fact = getattr(adapter, "fact", None)
-    if not callable(fact):
-        return None
-    try:
-        value = fact(name)
-    except Exception:  # a model without that fact has no such limit
-        return None
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+# The argument names are heater_ceiling's, shared with the macro run guard (#1147).
+from .heater_ceiling import MACRO_BED_ARGS as _MACRO_BED_ARGS, MACRO_NOZZLE_ARGS as _MACRO_HOTEND_ARGS  # noqa: E402
 
 
 def _heater_limits(state, adapter):
-    """(nozzle °C, bed °C): the printer's absolute heater maxima.
+    """(nozzle °C, bed °C): the printer's heater ceilings, from the one ceiling function (#1147).
 
-    The nozzle limit is the fitted nozzle type's safe maximum, lowered to
-    the model's max_hotend_c when it has one; an unknown nozzle type counts
-    as brass, the softest. The bed limit is the model's max_bed_c, else the
-    hottest bed any configured material asks for.
+    heater_ceiling.ceiling is what every temperature path asks: the fitted
+    nozzle type's safe maximum lowered to the model's max_hotend_c, and the
+    model's max_bed_c, else the hottest bed any configured material asks for.
     """
-    from . import nozzle as _nozzle
-    nozzle_type = ((state or {}).get("nozzle") or {}).get("type") \
-        or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    try:
-        canonical = _nozzle.normalize_nozzle_type(nozzle_type)
-    except _nozzle.NozzleError:
-        canonical = _nozzle.normalize_nozzle_type("brass")
-    hotend = float(_nozzle._nozzle_type_defaults()[canonical]["max_temperature_c"])
-    model_hotend = _adapter_fact(adapter, "max_hotend_c")
-    if model_hotend is not None:
-        hotend = min(hotend, model_hotend)
-    bed = _adapter_fact(adapter, "max_bed_c")
-    if bed is None:
-        temps = {**settings.DEFAULT_MATERIAL_TEMPS, **(settings.current().get("material_temps") or {})}
-        bed = float(max(row["bed"] for row in temps.values()
-                        if isinstance(row, dict) and isinstance(row.get("bed"), (int, float))))
-    return hotend, bed
+    from . import heater_ceiling
+    return (heater_ceiling.ceiling(adapter, "nozzle", state=state),
+            heater_ceiling.ceiling(adapter, "bed", state=state))
 
 
 def _gcode_heater_targets(text):
@@ -9830,7 +9915,7 @@ def _record_intake_receipt_started(job, job_path, gcode, sha, out):
 
 
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
-              yolo=False):
+              yolo=False, bed_clear=None):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
     The whole start holds the printer's interprocess control lock (P1-33):
@@ -9840,14 +9925,20 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
 
     ``yolo`` is the operator's explicit "print it, skip the checks": every
     waivable gate reports instead of refusing (see ``_waive``) and the
-    single-use bed-clear approval is not required, because saying yolo is
-    that confirmation. A yolo run is also a deliberate reprint.
+    single-use bed-clear record is not written. A yolo run is also a
+    deliberate reprint.
+
+    ``bed_clear`` is the operator's bed-clear confirmation, required by every
+    transport before anything is uploaded (#1147): True for an explicit
+    confirmation of this run, or the SHA-256 of the exact G-code confirmed.
+    Without it the start refuses, yolo included.
     """
     lock = _print_now_control_lock(target)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
                          "is in flight for this printer. Nothing uploaded or started.")
     token = _YOLO.set(bool(yolo))
+    clear_token = _BED_CLEAR.set(bed_clear) if bed_clear is not None else None
     try:
         if yolo:
             print("YOLO: the operator chose to print without checks; failed checks are reported, "
@@ -9856,6 +9947,8 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
                                 accept_default_z_offset=accept_default_z_offset,
                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
     finally:
+        if clear_token is not None:
+            _BED_CLEAR.reset(clear_token)
         _YOLO.reset(token)
         lock.release()
     # The start happened: reconcile the intake receipt that owns this
@@ -10022,8 +10115,8 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
                                started_files=lambda: _moonraker_started_files(st))
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
-        # Yolo is its own bed-clear confirmation: no single-use button approval is owed.
-        if job_path is not None and not yolo_active(): _consume_approval(job_path, job, g, reprint=reprint)
+        # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
+        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
         _timing(job_path, 'upload_begin')
         r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
                          env=_moonrakerctl_env(st))
@@ -10247,11 +10340,13 @@ def _main():
     remap.add_argument("--tool", type=str, default="0", help="logical tool index (default: 0)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
-    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics, axis limits and heater maximums are never waived)")
+    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no single-use approval record (the bed-clear confirmation, mechanics, axis limits and heater maximums are never waived)")
+    pn.add_argument("--bed-clear-sha256",default=None,help="the operator confirmed the bed is clear for the G-code with this SHA-256 (what the chat's Start button passes)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap T0 to another physical IFS slot (1-4) without physical spool changes")
     for x in (pn,f,s):
         x.add_argument("--accept-default-z-offset",action="store_true",help="the operator accepted the printer default Z offset for this start")
         x.add_argument("--reprint",action="store_true",help="the operator gave a NEW bed-clear approval to reprint the same G-code")
+        x.add_argument("--bed-clear-confirmed",action="store_true",help="the operator confirms the bed is clear for this start (required to start; #1147)")
     rl=sub.add_parser("reconcile-launch",help="show, or after checking the printer settle, an uncertain start; never resubmits")
     outcome=rl.add_mutually_exclusive_group()
     outcome.add_argument("--started",action="store_true",help="the operator saw that start reach the printer")
@@ -10392,6 +10487,8 @@ def _main():
         print(routine_phase(printer_state.load())); return
     pn_kw=dict(accept_default_z_offset=getattr(a,"accept_default_z_offset",False),reprint=getattr(a,"reprint",False),remap_slot_num=getattr(a,"remap_slot",None))
     if a.cmd=="print-now" and getattr(a,"yolo",False): pn_kw["yolo"]=True
+    if getattr(a,"bed_clear_sha256",None): pn_kw["bed_clear"]=a.bed_clear_sha256
+    elif getattr(a,"bed_clear_confirmed",False): pn_kw["bed_clear"]=True
     if a.cmd=="remap-slot":
         res = remap_slot(a.target, a.slot, a.tool)
         print("SLOT REMAPPED " + json.dumps(res, indent=2))

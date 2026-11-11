@@ -629,26 +629,14 @@ def parse_form(form, field_values, *, only=None):
         # An optional key absent from every layer (None) submitted empty is not a change.
         if value != field_value.value and not (value == "" and field_value.value is None):
             changes[field] = value
-    # Stage 5 follow rule: while timelapse.data_enabled is unset in
-    # every layer (provenance DEFAULT) its effective value only follows
-    # wrapped_enabled, so a save that changes wrapped_enabled would
-    # silently flip the Data tab on the restart — in either direction,
-    # whatever state the form showed for the Data toggle. Pin the
-    # submitted Data value (by construction the value the form showed)
-    # into the same save, so the Data switch becomes the operator's
-    # explicit choice and stops following from this save on. A
-    # data_enabled set in any layer is already explicit and never
-    # needs the pin; an explicit Data change in the same save is the
-    # pin already.
-    by_id = {field_value.field.id: field_value for field_value in field_values}
-    wrapped = by_id.get("timelapse.wrapped_enabled")
-    data_field = by_id.get("timelapse.data_enabled")
-    if (wrapped is not None and data_field is not None
-            and (only is None or data_field.field.id in only)
-            and wrapped.field in changes and data_field.field not in changes
-            and data_field.field.id not in errors
-            and data_field.provenance == config_api.DEFAULT):
-        changes[data_field.field] = data_field.value
+    # Stage 5 follow rule (#1229): while timelapse.data_enabled is
+    # unset its effective value only follows wrapped_enabled, and the
+    # form shows that followed value. The change set above is a diff,
+    # so a save writes data_enabled only when the operator changed the
+    # Data toggle itself; a save that changes only Wrapped leaves the
+    # key unset and the Data tab keeps following Wrapped, as
+    # docs/SETTINGS.md and docs/WEBUI.md say. Never pin a followed
+    # value here.
     return changes, submitted, errors
 
 

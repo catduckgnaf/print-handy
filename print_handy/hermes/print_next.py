@@ -167,6 +167,47 @@ def plate_choice_label(part: Mapping[str, Any], number: int | None = None) -> st
     return f"{head}: {info['parts']} · {info['colors']} · {info['duration']}"[:100]
 
 
+PLATE_LATER_LABEL = "Later"
+# The smallest button label any transport keeps whole (Telegram's inline
+# keyboard, 64); Discord keeps 80, and Matrix and web chat show the full
+# text. Cutting here once means every transport shows the same labels.
+PLATE_LABEL_LIMIT = 64
+# One button per plate plus Later, inside the 25 every button transport takes.
+PLATE_CHOICE_MAX = 24
+
+
+def plate_question(plan: Mapping[str, Any]) -> tuple[str, list[str], list[str]] | None:
+    """The shared 'Which plate is next?' prompt, or None when there is no choice to make.
+
+    Asked by /print-next without a plate on every transport (Discord,
+    Telegram, Matrix, web chat) through the one prompt layer, so a typed
+    command offers the same plate choice the Discord completion picker
+    does. Returns (question, choice labels ending with Later, part ids in
+    label order). A choice is never an approval: the picked plate still
+    gets its own bed-clear confirmation.
+    """
+    from .print_records import remaining_plate_choices
+
+    parts = remaining_plate_choices(plan)
+    if len(parts) < 2:
+        return None
+    shown = parts[:PLATE_CHOICE_MAX]
+    labels: list[str] = []
+    ids: list[str] = []
+    for part in shown:
+        label = plate_choice_label(part)[:PLATE_LABEL_LIMIT]
+        if label in labels:
+            label = f"{label[:PLATE_LABEL_LIMIT - len(str(part['id'])) - 3]} ({part['id']})"
+        labels.append(label)
+        ids.append(str(part["id"]))
+    title = str(plan.get("title") or "this project")
+    more = (f" Showing {len(shown)} of {len(parts)}; name another with /print-next "
+            f"{plan.get('plan_id')} <plate id>." if len(parts) > len(shown) else "")
+    question = (f"{title}: {len(parts)} plates are left. Which plate is next?{more}\n"
+                "Nothing starts until you confirm the bed is clear for the plate you pick.")
+    return question, labels + [PLATE_LATER_LABEL], ids
+
+
 PREPARING_MARK = "PREPARATION STILL RUNNING"
 SUBMITTED_MARK = "START SUBMITTED; AWAITING CONFIRMATION"  # what model_job print-now really prints
 START_MESSAGES = _config.state_file("PRINT_HANDY_START_MESSAGES", "print_handy_start_messages.json")
@@ -508,7 +549,9 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
     if refused:
         return False, refused
     runner = [str(model_job)] if model_job else [sys.executable, "-m", MODEL_JOB_MODULE]
-    argv = [*runner, "print-now", str(gcode)]
+    # The operator's bed-clear confirmation for exactly this artifact (#1147): print-now refuses
+    # without it, and the SHA binds it to the G-code verified just above.
+    argv = [*runner, "print-now", str(gcode), "--bed-clear-sha256", str(target["gcode_sha256"])]
     if target.get("accept_spool_change"):
         argv.append("--accept-spool-change")
     if target.get("reprint"):

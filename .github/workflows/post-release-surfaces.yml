@@ -169,6 +169,7 @@ jobs:
             echo "- [ ] **README + repo About** (description, topics): still accurate for what shipped — decision: updated / verified-no-change"
             echo "- [ ] **Release notes** for $tag: match the PRs above (user capabilities first, no shipped item missing, no unshipped item claimed) — decision: updated / verified-no-change"
             echo "- [ ] **Unraid CA templates**: the release-time template sync happened (verify only — this check does not redo it) — decision: updated / verified-no-change"
+            echo "- [ ] **GHCR \`:latest\`** (#1141): when $tag is the newest release, \`:latest\` and \`:$tag\` share one digest. Check: \`for t in latest $tag; do docker buildx imagetools inspect --raw ghcr.io/catduckgnaf/print-handy:\$t | sha256sum; done\` prints the same hash twice. If not, the owner repairs it with \`gh workflow run retag-latest.yml -f version=$tag\`; decision: verified-same-digest / not the newest release"
             echo "- [ ] **Discord-facing surfaces** where relevant (bot help/command docs, setup instructions): match shipped behaviour — decision: updated / verified-no-change / not relevant"
           } > body.md
 

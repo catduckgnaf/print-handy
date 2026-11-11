@@ -59,6 +59,17 @@ class PublicTextTests(unittest.TestCase):
         errors = self.pt.check({"title": "", "body": "", "extra": ["fine", "path /home/x/y"]}, [])
         self.assertEqual(["text 2 line 1: home directory path"], errors)
 
+    def test_no_reply_trailers_pass_and_real_addresses_still_fail(self):
+        for line in ("Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+                     "Co-authored-by: catduckgnaf <catduckgnaf@users.noreply.github.com>",
+                     "Author: CatDuck <129601174+catduckgnaf@users.noreply.github.com>"):
+            self.assertEqual(set(), self.cats(line), line)
+        for line in ("Co-Authored-By: Someone <someone@example.org>",
+                     "noreply@anthropic.com and reach me at me@example.org",
+                     "noreply@anthropic.com.evil.example",
+                     "x@users.noreply.github.com.example.org"):
+            self.assertIn("email address", self.cats(line), line)
+
 
 if __name__ == "__main__":
     unittest.main()

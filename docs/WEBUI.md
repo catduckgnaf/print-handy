@@ -7,7 +7,7 @@ The Web UI is a local page for two jobs:
 - **Status:** whether Print Handy, its bot, printer listener and Spoolman are up, plus the doctor checks.
 - **Configuration:** a picker-based editor for the catalogued settings in the same YAML settings file Print Handy already loads.
 
-It is **on by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. On first boot the Web UI serves openly and offers the setup walkthrough. There is no token on the local network, and a login exists only once you set one. See [First boot and logins](#first-boot-and-logins).
+It is **on by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. On first boot the Web UI serves openly and offers the setup walkthrough. That is by design: the walkthrough has to run before any login exists, so set a password in its Login step before you expose port 8088 beyond a network you trust. There is no token on the local network, and a login exists only once you set one. See [First boot and logins](#first-boot-and-logins).
 
 The YAML file remains the only source of truth. The Web UI does not keep a second copy of the configuration: its status comes from the effective settings, and a confirmed configuration save writes only the settings-file layer: the file named by `PRINT_HANDY_CONFIG`, or `config/local.yaml` when no file is named. See [YAML configuration](CONFIGURATION-YAML.md) for the full precedence order.
 
@@ -24,6 +24,8 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /designs` | The read-only designs catalog: AI design sessions on disk, newest first |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
+| `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
+| `GET /api/projects` | The same project readout as JSON |
 | `GET /layers` | Read-only list of sliced plates already in the archive |
 | `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
 | `GET /walkthrough` | The first-run walkthrough, while it is pending for this install |
@@ -38,7 +40,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `POST /wrapped/share` | The Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
 
-Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
+Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
 ### Chat page
 
@@ -57,6 +59,18 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 ### Designs page
 
 The designs page is a read-only catalog of the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled, and it has no write actions: nothing there deletes, slices or prints. See [AI design with OpenSCAD](DESIGN.md#browsing-designs-in-the-web-ui).
+
+### Projects page
+
+`/projects` is a read-only readout of the multi-part projects in the archive (see [multi-part print projects](PROJECTS.md#project-readout-in-the-web-ui)). One section per archived job that carries a `project_v1` manifest shows:
+
+- the source **components** from the manifest, with their required quantity and any declared role;
+- the **plates** from the job's multipart plan, each with its exact alias (`82A`), the parts on it, and how many of its required copies are printed, read from the live plan file;
+- every physical **attempt** of each plate, read from the print records by `project_id` and `project_plate_id`: its print number, its outcome, its start time, and the reprint run it belongs to;
+- the **runs**: the original run and each reprint run (`project_run_id`), counted separately, so a reprint never looks like progress on the original;
+- the **completion state**: complete, printing, or resumable with the plates still left and the chat command that continues it.
+
+The page keeps no store of its own and changes nothing: continuing or reprinting a project still happens in chat, where every plate asks for its own bed-clear confirmation. It is served under the same access rules as every other page (behind the login on a claimed install) and adds no script of its own.
 
 ### Sliced layers
 
@@ -105,7 +119,7 @@ The Web UI doctor rows reuse the local doctor checks: settings, printer model, O
 
 Both pages are **on by default**, under the timelapse settings:
 
-- The Data tab and Wrapped are on by default, each under its own switch: `timelapse.data_enabled` (default `true`) turns on the Data tab and its JSON endpoint, and `timelapse.wrapped_enabled` (default `true`) turns on the Wrapped page and its JSON endpoints. While a switch is unset, `data_enabled` follows `wrapped_enabled`; setting it pins the Data tab independently. While a switch is off, its link is not in the navigation and its routes answer a named disabled refusal. Installs that set `wrapped_enabled: false` before the split keep both off: an explicit value is never overridden by the new default.
+- The Data tab and Wrapped are on by default, each under its own switch: `timelapse.data_enabled` (default `true`) turns on the Data tab and its JSON endpoint, and `timelapse.wrapped_enabled` (default `true`) turns on the Wrapped page and its JSON endpoints. While `data_enabled` is unset it follows `wrapped_enabled`; setting it pins the Data tab independently. A settings-page save sets `data_enabled` only when you change the Data tab toggle in that save; a save that changes only the Wrapped switch leaves it unset, so the Data tab follows Wrapped after the restart. While a switch is off, its link is not in the navigation and its routes answer a named disabled refusal. Installs that set `wrapped_enabled: false` before the split keep both off: an explicit value is never overridden by the new default.
 - `timelapse.wrapped_video` (default `false`) turns on the video step on the Wrapped page. It needs `wrapped_enabled` on. With it on, the page offers **Make my Wrapped video**: an on-demand, local compile of generated stat cards, the commentary as on-screen text, and the year's timelapse clips where they can be found on disk (cards only, named in the result, when none are found). The compile runs as one background job per year, in a fresh temporary work folder that is always removed: pressing the button again (a double click, a browser retry) joins the job already running instead of starting another, the page shows `Step n of N` while it works and the finished video when it is done, a failure shows a short reason, and every ffmpeg and Piper run has a timeout scaled to its work, so a hung encoder ends the job instead of holding it forever. You can leave the page while it compiles. Print titles are drawn from small text files with expansion off, so a title such as "50% scale cube" is drawn as written. The commentary is the local deterministic script, never rewritten by an AI model (the setting was renamed from `wrapped_ai_video`, and the old spelling still works); any missing piece (no ffmpeg, no timelapses) is named in the result. The finished video lands in a `wrapped` folder under the records vault as `wrapped-<year>.mp4`, next to a `wrapped-<year>-script.json` sidecar, and the page names where it landed. Nothing is generated automatically and the video itself is never posted anywhere: sharing it is your choice. Nothing about Wrapped leaves this machine. Narration is separate and opt-in: see the Wrapped video presentation section below.
 
 ### Sharing a Wrapped

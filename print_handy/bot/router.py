@@ -43,8 +43,22 @@ def load_plugin(path=PLUGIN, name=MODULE_NAME):
     return module
 
 
+def message_text(event):
+    """The text every command gate tests: the hooks' own ``str(event.text).strip()``."""
+    return str(getattr(event, "text", "")).strip()
+
+
 class Router:
-    """Collects the plugin's hooks through its register() and runs the dispatch hooks in order."""
+    """Collects the plugin's hooks through its register() and runs the dispatch hooks in order.
+
+    A hook may carry a ``dispatch_gate`` (#1153 item 10): a predicate over
+    the stripped message text that is false exactly when the hook would
+    return None without looking at anything else (the plugin's slash-command
+    hooks). The text is classified once per message and a hook whose gate
+    fails is skipped, so a plain chat message no longer walks the command
+    hooks one by one. Order and the first-answer-wins rule are unchanged;
+    a hook with no gate always runs.
+    """
 
     def __init__(self, plugin=None):
         self.plugin = plugin if plugin is not None else load_plugin()
@@ -73,7 +87,14 @@ class Router:
 
     async def dispatch(self, event, gateway):
         """The first hook that answers wins, as in the gateway. None: no handler took the message."""
+        try:
+            text = message_text(event)
+        except Exception:
+            text = None  # unclassifiable: every hook runs, and reports its own failure as before
         for hook in self.dispatch_hooks:
+            gate = getattr(hook, "dispatch_gate", None)
+            if gate is not None and text is not None and not gate(text):
+                continue
             try:
                 result = hook(event, gateway)
                 if inspect.isawaitable(result):

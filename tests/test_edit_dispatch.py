@@ -601,3 +601,147 @@ def test_supports_question_choice_is_an_approval(edit_env, monkeypatch):
     monkeypatch.setattr(plugin, "_confirm", fake_confirm)
     run(plugin.edit_dispatch(_event("does this need supports?"), edit_env.gateway))
     assert flags == [True]
+
+
+# ------------------------------------- the geometry route talks like the design chat (#1206 finding 7)
+#
+# A geometry change routed from the edit chat into the design engine used
+# to keep the pre-#1136 conversation: a typed change at "What next for this
+# design?" fell to Cancel, no per-owner claim was held (the P2-151 race),
+# surviving check findings were never shown, and only DesignError was
+# caught. It now runs through the same helpers design_dispatch uses.
+
+GEOMETRY = '{"route": "geometry", "instruction": "cut a 5 mm hole through the middle"}'
+OWNER = "c::42"
+
+
+def _box_stl(path, dz=10.0):
+    from print_handy.core.geometry_layout import write_binary_stl
+    v = [(0, 0, 0), (40, 0, 0), (40, 20, 0), (0, 20, 0),
+         (0, 0, dz), (40, 0, dz), (40, 20, dz), (0, 20, dz)]
+    faces = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+             (2, 3, 7), (2, 7, 6), (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7)]
+    write_binary_stl([[v[a], v[b], v[c]] for a, b, c in faces], path)
+    return path
+
+
+@pytest.fixture
+def geometry_env(edit_env, monkeypatch):
+    """The edit harness with a solid source model, the AI lane routing to
+    geometry, and the design engine's turn replaced by a recorded fake."""
+    from print_handy.core import design
+    _box_stl(Path(json.loads(edit_env.job_path.read_text())["downloaded_file"]))
+    _patch_design_ai(monkeypatch, GEOMETRY)
+    monkeypatch.setattr(edit_chat, "_EDIT_AI_CALLS", {})
+    monkeypatch.setattr(edit_chat, "_EDIT_MEMORY", {})
+    edit_env.turns = []
+    edit_env.findings = []
+    edit_env.turn_hook = None
+
+    async def fake_run_turn(self, session, instruction):
+        edit_env.turns.append(instruction)
+        if edit_env.turn_hook is not None:
+            await edit_env.turn_hook(instruction)
+        folder = Path(self.root) / session["id"]
+        session["turns"] = session.get("turns", 0) + 1
+        stl = _box_stl(folder / f"turn-{session['turns']}.stl", 10.0 + 5 * session["turns"])
+        session["stl"] = stl.name
+        session["findings"] = [list(f) for f in edit_env.findings]
+        return {"session": session, "stl_path": stl, "scad_path": None,
+                "preview_path": None, "preview_error": "renderer unavailable",
+                "param_changes": [], "geometry": design.validate_stl(stl), "scad": "",
+                "notes": {}, "findings": [list(f) for f in edit_env.findings],
+                "attempts": 1, "reverted_to": None}
+
+    monkeypatch.setattr(design.DesignEngine, "run_turn", fake_run_turn)
+    return edit_env
+
+
+def test_a_typed_change_at_the_geometry_question_reaches_the_edit(geometry_env):
+    """A typed change at "What next for this design?" used to fall to Cancel."""
+    geometry_env.answers = ["make it 5 mm taller", "Cancel"]
+    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern"),
+                                      geometry_env.gateway))
+    assert geometry_env.turns == ["cut a 5 mm hole through the middle", "make it 5 mm taller"]
+    assert result["reason"] == "design cancelled"
+    assert sum("**Design turn" in (c or "") for c in geometry_env.adapter.sent) == 2
+    assert OWNER not in plugin._DESIGN_BUSY
+
+
+@pytest.mark.parametrize("word", ["never mind", "stop", "3"])
+def test_a_typed_cancel_word_at_the_geometry_question_cancels_without_a_turn(geometry_env, word):
+    geometry_env.answers = [word]
+    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern"),
+                                      geometry_env.gateway))
+    assert result["reason"] == "design cancelled"
+    assert len(geometry_env.turns) == 1
+
+
+def test_a_second_request_during_a_geometry_turn_gets_the_busy_reply(geometry_env):
+    """P2-151 on the geometry route: no claim was held, so a second message
+    during the turn ran a second, concurrent turn on the same owner."""
+    geometry_env.answers = ["Cancel"]
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def hold(_instruction):
+            entered.set()
+            await release.wait()
+
+        geometry_env.turn_hook = hold
+        first = asyncio.create_task(plugin.edit_dispatch(
+            _event("strengthen the infill pattern"), geometry_env.gateway))
+        await asyncio.wait_for(entered.wait(), 10)
+        geometry_env.turn_hook = None
+        # The design hook runs first in the router order and sees the claim ...
+        by_design = await plugin.design_dispatch(_event("make it taller"), geometry_env.gateway)
+        # ... and a second geometry request that reaches the edit chat is refused too.
+        by_edit = await plugin.edit_dispatch(_event("strengthen the infill pattern"),
+                                             geometry_env.gateway)
+        release.set()
+        return by_design, by_edit, await asyncio.wait_for(first, 10)
+
+    by_design, by_edit, out = run(scenario())
+    assert by_design == {"action": "skip", "reason": "design turn already running"}
+    assert by_edit == {"action": "skip", "reason": "design turn already running"}
+    assert out["reason"] == "design cancelled"
+    assert geometry_env.turns == ["cut a 5 mm hole through the middle"]
+    assert sum("already running" in (c or "") for c in geometry_env.adapter.sent) == 2
+    assert OWNER not in plugin._DESIGN_BUSY
+
+
+def test_surviving_check_findings_are_shown_on_the_geometry_turn(geometry_env):
+    """It posted summary_text, so "does not fit the printer" was never shown."""
+    geometry_env.findings = [("warn", "it does not fit the printer: 400 x 20 mm does not fit "
+                                      "a 220 x 220 mm bed")]
+    geometry_env.answers = ["Cancel"]
+    run(plugin.edit_dispatch(_event("strengthen the infill pattern"), geometry_env.gateway))
+    post = next(c for c in geometry_env.adapter.sent if "**Design turn 1**" in (c or ""))
+    assert "Heads-up: it does not fit the printer" in post
+    assert "Measured:" in post and "Geometry check:" in post
+
+
+def test_an_unexpected_error_in_the_geometry_turn_is_reported_and_releases_the_claim(
+        geometry_env):
+    async def boom(_instruction):
+        raise RuntimeError("renderer crashed")
+
+    geometry_env.turn_hook = boom
+    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern"),
+                                      geometry_env.gateway))
+    assert result == {"action": "skip", "reason": "geometry edit failed"}
+    last = geometry_env.adapter.sent[-1]
+    assert "could not tell why" in last and "Nothing was sliced or started" in last
+    assert "renderer crashed" not in last
+    assert OWNER not in plugin._DESIGN_BUSY
+    assert not geometry_env.reentered
+
+
+def test_the_geometry_turn_is_acknowledged_before_the_model_runs(geometry_env):
+    geometry_env.answers = ["Cancel"]
+    run(plugin.edit_dispatch(_event("strengthen the infill pattern"), geometry_env.gateway))
+    sent = geometry_env.adapter.sent
+    ack = sent.index(plugin.DESIGN_WORKING_NOTE)
+    turn = next(i for i, c in enumerate(sent) if "**Design turn 1**" in (c or ""))
+    assert ack < turn
