@@ -2,19 +2,24 @@
 
 The weekly firmware watch (issue #1271) compares each watched
 firmware's latest GitHub release against the audited baseline
-recorded in this repository — for ZMod, the audited-against version
-in docs/ZMOD.md — and reports through deduplicated ``firmware-watch``
+recorded in this repository (for ZMod, the audited-against version
+in docs/ZMOD.md) and reports through deduplicated ``firmware-watch``
 issues. These tests pin the baseline parsing, the ZMod version
 ordering (a numeric ``-N`` suffix is a later build of the same
 release, not a prerelease), the final-release selection and the
-create/close decisions — all offline, with fixture payloads.
+create/close decisions, all offline, with fixture payloads.
 """
 
+import email.message
 import importlib.util
+import io
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
+import urllib.error
+from unittest import mock
 
 import yaml
 
@@ -87,7 +92,7 @@ class VersionOrdering(unittest.TestCase):
     def test_numeric_build_suffix_ranks_above_the_plain_release(self):
         # ZMod's suffixed builds: 1.7.5-2 is a later build of 1.7.5
         # (it is the build the maintainer's own AD5X runs), so it must
-        # order above 1.7.5 — the opposite of a prerelease suffix.
+        # order above 1.7.5, the opposite of a prerelease suffix.
         self.assertLess(
             watch.firmware_version_key("1.7.5"),
             watch.firmware_version_key("1.7.5-2"),
@@ -205,6 +210,26 @@ class PlanActions(unittest.TestCase):
         open_issues = [watch.WatchIssue(7, "ZMod", "1.7.7")]
         self.assertEqual(watch.plan_actions(findings, open_issues), [])
 
+    def test_closed_issue_for_the_release_is_not_reopened(self):
+        # A maintainer closed the 1.7.7 notice without moving the
+        # baseline. The next weekly run must not open it again.
+        findings = findings_for(releases=[release("1.7.7")])
+        closed = [watch.WatchIssue(7, "ZMod", "1.7.7", open=False)]
+        self.assertEqual(watch.plan_actions(findings, closed), [])
+
+    def test_closed_issue_is_not_closed_again(self):
+        findings = findings_for(baseline="1.7.7", releases=[release("1.7.7")])
+        closed = [watch.WatchIssue(7, "ZMod", "1.7.7", open=False)]
+        self.assertEqual(watch.plan_actions(findings, closed), [])
+
+    def test_closed_older_notice_does_not_hide_a_newer_release(self):
+        findings = findings_for(releases=[release("1.7.8"), release("1.7.7")])
+        closed = [watch.WatchIssue(7, "ZMod", "1.7.7", open=False)]
+        actions = watch.plan_actions(findings, closed)
+        self.assertEqual(
+            [(a.kind, a.version) for a in actions], [("create", "1.7.8")]
+        )
+
     def test_issue_body_names_the_audit_follow_up(self):
         findings = findings_for(releases=[release("1.7.7")])
         body = watch.issue_body(findings[0], release("1.7.7"))
@@ -276,11 +301,28 @@ class ClientBehavior(unittest.TestCase):
                 ]
             }
         )
-        issues = client.list_open_watch_issues("me/repo")
+        issues = client.list_watch_issues("me/repo")
         self.assertEqual(
             [(i.number, i.firmware, i.version) for i in issues],
             [(3, "ZMod", "1.7.7")],
         )
+
+    def test_watch_issues_include_closed_ones(self):
+        client = FakeClient(
+            {
+                ("GET", "/repos/me/repo/issues"): [
+                    {"number": 3, "title": "Firmware release: ZMod 1.7.7",
+                     "state": "closed"},
+                    {"number": 4, "title": "Firmware release: ZMod 1.7.8",
+                     "state": "open"},
+                ]
+            }
+        )
+        issues = client.list_watch_issues("me/repo")
+        self.assertEqual(
+            [(i.number, i.open) for i in issues], [(3, False), (4, True)]
+        )
+        self.assertIn("state=all", client.calls[0][1])
 
     def test_open_watch_issues_paginate_past_the_first_hundred(self):
         page_one = [
@@ -291,7 +333,7 @@ class ClientBehavior(unittest.TestCase):
         client = FakeClient(
             pages={("GET", "/repos/me/repo/issues"): {1: page_one, 2: page_two}}
         )
-        issues = client.list_open_watch_issues("me/repo")
+        issues = client.list_watch_issues("me/repo")
         self.assertEqual(len(issues), 101)
         self.assertEqual(issues[-1].version, "1.7.7")
 
@@ -318,6 +360,188 @@ class ClientBehavior(unittest.TestCase):
         self.assertEqual(len(releases), 101)
 
 
+def http_error(code, headers=None):
+    message = email.message.Message()
+    for key, value in (headers or {}).items():
+        message[key] = value
+    return urllib.error.HTTPError(
+        "https://api.github.com/x", code, "error", message, io.BytesIO(b"")
+    )
+
+
+class FakeResponse:
+    def __init__(self, body=b"[]"):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class RequestFailures(unittest.TestCase):
+    """The real request path: timeouts, rate limits, plain failures."""
+
+    def client(self, now=1000.0):
+        self.sleeps = []
+        return watch.GitHubClient(
+            None, sleep=self.sleeps.append, now=lambda: now
+        )
+
+    def test_every_call_has_a_timeout(self):
+        client = self.client()
+        with mock.patch.object(
+            watch.urllib.request, "urlopen", return_value=FakeResponse()
+        ) as urlopen:
+            client.request("GET", "/repos/ghzserg/zmod/releases")
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], watch.REQUEST_TIMEOUT)
+
+    def test_short_rate_limit_is_waited_out_and_retried_once(self):
+        client = self.client(now=1000.0)
+        limited = http_error(
+            403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1010"}
+        )
+        with mock.patch.object(
+            watch.urllib.request,
+            "urlopen",
+            side_effect=[limited, FakeResponse(b"[1]")],
+        ) as urlopen:
+            self.assertEqual(client.request("GET", "/x"), [1])
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(self.sleeps, [11.0])
+
+    def test_long_rate_limit_fails_the_run_without_waiting(self):
+        client = self.client(now=1000.0)
+        limited = http_error(
+            403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "4600"}
+        )
+        with mock.patch.object(
+            watch.urllib.request, "urlopen", side_effect=[limited]
+        ):
+            with self.assertRaises(watch.WatchError) as caught:
+                client.request("GET", "/x")
+        self.assertIn("rate limited", str(caught.exception))
+        self.assertEqual(self.sleeps, [])
+
+    def test_rate_limit_twice_fails_the_run(self):
+        client = self.client()
+        with mock.patch.object(
+            watch.urllib.request,
+            "urlopen",
+            side_effect=[
+                http_error(429, {"Retry-After": "5"}),
+                http_error(429, {"Retry-After": "5"}),
+            ],
+        ):
+            with self.assertRaises(watch.WatchError):
+                client.request("GET", "/x")
+        self.assertEqual(self.sleeps, [6.0])
+
+    def test_plain_forbidden_is_not_retried(self):
+        client = self.client()
+        with mock.patch.object(
+            watch.urllib.request, "urlopen", side_effect=[http_error(403)]
+        ) as urlopen:
+            with self.assertRaises(watch.WatchError) as caught:
+                client.request("POST", "/repos/me/repo/issues", {"title": "t"})
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertIn("HTTP 403", str(caught.exception))
+        self.assertEqual(self.sleeps, [])
+
+    def test_timeout_fails_the_run(self):
+        client = self.client()
+        with mock.patch.object(
+            watch.urllib.request, "urlopen", side_effect=TimeoutError("timed out")
+        ):
+            with self.assertRaises(watch.WatchError):
+                client.request("GET", "/x")
+
+
+RELEASE_177 = {
+    "tag_name": "1.7.7",
+    "prerelease": False,
+    "draft": False,
+    "published_at": "2026-12-01T00:00:00Z",
+    "html_url": "https://example.invalid/1",
+}
+
+
+class RunBehavior(unittest.TestCase):
+    """run() end to end against a fake client: what gets written."""
+
+    def run_watch(self, client, *, dry_run=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = pathlib.Path(tmp) / "docs"
+            docs.mkdir()
+            (docs / "ZMOD.md").write_text(ZMOD_DOC)
+            return watch.run(pathlib.Path(tmp), "me/repo", dry_run, client)
+
+    def writes(self, client):
+        return [c for c in client.calls if c[0] != "GET"]
+
+    def test_upstream_with_no_releases_changes_nothing(self):
+        client = FakeClient(
+            {
+                ("GET", "/repos/ghzserg/zmod/releases"): [],
+                ("GET", "/repos/me/repo/issues"): [],
+            }
+        )
+        self.assertEqual(self.run_watch(client), 0)
+        self.assertEqual(self.writes(client), [])
+
+    def test_missing_upstream_repo_aborts_before_any_write(self):
+        # A 404 on the releases list (request() returns None).
+        client = FakeClient({("GET", "/repos/me/repo/issues"): []})
+        with self.assertRaises(watch.WatchError):
+            self.run_watch(client)
+        self.assertEqual(self.writes(client), [])
+
+    def test_a_week_after_a_manual_close_writes_nothing(self):
+        client = FakeClient(
+            {
+                ("GET", "/repos/ghzserg/zmod/releases"): [RELEASE_177],
+                ("GET", "/repos/me/repo/issues"): [
+                    {"number": 9, "title": "Firmware release: ZMod 1.7.7",
+                     "state": "closed"},
+                ],
+            }
+        )
+        self.run_watch(client)
+        self.assertEqual(self.writes(client), [])
+
+    def test_newer_release_opens_exactly_one_issue(self):
+        client = FakeClient(
+            {
+                ("GET", "/repos/ghzserg/zmod/releases"): [RELEASE_177],
+                ("GET", "/repos/me/repo/issues"): [],
+                ("GET", "/repos/me/repo/labels/firmware-watch"): {"name": "x"},
+                ("POST", "/repos/me/repo/issues"): {"number": 10},
+            }
+        )
+        self.run_watch(client)
+        writes = self.writes(client)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0][2]["title"], "Firmware release: ZMod 1.7.7")
+        self.assertEqual(writes[0][2]["labels"], ["firmware-watch"])
+
+    def test_dry_run_writes_nothing(self):
+        client = FakeClient(
+            {
+                ("GET", "/repos/ghzserg/zmod/releases"): [RELEASE_177],
+                ("GET", "/repos/me/repo/issues"): [],
+            }
+        )
+        self.run_watch(client, dry_run=True)
+        self.assertEqual(self.writes(client), [])
+        self.assertEqual(
+            [c for c in client.calls if "/labels/" in c[1]], []
+        )
+
+
 class WorkflowContract(unittest.TestCase):
     def load_workflow(self):
         return yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
@@ -332,6 +556,27 @@ class WorkflowContract(unittest.TestCase):
         self.assertEqual(
             workflow["permissions"], {"contents": "read", "issues": "write"}
         )
+
+    def test_checkout_does_not_keep_the_token(self):
+        job = self.load_workflow()["jobs"]["check-firmware-releases"]
+        checkout = [
+            step for step in job["steps"]
+            if "actions/checkout@" in step.get("uses", "")
+        ]
+        self.assertEqual(len(checkout), 1)
+        self.assertEqual(checkout[0]["with"]["persist-credentials"], "false")
+
+    def test_runs_never_overlap_and_are_bounded(self):
+        workflow = self.load_workflow()
+        self.assertEqual(workflow["concurrency"]["group"], "firmware-watch")
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "false")
+        job = workflow["jobs"]["check-firmware-releases"]
+        self.assertLessEqual(int(job["timeout-minutes"]), 15)
+
+    def test_workflow_never_pushes_or_uses_other_secrets(self):
+        text = WORKFLOW_PATH.read_text()
+        self.assertNotIn("git push", text)
+        self.assertEqual(re.findall(r"secrets\.(\w+)", text), ["GITHUB_TOKEN"])
 
     def test_job_runs_the_script_with_the_workflow_token(self):
         workflow = self.load_workflow()

@@ -5,8 +5,8 @@ The upstream watch (``scripts/check_upstream_releases.py``) covers the
 tools Print Handy pins and bundles. Printer firmware is different: it
 is not a dependency, there is no pin to compare against, and a release
 matters because it can move a contract Print Handy relies on. What
-Print Handy compares against instead is the **audited baseline** — the
-firmware version this repository last audited feature by feature —
+Print Handy compares against instead is the **audited baseline**: the
+firmware version this repository last audited feature by feature,
 recorded in the docs. That difference is why this is a separate watch
 (issue #1271), not another component in the upstream one.
 
@@ -30,12 +30,14 @@ GitHub releases, and reports through issues in this repository,
 deduplicated by the ``firmware-watch`` label and titles of the form
 ``Firmware release: <Firmware> <version>``:
 
-- a newer-than-baseline release with no matching open issue opens
-  one, naming the firmware, the version and the release link, and
-  pointing at the audit pattern as the follow-up;
+- a newer-than-baseline release with no matching issue opens one,
+  naming the firmware, the version and the release link, and pointing
+  at the audit pattern as the follow-up. A matching issue in either
+  state counts: a notice a maintainer closed by hand is never
+  reopened as a new issue the next week;
 - an open issue whose version the baseline has caught up with is
   closed with a short comment;
-- when nothing is newer, nothing is created or changed — a quiet
+- when nothing is newer, nothing is created or changed; a quiet
   week is a successful no-op.
 
 Notification only: the script never edits the baseline, never opens a
@@ -64,6 +66,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -75,11 +78,27 @@ LABEL = "firmware-watch"
 TITLE_PREFIX = "Firmware release: "
 DEFAULT_REPO = "catduckgnaf/print-handy"
 
+# Seconds before one API call gives up. A hung connection must fail
+# the run, not hold the runner until the job timeout.
+REQUEST_TIMEOUT = 30
+# A rate-limited call is retried once when the limit lifts within
+# this many seconds; a longer wait fails the run, naming the wait.
+RATE_LIMIT_MAX_WAIT = 60
+
 ZMOD_REPO = "ghzserg/zmod"
 
 
 class WatchError(Exception):
     """Any failure that must abort the run before issues are touched."""
+
+
+class _RateLimited(Exception):
+    """A rate-limited API call; ``wait`` is seconds until it lifts."""
+
+    def __init__(self, wait: float, message: str):
+        super().__init__(message)
+        self.wait = wait
+        self.message = message
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +227,10 @@ class WatchIssue:
     number: int
     firmware: str
     version: str
+    # Closed issues still deduplicate: a maintainer who closes a notice
+    # without moving the baseline has decided on it, and the watch must
+    # not reopen the same release as a fresh issue every week.
+    open: bool = True
 
 
 @dataclass(frozen=True)
@@ -251,12 +274,17 @@ def build_findings(
 
 
 def plan_actions(findings: list[Finding], open_issues: list[WatchIssue]) -> list[Action]:
-    """Decide issue creates/closes. Pure: no I/O, fully unit-tested."""
+    """Decide issue creates/closes. Pure: no I/O, fully unit-tested.
+
+    ``open_issues`` is every watch issue, open or closed. An issue for
+    a release in either state suppresses a new one for that release;
+    only open issues are closed when the baseline catches up.
+    """
     actions: list[Action] = []
-    open_by_key = {(i.firmware, i.version): i for i in open_issues}
+    reported = {(i.firmware, i.version) for i in open_issues}
     for finding in findings:
         release = finding.newer_release
-        if release is not None and (finding.firmware, release.version) not in open_by_key:
+        if release is not None and (finding.firmware, release.version) not in reported:
             actions.append(
                 Action(
                     kind="create",
@@ -266,6 +294,8 @@ def plan_actions(findings: list[Finding], open_issues: list[WatchIssue]) -> list
                 )
             )
     for issue in open_issues:
+        if not issue.open:
+            continue
         finding = next(
             (f for f in findings if f.firmware == issue.firmware), None
         )
@@ -288,10 +318,45 @@ def plan_actions(findings: list[Finding], open_issues: list[WatchIssue]) -> list
 class GitHubClient:
     """Minimal GitHub REST client over urllib (stdlib only)."""
 
-    def __init__(self, token: str | None):
+    def __init__(self, token: str | None, *, sleep=time.sleep, now=time.time):
         self._token = token
+        self._sleep = sleep
+        self._now = now
+
+    def _rate_limit_wait(self, exc: urllib.error.HTTPError) -> float | None:
+        """Seconds until a rate limit lifts, or None when ``exc`` is
+        not a rate limit (a plain 403 is a permission failure)."""
+        headers = exc.headers or {}
+        retry_after = (headers.get("Retry-After") or "").strip()
+        if exc.code in (403, 429) and retry_after.isdigit():
+            return float(retry_after)
+        remaining = headers.get("X-RateLimit-Remaining")
+        reset = headers.get("X-RateLimit-Reset")
+        if exc.code in (403, 429) and remaining == "0" and reset:
+            try:
+                return max(0.0, float(reset) - self._now())
+            except ValueError:
+                return None
+        if exc.code == 429:
+            return float(RATE_LIMIT_MAX_WAIT)
+        return None
 
     def request(self, method: str, path: str, payload: dict | None = None):
+        """One API call. A rate limit that lifts within
+        ``RATE_LIMIT_MAX_WAIT`` seconds is waited out and retried once;
+        any other failure raises ``WatchError``."""
+        try:
+            return self._request_once(method, path, payload)
+        except _RateLimited as limited:
+            if limited.wait > RATE_LIMIT_MAX_WAIT:
+                raise WatchError(limited.message) from None
+            self._sleep(limited.wait + 1)
+            try:
+                return self._request_once(method, path, payload)
+            except _RateLimited as again:
+                raise WatchError(again.message) from None
+
+    def _request_once(self, method: str, path: str, payload: dict | None):
         url = path if path.startswith("https://") else f"{API_BASE}{path}"
         data = json.dumps(payload).encode() if payload is not None else None
         request = urllib.request.Request(url, data=data, method=method)
@@ -303,15 +368,24 @@ class GitHubClient:
         if data is not None:
             request.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
                 body = response.read().decode()
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return None
+            wait = self._rate_limit_wait(exc)
+            if wait is not None:
+                raise _RateLimited(
+                    wait,
+                    f"GitHub API {method} {url} is rate limited (HTTP "
+                    f"{exc.code}); the limit lifts in about {int(wait)} s. "
+                    f"Rerun the workflow after that.",
+                ) from exc
             raise WatchError(
                 f"GitHub API {method} {url} failed: HTTP {exc.code}"
             ) from exc
-        except urllib.error.URLError as exc:
+        except OSError as exc:
+            # URLError, a timeout, or a reset connection.
             raise WatchError(f"GitHub API {method} {url} failed: {exc}") from exc
         return json.loads(body) if body else None
 
@@ -353,9 +427,10 @@ class GitHubClient:
             )
         return releases
 
-    def list_open_watch_issues(self, repo: str) -> list[WatchIssue]:
+    def list_watch_issues(self, repo: str) -> list[WatchIssue]:
+        """Every ``firmware-watch`` issue, open and closed."""
         raw = self._list_all(
-            f"/repos/{repo}/issues?labels={LABEL}&state=open"
+            f"/repos/{repo}/issues?labels={LABEL}&state=all"
         )
         issues = []
         for item in raw:
@@ -370,6 +445,7 @@ class GitHubClient:
                         number=item["number"],
                         firmware=match.group(1),
                         version=match.group(2),
+                        open=item.get("state", "open") == "open",
                     )
                 )
         return issues
@@ -421,8 +497,8 @@ def issue_body(finding: Finding, release: Release) -> str:
         f"Print Handy last audited.\n\n"
         f"- Firmware: {finding.firmware}\n"
         f"- Audited baseline: {finding.baseline_description}\n"
-        f"- Upstream: {release.version} — published "
-        f"{release.published_at.date().isoformat()} — {release.url}\n\n"
+        f"- Upstream: {release.version}, published "
+        f"{release.published_at.date().isoformat()}: {release.url}\n\n"
         f"The follow-up is a feature-by-feature audit of {release.version} "
         f"against Print Handy's contracts, in the pattern of the 1.7.5 "
         f"audit (#562) and the 1.7.6 audit (#1269), ending with the "
@@ -469,7 +545,7 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
     open_issues: list[WatchIssue] = []
     issues_known = True
     try:
-        open_issues = client.list_open_watch_issues(repo)
+        open_issues = client.list_watch_issues(repo)
     except WatchError:
         if not dry_run:
             raise

@@ -131,7 +131,12 @@ unreadable data is simply not reported, never presented as a mismatch.
   native firmware service while it works), so after a `klipper`
   component update the sequence is: apply the component, re-run
   `/print-firmware`, and if the MCU reads out of step, run
-  `UPDATE_MCU` at the printer, in that order.
+  `UPDATE_MCU FORCE=13` at the printer, in that order. Name the
+  version: ZMod's `UPDATE_MCU` without `FORCE` switches the MCU to
+  the *other* firmware (on a Klipper 13 install, back to the native
+  Klipper build), which is the step ZMod's wiki gives before removing
+  the mod or updating the stock firmware, not after a Klipper 13
+  update.
 
 Not covered by any check: the ZMod base itself and the stock firmware
 underneath it. The report on a ZMod printer says so and names the two

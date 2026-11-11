@@ -3,9 +3,9 @@ name: Firmware watch
 # Weekly check for newer releases of printer firmware Print Handy
 # audits (issue #1271). Separate from the upstream watch: that one
 # compares shipped pins of bundled tools, this one compares the
-# audited baselines recorded in the docs — for ZMod, the
+# audited baselines recorded in the docs (for ZMod, the
 # audited-against version in docs/ZMOD.md, which moves only when a
-# feature-by-feature audit lands. scripts/check_firmware_releases.py
+# feature-by-feature audit lands). scripts/check_firmware_releases.py
 # reads the baselines from this checkout, compares them with each
 # watched firmware's GitHub releases and opens one deduplicated
 # `firmware-watch` issue per newer release, closing it again once
@@ -25,11 +25,22 @@ permissions:
   contents: read
   issues: write
 
+# One run at a time: a dispatch overlapping the scheduled run must not
+# let two runs read the same issue list and both open a notice.
+concurrency:
+  group: firmware-watch
+  cancel-in-progress: false
+
 jobs:
   check-firmware-releases:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # The script only reads the checkout; it never pushes, so the
+          # token is not left in the git config.
+          persist-credentials: false
       - name: Check firmware releases against the audited baselines
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
