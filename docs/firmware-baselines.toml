@@ -1,0 +1,160 @@
+# Recorded firmware baselines for the weekly firmware watch
+# (scripts/check_firmware_releases.py, .github/workflows/firmware-watch.yml).
+#
+# ZMod's baseline is not here: it is the audited-against version in
+# docs/ZMOD.md, and the watch reads it from there.
+#
+# Each entry is the upstream version Print Handy's contracts for that
+# firmware were last checked against. The watch compares the newest final
+# upstream version with it and opens one deduplicated `firmware-watch`
+# issue per newer release. A baseline moves only when an audit of the
+# newer release lands, in the same change that records the audit; the
+# watch never edits this file.
+#
+# How the versions were chosen (issue #1280, sections F to H): none of
+# these families has a feature-by-feature firmware audit like ZMod's
+# (#562, #1269). What Print Handy's code for each was checked against is
+# the upstream state when that adapter and its contract tests were
+# written, between 2026-10-22 and 2026-10-28. So
+# each baseline is the newest final upstream version that existed then,
+# named with its evidence in `basis`. A release after that date is one
+# Print Handy has not been checked against, which is what a notice means.
+#
+# Fields:
+#   name      issue title name ("Firmware release: <name> <version>"); unique
+#   repo      GitHub owner/repo
+#   feed      "releases" (GitHub Releases, final releases only) or "tags"
+#             (Git tags; for repositories that publish no usable releases)
+#   baseline  the recorded version (as the watch parses it from a tag)
+#   basis     why this version: the evidence, shown in each notice
+#   line      Prusa Buddy only: the printer names, as Prusa's release
+#             titles list them ("8.0.1 Firmware for Prusa XL+, XL, MINI+,
+#             MINI"), that select this printer line's releases
+#   group     Prusa Buddy only: the notice name the printer lines share,
+#             so one release covering several lines opens one notice
+#             ("Firmware release: Prusa Buddy 8.0.0"), which closes once
+#             every line that release covers has its baseline moved
+
+# Klipper and Moonraker: tags only. Klipper3d/klipper has never published
+# a GitHub Release, and Arksine/moonraker's releases feed stopped at a
+# 2021 prerelease (v0.7.1); a releases feed would be empty or stale
+# forever, so the watch refuses one for these two repositories.
+
+[[firmware]]
+name = "Klipper"
+repo = "Klipper3d/klipper"
+feed = "tags"
+baseline = "0.13.0"
+basis = "Klipper 13 (v0.13.0, tagged 2025-04-12) is the release the firmware report's MCU currency check judges (#561, 0.13.x hosts only) and the one the reference AD5X runs (docs/DEVICE-AD5X.md, Tested baseline); it has been the newest Klipper tag for all of Print Handy's history"
+
+[[firmware]]
+name = "Moonraker"
+repo = "Arksine/moonraker"
+feed = "tags"
+baseline = "0.11.0"
+basis = "v0.11.0 (tagged 2026-08-25) has been the newest Moonraker tag for all of Print Handy's history, including when the Update Manager contract behind /print-firmware was written (#561, merged 2026-10-28)"
+
+# OctoPrint and Marlin: releases. OctoPrint's 2.0.0 release candidates are
+# prereleases and are not counted. Marlin publishes several maintenance
+# lines at once (2.1.2.x, 2.1.1.x, 2.0.9.x ...); the watch follows the
+# newest line, so a backport to an older line opens no notice.
+
+[[firmware]]
+name = "OctoPrint"
+repo = "OctoPrint/OctoPrint"
+feed = "releases"
+baseline = "1.11.8"
+basis = "1.11.8 (2026-06-23) was the newest final OctoPrint release when the OctoPrint adapter and its REST contract tests were written (#129, merged 2026-10-22); the 2.0.0 line was still in release candidates"
+
+[[firmware]]
+name = "Marlin"
+repo = "MarlinFirmware/Marlin"
+feed = "releases"
+baseline = "2.1.2.9"
+basis = "2.1.2.9 (tag commit 2026-10-12) was the newest Marlin release when the OctoPrint/Marlin presets and their Marlin G-code contracts were written (#129, merged 2026-10-22)"
+
+# Prusa Buddy: one entry per printer line Print Handy supports (MK4S,
+# CORE One, XL, MINI+). Prusa ships divergent version lines from one
+# repository (8.0.1 for XL and MINI, 7.0.1 for CORE One INDX, 6.10.3 for
+# XL), so a single "latest release" would watch whichever line shipped
+# last. A release belongs to a line when its title lists one of the
+# line's names exactly ("CORE One" does not match "CORE One INDX" or
+# "CORE One L"). Each baseline is the newest final release for that line
+# when PrusaLink support was written (#242, PR #251, merged 2026-10-26).
+
+[[firmware]]
+name = "Prusa Buddy (MK4S)"
+group = "Prusa Buddy"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+line = ["MK4S"]
+baseline = "6.5.7"
+basis = "6.5.7 (2026-06-18) was the newest final Buddy release for the MK4S when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+
+[[firmware]]
+name = "Prusa Buddy (CORE One)"
+group = "Prusa Buddy"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+line = ["CORE One"]
+baseline = "6.8.1"
+basis = "6.8.1 (2026-08-14) was the newest final Buddy release for the CORE One when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+
+[[firmware]]
+name = "Prusa Buddy (XL)"
+group = "Prusa Buddy"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+line = ["XL"]
+baseline = "6.10.3"
+basis = "6.10.3 (2026-09-25) was the newest final Buddy release for the XL when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+
+[[firmware]]
+name = "Prusa Buddy (MINI+)"
+group = "Prusa Buddy"
+repo = "prusa3d/Prusa-Firmware-Buddy"
+feed = "releases"
+line = ["MINI+", "MINI"]
+baseline = "6.4.2"
+basis = "6.4.2 (2026-06-03) was the newest final Buddy release for the MINI and MINI+ (one firmware) when PrusaLink support was written (#242, PR #251, merged 2026-10-26)"
+
+# QIDI: one repository per model, each with its own tag shape
+# (Q1_Pro_V4.4.24, Plus4_v1.7.1, Max3_V4.3.15). The watch reads the
+# version from the end of the tag. Each baseline is the model's newest
+# final release when QIDI support was written (#463, merged 2026-10-27);
+# none has released since.
+
+[[firmware]]
+name = "QIDI Q1 Pro"
+repo = "QIDITECH/QIDI_Q1_Pro"
+feed = "releases"
+baseline = "4.4.24"
+basis = "Q1_Pro_V4.4.24 (2024-09-02) was the newest Q1 Pro release when QIDI support was written (#463, merged 2026-10-27)"
+
+[[firmware]]
+name = "QIDI X-Plus 3"
+repo = "QIDITECH/QIDI_PLUS3"
+feed = "releases"
+baseline = "4.2.15"
+basis = "Plus3_V4.2.15 (2024-10-17) was the newest X-Plus 3 release when QIDI support was written (#463, merged 2026-10-27)"
+
+[[firmware]]
+name = "QIDI X-Plus 4"
+repo = "QIDITECH/QIDI_PLUS4"
+feed = "releases"
+baseline = "1.7.1"
+basis = "Plus4_v1.7.1 (2025-08-06) was the newest X-Plus 4 release when QIDI support was written (#463, merged 2026-10-27)"
+
+[[firmware]]
+name = "QIDI X-Max 3"
+repo = "QIDITECH/QIDI_MAX3"
+feed = "releases"
+baseline = "4.3.15"
+basis = "Max3_V4.3.15 (2024-09-29) was the newest X-Max 3 release when QIDI support was written (#463, merged 2026-10-27)"
+
+[[firmware]]
+name = "QIDI X-Smart 3"
+repo = "QIDITECH/QIDI_SMART3"
+feed = "releases"
+baseline = "4.1.13"
+basis = "Smart_V4.1.13 (2024-01-15) was the newest X-Smart 3 release when QIDI support was written (#463, merged 2026-10-27)"
