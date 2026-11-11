@@ -271,11 +271,11 @@ def candidates(preference="auto", probe=None, *, ffmpeg=None, run=None) -> tuple
 
 
 def capture_preference(data=None) -> str:
-    """The [timelapse] capture_encoder preference, 'auto' when unset/invalid."""
+    """The [timelapse] capture_encoder preference, 'cpu' when unset/invalid."""
     data = _config.cfg() if data is None else data
     timelapse = data.get("timelapse", {}) if isinstance(data, dict) else {}
-    value = str(timelapse.get("capture_encoder") or "auto").strip().lower()
-    return value if value in ("auto", "vaapi", "nvenc", "qsv", "cpu") else "auto"
+    value = str(timelapse.get("capture_encoder") or "cpu").strip().lower()
+    return value if value in ("auto", "vaapi", "nvenc", "qsv", "cpu") else "cpu"
 
 
 def unique_partial(target) -> Path:
