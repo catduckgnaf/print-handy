@@ -47,7 +47,10 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors'
             ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
             ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
             ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
-            ('model_parts', 'combine')}
+            ('model_parts', 'combine'),
+            # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
+            # scale. In a thread it held the GIL for whole stretches of a chat interaction.
+            ('model_job', 'painted_fit_for_job')}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
 _SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
                  ('orca_adapter', 'largest_fitting_fraction')}
@@ -57,7 +60,8 @@ _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory':
                 'per_part_fit_options': 'the per-part fit check', 'full_size_split_possible': 'the split check',
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
-                'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split'}
+                'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split',
+                'painted_fit_for_job': 'the bed fit check'}
 
 
 logger = logging.getLogger(__name__)
