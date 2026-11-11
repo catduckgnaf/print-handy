@@ -120,7 +120,7 @@ max_height_mm = 256.0
 tools = 4
 color_system = "multi_tool"
 profile = "print_handy/printers/flashforge/creator5.py"
-notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. No active chamber heating. ZMod documents no Klipper 13 support on the Creator models. Print start is not verified on a live printer."
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. No active chamber heating. On the Creator models ZMod 1.7.6 runs its stock-Klipper configuration; its one documented Klipper 13 piece there is the opt-in KLIPPER_C5 parameter (SAVE_ZMOD_DATA KLIPPER_C5=1, default 0), which uses the Klipper 13 input shapers. Print start is not verified on a live printer."
 [printer.thermal]
 enclosure = "open"
 enclosure_provenance = "verified profile"
@@ -154,7 +154,7 @@ max_height_mm = 256.0
 tools = 4
 color_system = "multi_tool"
 profile = "print_handy/printers/flashforge/creator5_pro.py"
-notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The Pro adds the enclosed frame, active chamber heating and air filtration over the Creator 5; print geometry is identical, and the thermal facts are recorded separately in the thermal record below. ZMod documents no Klipper 13 support on the Creator models. Print start is not verified on a live printer."
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The Pro adds the enclosed frame, active chamber heating and air filtration over the Creator 5; print geometry is identical, and the thermal facts are recorded separately in the thermal record below. On the Creator models ZMod 1.7.6 runs its stock-Klipper configuration; its one documented Klipper 13 piece there is the opt-in KLIPPER_C5 parameter (SAVE_ZMOD_DATA KLIPPER_C5=1, default 0), which uses the Klipper 13 input shapers. Print start is not verified on a live printer."
 [printer.thermal]
 enclosure = "enclosed"
 enclosure_provenance = "verified profile"

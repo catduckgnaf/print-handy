@@ -793,6 +793,39 @@ def test_zmod_guide_covers_zflash_md5_pairing_and_verification():
     assert "`/print-firmware`" in fw.GUIDE_VERIFY_LINE
 
 
+def test_zmod_guide_routes_unappliable_components_to_software_update():
+    # ZMod's "Updating the Mod" (wiki Setup.md, tag 1.7.6) finishes in
+    # Fluidd/Mainsail, Settings, Software Update, one module at a time. The
+    # components Moonraker reports `?` for are refused by `/print-firmware
+    # update`, so the guide must not send every component there (#1274).
+    text = fw.guide_text("zmod", AD5X)
+    assert "`/print-firmware update <component>`" in text
+    assert "Software Update" in text
+    assert "Fluidd or Mainsail" in text
+    assert "`?`" in text
+    assert "one by one" in text
+    step5 = text.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
+    assert step5.index("/print-firmware update") < step5.index("Software Update")
+
+
+def test_zmod_guide_closing_mcu_step_names_force_13_never_bare():
+    # A bare UPDATE_MCU toggles the MCU firmware (back to native on a
+    # Klipper 13 install); the closing step must name FORCE=13 and be
+    # conditional on the report, matching the MCU-mismatch report line.
+    text = fw.guide_text("zmod", AD5X)
+    step6 = text.split("\n6. ", 1)[1].split(fw.GUIDE_VERIFY_LINE, 1)[0]
+    assert "`UPDATE_MCU FORCE=13`" in step6
+    assert "Klipper 13" in step6 and "out of step" in step6
+    assert "`/print-firmware` reports" in step6
+    assert step6.index("FORCE=13") < step6.index("bare `UPDATE_MCU`")
+    for line in text.splitlines():
+        if "`UPDATE_MCU`" in line:
+            assert "bare" in line or "without" in line, line
+    # No ZFLASH2 / ZFLASH3: ZMod's sources at 1.7.6 (docs in every
+    # language, the macro configs and their history) name only ZFLASH.
+    assert "ZFLASH2" not in text and "ZFLASH3" not in text
+
+
 def test_stock_guide_covers_every_documented_pre_and_post_step():
     text = fw.guide_text("stock", AD5X)
     for needle in ("DISABLE_PLUGIN", "recommend", "timelapse", "notify",

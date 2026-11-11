@@ -29,7 +29,14 @@ mocked Moonraker responses in `tests/test_firmware_update.py`.
   guided manual flows for the ZMod base and the stock Flashforge
   firmware under it (AD5X family). Print Handy performs none of those
   steps; the guide ends by asking you to run `/print-firmware` so the
-  resulting versions are verified.
+  resulting versions are verified. After the base install, `guide
+  zmod` sends a component with a real available version to
+  `/print-firmware update` and a component reported as `?` to the
+  Software Update section in Fluidd or Mainsail (ZMod's own route,
+  one module at a time), then closes with `UPDATE_MCU FORCE=13` only
+  if the report shows a Klipper 13 MCU out of step. It names no
+  `ZFLASH2` / `ZFLASH3` macros: ZMod's sources at 1.7.6 name only
+  `ZFLASH`.
 
 There is no automatic applying and no background updater. Availability
 may be reported; only a person confirms an update.

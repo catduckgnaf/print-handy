@@ -773,9 +773,21 @@ guide is the checklist, in ZMod's documented order.
    during the install. Your `mod_data` settings are preserved across the
    update.
 5. Afterwards, the printer's OS version and its `zmod` component version
-   must pair in their first two numbers (OS 1.9.x with ZMod 1.9.x). If the
-   report still shows component updates, apply them one at a time with
-   `/print-firmware update <component>`.
+   must pair in their first two numbers (OS 1.9.x with ZMod 1.9.x). Then
+   bring the components up to date, one at a time, as ZMod's update
+   instructions say:
+   - A component `/print-firmware` reports with a real available version:
+     apply it with `/print-firmware update <component>`.
+   - A component whose latest version shows as not reported (Moonraker
+     says `?`, usual for the `zmod`, `klipper` and `moonraker` git
+     components): Print Handy cannot apply it. Use Fluidd or Mainsail,
+     Settings, Software Update: press Check for updates, then update each
+     module one by one. The printer may reboot along the way.
+6. If you use Klipper 13 and `/print-firmware` reports the MCU out of step
+   after a `klipper` update, run `UPDATE_MCU FORCE=13` at the printer.
+   Not a bare `UPDATE_MCU` here: without `FORCE` it switches the MCU to
+   the other firmware, which on a Klipper 13 install is the native one.
+   This is a check after the components, not a step every update needs.
 
 """ + GUIDE_VERIFY_LINE
 
