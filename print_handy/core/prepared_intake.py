@@ -2296,9 +2296,13 @@ def with_design_origin(job, record):
     upload path's own. A record that does not name exactly these files is
     ignored, never half-applied.
     """
-    names = {str(row.get('file')) for row in (record or {}).get('parts') or []}
-    if (not isinstance(record, dict) or not record.get('session_id') or len(job.get('sources') or []) < 2
-            or {r.get('name') for r in job['sources']} != names):
+    if not isinstance(record, dict) or not record.get('session_id'):
+        return job
+    rows = record.get('parts')
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return job  # malformed metadata is ignored, never a crash of the upload's intake
+    names = {str(row.get('file')) for row in rows}
+    if len(job.get('sources') or []) < 2 or {r.get('name') for r in job['sources']} != names:
         return job
     job.update(design=dict(record), title=str(record.get('title') or job.get('title')))
     return job

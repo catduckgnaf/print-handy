@@ -247,6 +247,31 @@ def test_with_design_origin_only_applies_to_exactly_the_handed_files(tmp_path):
                                                               other)
 
 
+@pytest.mark.parametrize("record", [
+    ["x"], "abc", 7, {"session_id": "abc", "parts": "base-plate.stl"},
+    {"session_id": "abc", "parts": ["base-plate.stl", "top-arm.stl"]},
+    {"session_id": "abc", "parts": [{"file": "base-plate.stl"}, None]},
+])
+def test_malformed_design_handoff_metadata_is_ignored_not_a_crash(tmp_path, record):
+    """Review of #1223: a truthy non-dict handoff (or non-dict part rows) raised
+    AttributeError and aborted the whole multi-file intake."""
+    files = [tmp_path / "base-plate.stl", tmp_path / "top-arm.stl"]
+    for f in files:
+        f.write_bytes(b"solid x
+endsolid x
+")
+    plain = prepared_intake.upload_job_set(files)
+    before = dict(plain)
+    job = prepared_intake.with_design_origin(plain, record)
+    assert "design" not in job and job == before
+
+
+def test_from_design_skips_non_dict_part_rows():
+    rows = [{"name": "base-plate.stl", "file": "base-plate.stl"}]
+    project = projects.from_design("intake-9", rows, {"session_id": "abc", "parts": [None, "x"]})
+    assert project["design"]["session_id"] == "abc"
+
+
 # ------------------------------------------------------ Slice it, through dispatch
 
 class FakeAdapter:

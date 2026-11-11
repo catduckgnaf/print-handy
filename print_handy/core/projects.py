@@ -157,7 +157,8 @@ def from_design(intake_id: str, sources: list[dict], design: dict,
     project = from_files(intake_id, DESIGN_SOURCE_KIND, sources,
                          title=title or design.get("title"))
     declared = {str(row.get("file")): str(row.get("part"))
-                for row in design.get("parts") or [] if row.get("file") and row.get("part")}
+                for row in design.get("parts") or []
+                if isinstance(row, dict) and row.get("file") and row.get("part")}
     for component in project["components"]:
         if component["name"] in declared:
             component["design_part"] = declared[component["name"]]
