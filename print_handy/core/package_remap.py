@@ -661,13 +661,15 @@ def remap_prusa_member(data, mapping):
             new = sep.join(items[(a - 1) * count + (b - 1)] for a in order for b in order)
         elif key == 'wiping_volumes_extruders':
             items, sep = _split_prusa_list(raw)
-            if len(set(item.strip() for item in items)) <= 1:
+            if not raw.strip():
                 pass
-            elif len(items) == 2 * count:
-                new = sep.join(item for source in order for item in items[2 * source - 2:2 * source])
-            else:
+            elif len(items) != 2 * count:
+                # The size is checked before the uniform shortcut: a uniform
+                # vector of the wrong length is as malformed as any other.
                 raise RuntimeError(f'{PRUSA_CONFIG} wiping_volumes_extruders has {len(items)} entries, '
                                    f'not the two per extruder a {count}-extruder palette requires')
+            elif len(set(item.strip() for item in items)) > 1:
+                new = sep.join(item for source in order for item in items[2 * source - 2:2 * source])
         elif raw and count >= 2:
             items, sep = _split_prusa_list(raw)
             if _PRUSA_FILAMENT_KEYS.fullmatch(key):

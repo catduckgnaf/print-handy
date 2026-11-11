@@ -254,6 +254,17 @@ def test_wiping_volume_pairs_follow_their_extruder(tmp_path):
         "21,22,31,32,11,12"
 
 
+@pytest.mark.parametrize("vector", ["70", "70,70,70,70", "11,12,21,22"])
+def test_a_wiping_volume_vector_of_the_wrong_size_refuses_by_name(tmp_path, vector):
+    # Review on #1261: a uniform vector of the wrong length must refuse too,
+    # not pass as "the same under any order".
+    config = _CONFIG.replace("70,70,70,70,70,70", vector)
+    source = prusa_project(tmp_path / "project.3mf", config=config)
+    with pytest.raises(RuntimeError, match="wiping_volumes_extruders has"):
+        package_remap.remap_package(source, tmp_path / "out.3mf", {1: 3, 2: 1, 3: 2})
+    assert not (tmp_path / "out.3mf").exists()
+
+
 def test_an_unmapped_prusa_height_change_refuses_by_name(tmp_path):
     layer = _LAYER_GCODE.replace('extruder="2" color="#DB5182"', 'extruder="5" color="#DB5182"')
     source = prusa_project(tmp_path / "project.3mf",
