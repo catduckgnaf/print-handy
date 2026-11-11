@@ -1268,6 +1268,13 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
     the per-printer control lock; a held lock is a named busy result, not a
     queue. An unreachable Spoolman is a named failure and the local cache is
     left untouched. Never raises for a Spoolman or printer failure.
+
+    The hardware-record lock is held only around the local read-modify-write,
+    never across a Spoolman or printer round trip (#1147): the spool list is
+    read first, the Spoolman writes the rebuild decides go out after the record
+    is saved, the migration's writes go out before its marker is saved, and the
+    screen and usage repairs run after. A slow Spoolman therefore never holds up
+    a launch or a slot write that needs the record.
     """
     pid = printer_id or _default_printer_id()
     result: dict[str, Any] = {"ok": False, "printer_id": pid, "migrated": False,
@@ -1288,10 +1295,8 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
                                "in flight, so nothing was changed — run it again when the printer is free")
             return result
     try:
-        from ..core import printer_state
-        with printer_state.hardware_lock(path=_hardware_path(state_path, pid)):
-            return _reconcile_locked(pid, result, client=client, mr=mr,
-                                     state_path=state_path, pending_path=pending_path)
+        return _reconcile_locked(pid, result, client=client, mr=mr,
+                                 state_path=state_path, pending_path=pending_path)
     finally:
         if lock is not None:
             try:
@@ -1302,6 +1307,13 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
 
 def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: Client,
                       state_path: Path | None, pending_path: Path | None) -> dict[str, Any]:
+    """The reconcile under the control lock; the hardware lock only around record I/O (#1147)."""
+    from ..core import printer_state
+
+    def record_lock():
+        return printer_state.hardware_lock(path=_hardware_path(state_path, pid))
+
+    # Spoolman first, with no record lock held.
     ensure_ph_slot_field(client)
     try:
         rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
@@ -1313,6 +1325,30 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
         return result
     spools = [row for row in rows if isinstance(row, dict) and row.get("id") is not None]
     by_id = {int(row["id"]): row for row in spools}
+    deferred_clears: list[int] = []
+    with record_lock():
+        assignments = _reconcile_record(pid, result, spools=spools, by_id=by_id,
+                                        state_path=state_path, deferred_clears=deferred_clears)
+    if assignments is None:
+        # First run for this printer: the migration writes Spoolman with no lock held,
+        # then saves its marker under the lock.
+        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id,
+                                         old_slots=result.pop("_old_slots"), record_lock=record_lock,
+                                         state_path=state_path)
+    for spool_id in deferred_clears:
+        _set_ph_slot(client, spool_id, None)  # archived spools' stale claims, decided by the rebuild
+    return _reconcile_finish(pid, result, assignments, by_id=by_id, mr=mr,
+                             state_path=state_path, pending_path=pending_path)
+
+
+def _reconcile_record(pid: str, result: dict[str, Any], *, spools: list[dict[str, Any]],
+                      by_id: dict[int, dict[str, Any]], state_path: Path | None,
+                      deferred_clears: list[int]) -> dict[int, int] | None:
+    """Read the record and rebuild it from Spoolman's claims, under the hardware lock; no network.
+
+    Returns the assignments, or None when this printer still needs its first-run
+    migration (its local cache is left in ``result["_old_slots"]`` for it).
+    """
     try:
         state = load_state(state_path, printer_id=pid)
     except FileNotFoundError:
@@ -1335,11 +1371,18 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
     # cache on the next run.
     migrated_done = bool(state.get("ph_slot_migrated"))
     if not migrated_done and not claims:
-        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id, old_slots=old_slots,
-                                         state=state, state_path=state_path)
-    else:
-        assignments = _reconcile_rebuild(pid, result, client=client, state=state, old_slots=old_slots,
-                                         claims=claims, by_id=by_id, state_path=state_path)
+        result["_old_slots"] = old_slots
+        return None
+    return _reconcile_rebuild(pid, result, state=state, old_slots=old_slots,
+                              claims=claims, by_id=by_id, state_path=state_path,
+                              deferred_clears=deferred_clears)
+
+
+def _reconcile_finish(pid: str, result: dict[str, Any], assignments: dict[int, int], *,
+                      by_id: dict[int, dict[str, Any]], mr: Client, state_path: Path | None,
+                      pending_path: Path | None) -> dict[str, Any]:
+    """Screens and the usage pointer, after the record is saved and its lock released."""
+    old_slots = result.pop("_finish_old_slots", {})
     result["assignments"] = {slot: assignments[slot] for slot in sorted(assignments)}
     # Converge the screens for the slots Spoolman settled (push_screen itself
     # defers while printing), then repair the usage pointer like /spool sync.
@@ -1372,7 +1415,7 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
 def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
                        by_id: dict[int, dict[str, Any]],
                        old_slots: dict[str, dict[str, Any]],
-                       state: dict[str, Any], state_path: Path | None) -> dict[int, int]:
+                       record_lock, state_path: Path | None) -> dict[int, int]:
     """First run for this printer: write the local cache's assignments into Spoolman ``ph_slot`` (#798).
 
     Completion is persisted in this printer's own record (``ph_slot_migrated``)
@@ -1408,18 +1451,30 @@ def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
     if assignments:
         result["migrated"] = True
         result["changed"] = True
-    if not state.get("ph_slot_migrated"):
-        state["ph_slot_migrated"] = True
-        save_state(state, state_path, printer_id=pid)
+    with record_lock():
+        # Re-read under the lock: another writer may have saved the record while
+        # the Spoolman writes above were in flight; only the marker is added.
+        try:
+            state = load_state(state_path, printer_id=pid)
+        except Exception:
+            state = {"filament_slots": {}}
+        if not state.get("ph_slot_migrated"):
+            state["ph_slot_migrated"] = True
+            save_state(state, state_path, printer_id=pid)
     result["_records"] = records
+    result["_finish_old_slots"] = old_slots
     return assignments
 
 
-def _reconcile_rebuild(pid: str, result: dict[str, Any], *, client: Client, state: dict[str, Any],
+def _reconcile_rebuild(pid: str, result: dict[str, Any], *, state: dict[str, Any],
                        old_slots: dict[str, dict[str, Any]],
                        claims: dict[int, list[dict[str, Any]]], by_id: dict[int, dict[str, Any]],
-                       state_path: Path | None) -> dict[int, int]:
-    """Rebuild the local cache from Spoolman's ``ph_slot`` assignments (#798)."""
+                       state_path: Path | None, deferred_clears: list[int]) -> dict[int, int]:
+    """Rebuild the local cache from Spoolman's ``ph_slot`` assignments (#798).
+
+    Local only: an archived spool's stale claim is queued in ``deferred_clears``
+    for the caller to clear in Spoolman once the record lock is released (#1147).
+    """
     assignments: dict[int, int] = {}
     records: dict[str, dict[str, Any]] = {}
     new_slots: dict[str, dict[str, Any]] = {}
@@ -1431,7 +1486,7 @@ def _reconcile_rebuild(pid: str, result: dict[str, Any], *, client: Client, stat
                 result["conflicts"].append(
                     f"Slot {slot}: spool #{row['id']} is archived but still claims this slot in "
                     "Spoolman — the claim was cleared and the slot was not taken from it")
-                _set_ph_slot(client, int(row["id"]), None)
+                deferred_clears.append(int(row["id"]))
         if len(live) > 1:
             ids = " and ".join(f"#{row['id']}" for row in sorted(live, key=lambda r: int(r["id"])))
             result["conflicts"].append(
@@ -1514,6 +1569,7 @@ def _reconcile_rebuild(pid: str, result: dict[str, Any], *, client: Client, stat
         save_state(state, state_path, printer_id=pid)
         result["changed"] = True
     result["_records"] = records
+    result["_finish_old_slots"] = old_slots
     return assignments
 
 

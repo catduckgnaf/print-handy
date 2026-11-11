@@ -33,6 +33,11 @@ class StockFlashforgeAdapter(PrinterAdapter):
     def slot_count(self):
         return int(self.config["printer"]["filament_slots"])
 
+    def fact(self, name):
+        """A heater-ceiling fact (#1147): the same AD5X hardware as the ZMod profile."""
+        from ..flashforge.adapter import HEATER_FACTS
+        return HEATER_FACTS["flashforge.ad5x"][name]
+
     def client(self):
         """The LAN client. Missing host or credentials raise before any socket opens."""
         section = (self.config or {}).get("flashforge_stock") or {}
