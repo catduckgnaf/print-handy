@@ -129,12 +129,21 @@ def test_every_platform_attaches_real_output_and_refuses_injected_markers(tmp_pa
     assert sum(b"VIDEOBYTES" in data for data in seen) == 1
     assert not any(b"SECRET" in data for data in seen)
 
-    outbox = []
+    class RecordingOutbox:
+        # The web adapter's outbox takes the browser session scope (#1145).
+        def __init__(self):
+            self.entries = []
+
+        def append(self, entry, scope=""):
+            self.entries.append((entry, scope))
+
+    outbox = RecordingOutbox()
     adapter = web.WebAdapter(outbox)
     asyncio.run(adapter.send("webui", text))
     asyncio.run(adapter.send("webui", "Here", files=[clip]))
-    notes = [entry["content"] for entry in outbox]
+    notes = [entry["content"] for entry, _scope in outbox.entries]
     assert notes.count("📎 clip.mp4") == 2 and not any(".env" in n for n in notes)
+    assert {scope for _entry, scope in outbox.entries} == {web.WebAdapter._scope(None)}
 
 
 def test_user_text_is_inert_in_events():
