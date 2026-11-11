@@ -512,6 +512,51 @@ volume:
   or `grep -h "stop reason" /mnt/user/appdata/print-handy/state/logs/*.log`.
   `print-handy diagnostics` includes the newest file's tail.
 
+### The container stops: a data folder is not writable
+
+Before it migrates anything or starts a service, the entrypoint checks that
+the container user (UID 1000) can write `/data` and each data folder it uses:
+`/data/state` (and its `state` and `logs` folders), `/data/archive`,
+`/data/records`, `/data/cache`, and `/data/spoolman` with its `config`, `logs`
+and `backups` folders when the bundled Spoolman is on. A folder that does not
+exist yet is skipped; its parent is checked and the folder is created later.
+The check writes and removes one temporary file; it never changes your data.
+For the first folder it cannot write, it prints one message and the container
+exits with status 73:
+
+```text
+Print Handy: cannot start: /data/state is not writable by the container user (uid 1000, gid 1000).
+  On the host this is the folder mapped to /data/state (Compose: inside ${PRINT_HANDY_DATA:-./data}; Unraid: inside the Appdata Storage path).
+  Fix it on the host, then start the container again:
+    Docker Compose:  sudo chown -R 1000:1000 ./data   (your PRINT_HANDY_DATA folder, and PRINT_HANDY_SPOOLMAN_DATA if set)
+    Unraid:          chown -R 1000:1000 /mnt/user/appdata/print-handy   (your Appdata Storage path)
+    Rootless Podman: podman unshare chown -R 1000:1000 <your data folder>
+  ...
+```
+
+Run the line for your install on the host, then start again
+(`docker compose up -d`, or restart the container in Unraid). With Compose,
+the `print-handy-init` service already sets the owner of each top-level data
+folder on every `up`, so when the message still appears there the cause is
+one of these:
+
+- A folder inside the data folder is owned by another user, for example
+  after running the container as root once. The `chown -R` above fixes it.
+- The data folder is on an NFS or SMB share that ignores or refuses
+  ownership changes (NFS `root_squash`, a CIFS mount with fixed `uid=`).
+  Set the owner to 1000:1000 on the server, or mount the share with
+  `uid=1000,gid=1000`.
+- The folder is mapped read-only (`:ro`). Map it read-write.
+- The container runs as a user other than 1000. Compose maps only the
+  folders inside `/data`, so a message naming `/data` itself on Compose means
+  the `user:` line was changed; the image expects 1000:1000.
+
+If `print-handy-init` itself cannot create or chown a folder, it fails with
+one line naming that folder and the same `chown` command
+(`Print Handy init: cannot create /data/state or make it owned by 1000:1000`),
+and the application does not start. `docker compose logs print-handy-init`
+shows it.
+
 ### When a print stops
 
 On a Klipper shutdown, a printer error state or a cancel, Print Handy reads the

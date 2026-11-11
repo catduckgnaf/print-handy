@@ -17,6 +17,28 @@ It checks the machine, the settings, the slicer and the services you configured,
 2. **The bot is online but ignores what you type.** Turn on **Message Content Intent** on the Discord Developer Portal's **Bot** page and restart the bot. The rest of the checklist is in [Discord bot setup, Recovery](DISCORD-BOT-SETUP.md#recovery).
 3. **Every message gets two answers, or none.** Two copies of Print Handy are running on one bot token, often an old install next to the container. Stop the extra one: one token, one instance per channel (see [Discord bot setup](DISCORD-BOT-SETUP.md#4-give-them-to-print-handy)).
 
+## The container stops and names a folder
+
+If the container exits at once (or keeps restarting) and its log starts with
+
+```text
+Print Handy: cannot start: /data/state is not writable by the container user (uid 1000, gid 1000).
+```
+
+the container user cannot write that data folder. Nothing was changed. Run the
+fix the message prints for your install on the host, then start again:
+
+```bash
+sudo chown -R 1000:1000 ./data                       # Docker Compose: your PRINT_HANDY_DATA folder
+chown -R 1000:1000 /mnt/user/appdata/print-handy     # Unraid: your Appdata Storage path
+```
+
+Under Compose, `docker compose logs print-handy-init` shows the first-boot
+folder step; a line starting `Print Handy init: cannot create` names the folder
+it could not create or chown. Network shares that refuse ownership changes and
+read-only mappings are covered in
+[DOCKER.md, The container stops: a data folder is not writable](DOCKER.md#the-container-stops-a-data-folder-is-not-writable).
+
 ## Where the answers live
 
 Print Handy keeps its troubleshooting knowledge in registries so a person browsing the repository and the bot read the same source:

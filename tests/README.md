@@ -37,7 +37,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Support coverage golden pack (truth-labeled adversarial geometry) | `tests/pipeline/test_support_coverage_golden_pack.py` (extends the per-fix files `test_support_coverage_963.py`, `test_support_coverage_969.py`) |
 | Event starvation (fake clock, zero status events) | `tests/test_event_starvation.py` |
 | Renamed-key reader completeness (#672 renames) | `tests/test_renamed_key_readers.py` |
-| Entrypoint × state-volume layout matrix (#914) | `tests/test_entrypoint_layout_matrix.py` |
+| Entrypoint × state-volume layout matrix (#914); unwritable data folder message and the Compose init service failure (#1144) | `tests/test_entrypoint_layout_matrix.py` |
 | Wrapped aggregates from real record writers; ffmpeg pacing | `tests/test_wrapped_records_from_writers.py` |
 | Bambu HMS table content integrity across regenerations | `tests/printers/test_bambu_hms.py`, `tests/printers/test_bambu_hms_generator.py` |
 | Docker image, release contracts, supervisor, healthcheck | `tests/test_docker_release*.py`, `tests/docker/`, `tests/test_combined_supervisor.py`, `tests/test_go2rtc_container.py`, `tests/test_native_release_acceptance.py` |
