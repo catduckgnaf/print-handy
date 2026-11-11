@@ -271,6 +271,44 @@ def test_route_refuses_an_upload_past_the_quota_before_reading(running):
     assert upload.list_inbox(httpd.settings_data) == []
 
 
+def test_the_pre_read_quota_check_counts_the_whole_body(running):
+    # duckcatgnaf on #1219 (head adc531f3): subtracting the whole multipart
+    # allowance from Content-Length let a file that cannot fit be received
+    # before the save-time check refused it. The early check counts the
+    # whole body, so this file (room for it only if the allowance were
+    # subtracted) is refused before a byte is read.
+    httpd, port = running
+    token = upload.create_link(httpd.settings_data, httpd.access.credential_fingerprint())
+    body, content_type = multipart_body({}, "a.stl", b"x" * 2000)
+    with mock.patch.object(upload, "INBOX_QUOTA_BYTES", 1500),             mock.patch.object(upload, "MULTIPART_OVERHEAD_BYTES", 1000),             mock.patch.object(upload, "parse_multipart_stream") as parse:
+        code, _, raw = request(port, "POST", f"/u/{token}", body,
+                               {"Content-Type": content_type})
+    assert code == 507
+    parse.assert_not_called()
+
+
+def test_stale_spool_files_are_pruned_and_live_ones_kept(data):
+    spool = upload.spool_dir(data)
+    spool.mkdir(parents=True)
+    stale = spool / "upload-old.part"
+    live = spool / "upload-new.part"
+    stale.write_bytes(b"x" * 100)
+    live.write_bytes(b"y" * 100)
+    old = time.time() - upload.STALE_SPOOL_S - 60
+    os.utime(stale, (old, old))
+    assert upload.inbox_usage(data) == 200
+    assert upload.prune_stale_spool(data) == 1
+    assert not stale.exists() and live.exists()
+    assert upload.inbox_usage(data) == 100
+    # The server prunes at startup too, so an orphan never holds quota.
+    os.utime(live, (old, old))
+    httpd = server.make_server(data, environ={}, port=0, snapshot_func=lambda: {})
+    try:
+        assert not live.exists()
+    finally:
+        httpd.server_close()
+
+
 def test_delete_accepts_only_a_listed_inbox_name(data):
     upload.save_upload(data, "keep.stl", b"solid k\n")
     (Path(settings.state_dir(data)) / "other.json").write_text("{}")

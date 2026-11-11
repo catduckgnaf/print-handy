@@ -276,6 +276,15 @@ class WebChatService:
             while len(self._transcripts) > MAX_SCOPES:
                 self._transcripts.pop(next(iter(self._transcripts)))
 
+    def _touch_locked(self, scope):
+        """Mark ``scope`` most recently used (caller holds the lock) and
+        return its transcript; an unknown scope is not created."""
+        entries = self._transcripts.pop(scope, None)
+        if entries is None:
+            return []
+        self._transcripts[scope] = entries
+        return entries
+
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
@@ -416,9 +425,13 @@ class WebChatService:
     # -- rendering side -------------------------------------------------------
 
     def entries(self, since=0, scope=""):
-        """This scope's transcript and the shared entries, oldest first."""
+        """This scope's transcript and the shared entries, oldest first.
+
+        Reading a transcript counts as using it: the scope moves to the
+        most recently used end, so a session that is only polling is not
+        evicted ahead of scopes nobody is reading."""
         with self._lock:
-            own = self._transcripts.get(str(scope or ""), []) if scope else []
+            own = self._touch_locked(str(scope or "")) if scope else []
             rows = [entry for entry in (*self._shared, *own) if entry["seq"] > since]
         return sorted(rows, key=lambda entry: entry["seq"])
 

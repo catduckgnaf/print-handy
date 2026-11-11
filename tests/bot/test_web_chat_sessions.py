@@ -130,3 +130,21 @@ def test_a_post_for_no_session_is_shared(cfg):
     for name in ("one", "two"):
         contents = [e["content"] for e in service.view(web.scope_for(name)).entries()]
         assert contents == ["Print Handy restarted"]
+
+
+def test_a_session_that_only_polls_is_not_evicted_first(cfg, monkeypatch):
+    # duckcatgnaf on #1219 (head 12195ff8): reading a transcript must count
+    # as using it, or a quiet session that is polling loses its messages
+    # once MAX_SCOPES other sessions have posted.
+    monkeypatch.setattr(web, "MAX_SCOPES", 3)
+    service = web.WebChatService(cfg)
+    quiet = web.scope_for("quiet-session")
+    service._append({"kind": "message", "content": "keep me"}, quiet)
+    for n in range(5):
+        service._append({"kind": "message", "content": f"noise {n}"},
+                        web.scope_for(f"busy-{n}"))
+        # The quiet session polls between every other session's post.
+        assert [e["content"] for e in service.view(quiet).entries()] == ["keep me"]
+    # A scope that is only read and never written is not created.
+    service.view(web.scope_for("never-posted")).entries()
+    assert web.scope_for("never-posted") not in service._transcripts

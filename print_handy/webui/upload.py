@@ -439,6 +439,35 @@ def parse_multipart_stream(rfile, length: int, content_type: str, spool):
         raise
 
 
+# A spool file not written to for this long belongs to no live upload
+# (a receiving upload writes a chunk at least every socket timeout).
+STALE_SPOOL_S = 15 * 60
+
+
+def prune_stale_spool(data, now=None) -> int:
+    """Remove spool files left behind by an upload that never finished.
+
+    An upload being received rewrites its spool file continuously, so a
+    file untouched for STALE_SPOOL_S is an orphan (the process stopped
+    mid-upload). Orphans would otherwise count toward the inbox quota
+    with no way to delete them from the upload page. Returns how many
+    were removed; errors are skipped."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        entries = list(spool_dir(data).iterdir())
+    except OSError:
+        return 0
+    for path in entries:
+        try:
+            if path.is_file() and now - path.stat().st_mtime > STALE_SPOOL_S:
+                path.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def discard_spooled(files) -> None:
     """Remove the spool files of an upload that was not (fully) kept."""
     for _name, path in files or ():
@@ -775,7 +804,7 @@ __all__ = [
     "UPLOAD_SLOTS", "UploadError", "clean_name", "create_link",
     "delete_inbox_file", "discard_spooled", "inbox_dir", "inbox_usage",
     "link_valid", "list_inbox", "list_links", "note_link_use",
-    "parse_multipart", "parse_multipart_stream", "quota_refusal",
+    "parse_multipart", "parse_multipart_stream", "prune_stale_spool", "quota_refusal",
     "rebind_links", "render_token_page", "render_upload_page",
     "revoke_all_links", "revoke_link", "save_upload", "save_upload_for_link",
     "spool_dir",

@@ -2220,8 +2220,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return 413, "upload too large"
         data = self.server.settings_data
-        full = upload_module.quota_refusal(
-            data, max(0, length - upload_module.MULTIPART_OVERHEAD_BYTES))
+        # The whole Content-Length counts toward the pre-read check: the
+        # multipart framing is usually far smaller than its allowance, so
+        # subtracting the allowance would let a file that cannot fit be
+        # received before the save-time check refused it.
+        upload_module.prune_stale_spool(data)
+        full = upload_module.quota_refusal(data, max(0, length))
         if full is not None:
             self.close_connection = True
             return 507, full
@@ -2614,6 +2618,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.remembered_sessions = _load_remembered_sessions(
         data, server.access.credential_fingerprint())
     server.login_throttle = access_module.LoginThrottle()
+    # Spool files left by a process that stopped mid-upload would count
+    # toward the inbox quota forever (the upload page cannot list them).
+    upload_module.prune_stale_spool(data)
     # The reverse proxies whose X-Forwarded-For names the client for the
     # throttle; none by default, so the header is never read (#1145).
     server.trusted_proxies = settings.trusted_proxy_networks(
