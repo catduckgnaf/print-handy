@@ -306,7 +306,10 @@ class StandaloneAdapter(BasePlatformAdapter):
             return True
         posted_chat = str(alert.get("telegram_chat_id") or "")
         press_chat = str(((query.get("message") or {}).get("chat") or {}).get("id") or "")
-        if posted_chat and press_chat and press_chat != posted_chat:
+        # A press must prove it came from the alert's own chat: a press that
+        # carries no message (Telegram omits it for very old messages) cannot,
+        # so it is refused rather than let through unchecked.
+        if posted_chat and press_chat != posted_chat:
             await answer("Not allowed. Nothing changed.")
             return True
         if not await asyncio.to_thread(pab.take, aid):

@@ -551,6 +551,22 @@ def test_alert_callback_from_another_chat_is_refused(monkeypatch):
     assert answers[0]["text"] == "Not allowed. Nothing changed."
 
 
+def test_alert_callback_without_its_message_is_refused(monkeypatch):
+    # Telegram can omit `message` from a callback query; such a press cannot
+    # show it came from the alert's chat, so it must not act.
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": CHAT}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    query = _alert_callback("cancel", "ab12cd34")
+    del query["message"]
+    assert run(adapter.handle_callback_query(query)) is True
+    assert clicks == [] and taken == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert answers[0]["text"] == "Not allowed. Nothing changed."
+
+
 def test_alert_callback_stale_alert_answers_old_and_acts_on_nothing(monkeypatch):
     stub = BotApiStub()
     adapter, clicks = _alert_adapter(monkeypatch, stub, alert=None)
