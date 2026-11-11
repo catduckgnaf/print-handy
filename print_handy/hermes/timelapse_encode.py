@@ -85,11 +85,17 @@ def dri_status(dri_dir=None, *, access=None, sys_drm="/sys/class/drm", environ=N
         if str(environ.get(live_stream.VAAPI_DEVICE_ENV) or "").strip():
             chosen = live_stream.vaapi_device(environ=environ)
             if access(chosen, os.R_OK | os.W_OK):
+                failed = vaapi_open_failure(chosen)
+                if failed:
+                    return False, failed
                 return True, f"{chosen} is usable (set by {live_stream.VAAPI_DEVICE_ENV})"
             return False, (f"{chosen} (set by {live_stream.VAAPI_DEVICE_ENV}) is missing or not "
                            f"readable and writable (add the device's group: group_add / --group-add)")
         node = live_stream.usable_render_node(dri_dir, sys_drm, access=access)
         if node is not None:
+            failed = vaapi_open_failure(str(node))
+            if failed:
+                return False, failed
             return True, f"{node} is usable"
         if all(live_stream._render_driver(sys_drm, n.name) == "nvidia" for n in nodes):
             return False, f"{dri_dir} has only NVIDIA render nodes (no VAAPI driver; NVENC uses the NVIDIA runtime)"
@@ -157,6 +163,57 @@ def ffmpeg_failure(exc) -> str:
     return repr(exc)
 
 
+# One VAAPI open check per (ffmpeg, render node) per process (#1282). A render node that exists
+# and is readable can still refuse VAAPI: a container whose /sys hides the driver link (so an
+# NVIDIA node is not recognised as one), an Intel/AMD node without its VA driver in the image.
+# ffmpeg then fails at "-vaapi_device" before any encoding, exit 234 "Error parsing global
+# options: Invalid argument", once per encode. The check runs that same option on a one-frame
+# null input, so a node that cannot open is skipped up front with the reason named.
+VAAPI_OPEN_TIMEOUT_S = 20
+_VAAPI_OPEN: dict = {}  # (ffmpeg, device) -> "" when it opened, else the named reason
+_VAAPI_OPEN_LOCK = threading.Lock()
+
+
+def vaapi_open_argv(ffmpeg, device) -> list:
+    """The cheap check: open ``device`` exactly as an encode does, decode one null frame, discard it."""
+    return [str(ffmpeg), "-hide_banner", "-v", "error", "-vaapi_device", str(device),
+            "-f", "lavfi", "-i", "nullsrc=s=16x16:d=0.04", "-frames:v", "1", "-f", "null", "-"]
+
+
+def vaapi_open_problem(ffmpeg, device=None, *, run=None) -> str:
+    """"" when ``ffmpeg`` can open ``device`` for VAAPI, else the named reason. Never raises.
+
+    The real ffmpeg's verdict is reused for the life of the process; an injected ``run``
+    (tests) always runs, so one test's fake never answers for another. Every verdict is
+    recorded, so :func:`dri_status` can name the failure.
+    """
+    device = str(device or live_stream.vaapi_device())
+    key = (str(ffmpeg), device)
+    if run is None:
+        with _VAAPI_OPEN_LOCK:
+            if key in _VAAPI_OPEN:
+                return _VAAPI_OPEN[key]
+    try:
+        (run or subprocess.run)(vaapi_open_argv(ffmpeg, device), capture_output=True,
+                                timeout=VAAPI_OPEN_TIMEOUT_S, check=True)
+        problem = ""
+    except Exception as exc:  # noqa: BLE001 - a probe must never fail an encode
+        problem = (f"{device} could not be opened for VAAPI ({ffmpeg_failure(exc)}); "
+                   f"set {live_stream.VAAPI_DEVICE_ENV} to the Intel/AMD render node, "
+                   f"or VAAPI stays skipped")
+    with _VAAPI_OPEN_LOCK:
+        _VAAPI_OPEN[key] = problem
+    return problem
+
+
+def vaapi_open_failure(device) -> str:
+    """The latest recorded open failure for ``device`` in this process, or ""."""
+    device = str(device)
+    with _VAAPI_OPEN_LOCK:
+        failures = [problem for (_ffmpeg, dev), problem in _VAAPI_OPEN.items() if dev == device]
+    return failures[-1] if failures else ""
+
+
 def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> live_stream.EncoderProbe:
     """Probe the real ffmpeg for H.264 encoders and GPU device presence.
 
@@ -164,8 +221,11 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
     an empty encoder set — candidate selection then still offers CPU,
     and the encode itself reports the real failure if ffmpeg is broken.
     The Intel/AMD device counts only when a render node is accessible
-    (:func:`dri_status`), not merely when /dev/dri exists.
+    (:func:`dri_status`), not merely when /dev/dri exists, and when this
+    ffmpeg can actually open it for VAAPI (:func:`vaapi_open_problem`,
+    checked once per process, #1282).
     """
+    injected_run = run
     run = run or subprocess.run
     encoders = set()
     try:
@@ -177,6 +237,10 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
         encoders = set()
     if dri_present is None:
         dri_present = dri_status()[0]
+        if dri_present and encoders & {"h264_vaapi", "h264_qsv"}:
+            # A usable-looking node must also open (#1282): otherwise every encode would try
+            # VAAPI first and fail on "-vaapi_device" before falling through.
+            dri_present = not vaapi_open_problem(ffmpeg, run=injected_run)
     if nvidia_present is None:
         nvidia_present = nvidia_status()[0]
     return live_stream.EncoderProbe(encoders=frozenset(encoders),
@@ -609,6 +673,10 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
     note = selection_note(preference, ordered, probe)
     if note:
         log(note)
+    elif not any(c.vendor == "vaapi" for c in ordered):
+        skipped = vaapi_open_failure(live_stream.vaapi_device())
+        if skipped:
+            log(f"timelapse encode: VAAPI skipped, {skipped}")
     gpu_failures = []
     for candidate in ordered:
         for attempt_kbps in (kbps, int(kbps * 0.7)):
