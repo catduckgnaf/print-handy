@@ -85,6 +85,21 @@ def model_member(source, name):
         return read_member(archive, name)
 
 
+def scoped(key, compute, *, source):
+    """compute() once per decode scope for ``key`` and the bytes of ``source``.
+
+    Outside a scope it always computes. The source's path, size and mtime
+    are part of the key, so a rewritten file is computed again.
+    """
+    cache = _SCOPE.get()
+    if cache is None:
+        return compute()
+    key = ('scoped', _file_key(source), key)
+    if key not in cache:
+        cache[key] = compute()
+    return cache[key]
+
+
 PAINT_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
 MMU_RE = re.compile(rb'(?:slic3rpe:)?mmu_segmentation="([0-9A-Fa-f]+)"')
 _TRIANGLE_TAG_RE = re.compile(rb'<(?:\w+:)?triangle\b[^>]*>')
