@@ -437,7 +437,9 @@ def main():
     # The #460 sink: the listener detected the transitions all along;
     # this wires them to the shared family posts for prints started
     # outside Print Handy (claimed prints stay the launched-print
-    # monitor's). Imported here, not at module scope: the sink lives in
+    # monitor's). The same sink settles an uncertain launch lease from
+    # this telemetry (#1241, family_control.LaunchLeaseSettler), as the
+    # polled families' listener does. Imported here, not at module scope: the sink lives in
     # the bot core (print_handy.hermes), which must not become an
     # import-time dependency of the printer package.
     from ...hermes import family_control

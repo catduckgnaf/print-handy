@@ -28,6 +28,10 @@ that closes that gap:
 - ``BambuEventSink`` — the consumer that wires the Bambu domain
   listener's already-detected transitions (#299 Stage B) to these
   posts. The listener detected pauses all along; its sink was log-only.
+- ``LaunchLeaseSettler`` — settles a held submitting/uncertain launch
+  lease from the status a non-Moonraker listener already reads (#1147,
+  #1241): the polling families' listener and the Bambu sink both ask it,
+  so every family settles the way the Moonraker listener does.
 - ``FamilyAutoLight`` — the #516 auto light-off automation for the two
   families with a switchable chamber light (Bambu Lab, Elegoo SDCP):
   the Moonraker listener's light hooks are the reference, this driver
@@ -743,6 +747,93 @@ def auto_light_for(adapter, printer_id=None) -> FamilyAutoLight | None:
     return None
 
 
+# ------------------------------------------------------------- launch leases
+
+class LaunchLeaseSettler:
+    """Settles one printer's uncertain launch lease from what the printer reports (#1147, #1241).
+
+    A start whose response was lost leaves the printer's launch lease
+    uncertain, and every later start refuses until it settles. The
+    Moonraker listener settles it from the status it reads; this is the
+    same rule for every other family, fed by the status its listener
+    already has (a poll for OctoPrint, PrusaLink, SDCP and stock
+    Flashforge, the LAN MQTT telemetry for Bambu):
+
+    - the printer printing or paused on the lease's own file settles it
+      as started (``launch_state.settle_observed``);
+    - the printer idle (any terminal state) with both heater targets at 0
+      for the Moonraker listener's ``ABANDONED_START_COLD_S``, never
+      showing that file running, releases it as not started
+      (``launch_state.release_abandoned``, which leaves a live
+      print-now's ``submitting`` row alone);
+    - heat, an unreadable target, or another file running or shown idle
+      decides nothing;
+    - the lease's own file shown in a terminal state (complete,
+      cancelled, error, or standby still naming it) decides nothing,
+      then and on every later read for that lease. The settler may have
+      missed every active update (it first saw the printer after the
+      print ended), so a cold idle printer is no evidence the start
+      never ran; the lease stays uncertain for the operator, as the
+      uncertain path leaves it. Nor is it settled as started: a
+      completed state on the same file may be the previous run of a
+      reprint (#1147).
+
+    Nothing is ever sent to the printer.
+    """
+
+    def __init__(self, printer_id):
+        self._printer_id = printer_id
+        self._watch = None  # moonraker_event_listener.AbandonedStartWatch, built on first use
+        # Leases ((token, remote file)) whose own file this settler has seen
+        # in a terminal state: never released as not started afterwards.
+        self._ended_on_own_file: set = set()
+
+    def _watch_for(self):
+        if self._watch is None:
+            self._watch = _mel().AbandonedStartWatch()
+        return self._watch
+
+    def observe(self, state, filename, status, now=None):
+        """One status read: "started", "not_started", or None when it decides nothing."""
+        from ..core import launch_state
+        row = launch_state.held(self._printer_id)
+        if row is None or not row.get("remote"):
+            return None
+        remote = row["remote"]
+        status = status or {}
+        if state in ACTIVE:
+            if filename and launch_state.same_remote(filename, remote):
+                settled = launch_state.settle_observed(self._printer_id, filename)
+                if settled:
+                    log(f"launch lease settled: the printer reports {filename!r}, so the earlier "
+                        f"{settled['phase']} start reached it")
+                    self._watch_for().retire(remote)
+                return "started" if settled else None
+            return None  # another file is running; the lease is not this read's story
+        if filename and not launch_state.same_remote(filename, remote):
+            return None  # the printer reports another (earlier) file; nothing about this start
+        watch = self._watch_for()
+        lease_key = (row.get("token"), remote)
+        if (filename and state in TERMINAL_STATES) or lease_key in self._ended_on_own_file:
+            # This lease's own file, ended: it may have run unseen. Leave it uncertain.
+            if lease_key not in self._ended_on_own_file:
+                self._ended_on_own_file.add(lease_key)
+                log(f"launch lease left uncertain: the printer shows {remote!r} {state} without this "
+                    "listener seeing it run, so it may have printed; settle it by hand")
+            watch.retire(remote)
+            return None
+        idle = "standby" if state in TERMINAL_STATES else state
+        watch.retain([remote])
+        if watch.observe(remote, idle, status.get("hotend_target_c"), status.get("bed_target_c"),
+                         now=now):
+            watch.retire(remote)
+            released = launch_state.release_abandoned(self._printer_id, remote)
+            if released:
+                log(f"launch lease released: the printer stayed idle and cold without printing {remote!r}")
+                return "not_started"
+        return None
+
+
 # ------------------------------------------------------------- Bambu sink
 
 class BambuEventSink:
@@ -762,10 +853,20 @@ class BambuEventSink:
     start post, no pause post, no terminal post for it. Only a start
     transition witnessed after an observed inactive state classifies a
     print, via the same start-claim file the Moonraker listener reads.
+
+    Every status event also feeds ``LaunchLeaseSettler`` (#1241), so an
+    uncertain start lease from the Bambu print path settles from the LAN
+    telemetry the way the polled families' leases do. The lease database
+    is read when the state or file changes, else at most once every
+    ``LEASE_CHECK_S``; the listener re-forwards an idle status on its
+    heartbeat cadence, so the cold window is always observed.
     """
 
+    LEASE_CHECK_S = 10.0
+
     def __init__(self, *, claim_fn=None, start_poster=None, pause_poster=None,
-                 terminal_poster=None, retirer=None, printer_id=None, light=None):
+                 terminal_poster=None, retirer=None, printer_id=None, light=None,
+                 settler=None, clock=time.monotonic):
         self._claim_fn = claim_fn
         self._start_poster = start_poster or post_family_event
         self._pause_poster = pause_poster or post_pause_alert
@@ -779,6 +880,24 @@ class BambuEventSink:
         self._light = light
         self._saw_inactive = False
         self._external: set[str] = set()
+        self._settler = settler if settler is not None else LaunchLeaseSettler(printer_id)
+        self._clock = clock
+        self._lease_checked = None  # (state, filename, at) of the last lease read
+
+    def _settle_lease(self, state, filename, status, now=None):
+        """Feed one status to the lease settler, throttled. Returns its verdict or None.
+
+        The cold window is timed on this sink's clock (the listener's monotonic one)."""
+        at = self._clock()
+        last = self._lease_checked
+        if last is not None and last[:2] == (state, filename) and at - last[2] < self.LEASE_CHECK_S:
+            return None
+        self._lease_checked = (state, filename, at)
+        try:
+            return self._settler.observe(state, filename, status, now=at if now is None else now)
+        except Exception as exc:
+            log(f"bambu launch lease settle failed file={filename!r}: {exc!r}")
+            return None
 
     def _claimed(self, filename) -> bool:
         if self._claim_fn is not None:
@@ -820,6 +939,8 @@ class BambuEventSink:
                 self._terminal(filename, "error")
         except Exception as exc:
             log(f"bambu event sink failed kind={kind} file={filename!r}: {exc!r}")
+        if kind == "status":
+            self._settle_lease(state, filename, status)
 
     def _terminal(self, filename, kind):
         external = filename in self._external
