@@ -2680,3 +2680,78 @@ def test_single_upload_retains_its_legacy_job_shape(tmp_path):
     assert prepared_intake.model_files(event) == [one]
     assert prepared_intake.model_file(event) == one
     assert prepared_intake.upload_job_set([one]) == prepared_intake.upload_job(one)
+
+
+# --- #1204 items 2 and 3: a ZIP and a multi-message collection reach the same project builder ---
+
+def _source_zip(path, members):
+    import zipfile
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, data in members.items():
+            z.writestr(name, data)
+    return path
+
+
+def _run_upload_event(env, media, answers, metadata=None, message_id='zip-upload'):
+    adapter = Adapter(answers)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id=message_id, text='', media_urls=[str(p) for p in media],
+              metadata=dict(metadata or {}))
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    files = list((env.tmp / 'archive').glob('*/JOB.json'))
+    return adapter, result, (json.loads(files[0].read_text()) if files else None)
+
+
+def test_source_zip_reaches_the_project_builder_with_only_printable_parts(env, monkeypatch):
+    """A designer ZIP (three STL parts, a STEP, a reference envelope, a PNG,
+    a README and a script) is the multi-file upload flow: the same chooser,
+    combiner and project manifest, with only the printable parts."""
+    from .test_model_parts import cube_stl
+    def no_site(*a, **kw):
+        raise AssertionError('a local ZIP must not contact a model website')
+    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
+    stls = {name: cube_stl(env.tmp / 'src' / name, (30 + i * 5, 20, 10)).read_bytes()
+            for i, name in enumerate(['arm_left.stl', 'arm_right.stl', 'base.stl'], 1)}
+    members = {f'Rack/{name}': data for name, data in stls.items()}
+    members.update({'Rack/REFERENCE_MAC_MINI_ENVELOPE_NOT_FOR_PRINTING.step': b'ISO-10303-21;',
+                    'Rack/rack.step': b'ISO-10303-21;', 'Rack/render.png': b'\x89PNG',
+                    'README.md': b'# Rack', 'tools/make.py': b'print(1)'})
+    archive = _source_zip(env.tmp / ('doc_' + 'b' * 12 + '_Rack.zip'), members)
+    adapter, _, job = _run_upload_event(env, [archive], [0, 1, 0, 3])
+    assert job['site'] == 'upload' and job['source_kind'] == 'upload_archive'
+    assert [x['name'] for x in job['selected_sources']] == ['arm_left.stl', 'arm_right.stl', 'base.stl']
+    assert [x['archive_path'] for x in job['selected_sources']] == [
+        'Rack/arm_left.stl', 'Rack/arm_right.stl', 'Rack/base.stl']
+    assert job['project']['source_kind'] == 'uploaded_archive'
+    assert [c['archive_path'] for c in job['project']['components']] == [
+        'Rack/arm_left.stl', 'Rack/arm_right.stl', 'Rack/base.stl']
+    ignored = {row['archive_path'] for row in job['source_archive']['ignored']}
+    assert ignored == {'Rack/REFERENCE_MAC_MINI_ENVELOPE_NOT_FOR_PRINTING.step', 'Rack/rack.step',
+                       'Rack/render.png', 'README.md', 'tools/make.py'}
+    assert len(job['combined_objects']) == 3
+    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
+    assert any('left out 5' in m for m in adapter.sent)
+
+
+def test_hostile_zip_is_refused_before_anything_is_sliced(env):
+    archive = _source_zip(env.tmp / 'slip.zip', {'../evil.stl': b'solid x'})
+    adapter, result, job = _run_upload_event(env, [archive], [])
+    assert job is None and result['reason'] == 'source-first intake failed closed'
+    assert adapter.questions == []
+    assert any(m.startswith('That model could not be prepared. ') and 'outside the archive' in m
+               and 'Nothing was sliced or started.' in m for m in adapter.sent)
+    assert not (env.tmp / 'evil.stl').exists()
+
+
+def test_collected_uploads_are_marked_as_one_collection_project(env, monkeypatch):
+    """Files collected over several messages enter the same multi-file
+    intake; the job and project record the collection."""
+    from .test_model_parts import cube_stl
+    paths = [cube_stl(env.tmp / 'col' / str(n) / name, (30 + n * 5, 20, 10))
+             for n, name in enumerate(['arm.stl', 'arm.stl', 'base.stl'], 1)]
+    collected = {'collection_id': 'f' * 32, 'files': [{'n': 1, 'name': 'arm.stl'}]}
+    _, _, job = _run_upload_event(env, paths, [0, 1, 0, 3], metadata={'upload_collection': collected},
+                                  message_id='collection-' + 'f' * 32)
+    assert job['source_kind'] == 'upload_collection' and job['upload_collection'] == collected
+    assert job['project']['source_kind'] == 'uploaded_collection'
+    assert [c['name'] for c in job['project']['components']] == ['arm.stl', 'arm.stl', 'base.stl']

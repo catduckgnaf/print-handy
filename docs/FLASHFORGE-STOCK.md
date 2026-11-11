@@ -96,7 +96,7 @@ Read this before expecting a video:
 - **Not live-verified.** No AD5X running Print Handy has yet confirmed a
   `cameraStreamUrl`, a frame, or an attached timelapse on real hardware.
   Everything above is implemented and proven offline against recorded
-  fixtures; the endpoint's behaviour on a real AD5X (with a camera
+  fixtures; the endpoint's behavior on a real AD5X (with a camera
   accessory fitted) is the remaining verification step. Until then, treat
   AD5X timelapse as **protocol-documented, not verified**.
 - **Other Flashforge models** (5M, 5M Pro, Creator 5 series) have no

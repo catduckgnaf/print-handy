@@ -45,7 +45,7 @@ step) serving:
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
-  (:mod:`print_handy.webui.pages`), the one write surface in the Web UI.
+  (:mod:`print_handy.webui.pages`), where settings are edited.
 - ``GET /designs`` and ``GET /designs/<id>`` — the read-only catalog of
   AI design sessions (#388, stage 3;
   :mod:`print_handy.webui.designs`), with per-session file downloads
@@ -69,11 +69,24 @@ Every HTML page renders through the one shell
 (:mod:`print_handy.webui.shell`): one inline stylesheet, the header
 chrome, and the dark-by-default theme.
 
-Unknown GET paths are 404. Writes happen only through the config page's
-two POSTs (``POST /config/preview`` renders the diff and writes nothing;
-``POST /config`` with the confirm field performs the validated write)
-and the walkthrough's ``POST /walkthrough``, which writes through the
-same validated path; every other non-GET method or path is 405.
+Unknown GET paths are 404. Writes go only through the POST routes
+``do_POST`` names: the config page (``POST /config/preview`` renders the
+diff and writes nothing; ``POST /config`` with the confirm field
+performs the validated write), the walkthrough's ``POST /walkthrough``
+(the same validated path), ``POST /printers`` (one roster printer),
+``POST /spools/<id>``, ``POST /debug`` (debug log mode), the web chat
+(``POST /chat`` and ``POST /chat/choice``), uploads (``POST /upload``
+and ``POST /u/<link>``), the Wrapped exports (``POST /wrapped/video``
+and ``POST /wrapped/share``), sign-in and sign-out (``POST /login``,
+``POST /logout``), and the header-only control API under
+``POST /api/printers/<id>/...``. Every form POST passes the form-token
+rule below (``_post_authorized``), with three exceptions: ``/login``
+checks the credential itself, ``/logout`` ends only the caller's own
+session, and ``/u/<link>`` is authorized by its upload link. The control
+API takes the header only. A POST to any other path, and every
+PUT, DELETE, PATCH or OPTIONS, is 405. A request that fails with an
+unexpected error gets a 500 naming only a request id; the log line with
+the traceback carries the same id, never the response.
 
 The server starts only when ``[webui] enabled`` is true and ``port`` is
 above 0. Access control is decided by :mod:`print_handy.webui.access`:
@@ -96,9 +109,17 @@ credential: a POST needs the header, or a live session plus the
 
 Browser login: a browser cannot send the ``X-WebUI-Token`` header, so
 ``GET /login`` (reachable without auth — it is the entry point) renders
-a token form when a token is configured, and ``POST /login`` trades a
-correct token for a session cookie (``SESSION_COOKIE``, HttpOnly,
-SameSite=Strict). An unauthenticated browser navigation (a GET for a
+the sign-in form whenever a credential is required: a username and
+password for a login saved in the walkthrough (a single password field
+for one saved before usernames existed), or a single field for an
+access token from the environment, which is also accepted with any
+username as the way back in after a forgotten password. ``POST /login``
+checks the pair (``Access.matches_login``) under the per-address
+failed-attempt throttle and trades a correct one for a session cookie
+(``SESSION_COOKIE``, HttpOnly, SameSite=Strict). A password saved at an
+older PBKDF2 cost is re-hashed at the current one after a successful
+sign-in, on the form or with the header, signing nobody out. An
+unauthenticated browser navigation (a GET for a
 non-API page with ``Accept: text/html``) redirects to ``/login``
 instead of returning the JSON 401 (#440); API requests keep the JSON
 401. A valid, unexpired session cookie authorises GETs
@@ -177,6 +198,14 @@ SECURITY_HEADERS = (
 REQUEST_TIMEOUT_S = 30
 MAX_HANDLER_THREADS = 64
 INTERNAL_ERROR_REASON = "internal error; the Web UI log has the details"
+# A refused upload is answered before its body is read. Closing a socket
+# that still holds unread bytes makes TCP send a reset, which a browser
+# can show instead of the answer, so after the answer is sent up to
+# DRAIN_LIMIT_BYTES of the unread body are read and dropped (for at most
+# DRAIN_TIMEOUT_S) before the connection closes. Nothing drained is
+# parsed or kept. A larger body still ends in a reset (docs/WEBUI.md).
+DRAIN_LIMIT_BYTES = 4 * 1024 * 1024
+DRAIN_TIMEOUT_S = 3.0
 LOOPBACK_NAMES = frozenset({"localhost"})
 # Browser login sessions: the cookie carries only an opaque id; the
 # id -> expiry map lives in server memory (see make_server), so nothing
@@ -671,6 +700,44 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self._slots.release()
 
 
+def _request_id():
+    """A short random id for one failed request: shown in the 500
+    response and written in the log line with the traceback, so a
+    reported error can be matched to its log entry. It names nothing
+    about the request."""
+    return secrets.token_hex(6)
+
+
+def _drain(sock, rfile, unread):
+    """Read and drop up to DRAIN_LIMIT_BYTES of ``unread`` body bytes,
+    giving up after DRAIN_TIMEOUT_S or at end of stream."""
+    budget = min(max(0, int(unread)), DRAIN_LIMIT_BYTES)
+    deadline = time.monotonic() + DRAIN_TIMEOUT_S
+    while budget > 0:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return
+        sock.settimeout(left)
+        chunk = rfile.read1(min(65536, budget))
+        if not chunk:
+            return
+        budget -= len(chunk)
+
+
+class _CountingReader:
+    """Wraps the request stream to count the body bytes a parser read,
+    so a refusal part way through knows how much is still unread."""
+
+    def __init__(self, raw):
+        self._raw = raw
+        self.count = 0
+
+    def read(self, size=-1):
+        chunk = self._raw.read(size)
+        self.count += len(chunk)
+        return chunk
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "PrintHandyWebUI/1"
     protocol_version = "HTTP/1.1"
@@ -680,6 +747,47 @@ class _Handler(BaseHTTPRequestHandler):
     # -- plumbing ---------------------------------------------------------
     def log_message(self, *args):  # keep stdout clean; errors still surface as 500s
         pass
+
+    def finish(self):
+        # A refused body (_refuse_body) is drained after the answer is
+        # written and before the socket closes, so the client reads the
+        # answer instead of a reset.
+        unread, self._unread_body = getattr(self, "_unread_body", 0), 0
+        if unread:
+            try:
+                self.wfile.flush()
+                _drain(self.connection, self.rfile, unread)
+            except (OSError, ValueError):
+                pass  # the client went away or stalled; close as before
+        super().finish()
+
+    def _content_length(self):
+        """The request's Content-Length, or 0 when absent or not a number."""
+        try:
+            return max(0, int(self.headers.get("Content-Length") or 0))
+        except ValueError:
+            return 0
+
+    def _refuse_body(self, unread):
+        """Close the connection after this response without reading the
+        body, draining up to DRAIN_LIMIT_BYTES of its ``unread`` bytes
+        first (see finish). Draining is not parsing: nothing read is
+        looked at, so auth-before-parse and the size cap still hold."""
+        self.close_connection = True
+        self._unread_body = max(0, int(unread or 0))
+
+    def _internal_error(self, method, path, *, html_page=False):
+        """The 500 answer: a generic reason and a request id, never the
+        exception text (it can carry paths, URLs or settings values).
+        The log line carries the same id beside the traceback."""
+        rid = _request_id()
+        log.exception("Web UI %s %s failed (request id %s)", method, path, rid)
+        if html_page:
+            self._html_refusal(500, "Something went wrong rendering this page. "
+                                    f"Request id: {rid}.", "/")
+        else:
+            self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON,
+                             "request_id": rid})
 
     def _host_refused(self, *, post=False):
         """True (and a 403 sent) for a DNS-rebinding request.
@@ -796,6 +904,10 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         if access.matches(provided):
             throttle.record_success(address)
+            # A client that only ever sends the saved password as the
+            # header (the Home Assistant integration) upgrades an old
+            # hash the same way a form sign-in does (#1243).
+            self._rehash_after_login(provided)
             return True
         throttle.record_failure(address)
         return False
@@ -1063,13 +1175,10 @@ class _Handler(BaseHTTPRequestHandler):
                                            "/healthz, /readyz, /config, /designs, /layers, /spools, "
                                            "/walkthrough or /login"})
         except Exception:  # a broken snapshot is a 500, never a dropped connection
-            # The response never echoes the exception (it can carry paths,
-            # URLs or settings values); the log keeps it (log_message is silenced).
-            log.exception("Web UI GET %s failed", path)
-            if self._browser_navigation(path):
-                self._html_refusal(500, "Something went wrong rendering this page.", "/")
-            else:
-                self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
+            # The response never echoes the exception; the log keeps it
+            # under the request id the response names (log_message is
+            # silenced).
+            self._internal_error("GET", path, html_page=self._browser_navigation(path))
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
     def _year_param(self):
@@ -1869,7 +1978,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _rehash_after_login(self, password):
         """Upgrade a password saved at an older PBKDF2 cost, once.
 
-        Runs after a successful sign-in. The re-hashed file is the same
+        Runs after a successful sign-in, on the login form or with the
+        ``X-WebUI-Token`` header (#1243): either way the password was
+        just verified, and rehash_password writes only the saved
+        password, never the environment token. Once the new Access is
+        adopted ``needs_rehash`` is false, so later requests pay one
+        attribute check. The re-hashed file is the same
         login, so nothing issued under it is revoked: the server adopts
         the new Access, and the remembered-session store and the upload
         links are rebound to its fingerprint (which names the stored
@@ -2024,8 +2138,7 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._read_only()
         except Exception:  # a broken write is a 500, never a dropped connection
-            log.exception("Web UI POST %s failed", path)
-            self._json(500, {"ok": False, "reason": INTERNAL_ERROR_REASON})
+            self._internal_error("POST", path)
 
     # -- web chat -------------------------------------------------------------
 
@@ -2204,20 +2317,22 @@ class _Handler(BaseHTTPRequestHandler):
         ``handle(fields, files)`` gets the parsed text fields and
         ``[(filename, spool path)]``; whatever spool file it does not
         move into the inbox is removed afterwards. Returns None, or
-        ``(code, reason)`` when the body was refused (the connection is
-        then closed, since an unread body cannot be skipped)."""
-        content_type = self.headers.get("Content-Type") or ""
-        if not content_type.startswith("multipart/form-data"):
-            self.close_connection = True
-            return 415, "uploads must be multipart/form-data"
+        ``(code, reason)`` when the body was refused. A refused body is
+        not read; the connection closes after the answer, with a
+        bounded drain of the unread rest first (_refuse_body), so a
+        browser shows the answer rather than a reset."""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            self.close_connection = True
+            self.close_connection = True  # no length to drain by
             return 400, "bad Content-Length"
+        content_type = self.headers.get("Content-Type") or ""
+        if not content_type.startswith("multipart/form-data"):
+            self._refuse_body(length)
+            return 415, "uploads must be multipart/form-data"
         if length < 0 or length > (upload_module.MAX_UPLOAD_BYTES
                                    + upload_module.MULTIPART_OVERHEAD_BYTES):
-            self.close_connection = True
+            self._refuse_body(length)
             return 413, "upload too large"
         data = self.server.settings_data
         # The whole Content-Length counts toward the pre-read check: the
@@ -2227,23 +2342,26 @@ class _Handler(BaseHTTPRequestHandler):
         upload_module.prune_stale_spool(data)
         full = upload_module.quota_refusal(data, max(0, length))
         if full is not None:
-            self.close_connection = True
+            self._refuse_body(length)
             return 507, full
         if not upload_module.UPLOAD_SLOTS.try_acquire():
-            self.close_connection = True
+            self._refuse_body(length)
             return 503, upload_module.BUSY_MESSAGE
         files = []
+        body = _CountingReader(self.rfile)
         try:
             try:
                 fields, files = upload_module.parse_multipart_stream(
-                    self.rfile, length, content_type, upload_module.spool_dir(data))
+                    body, length, content_type, upload_module.spool_dir(data))
             except upload_module.UploadError as exc:
-                self.close_connection = True
+                self._refuse_body(length - body.count)
                 return exc.status, str(exc)
             except OSError:
-                log.exception("webui: could not receive an upload")
-                self.close_connection = True
-                return 500, "the upload could not be received; nothing was saved"
+                rid = _request_id()
+                log.exception("webui: could not receive an upload (request id %s)", rid)
+                self._refuse_body(length - body.count)
+                return 500, ("the upload could not be received; nothing was saved "
+                             f"(request id {rid})")
             handle({name: [value] for name, value in fields.items()}, files)
             return None
         finally:
@@ -2265,7 +2383,7 @@ class _Handler(BaseHTTPRequestHandler):
             # cannot save a file.
             if self.server.access.required and not (
                     self._session_authorized() or self._header_authorized()):
-                self.close_connection = True
+                self._refuse_body(self._content_length())
                 self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
                 return
 
@@ -2344,7 +2462,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _token_upload_submit(self, token):
         invalid = "This upload link is not valid. Ask for a fresh one."
         if not self._link_valid(token):
-            self.close_connection = True
+            self._refuse_body(self._content_length())
             self._send(404, upload_module.render_token_page(error=invalid),
                        "text/html; charset=utf-8")
             return

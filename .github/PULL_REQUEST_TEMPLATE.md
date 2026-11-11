@@ -42,16 +42,26 @@ Regression scoping reason:
 
 <!-- When "checked": say how this change was scoped against the full suite and the existing regression tests — which neighboring areas and regression suites were considered, which were run here or are covered by CI on this head, and anything deliberately left out, with why. Do not claim the full suite is comprehensive for an area it does not cover; name the gap instead. When "not applicable": say why no scoping applies (for example a change that touches no code or behavior). -->
 
+Regression test: added | not a bug fix | not possible
+Regression test detail:
+
+<!-- A regression test reproduces the bug: it fails without the fix and passes with it. A test that was never seen failing does not prove the bug is gone. When "added": name each regression test and the commit it fails on, for example "tests/test_x.py::test_y fails on 1a2b3c4 (the base), passes on this head". When "not a bug fix": say what the change is instead; a PR ticked "Bug fix" above cannot use this. When "not possible": say why no automated test can reproduce it (for example it needs real printer hardware) and link the issue that tracks the manual or live check. -->
+
 ## Risks, limitations, and follow up
 
 <!-- Note known risks, limitations, rollback or compatibility considerations, or write \"None known.\" Remove irrelevant prompts. -->
 
 ## Related issues
 
-<!-- Link related issues. Use \"Fixes #N\" only when merging this PR should close the issue. -->
+<!-- Link related issues. Use \"Fixes #N\" only when merging this PR finishes the issue: every checklist item in the issue body is ticked, with where it was done, or marked "moved to #N". contribution-policy fails while a closed issue has an open item; tick the items, then edit this PR or re-run the check. A PR that does part of an issue says Related. -->
 
 - Related:
 - Fixes:
+
+Closure check:
+
+<!-- Required when Fixes names an issue: how each closed issue's checklist was read item by item, and where each item was done (this PR, or an earlier PR named). Leave empty when this PR closes nothing. -->
+
 ## Scope and acceptance criteria
 
 <!-- State what is included and explicitly excluded. Link existing related work to avoid overlapping implementations. Keep this PR draft until required acceptance checks are complete. -->

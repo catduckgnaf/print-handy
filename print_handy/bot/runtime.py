@@ -47,6 +47,9 @@ REFUSAL_NOTICE = ("You are not on this bot's allowed list, so I can't act on tha
 # still only accepts .3mf/.stl (its own MODEL_FILE_EXTS), so a dropped .scad
 # is saved here and ignored by every non-design flow.
 MODEL_FILE_EXTS = {".3mf", ".stl", ".scad"}
+# A .zip of model sources (#1204 item 3): prepared intake opens it safely and
+# takes only its printable STL/3MF parts; every other handler ignores it.
+ARCHIVE_EXTS = {".zip"}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 # The intake copies a dropped file into the job archive, so the cached upload is only needed briefly.
 UPLOAD_KEEP_S = 7 * 24 * 3600
@@ -1207,14 +1210,15 @@ class BotCore:
                 pass
 
     async def save_attachments(self, message):
-        """Save dropped .3mf/.stl/.gcode (and .scad, for design) files where readers look. Others are ignored."""
+        """Save dropped .3mf/.stl/.gcode/.zip (and .scad, for design) files where readers look. Others are ignored."""
         self.prune_uploads()
         paths = []
         for attachment in getattr(message, "attachments", None) or []:
             name = safe_name(getattr(attachment, "filename", ""))
             # Sliced G-code is saved too: it prints only as an explicit yolo
             # (core/yolo.py), and is never silently dropped.
-            if Path(name).suffix.lower() not in MODEL_FILE_EXTS and not name.lower().endswith(".gcode"):
+            if (Path(name).suffix.lower() not in MODEL_FILE_EXTS | ARCHIVE_EXTS
+                    and not name.lower().endswith(".gcode")):
                 continue
             if int(getattr(attachment, "size", 0) or 0) > MAX_UPLOAD_BYTES:
                 logger.warning("skipping %s: larger than %d bytes", name, MAX_UPLOAD_BYTES)

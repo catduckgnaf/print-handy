@@ -636,7 +636,7 @@ Deliberately unchanged, and why:
   status keep full technical detail; only chat posts were rewritten.
 
 The fail-soft posture is preserved throughout: warnings never block
-a print, and no print path changes behaviour beyond reporting.
+a print, and no print path changes behavior beyond reporting.
 
 ## Debug log mode and sanitized exports
 
@@ -666,7 +666,7 @@ has a temporary **debug log mode** for reproducing a problem:
   "debug mode: ON, session …, off in …" row (marker
   `PH_DEBUG_CONFIGURATION`) while a session is live.
 - **Logging only.** Turning the mode on or off, and exporting, never
-  changes print behaviour, confirmation gates or readiness guards.
+  changes print behavior, confirmation gates or readiness guards.
 
 **Sanitized export.** Turning the mode off in the bot builds the export
 for that session's window (the capture lines between its markers) and

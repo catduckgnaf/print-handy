@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  issues: read  # the bodies of the issues this PR closes, for their checklists
 
 # One run per pull request: a newer push or description edit cancels the run in progress.
 concurrency:
@@ -39,8 +40,16 @@ jobs:
             const files = await github.paginate(github.rest.pulls.listFiles, {
               ...context.repo, pull_number: number, per_page: 100
             });
+            // The issues GitHub will close when this merges (Fixes/Closes/Resolves),
+            // with their current bodies: a PR may close only a finished checklist.
+            const linked = await github.graphql(`query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
+                closingIssuesReferences(first: 50) { nodes { number body } } } } }`,
+              {owner: context.repo.owner, repo: context.repo.repo, number});
+            const closing = linked.repository.pullRequest.closingIssuesReferences.nodes
+              .map(issue => ({number: issue.number, body: issue.body || ''}));
             fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'contribution.json'), JSON.stringify({
-              body: pr.body || '', files: files.map(file => file.filename)
+              body: pr.body || '', files: files.map(file => file.filename), closing_issues: closing
             }));
       - name: Check contribution evidence and local documentation links
         # PR text is JSON data, never interpolated into a command or executed.
