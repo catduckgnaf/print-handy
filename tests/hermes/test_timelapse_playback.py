@@ -363,3 +363,63 @@ class CacheAndRecordMatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Issue1282FrameCountTests(unittest.TestCase):
+    """#1282: a 99-frame capture logged "assembled 109 frame(s)" at 6275k for an 11 s clip."""
+
+    def _assemble_99(self, max_bytes=9_500_000):
+        calls, lines = [], []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(list(cmd))
+            Path(cmd[-1]).write_bytes(b"x" * 64)
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            frames = Path(tmp) / "frames"
+            frames.mkdir()
+            for n in range(1, 100):
+                (frames / f"frame-{n:06d}.jpg").write_bytes(JPEG)
+            probe = timelapse_encode.live_stream.EncoderProbe(
+                encoders=frozenset({"h264_nvenc", "libx264"}), dri_present=False, nvidia_present=True)
+            out = timelapse_encode.assemble_frames(
+                frames, Path(tmp) / "out.mp4", max_bytes=max_bytes, ffmpeg="ffmpeg", run=fake_run,
+                probe=probe, log=lines.append, validate=lambda *a, **k: True, playback=DEFAULTS)
+            self.assertIsNotNone(out)
+        return calls, lines
+
+    def test_the_ten_extra_frames_are_the_one_second_end_hold(self):
+        fps, indices = timelapse_encode.plan_playback(99, DEFAULTS)
+        self.assertEqual((fps, len(indices)), (10, 109))
+        self.assertEqual(indices[:99], list(range(99)))
+        self.assertEqual(indices[99:], [98] * 10)  # the last captured frame, held 1 s at 10 fps
+
+    def test_the_assembly_log_says_where_the_extra_frames_come_from(self):
+        _calls, lines = self._assemble_99()
+        assembled = [line for line in lines if line.startswith("timelapse assembled")]
+        self.assertEqual(len(assembled), 1)
+        self.assertIn("109 frame(s) (99 captured, +10 holding the last frame 1 s)", assembled[0])
+
+    def test_summary_names_skipped_and_repeated_frames(self):
+        self.assertEqual(timelapse_encode.playback_summary(11, DEFAULTS),
+                         "60 frame(s) (11 captured, +39 repeated to reach the minimum length, "
+                         "+10 holding the last frame 1 s)")
+        summary = timelapse_encode.playback_summary(4300, DEFAULTS)
+        self.assertRegex(summary, r"^1260 frame\(s\) \(4300 captured, 3100 skipped to fit the target "
+                                  r"length, \+60 holding the last frame 1 s\)$")
+        no_hold = dict(DEFAULTS, hold_last_frame_s=0)
+        self.assertEqual(timelapse_encode.playback_summary(200, no_hold), "200 frame(s)")
+        self.assertEqual(timelapse_encode.playback_summary(5, None), "5 frame(s)")
+
+    def test_a_short_clip_no_longer_spends_the_whole_upload_cap(self):
+        calls, lines = self._assemble_99()
+        kbps = int(calls[0][calls[0].index("-b:v") + 1].rstrip("k"))
+        self.assertEqual(kbps, timelapse_encode.MAX_KBITS_PER_FRAME * 10)  # 3000k, was 6275k
+        self.assertLess(kbps * 1000 / 8 * 10.9, 9_500_000)
+
+    def test_a_long_clip_keeps_its_budget_bitrate(self):
+        # 1200 frames at 60 fps (20 s): the budget is below the ceiling, so nothing changes.
+        self.assertEqual(timelapse_encode.encode_kbps(1200, 60, 9_500_000),
+                         int(9_500_000 * 8 * 0.9 / 20 / 1000))
+        self.assertEqual(timelapse_encode.encode_kbps(10, 10, 10_000), 200)  # floor kept

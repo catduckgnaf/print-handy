@@ -48,8 +48,59 @@ def test_printing_or_paused_never_reads_as_abandoned():
     assert cold(watch, now=0.0) is False
     assert watch.observe(FILE, "printing", 0.0, 0.0, now=30.0) is False
     assert watch.observe(FILE, "paused", 0.0, 0.0, now=90.0) is False
-    assert cold(watch, now=120.0) is False  # a fresh cold window starts only now
-    assert cold(watch, now=180.0) is True
+    # The start took: the idle, cold printer after it is a finished print, never an abandoned
+    # start (#1282), however long it stays that way.
+    assert cold(watch, now=120.0) is False
+    assert cold(watch, now=180.0) is False
+    assert cold(watch, now=3600.0) is False
+
+
+def test_a_reclaim_of_the_same_file_starts_a_fresh_window_after_a_print_took():
+    watch = mel.AbandonedStartWatch()
+    assert watch.observe(FILE, "printing", 220.0, 60.0, now=0.0, claimed_at=-10.0) is False
+    assert watch.observe(FILE, "standby", 0.0, 0.0, now=100.0, claimed_at=-10.0) is False
+    assert watch.observe(FILE, "standby", 0.0, 0.0, now=200.0, claimed_at=-10.0) is False
+    # The same file claimed again (a reprint): its own start can be abandoned.
+    assert watch.observe(FILE, "standby", 0.0, 0.0, now=300.0, claimed_at=290.0) is False
+    assert watch.observe(FILE, "standby", 0.0, 0.0, now=360.0, claimed_at=290.0) is True
+
+
+ZMOD_UPLOAD = "Tiny_plate_1_" + "ef" * 32 + ".gcode.3mf"
+
+
+def test_issue_1282_a_zmod_print_that_completed_is_never_reported_as_abandoned(monkeypatch, tmp_path):
+    """#1282 replay: print-now claims the uploaded X.gcode.3mf; the AD5X (ZMod) runs it as
+    3mf_print/X.gcode, completes, then resets to standby with an empty filename and cold
+    heaters. The old watch dropped the claim's window on the printing read and opened a fresh
+    one on the first cold read after the print, so 60 s later the poll logged "claimed start
+    never became a print", tried to edit the start card and released the launch lease."""
+    claims = tmp_path / "claims.json"
+    claimed_at = time.time() - 600
+    claims.write_text(json.dumps({ZMOD_UPLOAD: claimed_at}))
+    monkeypatch.setattr(mel, "START_CLAIMS", claims)
+    listener = mel.Listener()
+    reads = []
+    monkeypatch.setattr(mel.print_control, "_call", lambda path: reads[-1])
+    announced, released = [], []
+    monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
+    monkeypatch.setattr(mel, "release_start_claim", lambda filename: released.append(filename))
+    monkeypatch.setattr(listener, "_release_abandoned_lease", lambda filename: released.append(filename))
+    monkeypatch.setattr(mel, "log", lambda line: None)
+
+    def read(state, filename, extruder=0.0, bed=0.0):
+        return {"result": {"status": {"print_stats": {"state": state, "filename": filename},
+                                      "extruder": {"target": extruder}, "heater_bed": {"target": bed}}}}
+
+    clock = [time.time()]
+    monkeypatch.setattr(mel.time, "time", lambda: clock[0])
+    for state, filename, extruder, bed in (
+            ("printing", "3mf_print/" + ZMOD_UPLOAD[:-len(".3mf")], 220.0, 60.0),
+            ("complete", "3mf_print/" + ZMOD_UPLOAD[:-len(".3mf")], 0.0, 0.0),
+            ("standby", "", 0.0, 0.0), ("standby", "", 0.0, 0.0), ("standby", "", 0.0, 0.0)):
+        reads.append(read(state, filename, extruder, bed))
+        asyncio.run(listener.poll_abandoned_starts())
+        clock[0] += 45.0
+    assert announced == [] and released == []
 
 
 def test_an_unreadable_target_is_not_evidence_of_anything():

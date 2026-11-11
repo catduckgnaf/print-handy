@@ -238,3 +238,125 @@ def test_cpu_preference_never_touches_the_gpu_first(tmp_path):
     out, target, lines = assemble(tmp_path, fake, preference="cpu")
     assert out == target and encoders_tried(fake) == ["libx264"]
     assert lines and not any("GPU" in line for line in lines)
+
+
+# ------------------------------------------------------------ #1282: a node VAAPI cannot open
+
+ISSUE_1282_STDERR = b"Error parsing global options: Invalid argument\n"
+
+
+class RealHostFfmpeg:
+    """The #1282 host: an ffmpeg build listing every H.264 encoder, NVENC working, and a
+    /dev/dri/renderD128 that "-vaapi_device" cannot open (exit 234 while parsing global
+    options, before any encode). Encodes write a sized output; the open check is recorded."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(list(cmd))
+        if "-encoders" in cmd:
+            return type("R", (), {"stdout": " V..... h264_vaapi\n V..... h264_nvenc\n"
+                                            " V..... h264_qsv\n V..... libx264\n"})()
+        if "-vaapi_device" in cmd:
+            raise subprocess.CalledProcessError(234, cmd, stderr=ISSUE_1282_STDERR)
+        Path(cmd[-1]).write_bytes(b"x" * 500_000)
+        return None
+
+
+def _issue_1282_host(monkeypatch, tmp_path, *, driver=None):
+    """renderD128 readable, its sysfs driver link absent (a container's limited /sys) unless
+    ``driver`` names one, and the NVIDIA runtime granted (/dev/nvidia0)."""
+    import functools
+    dri, sysfs, dev = tmp_path / "dri", tmp_path / "sys", tmp_path / "dev"
+    for d in (dri, sysfs, dev):
+        d.mkdir()
+    (dri / "renderD128").write_text("")
+    (dev / "nvidia0").write_text("")
+    if driver:
+        target = sysfs / "drivers" / driver
+        target.mkdir(parents=True)
+        (sysfs / "renderD128" / "device").mkdir(parents=True)
+        os.symlink(target, sysfs / "renderD128" / "device" / "driver")
+    always = lambda path, mode: True
+    monkeypatch.delenv(live_stream.VAAPI_DEVICE_ENV, raising=False)
+    monkeypatch.setattr(live_stream, "vaapi_device", functools.partial(
+        live_stream.vaapi_device, dri, sysfs, access=always))
+    monkeypatch.setattr(timelapse_encode, "dri_status", functools.partial(
+        timelapse_encode.dri_status, dri, access=always, sys_drm=sysfs))
+    monkeypatch.setattr(timelapse_encode, "nvidia_status", functools.partial(
+        timelapse_encode.nvidia_status, dev))
+    return dri
+
+
+def test_issue_1282_a_render_node_vaapi_cannot_open_is_skipped_before_any_encode(monkeypatch, tmp_path):
+    """#1282 replay: the 2.2.9 log showed h264_vaapi tried first with -vaapi_device
+    /dev/dri/renderD128 and failing exit 234 on every timelapse, then NVENC succeeding. The
+    probe now opens the node once; VAAPI is not a candidate, no VAAPI encode is attempted,
+    NVENC leads, and the log names why VAAPI was skipped."""
+    dri = _issue_1282_host(monkeypatch, tmp_path)
+    fake = RealHostFfmpeg()
+    lines = []
+    frames = make_frames(tmp_path)
+    out = timelapse_encode.assemble_frames(frames, tmp_path / "out.mp4", max_bytes=9_500_000,
+                                           run=fake, log=lines.append)
+    assert out is not None
+    encodes = [c for c in fake.calls if "-encoders" not in c and "nullsrc=s=16x16:d=0.04" not in c]
+    assert not any("h264_vaapi" in c for c in encodes)
+    assert "h264_nvenc" in encodes[0]
+    opens = [c for c in fake.calls if "nullsrc=s=16x16:d=0.04" in c]
+    assert len(opens) == 1 and opens[0][opens[0].index("-vaapi_device") + 1] == str(dri / "renderD128")
+    skipped = [line for line in lines if "VAAPI skipped" in line]
+    assert skipped and "renderD128" in skipped[0] and "exited 234" in skipped[0]
+    assert not any("h264_vaapi failed" in line for line in lines)
+    usable, note = timelapse_encode.dri_status()
+    assert usable is False and "could not be opened for VAAPI" in note
+
+
+def test_an_nvidia_render_node_is_never_opened_for_vaapi(monkeypatch, tmp_path):
+    """#1262 already skips a node sysfs names as NVIDIA; pin that this host shape spends no
+    open check and no VAAPI encode either."""
+    _issue_1282_host(monkeypatch, tmp_path, driver="nvidia")
+    fake = RealHostFfmpeg()
+    frames = make_frames(tmp_path)
+    assert timelapse_encode.assemble_frames(frames, tmp_path / "out.mp4", max_bytes=9_500_000,
+                                            run=fake, log=lambda line: None) is not None
+    assert not any("-vaapi_device" in c for c in fake.calls)
+    assert "h264_nvenc" in [c for c in fake.calls if "-encoders" not in c][0]
+
+
+def test_a_render_node_that_opens_keeps_vaapi_first(monkeypatch, tmp_path):
+    _issue_1282_host(monkeypatch, tmp_path, driver="i915")
+
+    class Opens(RealHostFfmpeg):
+        def __call__(self, cmd, **kw):
+            if "nullsrc=s=16x16:d=0.04" in cmd:
+                self.calls.append(list(cmd))
+                return None
+            if "-encoders" in cmd:
+                return super().__call__(cmd, **kw)
+            self.calls.append(list(cmd))
+            Path(cmd[-1]).write_bytes(b"x" * 500_000)
+            return None
+
+    fake = Opens()
+    frames = make_frames(tmp_path)
+    assert timelapse_encode.assemble_frames(frames, tmp_path / "out.mp4", max_bytes=9_500_000,
+                                            run=fake, log=lambda line: None) is not None
+    encodes = [c for c in fake.calls if "nullsrc=s=16x16:d=0.04" not in c and "-encoders" not in c]
+    assert "h264_vaapi" in encodes[0]
+
+
+def test_the_real_ffmpeg_open_verdict_is_cached_per_process(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        raise subprocess.CalledProcessError(234, cmd, stderr=ISSUE_1282_STDERR)
+
+    monkeypatch.setattr(timelapse_encode, "_VAAPI_OPEN", {})
+    monkeypatch.setattr(timelapse_encode.subprocess, "run", fake_run)
+    first = timelapse_encode.vaapi_open_problem("ffmpeg-1282", "/dev/dri/renderD128")
+    second = timelapse_encode.vaapi_open_problem("ffmpeg-1282", "/dev/dri/renderD128")
+    assert first == second and "exited 234" in first and len(calls) == 1
+    assert timelapse_encode.vaapi_open_failure("/dev/dri/renderD128") == first
