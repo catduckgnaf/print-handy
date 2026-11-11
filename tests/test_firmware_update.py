@@ -1116,3 +1116,100 @@ def test_issue_1295_a_spent_github_budget_is_named_with_its_reset_time():
     # With budget left, "?" is not blamed on the limit.
     payload["result"]["github_requests_remaining"] = 12
     assert "hourly limit" not in fw.firmware_report(FakeTransport(payload), GENERIC)
+
+
+# ------------------------------------------------------------- component aliases
+
+# The owner's AD5X (ZMod 1.7.6): Moonraker names Klipper "klippy" and
+# itself "moon", HelixScreen is a web component, and GuppyScreen is not a
+# Moonraker component at all (ZMod bundles it).
+ZMOD_LIVE_STATUS = {
+    "result": {
+        "version_info": {
+            "Z-Mod": {"version": "1.7.6", "remote_version": "1.7.6", "is_valid": True},
+            "klippy": {"version": "v0.12.0-289", "remote_version": "v0.12.0-310"},
+            "moon": {"version": "v0.9.3-10", "remote_version": "v0.9.3-12"},
+            "fluidd": {"version": "1.31.3", "remote_version": "1.31.3"},
+            "mainsail": {"version": "2.13.2", "remote_version": "2.13.2"},
+            "helixscreen": {"version": "v1.0.7", "remote_version": "v1.0.8",
+                            "configured_type": "web", "is_valid": True},
+        }
+    }
+}
+SYSTEM_INFO_176 = {"result": {"system_info": {"distribution": {"name": "ZMod OS",
+                                                                "version": "1.7.6"}}}}
+
+
+@pytest.mark.parametrize("typed,live", [
+    ("helix", "helixscreen"), ("helix screen", "helixscreen"), ("Helix-Screen", "helixscreen"),
+    ("helixscreen", "helixscreen"), ("zmod", "Z-Mod"), ("z-mod", "Z-Mod"),
+    ("klipper", "klippy"), ("klippy", "klippy"), ("moonraker", "moon"), ("moon", "moon"),
+])
+def test_aliases_resolve_against_the_live_zmod_names(typed, live):
+    status = fw.parse_update_status(ZMOD_LIVE_STATUS)
+    assert status.component(typed).name == live
+
+
+def test_an_exact_live_name_wins_over_an_alias_and_aliases_never_invent_one():
+    status = fw.parse_update_status(STATUS)  # vanilla names: klipper, moonraker
+    assert status.component("klipper").name == "klipper"
+    assert status.component("klippy").name == "klipper"
+    assert status.component("moon").name == "moonraker"
+    assert status.component("helix") is None  # this host lists no HelixScreen
+    assert status.component("guppy") is None
+    assert status.component("") is None
+
+
+def test_canonical_component_words_the_alias_table():
+    assert fw.canonical_component("Helix Screen") == "helixscreen"
+    assert fw.canonical_component("guppy") == "guppyscreen"
+    assert fw.canonical_component("Z-Mod") == "zmod"
+    assert fw.canonical_component("klippy") == "klipper"
+    assert fw.canonical_component("mainsail") == "mainsail"
+
+
+def test_a_guppyscreen_component_on_another_host_resolves_normally():
+    payload = {"result": {"version_info": {
+        "guppyscreen": {"version": "0.0.20", "remote_version": "0.0.21"}}}}
+    status = fw.parse_update_status(payload)
+    assert status.component("guppy screen").name == "guppyscreen"
+    assert not fw.is_guppy_on_zmod(GENERIC, status, "guppy")
+
+
+@pytest.mark.parametrize("typed", ["guppy", "guppy screen", "guppyscreen"])
+def test_guppy_on_zmod_says_it_updates_with_zmod(typed):
+    transport = ApplyTransport(status=ZMOD_LIVE_STATUS, system_info=SYSTEM_INFO_176)
+    with pytest.raises(fw.FirmwareRefusal) as excinfo:
+        fw.prepare_update(transport, AD5X, typed)
+    message = str(excinfo.value)
+    assert message == fw.GUPPY_IN_ZMOD_TEXT
+    assert "ships inside ZMod" in message and "`/print-firmware update zmod`" in message
+    assert "no component named" not in message
+    assert transport.posts == []
+
+
+def test_prepare_resolves_helix_to_the_live_helixscreen_component():
+    transport = ApplyTransport(status=ZMOD_LIVE_STATUS, system_info=SYSTEM_INFO_176)
+    prepared = fw.prepare_update(transport, AD5X, "helix screen")
+    assert prepared.name == "helixscreen"
+    assert (prepared.component.current, prepared.component.remote) == ("v1.0.7", "v1.0.8")
+    assert transport.posts == []
+
+
+def test_dispatch_update_takes_a_component_name_in_words():
+    adapter = FakeAdapter()
+    after = {"result": {"version_info": {
+        **ZMOD_LIVE_STATUS["result"]["version_info"],
+        "helixscreen": {"version": "v1.0.8", "remote_version": "v1.0.8",
+                        "configured_type": "web", "is_valid": True}}}}
+    transport = ApplyTransport(status=ZMOD_LIVE_STATUS, system_info=SYSTEM_INFO_176,
+                               post_status=after)
+    with _configured("flashforge.ad5x", "moonraker"), \
+            mock.patch.object(spool_sync, "moonraker", transport), \
+            mock.patch.object(plugin, "_confirm", _confirm_yes):
+        out = asyncio.run(plugin.firmware_dispatch(
+            _event("/print-firmware update helix screen"), _gateway(adapter)))
+    assert out == {"action": "skip", "reason": "print firmware update handled"}
+    # The live name is what is sent, never the typed one.
+    assert transport.posts == [(fw.UPDATE_UPGRADE_PATH, {"name": "helixscreen"})]
+    assert adapter.sent[-1].startswith("Updated **helixscreen** to v1.0.8")

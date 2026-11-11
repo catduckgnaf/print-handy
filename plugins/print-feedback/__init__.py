@@ -3418,7 +3418,11 @@ async def firmware_dispatch(event, gateway, **kwargs):
                            content=firmware_update.guide_text(args[1].casefold(), entry))
         return {'action': 'skip', 'reason': 'print firmware guide shown'}
     if args and args[0].casefold() == 'update':
-        if len(args) != 2:
+        # One component, whose name may be typed in words ("helix screen",
+        # "guppy screen"): the words after "update" are the one name, and
+        # firmware_update resolves it (aliases included) against the live
+        # status only.
+        if len(args) < 2:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=('Use `/print-firmware update <component>` with one '
                                         'component name from the `/print-firmware` report '
@@ -3448,7 +3452,7 @@ async def firmware_dispatch(event, gateway, **kwargs):
         try:
             # The one confirmed apply flow, shared with the update alert's
             # Update button (print_handy.firmware_alerts).
-            message = await firmware_update.confirmed_update(mr, entry, args[1], ask)
+            message = await firmware_update.confirmed_update(mr, entry, ' '.join(args[1:]), ask)
         except Exception:
             logger.exception('/print-firmware update failed')
             message = ('The firmware update stopped on an error. No confirmation was '

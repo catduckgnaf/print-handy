@@ -231,6 +231,13 @@ def _whole_name_winner(decision, wholes):
 # degrades into a lookup.
 _LEAD = r"(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+|(?:can|could|would)\s+you\s+(?:please\s+)?|how\s+(?:do|can)\s+i\s+)?"
 _END = r"\s*[?.!]?\s*$"
+# A firmware component named in words: every spelling in
+# firmware_update.COMPONENT_ALIASES ("z-mod", "helix screen", "guppy",
+# "klippy", "moon"...), plus the Moonraker web clients. Captured as "c"
+# and canonicalized by firmware_update.canonical_component.
+_FW_COMPONENT = (r"(?P<c>z[\s-]?mod|helix(?:[\s-]?screen)?|guppy(?:[\s-]?screen)?"
+                 r"|klipper|klippy|moonraker|fluidd|mainsail)")
+_FW_COMPONENT_VOCABULARY = ("helixscreen", "klipper", "moonraker")
 _TASK_INTENT_SUGGESTIONS = (
     # Spools: change / add / what is loaded
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
@@ -282,10 +289,17 @@ _TASK_INTENT_SUGGESTIONS = (
     # only matched the literal word "firmware" in two narrow shapes, so
     # "can you check for zmod updates?" dead-ended (catduck, 2026-11-11).
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+)?firmware\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:zmod|helixscreen|klipper|moonraker)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?(?:zmod|helixscreen|klipper|moonraker)\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+)?{_FW_COMPONENT}\s+up\s+to\s+date{_END}", re.I), "/print-firmware"),
+    # "update helix" (the owner's words, 2026-11-11): the update form for
+    # the named component, its name through firmware_update's one alias
+    # table ("helix", "helix screen" -> helixscreen; "guppy" ->
+    # guppyscreen). Only ever the did-you-mean prompt; the command then
+    # resolves the name against the live status and asks its own
+    # confirmation before anything is sent.
+    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in
@@ -372,9 +386,13 @@ _INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what
 
 def _intent_vocabulary():
     """Every literal word the task-intent patterns match, for typo correction."""
-    words = set()
+    # The firmware component group contributes only the names the earlier
+    # firmware patterns already carried: its sub-words ("screen", "helix",
+    # "guppy") would otherwise become correction targets for every other
+    # route ("what does screns mean" must stay "screens").
+    words = set(_FW_COMPONENT_VOCABULARY)
     for pattern, _cmd in _TASK_INTENT_SUGGESTIONS:
-        source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern)
+        source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern.replace(_FW_COMPONENT, " "))
         words.update(w.casefold() for w in re.findall(r"[A-Za-z]{5,}", source))
     return frozenset(words - _INTENT_REGEX_JUNK)
 
@@ -410,6 +428,10 @@ def _match_task_intent(clean):
         match = pattern.match(clean)
         if not match:
             continue
+        if "{c}" in cmd:
+            from .. import firmware_update
+            component = firmware_update.canonical_component(match.group("c"))
+            return cmd.replace("{c}", component)
         if "{q}" in cmd:
             query = " ".join((match.groupdict().get("q") or "").split()).strip(" ?.!")
             if not query:
