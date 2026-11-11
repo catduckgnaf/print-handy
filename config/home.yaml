@@ -300,7 +300,7 @@ timelapse:
   # pad = blurred background fill (default); crop = centre crop.
   vertical_short_mode: pad
   vertical_short_overlay: true
-  # Data tab and Print Handy Wrapped (#956): read-only statistics over the
+  # Data tab and Pasta Wrapped (#956): read-only statistics over the
   # print records plus the once-a-year Wrapped recap in the Web UI. On by
   # default; while off, each page is not in the navigation and its routes
   # refuse by name. An install that set wrapped_enabled: false before the
