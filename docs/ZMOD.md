@@ -17,17 +17,33 @@ No print started by Print Handy has been verified on ZMod hardware.
 
 ## Audited ZMod version
 
-Print Handy's ZMod contracts were last audited against **ZMod 1.7.5**
-(released 2026-10-27; the feature-by-feature audit is recorded in the project's issue tracker). The audit
-found no change to the contracts Print Handy relies on for the .gcode files
-it delivers. 1.7.5's headline features (3MF support, instant color
-mapping without the `FORCE_MD5` preprocessor, fast KAMP data) apply to the
-3MF path. Print Handy delivers that `.gcode.3mf` package by
-default on ZMod 1.7.5 or newer (`[printer] zmod_delivery_format`, see
-[DEVICE-AD5X.md](DEVICE-AD5X.md)); that path is not yet live-verified. No `START_PRINT`
-signature, `SAVE_ZMOD_DATA` variable, timelapse, camera or `notify` change
-is recorded upstream. The next ZMod release diffs against this 1.7.5
-baseline.
+Print Handy's ZMod contracts were last audited against **ZMod 1.7.6**
+(released 2026-11-11; the feature-by-feature audit is
+[#1269](https://github.com/catduckgnaf/print-handy/issues/1269),
+following the 1.7.5 audit in
+[#562](https://github.com/catduckgnaf/print-handy/issues/562)). The
+1.7.6 audit checked every changelog row against the release payloads
+and Print Handy's code and found no change to the contracts Print
+Handy relies on: the `.gcode.3mf` package it delivers (the plate-name
+shape ZMod reads is unchanged), the `START_PRINT` start path, the
+`SAVE_ZMOD_DATA` parameters Print Handy names in its guidance
+(`LOAD_ZOFFSET`, `USE_TRASH_ON_PRINT`), the Moonraker objects it
+reads, the camera stream's endpoint shape, and the native `/detail`
+read. What 1.7.6 changed sits behind ZMod's own boundaries: the
+`ORCA_FF` and `orca_lanes` parameters evaluated below now ship in an
+audited release; the AFC panel is built into ZMod (the `zmod_afclite`
+plugin is removed and its spool and weight settings migrate
+automatically on the printer; Print Handy never read the plugin's
+variables, so nothing changes for Print Handy); the `MF_GCODE` macro
+Print Handy never used is removed; and the Creator models gain one
+opt-in parameter, `KLIPPER_C5` (see "How the models differ"). The
+1.7.5 floor for `.gcode.3mf` delivery stands: Print Handy delivers
+that package by default on ZMod 1.7.5 or newer
+(`[printer] zmod_delivery_format`, see
+[DEVICE-AD5X.md](DEVICE-AD5X.md)); that path is not yet live-verified.
+The next ZMod release diffs against this 1.7.6 baseline, and the
+weekly firmware watch (see [COMPONENTS.md](COMPONENTS.md)) opens an
+issue when one appears.
 
 `/print-firmware` reports the installed ZMod version for a ZMod printer,
 read from the `zmod` component in Moonraker's update status (ZMod names it
@@ -44,9 +60,11 @@ never gates printing on it.
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
 Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
-above, so neither is in any ZMod version Print Handy has audited, and
-neither has a version floor Print Handy can read yet. Both need the
-native screen off (`DISPLAY_OFF`). The evaluation below is the answer
+above. Both ship in ZMod 1.7.6, the audited version, and the 1.7.6
+audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269))
+re-checked this evaluation against the shipped release payload: the
+verdicts stand. Neither has a version floor Print Handy can read yet.
+Both need the native screen off (`DISPLAY_OFF`). The evaluation below is the answer
 to [#851](https://github.com/catduckgnaf/print-handy/issues/851):
 reasons why and reasons why not for each, then a verdict, every claim
 tied to the code or the wiki as its source. Print Handy never gates
@@ -223,8 +241,11 @@ each ships its own Orca machine/process/filament templates under
 profiles with the same adjustments the AD5X templates carry (ZMod start/end
 G-code, retraction tuning, corner-origin printable area).
 
-ZMod documents **no Klipper 13 support on the Creator models**, run them on the
-stock-Klipper ZMod configuration, not the Klipper 13 one.
+On the Creator models, ZMod 1.7.6 adds one opt-in piece of Klipper
+13: `KLIPPER_C5` (`SAVE_ZMOD_DATA KLIPPER_C5=1`, default off) uses
+the Klipper 13 input shapers. Everything else on the Creator models
+still runs the stock-Klipper ZMod configuration, not the Klipper 13
+one.
 
 The filament system is where they part:
 
