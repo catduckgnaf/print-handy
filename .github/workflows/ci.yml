@@ -813,6 +813,11 @@ jobs:
           # exactly like the offline-tests job does.
           PRINT_HANDY_IN_CONTAINER: '1'
         run: python -m pytest -v -rs "tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied"
+      - name: Entrypoint layout matrix, real mountpoint cell (#1144)
+        env:
+          PRINT_HANDY_IN_CONTAINER: '1'
+          PRINT_HANDY_LAYOUT_TEST_MOUNT: '1'
+        run: python -m pytest -v -rs "tests/test_entrypoint_layout_matrix.py::test_mounted_state_volume_copies_instead_of_symlinking"
 
   webui-browser-smoke:
     # #1052 shipped browser tests but never executed them. This separate gate

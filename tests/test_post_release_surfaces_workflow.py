@@ -149,6 +149,20 @@ class PostReleaseSurfacesWorkflowContract(unittest.TestCase):
         # two checks complement rather than duplicate each other.
         self.assertIn("Docs sync check", run)
 
+    def test_latest_digest_is_verified_against_the_release(self):
+        # #1141 acceptance: after a release publishes, ":latest" and the newest
+        # release tag must share one digest, checked by a command on the
+        # release's checklist, with the retag workflow as the repair.
+        run = run_block()
+        line = next((l for l in run.splitlines() if "GHCR" in l and "- [ ]" in l), "")
+        self.assertTrue(line, "no GHCR :latest item in the surfaces checklist")
+        self.assertIn("docker buildx imagetools inspect --raw", line)
+        self.assertIn("ghcr.io/catduckgnaf/print-handy:\$t", line)
+        self.assertIn("for t in latest $tag", line)
+        self.assertIn("sha256sum", line)
+        self.assertIn("retag-latest.yml", line)
+        self.assertIn("decision:", line)
+
 
 class PostReleaseLinksPreReleaseChecklist(unittest.TestCase):
     """#657: when the pre-release checklist already opened a

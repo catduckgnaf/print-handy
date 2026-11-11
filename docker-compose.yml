@@ -149,13 +149,12 @@ services:
       SPOOLMAN_PORT: 8000
     volumes:
       # State volume (#914): /data/state is the neutral name since 2.2.5.
-      # The /data/hermes line below it is the legacy fallback for installs
-      # whose host folder is still named hermes: the entrypoint uses that
-      # data through /data/state until the host folder is renamed (see
-      # docs/DOCKER.md, "State volume rename"). Keep both lines until then;
-      # the legacy line can be dropped once the host folder is state/.
+      # There is no /data/hermes mount here (#1144): a new install must not
+      # create the legacy folder. An install that still has ./data/hermes keeps
+      # its data: the print-handy-migrate service below copies it into
+      # ./data/state once, before this service starts (docs/DOCKER.md, "State
+      # volume rename").
       - ${PRINT_HANDY_DATA:-./data}/state:/data/state
-      - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
       - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
@@ -205,6 +204,8 @@ services:
     depends_on:
       print-handy-init:
         condition: service_completed_successfully
+      print-handy-migrate:
+        condition: service_completed_successfully
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     shm_size: 256m
@@ -224,18 +225,39 @@ services:
     user: "0:0"
     entrypoint: [/bin/sh, -ec]
     command:
-      - 'for path in /data/state /data/hermes /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$$path" && chown 1000:1000 "$$path"; done'
+      - 'for path in /data/state /data/archive /data/records /data/cache /data/spoolman; do mkdir -p "$$path" && chown 1000:1000 "$$path"; done'
     restart: "no"
     cap_drop: [ALL]
     cap_add: [CHOWN]
     security_opt: ["no-new-privileges:true"]
     volumes:
       - ${PRINT_HANDY_DATA:-./data}/state:/data/state
-      - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
       - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
+  # One-time copy of a pre-2.2.5 ./data/hermes folder into ./data/state (#1144).
+  # The entrypoint owns the rules (never overwrite, resumable, recorded once);
+  # this service only runs them as the application user with the data folder
+  # mounted read-only, so it neither creates the legacy folder on a new install
+  # nor can change it. With no ./data/hermes it exits at once.
+  print-handy-migrate:
+    image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to an image tag or digest}
+    user: "1000:1000"
+    entrypoint: [/app/docker/entrypoint.sh]
+    command: [/bin/true]
+    environment:
+      PRINT_HANDY_STATE_MIGRATE_ONLY: "1"
+      PRINT_HANDY_LEGACY_STATE: /legacy-data/hermes
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      print-handy-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${PRINT_HANDY_DATA:-./data}/state:/data/state
+      - ${PRINT_HANDY_DATA:-./data}:/legacy-data:ro
   # Optional Cloudflare Tunnel connector for the live view (#311): a named
   # tunnel with a stable hostname, run only under the "live-stream" profile
   # (docker compose --profile live-stream up -d). It is a sidecar, never

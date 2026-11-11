@@ -1385,8 +1385,8 @@ def _validate_timelapse(data):
     # records whether the operator actually set the key (the
     # mode_explicit pattern), so a followed value is never mistaken
     # for a pinned one: the Data gate keeps following wrapped_enabled
-    # while the flag is false, and a Web UI save that changes
-    # wrapped_enabled pins the shown data_enabled value explicitly.
+    # while the flag is false. A Web UI save writes data_enabled only
+    # when the operator changed the Data toggle in that save (#1229).
     if "data_enabled" in timelapse and not isinstance(timelapse["data_enabled"], bool):
         raise SettingsError(
             f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")

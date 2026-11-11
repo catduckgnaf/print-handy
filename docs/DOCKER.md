@@ -301,8 +301,8 @@ Each flavor proves itself during the build (the provider bridge library it must 
 
 ## First-run configuration
 
-1. Copy `.env.example` to `.env`. Set `PRINT_HANDY_IMAGE` to the verified digest from [Pinning the image](#pinning-the-image); do not use a moving tag such as `:latest`, `:develop` or `:nightly`.
-2. Set `PRINT_HANDY_DATA` to a persistent host directory. Compose creates missing bind-source directories on first start and prepares the six data directories for the non-root application user. Existing data is not recursively re-owned.
+1. Copy `.env.example` to `.env`. Set `PRINT_HANDY_IMAGE` to the verified digest from [Pinning the image](#pinning-the-image); do not use a moving tag such as `:latest`, `:develop` or `:nightly`. Compose has no default for it on purpose: any default would be a tag, which can move or be republished, so an unset value stops `docker compose` with an error that names the variable instead of silently running whatever the tag points to today.
+2. Set `PRINT_HANDY_DATA` to a persistent host directory. Compose creates missing bind-source directories on first start and prepares the five data directories (`state`, `archive`, `records`, `cache`, `spoolman`) for the non-root application user. It does not create or mount a `hermes` folder. Existing data is not recursively re-owned.
 3. Configure the chat platform token and printer connection details. Keep credentials out of committed files. Add account tokens only for model sites that require them.
 4. Start with `docker compose up -d` and review health and logs. Run the doctor only where its configured service checks are authorized.
 5. Open the Web UI (host port 8088) and follow its first-run walkthrough: printer, chat, camera, and a login only if you want one. The bot token itself still comes from `.env` first. Chat setup can finish the rest once the bot can connect, but no chat flow can create the bot's own token.
@@ -375,13 +375,60 @@ the entrypoint checks the two paths:
 - Only the legacy volume holds data: `/data/state` becomes a symlink to
   it, one deprecation line is logged, and every service reads the existing
   data through the new path. Where `/data/state` is itself a mounted volume
-  (the shipped Compose file mounts both paths), it cannot be
-  replaced by a symlink: on the first start the legacy contents are copied
-  into the mounted volume instead, the legacy folder is left untouched, and
-  the log says so; later starts use `/data/state` and warn that both hold data.
+  (every Compose install and the Unraid template), it cannot be
+  replaced by a symlink: the legacy files are copied into the mounted volume
+  instead, the legacy folder is left untouched, and the log says so.
 - Only the new volume holds data (or neither): the new path is used.
 - Both hold data: the new path wins, a warning is logged, and the legacy
   folder is ignored.
+
+How the copy behaves (#1144):
+
+- **Nothing is overwritten.** Only files `/data/state` does not have are
+  copied; a file that exists in `/data/state` stays as it is, whatever the
+  timestamps say, so a stale `/data/hermes` can never replace newer data.
+  Where `/data/state` has a file or a symlink in the place of a legacy
+  folder, the `/data/state` entry is kept, that legacy folder is skipped
+  with a warning naming it, and everything else is still copied. Nothing is
+  written through a symlink in `/data/state`.
+- **It happens once.** When the copy completes, `/data/state` gets a
+  `.migrated-from-legacy` file. From then on `/data/hermes` is ignored (with
+  a warning while it still holds files) and is never copied again, even if
+  `/data/state` is later emptied. Delete `/data/hermes` once you have checked
+  `/data/state`.
+- **It resumes.** `.migration-incomplete` exists in `/data/state` while the
+  copy runs. Each file is written under a temporary name and renamed, so a
+  file with its real name is complete. After a crash or a full disk the next
+  start finishes the job and skips what is already there; running it again
+  over the mark is safe. A copy interrupted on an earlier release could leave a
+  truncated file under its real name; the resume completes a file only when
+  it is an exact byte prefix of the legacy file, which loses nothing. If a
+  legacy file or folder cannot be read, the start stops with the error and
+  the mark stays, so the copy is never recorded as done with parts missing:
+  fix the permissions (`chown -R 1000:1000` on the folder) and start again.
+- **What counts as data.** A folder holds data when it contains anything that
+  is not a directory: a file or a symlink (even a dangling one). Empty
+  folders alone count as empty.
+- **Compose.** The shipped Compose file no longer mounts `./data/hermes`, so a
+  new install never creates it. Its one-shot `print-handy-migrate` service
+  runs the copy before the application starts, with `./data` mounted
+  read-only, so an install that still has `./data/hermes` keeps migrating. It
+  exits at once when there is nothing to copy.
+
+Rollback limits:
+
+- The copy never modifies `/data/hermes`, so going back to 2.2.4 or earlier
+  works, but those releases read only `./data/hermes`: they start from the
+  data as it was when you upgraded, and anything you did after the upgrade
+  (new prints, settings, records) is not there.
+- Whatever 2.2.4 writes during the rollback stays in `./data/hermes`. Upgrading
+  again does not copy it forward, because `.migrated-from-legacy` already
+  records the one migration, and even without that record existing files in
+  `/data/state` would win. To carry rollback data forward, stop the container,
+  move `./data/state` aside, delete nothing else, and start the new release
+  with `./data/hermes` in place: the empty `state` folder migrates again.
+  Keep the moved folder until you have checked the result.
+- Take a copy of `./data` before an upgrade across 2.2.5 if the data matters.
 
 The container healthcheck and `python3 -m print_handy.doctor` report which
 path is in use. An explicit `PRINT_HANDY__PATHS__HERMES_HOME=/data/hermes`
@@ -397,8 +444,8 @@ To adopt the new name (optional, any time before that removal):
    Unraid installs rename `/mnt/user/appdata/print-handy/hermes` to
    `/mnt/user/appdata/print-handy/state`.
 3. Update the mapping if yours names the paths explicitly: in
-   `docker-compose.yml` the state line already maps both names in the
-   shipped file, so nothing changes there; in the Unraid template (the
+   `docker-compose.yml` nothing changes, because the shipped file maps only
+   `state` and migrates a leftover `hermes` folder itself; in the Unraid template (the
    in-repo `docker/unraid/print-handy.xml` and the Community Applications
    template alike) nothing changes either: the single **Appdata** path
    already covers both host folders, so renaming the folder in step 2 is
@@ -619,11 +666,11 @@ The manual `.github/workflows/docker-publish.yml` covers the whole matrix in one
 
 A publication dispatch (`publish=true`) is also checked by the **publish ref guard** (`scripts/check_publish_ref.py`, the first step of the same `surfaces-gate` job), which fails the run before anything is built unless all of these hold: the dispatched ref is the release tag (select the tag, not a branch, in the "Use workflow from" box, and the tag name must equal the version); the tagged commit is reachable from `main`; the `CI` workflow concluded successfully on that exact commit; and the `Release checklist: X.Y.Z` issue exists and is closed. Candidate runs (`publish=false`) are never blocked and work from any ref. `:latest` moves only when the version being published is the highest released version (a plain `MAJOR.MINOR.PATCH` tag reachable from `main`); publishing an older patch updates only `:VERSION`.
 
-**Repairing `:latest`.** If `:latest` ever points at the wrong image, run the manual **Retag latest to an existing release** workflow (`.github/workflows/retag-latest.yml`): Actions tab, pick that workflow, "Run workflow", enter the version `:latest` should point at (for example `2.2.7`), or `gh workflow run retag-latest.yml -f version=2.2.7`. It builds nothing: it copies the existing `:VERSION` manifest to `:latest` by digest with `docker buildx imagetools create`, checks the result has the same digest, and refuses a version whose git tag is missing or not reachable from `main`. It never runs on its own.
+**Repairing `:latest`.** If `:latest` ever points at the wrong image, run the manual **Retag latest to an existing release** workflow (`.github/workflows/retag-latest.yml`): Actions tab, pick that workflow, "Run workflow", enter the version `:latest` should point at (for example `2.2.7`), or `gh workflow run retag-latest.yml -f version=2.2.7`. It builds nothing: it copies the existing `:VERSION` manifest to `:latest` by digest with `docker buildx imagetools create`, checks the result has the same digest, and refuses a version whose git tag is missing or not reachable from `main`, or that has no published GitHub release (a draft or prerelease does not count). It never runs on its own. After every release, the post-release surfaces issue carries the command that confirms `:latest` and the newest release share one digest.
 
 Each build leg has a 350 minute timeout. Buildx uses a `docker-container` builder: the publishing legs push by digest, which the Docker driver does not implement. Nightly run 40330775729 proved it the hard way, with every leg passing acceptance and then failing at the push step with exactly that error (the no-push validation workflow still uses the Docker driver, which is fine because it never pushes). Runtime fixtures must remain isolated, use dummy credentials and clean up owned containers. Evidence is retained 30 days. No live Discord, printer, Home Assistant or household Spoolman endpoints are permitted. Native tests prove lifecycle logic, not image startup, migration or slicing. Report actual workflow evidence and immutable identities separately.
 
-Upgrade: stop prior consumers, preserve source state and immutable digest, reconcile at final cutover and recreate with the same five paths. Never use `compose down -v`. Rollback requires a compatible schema and matching old image; no automatic database downgrade is supplied.
+Upgrade: stop prior consumers, preserve source state and immutable digest, reconcile at final cutover and recreate with the same paths. Never use `compose down -v`. Rollback requires a compatible schema and matching old image; no automatic database downgrade is supplied.
 
 ## Attribution
 

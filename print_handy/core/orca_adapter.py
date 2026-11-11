@@ -2616,13 +2616,16 @@ def _source_plate_count(source) -> int:
         return 0
 
 
-def _fit_exclusion_polygon():
-    """Read the active printer's polygon, not the split planner's rectangle cover.
+def _fit_exclusion_polygon(state=None):
+    """Read the job printer's polygon, not the split planner's rectangle cover.
 
+    The job's printer is ``state['printer_model']`` when the caller names it
+    (intake does, see prepared_intake._fit_state); otherwise the default
+    printer, which is the only printer of a single-printer install (#1195).
     Failed lookup is unknown, never permission to ignore a declared exclusion.
     """
     try:
-        model_key = settings.current()['printer'].get('model')
+        model_key = (state or {}).get('printer_model') or settings.current()['printer'].get('model')
         model = printers.MODELS[model_key] if model_key else None
         facts = getattr(getattr(model, 'adapter', None), 'facts', None) or {}
         polygon = tuple(tuple(map(float, p)) for p in
@@ -2637,7 +2640,7 @@ def _fit_exclusion_polygon():
 def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_margin: float = 1.0) -> int:
     """Check if all plates in a multi-plate 3MF fit the bed bounds at `scale`."""
     bed = state.get('bed_mm', BED)
-    exclusion_polygon = _fit_exclusion_polygon()
+    exclusion_polygon = _fit_exclusion_polygon(state)
     try:
         from . import model_job as mj
         from . import color_geometry as cg
@@ -2704,7 +2707,7 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
     bed = state.get('bed_mm', BED)
     bed_x, bed_y = float(bed[0]), float(bed[1])
     max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
-    exclusion_polygon = _fit_exclusion_polygon()
+    exclusion_polygon = _fit_exclusion_polygon(state)
     multi_margin = MULTI_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     single_margin = SINGLE_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     if brim_policy is not None:

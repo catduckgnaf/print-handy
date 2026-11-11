@@ -1,6 +1,6 @@
 # Discord bot setup
 
-Make a Discord bot, invite it, paste two IDs and a token. About 15 minutes. Docker users put the token in `.env` instead of the wizard.
+The goal: Print Handy in your Discord server, answering `/print-help` in its print channel. Getting there takes about 15 minutes: make a Discord bot, invite it, paste two IDs and a token. Docker users put the token in `.env` instead of the wizard.
 
 For the standalone commands below, start in the repository root with the installation's Python environment activated. For installation itself, use [Docker](DOCKER.md) or the [standalone bot](STANDALONE.md).
 

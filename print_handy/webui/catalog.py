@@ -636,9 +636,9 @@ CATALOG = (
            "records. On by default; while the key is unset it follows "
            "the Wrapped switch above, and setting it pins the Data "
            "tab on or off independently. Saving a change to the "
-           "Wrapped switch on this page pins the Data value shown "
-           "here, so the Data tab keeps the state you saw instead of "
-           "flipping with Wrapped on the restart. While off, the "
+           "Wrapped switch alone keeps it following, so after the "
+           "restart the Data tab takes Wrapped's new value; changing "
+           "this toggle is what sets it. While off, the "
            "Data page is not in the navigation and its routes refuse "
            "by name.",
            validator="settings timelapse check"),

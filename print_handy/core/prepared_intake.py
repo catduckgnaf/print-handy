@@ -2597,6 +2597,21 @@ def supports_decision(flagged, finding, clearance):
     return show, '; '.join(reasons), inputs
 
 
+def _fit_state(state, job):
+    """The printer state the bed fit probes read: ``state`` naming the job's printer model.
+
+    The probes run in a worker process whose settings are the default printer's,
+    so without the model they would apply the default printer's bed exclusion
+    area to another printer's job (#1195). A job with no printer id belongs to
+    the default printer and gets ``state`` unchanged. An id the roster does not
+    know raises (settings.by_id), so the probe fails by name instead of guessing.
+    """
+    printer_id = job.get('printer_id')
+    if not printer_id:
+        return state
+    return {**state, 'printer_model': settings.by_id(printer_id)['model']}
+
+
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                         before_start=None, confirm_target=False):
     from . import model_job as mj
@@ -2789,6 +2804,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
+        # The bed fit probes read the job's own printer's bed exclusions, not the default's (#1195).
+        fit_state = _fit_state(state, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         # The author-layout fit probe needs only the file and the printer state, never the unit or
@@ -2817,7 +2834,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     fit_kw['copy_limit'] = max(16, int(job['copies']))
                 except (TypeError, ValueError):
                     pass
-        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state, **fit_kw))
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, fit_state, **fit_kw))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
@@ -3398,7 +3415,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 capacity = await FitStatus(adapter, source, metadata).run(
                                             'confirming the chosen size on the bed',
-                                            _heavy(orca_adapter.orca_plate_capacity, path, state,
+                                            _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                                    scale=selected_scale,
                                                    **({'rotation': rotation, 'supports': bool(row.get('supports')),
                                                        # The search verified this turn with the
@@ -3871,7 +3888,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 probe_kw = {'copy_limit': max(1, int(chosen_quantity or 1))}
             try:
-                capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                            scale=new_scale, **probe_kw)
             except Exception:
                 logger.exception('scale fit check failed')
@@ -3887,7 +3904,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # only when the current size is itself a split/rearranged
                 # plan rather than a one-plate fit.
                 try:
-                    fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, state,
+                    fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, fit_state,
                                              new_scale, **probe_kw)
                 except Exception:
                     # The slicer failed while searching: say so, never imply
@@ -3923,7 +3940,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     continue
                 new_scale = fit_scale
                 try:
-                    capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                    capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                                scale=new_scale, **probe_kw)
                 except Exception:
                     logger.exception('scale fit check failed')
