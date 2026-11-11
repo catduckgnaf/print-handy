@@ -71,6 +71,7 @@ Hardening + vocabulary pass (post-2.2.1 audit, toward 2.2.2):
 """
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -359,6 +360,15 @@ def _stem(token):
     return token
 
 
+# canonical() results by input string (#1153). The fold is a pure function
+# of the text and the module's constant vocabulary tables, and one chat
+# message is canonicalized once per target it is scored against (24 times
+# for the loaded-spools near-miss check alone), with the same fixed target
+# phrases folded on every message. Only str inputs are memoized; the cache
+# is bounded and evicts least recently used entries.
+_CANONICAL_CACHE_MAX = 4096
+
+
 def canonical(text):
     """``norm`` plus the scoring canonicalization, as a single string.
 
@@ -367,6 +377,22 @@ def canonical(text):
     remaining tokens are stemmed. Used only inside fuzzy scoring —
     callers' exact tiers never see this form.
     """
+    if isinstance(text, str) and len(text) <= _CANONICAL_MEMO_CHARS:
+        return _canonical_memo(text)
+    return _canonical(text)
+
+
+# Longer texts (pasted descriptions, logs) are folded uncached: they rarely
+# repeat and would only push the short, repeated texts out of the cache.
+_CANONICAL_MEMO_CHARS = 512
+
+
+@functools.lru_cache(maxsize=_CANONICAL_CACHE_MAX)
+def _canonical_memo(text):
+    return _canonical(text)
+
+
+def _canonical(text):
     tokens = typo_tokens(norm(text).split())
     # A number word joined to the word it counts ("firstlayer",
     # "twentyone") splits back apart so the phrase parser below can
@@ -426,6 +452,7 @@ def canonical(text):
 
 # ------------------------------------------------------------- phonetics
 
+@functools.lru_cache(maxsize=_CANONICAL_CACHE_MAX)
 def _phonetic(token):
     """A light sound fold for the rescue pass: spelling-by-ear forms.
 
@@ -455,16 +482,33 @@ def _covered(query_tokens, target_tokens) -> bool:
     if not query_tokens or not target_tokens:
         return False
     covered = sum(1 for word in query_tokens
-                  if max(SequenceMatcher(None, word, other).ratio()
-                         for other in target_tokens) * 100 >= FUZZY_FLOOR)
+                  if any(_ratio_at_least(word, other, FUZZY_FLOOR) for other in target_tokens))
     return covered * 2 >= len(query_tokens)
+
+
+def _ratio_at_least(a, b, floor) -> bool:
+    """``SequenceMatcher(None, a, b).ratio() * 100 >= floor``, cheapest test first.
+
+    ``real_quick_ratio`` and ``quick_ratio`` are upper bounds on ``ratio``
+    (difflib documents both), so a pair either bound puts below the floor
+    is below it exactly; only the rest pay for the full ratio (#1153).
+    """
+    matcher = SequenceMatcher(None, a, b)
+    return (matcher.real_quick_ratio() * 100 >= floor and matcher.quick_ratio() * 100 >= floor
+            and matcher.ratio() * 100 >= floor)
 
 
 def _score_folded(q, t) -> int:
     """The whole-string ratio + coverage guard over already-folded strings."""
     if not q or not t:
         return 0
-    score = round(SequenceMatcher(None, q, t).ratio() * 100)
+    matcher = SequenceMatcher(None, q, t)
+    # Both quick ratios bound the full ratio from above and rounding keeps
+    # the order, so a bound below the floor is a 0 the full ratio would also
+    # give (#1153): the common unrelated pair skips the matching-block search.
+    if round(matcher.real_quick_ratio() * 100) < FUZZY_FLOOR or             round(matcher.quick_ratio() * 100) < FUZZY_FLOOR:
+        return 0
+    score = round(matcher.ratio() * 100)
     if score < FUZZY_FLOOR or not _covered(q.split(), t.split()):
         return 0
     return min(score, 99)

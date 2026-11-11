@@ -618,6 +618,10 @@ def _effective_config(artifact):
     text = Path(artifact).read_text(errors="replace") if isinstance(artifact, (str, Path)) and Path(artifact).is_file() else str(artifact or "")
     found = {}
     for line in text.splitlines():
+        # Only a comment line can match; skipping the toolpath before the
+        # regex changes no answer and spares a match per motion line (#1153).
+        if not line.startswith(";"):
+            continue
         m = re.match(r"^;\s*([A-Za-z0-9_]+)\s*=\s*(.*)$", line)
         if m and m.group(1) in PROTECTED_KEYS: found[m.group(1)] = m.group(2)
     return found

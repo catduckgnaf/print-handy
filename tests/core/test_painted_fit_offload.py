@@ -67,3 +67,26 @@ def test_the_worker_answers_exactly_what_the_in_process_fit_does():
     assert reply["ok"] and not reply["path"]
     assert reply["result"] == expected
     assert expected["scale"] is not None
+
+
+def test_one_painted_fit_inventories_the_source_once(monkeypatch):
+    # #1153 item 8, manifest half: the fit's own read and the geometry export
+    # it tries both asked for the color manifest, and each decoded every
+    # painted triangle again. Inside the fit's inventory scope the source is
+    # inventoried once (keyed by its content hash) and the answer is unchanged.
+    from print_handy.core import source_colors
+    decisions = _decisions(PAINTED)
+    expected = model_job._painted_fit_for_job(PAINTED, decisions, None)
+    calls = []
+    real = source_colors._inventory
+
+    def counting(path):
+        calls.append(str(path))
+        return real(path)
+
+    monkeypatch.setattr(source_colors, "_inventory", counting)
+    assert model_job.painted_fit_for_job(PAINTED, decisions, None) == expected
+    assert len(calls) == 1
+    calls.clear()
+    model_job._painted_fit_for_job(PAINTED, decisions, None)
+    assert len(calls) > 1, "without the scope the fit inventories the source more than once"
