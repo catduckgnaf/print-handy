@@ -4,7 +4,7 @@
 Applications (CA) template `templates/print-handy.xml` in the
 `catduckgnaf/catduck-unraid-templates` repository, taken from that
 repository's `main` branch (commit
-`9028daa14ddfbda6a85c0c71a7970a095b48b988`) on 2026-11-10 for issue
+`030c596a1a10ecbe7573eafeeb7a2ca9ef16522e`) on 2026-11-11 for issue
 #1143.
 
 `UnraidCaTemplateParityTests` in `tests/test_docker_release.py` parses

@@ -35,12 +35,39 @@ Before any byte is written, the generic package remapper
 - **Preserved byte-for-byte**: `[Content_Types].xml`, relationship parts,
   thumbnails and preview images, `Auxiliaries/` members, and opaque vendor
   records — members with no filament reference this converter knows.
+- **Kept under the identity mapping, dropped by name otherwise** (#1155):
+  the previous slice's plate records, `Metadata/plate_N.json` (the
+  filament ids and colors that slice used, and its object bounding boxes)
+  and `Metadata/plate_N.gcode.md5`. They describe the old numbering and the
+  slicer writes new ones on the next slice; the report lists each in
+  `dropped_entries`.
+- **Preserved, refused by name under an object map** (#1155): the
+  object-keyed records with no filament reference,
+  `Metadata/cut_information.xml`, `Metadata/layer_heights_profile.txt` and
+  `Metadata/brim_ear_points.txt`. Whether they key on resource ids or on
+  1-based object indexes is not established, so they are never renumbered.
 - **Refused by name**: embedded plate G-code (`Metadata/plate_N.gcode`;
   bare G-code is never rewritten and its tool commands would contradict the
   new numbering), `Metadata/filament_sequence.json` under a non-identity
   mapping (its sequence semantics are not established, and its embedded
   preset record is provenance evidence about the source), and any member
   with no classification at all.
+
+Implicit extruder 1 (#1155): a Bambu/Orca object whose
+`model_settings.config` entry names no extruder, or extruder 0, prints
+filament 1. Under a mapping that moves filament 1 the
+generic remapper writes that object's extruder explicitly before remapping,
+so the object and its unpainted faces keep their filament; parts that say 0
+still inherit it. A build object with no settings entry, or a package with
+no settings member at all, refuses such a mapping by name, and the
+consistency re-read checks that no build object is left on implicit
+filament 1. A PrusaSlicer package is not given object extruders: an object
+without one prints the print-wide role extruders of `Slic3r_PE.config`,
+which an object extruder would override.
+
+A realistic Bambu Studio project (the member set of a project save, built
+in `tests/pipeline/test_remap_package_bambu_1155.py`) now remaps
+completely; a sliced one refuses for its embedded G-code, by name.
 
 Object-id policy: **package remaps never renumber object ids.** The generic
 remapper and the copy exporters (single-color, production) preserve ids
@@ -74,7 +101,10 @@ semantics are not established from this repository (only "two entries per
 filament" in one synthetic fixture), and guessing a memory layout is not an
 option. A remap that would have to permute it refuses and names the key
 (registry rule `flush-vector-unestablished-refusal`). The identity mapping
-needs no permutation and passes it through; a one-filament collapse keeps
+needs no permutation and passes it through, and so does a vector whose
+entries are all equal (the slicer default, a run of 140s), because every
+reordering of it is the same list whatever its layout (#1155); a non-uniform
+vector still refuses. A one-filament collapse keeps
 the used filament's own pair, the one slice of the layout the fixture
 establishes.
 

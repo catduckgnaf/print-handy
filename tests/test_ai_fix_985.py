@@ -173,25 +173,56 @@ def test_offset_thickens_a_thin_wall(tmp_path):
     assert size[2] == pytest.approx(0.7, abs=0.05)  # 0.3 + 2 x 0.2 of offset
 
 
-def test_split_writes_a_two_part_3mf_and_a_miss_changes_nothing(tmp_path):
-    src = tmp_path / 'cube.stl'
+def _cube(x0=0.0, z0=0.0, s=10.0):
     import numpy as np
-    s = 10.0
-    v = [(0, 0, 0), (s, 0, 0), (s, s, 0), (0, s, 0),
-         (0, 0, s), (s, 0, s), (s, s, s), (0, s, s)]
+    v = [(x0, 0, z0), (x0 + s, 0, z0), (x0 + s, s, z0), (x0, s, z0),
+         (x0, 0, z0 + s), (x0 + s, 0, z0 + s), (x0 + s, s, z0 + s), (x0, s, z0 + s)]
     faces = [(0, 3, 2), (0, 2, 1), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5),
              (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7), (4, 5, 6), (4, 6, 7)]
-    tris = np.array([[v[a], v[b], v[c]] for a, b, c in faces], dtype=float)
-    support_clearance._write_binary_stl(src, tris)
+    return np.array([[v[a], v[b], v[c]] for a, b, c in faces], dtype=float)
+
+
+def _volume(tris):
+    import numpy as np
+    t = np.asarray(tris, dtype=float).reshape(-1, 3, 3)
+    return float(np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() / 6)
+
+
+def test_split_writes_a_two_part_3mf_and_a_miss_changes_nothing(tmp_path):
+    # Two cubes stacked with a 2 mm gap: the plane in the gap separates them.
+    import numpy as np
+    src = tmp_path / 'stack.stl'
+    support_clearance._write_binary_stl(src, np.concatenate([_cube(), _cube(z0=12.0)]))
     report = ai_fix.apply_geometry(src, tmp_path / 'split.3mf',
-                                   {'kind': 'split', 'axis': 'z', 'at_mm': 5.0})
+                                   {'kind': 'split', 'axis': 'z', 'at_mm': 11.0})
     assert report['changed'] is True and report['parts'] == 2
     parts = support_clearance.leaves(tmp_path / 'split.3mf')
     assert len(parts) == 2
-    assert sum(len(p['tris']) for p in parts) == 12  # every triangle kept, none clipped
+    assert sum(len(p['tris']) for p in parts) == 24  # every triangle kept, none clipped
+    # Each part is a closed solid, and the two volumes sum to the source's (#1195).
+    for part in parts:
+        assert ai_fix.mesh_repair.facts_for(part['tris'])['watertight']
+        assert _volume(part['tris']) == pytest.approx(1000.0)
     miss = ai_fix.apply_geometry(src, tmp_path / 'miss.3mf',
                                  {'kind': 'split', 'axis': 'z', 'at_mm': 50.0})
     assert miss['changed'] is False
+
+
+@pytest.mark.parametrize('axis, at_mm', [('z', 5.0), ('x', 5.0), ('x', 15.0)])
+def test_split_through_a_solid_is_refused_not_written_open(tmp_path, axis, at_mm):
+    # #1195 (split-piece volume): whole-triangle assignment through connected
+    # surface left both parts open along the cut. A 30 x 10 x 10 mm bar split
+    # at x = 15 came out as "volumes" of 1000 and 2000 mm3 (origin dependent,
+    # not 1500 each), with no cap at the cut. Refused now; nothing is written.
+    src = tmp_path / 'bar.stl'
+    tris = _cube()
+    if at_mm == 15.0:
+        tris = tris * [3.0, 1.0, 1.0]
+    support_clearance._write_binary_stl(src, tris)
+    out = tmp_path / 'split.3mf'
+    with pytest.raises(ai_fix.FixError, match='cut through the solid model'):
+        ai_fix.apply_geometry(src, out, {'kind': 'split', 'axis': axis, 'at_mm': at_mm})
+    assert not out.exists()
 
 
 def test_remapped_decisions_rejects_partial_or_unknown_mapping_atomically():

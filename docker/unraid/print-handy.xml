@@ -3,7 +3,7 @@
      lives in the catduck-unraid-templates repo; this source template is the in-repo reference for the same
      install surface, digest-pinned to the current release.
      One container runs the Discord bot, the Moonraker listener and the bundled Spoolman API under tini and a supervisor.
-     Repository is the current release's multi-arch index digest (2.2.7), not a moving tag.
+     Repository is the current release's multi-arch index digest (2.2.9), not a moving tag.
      :latest, :develop and :nightly move; a release tag is immutable only until someone republishes it.
      An install that already runs a tested digest keeps that digest. Do not replace it with this default.
      The template deliberately carries only the install-time surface: the Web UI port, one Appdata
@@ -22,7 +22,7 @@
      Every step: docs/DOCKER.md, "GPU passthrough and supported combinations". -->
 <Container version="2">
   <Name>print-handy</Name>
-  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:36d44e6c3bfd285deb671508217e0296fcf8d26e39fc17bd5f6e69414b762a48</Repository>
+  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>

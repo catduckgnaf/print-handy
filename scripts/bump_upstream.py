@@ -2138,6 +2138,8 @@ Tests added: none
 Tests added detail: No new test is added: this PR changes only a pinned upstream version value, and no Print Handy behavior of its own changes to pin. The existing suite is the regression net for the bump.
 Regression scoping: checked
 Regression scoping reason: The change was scoped against the full suite: this PR stays draft until CI on its head runs the full suite and every check is SUCCESS, so the existing regression tests are the verification for the bump. Nothing was deliberately left out; a red suite is the verdict to close this PR.
+Regression test: not a bug fix
+Regression test detail: This is routine dependency maintenance (a pinned upstream version bump), not a fix for a Print Handy bug, so there is no bug for a regression test to reproduce.
 
 ## Risks, limitations, and follow up
 

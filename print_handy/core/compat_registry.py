@@ -407,12 +407,17 @@ RULES = (
          "The layout semantics of flush_volumes_vector are not established from this repository (only "
          "\"two entries per filament\" in one synthetic fixture), so no honest permutation of it "
          "exists: a remap that would have to permute the vector refuses and names the key. The "
-         "identity mapping needs no permutation and passes it through; a one-filament collapse keeps "
-         "the used filament's own pair, the one slice of the layout the fixture does establish.",
+         "identity mapping needs no permutation and passes it through, and so does a vector whose "
+         "entries are all equal (the slicer default, a run of 140s), since every reordering of it is "
+         "the same list whatever its layout (#1155); a one-filament collapse keeps the used "
+         "filament's own pair, the one slice of the layout the fixture does establish.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_the_unestablished_flush_vector",
+          "tests/pipeline/test_remap_package_bambu_1155.py::test_a_non_uniform_flush_vector_still_refuses_by_name",
+          "tests/pipeline/test_remap_package_bambu_1155.py::test_a_realistic_bambu_project_remaps_completely",
           "tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries"),
          ("docs/history/3MF-REMAP-INVENTORY.md#palette-per-filament-arrays-and-purge-references",),
-         {"key": "flush_volumes_vector", "on_nonidentity_remap": "refuse"}),
+         {"key": "flush_volumes_vector", "on_nonidentity_remap": "refuse",
+          "on_uniform_vector": "pass_through"}),
     Rule("support-designation-remap", "designation_remap", "any", "any", "orca", _ORCA,
          "Inside a remapped package, a support designation (support_filament / "
          "support_interface_filament, and the Prusa support_material_extruder pair) is rewritten "
@@ -445,11 +450,20 @@ RULES = (
          "filament reference (thumbnails, relationship parts, vendor records, Auxiliaries/) is "
          "preserved byte-for-byte, embedded plate G-code refuses (bare G-code is never rewritten and "
          "its tool commands would contradict the new numbering), and any member with no classification "
-         "refuses the remap by name rather than be carried stale or dropped silently.",
+         "refuses the remap by name rather than be carried stale or dropped silently. The standard "
+         "Bambu Studio / OrcaSlicer members are classified (#1155): the previous slice's plate records "
+         "(plate_N.json, plate_N.gcode.md5) are kept under the identity mapping and dropped by name "
+         "under any other, since they describe the old numbering and the next slice rewrites them; "
+         "the object-keyed records with no filament reference (cut_information.xml, "
+         "layer_heights_profile.txt, brim_ear_points.txt) are preserved, and refuse by name under an "
+         "object map.",
          ("tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_unclassified_and_embedded_gcode_members",
-          "tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members"),
+          "tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members",
+          "tests/pipeline/test_remap_package_bambu_1155.py::test_a_realistic_bambu_project_remaps_completely",
+          "tests/pipeline/test_remap_package_bambu_1155.py::test_an_object_map_refuses_the_object_keyed_cut_record_by_name"),
          ("docs/history/3MF-REMAP-INVENTORY.md#member-classification-and-the-object-id-policy",),
-         {"on_unclassified": "refuse", "on_embedded_gcode": "refuse"}),
+         {"on_unclassified": "refuse", "on_embedded_gcode": "refuse",
+          "on_slice_record_nonidentity": "drop_named", "on_object_keyed_object_map": "refuse"}),
 )
 
 _BY_ID = {rule.id: rule for rule in RULES}

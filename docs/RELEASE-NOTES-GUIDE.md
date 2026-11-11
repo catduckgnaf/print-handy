@@ -15,7 +15,7 @@ Release notes explain what changes for someone using Print Handy. They are not a
 ## Reusable outline
 
 ```markdown
-# <version> — <date>
+# <version> (<date>)
 Status: Draft / Unreleased / Released (choose the actual status)
 
 ## What you can do

@@ -618,23 +618,47 @@ async def _design_handoff(event, gateway, adapter, session, stl_path):
 
     The design flow slices and prints nothing itself: prepare_link runs its
     own fit, colour and confirmation gates from here, unchanged.
+
+    A multi-part design (#1204 item 4) hands its part files over together,
+    exactly like several files dropped in one message, so they become one
+    project_v1 project through the same builder and continue plate by plate
+    through the same next-plate flow. Slice it is not an approval: intake
+    still asks before anything starts, and each later plate asks again.
     """
     import copy as _copy
     import uuid as _uuid
+    from print_handy.core import design as _design
     from print_handy.core import printer_state
     from print_handy.core.link_intake import PromptCancelled
     from print_handy.core.prepared_intake import prepare_link
     source = event.source
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
-    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                       content='Handing the design to the normal intake — it asks the usual '
-                               'questions before anything is sliced.')
+    try:
+        part_paths, record = _design.multipart_handoff(_design_root(_config.cfg()), session)
+    except _design.DesignError as exc:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f'The design could not be handed to intake: {exc} '
+                                   'Nothing was sliced or started.')
+        return {'action': 'skip', 'reason': 'design intake handoff failed'}
+    if part_paths:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f'Handing the {len(part_paths)} parts of the design to the normal '
+                                   'intake as one project — it asks the usual questions before '
+                                   'anything is sliced, and each plate is started separately.')
+    else:
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='Handing the design to the normal intake — it asks the usual '
+                                   'questions before anything is sliced.')
     handed = _copy.copy(event)
     handed.text = ''
-    handed.media_urls = [str(stl_path)]
+    handed.media_urls = [str(p) for p in part_paths] or [str(stl_path)]
     handed.message_id = f"design-{session['id']}-{_uuid.uuid4().hex[:8]}"
     handed.metadata = dict(getattr(event, 'metadata', None) or {})
     handed.metadata['live_session_key'] = gateway._session_key_for_source(source)
+    if record is not None:
+        handed.metadata['design_handoff'] = record
+    else:
+        handed.metadata.pop('design_handoff', None)
     root = _state_dir() / 'model-link-intakes'
     pid = _routed_printer_id(source, gateway)
     candidates = _undecided_printer_ids(source, gateway) if not pid else None
@@ -4987,6 +5011,9 @@ def _is_affirmative_followup(text: str) -> bool:
     return any(re.search(p, t) for p in patterns)
 
 
+_INTAKE_UNAVAILABLE_REASON = 'new model intake unavailable; no start authorized'
+
+
 async def model_link_dispatch(event, gateway, **kwargs):
     source = getattr(event, 'source', None)
     if (source is None or not _is_bot_platform(source)
@@ -5000,7 +5027,12 @@ async def model_link_dispatch(event, gateway, **kwargs):
     from print_handy.core.prepared_intake import (prepare_link as collect_link, model_file,
                                                   reprint_request, last_printed_job)
     from print_handy.core import prepared_intake as _intake_module
-    model_files = getattr(_intake_module, 'model_files', lambda event: [])
+    _model_files = getattr(_intake_module, 'model_files', lambda event: [])
+    _archive_files = getattr(_intake_module, 'archive_files', lambda event: [])
+
+    def model_files(event):
+        # A dropped .zip of model sources is an upload too (#1204 item 3).
+        return _model_files(event) or _archive_files(event)
     from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
     reuse = None
@@ -5147,7 +5179,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
                 metadata={'thread_id': source.thread_id} if source.thread_id else None)
         except Exception:
             logger.exception('New model intake failure delivery also failed')
-        return {'action': 'skip', 'reason': 'new model intake unavailable; no start authorized'}
+        return {'action': 'skip', 'reason': _INTAKE_UNAVAILABLE_REASON}
     # A question beside the model is answered from the job the intake just
     # prepared; edits were applied inside the intake (edit_hook above).
     if instruction and edit_hook is None:
@@ -5161,6 +5193,55 @@ async def model_link_dispatch(event, gateway, **kwargs):
         if isinstance(follow, dict):
             return follow
     return result
+
+
+async def upload_collection_dispatch(event, gateway, **kwargs):
+    """Collect one project's files across several messages (#1204 item 2).
+
+    Added for #1204: one hook, placed directly before model_link_dispatch.
+    It claims a message only when the message is about this user's
+    collection in this chat, thread and printer ("add to project", "done
+    adding", "cancel project", or an upload while that collection is open);
+    everything else returns None and reaches model_link_dispatch exactly as
+    before. "Done adding" runs model_link_dispatch itself on the collected
+    files, so printer choice, intake and every gate are the usual ones.
+    """
+    if not _is_print_discord_event(event):
+        return None
+    source = event.source
+    if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
+        return None
+    from print_handy.core import upload_collection
+    from print_handy.core.link_intake import model_link
+    text = getattr(event, 'text', '') or ''
+    if model_link(text):
+        return None  # a model link keeps its own intake; collections gather uploads
+    from print_handy.core.prepared_intake import archive_files, model_files
+    files = model_files(event)
+    if upload_collection.intent(text) is None and not files:
+        return None  # the common case: no state read at all
+    adapter = _adapter_for(gateway, source)
+    if adapter is None:
+        return None
+
+    async def run_intake(paths, row):
+        from types import SimpleNamespace
+        collected = SimpleNamespace(
+            source=source, text='', internal=False, media_urls=[str(p) for p in paths],
+            message_id=f"collection-{row['collection_id']}",
+            metadata={'upload_collection': {
+                'collection_id': row['collection_id'],
+                'files': [{k: f.get(k) for k in ('n', 'name', 'sha256', 'size', 'message_id')}
+                          for f in row.get('files') or []]}})
+        result = await model_link_dispatch(collected, gateway)
+        if isinstance(result, dict) and result.get('reason') == _INTAKE_UNAVAILABLE_REASON:
+            raise upload_collection.IntakeFailed(result['reason'])  # reopen the collection
+        return result
+
+    return await upload_collection.handle(
+        event, adapter, printer_id=_channel_printer_id(source, gateway), files=files,
+        run_intake=run_intake, timeout=_question_timeout(), live_key=_live_key_for(source, gateway),
+        archives=archive_files(event))
 
 
 def _instruction_edit_hook(event, gateway, source, adapter, instruction):
@@ -6391,6 +6472,7 @@ _DISPATCH_HOOKS = (
     calibration_dispatch,
     typed_quantity_dispatch,
     upload_wait_dispatch,
+    upload_collection_dispatch,
     model_link_dispatch,
     color_selection_dispatch,
     print_next_dispatch,

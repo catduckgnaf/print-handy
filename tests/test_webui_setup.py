@@ -13,6 +13,7 @@ is primary, the environment token stays a co-credential, and a saved
 Offline: temp settings and state folder, the server on an ephemeral port.
 """
 import http.client
+import json
 import os
 import re
 import socket
@@ -449,6 +450,44 @@ class UnclaimedFlowTests(unittest.TestCase):
         self.assertNotIn("secret detail", body)
         self.assertNotIn("RuntimeError", body)
         self.assertIn("secret detail", "\n".join(logs.output))
+
+    def test_a_500_names_a_request_id_that_the_log_line_carries(self):
+        # #1243: one id per failed request, in the answer and in the log
+        # line with the traceback, so a reported error can be found.
+        httpd, port, _data = self.start()
+
+        def broken(*_args, **_kwargs):
+            raise RuntimeError("secret detail /home/someone/token=abc")
+        httpd.snapshot_func = broken
+        httpd.api_snapshot_func = broken
+        ids = []
+        with self.assertLogs("print_handy.webui.server", "ERROR") as logs:
+            for _ in range(2):
+                code, headers, body = self.request(port, "GET", "/api/status")
+                self.assertEqual(code, 500)
+                self.assertTrue(headers["content-type"].startswith("application/json"))
+                payload = json.loads(body)
+                self.assertEqual(payload["reason"], server.INTERNAL_ERROR_REASON)
+                self.assertRegex(payload["request_id"], r"^[0-9a-f]{12}$")
+                self.assertNotIn("secret detail", body)
+                ids.append(payload["request_id"])
+            # A browser page gets the themed refusal with the id on it.
+            with mock.patch.object(server._Handler, "_chat_page", broken):
+                code, _, page = self.request(port, "GET", "/chat", headers=HTML)
+            self.assertEqual(code, 500)
+            self.assertNotIn("secret detail", page)
+            ids.append(re.search(r"Request id: ([0-9a-f]{12})", page).group(1))
+            # A broken POST answers the same way.
+            with mock.patch.object(server._Handler, "_debug_post", broken):
+                code, _, body = self.request(port, "POST", "/debug", body="", headers=FORM)
+            self.assertEqual(code, 500)
+            ids.append(json.loads(body)["request_id"])
+        self.assertEqual(len(set(ids)), len(ids))  # one id per failed request
+        self.assertEqual(len(logs.records), len(ids))
+        for rid, record in zip(ids, logs.records):
+            line = record.getMessage()
+            self.assertIn(f"request id {rid}", line)
+            self.assertIsNotNone(record.exc_info)  # the traceback is logged
 
     def test_handlers_have_a_socket_timeout_and_a_thread_cap(self):
         httpd, port, _data = self.start()
