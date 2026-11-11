@@ -198,6 +198,17 @@ mv dot-config .config
                 self.assertRegex(ENV_EXAMPLE, rf"(?m)^#? ?{name}=$")
 
 
+# RFC 5737 reserves these three networks for documentation: no machine can
+# hold one on a real LAN, so they are the right example addresses. Python's
+# is_private counts them as private, which the LAN-address scan must not.
+_DOCUMENTATION_NETWORKS = tuple(ipaddress.ip_network(net) for net in (
+    "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"))
+
+
+def _is_documentation_address(address):
+    return any(address in net for net in _DOCUMENTATION_NETWORKS)
+
+
 def _parse_dotted_quad(raw):
     """IP address for a dotted-quad match, or None when it is not an address.
 
@@ -226,7 +237,7 @@ class SanitizedExamplesTests(unittest.TestCase):
         # the real files, but the positive direction — a real LAN
         # address, including a zero-padded one, still parses and would
         # be flagged — was asserted nowhere.
-        assert _parse_dotted_quad("192.168.250.135").is_private
+        assert _parse_dotted_quad("192.168.1.135").is_private
         assert _parse_dotted_quad("192.168.001.1").is_private
         # The Bambu version string zero-strips to a valid PUBLIC address
         # (2.9.1.70), so the scan parses it and does not flag it — that,
@@ -234,6 +245,19 @@ class SanitizedExamplesTests(unittest.TestCase):
         version = _parse_dotted_quad("02.09.01.70")
         assert str(version) == "2.9.1.70" and not version.is_private
         assert not _parse_dotted_quad("8.8.8.8").is_private
+
+    def test_documentation_ranges_are_examples_and_real_lan_ranges_are_not(self):
+        # The RFC 5737 carve-out must stay exactly those three /24s: a docs
+        # example such as 192.0.2.10 passes, while RFC 1918 and link-local
+        # addresses are still flagged.
+        for example in ("192.0.2.10", "198.51.100.7", "203.0.113.255"):
+            assert _is_documentation_address(_parse_dotted_quad(example)), example
+        for lan in ("192.168.1.10", "10.0.0.5", "172.16.4.2", "169.254.1.1"):
+            address = _parse_dotted_quad(lan)
+            assert not _is_documentation_address(address), lan
+            assert address.is_private, lan
+        # Just outside a documentation /24 is not part of the carve-out.
+        assert not _is_documentation_address(_parse_dotted_quad("192.0.3.1"))
 
     def test_no_lan_addresses_machine_paths_ids_or_credentials(self):
         for path in DEPLOYMENT_FILES:
@@ -247,7 +271,9 @@ class SanitizedExamplesTests(unittest.TestCase):
                     # The unspecified address (0.0.0.0) is a bind wildcard for
                     # the optional Web UI (#286), not a machine's LAN address.
                     self.assertFalse(address.is_private and not address.is_loopback
-                                     and not address.is_unspecified, f"{path}: LAN address {raw}")
+                                     and not address.is_unspecified
+                                     and not _is_documentation_address(address),
+                                     f"{path}: LAN address {raw}")
                 self.assertIsNone(re.search(r"/(home|Users)/(?!app/)[a-z]", text), f"{path}: machine path")
                 self.assertIsNone(re.search(r"/mnt/user/(?!appdata/)", text), f"{path}: personal share")
                 self.assertIsNone(re.search(r"(?<![0-9a-f])(?!100000000000000001|200000000000000002)\d{17,20}(?![0-9a-f])",
@@ -606,11 +632,13 @@ mv dot-config .config
 
     def test_template_runs_the_combined_compose_service(self):
         # The combined service is the template's container; the only other
-        # Compose services are the one-shot first-boot init service (#1144)
+        # Compose services are the one-shot first-boot init service (#1144),
+        # the one-shot legacy state-folder migration service (#1144)
         # and the optional cloudflared sidecar (#311), which
         # is profile-gated, shares the combined network namespace and is a
         # separate Unraid container there — never part of this template.
-        self.assertEqual(list(COMPOSE["services"]), ["combined", "print-handy-init", "cloudflared"])
+        self.assertEqual(list(COMPOSE["services"]),
+                         ["combined", "print-handy-init", "print-handy-migrate", "cloudflared"])
         sidecar = COMPOSE["services"]["cloudflared"]
         self.assertEqual(sidecar["profiles"], ["live-stream"])
         self.assertEqual(sidecar["network_mode"], "service:combined")

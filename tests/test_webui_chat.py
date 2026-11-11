@@ -46,17 +46,32 @@ def call(port, method, path, body=None, headers=None):
     return response.status, payload
 
 
+def chat_cookie(port):
+    """The web chat cookie a browser gets on its first /chat page."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    conn.request("GET", "/chat")
+    response = conn.getresponse()
+    response.read()
+    conn.close()
+    assert response.status == 200
+    header = response.getheader("Set-Cookie") or ""
+    assert header.startswith(webui_server.CHAT_COOKIE + "=")
+    assert "HttpOnly" in header and "SameSite=Strict" in header
+    return {"Cookie": header.split(";")[0]}
+
+
 def test_message_round_trip_through_the_page(running):
     srv, port = running
     status, page = call(port, "GET", "/chat")
     assert status == 200 and "Message" in page
+    browser = chat_cookie(port)
     body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
-    status, _page = call(port, "POST", "/chat", body=body)
+    status, _page = call(port, "POST", "/chat", body=body, headers=browser)
     assert status == 303
     deadline = time.time() + 10
     page = ""
     while time.time() < deadline:
-        status, page = call(port, "GET", "/chat")
+        status, page = call(port, "GET", "/chat", headers=browser)
         if "You:" in page and "help" in page:
             break
         time.sleep(0.05)
@@ -265,3 +280,29 @@ def test_pending_page_polls_fast_and_keeps_the_no_script_refresh():
     assert "innerHTML" not in page
     idle = chat.render_chat_page(Service(False), form_token="t")
     assert "/chat/state" not in idle and 'http-equiv="refresh"' not in idle
+
+
+def test_two_browsers_get_separate_transcripts(running):
+    """#1145: web chat is scoped per Web UI session. Two browsers on an
+    install with no login (each with its own chat cookie) never see each
+    other's messages; the state poll counts only the caller's own."""
+    import json
+    srv, port = running
+    alice, bob = chat_cookie(port), chat_cookie(port)
+    assert alice != bob
+    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+                                   "text": "help from alice"})
+    assert call(port, "POST", "/chat", body=body, headers=alice)[0] == 303
+    deadline = time.time() + 10
+    page = ""
+    while time.time() < deadline:
+        page = call(port, "GET", "/chat", headers=alice)[1]
+        if "help from alice" in page:
+            break
+        time.sleep(0.05)
+    assert "help from alice" in page
+    bob_page = call(port, "GET", "/chat", headers=bob)[1]
+    assert "help from alice" not in bob_page and "You:" not in bob_page
+    assert json.loads(call(port, "GET", "/chat/state", headers=bob)[1])["seq"] == 0
+    # No cookie at all is a third, empty conversation, not a shared one.
+    assert "help from alice" not in call(port, "GET", "/chat")[1]

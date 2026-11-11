@@ -377,16 +377,16 @@ class UploadRouteTests(unittest.TestCase):
         # (up to ~200 MiB) body is read or parsed at all.
         import tempfile
         parse_calls = []
-        real_parse = upload.parse_multipart
+        real_parse = upload.parse_multipart_stream
 
-        def recording_parse(body, content_type):
-            parse_calls.append(len(body))
-            return real_parse(body, content_type)
+        def recording_parse(*args):
+            parse_calls.append(args[1])
+            return real_parse(*args)
 
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             body, content_type = multipart_body({}, "a.stl", b"solid x\n")
-            with mock.patch.object(upload, "parse_multipart", recording_parse):
+            with mock.patch.object(upload, "parse_multipart_stream", recording_parse):
                 code, _, _ = self.request(
                     port, "POST", "/upload", body,
                     {"Content-Type": content_type})
@@ -430,7 +430,7 @@ class UploadRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             data = httpd.settings_data
-            token = upload.create_link(data)
+            token = upload.create_link(data, httpd.access.credential_fingerprint())
             code, _, raw = self.request(port, "GET", "/u/not-a-token")
             self.assertEqual(code, 404)
             code, _, raw = self.request(port, "GET", f"/u/{token}")
@@ -457,20 +457,21 @@ class UploadRouteTests(unittest.TestCase):
 
     def test_link_revoked_during_the_upload_read_saves_nothing(self):
         import tempfile
-        real_parse = upload.parse_multipart
+        real_parse = upload.parse_multipart_stream
 
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             data = httpd.settings_data
-            token = upload.create_link(data)
+            token = upload.create_link(data, httpd.access.credential_fingerprint())
             digest = upload.list_links(data)[0][0]
 
-            def revoking_parse(body, content_type):
+            def revoking_parse(*args):
+                parsed = real_parse(*args)
                 upload.revoke_link(data, digest)
-                return real_parse(body, content_type)
+                return parsed
 
             body, content_type = multipart_body({}, "slow.stl", b"solid z\n")
-            with mock.patch.object(upload, "parse_multipart", revoking_parse):
+            with mock.patch.object(upload, "parse_multipart_stream", revoking_parse):
                 code, _, _ = self.request(
                     port, "POST", f"/u/{token}", body,
                     {"Content-Type": content_type})
@@ -484,12 +485,12 @@ class UploadRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             data = httpd.settings_data
-            token = upload.create_link(data)
+            token = upload.create_link(data, httpd.access.credential_fingerprint())
             digest = upload.list_links(data)[0][0]
             calls = []
 
-            def revoking_valid(data_arg, token_arg):
-                result = real_valid(data_arg, token_arg)
+            def revoking_valid(data_arg, token_arg, *rest):
+                result = real_valid(data_arg, token_arg, *rest)
                 calls.append(result)
                 if len(calls) == 2 and result:
                     # The handler has just made its final (post-read)
@@ -515,7 +516,7 @@ class UploadRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
             data = httpd.settings_data
-            token = upload.create_link(data)
+            token = upload.create_link(data, httpd.access.credential_fingerprint())
             body, content_type = multipart_body({}, "atomic.stl", b"solid a\n")
             with mock.patch.object(upload, "_save_links", failing_save_links):
                 code, _, _ = self.request(
@@ -537,7 +538,7 @@ class UploadRouteTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port = self.start(tmp)
-            token = upload.create_link(httpd.settings_data)
+            token = upload.create_link(httpd.settings_data, httpd.access.credential_fingerprint())
             for path, headers in (
                     (f"/u/{token}", {}),
                     ("/upload", {server.TOKEN_HEADER: ROUTE_TOKEN})):

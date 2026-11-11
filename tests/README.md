@@ -357,15 +357,15 @@ common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
   (`tests/corpus/test_complex_corpus.py::test_fetched_files_match_the_manifest`)
   runs in the weekly `model-corpus.yml` workflow (shard 0) against the
   corpus it fetches, under `PRINT_HANDY_PRIVATE_CORPUS`.
-- One acceptance-layout cell stays gated by name:
+- One real-mountpoint cell is gated by name and runs in CI:
   `test_mounted_state_volume_copies_instead_of_symlinking` in
   `tests/test_entrypoint_layout_matrix.py` (`container`-marked) runs only
-  with `PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, which no CI workflow sets. It
-  stays gated because it needs the prepared acceptance layout — HOME/state
-  as a real mountpoint (the two-bind layout) with a populated legacy
-  volume — which a CI runner does not provide; running it means running
-  the container-marked tests inside that acceptance layout with the
-  variable set. It is also listed in the live-proof roster below.
+  with `PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, which the `State volume (real bind
+  mount)` job in `ci.yml` sets in its own step. The test makes the real
+  mountpoint itself (a bind mount inside `unshare -rm`, the Compose shape)
+  next to a populated legacy volume, and fails rather than skips when the
+  namespaces are unavailable. Elsewhere it stays skipped. It is also listed
+  in the live-proof roster below.
 - Synthetic geometry fixtures are labeled synthetic in the file that
   generates them (see the support-coverage golden pack); no fixture
   presents generated data as a real printer archive capture.
@@ -409,7 +409,7 @@ runs them; no offline suite substitutes for them:
 | Multi-platform live bot pass (Discord / Telegram / Matrix) | #812 |
 | Watchdog camera accuracy on a real camera | #455 |
 | GPU-host vision provider run | #455 |
-| Entrypoint mounted-volume copy cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1` in the acceptance layout) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
+| Entrypoint mounted-volume copy cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, runs in the `State volume (real bind mount)` CI job) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
 
 ## Slicing-speed gate (#734)
 

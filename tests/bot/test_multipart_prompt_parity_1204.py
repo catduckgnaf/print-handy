@@ -80,7 +80,12 @@ def _render(transport, question, choices, cid):
         shown, _, listing = body.rpartition("\n\n")
         lines = [ln for ln in listing.splitlines() if ln[:1].isdigit()]
         return shown, [ln.split(". ", 1)[1] for ln in lines]
-    outbox = []
+    class _Outbox(list):
+        # The web adapter's outbox takes the browser session scope (#1145).
+        def append(self, entry, scope=""):
+            super().append(entry)
+
+    outbox = _Outbox()
     adapter = WebAdapter(outbox)
     assert run(adapter.send_clarify("web", question, choices, cid, "flow")).success
     return outbox[-1]["question"], outbox[-1]["choices"]

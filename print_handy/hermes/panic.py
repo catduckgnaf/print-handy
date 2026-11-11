@@ -1,12 +1,14 @@
 """Instant, no-LLM printer panic controls for FlashForge AD5X running ZMod Klipper.
 
 Provides:
-- force-restart: Unconditional panic stop and restart ladder.
-  Order: POST /printer/emergency_stop (M112) -> POST /printer/firmware_restart ->
+- force-restart [PRINTER_ID]: Unconditional panic stop and restart ladder for one printer
+  (the default printer when no id is given). Order: POST /printer/emergency_stop (M112) -> POST /printer/firmware_restart ->
   poll klippy ready (90s max) -> fallback to ZMod REBOOT macro + safe_idle check.
 - purge: Guarded extrusion of filament already loaded at the toolhead.
   Refuses while printing/paused, requires ready klippy and head sensor filament_detected,
-  clamps mm (<=150) and temp (180-260), extrudes in 10 mm chunks, always resets heater to 0.
+  clamps mm (<=150) and raises temp to at least 180, refuses a temp above the printer's nozzle
+  ceiling (core.heater_ceiling, the one ceiling every path uses), extrudes in 10 mm chunks, always
+  resets heater to 0.
 - status: Read-only JSON of state, klippy, temperatures and head sensor.
 """
 from __future__ import annotations
@@ -21,8 +23,22 @@ from . import print_control as pc
 from .slot_load import load_slot
 
 
+def _known_printer(printer_id):
+    """The roster id to act on, or None for the default printer. An unknown id raises ValueError."""
+    if not printer_id:
+        return None
+    from print_handy import settings
+    try:
+        known = settings.by_id(str(printer_id))["id"]
+    except settings.SettingsError as exc:
+        raise ValueError(str(exc)) from None
+    # The default printer keeps the exact path the ladder always used.
+    return None if known == settings.default_printer_id() else known
+
+
 def force_restart(
     *,
+    printer_id: str | None = None,
     caller=None,
     status_reader=None,
     moonraker_reader=None,
@@ -34,15 +50,24 @@ def force_restart(
 ) -> dict[str, Any]:
     """Unconditional emergency stop and restart ladder.
 
-    Does not refuse while printing: this is the panic button.
+    Does not refuse while printing: this is the panic button. ``printer_id``
+    names the roster printer it acts on; None is the default printer, the
+    only one this ladder reached before (#1147).
     Ladder:
     1. POST /printer/emergency_stop
     2. POST /printer/firmware_restart
     3. Poll klippy ready up to wait_s
     4. If klippy not ready: send ZMod REBOOT macro once and wait for safe_idle.
     """
-    call = caller or pc._call
-    read_st = status_reader or pc.status
+    printer_id = _known_printer(printer_id)
+    if caller is not None:
+        call = caller
+    elif printer_id:
+        def call(path, **kw):
+            return pc._send(path, printer_id=printer_id, **kw)
+    else:
+        call = pc._call
+    read_st = status_reader or ((lambda: pc.status(printer_id)) if printer_id else pc.status)
     steps: list[str] = []
 
     # Step 1: Emergency stop
@@ -87,13 +112,19 @@ def force_restart(
     from print_handy.core.clear_job import safe_idle
 
     def default_mr():
+        if printer_id:
+            # The same shape clear_job.moonraker() returns, read from this printer's Moonraker.
+            s = ((pc._send("/printer/objects/query?webhooks&print_stats&extruder&heater_bed",
+                           printer_id=printer_id).get("result") or {}).get("status") or {})
+            return {"state": (s.get("webhooks") or {}).get("state"), "print": s.get("print_stats") or {},
+                    "extruder": s.get("extruder") or {}, "bed": s.get("heater_bed") or {}}
         from print_handy.core.clear_job import moonraker
         return moonraker()
 
     def default_native():
         from print_handy.core import printer_state
         from print_handy.core.model_job import read_stock_detail
-        return read_stock_detail(printer_state.load())
+        return read_stock_detail(printer_state.load(printer_id) if printer_id else printer_state.load())
 
     mr_read = moonraker_reader or default_mr
     nat_read = native_reader or default_native
@@ -136,13 +167,17 @@ def purge(
     caller=None,
     reader=None,
     gcode_sender=None,
+    adapter=None,
+    state=None,
 ) -> dict[str, Any]:
     """Guarded purge of filament already loaded at the toolhead.
 
     Refuses unless print_stats.state is in {standby, complete, cancelled, error}
     and klippy is ready, and filament is detected at the head switch sensor.
     Holds pc._CONTROL_LOCK.
-    Clamps mm to <= 150 and temp to 180-260 C.
+    Clamps mm to <= 150 and raises temp to at least 180 C. A temp above the
+    printer's nozzle ceiling (core.heater_ceiling: the fitted nozzle type and the
+    model's max_hotend_c) is refused before anything is sent, never clamped (#1147).
     Extrudes in 10 mm chunks and always sets extruder heater to 0 in finally.
     """
     if slot is not None:
@@ -152,7 +187,10 @@ def purge(
         }
 
     clamped_mm = max(1, min(150, int(mm)))
-    clamped_temp = max(180, min(260, int(temp)))
+    clamped_temp = max(180, int(temp))
+    problem = _nozzle_ceiling_refusal(clamped_temp, adapter, state)
+    if problem:
+        return {"ok": False, "error": f"Refused: {problem}. Nothing sent."}
 
     if not pc._CONTROL_LOCK.acquire(blocking=False):
         return {
@@ -241,6 +279,21 @@ def purge(
         pc._CONTROL_LOCK.release()
 
 
+def _nozzle_ceiling_refusal(temp, adapter=None, state=None):
+    """Why ``temp`` is above the configured printer's nozzle ceiling, or None."""
+    from print_handy.core import heater_ceiling
+    if adapter is None:
+        from print_handy import printers
+        adapter = printers.current()
+    if state is None:
+        try:
+            from print_handy.core import printer_state
+            state = printer_state.load()
+        except Exception:  # no hardware record: the configured nozzle type applies
+            state = None
+    return heater_ceiling.refusal(adapter, "nozzle", temp, state=state)
+
+
 def get_status(*, caller=None) -> dict[str, Any]:
     """Read-only JSON of state, klippy, temperatures, and head sensor."""
     call = caller or pc._call
@@ -293,13 +346,17 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # force-restart
-    subparsers.add_parser("force-restart", help="Unconditional emergency stop and restart ladder")
+    p_restart = subparsers.add_parser("force-restart", help="Unconditional emergency stop and restart ladder")
+    p_restart.add_argument("printer_id", nargs="?", default=None,
+                           help="roster printer id to restart (default: the default printer)")
+    p_restart.add_argument("--printer", dest="printer_flag", default=None, help="same as PRINTER_ID")
 
     # purge
     p_purge = subparsers.add_parser("purge", help="Guarded extrusion of filament at the toolhead")
     p_purge.add_argument("--slot", type=int, default=None, help="IFS slot number (unsupported in native screen mode)")
     p_purge.add_argument("--mm", type=int, default=60, help="Millimeters of filament to extrude (max 150, default 60)")
-    p_purge.add_argument("--temp", type=int, default=210, help="Extruder temperature in C (180-260, default 210)")
+    p_purge.add_argument("--temp", type=int, default=210,
+                         help="Extruder temperature in C (at least 180, at most the printer's nozzle ceiling; default 210)")
 
     # status
     subparsers.add_parser("status", help="Read-only JSON of state, klippy, temperatures, and head sensor")
@@ -307,7 +364,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "force-restart":
-        res = force_restart()
+        if args.printer_id and args.printer_flag and args.printer_id != args.printer_flag:
+            print(json.dumps({"ok": False, "error": "Refused: two different printer ids given. Nothing sent."}))
+            return 2
+        try:
+            res = force_restart(printer_id=args.printer_id or args.printer_flag)
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": f"Refused: {exc}. Nothing sent."}))
+            return 2
         print(json.dumps(res))
         return 0 if res.get("ok") else 1
     elif args.command == "purge":

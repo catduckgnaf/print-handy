@@ -20,6 +20,18 @@ def _visible_choices(question, choices):
 
 
 async def collect(job_path, state, adapter, chat_id, session_key, metadata=None, timeout=None):
+    """Ask the color questions of one job over Discord and save the choices.
+
+    The whole flow runs in one inventory scope (#1155): the question build and
+    every intake_color_choices pass share one inventory of the source, keyed
+    by its content hash, instead of decoding a painted source again per pass.
+    """
+    from .source_colors import inventory_scope
+    with inventory_scope():
+        return await _collect(job_path, state, adapter, chat_id, session_key, metadata, timeout)
+
+
+async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None, timeout=None):
     from .prompts import gateway as _prompts
     cm = _prompts()
     from .. import printers

@@ -19,11 +19,19 @@ Thanks for helping improve Print Handy. This guide describes the repository work
 - An issue never authorizes operating a live printer. If a report involves unexpected motion, heating, or an ignored confirmation, say so in the first line so it can be prioritised.
 - Labels describe the kind of issue (`bug`, `enhancement`, `documentation`, `question`). Priority (`P0`–`P2`) and planning labels (`backlog`, `MVP`) are applied by maintainers during triage, not by the reporter.
 - Duplicates are closed with a link to the canonical issue. Issues closed as not planned get a short reason and, where one exists, a link to the issue that supersedes them. A closed issue can be reopened when new evidence or a changed scope justifies it.
+- A bug issue names its regression test before work starts: the smallest automated check that fails today and must pass after the fix, or why only a live printer can show it (the bug form's "Regression test" field).
+
+### Closing an issue
+
+An issue's checklist is its definition of done. Close an issue as completed only when every checklist item in its body is ticked, each with where it was done (a PR or commit), or marked `moved to #N` (also `deferred to #N` or `tracked in #N`) once another issue owns it. Read the items one by one against current `main`; a merged PR or a reconciling comment is not the same thing. Several 2.2.9 issues were closed with open items and had to be reopened.
+
+Two checks enforce this. The Issue closure guard reopens an issue closed as completed while an item is still open, and names the items. contribution-policy fails a pull request whose `Fixes #N` would close an issue with an open item, and asks for the `Closure check` field. Ticking boxes on the issue does not re-run a PR's check: edit the PR description or re-run the job. Closing as "not planned" is never blocked. The checkbox fields of the issue forms (for example "Before submitting") are the reporter's answers and are not counted.
 
 ## Prepare a change
 
 - Use a branch for your change and keep commits focused and clearly named.
-- Add or update tests for changed behavior. For a bug fix, include a regression test where practical. Every pull request answers for this in its `Tests added and regression scoping` section: which tests were added, why none were added when that is the case, and how the change was scoped against the full suite and the existing regression tests.
+- Add or update tests for changed behavior. Every pull request answers for this in its `Tests added and regression scoping` section: which tests were added, why none were added when that is the case, and how the change was scoped against the full suite and the existing regression tests.
+- A bug fix carries a regression test: a test that reproduces the bug, so it fails without the fix and passes with it. Write it first and watch it fail on the base commit; a test that was never seen failing does not show the bug is gone. The `Regression test` field says `added` and names the test and the commit it fails on, `not a bug fix`, or `not possible` with the reason and a link to the issue that tracks the manual or live check. contribution-policy enforces the field, and refuses `not a bug fix` on a PR ticked "Bug fix".
 - Follow the existing Python and configuration patterns. Do not weaken printer readiness, artifact validation, bed bounds, or confirmation gates to make a test pass.
 - For public model fixtures, use only redistributable models and record exact provenance and license in the case manifest. Keep private or non redistributable files outside the repository.
 - Update documentation when user visible behavior, setup, configuration, or supported capabilities change. Do not claim support beyond what code and tests establish.
@@ -113,7 +121,7 @@ The file is a JSON object with an `entries` list (a bare list works too); each e
 
 - Open a pull request against `main` and use the repository pull request template.
 - Explain the user impact, verified cause when fixing a bug, the proposed behavior, and relevant risks or limitations.
-- Link related issues. Use `Fixes #N` only when the pull request is intended to close that issue after merge.
+- Link related issues. Use `Fixes #N` only when merging the pull request finishes that issue (see [Closing an issue](#closing-an-issue)), and fill the `Closure check` field; a PR that does part of an issue says `Related`.
 - Include test results and distinguish automated tests from manual or live checks. Do not include secrets or personal information in examples or logs.
 - Keep the PR in draft while implementation or required checks are incomplete. Respond to review feedback with focused updates.
 - Merging runs on the required checks, not on branch freshness (policy changed 2026-11-07, #1017 batch 2). `main`'s required checks (the exact list is under "What automation enforces" below) do **not** require the branch to be up to date, and the repository has auto-merge on: enable auto-merge on your PR and GitHub merges it once those checks pass on the PR's own head. The up-to-date rule was tried and removed the same day because every merge to `main` forced a fresh full CI run on every open PR. The risk it guarded against is real — #999 was green but had been tested before #988 renamed a function it used — so when your change touches code that has moved on `main` since you branched, update the branch and let CI run on the new head before merging anyway.
@@ -138,6 +146,7 @@ Enforced by automation:
 - **Publishing an image:** a `docker-publish` run with `publish=true` fails before anything is built unless the dispatched ref is the release tag, the tagged commit is reachable from `main`, the `CI` workflow concluded successfully on that exact commit, and the `Release checklist: X.Y.Z` issue exists and is closed. It also fails while the README, package version or Pages site is stale. `:latest` moves only for the highest released version. Candidate runs (`publish=false`) work from any ref. `scripts/check_publish_ref.py` holds the logic and `tests/test_publish_ref_guard.py` tests it.
 - **Repairing `:latest`:** the manual `retag-latest.yml` workflow (see `docs/DOCKER.md`) copies an existing version tag to `:latest` by digest, and refuses a version whose tag is not on `main` or that has no published (non-draft, non-prerelease) GitHub release.
 - **Timing:** the `discord-timing` job fails on a slowdown, an empty or copied raise reason, or cumulative drift (as described above), and it is required.
+- **Action pins:** `tests/test_action_pins.py` runs `scripts/check_action_pins.py` inside `offline-tests`, so a `uses:` line in `.github/workflows` or `.github/actions` that is not pinned to a full 40-character commit SHA with a `# vX.Y.Z` comment fails a required check. Local `./` actions are exempt; `docker://` references need an `@sha256:` digest. Renovate updates the pins and comments.
 
 Maintainer steps (nothing in automation stops them): dispatching the pre-release checklist workflow so the `Release checklist: X.Y.Z` issue exists, and working through it, before tagging (the publish guard refuses to publish until that issue is closed, but nothing stops the tag itself); creating the tag; re-recording and reviewing the timing baselines; reading the `Slicer timing (real Orca, reporting only)` warnings; and the install, upgrade and rollback checks the checklist lists.
 
@@ -195,6 +204,8 @@ Tests added: added
 Tests added detail: Added test_option_default in tests/test_settings.py, pinning the new option's default value.
 Regression scoping: checked
 Regression scoping reason: The settings and defaults regression tests were considered; the focused run covers them and CI runs the full suite on this head.
+Regression test: added
+Regression test detail: tests/test_settings.py::test_option_default fails on 1a2b3c4 (the base, which ignored the option) and passes on this head.
 ```
 
 Existing PRs can add this section when revising their descriptions. The check

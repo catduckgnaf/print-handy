@@ -31,11 +31,21 @@ _RULES = (
     ("NAS or Unraid path", re.compile(r"(?<![\w.])/(?:mnt/(?:user0?|disk\d+|cache|disks|remotes)|boot/config|volume\d+)(?:/|\b)")),
     ("local hostname", _HOST),
     ("MAC address", re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")),
-    ("email address", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
     ("SSH or copy target", re.compile(r"\b(?:ssh|scp|rsync|sftp)\b[^\n]*?\b[a-z_][a-z0-9_-]*@[A-Za-z0-9._-]+")),
     ("chat or account ID", re.compile(r"(?<![0-9A-Za-z])\d{17,20}(?![0-9A-Za-z])")),
     ("token", re.compile(r"(?:ghp_|gho_|ghs_|github_pat_|xox[bapr]-|sk-[A-Za-z0-9]{0,6}-?)[A-Za-z0-9_-]{16,}|[MNO][A-Za-z\d_-]{23,25}\.[\w-]{6}\.[\w-]{27,}")),
 )
+
+
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+# No-reply addresses name no one's mailbox: GitHub's per-user no-reply form
+# (commit authors, Co-Authored-By trailers) and Anthropic's no-reply for Claude
+# co-authorship. Every other address is still flagged, on the same line too.
+_NO_REPLY = re.compile(r"(?i)[A-Za-z0-9._%+-]+@users\.noreply\.github\.com|noreply@anthropic\.com")
+
+
+def _personal_email(match):
+    return not _NO_REPLY.fullmatch(match.group(0))
 
 
 def _private_ip(match):
@@ -64,6 +74,8 @@ def scan(text, terms=None):
         for category, pattern in _RULES:
             if pattern.search(line):
                 seen.add(category)
+        if any(_personal_email(m) for m in _EMAIL.finditer(line)):
+            seen.add("email address")
         if any(_private_ip(m) for m in _IPV4.finditer(line)):
             seen.add("private IP address")
         if any(t.search(line) for t in terms):
