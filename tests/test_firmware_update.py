@@ -793,6 +793,78 @@ def test_zmod_guide_covers_zflash_md5_pairing_and_verification():
     assert "`/print-firmware`" in fw.GUIDE_VERIFY_LINE
 
 
+def test_zmod_guide_routes_unappliable_components_to_software_update():
+    # ZMod's "Updating the Mod" (wiki Setup.md, tag 1.7.6) finishes in
+    # Fluidd/Mainsail, Settings, Software Update, one module at a time. The
+    # components Moonraker reports `?` for are refused by `/print-firmware
+    # update`, so the guide must not send every component there (#1274).
+    text = fw.guide_text("zmod", AD5X)
+    assert "`/print-firmware update <component>`" in text
+    assert "Software Update" in text
+    assert "Fluidd or Mainsail" in text
+    assert "`?`" in text
+    assert "one by one" in text
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert step2.index("/print-firmware update") < step2.index("only be updated from the Software Update")
+
+
+def test_zmod_guide_puts_the_routine_no_usb_update_first():
+    # ZMod's "Updating the Mod" (wiki Setup): the normal path is Software
+    # Update in Fluidd/Mainsail with no USB drive; USB is required only when
+    # ZMod shows "Update Z-Mod via USB". First-check errors are expected.
+    text = fw.guide_text("zmod", AD5X)
+    step1 = text.split("\n1. ", 1)[1].split("\n2. ", 1)[0]
+    assert "Check for updates" in step1
+    assert '"Update Z-Mod via USB"' in step1 and "even if you updated recently" in step1
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert "no USB drive" in step2
+    assert "errors on the first check are normal" in step2
+    assert "restore and update each module one by one" in step2
+    assert "reboots" in step2
+    assert text.index("Routine update") < text.index("`ZFLASH`")
+
+
+def test_zmod_guide_usb_steps_follow_zmods_drive_rules():
+    # ZFLASH downloads to the USB drive and installs on reboot, so the drive
+    # must be in; without the native screen it goes in before power on.
+    # A manual install copies the file, not unpacked, to the root, power off.
+    text = fw.guide_text("zmod", AD5X)
+    step3 = text.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+    assert "FAT32 (MBR)" in step3
+    assert "**before** you power on" in step3 and "native screen" in step3
+    assert "downloads it to the USB drive" in step3
+    step4 = text.split("\n4. ", 1)[1].split("\n5. ", 1)[0]
+    assert "without unpacking" in step4 and "power the printer off" in step4
+    assert "without removing the drive" in step4
+
+
+def test_zmod_guide_and_mismatch_report_say_where_the_os_version_is():
+    text = fw.guide_text("zmod", AD5X)
+    step5 = text.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
+    assert "System" in step5 and "Distribution" in step5
+    assert "first two numbers" in step5 and "instability" in step5
+    report = fw.firmware_report(FakeTransport(system_info=SYSTEM_INFO_180), AD5X)
+    assert "System, Distribution" in report and "instability" in report
+
+
+def test_zmod_guide_closing_mcu_step_names_force_13_never_bare():
+    # A bare UPDATE_MCU toggles the MCU firmware (back to native on a
+    # Klipper 13 install); the closing step must name FORCE=13 and be
+    # conditional on the report, matching the MCU-mismatch report line.
+    text = fw.guide_text("zmod", AD5X)
+    step6 = text.split("\n6. ", 1)[1].split(fw.GUIDE_VERIFY_LINE, 1)[0]
+    assert "`UPDATE_MCU FORCE=13`" in step6
+    assert "Klipper 13" in step6 and "out of step" in step6
+    assert "`/print-firmware` reports" in step6
+    assert step6.index("FORCE=13") < step6.index("bare `UPDATE_MCU`")
+    for line in text.splitlines():
+        if "`UPDATE_MCU`" in line:
+            assert "bare" in line or "without" in line, line
+    # No ZFLASH2 / ZFLASH3: ZMod's sources at 1.7.6 (docs in every
+    # language, the macro configs and their history) name only ZFLASH.
+    assert "ZFLASH2" not in text and "ZFLASH3" not in text
+
+
 def test_stock_guide_covers_every_documented_pre_and_post_step():
     text = fw.guide_text("stock", AD5X)
     for needle in ("DISABLE_PLUGIN", "recommend", "timelapse", "notify",
