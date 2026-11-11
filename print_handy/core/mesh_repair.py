@@ -58,6 +58,10 @@ def load_triangles(path):
     path = Path(path)
     if path.suffix.lower() == '.stl':
         return np.asarray(support_clearance._stl_tris(path), dtype=float).reshape(-1, 3, 3)
+    parts = support_clearance.leaves(path)
+    if len(parts) != 1:
+        raise FixError(f'this is a {len(parts)}-part model: a mesh repair would flatten it to '
+                       'one mesh and lose the per-part assignments, so it is refused')
     import zipfile
     from . import source_colors
     with zipfile.ZipFile(path) as archive:
@@ -67,10 +71,6 @@ def load_triangles(path):
         # so the object would print uncut (#1260).
         raise FixError('this model cuts holes with negative volumes (' + ', '.join(negatives)
                        + '), which a mesh repair cannot carry, so it is refused')
-    parts = support_clearance.leaves(path)
-    if len(parts) != 1:
-        raise FixError(f'this is a {len(parts)}-part model: a mesh repair would flatten it to '
-                       'one mesh and lose the per-part assignments, so it is refused')
     return np.asarray(parts[0]['tris'], dtype=float).reshape(-1, 3, 3)
 
 
