@@ -32,13 +32,81 @@ mocked Moonraker responses in `tests/test_firmware_update.py`.
   resulting versions are verified.
 
 There is no automatic applying and no background updater. Availability
-may be reported; only a person confirms an update.
+may be reported (see the update alerts below); only a person confirms an
+update.
 
 When Moonraker reports `?` for a component's latest version (a live
 AD5X on ZMod 1.7.5-2 does this for every git component), that row says
 "latest version not reported" and the report says Print Handy cannot
 tell whether an update exists. It never says "up to date" for such a
 component, and `/print-firmware update` refuses it rather than guess.
+
+## ZMod update alerts in chat
+
+On by default (`[firmware] update_alerts`, see [Settings](SETTINGS.md)).
+For each ZMod printer, Print Handy checks once a day
+(`[firmware] update_check_hours`) and posts one alert in the printer's chat
+when a new ZMod release is available, on whichever platform the bot runs
+(Discord, Telegram or Matrix):
+
+> **ZMod update available for Garage AD5X:** 1.7.5-2 -> 1.7.6-17.
+> Press **Update** to install it. Print Handy asks once more, checks the
+> printer is idle and verifies the result.
+
+- **Update** runs exactly `/print-firmware update zmod`: the component is
+  read live, the same confirmation shows `zmod: current -> available`, the
+  printer must be idle when you confirm and again just before the one
+  upgrade request, and the result is verified by re-reading. Nothing is
+  applied without both presses. **Skip this version** silences that release.
+  Matrix has no buttons, so its alert names `/print-firmware update zmod`
+  instead. After a bot restart an old alert's button no longer answers;
+  the typed command still works.
+- One alert per ZMod release, remembered in the printer's state folder
+  (`firmware_update_alerts.json`), so a restart does not repeat it. Builds
+  inside a release (the `-N` in `1.7.6-17`) do not alert on their own; the
+  button applies whatever Moonraker offers when you press it, and the
+  confirmation names it exactly. A release first announced without a
+  button is announced once more if it later becomes installable from chat.
+- Never while printing: a printing, paused or unreadable printer is asked
+  again 30 minutes later. Checks are jittered, read-only (GET requests,
+  never a Moonraker refresh), and fail soft: a failed check is logged once
+  and sends no alert.
+
+Where the versions come from: Moonraker first. ZMod's Moonraker lists a
+`Z-Mod` component (git repo `ghzserg/z_ad5x`, on the branch of your ZMod
+base, for example `1.7`) with its installed and remote version; that is the
+update Fluidd's Software Update installs and the one the button applies.
+ZMod's GitHub releases (`ghzserg/zmod`, latest final release, read without
+a token, 10 second timeout, at most once an hour for the whole install) fill
+two gaps: Moonraker showing `?` as the latest version (usually the printer's
+own unauthenticated GitHub limit of 60 requests an hour), and a release on a
+new ZMod base, which Moonraker's branch-pinned remote never shows.
+
+When the alert has no button, it says why in one line and how instead:
+
+| Case | How it is detected | The alert says |
+|---|---|---|
+| Moonraker marks the Z-Mod install not valid | `is_valid: false` (or `corrupt`) on the component, for example a checkout another installer changed; Moonraker refuses to update it | Check Fluidd or Mainsail: Settings, Software Update |
+| The printer does not report the update | Moonraker's remote is `?`, the GitHub release is newer | Update from Fluidd or Mainsail: Settings, Software Update |
+| The release needs USB | Its first two numbers differ from the ZMod base you installed from USB | Insert a USB drive and run `ZFLASH` (`/print-firmware guide zmod`) |
+| The base and component do not pair | The OS and `zmod` versions differ in their first two numbers | The base updates from USB first: `ZFLASH` |
+
+The USB rule is ZMod's own: its `zversion.sh` prints "Update Z-Mod from
+USB" when the first two numbers of the network-updated version
+(`/usr/data/zmod/zmod/version.txt`) differ from the USB-installed one
+(`/root/printer_data/version.txt`). Print Handy cannot read those files, but
+it reads the same two facts through Moonraker: ZMod's `start.sh` writes the
+OS name as `zmod <USB version> -> <current version>`, which
+`/machine/system_info` reports, and the release names the target.
+
+Only ZMod printers get alerts in this release: the AD5X, AD5M, AD5M Pro,
+Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`), and only for the
+ZMod component. Generic Klipper printers, other Moonraker components
+(Klipper, Moonraker, Fluidd/Mainsail, plugins) and every other family are
+#1294: vendor Klipper forks (Elegoo Neptune 4, Creality, QIDI, Anycubic,
+Snapmaker) are never apply-eligible, and Bambu Lab, PrusaLink, OctoPrint,
+SDCP and stock Flashforge have no update-availability state Print Handy can
+read (the matrix below).
 
 ## What "update ZMod from Print Handy" covers and does not cover
 

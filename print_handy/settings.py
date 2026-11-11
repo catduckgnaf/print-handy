@@ -189,6 +189,8 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("notify", "mqtt_username"): str,
                  ("notify", "ntfy_enabled"): bool, ("notify", "ntfy_url"): str,
                  ("notify", "ntfy_topic"): str,
+                 ("firmware", "update_alerts"): bool,
+                 ("firmware", "update_check_hours"): int,
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
@@ -1719,6 +1721,28 @@ def _validate_vision(data):
     vision["light_object"] = light_object.strip()
 
 
+FIRMWARE_CHECK_HOURS_MAX = 168
+
+
+def _validate_firmware(data):
+    """[firmware]: chat alerts when a printer firmware update is available.
+
+    ``update_alerts`` (default true) posts one alert per new ZMod release
+    for each ZMod printer, with an Update button that runs the same
+    confirmed apply as ``/print-firmware update zmod``. Nothing is ever
+    applied without that press and its confirmation. ``update_check_hours``
+    is how often each printer is checked (1 to 168 hours, default 24).
+    """
+    firmware = data.setdefault("firmware", {})
+    alerts = firmware.setdefault("update_alerts", True)
+    if not isinstance(alerts, bool):
+        raise SettingsError(f"[firmware] update_alerts must be true or false, got {alerts!r}")
+    hours = firmware.setdefault("update_check_hours", 24)
+    if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
+        raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
+                            f"from 1 to {FIRMWARE_CHECK_HOURS_MAX}, got {hours!r}")
+
+
 def _validate_notify(data):
     """The [notify] section (#622): print events out to MQTT and ntfy.
 
@@ -2227,6 +2251,7 @@ def validate(data):
     _validate_vision(data)
     _validate_spool(data)
     _validate_notify(data)
+    _validate_firmware(data)
     _validate_logging(data)
     _validate_public_text(data)
     _validate_webui(data)

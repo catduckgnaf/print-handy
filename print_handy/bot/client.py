@@ -219,6 +219,11 @@ class PrintHandyBot(ext_commands.Bot):
             except Exception:
                 logger.exception("listener outage check failed")
             try:
+                # Opt-out ZMod update alerts ([firmware] update_alerts): schedules only.
+                await self.core.check_firmware_updates()
+            except Exception:
+                logger.exception("firmware update alert check failed")
+            try:
                 # Debug log mode (#478) is shared state; observe it here so
                 # a session started from the CLI or Web UI reaches the bot.
                 from .. import debug_mode

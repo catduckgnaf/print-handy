@@ -1338,6 +1338,25 @@ class BotCore:
             logger.exception("listener outage check failed")
             return []
 
+    async def check_firmware_updates(self):
+        """Start any due ZMod update checks ([firmware] update_alerts).
+
+        Runs from the bot heartbeat on every platform. It only schedules:
+        each due printer is checked in a background task (see
+        print_handy/bot/firmware_alert.py), so the heartbeat never waits on
+        a printer or on GitHub, and it never raises into the heartbeat.
+        """
+        try:
+            alerter = getattr(self, "firmware_alerts", None)
+            if alerter is None:
+                from .firmware_alert import FirmwareAlerter
+
+                alerter = self.firmware_alerts = FirmwareAlerter(self)
+            return alerter.tick()
+        except Exception:
+            logger.exception("firmware update alert check failed")
+            return []
+
     async def _check_degraded(self, statuses, state_dir):
         """Degraded notices from a direct Moonraker poll (#1020 B4).
 

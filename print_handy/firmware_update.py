@@ -746,6 +746,36 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
             "few minutes, then run `/print-firmware` to see the state it reports.") + uncertain
 
 
+NOT_APPLIED_TEXT = "Update not applied. Nothing sent."
+
+
+async def confirmed_update(transport, entry, component_token, ask) -> str:
+    """Stage 2 end to end: prepare, ask, then send. The one apply flow.
+
+    Every surface that applies an update goes through here:
+    ``/print-firmware update <component>`` and the Update button on an
+    update alert (print_handy.firmware_alerts). ``ask(question,
+    choices)`` is the surface's confirmation prompt and returns the
+    chosen label (or None). Only an explicit UPDATE_LABEL sends; any
+    other answer, a timeout included, sends nothing. prepare_update and
+    send_update keep every gate (profile eligibility, the live
+    component, both idle checks, the verified re-read). Returns the
+    chat-ready outcome.
+    """
+    import asyncio
+    try:
+        prepared = await asyncio.to_thread(prepare_update, transport, entry, component_token)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
+    answer = await ask(update_prompt_text(prepared), [UPDATE_LABEL, CANCEL_LABEL])
+    if answer != UPDATE_LABEL:
+        return NOT_APPLIED_TEXT
+    try:
+        return await asyncio.to_thread(send_update, transport, prepared)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
+
+
 # --------------------------------------------------------------------- stage 3: guides
 
 GUIDE_VERIFY_LINE = ("When the printer is back, run `/print-firmware` and Print Handy will "
