@@ -432,6 +432,7 @@ def test_a_hung_check_times_out_and_frees_the_timer(monkeypatch):
     import threading
     release = threading.Event()
     lines = []
+    alerts = []
 
     def hung_camera():
         release.wait(5)
@@ -440,6 +441,8 @@ def test_a_hung_check_times_out_and_frees_the_timer(monkeypatch):
     monkeypatch.setattr(mel, "VISUAL_CHECK_DEADLINE_S", 0.2)
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", hung_camera)
     monkeypatch.setattr(mel, "log", lines.append)
+    monkeypatch.setattr(pab, "visual_muted", lambda *args: False)
+    monkeypatch.setattr(mel, "_visual_alert_text", lambda *args, **kwargs: alerts.append(args))
     listener = mel.Listener()
     listener.filename = "slow.gcode"
     listener.state = "printing"
@@ -456,6 +459,8 @@ def test_a_hung_check_times_out_and_frees_the_timer(monkeypatch):
         release.set()
     assert listener.visual_timeouts == 1
     assert any("timed out" in line for line in lines)
+    assert len(alerts) == 1
+    assert alerts[0][0] == "slow.gcode" and "retries" in alerts[0][1]
 
 
 def test_camera_io_never_runs_on_the_default_pool(monkeypatch):

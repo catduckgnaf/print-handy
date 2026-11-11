@@ -465,8 +465,9 @@ def test_command_with_dropped_stl_starts_a_mesh_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "mesh"
-    assert "as a mesh" in adapter.sent[0]
-    assert "40 × 20 × 6" in adapter.sent[0]  # the doubled plate, from the render
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "as a mesh" in adapter.sent[1]
+    assert "40 × 20 × 6" in adapter.sent[1]  # the doubled plate, from the render
 
 
 @needs_scad
@@ -479,8 +480,9 @@ def test_command_with_dropped_scad_starts_a_source_edit(design_env, tmp_path):
     assert out["reason"] == "design cancelled"
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "edit" and session["edit_mode"] == "scad"
-    assert "in source form" in adapter.sent[0]
-    assert "40 × 20 × 5" in adapter.sent[0]
+    assert adapter.sent[0] == plugin.DESIGN_WORKING_NOTE
+    assert "in source form" in adapter.sent[1]
+    assert "40 × 20 × 5" in adapter.sent[1]
 
 
 @needs_scad
@@ -970,3 +972,234 @@ def test_typed_undo_goes_back_without_a_model_call(design_env, fake_render):
     assert "Back to version 1" in post and "40 × 20 × 3" in post
     assert "height: 8 → 3" in post
     assert len(fake.calls) == 1
+
+
+# ------------------------------------------- typed answers reach the design, not later hooks (#1206)
+
+class TypedAdapter(FakeAdapter):
+    """FakeAdapter with the platform adapter's typed-answer route."""
+
+    async def answer_typed(self, session_key, text, user_id=None):
+        cid = core_prompts.open_prompt_for(session_key)
+        return bool(cid) and core_prompts.resolve_gateway_clarify(cid, str(text))
+
+
+def test_design_hook_runs_before_the_edit_hook():
+    hooks = list(plugin._DISPATCH_HOOKS)
+    assert hooks.index(plugin.design_dispatch) < hooks.index(plugin.edit_dispatch)
+
+
+def test_a_typed_change_at_the_open_question_is_claimed_by_the_design(design_env, tmp_path):
+    """#1206 finding 1: returning None let edit_dispatch (later in the hook
+    order) claim "make it 5 mm taller" before the bot core's typed-answer
+    route ran, so the change went to the channel's job, not the design.
+    design_dispatch must answer its own open question and claim the message."""
+    instructions = []
+
+    async def fake_run_turn(self, session, instruction):
+        instructions.append(instruction)
+        result = _fake_result(session, tmp_path)
+        session["turns"] = len(instructions)
+        return result
+
+    async def scenario():
+        adapter = TypedAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(scripted([GOOD]), "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+            task = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a plate"), _gateway(adapter)))
+            for _ in range(300):
+                cid = core_prompts.open_prompt_for("session-key")
+                if cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid
+            typed = await plugin.design_dispatch(_event("make it 5 mm taller"), _gateway(adapter))
+            assert typed == {"action": "skip", "reason": "typed answer to the design question"}
+            for _ in range(300):
+                cid2 = core_prompts.open_prompt_for("session-key")
+                if cid2 and cid2 != cid:
+                    break
+                await asyncio.sleep(0.01)
+            assert cid2 and cid2 != cid
+            assert (await plugin.design_dispatch(_event("cancel"), _gateway(adapter)))["reason"] \
+                == "typed answer to the design question"
+            return await asyncio.wait_for(task, 10)
+
+    out = asyncio.run(scenario())
+    assert instructions == ["a plate", "make it 5 mm taller"]
+    assert out["reason"] == "design cancelled"
+
+
+@pytest.mark.parametrize("word", ["cancel", "Cancel.", "stop", "never mind", "3"])
+def test_typed_cancel_words_at_the_question_cancel_without_a_model_call(design_env, fake_render, word):
+    """#1206 finding 2: only the exact label cancelled; "cancel" ran a paid revision."""
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    answers = iter([word, design.CANCEL_LABEL])
+    with mock.patch.object(plugin, "_design_transport", return_value=(fake, "http")), \
+            mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+            mock.patch.object(core_prompts, "wait_for_response",
+                              side_effect=lambda *a, **k: next(answers)):
+        out = asyncio.run(plugin.design_dispatch(_event("/print-design a hook"), _gateway(adapter)))
+    assert out["reason"] == "design cancelled"
+    assert len(fake.calls) == 1
+    assert sum("Design turn" in (c or "") for c in adapter.sent) == 1
+
+
+@pytest.mark.parametrize("word", ["slice it", "Slice", "print it", "1"])
+def test_typed_slice_words_at_the_question_hand_off(design_env, fake_render, word):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    with mock.patch.object(plugin, "_design_handoff",
+                           return_value={"action": "skip", "reason": "handed"}):
+        out = _dispatch("/print-design a hook", adapter, fake, word)
+    assert out["reason"] == "handed"
+    assert len(fake.calls) == 1
+
+
+def test_cancel_and_slice_words_after_change_it_are_not_revisions(design_env, fake_render):
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch("never mind", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert len(fake.calls) == 1
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    with mock.patch.object(plugin, "_design_handoff",
+                           return_value={"action": "skip", "reason": "handed"}) as handoff:
+        out = _dispatch("slice it", adapter, fake, design.CANCEL_LABEL)
+    assert out["reason"] == "handed"
+    assert len(fake.calls) == 2
+    assert Path(handoff.call_args.args[4]).is_file()
+
+
+def test_typed_choice_is_narrow():
+    assert design.typed_choice("SLICE IT!") == design.SLICE_LABEL
+    assert design.typed_choice("change it") == design.CHANGE_LABEL
+    assert design.typed_choice("2") == design.CHANGE_LABEL
+    assert design.typed_choice("forget it") == design.CANCEL_LABEL
+    for text in ("make it 5 mm taller", "cancel the hole", "4", "", None, "slice it thinner"):
+        assert design.typed_choice(text) is None
+
+
+# ------------------------------------------- a long design turn is never silent (#1206)
+
+class WorkingAdapter(FakeAdapter):
+    def __init__(self):
+        super().__init__()
+        self.typing = 0
+
+    async def signal_working(self, chat_id, metadata=None):
+        self.typing += 1
+
+
+def test_a_model_turn_is_acknowledged_and_shows_typing_until_it_posts(design_env, fake_render):
+    """#1206 finding 6: a turn can take minutes (1 + repair_attempts model
+    calls and renders) and nothing was posted until it ended."""
+    adapter = WorkingAdapter()
+    out = _dispatch("/print-design a hook", adapter, scripted([HOOK]), design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    ack = next(i for i, c in enumerate(adapter.sent) if c and c.startswith("Designing it"))
+    turn = next(i for i, c in enumerate(adapter.sent) if c and "Design turn 1" in c)
+    assert ack < turn
+    assert adapter.typing >= 1
+
+
+def test_undo_and_plain_parameter_edits_are_not_acknowledged(design_env, fake_render):
+    adapter = WorkingAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    before = sum(1 for c in adapter.sent if c and c.startswith("Designing it"))
+    _dispatch("make it 5 mm taller", adapter, fake, design.CHANGE_LABEL)
+    _dispatch("undo", adapter, fake, design.CANCEL_LABEL)
+    assert sum(1 for c in adapter.sent if c and c.startswith("Designing it")) == before == 1
+    assert len(fake.calls) == 1
+
+
+def test_will_call_model_matches_the_no_model_paths(tmp_path):
+    eng = design.DesignEngine(tmp_path, scripted([HOOK]), cfg={})
+    fresh = {"edit_mode": None}
+    assert eng.will_call_model(fresh, "a hook", previous=None)
+    assert not eng.will_call_model(fresh, "undo", previous=HOOK)
+    assert not eng.will_call_model(fresh, "make it 5 mm taller", previous=HOOK)
+    assert eng.will_call_model(fresh, "add a second hook", previous=HOOK)
+    assert eng.will_call_model({"edit_mode": "mesh"}, "make it 5 mm taller", previous="base();")
+
+
+# ------------------------------------------- #1206 Low items: no-model paths, unprintable baselines
+
+def _dispatch_no_endpoint(text, adapter, choice):
+    with mock.patch.object(plugin, "_design_transport", return_value=(None, "")), \
+            mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+            mock.patch.object(core_prompts, "wait_for_response", return_value=choice):
+        return asyncio.run(plugin.design_dispatch(_event(text), _gateway(adapter)))
+
+
+def test_undo_and_parameter_edits_need_no_design_endpoint(design_env, fake_render):
+    """#1206 Low: with no endpoint, "undo" and a plain parameter edit were
+    refused as "not set up" although neither calls the model."""
+    adapter = FakeAdapter()
+    fake = scripted([HOOK])
+    _dispatch("/print-design a hook", adapter, fake, design.CHANGE_LABEL)
+    out = _dispatch_no_endpoint("make it 5 mm taller", adapter, design.CHANGE_LABEL)
+    assert out["reason"] == "design awaiting revision"
+    assert "height: 3 → 8" in next(c for c in adapter.sent if "Design turn 2" in (c or ""))
+    out = _dispatch_no_endpoint("undo", adapter, design.CHANGE_LABEL)
+    assert out["reason"] == "design awaiting revision"
+    assert "Back to version 1" in next(c for c in adapter.sent if "Design turn 3" in (c or ""))
+    assert not any(c == plugin.DESIGN_WORKING_NOTE for c in adapter.sent[-3:])
+    # A change that needs the model is still refused, and nothing runs.
+    refused = _dispatch_no_endpoint("add a second hook", adapter, design.CANCEL_LABEL)
+    assert refused["reason"] == "design model not configured"
+    # The session is still waiting, so a typed button word still works.
+    assert _dispatch_no_endpoint("never mind", adapter, design.CANCEL_LABEL)["reason"] \
+        == "design cancelled"
+    assert len(fake.calls) == 1
+
+
+def test_design_switched_off_still_refuses_undo(design_env, fake_render):
+    adapter = FakeAdapter()
+    _dispatch("/print-design a hook", adapter, scripted([HOOK]), design.CHANGE_LABEL)
+    design_env["design"]["enabled"] = False
+    out = _dispatch_no_endpoint("undo", adapter, design.CANCEL_LABEL)
+    assert out["reason"] == "design not enabled"
+
+
+def _unprintable_baseline(tmp_path):
+    def fake_baseline(self, session):
+        findings = [["fail", "the mesh has problems: not watertight"]]
+        session["findings"] = findings
+        return _fake_result(session, tmp_path, findings=findings)
+    return fake_baseline
+
+
+def test_a_dropped_model_that_is_not_a_solid_is_shown_but_never_handed_over(
+        design_env, tmp_path):
+    """#1206 Low: the baseline of a dropped model committed "fail" findings
+    and Slice it handed it over, though a mesh that is not a printable solid
+    is never handed to intake. It is shown, with the problem named, and
+    Slice it is refused (typed or pressed) with the way to print it as is."""
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "baseline_turn", _unprintable_baseline(tmp_path)), \
+            mock.patch.object(plugin, "_design_handoff") as handoff:
+        out = _dispatch_event(_media_event("/print-design", _plate_stl(tmp_path)), adapter,
+                              scripted([GOOD]), design.SLICE_LABEL)
+        assert out == {"action": "skip", "reason": "design not printable"}
+        post = next(c for c in adapter.sent if "Design turn 1" in (c or ""))
+        assert "Heads-up: the mesh has problems: not watertight" in post
+        assert "not a printable solid" in adapter.sent[-1]
+        assert "without a design phrase" in adapter.sent[-1]
+        (session,) = _sessions(tmp_path)
+        assert session["status"] == "awaiting_revision"
+        # "slice it" typed at the waiting session is refused the same way.
+        again = _dispatch_event(_event("slice it"), adapter, scripted([GOOD]),
+                                design.CANCEL_LABEL)
+        assert again == {"action": "skip", "reason": "design not printable"}
+    handoff.assert_not_called()
+
+
+def test_unprintable_lists_only_fail_findings():
+    assert design.unprintable([["warn", "a"], ["fail", "b"], ("fail", "c")]) == ["b", "c"]
+    assert design.unprintable(None) == [] and design.unprintable([["warn", "a"]]) == []

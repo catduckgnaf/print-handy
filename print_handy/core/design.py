@@ -57,6 +57,35 @@ CHANGE_LABEL = "Change it"
 CANCEL_LABEL = "Cancel"
 CHOICES = (SLICE_LABEL, CHANGE_LABEL, CANCEL_LABEL)
 
+# Typed twins of the three buttons (#1206). Whole-message matches only, so
+# "cancel the hole" or "slice it thinner" stay design changes. Slice words
+# only hand the STL to prepared intake, which still asks before printing.
+_TYPED_CHOICES = {
+    SLICE_LABEL: {"slice", "slice it", "slice this", "slice that", "print it", "print this"},
+    CHANGE_LABEL: {"change", "change it"},
+    CANCEL_LABEL: {"cancel", "cancel it", "stop", "never mind", "nevermind", "abort",
+                   "forget it"},
+}
+
+
+def typed_choice(text):
+    """The button a typed reply to "What next for this design?" names, or None.
+
+    Case and trailing punctuation are ignored, and a bare number picks that
+    button (Discord and Telegram users type them too, not only Matrix).
+    Anything else is a change to the design, and the caller runs it as one.
+    """
+    value = " ".join(str(text or "").casefold().strip().rstrip(".!").split())
+    if not value:
+        return None
+    if value.isdigit():
+        index = int(value) - 1
+        return CHOICES[index] if 0 <= index < len(CHOICES) else None
+    for label, words in _TYPED_CHOICES.items():
+        if value == label.casefold() or value in words:
+            return label
+    return None
+
 _FORBIDDEN = (
     ("import", re.compile(r"\bimport\s*\(", re.I)),
     ("include", re.compile(r"\binclude\s*[<(]", re.I)),
@@ -759,6 +788,10 @@ def _messages(session, instruction, previous_scad=None, error=None, *, cfg=None,
         parts.append(f"Change requested: {instruction}")
     elif mesh or session.get("edit_mode") == "scad":
         parts.append(f"Edit requested: {instruction}")
+    elif instruction and str(instruction).strip() != str(session["description"]).strip():
+        # A retry of a first design (after a failed turn) may add detail;
+        # without this it was silently dropped (#1206).
+        parts.append(f"The user also said: {instruction}")
     if session.get("scad_deps"):
         parts.append("Note: the original file references external files that are not "
                      "available here; return a complete self-contained file.")
@@ -830,8 +863,10 @@ def check_design(info, *, notes=None, cfg=None, declared=True) -> list:
     """Checks of a rendered part against its declaration and the printer.
 
     Returns [(level, text)] with level "fail" (never handed over: the mesh is
-    not a printable solid) or "warn" (printable, but not what was intended,
-    or not proven to fit). The texts are written for the model's repair
+    not a printable solid; a model turn with one is refused, and a dropped
+    model's baseline with one is shown but kept from intake, see
+    ``unprintable``) or "warn" (printable, but not what was intended, or not
+    proven to fit). The texts are written for the model's repair
     prompt and are shown to the user when a finding survives the repairs.
     ``declared=False`` skips the Size comparison (a deterministic parameter
     edit leaves the header's Size line stale by design).
@@ -870,6 +905,13 @@ def check_design(info, *, notes=None, cfg=None, declared=True) -> list:
             findings.append(("warn", f"it measures {fmt(dims)} mm, not the {fmt(size)} mm on "
                                      "the Size line"))
     return findings
+
+
+def unprintable(findings) -> list:
+    """The "fail" texts among a version's findings: why it is not a printable
+    solid. A version with any is never handed to intake (#1206)."""
+    return [str(f[1]) for f in (findings or [])
+            if isinstance(f, (list, tuple)) and len(f) == 2 and f[0] == "fail"]
 
 
 # --------------------------------------------------------------------- rendering
@@ -998,7 +1040,12 @@ def http_complete(cfg, messages, *, opener=None):
     if resolved is None:
         raise DesignError("design is enabled but no model endpoint is configured: "
                           "set [design] chat_url and model, or the [llm] values they inherit")
-    key = os.environ.get(resolved["api_key_env"]) or ""
+    from .. import credential_binding
+    # The key is bound to the host of the setting the address came from (#1192).
+    slot = ("design.chat_url" if str(((cfg or {}).get("design") or {}).get("chat_url") or "").strip()
+            else "llm.chat_url")
+    key = credential_binding.key_for(slot, resolved["chat_url"],
+                                     os.environ.get(resolved["api_key_env"]) or "")
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -1038,7 +1085,12 @@ class DesignEngine:
                                 and not isinstance(configured, bool) and configured > 0
                                 else RENDER_TIMEOUT_S)
         self.render_timeout_s = render_timeout_s
-        self.repair_attempts = int(design.get("repair_attempts", 3))
+        # A bad value must not leave a turn with no model call at all (#1206).
+        try:
+            attempts = int(design.get("repair_attempts", 3))
+        except (TypeError, ValueError):
+            attempts = 3
+        self.repair_attempts = max(0, attempts)
 
     # -- session lifecycle -------------------------------------------------
 
@@ -1189,7 +1241,7 @@ class DesignEngine:
                 "source": source, "authored": authored, "info": info, "hash": digest}, ""
 
     def _commit(self, session, attempt, *, instruction=None, findings=(), attempts=1,
-                reverted_to=None):
+                reverted_to=None, declared=True):
         """Make one rendered attempt the session's new turn (files, preview, history)."""
         folder = _session_path(self.root, session["id"])
         turn = session["turns"] + 1
@@ -1229,7 +1281,7 @@ class DesignEngine:
         history.append({"turn": turn, "hash": attempt["hash"], "scad": scad_path.name,
                         "stl": stl_path.name, "body": body_name,
                         "instruction": (str(instruction)[:300] if instruction else None),
-                        "reverted_to": reverted_to})
+                        "reverted_to": reverted_to, "declared": bool(declared)})
         session["history"] = history[-MAX_TURNS:]
         _save(self.root, session)
         return {"session": session, "scad_path": scad_path, "stl_path": stl_path,
@@ -1252,7 +1304,7 @@ class DesignEngine:
         findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
                                 cfg=self.cfg, declared=False)
         return self._commit(session, attempt, instruction=instruction,
-                            findings=findings), ""
+                            findings=findings, declared=False), ""
 
     def _make_preview(self, session, stl_path, turn, info=None):
         if self.preview is not None:
@@ -1328,6 +1380,22 @@ class DesignEngine:
         sheet.save(compare)
         return str(compare)
 
+    def will_call_model(self, session, instruction, *, previous=...):
+        """True when ``run_turn(session, instruction)`` would ask the model.
+
+        False for the no-model paths: an undo/go-back and a plain parameter
+        edit of a SCAD source. Callers use it to say "designing it" only
+        when there is something slow to wait for (#1206).
+        """
+        mesh = session.get("edit_mode") == "mesh"
+        if previous is ...:
+            previous = self.current_body(session) if mesh else self.current_scad(session)
+        if previous and parse_revert(instruction) is not None:
+            return False
+        if previous and not mesh and deterministic_param_edit(previous, instruction) is not None:
+            return False
+        return True
+
     async def run_turn(self, session, instruction):
         """One design turn: model -> scan -> render -> validate, with bounded repairs.
 
@@ -1349,6 +1417,9 @@ class DesignEngine:
             # the answer beside the original request and design that.
             session["question_answer"] = str(instruction)[:500]
             instruction = session["description"]
+            # Kept on disk at once: if this turn fails, the next message is a
+            # retry, not a second answer (#1206).
+            _save(self.root, session)
         target = parse_revert(instruction) if previous else None
         if target is not None:
             return await asyncio.to_thread(self._revert, session, target, instruction,
@@ -1371,7 +1442,7 @@ class DesignEngine:
                 self._refuse_unprintable(session, findings)
                 result = await asyncio.to_thread(
                     lambda: self._commit(session, attempt, instruction=instruction,
-                                         findings=findings))
+                                         findings=findings, declared=False))
                 result["param_changes"] = changes
                 return result
         old_params = scad_params(previous) if previous and not mesh else {}
@@ -1384,7 +1455,7 @@ class DesignEngine:
         budget = 1 + self.repair_attempts
         last_error = ""
         best = None  # (rank, attempt, findings, number)
-        calls = 0
+        calls = questions = renders = 0
         for number in range(budget):
             calls += 1
             reply = await self._call(_messages(session, instruction, previous, error,
@@ -1409,13 +1480,26 @@ class DesignEngine:
                     raise DesignQuestion(question)
                 # At most one question per design: anything later is answered
                 # by an assumption, and the retry spends the same budget.
+                questions += 1
                 error, feedback = None, [
                     f"you asked '{question}', but no further questions are possible: "
                     "make a sensible assumption, state it in an Assumes line, and "
                     "return the complete file"]
                 continue
-            source = extract_scad(reply)
+            try:
+                source = extract_scad(reply)
+            except DesignError as exc:
+                # A chatty reply with no file is asked again within the same
+                # budget, like a render error (#1206), not the end of the turn.
+                last_error = str(exc)
+                logger.info("design session %s attempt %s/%s returned no OpenSCAD code",
+                            session["id"], number + 1, budget)
+                error, feedback = None, [
+                    "your reply contained no OpenSCAD code: answer with the complete "
+                    "OpenSCAD file only"]
+                continue
             scan_scad(source)  # a sandbox refusal is not repaired by asking again
+            renders += 1
             attempt, last_error = await asyncio.to_thread(
                 self._render_attempt, session, source, number)
             if attempt is None:
@@ -1437,6 +1521,16 @@ class DesignEngine:
             previous = source
         if best is None:
             self._discard_attempts(session)
+            if not renders and questions:
+                # Nothing was rendered: say what really happened (#1206).
+                raise DesignError(
+                    f"the design model kept asking questions instead of designing "
+                    f"({calls} tries), so nothing was made. Say the size or detail it is "
+                    "missing in your next message, or start over with more detail")
+            if not renders:
+                raise DesignError(
+                    f"the design model did not return a usable OpenSCAD file after {calls} "
+                    f"attempt(s): {last_error}")
             raise DesignError(
                 f"OpenSCAD could not render the design after {calls} attempt(s). "
                 f"Last error: {last_error}")
@@ -1453,7 +1547,7 @@ class DesignEngine:
         return result
 
     def _refuse_unprintable(self, session, findings):
-        failed = [text for level, text in findings if level == "fail"]
+        failed = unprintable(findings)
         if failed:
             self._discard_attempts(session)
             raise DesignError("the design rendered, but it is not a printable solid: "
@@ -1467,9 +1561,19 @@ class DesignEngine:
         """
         history = list(session.get("history") or [])
         if target == "previous":
-            if len(history) < 2:
+            # Undo is a stack (#1206): a revert entry stands for the version
+            # it restored, so undo steps back from there. Taking the entry
+            # before the newest one made a second undo go forward again.
+            by_turn = {e.get("turn"): e for e in history}
+            index = len(history) - 1
+            seen = set()
+            while index >= 0 and history[index].get("reverted_to") in by_turn \
+                    and index not in seen:
+                seen.add(index)
+                index = history.index(by_turn[history[index]["reverted_to"]])
+            if index < 1:
                 raise DesignError("there is no earlier version of this design to go back to")
-            entry = history[-2]
+            entry = history[index - 1]
         else:
             entry = next((e for e in history if e.get("turn") == target), None)
             if entry is None:
@@ -1486,10 +1590,13 @@ class DesignEngine:
         if attempt is None:
             self._discard_attempts(session)
             raise DesignError(f"version {entry.get('turn')} could not be rendered again: {error}")
+        # Checked the way the version was checked when it was made: a
+        # parameter edit's Size line is stale by design.
+        declared = entry.get("declared", True)
         findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
-                                cfg=self.cfg)
+                                cfg=self.cfg, declared=declared)
         result = self._commit(session, attempt, instruction=instruction, findings=findings,
-                              attempts=0, reverted_to=entry.get("turn"))
+                              attempts=0, reverted_to=entry.get("turn"), declared=declared)
         if session.get("edit_mode") != "mesh" and current:
             result["param_changes"] = param_changes(scad_params(current), scad_params(source))
         return result

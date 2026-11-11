@@ -66,12 +66,15 @@ def _known_failure(case):
 
 def run_one(case, transport, real_slicer, root):
     work = Path(tempfile.mkdtemp(prefix=f"{case.name}-{transport}-", dir=root))
-    row = {"case": case.name, "transport": transport, "kind": case.model.suffix.lower(),
-           "model_bytes": case.model.stat().st_size}
+    row = {"case": case.name, "transport": transport,
+           "kind": case.model.suffix.lower() if case.model is not None else "typed",
+           "model_bytes": case.model.stat().st_size if case.model is not None else 0}
     start = time.monotonic()
     try:
         run = harness.run_case(case, work, real_slicer=real_slicer, transport=transport)
-        row["wall_s"] = time.monotonic() - start
+        # Entry cases (typed / print-next) time only their own segment: the run carries
+        # that wall time itself, and the setup around it is not part of the measurement.
+        row["wall_s"] = run.wall_s if getattr(run, "wall_s", None) is not None else time.monotonic() - start
         # What the flow actually produced: the large-plate timing case (#952) is defined by its
         # output size, so the artifact records it instead of leaving it to be inferred from timings.
         row["gcode_bytes"] = sum(p.stat().st_size for p in run.gcodes if p.is_file())

@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>print-handy</Name>
+  <Repository>ghcr.io/catduckgnaf/print-handy:2.2.7</Repository>
+  <Registry>https://github.com/catduckgnaf/print-handy/pkgs/container/print-handy</Registry>
+  <Branch>
+    <Tag>2.2.7</Tag>
+    <TagDescription>Stable. A fixed release, the recommended choice for a printer you rely on. A new release does not move this tag; to update, change the Repository tag to the newer version number.</TagDescription>
+  </Branch>
+  <Branch>
+    <Tag>nightly</Tag>
+    <TagDescription>Development build, rebuilt nightly from main after the full CI suite passes. Features may be unfinished and settings may change without a release note.</TagDescription>
+  </Branch>
+  <Branch>
+    <Tag>develop</Tag>
+    <TagDescription>Development build that follows main automatically, ahead of nightly. For testing current fixes before they reach nightly or a release; features may be unfinished and settings may change without a release note.</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://forums.unraid.net/topic/138058-support-catduck-templates/</Support>
+  <Project>https://github.com/catduckgnaf/print-handy</Project>
+  <Overview>Share a model link or file in Discord, Telegram or Matrix. Choose filament, review the estimate and approve the exact job before it reaches your printer. Runs locally with no Print Handy cloud; chat providers carry what you send, and model downloads or optional hosted AI use the network. Camera monitoring and AI features are optional. A camera alert is not proof that a print is safe unattended. See the printer support guide for supported connection paths and hardware verification limits. Not affiliated with Bambu Lab. SETUP: all data lives in the one Appdata folder, and that folder must be writable by UID 1000 (the container user). Before the first start, run in the Unraid terminal: chown -R 1000:1000 /mnt/user/appdata/print-handy. To use a chat bot, put its token in state/.env inside that folder (for example DISCORD_BOT_TOKEN=... or TELEGRAM_BOT_TOKEN=...) before the first start. Then open the Web UI on port 8088 to finish setup. The Web UI is open to anyone on your network until you set a password there. Full setup and upgrade instructions are in the Print Handy docs: https://catduckgnaf.github.io/print-handy-docs/ (Docker setup guide: https://github.com/catduckgnaf/print-handy/blob/main/docs/DOCKER.md).</Overview>
+  <Category>Tools:Utilities Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:8088]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/catduckgnaf/catduck-unraid-templates/main/templates/print-handy.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/catduckgnaf/catduck-unraid-templates/main/templates/img/print-handy.png</Icon>
+  <ExtraParams>--shm-size=256m</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Appdata path and every child data folder must be owned by UID/GID 1000. Before upgrading an existing installation from the single /data bind template, stop the container and back up its appdata and container. The image declares child volumes under /data, so Docker may have stored state in anonymous volumes instead of the Appdata folder. Copy each existing child volume's contents into the matching folder under Appdata (state, hermes, archive, records, cache, spoolman) before recreating the container; do not remove old container or volumes until the new install is verified. Keep existing /data/.config contents: account tokens are stored there. If an older template mapped them to a host folder named dot-config, rename it to .config (mv dot-config .config) so the tokens and Web UI settings are found. Keep the separate Timelapse Archive host mapping unchanged. No automatic migration occurs.</Requires>
+  <Config Name="Web UI Port" Target="8088" Default="8088" Mode="tcp" Description="Host port for the Print Handy Web UI. If port 8088 is already in use by another service or Docker container on your server, change this host port." Type="Port" Display="always" Required="true" Mask="false">8088</Config>
+  <Config Name="Appdata Storage" Target="/data" Default="/mnt/user/appdata/print-handy" Mode="rw" Description="Parent appdata folder. Images up to this release declare child volumes below /data, so the explicit child paths below are needed to keep those directories on the host. The folder must be owned by UID/GID 1000: chown -R 1000:1000 /mnt/user/appdata/print-handy." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy</Config>
+  <Config Name="State Storage" Target="/data/state" Default="/mnt/user/appdata/print-handy/state" Mode="rw" Description="Persistent current state directory. Preserve existing contents when changing this mapping." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/state</Config>
+  <Config Name="Legacy State Storage" Target="/data/hermes" Default="/mnt/user/appdata/print-handy/hermes" Mode="rw" Description="Legacy state location used by installations created before Print Handy 2.2.5. Keep existing contents; the image supports migration from this path." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/print-handy/hermes</Config>
+  <Config Name="Archive Storage" Target="/data/archive" Default="/mnt/user/appdata/print-handy/archive" Mode="rw" Description="Persistent archive data. Preserve existing contents when changing this mapping." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/archive</Config>
+  <Config Name="Records Storage" Target="/data/records" Default="/mnt/user/appdata/print-handy/records" Mode="rw" Description="Persistent records data. Preserve existing contents when changing this mapping." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/records</Config>
+  <Config Name="Cache Storage" Target="/data/cache" Default="/mnt/user/appdata/print-handy/cache" Mode="rw" Description="Persistent cache data. Preserve existing contents when changing this mapping." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/cache</Config>
+  <Config Name="Spoolman Storage" Target="/data/spoolman" Default="/mnt/user/appdata/print-handy/spoolman" Mode="rw" Description="Bundled Spoolman database. Copy any existing Spoolman data here before starting; do not overwrite existing files." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/spoolman</Config>
+  <Config Name="Config Storage" Target="/data/.config" Default="/mnt/user/appdata/print-handy/.config" Mode="rw" Description="Account tokens and related user configuration. Preserve existing contents and file ownership." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/print-handy/.config</Config>
+  <Config Name="Timelapse Archive" Target="/data/timelapses" Default="/mnt/user/appdata/print-handy/timelapses" Mode="rw" Description="Finished timelapses are copied here. The default folder is inside Appdata; point this at another share (for example a media share) to keep timelapses somewhere else." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/print-handy/timelapses</Config>
+  <Config Name="Container Timezone" Target="TZ" Default="America/New_York" Mode="" Description="IANA timezone for the container's local time (e.g. America/New_York, Europe/London, America/Chicago). Sets the container's local time: log timestamps and scheduled jobs. Chat display times follow the discord.timezone setting, not this one." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="Hardware Acceleration (Intel / AMD)" Target="/dev/dri" Default="/dev/dri" Mode="rw" Description="OPTIONAL: Direct Rendering Infrastructure (/dev/dri) device pass-through for hardware-accelerated timelapse encoding on Intel (QuickSync / VA-API) or AMD (VA-API). Requires GPU drivers installed on Unraid. The entry ships empty so hosts without an iGPU still start; to enable it, set the value to /dev/dri. The container runs as UID 1000, so it also needs access to the render group: add --group-add=GID to Extra Parameters (see the Docker setup guide, GPU passthrough)." Type="Device" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="" Mode="" Description="OPTIONAL (NVIDIA GPUs only): GPU UUID (e.g. GPU-xxxxxxxx) or 'all' for NVENC timelapse encoding. Requires the Unraid Nvidia-Driver plugin and '--runtime=nvidia' added to Extra Parameters." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,video,utility" Mode="" Description="OPTIONAL (NVIDIA GPUs only): Driver libraries the NVIDIA runtime mounts. Default is compute,video,utility (or all)." Type="Variable" Display="advanced" Required="false" Mask="false">compute,video,utility</Config>
+</Container>

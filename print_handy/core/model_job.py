@@ -24,6 +24,7 @@ from typing import Any, NamedTuple
 from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
 from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client, start_recorder
+from .filament_warnings import FilamentWarningPending
 from .site_accounts import SiteLoginNeeded
 from .threemf_canonical import intake_working_copy
 
@@ -3068,7 +3069,35 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
-def _with_gcode_temperatures(state, text, recorded=None):
+_VERIFY_LINE_PREFIXES = (
+    '; filament_type = ', '; nozzle_diameter = ', '; first_layer_height = ', '; initial_layer_print_height = ',
+    '; nozzle_temperature_initial_layer = ', '; nozzle_temperature = ',
+    'START_PRINT', 'PRINT_START', 'END_PRINT', 'PRINT_END', 'M190', 'M109', 'M104', 'M140', ';LAYER_CHANGE',
+    printer_state.TOOL_LINE_ANCHOR, printer_state.TOOL_SLOTS_ANCHOR,
+)
+
+
+def _verify_lines(text, adapter=None):
+    """One GcodeLines scan for every line-anchored question offline verification asks (#1153 item 7).
+
+    The adapter's own start and end macro names are declared too, read
+    defensively: an adapter without them, or one whose property raises,
+    simply adds nothing here, and the check that really reads the name
+    behaves exactly as before.
+    """
+    from .gcode_lines import GcodeLines
+    macros = []
+    for name in ('start_macro', 'end_macro'):
+        try:
+            value = getattr(adapter, name, None)
+        except Exception:
+            value = None
+        if isinstance(value, str):
+            macros.append(value)
+    return GcodeLines(text, _VERIFY_LINE_PREFIXES + tuple(macros))
+
+
+def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     """state with temps_c set to what this G-code's own spool resolves to (printer_state.gcode_temperatures),
     so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record.
 
@@ -3076,6 +3105,10 @@ def _with_gcode_temperatures(state, text, recorded=None):
     provenance (P2-275) — win outright when usable: re-resolving at verify
     time can see a different answer than slicing did (Spoolman down falls
     back to material defaults) and refuse a sound artifact.
+
+    ``lines`` is the caller's GcodeLines scan of ``text`` (verification
+    already has one), so the filament_type and spool-header lookups here
+    cost no extra pass.
     """
     if recorded:
         try:
@@ -3086,9 +3119,11 @@ def _with_gcode_temperatures(state, text, recorded=None):
             return {**state, 'temps_c': temps}
     from .orca_config import split_config_list
     from . import spoolman_client
-    match = re.search(r'^; filament_type = (.+)$', text, re.M)
+    if lines is None:
+        lines = _verify_lines(text)
+    listed = lines.config_value('filament_type')
     try:
-        materials = split_config_list(match.group(1).strip()) if match else []
+        materials = split_config_list(listed) if listed is not None else []
     except ValueError:
         materials = []
 
@@ -3096,7 +3131,7 @@ def _with_gcode_temperatures(state, text, recorded=None):
         record = spoolman_client.get_spool(spool_id, base_url=printer_state.spoolman_url(state))
         return None if not record or record.get('archived') else record.get('filament')
     try:
-        temps = printer_state.gcode_temperatures(state, materials, fetch, text)
+        temps = printer_state.gcode_temperatures(state, materials, fetch, text, lines=lines)
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(f"G-code temperature check failed: {exc}") from exc
     return {**state, 'temps_c': temps}
@@ -3116,10 +3151,11 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
+    lines = _verify_lines(text, adapter)
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
-    state = _with_gcode_temperatures(state, text, recorded_temps)
+    state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
     from .nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
     try:
@@ -3128,21 +3164,18 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
         raise RuntimeError("offline G-code verification failed: invalid effective nozzle temperature: " + str(exc)) from exc
     if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend, adapter):
         errors.append('startup heater prefix does not match the recorded bed and effective nozzle temperature')
-    def config(key):
-        match = re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return match.group(1).strip() if match else None
-    nozzle = config('nozzle_diameter')
+    nozzle = lines.config_value('nozzle_diameter')
     if nozzle is None or abs(float(nozzle) - state['nozzle']['diameter_mm']) > 1e-3:
         errors.append(f"nozzle {nozzle} != recorded {state['nozzle']['diameter_mm']}")
     hotend, bed = effective_nozzle_temperature(nozzle_type, float(state['temps_c']['nozzle'])), state['temps_c']['bed']
-    start_match = re.search(r'^START_PRINT\s+([^;]*)', text, re.M)
+    start_match = lines.search(r'^START_PRINT\s+([^;]*)', 'START_PRINT')
     start_args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', start_match.group(1))) if start_match else {}
     start_matches = (start_match is not None and
                      math.isclose(float(start_args.get('BED_TEMP', 'nan')), float(bed), abs_tol=1e-3) and
                      math.isclose(float(start_args.get('EXTRUDER_TEMP', 'nan')), float(hotend), abs_tol=1e-3))
     if not start_matches:
         errors.append(f'missing START_PRINT matching bed {bed} and effective hotend {hotend}')
-    if not re.search(r'^END_PRINT(?:\s|$)', text, re.M):
+    if not lines.search(r'^END_PRINT(?:\s|$)', 'END_PRINT'):
         errors.append('missing END_PRINT')
     bounds = cached_motion_bounds(raw, text)
     limits = state.get('axis_limits_mm', {'x': [0, BED_MM], 'y': [0, BED_MM], 'z': [0, state.get('max_print_height_mm', MAX_HEIGHT_MM)]})
@@ -3230,6 +3263,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
         return _verify_offline(gcode_path, st, adapter, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
+    lines=_verify_lines(text, adapter)
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
     # Screenless files remain accepted without it, but any present checksum is validated.
@@ -3238,7 +3272,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    st = _with_gcode_temperatures(st, text, recorded_temps)
+    st = _with_gcode_temperatures(st, text, recorded_temps, lines=lines)
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(st)
@@ -3255,9 +3289,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
             errors.append("native screen requires immediate startup M190 Sbed / M104 Snozzle T0 consistent with START_PRINT; later heaters do not count")
     elif mode != 1:
         errors.append(f"unknown display_off mode {mode!r}; refusing hardware-dependent G-code validation")
-    def config(key):
-        m=re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
-        return m.group(1).strip() if m else None
+    config=lines.config_value
     nozzle=config("nozzle_diameter")
     nozzle_value=None
     if nozzle is None:
@@ -3290,8 +3322,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if not printer_state.same_material(material, st["spool"]["material"]):
             errors.append(f"G-code filament_type {material!r} != loaded {st['spool']['material']!r}")
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
-    def numeric_macro_match(pattern, bed_key, hotend_key):
-        match = re.search(pattern, text, re.M)
+    def numeric_macro_match(macro_name, bed_key, hotend_key):
+        match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)
         args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', match.group(1))) if match else {}
         try:
             return (match is not None and
@@ -3302,26 +3334,28 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     octoprint = getattr(adapter, 'transport', None) == 'octoprint'
     if octoprint:
         for command, target in (('M190', bed), ('M109', hotend)):
-            values = re.findall(rf'^{command}\s+S([\d.]+)', text, re.M)
-            if not values or not math.isclose(float(values[0]), float(target), abs_tol=1e-3):
+            first = lines.search(rf'^{command}\s+S([\d.]+)', command)
+            if not first or not math.isclose(float(first.group(1)), float(target), abs_tol=1e-3):
                 errors.append(f'missing {command} matching target {target}')
         # Validate the slicer-owned shutdown, never append a guessed end sequence.
-        if not all(re.search(rf'^{cmd}\s+S0(?:\s|$)', text, re.M) for cmd in ('M104', 'M140')):
+        if not all(lines.search(rf'^{cmd}\s+S0(?:\s|$)', cmd) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
         macro = adapter.start_macro
-        if not (numeric_macro_match(rf'^{re.escape(macro)}\s+([^;]*)', 'BED', 'HOTEND') or
-                sovol_style_start_matches(text, bed, hotend)):
+        if not (numeric_macro_match(macro, 'BED', 'HOTEND') or
+                sovol_style_start_matches(text, bed, hotend, lines=lines)):
             errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
                           " (accepted starts: the configured macro with BED/HOTEND arguments,"
                           " START_PRINT with BED_TEMP/EXTRUDER_TEMP arguments, or a bare"
                           " START_PRINT whose M190/M109 heater lines match those temperatures)")
-    elif not (numeric_macro_match(r'^PRINT_START\s+([^;]*)', 'BED', 'HOTEND') or
-              numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
+    elif not (numeric_macro_match('PRINT_START', 'BED', 'HOTEND') or
+              numeric_macro_match('START_PRINT', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
+    def ends_with(macro_name):
+        return lines.search(rf'^{re.escape(macro_name)}(?:\s|$)', macro_name)
     if not octoprint:
         if native:
-            if not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)):
+            if not (ends_with('PRINT_END') or ends_with('END_PRINT')):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
         else:
             end_macro = adapter.end_macro
@@ -3330,10 +3364,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 # A customized [printer] end_macro is the only safe end (P2-13): a file
                 # ending in a different macro would run a shutdown sequence this printer
                 # does not define, so PRINT_END/END_PRINT no longer substitute for it.
-                if not re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M):
+                if not ends_with(end_macro):
                     errors.append(f"missing {end_macro} safe end sequence")
-            elif not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-                      or re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M)):
+            elif not (ends_with('PRINT_END') or ends_with('END_PRINT') or ends_with(end_macro)):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
@@ -3356,7 +3389,9 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     # Lines narrower than 90% of the orifice are refused, first layer and body alike.
     if nozzle_value is not None:
         floor=0.9*nozzle_value
-        layers=re.split(r'^;LAYER_CHANGE', text, flags=re.M)
+        # The first six ;LAYER_CHANGE pieces are all this check reads (layer 0,
+        # the first layer, layers 2-5); the scan already knows where they are.
+        layers, layer_count = lines.split(';LAYER_CHANGE', 6)
         # Orca (notably with Arachne walls) writes ;WIDTH only when it changes, so a
         # layer can inherit its width from an earlier one. Carry the width in effect
         # across layers and count it once per structural feature (;TYPE) as well.
@@ -3392,10 +3427,10 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 widths.append(carried[0])
             return widths
         structural_widths(layers[0] if layers else "")
-        first=structural_widths(layers[1] if len(layers)>1 else "")
+        first=structural_widths(layers[1] if layer_count>1 else "")
         body=structural_widths("".join(layers[2:6]))
         for name,ws in (("first layer",first),("layers 2-5",body)):
-            if name == "layers 2-5" and len(layers) <= 2:
+            if name == "layers 2-5" and layer_count <= 2:
                 # Single-layer test print (e.g. first-layer calibration pad) has no subsequent layers
                 continue
             if not ws:
@@ -3861,7 +3896,7 @@ def release_start_announcement(remote):
         except OSError: pass
 
 
-def sovol_style_start_matches(text, bed, hotend):
+def sovol_style_start_matches(text, bed, hotend, lines=None):
     """Whether a START_PRINT-led job (Sovol stock style, issue #612) proves its temperatures.
 
     Sovol's own profiles lead with START_PRINT, not the PRINT_START BED/HOTEND
@@ -3877,7 +3912,10 @@ def sovol_style_start_matches(text, bed, hotend):
     passes on its heater lines: the macro would run with its arguments, so
     the arguments are the contract the file states.
     """
-    m = re.search(r'^START_PRINT\b\s*([^;]*)', text, re.M)
+    if lines is None:
+        from .gcode_lines import GcodeLines
+        lines = GcodeLines(text, ('START_PRINT', 'M190', 'M109'))
+    m = lines.search(r'^START_PRINT\b\s*([^;]*)', 'START_PRINT')
     if not m:
         return False
     args = dict(re.findall(r'([A-Z_]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))', m.group(1)))
@@ -3889,7 +3927,7 @@ def sovol_style_start_matches(text, bed, hotend):
             return False
 
     def first_temp(command):
-        match = re.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', text, re.M)
+        match = lines.search(rf'^{command}\s+S([+-]?(?:\d+(?:\.\d*)?|\.\d+))', command)
         return float(match.group(1)) if match else None
 
     bed_line, hotend_line = first_temp('M190'), first_temp('M109')
@@ -4149,7 +4187,17 @@ def get_author_settings(src_path):
     return res
 
 def decisions_digest(decisions):
-    """Canonical geometry-to-filament choice identity, independent of dict order."""
+    """Canonical geometry-to-filament choice identity, independent of dict order.
+
+    A filament fallback (#1189) is identified by the operator decisions it
+    was derived from: slice_job derives it in memory from JOB.json's
+    color_decisions and the printer record (whose slots the slice recipe
+    already binds), so the artifact binding and every "decisions changed
+    during slicing" check keep comparing against what the job recorded.
+    """
+    if isinstance(decisions, dict) and isinstance(decisions.get('fallback'), dict) \
+            and 'original' in decisions['fallback']:
+        return decisions_digest(decisions['fallback']['original'])
     return hashlib.sha256(json.dumps(decisions, sort_keys=True, separators=(',', ':'),
                                      allow_nan=False).encode()).hexdigest()
 
@@ -4557,6 +4605,353 @@ def _check_tool_assignments(manifest, rows, selections):
         seen[slot] = colour
 
 
+def record_filament_warning_acknowledgement(folder_or_job, warnings=None, source_sha256=None,
+                                            selected_plates=None, via='print_anyway'):
+    """Record the operator's explicit acceptance of named filament warnings.
+
+    Owner ruling (catduck, 2026-11-10): filament conditions warn and the
+    user may accept the warning; they never hard-block a print. The
+    acceptance is bound to the exact warning texts, the source hash and the
+    selected plates it was given for — never a blanket waiver (the binding
+    rule slice_warnings.record_unsupported_cantilever_override states for
+    its record). With no explicit warnings, the job's
+    filament_warnings_pending record (written by the gate that raised
+    FilamentWarningPending) supplies them; with neither, there is nothing
+    to accept and the call refuses rather than recording a blank waiver.
+    The acceptance authorizes one slicing run: slice_job marks it used and
+    the next slice_job consumes it, so a reslice presents the warnings
+    again (the clearance pattern's reslice rule).
+    """
+    is_path = isinstance(folder_or_job, (str, Path))
+    if is_path:
+        p = Path(folder_or_job)
+        jp = p if p.name == 'JOB.json' else p / 'JOB.json'
+        job = json.loads(jp.read_text())
+    else:
+        job = folder_or_job
+        jp = None
+    pending = job.get('filament_warnings_pending') or {}
+    warnings = list(warnings) if warnings is not None else list(pending.get('warnings') or [])
+    if not warnings:
+        raise ValueError('no filament warnings to accept; an acceptance is never recorded blank')
+    if source_sha256 is None:
+        source_sha256 = pending.get('source_sha256')
+    if selected_plates is None:
+        selected_plates = pending.get('selected_plates')
+    job['filament_warning_acknowledgement'] = {
+        'code': 'FILAMENT_WARNINGS_ACCEPTED',
+        'acknowledged': True,
+        'via': via,
+        'warnings': warnings,
+        'selected_plates': [str(p) for p in selected_plates or []],
+        'source_sha256': source_sha256,
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+    }
+    job.pop('filament_warnings_pending', None)
+    if is_path and jp is not None:
+        write_job(jp.parent, job)
+    return job
+
+
+def _filament_ack_covers(job, warnings, source_sha256, selected_plates):
+    """Whether the job's recorded acceptance covers exactly these warnings."""
+    ack = job.get('filament_warning_acknowledgement') or {}
+    if ack.get('acknowledged') is not True:
+        return False
+    if source_sha256 is not None and ack.get('source_sha256') != source_sha256:
+        return False
+    if {str(p) for p in ack.get('selected_plates') or []} != {str(p) for p in selected_plates or []}:
+        return False
+    return set(warnings) <= set(ack.get('warnings') or [])
+
+
+def _enforce_filament_warnings(job, warnings, source_sha256, selected_plates, job_folder=None,
+                               via_slice=False):
+    """Present-or-proceed for one set of filament warnings.
+
+    Returns the warnings when a bound acceptance already covers them (and
+    records them on the job as the slice's filament_warnings provenance).
+    Otherwise records them as the job's filament_warnings_pending — on disk
+    when job_folder is given, so the surface that presents them and the
+    operator's later acceptance resume from the same record — and raises
+    FilamentWarningPending: without an acceptance the job does not proceed.
+
+    A pass inside slice_job (via_slice) marks the acceptance used by that
+    slicing run; the next slice_job consumes a used acceptance before its
+    gates run, so a reslice presents the warnings again instead of silently
+    reusing the acceptance. Passes at color-intake time do not mark it: the
+    acceptance is given for the print attempt that then slices.
+    """
+    warnings = list(dict.fromkeys(warnings))
+    if not warnings:
+        return []
+    if _filament_ack_covers(job, warnings, source_sha256, selected_plates):
+        job['filament_warnings'] = warnings
+        job.pop('filament_warnings_pending', None)
+        if via_slice:
+            job['filament_warning_acknowledgement']['used_by_slice'] = True
+            if job_folder is not None:
+                # Mark it used on disk now, not only with the artifact: a
+                # slicing run that fails after this point must not leave the
+                # acceptance reusable, so the next run presents the warnings
+                # again (#1189: a reslice re-presents them).
+                try:
+                    on_disk = json.loads((Path(job_folder) / 'JOB.json').read_text())
+                except (OSError, ValueError):
+                    on_disk = None
+                ack = on_disk.get('filament_warning_acknowledgement') if isinstance(on_disk, dict) else None
+                if isinstance(ack, dict) and not ack.get('used_by_slice'):
+                    ack['used_by_slice'] = True
+                    write_job(job_folder, on_disk)
+        return warnings
+    job['filament_warnings_pending'] = {
+        'warnings': warnings,
+        'source_sha256': source_sha256,
+        'selected_plates': [str(p) for p in selected_plates or []],
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    if job_folder is not None:
+        write_job(job_folder, job)
+    raise FilamentWarningPending(warnings, source_sha256=source_sha256,
+                                 selected_plates=selected_plates)
+
+
+def filament_fallback_slot(state, limit=None):
+    """(slot, phrase): the slot a filament fallback prints from, and how it was chosen (#1189).
+
+    The printer's active slot when the hardware record names one and it is
+    loaded; otherwise the record's first (lowest-numbered) loaded slot; with
+    no loaded-slot information at all, slot 1, and the phrase says so. The
+    source is the hardware record print start launches from: the slot map
+    configured_slots offers (filament_slots, or a single-extruder printer's
+    one configured spool) and its active_slot. "Loaded" is a slot within
+    the printer's slot count that the record maps to a filament material:
+    a fallback never names a slot (or tool) the printer does not have.
+    """
+    try:
+        limit = int(limit if limit is not None else position_limit())
+    except (TypeError, ValueError):
+        limit = FILAMENT_SLOTS
+    loaded = []
+    for key, rec in (configured_slots(state) or {}).items():
+        try:
+            slot = int(key)
+        except (TypeError, ValueError):
+            continue
+        if (1 <= slot <= limit and isinstance(rec, dict)
+                and isinstance(rec.get('material'), str) and rec['material'].strip()):
+            loaded.append(slot)
+    loaded.sort()
+    active = (state or {}).get('active_slot')
+    if type(active) is int and active in loaded:
+        return active, f"slot {active}, the printer's active slot"
+    if loaded:
+        return loaded[0], f"slot {loaded[0]}, the printer's first loaded slot"
+    return 1, 'slot 1, because the printer record has no loaded-slot information'
+
+
+def _fallback_selection(state, slot):
+    """The selection for a fallback slot, filled from the slot's record (validate_decisions resolves it)."""
+    rec = (configured_slots(state) or {}).get(str(slot)) or {}
+    return {'slot': slot, **{key: rec[key] for key in ('color', 'material', 'spoolman_id')
+                             if isinstance(rec, dict) and rec.get(key) is not None}}
+
+
+def _choice_label(manifest, key):
+    """A color-choice key as the operator knows it: the part name, or the source filament."""
+    kind, _, rest = str(key).partition(':')
+    if kind == 'filament':
+        return f'source filament {rest}'
+    if kind == 'part':
+        part = next((p for p in manifest.get('parts') or [] if str(p.get('key')) == rest), None)
+        if part and part.get('name'):
+            return f"part {part['name']}"
+    return str(key)
+
+
+def filament_fallbacks(manifest, decisions, selected_plates, state, limit=None, choices_needed=False):
+    """(decisions to slice with, warnings) under the #1189 filament fallbacks.
+
+    Owner decision (catduck, 2026-11-10): no filament condition hard-blocks
+    a print. Three conditions that refused until #1189 now print from a
+    deterministic fallback, named in a warning the operator accepts first:
+
+    - a slot number past the printer's slot count prints from the fallback
+      slot (filament_fallback_slot: the active slot, else the first loaded
+      slot, else slot 1);
+    - a used filament with no slot chosen on a selected plate prints from
+      the slot already chosen for that same source filament (the part's own
+      filament: a sibling part or its filament row), else the slot chosen
+      for the first part on that plate that has one (the base filament),
+      else the fallback slot; the parts or filament row left unchosen get
+      that slot;
+    - color choices never made (choices_needed and no decisions) print
+      every part single-color from the fallback slot, exactly like a
+      recorded single-color decision.
+
+    Nothing here is persisted: with no condition the decisions come back
+    unchanged and the warnings empty. Otherwise the returned decisions carry
+    a 'fallback' record (the original decisions, the filament keys added,
+    the warnings); decisions_digest identifies them by the original, and a
+    fallback passed back in is re-derived from its original, so the same
+    inputs always give the same decisions and warning texts. Decisions
+    bound to another source are a decision-integrity refusal and are never
+    repaired here.
+    """
+    original = decisions
+    if isinstance(decisions, dict) and isinstance(decisions.get('fallback'), dict):
+        original = decisions['fallback'].get('original')
+        choices_needed = choices_needed or original is None
+    try:
+        limit = int(limit if limit is not None else position_limit())
+    except (TypeError, ValueError):
+        limit = FILAMENT_SLOTS
+    sha = manifest.get('source_sha256')
+    slot, how = filament_fallback_slot(state, limit)
+    warnings, added = [], []
+    if not original:
+        if not choices_needed:
+            return original, []
+        effective = {'source_sha256': sha, 'mode': 'single_color',
+                     'selection': _fallback_selection(state, slot)}
+        warnings.append('color choices were never made for this print; every part prints '
+                        f'single-color from {how}')
+    elif not isinstance(original, dict) or original.get('source_sha256') != sha:
+        return original, []
+    else:
+        effective = json.loads(json.dumps(original))
+        mode = effective.get('mode')
+
+        def past(selection):
+            number = selection.get('slot') if isinstance(selection, dict) else None
+            return type(number) is int and not 1 <= number <= limit
+
+        if mode == 'single_color' and past(effective.get('selection')):
+            bad = effective['selection']['slot']
+            effective['selection'] = _fallback_selection(state, slot)
+            warnings.append(f'the one-color choice names slot {bad}, but the printer has only '
+                            f'{limit} slots; it prints from {how} instead')
+        elif mode == 'per_part' and isinstance(effective.get('choices'), dict):
+            choices = effective['choices']
+            over = {}
+            for key in sorted(choices):
+                if past(choices[key]):
+                    over.setdefault(choices[key]['slot'], []).append(key)
+                    choices[key] = _fallback_selection(state, slot)
+            for bad in sorted(over):
+                names = ', '.join(_choice_label(manifest, key) for key in over[bad])
+                verb = 'it prints' if len(over[bad]) == 1 else 'they print'
+                warnings.append(f'slot {bad} is chosen for {names}, but the printer has only '
+                                f'{limit} slots; {verb} from {how} instead')
+            if selected_plates:
+                from .source_colors import unmapped_plate_filaments
+                for plate_id, ext, plate_parts in unmapped_plate_filaments(manifest, effective,
+                                                                           selected_plates):
+                    def chosen(key):
+                        row = choices.get(key)
+                        return row if isinstance(row, dict) and row.get('slot') is not None else None
+                    holders = [p for p in plate_parts if p.get('source_extruder') == ext]
+                    targets = [f"part:{p.get('key')}" for p in holders
+                               if chosen(f"part:{p.get('key')}") is None] or [f'filament:{ext}']
+                    if all(chosen(key) is not None for key in targets):
+                        continue  # filled for an earlier plate: one slot per source filament
+                    # The part's own filament: a slot already chosen for this
+                    # source filament (a sibling part, or its filament row).
+                    own = next((chosen(f"part:{p.get('key')}") for p in holders
+                                if chosen(f"part:{p.get('key')}") is not None),
+                               chosen(f'filament:{ext}'))
+                    # Else the base filament: the first part on the plate with a slot.
+                    base = next((p for p in plate_parts
+                                 if chosen(f"part:{p.get('key')}") is not None), None)
+                    if own is not None:
+                        picked = dict(own)
+                        named = (f"slot {picked['slot']}, the slot already chosen for source "
+                                 f"filament {ext}")
+                    elif base is not None:
+                        picked = dict(chosen(f"part:{base.get('key')}"))
+                        named = (f"slot {picked['slot']}, the slot chosen for part "
+                                 f"{base.get('name') or base.get('key')}")
+                    else:
+                        picked, named = _fallback_selection(state, slot), how
+                    for key in targets:
+                        choices[key] = dict(picked)
+                        added.append(key)
+                    names = ', '.join(_choice_label(manifest, key) for key in targets
+                                      if key.startswith('part:'))
+                    warnings.append(f'plate {plate_id}: source filament {ext} is used but has no '
+                                    f'slot chosen{" (" + names + ")" if names else ""}; '
+                                    f'it prints from {named}')
+    if not warnings:
+        return original, []
+    effective['fallback'] = {'original': original, 'added_keys': added, 'warnings': warnings}
+    return effective, warnings
+
+
+def effective_color_decisions(job):
+    """The decisions the job's artifact was sliced with: a recorded #1189 fallback, else color_decisions."""
+    job = job if isinstance(job, dict) else {}
+    recorded = job.get('filament_fallback')
+    decisions = job.get('color_decisions')
+    if isinstance(recorded, dict) and isinstance(recorded.get('decisions'), dict) \
+            and decisions_digest(recorded['decisions']) == decisions_digest(decisions):
+        return recorded['decisions']
+    return decisions
+
+
+def _enforce_filament_readiness(job, manifest, decisions, selected_plates,
+                                slot_capacity=None, job_folder=None, via_slice=False, state=None):
+    """The selected-plate readiness gate under the filament warn-and-accept ruling.
+
+    Readiness problems that are not filament data refuse exactly as
+    require_plate_readiness always has (named, in one message). Filament
+    problems — unknown usage, slicer/analysis disagreement, damaged usage
+    claims — become warnings handled by _enforce_filament_warnings.
+
+    With the printer record (`state`), the #1189 fallbacks apply first: a
+    used filament with no slot chosen and a slot past the printer's slot
+    count are filled by filament_fallbacks and become warnings naming the
+    slot they print from, so they no longer refuse. Every caller that
+    slices or saves decisions passes it; without it those rows refuse as
+    before.
+    """
+    from .source_colors import (plate_readiness_problems, filament_readiness_warnings,
+                                validate_plate_usage_if_present)
+    fallback_warnings = []
+    if state is not None:
+        decisions, fallback_warnings = filament_fallbacks(manifest, decisions, selected_plates,
+                                                          state, slot_capacity)
+    problems = plate_readiness_problems(manifest, decisions, selected_plates,
+                                        slot_capacity=slot_capacity)
+    readiness_warnings = filament_readiness_warnings(manifest, decisions, selected_plates,
+                                                     slot_capacity=slot_capacity)
+    hard = [p for p in problems if p not in set(readiness_warnings)]
+    if hard:
+        raise RuntimeError('print readiness blocked: ' + '; '.join(problems))
+    warnings = (fallback_warnings + readiness_warnings
+                + validate_plate_usage_if_present(manifest, selected_plates))
+    return _enforce_filament_warnings(job, warnings, manifest.get('source_sha256'),
+                                      selected_plates, job_folder=job_folder, via_slice=via_slice)
+
+
+def _whole_source_usage_warnings(manifest):
+    """Filament warnings for every plate of a whole-source multi-plate job.
+
+    No production surface writes job['selected_plates'], so a multi-plate
+    source is sliced whole and the selected-plate readiness gate never runs
+    for it (#1155). Its usage findings over all plates (an unknown usage
+    class, a slicer/analysis disagreement, slicer usage that could not be
+    validated) are still presented: they warn and the operator may accept
+    them (owner ruling, catduck, 2026-11-10; #1189). Only the warning rows
+    are taken. The mapping rows (a used filament with no validated slot)
+    are never applied to a whole-source job: its color questions were not
+    scoped per plate, so they would refuse jobs that slice correctly today.
+    """
+    from .source_colors import filament_readiness_warnings
+    usage = manifest.get('plate_usage') or {}
+    if not isinstance(usage, dict) or not usage:
+        return []
+    return filament_readiness_warnings(manifest, {}, sorted(usage, key=str))
+
+
 def intake_color_choices(job_path, state, mode=None, slots=None, interactive=False):
     """Normal intake gate: ask per part/palette and persist exact-source choices.
 
@@ -4592,9 +4987,9 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
                                                resolve_filament_selection,
                                                selected_plate_ids=selected_plates)
                 if selected_plates:
-                    from .source_colors import require_plate_readiness
-                    require_plate_readiness(manifest, validated, selected_plates,
-                                            slot_capacity=position_limit(adapter))
+                    _enforce_filament_readiness(job, manifest, validated, selected_plates,
+                                                slot_capacity=position_limit(adapter),
+                                                job_folder=path.parent, state=state)
                 return True
             if layered_only:
                 raise MultiColorUnsupported(
@@ -4624,9 +5019,9 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
                                        resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
         if selected_plates:
-            from .source_colors import require_plate_readiness
-            require_plate_readiness(manifest, validated, selected_plates,
-                                    slot_capacity=position_limit(adapter))
+            _enforce_filament_readiness(job, manifest, validated, selected_plates,
+                                        slot_capacity=position_limit(adapter),
+                                        job_folder=path.parent, state=state)
         return True
     packet = {'status': 'COLOR_CHOICES_REQUIRED', 'job_json': str(path),
               'source_sha256': manifest['source_sha256'],
@@ -4675,9 +5070,9 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
     validated = validate_decisions(manifest, decisions, state, resolve_filament_selection,
                                    selected_plate_ids=selected_plates)
     if selected_plates:
-        from .source_colors import require_plate_readiness
-        require_plate_readiness(manifest, validated, selected_plates,
-                                slot_capacity=position_limit(adapter))
+        _enforce_filament_readiness(job, manifest, validated, selected_plates,
+                                    slot_capacity=position_limit(adapter),
+                                    job_folder=path.parent, state=state)
     set_color_decisions(job, validated)
     write_job(path.parent, job)
     return True
@@ -5964,6 +6359,16 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
     job = json.loads(Path(job_path).read_text())
+    # A filament warning acceptance authorizes one slicing run: an
+    # acceptance an earlier slice_job run already used is consumed here,
+    # before any gate reads it, so a reslice presents the warnings again
+    # instead of silently reusing the acceptance (the clearance pattern's
+    # rule that a reslice invalidates the pending acknowledgement).
+    _filament_ack = job.get('filament_warning_acknowledgement') or {}
+    if _filament_ack.get('used_by_slice'):
+        job.pop('filament_warning_acknowledgement', None)
+        job.pop('filament_warnings', None)
+        write_job(Path(job_path).parent, job)
     # The job's own printer record (#334): slicing a secondary printer's job
     # against the default record would validate its filament selection
     # against the wrong printer's slots and slice for the wrong hardware
@@ -5988,7 +6393,13 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         copies = job.get('copies')
     if copies:
         job['copies'] = int(copies)
-    if not generic and job.get("filament_selection") is not None and (job.get('color_decisions') or {}).get('mode') != 'per_part':
+    _recorded_slot = (job.get("filament_selection") or {}).get("slot") if isinstance(job.get("filament_selection"), dict) else None
+    _slot_past_limit = type(_recorded_slot) is int and not 1 <= _recorded_slot <= position_limit(adapter)
+    if not generic and job.get("filament_selection") is not None and (job.get('color_decisions') or {}).get('mode') != 'per_part' \
+            and not (_slot_past_limit and job.get('color_decisions')):
+        # A recorded one-color slot past the printer's slot count is not
+        # refused here: the #1189 fallback below replaces it (named in a
+        # warning the operator accepts) and validates the replacement.
         selection = resolve_filament_selection(st, job["filament_selection"])
         _validate_slot_selection(st, selection)
         job["filament_selection"] = selection
@@ -6067,21 +6478,46 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         else:
             raise
     selected_plates = job.get('selected_plates') or None
-    if multi_plate and selected_plates and job.get('color_decisions'):
+    filament_gate_ran = False
+    # The #1189 fallbacks (owner decision, catduck, 2026-11-10: no filament
+    # condition hard-blocks a print). On a printer whose decisions are
+    # sliced (multi-slot, or multi_tool), a slot past the printer's slot
+    # count, a used filament with no slot chosen and color choices never
+    # made print from a deterministic fallback slot instead of refusing.
+    # The decisions are derived in memory from JOB.json's color_decisions
+    # and the printer record, before any slicing, so the G-code is made for
+    # slots the printer has and passes the same bounds and tool checks.
+    # Their warnings join the filament warning round below: nothing slices
+    # until the operator accepts them, and a reslice presents them again.
+    fallback_used = not generic or multi_tool
+    slice_decisions_in, fallback_warnings = job.get('color_decisions'), []
+    if fallback_used:
+        if not manifest.get('source_sha256'):
+            manifest['source_sha256'] = file_sha256(src)
+        slice_decisions_in, fallback_warnings = filament_fallbacks(
+            manifest, job.get('color_decisions'), selected_plates, st, position_limit(adapter),
+            choices_needed=bool(manifest['requires_choices']))
+    if multi_plate and selected_plates and slice_decisions_in:
         # The user selected exact source plates, so validate their usage and
         # mappings before slicing. Whole-source imports without source usage
         # metadata remain unknown until Orca provides authoritative output.
-        from .source_colors import require_plate_readiness
-        require_plate_readiness(manifest, job.get('color_decisions'), selected_plates,
-                                slot_capacity=position_limit(adapter))
+        _enforce_filament_readiness(job, manifest, slice_decisions_in, selected_plates,
+                                    slot_capacity=position_limit(adapter),
+                                    job_folder=Path(job_path).parent, via_slice=True,
+                                    state=st if fallback_used else None)
+        filament_gate_ran = True
+    usage_warnings = []
     if multi_plate:
         # Source usage is evidence, not a prerequisite for slicing an unsliced
-        # project. Validate claims when present; absent metadata stays UNKNOWN
-        # and the destination slicer's output becomes authoritative. A job
-        # with a plate selection validates only the selected plates' claims:
-        # an unselected plate never blocks (#1110 Phase B).
+        # project. Damaged claims when present become filament warnings;
+        # absent metadata stays UNKNOWN and the destination slicer's output
+        # becomes authoritative. A job with a plate selection is warned only
+        # about the selected plates' claims: an unselected plate never
+        # contributes (#1110 Phase B).
         from .source_colors import validate_plate_usage_if_present
-        validate_plate_usage_if_present(manifest, selected_plates)
+        usage_warnings = validate_plate_usage_if_present(manifest, selected_plates)
+        if not selected_plates:
+            usage_warnings = _whole_source_usage_warnings(manifest) + usage_warnings
     # A height-color-only source (#870) is not a multi-color source: its parts
     # share one extruder and the recorded single-color decision carries the
     # operator's pause-or-one-color choice, which a single-extruder printer
@@ -6109,7 +6545,16 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
-    decisions = None if (generic and not multi_tool and not layered_single) else job.get('color_decisions')
+    if fallback_warnings and not filament_gate_ran:
+        # Present the fallbacks before the decisions are validated: the
+        # operator sees the named slot first, and a fallback slot that the
+        # record cannot resolve (no loaded-slot information) refuses only
+        # after acceptance, as the slot check it is.
+        _enforce_filament_warnings(job, fallback_warnings + usage_warnings,
+                                   manifest.get('source_sha256'), selected_plates,
+                                   job_folder=Path(job_path).parent, via_slice=True)
+        filament_gate_ran = True
+    decisions = None if (generic and not multi_tool and not layered_single) else slice_decisions_in
     if decisions is not None:
         decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
@@ -6117,10 +6562,43 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
             # Automated readiness for a selected-plate print: a selected
             # plate whose used colors cannot be validated against the
             # decisions blocks here, before any slicing; unselected plates
-            # contribute nothing (#1110 Phase B, criterion 6).
-            from .source_colors import require_plate_readiness
-            require_plate_readiness(manifest, decisions, selected_plates,
-                                    slot_capacity=position_limit(adapter))
+            # contribute nothing (#1110 Phase B, criterion 6). Filament
+            # usage findings warn instead of blocking (owner ruling,
+            # catduck, 2026-11-10) — see _enforce_filament_readiness.
+            _enforce_filament_readiness(job, manifest, decisions, selected_plates,
+                                        slot_capacity=position_limit(adapter),
+                                        job_folder=Path(job_path).parent, via_slice=True,
+                                        state=st if fallback_used else None)
+            filament_gate_ran = True
+    if (usage_warnings or fallback_warnings) and not filament_gate_ran:
+        # No readiness gate presented these (no plate selection, or no
+        # decisions for it to check): damaged usage claims and the #1189
+        # fallbacks still wait for the operator's acceptance before slicing.
+        _enforce_filament_warnings(job, fallback_warnings + usage_warnings,
+                                   manifest.get('source_sha256'), selected_plates,
+                                   job_folder=Path(job_path).parent, via_slice=True)
+    if fallback_warnings:
+        # Accepted: record what this artifact is sliced with (provenance;
+        # JOB.json's color_decisions stay the operator's own). A one-color
+        # fallback is the job's slot selection, exactly as a recorded
+        # one-color decision is, and print start launches from it.
+        job['filament_fallback'] = {'warnings': fallback_warnings, 'decisions': decisions,
+                                    'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+        fallback_selection = (decisions or {}).get('selection') \
+            if (decisions or {}).get('mode') == 'single_color' else None
+        if isinstance(fallback_selection, dict) and job.get('filament_selection') != fallback_selection:
+            if not generic and not multi_tool:
+                _validate_slot_selection(st, fallback_selection)
+            job['filament_selection'] = fallback_selection
+            on_disk = json.loads(Path(job_path).read_text())
+            on_disk['filament_selection'] = fallback_selection
+            write_job(Path(job_path).parent, on_disk)
+            # The recipe hashes the selected slot: record it for the slot this artifact is sliced for.
+            recipe = sr.record(sr.slice_recipe(job, file_sha256(src), st, copies=copies, scale=scale,
+                                               brim_override=brim_override))
+            job['slice_recipe'] = recipe
+    else:
+        job.pop('filament_fallback', None)
     if manifest['requires_choices'] and not decisions:
         raise RuntimeError('part/color choices required; run color-plan and color-select before slicing')
     if copies and int(copies) > 1 and not generic and not copies_supported(job, multi_plate):
@@ -6717,12 +7195,22 @@ def _selected_plate_stats(manifest, selected):
         row = plates.get(str(plate_id))
         if not isinstance(row, dict) or row.get('usage_known') is not True:
             return None
-        for ext, amounts in (row.get('extruders') or {}).items():
-            entry = extruders.setdefault(int(ext), {'g': 0.0, 'm': 0.0})
-            entry['g'] += float(amounts['g'])
-            entry['m'] += float(amounts['m'])
-            total_g += float(amounts['g'])
-            total_m += float(amounts['m'])
+        records = row.get('extruders') or {}
+        if not isinstance(records, dict):
+            return None
+        for ext, amounts in records.items():
+            # A record missing an amount, or carrying a non-number, is not
+            # a validated record (#1155): keep the whole-source totals
+            # rather than fail the projection with a KeyError.
+            try:
+                ext_id, grams, meters = int(ext), float(amounts['g']), float(amounts['m'])
+            except (KeyError, TypeError, ValueError):
+                return None
+            entry = extruders.setdefault(ext_id, {'g': 0.0, 'm': 0.0})
+            entry['g'] += grams
+            entry['m'] += meters
+            total_g += grams
+            total_m += meters
     scoped = {**stats, 'extruders': extruders, 'total_g': round(total_g, 1),
               'total_m': round(total_m, 1)}
     scoped.pop('estimated', None)
@@ -6745,7 +7233,8 @@ def filament_usage_by_selection(job, manifest=None):
             manifest, _ = _reference_manifest(job, manifest)
     else:
         manifest, _ = _reference_manifest(job, manifest)
-    decisions = (job or {}).get('color_decisions') or {}
+    # A #1189 fallback artifact accounts for the slots it was sliced with.
+    decisions = effective_color_decisions(job) or {}
     if decisions.get('mode') == 'single_color':
         selection = decisions.get('selection') or (job or {}).get('filament_selection')
         total = ((manifest.get('filament_stats') or {}).get('total_g')
@@ -6882,7 +7371,7 @@ def format_spool_projection(rows, position_noun='Slot'):
 def job_card(job, remote, gcode_text=""):
     """Copies and spools for the Home Assistant print card: one JSON document, no secrets."""
     job = job if isinstance(job, dict) else {}
-    dec = job.get("color_decisions") or {}
+    dec = effective_color_decisions(job) or {}  # the slots a #1189 fallback artifact uses
     picks = [dec["selection"]] if isinstance(dec.get("selection"), dict) else list((dec.get("choices") or {}).values())
     if not picks and isinstance(job.get("filament_selection"), dict):
         picks = [job["filament_selection"]]
@@ -9727,6 +10216,19 @@ def _print_now_cli(target, **kw):
         raise SystemExit(f"REFUSED: {reason}. Nothing started.") from exc
 
 
+def _print_filament_warning_packet(job_json, pending, resume):
+    """Print the pending filament warnings for the operator (CLI surface).
+
+    The CLI cannot ask interactively mid-run, so a pending warning round is
+    reported as data and the job stops there; accepting is the explicit
+    resume command, which records the bound acceptance first.
+    """
+    print(json.dumps({'status': 'FILAMENT_WARNINGS_PENDING', 'job_json': str(job_json),
+                      'warnings': pending.warnings, 'resume': resume}, indent=1))
+    print('Filament warnings need your acceptance before slicing. Review them, then re-run '
+          'with --accept-filament-warnings to accept exactly these warnings and continue.')
+
+
 def main():
     try:
         _main()
@@ -9743,6 +10245,7 @@ def _main():
     f.add_argument("--inspect-only", action="store_true", help="download selected geometry and audit without slicing approval or slicing")
     f.add_argument("--select", type=int)
     f.add_argument("--approved", action="store_true", help="the operator approved exactly the selected source and any supports")
+    f.add_argument("--accept-filament-warnings", action="store_true", help="record acceptance of the job's pending filament warnings (bound to those warnings, the source and the selected plates) and continue")
     f.add_argument("--brim", type=int, default=None, help="override brim width mm (e.g. 0 to disable)")
     f.add_argument("--printer", choices=printers.MODELS, help="printer model this job is prepared for (default: [printer] model)")
     f.add_argument("--filament-slot", type=int, help="AD5X IFS feeder slot (1-4)")
@@ -9752,6 +10255,7 @@ def _main():
     s = sub.add_parser("slice")
     s.add_argument("job_json")
     s.add_argument("--approved", action="store_true")
+    s.add_argument("--accept-filament-warnings", action="store_true", help="record acceptance of the job's pending filament warnings (bound to those warnings, the source and the selected plates) and continue")
     s.add_argument("--printer", choices=printers.MODELS, help="printer model to slice this job for (recorded on the job)")
     s.add_argument("--brim", type=int, default=None, help="override brim width mm (e.g. 0 to disable)")
     s.add_argument("--separate", action="store_true", help="multi-plate source: slice one G-code per plate instead of merging all parts onto one bed")
@@ -9940,14 +10444,24 @@ def _main():
         if a.printer:
             _job = json.loads(Path(a.job_json).read_text()); _job["printer_model"] = a.printer
             write_job(Path(a.job_json).parent, _job)
-        if not intake_unit_confirmation(a.job_json, units=a.units, interactive=sys.stdin.isatty()):
+        if getattr(a, 'accept_filament_warnings', False):
+            try:
+                record_filament_warning_acknowledgement(a.job_json)
+            except (ValueError, OSError) as ack_error:
+                raise SystemExit(f"REFUSED: {ack_error}")
+        try:
+            if not intake_unit_confirmation(a.job_json, units=a.units, interactive=sys.stdin.isatty()):
+                return
+            if not intake_color_choices(a.job_json, st, a.color_mode, a.color_slot, sys.stdin.isatty()):
+                return
+            if a.separate:
+                _job = json.loads(Path(a.job_json).read_text()); _job["plate_mode"] = "separate"
+                write_job(Path(a.job_json).parent, _job)
+            out=slice_job(a.job_json, brim_override=a.brim)
+        except FilamentWarningPending as pending:
+            _print_filament_warning_packet(
+                a.job_json, pending, f'slice {a.job_json} --approved --accept-filament-warnings')
             return
-        if not intake_color_choices(a.job_json, st, a.color_mode, a.color_slot, sys.stdin.isatty()):
-            return
-        if a.separate:
-            _job = json.loads(Path(a.job_json).read_text()); _job["plate_mode"] = "separate"
-            write_job(Path(a.job_json).parent, _job)
-        out=slice_job(a.job_json, brim_override=a.brim)
         if a.print_now: print_now(out, **pn_kw)
         return
     ok,probs,facts=printer_state.check(st)
@@ -10020,8 +10534,20 @@ def _main():
     if not intake_unit_confirmation(folder/'JOB.json', units=a.units, interactive=sys.stdin.isatty()):
         print(f"\nSTOPPED: unit confirmation pending at {folder/'JOB.json'}. Resume with slice --approved --units mm|inch; slicing requires --approved.")
         return
-    if not intake_color_choices(folder/'JOB.json', st, a.color_mode, a.color_slot, sys.stdin.isatty()):
+    if getattr(a, 'accept_filament_warnings', False):
+        try:
+            record_filament_warning_acknowledgement(folder/'JOB.json')
+        except (ValueError, OSError) as ack_error:
+            raise SystemExit(f"REFUSED: {ack_error}")
+    try:
+        if not intake_color_choices(folder/'JOB.json', st, a.color_mode, a.color_slot, sys.stdin.isatty()):
+            return
+        out=slice_job(folder/"JOB.json", brim_override=a.brim)
+    except FilamentWarningPending as pending:
+        _print_filament_warning_packet(
+            folder/'JOB.json', pending,
+            f'fetch {a.url} --select {a.select} --approved --accept-filament-warnings' if a.select
+            else 'slice ' + str(folder/'JOB.json') + ' --approved --accept-filament-warnings')
         return
-    out=slice_job(folder/"JOB.json", brim_override=a.brim)
     if a.print_now: print_now(out, **pn_kw)
 if __name__=="__main__": main()

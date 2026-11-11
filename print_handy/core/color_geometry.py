@@ -1,5 +1,6 @@
 """Source-bound, instance-preserving multipart core 3MF for Orca."""
 import io
+import logging
 import copy
 import json
 import math
@@ -10,10 +11,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from .. import settings
-from . import source_colors
+from . import painted_geometry, source_colors
 from .source_colors import inventory
 from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest, transform_mirrors
 from .threemf_canonical import require_millimeter
+
+_LOG = logging.getLogger(__name__)
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -59,11 +62,45 @@ def _rewound(mesh):
     return mesh
 
 
-def _write_part_settings(pc, settings):
+def _write_part_settings(pc, settings, features=()):
     for key, value in _kept_part_settings(settings):
+        ET.SubElement(pc, 'metadata', key=key, value=str(value))
+    for key, value in features:
         ET.SubElement(pc, 'metadata', key=key, value=str(value))
 
 
+def _part_feature_filaments(part, filament_tool, notes):
+    """[(key, tool filament)] for a part's feature and support filament overrides (#1155).
+
+    The rebuilt export renumbers filaments into the job's tools, so an object
+    or part override naming source filament N is written naming the tool the
+    same decisions gave N (filament_tool), exactly as the parts are. 0 names
+    no override and is not written. A value with no tool in this job, past the
+    palette, or not a filament number is unknown usage: it is not written (the
+    part's own tool prints the feature), never becomes a used filament or a
+    refusal, and is named in notes.
+    """
+    from .package_remap import OBJECT_FILAMENT_KEYS, _filament_number
+    out = []
+    for key in OBJECT_FILAMENT_KEYS:
+        raw = (part.get('settings') or {}).get(key)
+        if raw is None:
+            continue
+        value = _filament_number(raw)
+        if value == 0:
+            continue
+        tool = filament_tool(value) if value is not None else None
+        if tool is None:
+            notes.append({'key': key, 'where': f"part {part['key']}", 'source_value': raw,
+                          'status': 'unknown', 'written': None,
+                          'reason': f'{key} {raw!r} names no filament this job loads; '
+                                    "recorded as unknown usage, the part's own tool prints it"})
+            continue
+        out.append((key, tool))
+    return out
+
+
+@painted_geometry.decode_scoped
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
                           identity_tools=False, tower_mm=None, layer_mode=None):
     """object_ids limits export to those build objects (one authored plate);
@@ -128,7 +165,6 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         # Triangle paint: each painted state N is source filament N; unpainted
         # triangles and state 0 use the part's own extruder. Map every state
         # actually present to a contiguous tool for the chosen physical slot.
-        from . import painted_geometry
         used = set()
         base_state = {}
         for part in manifest['parts']:
@@ -183,11 +219,30 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         raise RuntimeError('multipart selection requires one to four IFS slots')
     mapping = ({str(slot - 1): slot for slot in slots} if identity_tools
                else {str(i): slot for i, slot in enumerate(slots)})
+    palette_ids = {int(f['source_extruder']) for f in manifest.get('filaments') or []
+                   if str(f.get('source_extruder', '')).isdigit()}
+
+    def filament_tool(source):
+        """The 1-based tool filament the decisions give source filament N, or None (#1155)."""
+        if palette_ids and source not in palette_ids:
+            return None
+        if painted and source in paint_table:
+            return paint_table[source]
+        selection = choices.get(f'filament:{source}')
+        if selection is None:
+            own = next((p for p in full_parts if p.get('source_extruder') == source), None)
+            selection = choices.get('part:' + own['key']) if own else None
+        if not isinstance(selection, dict) or selection.get('slot') not in slots:
+            return None
+        return selection['slot'] if identity_tools else slots.index(selection['slot']) + 1
+
+    feature_notes = []
+    features_by_mesh = {}
     with zipfile.ZipFile(source) as archive:
         models = {}
         for name in archive.namelist():
             if name.endswith('.model'):
-                root = ET.fromstring(archive.read(name))
+                root = ET.fromstring(painted_geometry.read_member(archive, name))
                 require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for n in root if n.tag.split('}')[-1] == 'resources' for n in n if n.tag.split('}')[-1] == 'object'})
         leaves = []
@@ -213,11 +268,13 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     points.append(point)
                 if not points:
                     raise RuntimeError('empty part geometry')
-                # A painted triangle's paint code subdivides along its own
-                # vertex order, so painted leaves keep their order (a known
-                # limit for mirrored painted sources); every other mirrored
-                # leaf is rewound so it does not come out inside-out.
-                if transform_mirrors(chain) and not painted:
+                # Paint subdivision trees depend on triangle vertex order.
+                # Refuse rather than emit an inside-out solid or guess a
+                # paint-tree permutation when flattening a reflected leaf.
+                if transform_mirrors(chain):
+                    if painted:
+                        raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
+                                           'export an unmirrored source or a geometry-only model')
                     mesh = _rewound(mesh)
                 leaves.append((key, mesh, points))
                 return
@@ -369,6 +426,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         mesh_id = str(i)
         if part.get('settings'):
             settings_by_mesh[mesh_id] = part['settings']
+            features_by_mesh[mesh_id] = _part_feature_filaments(part, filament_tool, feature_notes)
         group = group_of.get(item_of(part['instance_key']))
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
         new_mesh = copy.deepcopy(mesh)
@@ -383,7 +441,6 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                 tri.attrib.pop(attr, None)
             mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
             if painted:
-                from . import painted_geometry
                 code = tri.get('paint_color')
                 if code:
                     tri.set('paint_color', painted_geometry.remap_code(code, paint_table))
@@ -415,7 +472,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=part['name'])
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
-            _write_part_settings(pc, part.get('settings'))
+            _write_part_settings(pc, part.get('settings'), features_by_mesh.get(mesh_id, ()))
             instance = ET.SubElement(plate, 'model_instance')
             ET.SubElement(instance, 'metadata', key='object_id', value=mesh_id)
             ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -475,7 +532,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=name)
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
-            _write_part_settings(pc, settings_by_mesh.get(mesh_id))
+            _write_part_settings(pc, settings_by_mesh.get(mesh_id), features_by_mesh.get(mesh_id, ()))
         for cut_id, name, subtype in group['cutters']:
             ET.SubElement(comps, tag('component'), objectid=cut_id)
             pc = ET.SubElement(obj_config, 'part', id=cut_id, subtype=subtype)
@@ -558,17 +615,48 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     write_package_atomically(target, payload)
     towers = prime_tower_candidates(part_bounds, tower=tower_mm)
     tower = towers[0] if towers else None  # None: a towerless plan (#832)
+    carried_features = {(record['part_key'], key)
+                        for record, mesh_id in zip(records, (str(i) for i in range(1, len(records) + 1)))
+                        for key, _tool in features_by_mesh.get(mesh_id, ())}
     dropped_part_settings = [{'part_key': row['key'], 'key': key}
                              for row in list(manifest['parts']) + list(manifest.get('cutters', []))
-                             for key in _dropped_part_settings(row.get('settings'))]
-    governing = ['author-intent-allowlist']
+                             for key in _dropped_part_settings(row.get('settings'))
+                             if (row['key'], key) not in carried_features]
+    # Print-wide feature filaments (#1155): the rebuilt package carries no
+    # project settings and names a tool on every object and part, so the
+    # print-wide values never apply to it; each one that names a filament is
+    # named here with the tool the same decisions give it, never dropped
+    # silently.
+    from .package_remap import FEATURE_FILAMENT_KEYS, _filament_number
     with zipfile.ZipFile(source) as _archive:
-        if any(b'mmu_segmentation' in _archive.read(name)
-               for name in source_members if name.lower().endswith('.model')):
-            governing.append('mmu-segmentation-paint-translation')
+        try:
+            _project = (json.loads(_archive.read('Metadata/project_settings.config'))
+                        if 'Metadata/project_settings.config' in source_members else {})
+        except ValueError:
+            _project = {}
+    for key in FEATURE_FILAMENT_KEYS:
+        if not isinstance(_project, dict) or key not in _project:
+            continue
+        value = _filament_number(_project[key])
+        if value == 0:
+            continue
+        tool = filament_tool(value) if value is not None else None
+        feature_notes.append({'key': key, 'where': 'project', 'source_value': _project[key],
+                              'status': 'not_carried' if tool is not None else 'unknown',
+                              'tool_filament': tool, 'written': None,
+                              'reason': 'the rebuilt export carries no print-wide settings; every '
+                                        'object and part names its own tool'
+                                        + ('' if tool is not None else
+                                           '; the value names no filament this job loads, '
+                                           'recorded as unknown usage')})
+    governing = ['author-intent-allowlist']
+    if any(b'mmu_segmentation' in painted_geometry.model_member(source, name)
+           for name in source_members if name.lower().endswith('.model')):
+        governing.append('mmu-segmentation-paint-translation')
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
                      'dropped_members': sorted(set(source_members) - set(payload)),
                      'dropped_part_settings': dropped_part_settings,
+                     'feature_filaments': feature_notes,
                      'governing_rules': governing,
                      **({'layer_changes': layer_report} if layer_report is not None else {}),
                      **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
@@ -602,7 +690,7 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
         models = {}
         for name in archive.namelist():
             if name.endswith('.model'):
-                root = ET.fromstring(archive.read(name))
+                root = ET.fromstring(painted_geometry.read_member(archive, name))
                 require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for r in root if r.tag.split('}')[-1] == 'resources'
                                        for n in r if n.tag.split('}')[-1] == 'object'})
@@ -1009,6 +1097,7 @@ def _world_bounds(archive, object_ids, fit=None):
             for item_points in _world_item_points(archive, object_ids, fit)]
 
 
+@painted_geometry.decode_scoped
 def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, slot_colors=None, item_shifts=None, fit=None, fit_by_object=None):
     """Derive one single-slot production plate without deleting source XML.
 
@@ -1270,9 +1359,36 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             raise RuntimeError('derived plate slot color requires project settings')
         # A core 3MF has no project settings; the slice gets the verified slot
         # color from slice_model(filament_slot=...) and the report (#716).
+    # Feature filament references (#1155) follow the parts' mapping: every
+    # source filament this plate prints, and every palette row picked for the
+    # plate's own slot, is filament 1 of the plate. Nothing else is mapped, so
+    # a feature naming another filament is unknown usage, named in the report.
+    value_map = {ext: 1 for ext in used_extruders or {keep_index}}
+    for key, row in choices.items():
+        match = re.fullmatch(r'filament:(\d+)', key)
+        if match and isinstance(row, dict) and row.get('slot') == slot:
+            value_map[int(match.group(1))] = 1
+    for part in manifest['parts']:
+        row = choices.get('part:' + part['key'])
+        if part.get('source_extruder') and isinstance(row, dict) and row.get('slot') == slot:
+            value_map[part['source_extruder']] = 1
+    feature_notes = []
+    palette_count = None
     if 'Metadata/project_settings.config' in payload:
+        try:
+            palette = json.loads(payload['Metadata/project_settings.config']).get('filament_colour')
+            palette_count = len(palette) if isinstance(palette, list) and palette else None
+        except (ValueError, AttributeError):
+            palette_count = None
         payload['Metadata/project_settings.config'] = _declare_one_filament(
-            payload['Metadata/project_settings.config'], keep_index=keep_index)
+            payload['Metadata/project_settings.config'], keep_index=keep_index,
+            value_map=value_map, notes=feature_notes)
+    if not core_source:
+        from .package_remap import remap_filament_metadata
+        payload['Metadata/model_settings.config'], metadata_notes = remap_filament_metadata(
+            payload['Metadata/model_settings.config'], value_map, [keep_index], palette_count,
+            member='Metadata/model_settings.config')
+        feature_notes += metadata_notes
     # No stale filament reference rides along (Phase C, #1110 C8): every other
     # member that can name a filament is remapped to the plate's one filament,
     # dropped with the drop named in the report, or named as preserved. This
@@ -1356,6 +1472,7 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             'placed_bounds_mm': placed, 'bed_mm': bed, 'changed_entries': changed,
             'dropped_entries': sorted(dropped_entries),
             'preserved_unremapped_entries': preserved_unremapped,
+            'feature_filaments': feature_notes,
             **({'layer_changes': single_layer_report} if single_layer_report is not None else {}),
             'governing_rules': ['per-filament-array-permutation', 'support-designation-remap',
                                 'height-range-extruder-remap', 'remap-member-classification'],
@@ -1382,7 +1499,6 @@ def _part_selections(source, manifest, choices, part):
     if 'part:' + part['key'] in choices:
         rows.append(choices['part:' + part['key']])
     if manifest['painted']:
-        from . import painted_geometry
         states = painted_geometry.leaf_states(source, part)
         used = {state or part['source_extruder'] for state in states['states']}
         if states['unpainted'] or not used:
@@ -1604,7 +1720,7 @@ _PER_FILAMENT_KEYS = re.compile(
     r'|overhang_threshold_participating_cooling|volumetric_speed_coefficients)')
 
 
-def _declare_one_filament(project, keep_index=1):
+def _declare_one_filament(project, keep_index=1, value_map=None, notes=None):
     """Cut every per-filament array of the project settings to the one filament a derived plate runs.
 
     A derived plate points every object at logical filament 1 (T0), but it keeps
@@ -1625,6 +1741,16 @@ def _declare_one_filament(project, keep_index=1):
     support-designation-remap). Scalar and machine-level keys stay as
     authored. Sources that already declare one filament keep their entries;
     their designations are still normalized when keep_index is 1.
+
+    The per-feature filament keys (wall, sparse and solid infill, wipe tower;
+    #1155) are filament references too and follow the parts' own mapping:
+    value_map ({source filament: 1}, default {keep_index: 1}) names every
+    source filament this plate prints, and a key naming one of them becomes
+    filament 1. Any other value is unknown usage, never a used filament and
+    never a refusal (package_remap.remap_feature_filaments), and is appended
+    to notes when a list is given. A palette-length array no per-filament
+    rule knows is kept as authored and named in notes as an unknown
+    passthrough rather than cut by guesswork.
     """
     settings = json.loads(project)
     colours = settings.get('filament_colour')
@@ -1644,7 +1770,21 @@ def _declare_one_filament(project, keep_index=1):
             elif key == 'different_settings_to_system' and len(value) == count + 2:
                 settings[key] = [value[0], value[1], value[-1]]
             elif _PER_FILAMENT_KEYS.fullmatch(key):
-                settings[key] = [value[keep]] if len(value) == count else value[:1]
+                if len(value) == count:
+                    settings[key] = [value[keep]]
+                elif len(value) > 1:
+                    # Never refuse on filament data (owner ruling, #1190): use the
+                    # entry at the declared filament's own index when the array has
+                    # one, else the first entry, and log which and why.
+                    index = keep if keep < len(value) else 0
+                    _LOG.warning(
+                        'per-filament project array %s has %d entries for a %d-filament palette; '
+                        'kept entry %d (%s)', key, len(value), count, index + 1,
+                        "the declared filament's own index" if index == keep
+                        else 'the first entry, as the array has none at that index')
+                    settings[key] = [value[index]]
+                else:
+                    settings[key] = value[:1]
         matrix = settings.get('flush_volumes_matrix')
         if isinstance(matrix, list) and len(matrix) == count * count:
             settings['flush_volumes_matrix'] = [matrix[keep * count + keep]]
@@ -1667,6 +1807,18 @@ def _declare_one_filament(project, keep_index=1):
         if str(settings[key]) != new:
             settings[key] = new
             designation_changed = True
+    from .package_remap import remap_feature_filaments, unknown_palette_arrays
+    before = {key: settings.get(key) for key in settings}
+    settings, feature_notes = remap_feature_filaments(
+        settings, value_map or {keep_index: 1}, count)
+    if settings != before:
+        designation_changed = True
+    if notes is not None:
+        notes.extend(feature_notes)
+        notes.extend({'key': key, 'where': 'project', 'status': 'unknown_passthrough',
+                      'reason': f'{key} has one entry per palette filament but is not a known '
+                                'per-filament array; kept as authored'}
+                     for key in unknown_palette_arrays(settings, count))
     if count < 2 and not designation_changed:
         return project  # already one filament, nothing to cut: bytes stay as authored
     return json.dumps(settings, indent=4).encode()

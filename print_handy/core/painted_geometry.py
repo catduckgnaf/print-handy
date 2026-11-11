@@ -20,12 +20,74 @@ physical IFS slots chosen, and derives a one-plate package that keeps every
 painted triangle. Geometry is never flattened or recolored by guesswork.
 """
 import collections
+import contextlib
+import contextvars
+import functools
 import re
 import zipfile
 from pathlib import Path
 
+# One read per call (#1155): a slice, an export or an inventory runs inside a
+# decode scope, and inside it each .model member of a source is decompressed
+# once and each painted mesh is decoded once, however many consumers ask.
+# Outside a scope every read goes to the archive, exactly as before. The key
+# carries the file's size and mtime, so a rewritten file is never served
+# stale bytes even inside one scope. Nothing is kept across calls.
+_SCOPE = contextvars.ContextVar('painted_geometry_decode_scope', default=None)
+
+
+@contextlib.contextmanager
+def decode_scope():
+    """Share member bytes and decoded paint for the duration of one call; nests."""
+    if _SCOPE.get() is not None:
+        yield
+        return
+    token = _SCOPE.set({})
+    try:
+        yield
+    finally:
+        _SCOPE.reset(token)
+
+
+def decode_scoped(func):
+    """Run func inside a decode scope (the outermost scope owns the cache)."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with decode_scope():
+            return func(*args, **kwargs)
+    return wrapper
+
+
+def _file_key(path):
+    path = Path(path)
+    stat = path.stat()
+    return (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+
+
+def read_member(archive, name):
+    """archive.read(name), served from the decode scope when one is active."""
+    cache = _SCOPE.get()
+    filename = getattr(archive, 'filename', None)
+    if cache is None or not isinstance(filename, (str, Path)):
+        return archive.read(name)
+    key = ('member', _file_key(filename), name)
+    if key not in cache:
+        cache[key] = archive.read(name)
+    return cache[key]
+
+
+def model_member(source, name):
+    """The bytes of one member of the package at source, read once per decode scope."""
+    cache = _SCOPE.get()
+    if cache is not None and ('member', _file_key(source), name) in cache:
+        return cache[('member', _file_key(source), name)]
+    with zipfile.ZipFile(source) as archive:
+        return read_member(archive, name)
+
+
 PAINT_RE = re.compile(rb'paint_color="([0-9A-Fa-f]+)"')
 MMU_RE = re.compile(rb'(?:slic3rpe:)?mmu_segmentation="([0-9A-Fa-f]+)"')
+_TRIANGLE_TAG_RE = re.compile(rb'<(?:\w+:)?triangle\b[^>]*>')
 # Either paint attribute on one triangle tag; paint_color wins when both are
 # present (no known writer emits both, and Orca reads paint_color).
 ANY_PAINT_RE = re.compile(rb'(?:paint_color|slic3rpe:mmu_segmentation|mmu_segmentation)="([0-9A-Fa-f]+)"')
@@ -126,8 +188,7 @@ def _mesh_ids(model_bytes, object_id):
 
 def paint_census(source, build_object_ids=None):
     """{build_object_id: {state: leaf_count}} plus unpainted triangle counts."""
-    with zipfile.ZipFile(source) as archive:
-        model = archive.read('3D/3dmodel.model')
+    model = model_member(source, '3D/3dmodel.model')
     blocks = _object_blocks(model)
     items = re.findall(rb'<(?:\w+:)?item\b[^>]*\bobjectid="(\d+)"', model)
     out = {}
@@ -194,11 +255,22 @@ def rewrite_paint_bytes(data, table):
     support/seam paint, material properties — stays byte-for-byte. A code whose
     state the table does not map keeps its state (the caller validates the
     table covers every state present before writing).
+
+    A triangle never leaves carrying two paint attributes: when it holds both
+    paint_color and mmu_segmentation, paint_color wins (the same precedence
+    paint_census and leaf_states read) and the mmu attribute is dropped.
     """
-    data = PAINT_RE.sub(
-        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
-    return MMU_RE.sub(
-        lambda m: b'paint_color="' + remap_code(m.group(1).decode(), table).encode() + b'"', data)
+    def _code(match):
+        return b'paint_color="' + remap_code(match.group(1).decode(), table).encode() + b'"'
+
+    def _triangle(match):
+        tag = match.group(0)
+        if PAINT_RE.search(tag):
+            tag = re.sub(rb'\s+(?:slic3rpe:)?mmu_segmentation="[0-9A-Fa-f]+"', b'', tag)
+            return PAINT_RE.sub(_code, tag)
+        return MMU_RE.sub(_code, tag)
+
+    return _TRIANGLE_TAG_RE.sub(_triangle, data)
 
 
 def paint_states_in(data):
@@ -216,9 +288,19 @@ def leaf_states(source, part):
     part['ancestry'] ends at the mesh object: [[model_path, object_id], ...].
     """
     model_path, mesh_id = part['ancestry'][-1]
-    with zipfile.ZipFile(source) as archive:
-        model = archive.read(model_path)
-    span = _object_blocks(model).get(str(mesh_id))
+    cache = _SCOPE.get()
+    key = ('leaf', _file_key(source), model_path, str(mesh_id)) if cache is not None else None
+    if key is not None and key in cache:
+        row = cache[key]
+        return {'states': dict(row['states']), 'unpainted': row['unpainted']}
+    model = model_member(source, model_path)
+    if cache is not None:
+        blocks_key = ('blocks', _file_key(source), model_path)
+        if blocks_key not in cache:
+            cache[blocks_key] = _object_blocks(model)
+        span = cache[blocks_key].get(str(mesh_id))
+    else:
+        span = _object_blocks(model).get(str(mesh_id))
     if span is None:
         raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
     body = model[slice(*span)]
@@ -229,4 +311,8 @@ def leaf_states(source, part):
             counter.update(decode_states(m.group(1).decode()))
         else:
             unpainted += 1
-    return {'states': dict(counter), 'unpainted': unpainted}
+    row = {'states': dict(counter), 'unpainted': unpainted}
+    if key is not None:
+        cache[key] = row
+        return {'states': dict(row['states']), 'unpainted': row['unpainted']}
+    return row

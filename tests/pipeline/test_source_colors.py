@@ -86,8 +86,15 @@ def test_slice_stops_before_adapter_when_multicolor_is_unresolved(tmp_path):
     jp.write_text(json.dumps({'model_id': '1', 'downloaded_file': str(p), 'audit': {'plates': 1}}))
     from print_handy.core import orca_adapter
     with patch.object(job.printer_state, 'load', return_value={}), patch.object(job.printer_state, 'check', return_value=(True, [], {})), patch.object(orca_adapter, 'slice_model') as slicer:
-        with pytest.raises(RuntimeError, match='choices required'):
+        # Behavior change (#1189, owner decision 2026-11-10): unresolved
+        # colors no longer refuse with "choices required"; they stop in the
+        # filament warning round naming the one-color fallback (slot 1 here,
+        # said out loud, because the record has no loaded-slot information).
+        with pytest.raises(job.FilamentWarningPending) as caught:
             job.slice_job(jp)
+        assert caught.value.warnings == [
+            'color choices were never made for this print; every part prints single-color from '
+            'slot 1, because the printer record has no loaded-slot information']
         slicer.assert_not_called()
     assert len(json.loads(jp.read_text())['color_prompts']) == 4
 

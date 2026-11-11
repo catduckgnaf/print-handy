@@ -19,15 +19,20 @@ dimensions. You then choose:
   any parameters the rewrite changed, so silent drift is visible.
   "Undo" (or "go back", "go back to the first one", "go back to version
   2") returns to an earlier version of the same design without a model
-  call, reusing that version's render. A model-written change is shown the
+  call, reusing that version's render. Each further "undo" steps back one
+  more version, until there is none left. A model-written change is shown the
   last few change requests, so "the other side" or "like before" resolve
   against the same conversation.
 - **Cancel** — the design session ends.
 
 You do not have to press **Change it** first: while the question is open,
 just type the change ("make the holes 5 mm") and it runs as the next turn
-of the same design. Typing a choice (or its number on Matrix) answers the
-question the same as the button.
+of the same design. Typing a choice answers the question the same as the
+button: "slice it" or "print it" for **Slice it**, "cancel", "stop" or
+"never mind" for **Cancel**, or the choice's number on any platform. The
+same words work after **Change it**, so "never mind" there cancels instead
+of becoming a change. Any other message from you while the question is open
+is a change to the design, never an edit of an earlier print job.
 
 ## Turning it on
 
@@ -40,6 +45,12 @@ the same posture as roasts. The `[design] enabled` switch is tri-state:
 - **`enabled = false`:** off in all cases, whatever is configured.
 - **`enabled = true`:** forced on; an unconfigured endpoint is then a
   visible "no design model is configured" failure, not a silent off.
+
+A design that is already waiting for your change keeps working without an
+endpoint for the steps that need no model: "undo" or "go back to version
+2", a plain parameter change ("make it 5 mm taller"), and the typed button
+words. Anything else answers with the same "not set up" or "not
+configured" reply. With `enabled = false` nothing runs.
 
 Where the model comes from:
 
@@ -112,6 +123,11 @@ missing fact would change the part and cannot be assumed (the size of the
 thing it must fit, with no standard size). Your next message is the
 answer; "you pick" lets it choose and say what it assumed. Edits never ask.
 
+A turn that asks the model starts with a short "Designing it now" note,
+and the chat shows the bot typing until the part is posted, because
+checking and repairing can take a minute or two. Undo and plain parameter
+changes are quick and skip the note.
+
 ## Honest limits
 
 - Each turn is a real model call plus a real render: expect seconds to a
@@ -128,6 +144,10 @@ answer; "you pick" lets it choose and say what it assumed. Edits never ask.
   …") next to the measured dimensions instead of staying silent.
 - Dropping a model with `/print-design` and no instruction previews the
   model exactly as dropped — no model call is made for that first look.
+  If the dropped mesh is not a printable solid (not watertight, or no
+  volume), the preview names the problem and **Slice it** is refused for
+  that version; say a change that fixes it, or drop the file again without a
+  design phrase to print it as it is, where the intake checks it on its own.
 - Mesh edits (below) can only do what a mesh allows; a change that needs the
   original design's parameters is refused in plain words, not faked.
 

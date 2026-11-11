@@ -1,8 +1,8 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # OrcaSlicer is never built from source: the one bundled build installs the pinned official
 # prebuilt release (docker/orca-prebuilt.sh, SHA256 verified before extraction).
 # See docs/DOCKER-117-PROGRESS.md for contributor attribution.
-FROM debian:13-slim AS orca-prebuilt
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS orca-prebuilt
 ARG WITH_ORCA=false
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,7 +19,7 @@ RUN mkdir -p /out && \
 # per architecture, SHA256 verified before installation
 # (docker/go2rtc-prebuilt.sh). WITH_GO2RTC=false produces an empty /out, so
 # the runtime COPY below is a no-op there.
-FROM debian:13-slim AS go2rtc-prebuilt
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS go2rtc-prebuilt
 ARG WITH_GO2RTC=true
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
@@ -32,7 +32,7 @@ RUN mkdir -p /out && \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
-FROM debian:13-slim AS bambu-build
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS bambu-build
 ARG WITH_BAMBU=false
 ARG BAMBU_REF=56a57d00a591360cf41bf21383915ee5bf357be5
 ARG BAMBU_BUILD_PROFILE=release-static-fhs
@@ -87,7 +87,7 @@ RUN --mount=type=cache,id=print-handy-bambu-${TARGETARCH}-${BAMBU_REF}-${BAMBU_B
     fi
 
 # API-only Spoolman, isolated from Print Handy's Python dependencies.
-FROM debian:13-slim AS spoolman-build
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS spoolman-build
 ARG SPOOLMAN_REF=ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b
 ENV UV_PYTHON_DOWNLOADS=0 UV_NO_DEV=1 UV_LINK_MODE=copy
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -131,7 +131,7 @@ RUN git init . && git remote add origin https://github.com/Donkie/Spoolman.git &
 # remains the permanent fallback wherever the extension is absent, so
 # this stage only accelerates Print Handy in the image; it is never
 # load bearing for correctness.
-FROM debian:13-slim AS bounds-build
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS bounds-build
 ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup \
     PATH=/opt/cargo/bin:/opt/venv/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -160,7 +160,7 @@ COPY README.md ./README.md
 RUN mkdir -p /out && cd native/bounds && \
     maturin build --release --locked -i python3 --out /out
 
-FROM debian:13-slim AS runtime
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime
 ARG WITH_GO2RTC=true
 ARG ORT_FLAVOR=cpu
 ARG TARGETARCH

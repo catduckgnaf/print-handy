@@ -26,6 +26,7 @@ import json
 import math
 import os
 import re
+import time
 import tomllib
 from urllib.parse import urlsplit
 
@@ -86,7 +87,8 @@ LEGACY_ENV = {
     "PRINT_TIMELAPSE_LOCAL_RETENTION_DAYS": ("timelapse", "local_retention_days"),
     "PRINT_TIMELAPSE_PLAN_CLIP_RETENTION_DAYS": ("timelapse", "plan_clip_retention_days"),
     "PRINT_TIMELAPSE_WRAPPED_ENABLED": ("timelapse", "wrapped_enabled"),
-    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_ai_video"),
+    "PRINT_TIMELAPSE_WRAPPED_VIDEO": ("timelapse", "wrapped_video"),
+    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_video"),
     "PRINT_TIMELAPSE_WRAPPED_TTS_ENGINE": ("timelapse", "wrapped_tts_engine"),
     "PRINT_TIMELAPSE_WRAPPED_MUSIC_FILE": ("timelapse", "wrapped_music_file"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT": ("timelapse", "vertical_short"),
@@ -115,6 +117,10 @@ KEY_ALIASES = {
     # #1095: the starter-mention setting outgrew its completion-only name
     # when alert posts started pinging the starter too.
     ("discord", "mention_starter_on_complete"): ("discord", "mention_starter"),
+    # #1157: the Wrapped video compile is local and deterministic (the
+    # AI commentary was removed with #1003), so the key drops the "ai"
+    # it never should have promised; the old spelling stays readable.
+    ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
 }
 
 
@@ -167,7 +173,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
                  ("timelapse", "data_enabled"): bool,
-                 ("timelapse", "wrapped_ai_video"): bool,
+                 ("timelapse", "wrapped_video"): bool,
                  ("timelapse", "wrapped_tts_engine"): str,
                  ("timelapse", "wrapped_music_file"): str,
                  ("services", "camera_source"): str,
@@ -248,9 +254,44 @@ def _merge(base, extra):
     return out
 
 
+# Parsed configuration files, keyed by what the file system says about them
+# (#1153: the Web UI's /config page and settings.load() re-parsed every layer
+# on every call). An entry is reused only while the path's stat identity is
+# unchanged; a file modified within _READ_CACHE_RACY_S of being read is never
+# stored, so a same-size rewrite inside one coarse timestamp tick cannot hide
+# behind an old entry. Callers always get their own deep copy.
+_READ_CACHE = {}
+_READ_CACHE_MAX = 64
+_READ_CACHE_RACY_S = 2.0
+
+
+def _read_identity(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (os.path.abspath(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns,
+            id(_yaml_load))
+
+
 def _read(path):
-    """Read YAML or a legacy TOML configuration file."""
+    """Read YAML or a legacy TOML configuration file (parsed once per unchanged file, see _READ_CACHE)."""
     path = Path(path)
+    identity = _read_identity(path)
+    if identity is not None:
+        cached = _READ_CACHE.get(identity)
+        if cached is not None:
+            return copy.deepcopy(cached)
+    data = _read_uncached(path)
+    if (identity is not None and _read_identity(path) == identity
+            and time.time_ns() - identity[4] > _READ_CACHE_RACY_S * 1e9):
+        if len(_READ_CACHE) >= _READ_CACHE_MAX:
+            _READ_CACHE.clear()
+        _READ_CACHE[identity] = copy.deepcopy(data)
+    return data
+
+
+def _read_uncached(path):
     try:
         if path.suffix.lower() == ".toml":
             with open(path, "rb") as f:
@@ -1331,7 +1372,7 @@ def _validate_timelapse(data):
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
     for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
-                         ("wrapped_enabled", True), ("wrapped_ai_video", False)):
+                         ("wrapped_enabled", True), ("wrapped_video", False)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")

@@ -707,13 +707,18 @@ def check_assembly_collision(a: PartReport, b: PartReport) -> list[Finding]:
     pair = f"{a.name}|{b.name}"
     alo, ahi = a.placed_bounds
     blo, bhi = b.placed_bounds
-    overlap = [round(min(ahi[i], bhi[i]) - max(alo[i], blo[i]), 4) for i in range(3)]
+    raw_overlap = [min(ahi[i], bhi[i]) - max(alo[i], blo[i]) for i in range(3)]
+    overlap = [round(value, 4) for value in raw_overlap]
     evidence = {"a_bounds_mm": [list(alo), list(ahi)], "b_bounds_mm": [list(blo), list(bhi)],
-                "bounds_overlap_mm": overlap if all(v > 0 for v in overlap) else None}
-    if any(v <= 0 for v in overlap):
+                "bounds_overlap_mm": overlap if all(v > 0 for v in raw_overlap) else None}
+    if any(v <= 0 for v in raw_overlap):
         return [Finding("info", "assembly_no_collision",
                         "placed bounding boxes do not overlap; the placed parts cannot collide",
                         pair, evidence)]
+    if any(v <= CONTACT_EPS_MM for v in raw_overlap):
+        return [Finding("warn", "assembly_collision_unchecked",
+                        "placed bounds overlap within the contact resolution; "
+                        "clearance is not established", pair, evidence)]
     solid_a, solid_b = _placed_solid(a), _placed_solid(b)
     point = _interpenetration(solid_a, solid_b)
     if point is None:

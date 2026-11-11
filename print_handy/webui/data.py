@@ -15,7 +15,7 @@ false, and :func:`data_enabled` applies the same fallback to a
 loaded or raw mapping alike). While a switch is off, its routes
 answer 403 with the reason naming that switch, and the navigation
 carries only the links whose switch is on. The video step
-additionally needs ``[timelapse] wrapped_ai_video`` (default false);
+additionally needs ``[timelapse] wrapped_video`` (default false);
 while that is off the Wrapped page says so by name and the video
 route refuses by name.
 
@@ -48,7 +48,7 @@ DATA_OFF_REASON = ("the Data tab is off: set "
                    "[timelapse] data_enabled = true to allow it. Nothing shown.")
 WRAPPED_OFF_REASON = ("Print Handy Wrapped is off: set "
                       "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
-VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_ai_video = true "
+VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
 
 
@@ -77,7 +77,7 @@ def data_enabled(data) -> bool:
 
 
 def ai_video_enabled(data) -> bool:
-    return bool(((data or {}).get("timelapse") or {}).get("wrapped_ai_video", False))
+    return bool(((data or {}).get("timelapse") or {}).get("wrapped_video", False))
 
 
 def nav_for(data):
@@ -1127,7 +1127,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "narration.</p>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
-                     "[timelapse] wrapped_ai_video = true to turn on the "
+                     "[timelapse] wrapped_video = true to turn on the "
                      "on-demand video compile.</p>")
     if payload.get("video_available"):
         # The video is an embed inside the scrolling page (#981

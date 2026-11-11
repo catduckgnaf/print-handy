@@ -20,9 +20,9 @@ clear an existing claim; Q2 leave-open is an explicit saved record;
 Q5 the bootstrap claim binds at conversation start, session-scoped,
 released by the session timeout, and persists at apply.
 
-Lane gates: as in the sibling module, a scenario whose behavior a
-sibling lane builds skips with that lane's branch named in the reason
-while unlanded, and asserts in full once the capability exists.
+Every lane this suite once probed for has landed (#1157): the
+scenarios assert the shipped behavior directly, so a regression fails
+instead of skipping.
 """
 import json
 import sys
@@ -74,20 +74,6 @@ STEP_ANSWERS = {
     "webui_password": CANONICAL["password"],
     "webui_confirm": CANONICAL["password"],
 }
-
-LANE_B_BOOTSTRAP = "Lane B PR-5 (feat/bootstrap-setup-only) not landed: "
-LANE_B_ACCESS = "Lane B PR-6 (feat/chat-webui-access-core) not landed: "
-LANE_B_CHAT = "Lane B PR-7 (feat/chat-setup-parity) not landed: "
-LANE_B_COMPLETION = "Lane B PR-4 (feat/setup-completion-state) not landed: "
-
-
-def chat_access_core():
-    try:
-        from print_handy.bot import webui_access  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
 
 def guided_step_keys():
     return [step.key for step in guided.steps()]
@@ -200,9 +186,9 @@ def applied_config(tmp_path, platform):
     """Drive one platform's flow to apply and load the written config."""
     driver = ChatDriver(tmp_path, platform)
     unanswered = driver.drive_to_review()
-    if unanswered:
-        pytest.skip(LANE_B_CHAT + f"{platform} flow cannot answer steps "
-                    f"{unanswered} (or a canonical answer is refused)")
+    assert not unanswered, \
+        f"{platform} flow cannot answer steps {unanswered} " \
+        "(or a canonical answer is refused)"
     target = Path(tmp_path) / "local.yaml"
     driver.apply(target)
     session = driver.session()
@@ -215,10 +201,10 @@ def applied_config(tmp_path, platform):
 
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s5_full_walkthrough_identical_config_via_chat(tmp_path, platform):
-    if platform != "discord" and "platform" not in guided_step_keys():
-        pytest.skip(LANE_B_CHAT + f"the guided flow has no platform step: "
-                    f"a {platform} run still writes the discord.* keys "
-                    f"instead of {platform}'s own")
+    if platform != "discord":
+        # The platform step is what makes a non-Discord run write its
+        # own keys instead of the discord.* ones.
+        assert "platform" in guided_step_keys()
     data, _driver = applied_config(tmp_path, platform)
     view = parity_view(data)
     answers = PLATFORM_ANSWERS[platform]
@@ -257,9 +243,7 @@ def test_s5_chat_step_set_covers_the_canonical_topics(tmp_path):
              "spoolman_url", "token_stored"}
     assert today <= keys  # the existing steps never regress away
     missing = {"platform", "camera_snapshot_url", "webui_login"} - keys
-    if missing:
-        pytest.skip(LANE_B_CHAT + f"guided setup has no steps for "
-                    f"{sorted(missing)} yet")
+    assert not missing, f"guided setup has no steps for {sorted(missing)}"
     assert {"webui_username", "webui_password", "webui_confirm"} <= keys
 
 
@@ -272,10 +256,7 @@ def test_s1_bot_with_credential_but_no_config_starts_setup_only(tmp_path, platfo
     startup check is split in tiers: credential-tier failures stay
     fatal, configuration-tier failures mean setup-only."""
     from print_handy.bot import __main__ as bot_main
-    if not hasattr(bot_main, "setup_only_mode"):
-        pytest.skip(LANE_B_BOOTSTRAP + "the startup check has no "
-                    "setup-only tier; a credential-only install still "
-                    "fails startup on the missing chat id")
+    assert hasattr(bot_main, "setup_only_mode")
     cfg = {"bot": {"platform": platform, "mode": "standalone"}}
     chat_row = {"discord": "print channel", "telegram": "print channel",
                 "matrix": "print room"}[platform]
@@ -292,9 +273,9 @@ def test_s1_bot_with_credential_but_no_config_starts_setup_only(tmp_path, platfo
 # --------------------------------------------------------------------- S2/S3/S3b/S9
 
 def _require_chat_access():
-    if not chat_access_core():
-        pytest.skip(LANE_B_ACCESS + "no bot-side Web UI access core "
-                    "exists; chat cannot claim, leave open or clear")
+    # The bot-side Web UI access core (PR-6) is how chat claims, leaves
+    # open or clears; its absence is a failure, not a skip.
+    from print_handy.bot import webui_access  # noqa: F401
 
 
 def _chat_data(tmp_path):
@@ -369,9 +350,8 @@ def _guided_login_driver(tmp_path, platform, login_mode):
     driver = ChatDriver(tmp_path, platform, login_mode=login_mode,
                         access_data=data)
     unanswered = driver.drive_to_review()
-    if unanswered:
-        pytest.skip(LANE_B_CHAT + f"{platform} flow cannot answer steps "
-                    f"{unanswered}")
+    assert not unanswered, \
+        f"{platform} flow cannot answer steps {unanswered}"
     return driver, data
 
 
@@ -381,10 +361,7 @@ def test_s2_claim_password_via_guided_step(tmp_path, platform):
     guided conversation's login step (PR-7) and lands in the same
     store the Web UI writes, with the same resolve() outcome."""
     _require_chat_access()
-    if "webui_login" not in guided_step_keys():
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access "
-                    "step yet; S2 is asserted at the PR-6 core seam "
-                    "every platform's step will call")
+    assert "webui_login" in guided_step_keys()
     driver, data = _guided_login_driver(tmp_path, platform, "password")
     driver.apply(Path(tmp_path) / "local.yaml")
     resolved = access.resolve(data, "0.0.0.0", environ={})
@@ -402,8 +379,7 @@ def test_s2_claim_password_via_guided_step(tmp_path, platform):
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s3_leave_open_via_guided_step(tmp_path, platform):
     _require_chat_access()
-    if "webui_login" not in guided_step_keys():
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step yet")
+    assert "webui_login" in guided_step_keys()
     driver, data = _guided_login_driver(tmp_path, platform, "open")
     driver.apply(Path(tmp_path) / "local.yaml")
     record = json.loads(access.access_path(data).read_text())
@@ -414,8 +390,7 @@ def test_s3_leave_open_via_guided_step(tmp_path, platform):
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s3b_clear_claim_via_guided_step(tmp_path, platform):
     _require_chat_access()
-    if "webui_login" not in guided_step_keys():
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step yet")
+    assert "webui_login" in guided_step_keys()
     driver, data = _guided_login_driver(tmp_path, platform, "password")
     driver.apply(Path(tmp_path) / "local.yaml")
     assert access.access_path(data).exists()
@@ -480,10 +455,7 @@ def test_s6_zero_config_bootstrap_claim(tmp_path, platform):
     past its timeout releases the bind, and after apply normal
     authorization is in force for the claimed chat/user only."""
     from print_handy.bot import __main__ as bot_main
-    if not hasattr(bot_main, "setup_only_mode"):
-        pytest.skip(LANE_B_BOOTSTRAP + "no setup-only mode exists; a "
-                    "zero-config bot still exits at the startup check "
-                    "before any interlocutor can claim it")
+    assert hasattr(bot_main, "setup_only_mode")
     import time
     store = guided.SetupStore(tmp_path / guided.STORE_NAME)
     now = time.time()
@@ -540,12 +512,7 @@ def test_s7_chat_completion_ends_the_webui_offer(tmp_path, platform):
     real state dir, as the dispatcher does) ⇒ the shared record names
     the chat surface, the Web UI walkthrough no longer offers itself,
     and another chat user is told setup already happened."""
-    try:
-        from print_handy import setup_state
-    except ImportError:
-        pytest.skip(LANE_B_COMPLETION + "chat completion still writes "
-                    "only the guided session store; the Web UI cannot "
-                    "see it and re-offers its walkthrough")
+    from print_handy import setup_state
     from print_handy.webui import walkthrough
     data, _local, _environ = make_data(str(tmp_path))
     state_dir = settings.state_dir(data)

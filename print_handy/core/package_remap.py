@@ -1,5 +1,8 @@
 """Generic atomic 3MF package remapping (#1110 criterion 4, Phase C).
 
+Status: remap_package is EXPERIMENTAL and has no production caller; only
+write_package_atomically is used by the live exporters (#1155).
+
 The geometry exporters in color_geometry rebuild or collapse a package for a
 specific job. This module is the mapping-driven package remapper the Phase C
 audit called for: given an explicit filament mapping {source extruder:
@@ -18,7 +21,7 @@ package and nothing else:
 - triangle paint: paint_color states are remapped and mmu_segmentation
   states are translated to paint_color (see painted_geometry);
 - per-layer tool changes (an unmapped one refuses, as in
-  layer_gcode.remap_archive), height-range extruder options and — when the
+  layer_gcode.remap), height-range extruder options and — when the
   caller supplies an object map — the object ids those ranges key on, and
   sliced usage filament ids in slice_info.config.
 
@@ -47,7 +50,7 @@ Fail closed, by name, rather than guess:
   records, Auxiliaries/) carry no filament reference the repository knows
   and are preserved byte-for-byte.
 
-Atomicity (the C1 shell, on layer_gcode.remap_archive's pattern): the whole
+Atomicity (the C1 shell, on the staged-write pattern): the whole
 mapping is validated before any byte is written; the new package is written
 to a staging file beside the target, validated (zip integrity plus a
 cross-reference consistency re-read: every filament reference in the staged
@@ -57,7 +60,9 @@ destination bytes identical, and preserves unrelated members byte-for-byte
 on success.
 """
 import json
+import os
 import re
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -76,6 +81,143 @@ FILAMENT_SEQUENCE = 'Metadata/filament_sequence.json'
 def _per_filament_key(key):
     from .color_geometry import _PER_FILAMENT_KEYS
     return _PER_FILAMENT_KEYS.fullmatch(key) is not None
+
+
+# OrcaSlicer per-feature filament settings (#1155): each value is a 1-based
+# filament number, 0 meaning no specific filament (the object's own, or for
+# the tower the filaments in play). They are filament references, so every
+# export that renumbers filaments remaps them with the parts' own mapping.
+FEATURE_FILAMENT_KEYS = ('wall_filament', 'sparse_infill_filament', 'solid_infill_filament',
+                         'wipe_tower_filament')
+# The same references as object or part metadata in model_settings.config,
+# plus the per-object support designations.
+OBJECT_FILAMENT_KEYS = ('wall_filament', 'sparse_infill_filament', 'solid_infill_filament',
+                        'support_filament', 'support_interface_filament')
+# Plate filament maps (model_settings.config <plate> metadata): one entry per
+# palette filament naming the nozzle that filament prints from, so the list is
+# positional and follows the palette order like any per-filament array.
+PLATE_FILAMENT_MAP_KEYS = ('filament_map', 'filament_maps')
+# Project list keys whose entries are not per filament, so a palette-length
+# one is a coincidence of length (a 4-point bed outline on a 4-filament
+# project), never an unknown per-filament array.
+_NOT_PER_FILAMENT_LISTS = frozenset({
+    'printable_area', 'bed_exclude_area', 'head_wrap_detect_zone', 'thumbnails',
+    'wipe_tower_x', 'wipe_tower_y', 'compatible_printers', 'compatible_prints',
+    'upward_compatible_machine', 'different_settings_to_system', 'flush_volumes_matrix',
+    'flush_volumes_vector', 'inherits_group', 'flush_multiplier'})
+
+
+def _filament_number(raw):
+    """int for a filament reference value ('2', 2, ['2']), or None when it is not one."""
+    if isinstance(raw, list):
+        if len(raw) != 1:
+            return None
+        raw = raw[0]
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def remap_feature_filaments(settings, value_map, count, *, where='project'):
+    """Remap the per-feature filament keys of one settings dict; returns (settings, notes).
+
+    value_map is {source filament: destination filament}. 0 stays 0. A value
+    the map covers takes its destination. A value it does not cover, one past
+    the count-filament palette, or one that is not a filament number is
+    UNKNOWN usage (owner ruling, #1189/#1190): never a used filament and never
+    a refusal. It is written as no specific filament (0) where 0 means that
+    (the tower, object and part metadata), and removed where it does not (a
+    print-wide wall or infill key, whose slicer default then applies). Each
+    unknown is named in the notes; nothing is dropped silently.
+    """
+    settings = dict(settings)
+    notes = []
+    keys = FEATURE_FILAMENT_KEYS if where == 'project' else OBJECT_FILAMENT_KEYS
+    for key in keys:
+        if key not in settings:
+            continue
+        raw = settings[key]
+        value = _filament_number(raw)
+        if value == 0:
+            continue
+        if value is not None and value in value_map and (count is None or value <= count):
+            new = str(value_map[value])
+            settings[key] = [new] if isinstance(raw, list) else new
+            continue
+        reason = ('is not a filament number' if value is None else
+                  f'names filament {value}, outside the {count}-filament palette'
+                  if count is not None and value > count else
+                  f'names filament {value}, which this export does not map')
+        neutral = where != 'project' or key == 'wipe_tower_filament'
+        if neutral:
+            settings[key] = ['0'] if isinstance(raw, list) else '0'
+        else:
+            del settings[key]
+        notes.append({'key': key, 'where': where, 'source_value': raw, 'status': 'unknown',
+                      'reason': f'{key} {reason}; recorded as unknown usage',
+                      'written': settings.get(key)})
+    return settings, notes
+
+
+def _positional(items, positions, count):
+    """items re-ordered to `positions` (1-based source indexes, destination order), or None."""
+    if count is None or len(items) != count:
+        return None
+    return [items[source - 1] for source in positions]
+
+
+def remap_filament_metadata(data, value_map, positions, count, *, member):
+    """Remap the feature, support and plate filament-map metadata of a settings member.
+
+    data is model_settings.config bytes. Object and part metadata naming a
+    filament (OBJECT_FILAMENT_KEYS) are remapped through value_map with the
+    rules of remap_feature_filaments (an unmapped value becomes 0, named).
+    A plate filament map is positional: it keeps the entries of `positions`
+    (the source filaments in destination order) when it has one entry per
+    palette filament; any other shape is kept as authored and named as an
+    unknown passthrough. Returns (bytes, notes).
+    """
+    notes = []
+    key_re = '|'.join(re.escape(k) for k in OBJECT_FILAMENT_KEYS + PLATE_FILAMENT_MAP_KEYS)
+    pattern = re.compile(rb'(<metadata key="(' + key_re.encode() + rb')" value=")([^"]*)(")')
+
+    def fix(match):
+        key, raw = match.group(2).decode(), match.group(3).decode()
+        if key in PLATE_FILAMENT_MAP_KEYS:
+            sep = ',' if ',' in raw else ' '
+            items = [item for item in re.split(r'[,\s]+', raw.strip()) if item]
+            reordered = _positional(items, positions, count)
+            if reordered is None:
+                if items and len(items) != len(positions):
+                    notes.append({'key': key, 'where': member, 'source_value': raw,
+                                  'status': 'unknown_passthrough',
+                                  'reason': f'plate {key} has {len(items)} entries for a '
+                                            f'{count}-filament palette; kept as authored'})
+                return match.group(0)
+            return match.group(1) + sep.join(reordered).encode() + match.group(4)
+        remapped, row_notes = remap_feature_filaments({key: raw}, value_map, count, where=member)
+        notes.extend(row_notes)
+        return match.group(1) + str(remapped[key]).encode() + match.group(4)
+
+    return pattern.sub(fix, data), notes
+
+
+def unknown_palette_arrays(settings, count):
+    """Project list keys of palette length that no per-filament rule names (#1155).
+
+    _PER_FILAMENT_KEYS is an allowlist, so an array it does not know is not
+    permuted or cut. Permuting every palette-length list would corrupt the
+    ones that only happen to have that length, so such an array is passed
+    through as authored and named here as an unknown passthrough instead.
+    """
+    if not count or count < 2:
+        return []
+    return sorted(key for key, value in settings.items()
+                  if isinstance(value, list) and len(value) == count
+                  and key not in _NOT_PER_FILAMENT_LISTS and not _per_filament_key(key)
+                  and key not in FEATURE_FILAMENT_KEYS)
 
 
 _PRESERVED_EXACT = frozenset({'[Content_Types].xml', '_rels/.rels', '3D/_rels/3dmodel.model.rels'})
@@ -154,6 +296,10 @@ def permute_project_settings(settings, mapping, *, source_count=None):
     if missing:
         raise RuntimeError(f'filament mapping does not cover source filament(s) {missing} '
                            'named by the project palette')
+    beyond = sorted(n for n in mapping if n > count)
+    if beyond:
+        raise RuntimeError(f'filament mapping names source filament(s) {beyond}, past the '
+                           f'{count}-filament project palette')
     order = [source for source, _dest in sorted(mapping.items(), key=lambda kv: kv[1])]
     for key, value in list(settings.items()):
         if not isinstance(value, list):
@@ -196,6 +342,12 @@ def permute_project_settings(settings, mapping, *, source_count=None):
                          "the object's own filament (0)")
         else:
             raise RuntimeError(f'{key} names filament {designation}, past the {count}-filament palette')
+    settings, feature_notes = remap_feature_filaments(settings, mapping, count)
+    notes += [row['reason'] for row in feature_notes]
+    if any(mapping[n] != n for n in range(1, count + 1)):
+        notes += [f'{key} has one entry per palette filament but is not a known per-filament '
+                  'array; passed through unpermuted (unknown passthrough)'
+                  for key in unknown_palette_arrays(settings, count)]
     return settings, notes
 
 
@@ -315,6 +467,11 @@ def _validate_consistency(payload, mapping):
                 if int(raw) != 0 and not 1 <= int(raw) <= dest_count:
                     raise RuntimeError(f'remapped {name} still names extruder {raw.decode()}, '
                                        'outside the destination numbering')
+            keys = '|'.join(OBJECT_FILAMENT_KEYS).encode()
+            for key, raw in re.findall(rb'<metadata key="(' + keys + rb')" value="(\d+)"', data):
+                if int(raw) > dest_count:
+                    raise RuntimeError(f'remapped {name} still names {key.decode()} '
+                                       f'{raw.decode()}, outside the destination numbering')
         elif name == RANGES:
             for raw in re.findall(rb'<option opt_key="extruder">(\d+)</option>', data):
                 if not 1 <= int(raw) <= dest_count:
@@ -336,6 +493,11 @@ def _validate_consistency(payload, mapping):
             project = json.loads(data)
             if len(project.get('filament_colour') or []) != dest_count:
                 raise RuntimeError('remapped project palette does not match the destination numbering')
+            for key in FEATURE_FILAMENT_KEYS:
+                value = _filament_number(project.get(key, 0))
+                if value is None or value > dest_count:
+                    raise RuntimeError(f'remapped project {key} still names a filament outside '
+                                       'the destination numbering')
     if layer_gcode.MEMBER in payload:
         for row in layer_gcode.parse(payload[layer_gcode.MEMBER]):
             if row['kind'] == 'tool_change' and row['source_extruder'] not in set(mapping.values()):
@@ -343,29 +505,42 @@ def _validate_consistency(payload, mapping):
                                    'the destination numbering')
 
 
-def write_package_atomically(target, payload, validate=None):
-    """The C1 staged-write shell: stage, validate, replace; never partial.
+def write_package_atomically(target, payload, validate=None, *, source=None):
+    """The C1 staged-write shell: stage, validate, fsync, replace; never partial.
 
     payload is {member name: bytes} in the order they should be written.
     validate, when given, is called with the payload dict before replacing
-    and again on the staged file's re-read payload. Any failure removes the
-    staging file and leaves a pre-existing target byte-identical.
+    and again on the staged file's re-read payload. The package is staged in
+    a uniquely named temporary file in the target's directory (so concurrent
+    writers never share a staging name and the final replace stays on one
+    filesystem), flushed and fsynced, then os.replace()d onto the target.
+    Any failure removes the staging file and leaves a pre-existing target
+    byte-identical. When source is given and resolves to the same path as
+    target, the write is refused before anything is staged: the original must
+    stay immutable.
     """
     target = Path(target)
+    if source is not None and Path(source).resolve() == target.resolve():
+        raise RuntimeError(f'refusing to write the package over its own source {target}; '
+                           'the original must stay immutable')
     target.parent.mkdir(parents=True, exist_ok=True)
     if validate is not None:
         validate(payload)
-    tmp = target.with_name(target.name + '.tmp')
+    fd, tmp_name = tempfile.mkstemp(prefix=target.name + '.', suffix='.tmp', dir=target.parent)
+    tmp = Path(tmp_name)
     try:
-        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
-            for name, data in payload.items():
-                out.writestr(name, data)
+        with os.fdopen(fd, 'wb') as handle:
+            with zipfile.ZipFile(handle, 'w', zipfile.ZIP_DEFLATED) as out:
+                for name, data in payload.items():
+                    out.writestr(name, data)
+            handle.flush()
+            os.fsync(handle.fileno())
         with zipfile.ZipFile(tmp) as check:
             if check.testzip() is not None:
                 raise RuntimeError('staged 3MF package failed its integrity check')
             if validate is not None:
                 validate({name: check.read(name) for name in check.namelist()})
-        tmp.replace(target)
+        os.replace(tmp, target)
     finally:
         if tmp.exists():
             tmp.unlink()
@@ -373,6 +548,13 @@ def write_package_atomically(target, payload, validate=None):
 
 def remap_package(source, target, mapping, object_map=None):
     """Atomically remap every filament reference of a 3MF package by `mapping`.
+
+    EXPERIMENTAL: no production code path calls this function. The live
+    export paths (export_color_geometry, export_single_color_plate and
+    adopt_job_settings in color_geometry) import only write_package_atomically
+    from this module; remap_package is exercised by tests alone (see
+    docs/3MF-CONVERSION-EVIDENCE.md). Do not cite it as evidence that a
+    production export remaps a package.
 
     mapping is {source extruder: destination filament}; object_map, when
     given, is {source object id: destination object id} applied to every
@@ -389,6 +571,15 @@ def remap_package(source, target, mapping, object_map=None):
         payload = {name: archive.read(name) for name in names}
     identity = all(mapping[n] == n for n in mapping)
     notes, rewritten = [], []
+    order = [s for s, _d in sorted(mapping.items(), key=lambda kv: kv[1])]
+    palette_count = len(mapping)
+    if PROJECT in payload:
+        try:
+            palette = json.loads(payload[PROJECT]).get('filament_colour')
+        except (ValueError, AttributeError):
+            palette = None
+        if isinstance(palette, list) and palette:
+            palette_count = len(palette)
     for name in names:
         handling = member_handling(name)
         if handling is None:
@@ -411,6 +602,10 @@ def remap_package(source, target, mapping, object_map=None):
             payload[name] = json.dumps(project, indent=4).encode()
         elif name in (MODEL_SETTINGS, PRUSA_MODEL):
             out = remap_extruder_metadata(data, mapping, member=name)
+            if name == MODEL_SETTINGS:
+                out, metadata_notes = remap_filament_metadata(out, mapping, order, palette_count,
+                                                              member=name)
+                notes += [row['reason'] for row in metadata_notes]
             if object_map:
                 def fix_id(match):
                     oid = match.group(2).decode()
@@ -441,7 +636,8 @@ def remap_package(source, target, mapping, object_map=None):
             payload[name] = _remap_model_member(data, mapping)
         if payload[name] != data:
             rewritten.append(name)
-    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping))
+    write_package_atomically(target, payload, validate=lambda p: _validate_consistency(p, mapping),
+                             source=source)
     from .orca_adapter import digest
     return {'source_sha256': digest(source), 'converted_sha256': digest(target),
             'mapping': {str(k): v for k, v in sorted(mapping.items())},

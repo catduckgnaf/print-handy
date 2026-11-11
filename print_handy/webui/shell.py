@@ -50,6 +50,7 @@ NAV = (
     ("/printers", "Printers"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
+    ("/projects", "Projects"),
     ("/config", "Settings"),
 )
 

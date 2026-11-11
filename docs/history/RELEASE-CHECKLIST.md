@@ -42,7 +42,7 @@ before merging; it fails closed.
 - [ ] Draft GitHub release notes cover **every** merged PR in the
   range, grouped user-first. The PR list comes from the tag range's
   ancestry (`git log`), never from dates or memory (audit A2/A12).
-- [ ] `docs/INTERNAL_RELEASE_NOTES.md` gains a `# Version X.Y.Z`
+- [ ] `docs/history/INTERNAL_RELEASE_NOTES.md` gains a `# Version X.Y.Z`
   section covering the same PRs; the `Unreleased` bullets move into it.
 - [ ] Any PR that changes behavior for existing installs gets an
   **Upgrade** line naming what changes for someone who already had the
@@ -56,7 +56,7 @@ before merging; it fails closed.
 
 - [ ] `print_handy/__init__.py`: `__version__ = "X.Y.Z"`.
 - [ ] `README.md`: the `Current release: **X.Y.Z**` line.
-- [ ] `docs/INTERNAL_RELEASE_NOTES.md`: the `# Version X.Y.Z` section,
+- [ ] `docs/history/INTERNAL_RELEASE_NOTES.md`: the `# Version X.Y.Z` section,
   dated.
 - [ ] Release check workflow green on the bump PR's exact head; all
   other required checks green; review threads resolved.
@@ -131,7 +131,7 @@ Don't:
 - Never list an unshipped or open-PR item as shipped.
 - Never bury an upgrade action; existing installs read Upgrade first.
 
-Template: `docs/RELEASE-NOTES-TEMPLATE.md`.
+Template: `docs/history/RELEASE-NOTES-TEMPLATE.md`.
 
 ## 6. Post-release verification
 
@@ -156,6 +156,13 @@ Template: `docs/RELEASE-NOTES-TEMPLATE.md`.
   documented, not synced; touch the CA repo only for big changes or
   when something is actually wrong, and record the parity verdict on
   the checklist issue either way (audit A5).
+- [ ] CA template pinned tag: the CA template's `Repository` tag and
+  first `Branch` tag name the release just published (the parity test
+  in `tests/test_docker_release.py` checks them against the current
+  release named in `docs/DOCKER.md`). When they lag, bump them in the
+  CA repo and refresh the checked-in snapshot
+  (`tests/fixtures/unraid/README.md`) — a release-time exception to
+  the verify-only restraint above (#1143).
 - [ ] Codecov: uploads are report-only. If tokenless uploads are
   rejected, the remaining step is catduck activating the repo on
   codecov.io — record it, never gate the release on it (audit A8).

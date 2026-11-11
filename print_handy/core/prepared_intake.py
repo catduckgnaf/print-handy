@@ -47,7 +47,10 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors'
             ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
             ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
             ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
-            ('model_parts', 'combine')}
+            ('model_parts', 'combine'),
+            # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
+            # scale. In a thread it held the GIL for whole stretches of a chat interaction.
+            ('model_job', 'painted_fit_for_job')}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
 _SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
                  ('orca_adapter', 'largest_fitting_fraction')}
@@ -57,7 +60,8 @@ _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory':
                 'per_part_fit_options': 'the per-part fit check', 'full_size_split_possible': 'the split check',
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
-                'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split'}
+                'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split',
+                'painted_fit_for_job': 'the bed fit check'}
 
 
 logger = logging.getLogger(__name__)
@@ -2593,6 +2597,21 @@ def supports_decision(flagged, finding, clearance):
     return show, '; '.join(reasons), inputs
 
 
+def _fit_state(state, job):
+    """The printer state the bed fit probes read: ``state`` naming the job's printer model.
+
+    The probes run in a worker process whose settings are the default printer's,
+    so without the model they would apply the default printer's bed exclusion
+    area to another printer's job (#1195). A job with no printer id belongs to
+    the default printer and gets ``state`` unchanged. An id the roster does not
+    know raises (settings.by_id), so the probe fails by name instead of guessing.
+    """
+    printer_id = job.get('printer_id')
+    if not printer_id:
+        return state
+    return {**state, 'printer_model': settings.by_id(printer_id)['model']}
+
+
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                         before_start=None, confirm_target=False):
     from . import model_job as mj
@@ -2785,6 +2804,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
+        # The bed fit probes read the job's own printer's bed exclusions, not the default's (#1195).
+        fit_state = _fit_state(state, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         # The author-layout fit probe needs only the file and the printer state, never the unit or
@@ -2813,7 +2834,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     fit_kw['copy_limit'] = max(16, int(job['copies']))
                 except (TypeError, ValueError):
                     pass
-        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state, **fit_kw))
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, fit_state, **fit_kw))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
@@ -3394,7 +3415,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 capacity = await FitStatus(adapter, source, metadata).run(
                                             'confirming the chosen size on the bed',
-                                            _heavy(orca_adapter.orca_plate_capacity, path, state,
+                                            _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                                    scale=selected_scale,
                                                    **({'rotation': rotation, 'supports': bool(row.get('supports')),
                                                        # The search verified this turn with the
@@ -3867,7 +3888,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             else:
                 probe_kw = {'copy_limit': max(1, int(chosen_quantity or 1))}
             try:
-                capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                            scale=new_scale, **probe_kw)
             except Exception:
                 logger.exception('scale fit check failed')
@@ -3883,7 +3904,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # only when the current size is itself a split/rearranged
                 # plan rather than a one-plate fit.
                 try:
-                    fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, state,
+                    fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, fit_state,
                                              new_scale, **probe_kw)
                 except Exception:
                     # The slicer failed while searching: say so, never imply
@@ -3919,7 +3940,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     continue
                 new_scale = fit_scale
                 try:
-                    capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                    capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, fit_state,
                                                scale=new_scale, **probe_kw)
                 except Exception:
                     logger.exception('scale fit check failed')
@@ -4252,6 +4273,66 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
                                                allow_stop=True)
+        except mj.FilamentWarningPending as pending:
+            # Filament findings warn instead of refusing (owner ruling,
+            # catduck, 2026-11-10): the operator is asked once, and only an
+            # explicit acceptance — recorded bound to these warnings, this
+            # source and these plates — lets the same slice run again.
+            # Declining stops here with nothing sliced, uploaded or started.
+            await early.discard()
+            picked = await _ask(adapter, source, key,
+                                'Filament warnings for this print:\n'
+                                + '\n'.join('- ' + w for w in pending.warnings)
+                                + '\nAccept these warnings and print anyway?',
+                                ['Print anyway (accept the filament warnings)', 'No, cancel'],
+                                timeout, approval=True)
+            if picked != 0:
+                receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Filament warnings not accepted. Nothing was sliced, '
+                                           'uploaded or started.')
+                return {'action': 'skip', 'reason': 'filament warnings declined'}
+            mj.record_filament_warning_acknowledgement(
+                jp, warnings=pending.warnings, source_sha256=pending.source_sha256,
+                selected_plates=pending.selected_plates, via='print_anyway')
+            latest = json.loads(jp.read_text())
+            if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
+                    or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
+                    or slice_binding(latest, decisions['source_sha256']) != binding):
+                raise ValueError('saved job changed before the accepted re-slice; no slice started')
+            attempt = int(receipt.get('slice_attempt') or 1) + 1
+            receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
+                           slice_approval={'intake_id': iid, 'source_sha256': decisions['source_sha256'],
+                                           'decisions_sha256': mj.decisions_digest(validated), 'attempt': attempt,
+                                           'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
+            receipt.pop('slice_error', None)
+            receipt.pop('failure', None)
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            # The accepted re-slice is slice-only, like a retry: starting
+            # the new artifact requires a fresh button.
+            choice = 1
+            try:
+                if chosen_quantity and chosen_quantity > 1:
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing with the accepted filament warnings. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
+                else:
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing with the accepted filament warnings. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
+            except Exception as accepted_error:
+                logger.exception('slice after filament warning acceptance failed')
+                await early.discard()
+                from . import slice_failure
+                receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
+                               slice_error=str(accepted_error),
+                               failure=slice_failure.report(accepted_error).as_dict())
+                receipt.pop('slice_approval', None)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=slice_failure.post(accepted_error, retry_failed=True))
+                return {'action': 'skip', 'reason': 'slice after filament warning acceptance failed'}
         except Exception as slice_error:
             logger.exception('slice failed')
             # A failed attempt has no reusable slice approval or G-code. Retry is a

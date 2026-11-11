@@ -314,7 +314,7 @@ class OrcaBuildJobsTests(unittest.TestCase):
         self.assertEqual(self.run_jobs("auto", per_job=100).returncode, 2)
 
     def test_jobs_apply_to_the_bambu_dependencies_and_application(self):
-        build = DOCKERFILE.split("FROM debian:13-slim AS runtime")[0]
+        build = DOCKERFILE.split(" AS runtime")[0]
         self.assertIn('jobs="$(orca-build-jobs "$ORCA_BUILD_JOBS")"', build)      # Bambu Studio source build only
         self.assertIn('export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"', build)       # every dependency's own build
         self.assertIn("cmake --build deps/build --parallel 1", build)             # one dependency at a time
@@ -432,11 +432,26 @@ class OrcaPrebuiltTests(unittest.TestCase):
 class RuntimeImageTests(unittest.TestCase):
     def test_every_stage_uses_debian_stable(self):
         """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, bounds, runtime); no stock UID 1000 user, so handy takes 1000."""
-        self.assertEqual(re.findall(r"^FROM (debian:13-slim)(?: AS [\w-]+)?$", DOCKERFILE, re.M),
+        self.assertEqual(re.findall(r"^FROM (debian:13-slim)@sha256:[0-9a-f]{64}(?: AS [\w-]+)?$", DOCKERFILE, re.M),
                          ["debian:13-slim"] * 6)
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         self.assertIn("useradd --uid 1000 --create-home handy", runtime)
         self.assertNotIn("ubuntu", DOCKERFILE)
+
+    def test_every_base_image_is_pinned_by_one_digest(self):
+        """#1196: a tag moves, a digest does not. Every stage, the BuildKit
+        syntax frontend and the docker-static job container name their image
+        by digest (tag kept for reading), and the six Debian stages and the
+        job container share one digest, so a base bump is one change that
+        Renovate's dockerfile and github-actions managers make everywhere."""
+        digests = set(re.findall(r"^FROM debian:13-slim@(sha256:[0-9a-f]{64})", DOCKERFILE, re.M))
+        self.assertEqual(len(digests), 1, digests)
+        self.assertEqual(len(re.findall(r"^FROM ", DOCKERFILE, re.M)), 6)
+        self.assertRegex(DOCKERFILE.splitlines()[0],
+                         r"^# syntax=docker/dockerfile:1@sha256:[0-9a-f]{64}$")
+        static = (ROOT / ".github" / "workflows" / "docker-static.yml").read_text()
+        container = re.findall(r"^\s+image: (debian:13-slim@sha256:[0-9a-f]{64})$", static, re.M)
+        self.assertEqual(container, [f"debian:13-slim@{digests.copy().pop()}"])
 
 
 class NativeBoundsStageTests(unittest.TestCase):
@@ -446,11 +461,11 @@ class NativeBoundsStageTests(unittest.TestCase):
     ships a top-level package the dispatcher can never import."""
 
     def test_stage_stages_the_package_skeleton_and_ships_only_the_wheel(self):
-        stage = DOCKERFILE.split("FROM debian:13-slim AS bounds-build", 1)[1].split("FROM debian:13-slim AS runtime", 1)[0]
+        stage = DOCKERFILE.split(" AS bounds-build", 1)[1].split(" AS runtime", 1)[0]
         self.assertIn("COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py", stage)
         self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
         self.assertIn("maturin build --release", stage)
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         # Only the .so leaves the wheel (never its staged __init__ files).
         self.assertNotIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
         self.assertIn("python -m zipfile -e *.whl x", runtime)
@@ -483,7 +498,7 @@ class OrtFlavorStageTests(unittest.TestCase):
     must stay a literal no-op."""
 
     def runtime(self):
-        return DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        return DOCKERFILE.split(" AS runtime", 1)[1]
 
     def test_flavor_arg_defaults_to_cpu_in_the_runtime_stage(self):
         self.assertIn("ARG ORT_FLAVOR=cpu", self.runtime())
@@ -523,7 +538,7 @@ class ContainerTimezoneTests(unittest.TestCase):
     unknown name."""
 
     def test_image_installs_the_tz_database_and_defaults_tz(self):
-        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        runtime = DOCKERFILE.split(" AS runtime", 1)[1]
         self.assertIn("tzdata", runtime)
         self.assertIn("TZ=America/New_York", runtime)
         self.assertIn('ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime', runtime)
@@ -761,6 +776,179 @@ mv dot-config .config
         self.assertNotIn("NVIDIA_VISIBLE_DEVICES", self.service.get("environment", {}))
 
 
+class UnraidCaTemplateParityTests(unittest.TestCase):
+    """#1143: the in-repo Unraid template and the Community Applications
+    copy in catduckgnaf/catduck-unraid-templates are the same install
+    surface, so every field they share must agree exactly, and the
+    fields that deliberately differ must differ in exactly the
+    documented ways. CI cannot read the CA repository from the network,
+    so a byte-exact snapshot of the CA template is checked in at
+    tests/fixtures/unraid/print-handy-ca.xml; its refresh path and the
+    intentional differences are documented in
+    tests/fixtures/unraid/README.md. Refreshing the snapshot is a
+    deliberate, reviewed act: any drift among the snapshot, the in-repo
+    template and the pins below fails here instead of being absorbed.
+    """
+
+    CA = ET.parse(ROOT / "tests" / "fixtures" / "unraid" / "print-handy-ca.xml").getroot()
+
+    @staticmethod
+    def configs_by_key(root):
+        return {(c.get("Type"), c.get("Target")): c for c in root.findall("Config")}
+
+    def test_shared_top_level_fields_match(self):
+        for tag in ("Name", "Network", "MyIP", "Shell", "Privileged",
+                    "Project", "Category", "WebUI", "ExtraParams",
+                    "PostArgs", "CPUset", "DonateText", "DonateLink"):
+            with self.subTest(field=tag):
+                self.assertEqual(UNRAID.findtext(tag) or "",
+                                 self.CA.findtext(tag) or "")
+
+    def test_overview_matches_apart_from_the_docs_link_sentence(self):
+        docs_sentence = re.compile(
+            r"Full setup and upgrade instructions are in the Print Handy docs"
+            r"(?:\.|: https://\S+? \(Docker setup guide: https://\S+\)\.)")
+
+        def normalized(root):
+            text = docs_sentence.sub("", root.findtext("Overview") or "")
+            return re.sub(r"\s+", " ", text).strip()
+
+        self.assertEqual(normalized(UNRAID), normalized(self.CA))
+        # Both still carry the setup facts #1143 requires of the Overview:
+        # the ownership command and the bot token location.
+        for root in (UNRAID, self.CA):
+            overview = root.findtext("Overview") or ""
+            self.assertIn("chown -R 1000:1000 /mnt/user/appdata/print-handy", overview)
+            self.assertIn("state/.env", overview)
+
+    def test_shared_config_entries_match_apart_from_two_descriptions(self):
+        in_repo = self.configs_by_key(UNRAID)
+        ca = self.configs_by_key(self.CA)
+        differing_descriptions = {("Path", "/data"), ("Device", "/dev/dri")}
+        for key in sorted(set(in_repo) & set(ca)):
+            with self.subTest(config=key):
+                for attribute in ("Name", "Target", "Default", "Mode",
+                                  "Type", "Display", "Required", "Mask"):
+                    self.assertEqual(in_repo[key].get(attribute),
+                                     ca[key].get(attribute))
+                self.assertEqual(in_repo[key].text or "", ca[key].text or "")
+                if key not in differing_descriptions:
+                    self.assertEqual(in_repo[key].get("Description"),
+                                     ca[key].get("Description"))
+
+    def test_the_two_differing_descriptions_keep_their_safety_core(self):
+        in_repo = self.configs_by_key(UNRAID)
+        ca = self.configs_by_key(self.CA)
+        for key in (("Path", "/data"), ("Device", "/dev/dri")):
+            with self.subTest(config=key):
+                self.assertNotEqual(in_repo[key].get("Description"),
+                                    ca[key].get("Description"))
+        for configs in (in_repo, ca):
+            self.assertIn("chown -R 1000:1000 /mnt/user/appdata/print-handy",
+                          configs[("Path", "/data")].get("Description"))
+            device = configs[("Device", "/dev/dri")].get("Description")
+            self.assertIn("ships empty", device)
+            self.assertIn("render group", device)
+
+    def test_ca_only_paths_are_the_former_volume_paths_plus_config(self):
+        in_repo = self.configs_by_key(UNRAID)
+        ca = self.configs_by_key(self.CA)
+        ca_only = {target for (kind, target) in set(ca) - set(in_repo) if kind == "Path"}
+        self.assertEqual(ca_only, {"/data/state", "/data/hermes", "/data/archive",
+                                   "/data/records", "/data/cache", "/data/spoolman",
+                                   "/data/.config"})
+        # Each CA-only path is one of the folders the image used to
+        # declare as a VOLUME (plus .config), mapped to the matching
+        # folder under the same Appdata path the in-repo template uses,
+        # so an install created on a pre-fix image keeps its data.
+        required = {"/data/state": "true", "/data/hermes": "false",
+                    "/data/archive": "true", "/data/records": "true",
+                    "/data/cache": "true", "/data/spoolman": "true",
+                    "/data/.config": "false"}
+        for target, expected_required in required.items():
+            with self.subTest(path=target):
+                config = ca[("Path", target)]
+                host = f"/mnt/user/appdata/print-handy{target.removeprefix('/data')}"
+                self.assertEqual(config.get("Default"), host)
+                self.assertEqual(config.text, host)
+                self.assertEqual(config.get("Required"), expected_required)
+
+    def test_in_repo_only_config_is_the_spoolman_url_choice(self):
+        in_repo = self.configs_by_key(UNRAID)
+        ca = self.configs_by_key(self.CA)
+        self.assertEqual(set(in_repo) - set(ca),
+                         {("Variable", "PRINT_HANDY__SERVICES__SPOOLMAN_URL")})
+
+    def test_repository_and_listing_metadata_differ_as_documented(self):
+        # The in-repo template is the release reference: it pins the
+        # multi-arch index digest. The CA template is the listing: it
+        # names the release tag DOCKER.md pins as current, offers the
+        # nightly/develop branches, and carries the listing metadata
+        # the in-repo file deliberately leaves empty.
+        docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
+        current_release = re.search(r"The current release is (\d+\.\d+\.\d+)\.", docker_doc)
+        if current_release is None:
+            self.fail("docs/DOCKER.md does not name the current release")
+        self.assertRegex(UNRAID.findtext("Repository") or "",
+                         r"^ghcr\.io/catduckgnaf/print-handy@sha256:[0-9a-f]{64}$")
+        self.assertEqual(self.CA.findtext("Repository"),
+                         f"ghcr.io/catduckgnaf/print-handy:{current_release.group(1)}")
+        self.assertEqual([branch.findtext("Tag") for branch in self.CA.findall("Branch")],
+                         [current_release.group(1), "nightly", "develop"])
+        self.assertEqual(self.CA.findtext("Registry"),
+                         "https://github.com/catduckgnaf/print-handy/pkgs/container/print-handy")
+        self.assertEqual(self.CA.findtext("TemplateURL"),
+                         "https://raw.githubusercontent.com/catduckgnaf/catduck-unraid-templates/main/templates/print-handy.xml")
+        self.assertEqual(self.CA.findtext("Icon"),
+                         "https://raw.githubusercontent.com/catduckgnaf/catduck-unraid-templates/main/templates/img/print-handy.png")
+        for tag in ("Registry", "TemplateURL", "Icon"):
+            self.assertFalse(UNRAID.findtext(tag))
+        self.assertEqual(UNRAID.findtext("Support"),
+                         "https://github.com/catduckgnaf/print-handy/issues")
+        self.assertEqual(self.CA.findtext("Support"),
+                         "https://forums.unraid.net/topic/138058-support-catduck-templates/")
+
+    def test_requires_texts_carry_the_documented_guidance(self):
+        # The CA Requires additionally carries the upgrade and recovery
+        # warnings for installs created while the image declared
+        # volumes, including the dot-config rename; both state the
+        # ownership requirement.
+        ca_requires = self.CA.findtext("Requires") or ""
+        self.assertIn("anonymous volumes", ca_requires)
+        self.assertIn("mv dot-config .config", ca_requires)
+        for root in (UNRAID, self.CA):
+            self.assertIn("1000", root.findtext("Requires") or "")
+
+
+class UnraidHostPathDocsTests(unittest.TestCase):
+    """#1143: the docs name the host folders an install really uses.
+
+    The single-path Unraid template maps /data/.config to `.config` in the
+    Appdata folder; only Compose (and the older multi-path template, whose
+    upgrade note renames it) uses a host folder named `dot-config`. A doc
+    sending an Unraid user to appdata `dot-config` points at a folder the
+    container never reads. Counts of Compose paths in prose drift whenever
+    a mount is added or dropped, so any count stated must match Compose."""
+
+    NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+               "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+    def test_settings_doc_names_the_unraid_config_folder(self):
+        self.assertNotRegex(DOCS, r"Unraid template maps to appdata `dot-config`")
+        self.assertNotRegex(DOCS, r"appdata `dot-config")
+        self.assertIn("`.config/print-handy/settings.yaml` in the Unraid Appdata folder", DOCS)
+
+    def test_docker_doc_compose_path_count_matches_compose(self):
+        docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
+        sentences = re.findall(r"recreate with the same (?:(\w+) )?paths", docker_doc)
+        self.assertTrue(sentences, "docs/DOCKER.md lost its Compose upgrade sentence")
+        mounts = len(COMPOSE["services"]["combined"]["volumes"])
+        for word in sentences:
+            if word:
+                with self.subTest(count=word):
+                    self.assertEqual(self.NUMBERS.get(word.lower()), mounts)
+
+
 class WebuiContainerTests(unittest.TestCase):
     """#286 stages 4-5: the Web UI is a gated supervised child, a
     healthcheck row, Compose variables and Unraid template fields —
@@ -864,7 +1052,7 @@ class SpoolmanLanTests(unittest.TestCase):
         self.assertEqual(url.text, "http://127.0.0.1:8000")
         self.assertEqual(url.get("Display"), "advanced")
 
-    def test_compose_keeps_the_safe_default(self):
+    def test_compose_publishes_only_the_web_ui_port_and_keeps_spoolman_on_loopback(self):
         service = COMPOSE["services"]["combined"]
         # The only active port mapping is the Web UI's; the Spoolman LAN
         # mapping stays a comment and Spoolman stays loopback by default.

@@ -266,7 +266,7 @@ def test_drift_past_the_warning_tolerance_is_reported_but_does_not_fail():
     assert drift_notes([small(3.4, "mid")], base) == []  # past the blocking limit it is a problem instead
 
 
-def test_the_two_parts_512_cases_are_the_known_drift_on_main():
+def test_no_case_stands_past_the_drift_warning_on_main():
     import json
     from tests.corpus.timing_gate import drift_notes
     data = json.loads((Path(__file__).parent / "timing_baseline.json").read_text())
@@ -274,8 +274,38 @@ def test_the_two_parts_512_cases_are_the_known_drift_on_main():
              **{m: v for m, v in e.items() if m in ("wall_s", "first_prompt_s", "fit_check_s")}}
             for k, e in data["cases"].items()]
     assert check(rows, data) == []
-    assert {n.split(":")[0] for n in drift_notes(rows, data)} == {
-        "parts-512-four-color/direct", "parts-512-four-color/standalone"}
+    # The parts-512 pair used to be pinned here as the known +38% drift; that figure came
+    # from a raised_from (3.77 s) no recorded baseline in the file's history supports.
+    assert drift_notes(rows, data) == []
+
+
+def test_parts_512_original_is_the_first_recording_not_the_unsubstantiated_raise():
+    import json
+    data = json.loads((Path(__file__).parent / "timing_baseline.json").read_text())
+    for transport, first in (("direct", 4.74), ("standalone", 4.75)):
+        entry = data["cases"][f"parts-512-four-color/{transport}"]
+        assert entry["original"]["wall_s"] == first
+        assert entry["raised_from"]["wall_s"] == first
+        assert "3.77" not in entry["reason"] or "appears nowhere" in entry["reason"]
+
+
+def test_every_checked_in_entry_stores_its_original_explicitly():
+    import json
+    for name in ("timing_baseline.json", "timing_baseline_real_slicer.json"):
+        data = json.loads((Path(__file__).parent / name).read_text())
+        for k, entry in data["cases"].items():
+            assert entry.get("original"), f"{name} {k} has no explicit original"
+
+
+def test_the_issue_1142_synthetic_regression_fails_and_the_long_case_passes():
+    base = {"tolerance": 0.10, "slack_s": 0.5,
+            "cases": {"tiny/direct": {"wall_s": 0.01}, "big/direct": {"wall_s": 10.0}}}
+    rows = lambda t, b: [small(t, "tiny"), small(b, "big")]  # noqa: E731
+    # A 0.01 s case measured at 0.45 s (45x slower) must fail: the floored slack is 0.35 s,
+    # so the limit is 0.01 * 1.1 + 0.35 = 0.361 s. Under the old flat 0.5 s slack it passed.
+    assert any("wall_s 0.45s > limit 0.36s" in p for p in check(rows(0.45, 10.4), base))
+    # A 10 s case measured at 10.4 s is inside +10% plus 10% relative slack (limit 12.0 s).
+    assert check(rows(0.36, 10.4), base) == []
 
 
 def test_main_wires_absolute_slack_only_for_the_real_orca_leg():

@@ -167,7 +167,7 @@ GROUP_OF = {
     "timelapse.ssh_key": "camera",
     "timelapse.wrapped_enabled": "wrapped",
     "timelapse.data_enabled": "wrapped",
-    "timelapse.wrapped_ai_video": "wrapped",
+    "timelapse.wrapped_video": "wrapped",
     "timelapse.wrapped_tts_engine": "wrapped",
     "timelapse.wrapped_music_file": "wrapped",
     "logging.level": "logging",
@@ -642,10 +642,12 @@ CATALOG = (
            "Data page is not in the navigation and its routes refuse "
            "by name.",
            validator="settings timelapse check"),
-    _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
+    _field("timelapse", "wrapped_video", "Wrapped video", "toggle",
            "The on-demand Wrapped video compile (#956): a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
-           "AI model is used (the setting keeps its original name). Off by "
+           "AI model is used; the setting was renamed from wrapped_ai_video "
+           "(#1157) and the old spelling is still accepted in config files "
+           "and the environment. Off by "
            "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),

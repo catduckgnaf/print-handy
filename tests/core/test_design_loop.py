@@ -333,3 +333,95 @@ def test_a_revision_prompt_carries_the_earlier_changes(tmp_path):
     history = design.load_session(eng.root, session["id"])["history"]
     assert [entry["turn"] for entry in history] == [1, 2, 3]
     assert history[0]["instruction"] == "a plate"
+
+
+def _heights(eng, session, steps):
+    out = []
+    for text in steps:
+        try:
+            out.append(run(eng.run_turn(session, text))["geometry"]["dimensions_mm"][2])
+        except design.DesignError as exc:
+            out.append("no earlier" if "no earlier version" in str(exc) else str(exc))
+    return out
+
+
+def test_repeated_undo_walks_back_through_the_versions(tmp_path):
+    """#1206 finding 3: undo restored history[-2], and the undo itself was the
+    newest entry, so a second undo went forward again (8, 13, 8). Undo is a
+    stack: each one steps back from the version on screen."""
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    steps = ["a plate", "make it 5 mm taller", "make it 5 mm taller", "make it 5 mm taller",
+             "undo", "undo", "undo", "undo"]
+    assert _heights(eng, session, steps) == [3, 8, 13, 18, 13, 8, 3, "no earlier"]
+
+
+def test_undo_after_go_back_and_after_an_edit_of_a_restored_version(tmp_path):
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    steps = ["a plate", "make it 5 mm taller", "make it 5 mm taller",
+             "go back to version 2", "undo",           # before version 2 is version 1
+             "make it 1 mm taller", "undo", "undo"]    # back to the restored 3, then none
+    assert _heights(eng, session, steps) == [3, 8, 13, 8, 3, 4, 3, "no earlier"]
+
+
+def test_going_back_to_a_parameter_edit_does_not_warn_about_its_stale_size_line(tmp_path):
+    """A deterministic edit leaves the Size line stale by design and is checked
+    without it; restoring that version must be checked the same way."""
+    eng, _ = engine(tmp_path, scripted([part(40, 20, 3)]))
+    session = eng.start_session("o", "c", "a plate")
+    run(eng.run_turn(session, "a plate"))
+    edited = run(eng.run_turn(session, "make it 5 mm taller"))
+    assert edited["findings"] == []
+    run(eng.run_turn(session, "undo"))
+    back = run(eng.run_turn(session, "go back to version 2"))
+    assert back["reverted_to"] == 2 and back["findings"] == []
+
+
+# ------------------------------------------------------------------ question flow edges (#1206)
+
+def test_the_answer_survives_a_failed_answer_turn_and_a_retry_keeps_it(tmp_path):
+    """#1206 finding 4: the answer lived only in memory, so after a failed
+    answer turn the next message ("try again") became the answer."""
+    fake = scripted(["QUESTION: How wide is the rail?", "no code", "no code", "no code",
+                     part(30, 25, 40)])
+    eng, _ = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a hook")
+    with pytest.raises(design.DesignQuestion):
+        run(eng.run_turn(session, "a hook"))
+    with pytest.raises(design.DesignError):
+        run(eng.run_turn(design.load_session(eng.root, session["id"]), "25 mm"))
+    saved = design.load_session(eng.root, session["id"])
+    assert saved["question_answer"] == "25 mm"
+    result = run(eng.run_turn(saved, "try again, and make it 40 mm tall"))
+    prompt = user_prompt(fake.calls[-1])
+    assert "The user answered: 25 mm" in prompt
+    assert "try again, and make it 40 mm tall" in prompt
+    assert "no further questions" not in prompt
+    assert result["geometry"]["dimensions_mm"] == [30.0, 25.0, 40.0]
+
+
+def test_a_model_that_only_asks_is_reported_as_such_not_as_a_render_failure(tmp_path):
+    """#1206 finding 5: every refused question used to end in "OpenSCAD could
+    not render the design ... Last error:" with nothing rendered."""
+    fake = scripted(["QUESTION: What size?"])
+    eng, runner = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a hook")
+    with pytest.raises(design.DesignQuestion):
+        run(eng.run_turn(session, "a hook"))
+    with pytest.raises(design.DesignError) as failed:
+        run(eng.run_turn(design.load_session(eng.root, session["id"]), "you pick"))
+    text = str(failed.value)
+    assert "OpenSCAD" not in text and runner.renders == 0
+    assert "kept asking" in text and "3 tries" in text
+
+
+@pytest.mark.parametrize("raw,budget", [(-1, 1), (0, 1), ("x", 4), (None, 4), (2, 3)])
+def test_repair_attempts_is_clamped_to_a_usable_budget(tmp_path, raw, budget):
+    cfg = {**CFG, "design": {**CFG["design"], "repair_attempts": raw}}
+    fake = scripted(["SYNTAX\ncube([1, 1, 1]);"])
+    eng, _ = engine(tmp_path, fake, cfg=cfg)
+    session = eng.start_session("o", "c", "a plate")
+    with pytest.raises(design.DesignError, match=f"after {budget} attempt"):
+        run(eng.run_turn(session, "a plate"))
+    assert len(fake.calls) == budget

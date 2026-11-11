@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
-from . import author_settings, compat_registry, mesh_fast, resources, slice_warnings
+from . import author_settings, compat_registry, mesh_fast, painted_geometry, resources, slice_warnings
 from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
@@ -1383,6 +1383,7 @@ def start_mesh_profile(state):
     return mesh
 
 
+@painted_geometry.decode_scoped
 def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
     _slice_started = time.monotonic()
     _slicer_runs = []  # elapsed seconds of each slicer subprocess, for the provenance timing split (#952)
@@ -2429,7 +2430,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             if _LAYER_RANGES in _member_names:
                 _candidates.add('height-range-extruder-remap')
             if any(name.lower().endswith('.model')
-                   and b'mmu_segmentation' in _archive.read(name) for name in _member_names):
+                   and b'mmu_segmentation' in painted_geometry.read_member(_archive, name)
+                   for name in _member_names):
                 _candidates.add('mmu-segmentation-paint-translation')
             if 'Metadata/project_settings.config' in _member_names:
                 _project = json.loads(_archive.read('Metadata/project_settings.config'))
@@ -2614,12 +2616,34 @@ def _source_plate_count(source) -> int:
         return 0
 
 
+def _fit_exclusion_polygon(state=None):
+    """Read the job printer's polygon, not the split planner's rectangle cover.
+
+    The job's printer is ``state['printer_model']`` when the caller names it
+    (intake does, see prepared_intake._fit_state); otherwise the default
+    printer, which is the only printer of a single-printer install (#1195).
+    Failed lookup is unknown, never permission to ignore a declared exclusion.
+    """
+    try:
+        model_key = (state or {}).get('printer_model') or settings.current()['printer'].get('model')
+        model = printers.MODELS[model_key] if model_key else None
+        facts = getattr(getattr(model, 'adapter', None), 'facts', None) or {}
+        polygon = tuple(tuple(map(float, p)) for p in
+                        (getattr(facts.get('bed_exclude_area'), 'value', None) or ()))
+        if polygon and (len(polygon) < 3 or any(len(p) != 2 or not all(map(math.isfinite, p)) for p in polygon)):
+            raise ValueError('invalid bed exclusion polygon')
+        return polygon
+    except Exception as exc:
+        raise RuntimeError(f'cannot resolve printer bed exclusions for fit probe: {exc}') from exc
+
+
 def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_margin: float = 1.0) -> int:
     """Check if all plates in a multi-plate 3MF fit the bed bounds at `scale`."""
+    bed = state.get('bed_mm', BED)
+    exclusion_polygon = _fit_exclusion_polygon(state)
     try:
         from . import model_job as mj
         from . import color_geometry as cg
-        bed = state.get('bed_mm', BED)
         max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
         eff_w = float(bed[0]) - 2 * single_margin
         eff_d = float(bed[1]) - 2 * single_margin
@@ -2641,11 +2665,19 @@ def _multi_plate_capacity(source: Path, state: dict, scale: float = 1.0, single_
                 dx = (max_x - min_x) * scale
                 dy = (max_y - min_y) * scale
                 dz = (max_z - min_z) * scale
-                if dz > max_h + 0.05:
+                if dz > max_h:
                     return 0
                 fits = (dx <= eff_w and dy <= eff_d) or (dy <= eff_w and dx <= eff_d)
                 if not fits:
                     return 0
+                if exclusion_polygon:
+                    from .split_fit import _exclusion_rectangles, _placement
+                    feature = max(0.0, single_margin - SINGLE_COPY_EDGE_MM)
+                    zones = [(x0 - feature, y0 - feature, x1 + feature, y1 + feature)
+                             for x0, y0, x1, y1 in _exclusion_rectangles(exclusion_polygon)]
+                    if _placement((dx, dy), float(bed[0]), float(bed[1]), single_margin, zones) is None \
+                            and _placement((dy, dx), float(bed[0]), float(bed[1]), single_margin, zones) is None:
+                        return 0
         return 1
     except Exception as exc:
         # An uninspectable plate is unknown, not "fits once": callers treat raises as probe failures.
@@ -2675,6 +2707,7 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
     bed = state.get('bed_mm', BED)
     bed_x, bed_y = float(bed[0]), float(bed[1])
     max_h = float(state.get('max_print_height_mm', MAX_HEIGHT_MM))
+    exclusion_polygon = _fit_exclusion_polygon(state)
     multi_margin = MULTI_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     single_margin = SINGLE_COPY_EDGE_MM if edge_margin_mm is None else float(edge_margin_mm)
     if brim_policy is not None:
@@ -2703,7 +2736,7 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         min_y, max_y = min(p[1] for p in hull), max(p[1] for p in hull)
         w = max_x - min_x
         d = max_y - min_y
-        if (z_max - z_min) * scale > max_h + 0.05:
+        if (z_max - z_min) * scale > max_h:
             return 0  # Orca happily "arranges" a part taller than the gantry; refuse here.
 
         scaled_w, scaled_d = w * scale, d * scale
@@ -2763,6 +2796,9 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
             m_tmpl = dict(m_base)
             m_tmpl['printable_area'] = [f"{edge}x{edge}", f"{bed_x - edge}x{edge}",
                                         f"{bed_x - edge}x{bed_y - edge}", f"{edge}x{bed_y - edge}"]
+            if exclusion_polygon:
+                # Orca's native machine exclusion format is a polygon chain.
+                m_tmpl['bed_exclude_area'] = [f'{float(x):g}x{float(y):g}' for x, y in exclusion_polygon]
             path = tmp / f'machine_{edge}.json'
             path.write_text(json.dumps(m_tmpl, indent=2))
             return path
@@ -2811,6 +2847,16 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
             except (KeyError, TypeError, ValueError, RuntimeError, OSError) as exc:
                 raise RuntimeError(f'Orca fit probe cannot inspect arranged bounds for {copies} copies') from exc
             tolerance = 0.1
+            if exclusion_polygon:
+                # Exporting a project is not slicing: independently refuse
+                # arranged envelopes that overlap excluded space. This is
+                # conservative for concave parts or separated copies.
+                from .split_fit import _exclusion_rectangles
+                reserve = required_feature_edge(state)
+                if any(float(x_bounds[1]) + reserve > x0 and float(x_bounds[0]) - reserve < x1
+                       and float(y_bounds[1]) + reserve > y0 and float(y_bounds[0]) - reserve < y1
+                       for x0, y0, x1, y1 in _exclusion_rectangles(exclusion_polygon)):
+                    return False
             return (
                 float(x_bounds[0]) >= edge - tolerance and
                 float(x_bounds[1]) <= bed_x - edge + tolerance and
@@ -2818,17 +2864,14 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
                 float(y_bounds[1]) <= bed_y - edge + tolerance
             )
 
-        expected_sweep = resolved_travel_sweep(state)
-        policy = brim_policy or state.get('brim_policy')
-        expected_brim = float(policy.get('width_mm', 0)) if policy and policy.get('type') == 'outer_only' else 0.0
-        required = expected_brim + expected_sweep
-        edge = SINGLE_COPY_EDGE_MM + required
+        required = required_feature_edge(state)
+        edge = single_margin
         if copy_limit == 1:
             m_base['printable_area'] = [f"{edge}x{edge}", f"{bed_x - edge}x{edge}",
                                         f"{bed_x - edge}x{bed_y - edge}", f"{edge}x{bed_y - edge}"]
             return 1 if probe(single_stl, 1, edge, 'single') else 0
         # Multi-copy uses the independent 3 mm layout margin plus only feature extent.
-        multi_edge = MULTI_COPY_EDGE_MM + required
+        multi_edge = multi_margin
         eff_edge = max(0.0, multi_edge - expand_mm)
         eff_w = bed_x - 2 * multi_edge
         eff_d = bed_y - 2 * multi_edge
@@ -2905,18 +2948,16 @@ def _confirm_scale(fits, bound, window=0.03):
 
     Tries the bound first (usually right), then bisects the window below it
     (~5 probes), then falls back to coarse 1% steps down to 50%. Orca occasionally
-    aborts on a specific scale (boost bad_rational); after one retry such a point
-    counts as not fitting, which can only lower the reported maximum.
+    aborts on a specific scale (boost bad_rational); retry once, then
+    propagate failure rather than interpreting an unknown probe as no fit.
     """
-    errors = []
-
     def safe(scale):
-        for _ in range(2):
+        for attempt in range(2):
             try:
                 return fits(scale)
-            except RuntimeError as exc:
-                errors.append(exc)
-        return False
+            except RuntimeError:
+                if attempt:
+                    raise
 
     hi = int(bound * 1000)
     if hi < 500:
@@ -2932,8 +2973,6 @@ def _confirm_scale(fits, bound, window=0.03):
                 break
             step -= 10
         else:
-            if errors and len(errors) >= 4:
-                raise errors[-1]  # Orca is broken, not the model: never report "does not fit".
             return None
     while hi - lo > 1:  # invariant: lo fits, hi does not
         middle = (lo + hi) // 2
@@ -3166,7 +3205,10 @@ def resolved_travel_sweep(state):
 def required_feature_edge(state, brim_policy=None):
     """Edge budget = explicit brim extent + resolved travel sweep."""
     policy = brim_policy or state.get('brim_policy') or {}
-    brim = float(policy.get('width_mm', 0)) if policy.get('type') in ('outer_only', 'brim_ears') else 0.0
+    # Orca brim_type options include brim_ears and outer_and_inner; both
+    # create a brim whose declared width consumes bed clearance.
+    brim = float(policy.get('width_mm', 0)) if policy.get('type') in (
+        'outer_only', 'brim_ears', 'outer_and_inner', 'inner_only') else 0.0
     return brim + resolved_travel_sweep(state)
 
 

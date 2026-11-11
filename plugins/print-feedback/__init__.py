@@ -751,9 +751,124 @@ def _design_command_args(text):
     return None
 
 
+DESIGN_WORKING_NOTE = ('Designing it now. I check the part before I show it, so this can take '
+                       'a minute or two.')
+_DESIGN_TYPING_EVERY_S = 8  # a typing indicator lasts about 10 s on Discord and Matrix
+
+
+async def _run_design_turn(engine, session, instruction, adapter, source, metadata):
+    """engine.run_turn with the chat kept informed (#1206).
+
+    A turn can take minutes (up to 1 + repair_attempts model calls and
+    renders) and used to post nothing until it ended. A model turn is
+    acknowledged once up front, and the typing indicator is renewed until
+    the turn returns. Undo and plain parameter edits are quick and get no
+    acknowledgement. Both signals are cosmetic and never fail the turn.
+    """
+    if engine.will_call_model(session, instruction):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=DESIGN_WORKING_NOTE)
+    signal = getattr(adapter, 'signal_working', None)
+
+    async def keep_typing():
+        while True:
+            try:
+                await asyncio.wait_for(signal(source.chat_id, metadata=metadata), 10)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug('design typing indicator failed: %r', exc)
+            await asyncio.sleep(_DESIGN_TYPING_EVERY_S)
+
+    task = asyncio.create_task(keep_typing()) if signal is not None else None
+    try:
+        return await engine.run_turn(session, instruction)
+    finally:
+        if task is not None:
+            task.cancel()
+
+
 # owner -> phase: "turn" while a model call/render runs, "prompt" while the
 # Slice it / Change it / Cancel question is open and waiting for an answer.
 _DESIGN_BUSY: dict = {}
+
+_DESIGN_UNEXPECTED_FAILURE = (
+    'That design change did not work, and I could not tell why from here. Nothing was '
+    'sliced or started. If it keeps happening, run `/print-handy bundle` and share the '
+    'bundle so it can be looked into.')
+
+
+def _design_owner(source):
+    """The per-user design key: one design conversation per user per channel/thread."""
+    return f"{source.chat_id}:{source.thread_id or ''}:{getattr(source, 'user_id', '')}"
+
+
+@contextlib.contextmanager
+def _design_claim(owner):
+    """Hold the owner's design claim (P2-151) for one whole design dispatch:
+    every turn, and the question after it. Released however it ends."""
+    _DESIGN_BUSY[owner] = 'turn'
+    try:
+        yield
+    finally:
+        _DESIGN_BUSY.pop(owner, None)
+
+
+async def _design_busy_reply(adapter, source):
+    """The refusal for a second design request while the owner's claim is held."""
+    if adapter is not None:
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='A design turn is already running — let it finish, '
+                                   'then send your change again. Nothing was changed.')
+    return {'action': 'skip', 'reason': 'design turn already running'}
+
+
+def _design_engine(cfg, complete):
+    """The design engine over the same session folder _design_root reads."""
+    from print_handy.core import design
+    return design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
+                               complete, cfg=cfg)
+
+
+async def _no_design_model(messages):
+    """The engine's model seam when no endpoint is configured. Only the
+    no-model paths (undo, a plain parameter edit) run then, so reaching
+    this is a change that needs the model (#1206)."""
+    from print_handy.core import design
+    raise design.DesignError('that change needs the design model, and no design endpoint '
+                             'is configured (see docs/DESIGN.md).')
+
+
+def _design_failure_text(exc):
+    """What to post when a design turn raises: the engine's own words for a
+    DesignError, and an honest "could not tell why" (logged) for anything else."""
+    from print_handy.core import design
+    if isinstance(exc, design.DesignError):
+        return f'That design change did not work: {exc} Nothing was sliced or started.'
+    logger.error('design turn failed unexpectedly', exc_info=exc)
+    return _DESIGN_UNEXPECTED_FAILURE
+
+
+async def _design_slice(event, gateway, adapter, engine, session, stl_path):
+    """Slice it: hand the version on screen to prepared intake, unless it is not
+    a printable solid. Only a dropped model's own baseline (or an undo back to
+    it) can be one; model turns with a "fail" finding are refused in the engine.
+    Such a mesh is never handed over (#1206), so the session waits instead."""
+    from print_handy.core import design
+    failed = design.unprintable(session.get('findings'))
+    if failed:
+        engine.awaiting_revision(session)
+        source = event.source
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(
+            chat_id=source.chat_id, metadata=metadata,
+            content=('This version is not a printable solid (' + '; '.join(failed) + '), so I '
+                     'will not hand it to the intake. Say a change that fixes it, or "cancel". '
+                     'To print the file as it is, drop it again without a design phrase: the '
+                     'intake checks it on its own before anything is sliced.'))
+        return {'action': 'skip', 'reason': 'design not printable'}
+    engine.mark_handed_off(session)
+    return await _design_handoff(event, gateway, adapter, session, stl_path)
 
 
 async def design_dispatch(event, gateway, **kwargs):
@@ -777,30 +892,30 @@ async def design_dispatch(event, gateway, **kwargs):
     if not _is_print_discord_event(event):
         return None
     source = event.source
-    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    owner = _design_owner(source)
     if owner in _DESIGN_BUSY:
         text = str(getattr(event, 'text', '') or '').strip()
         if _design_command_args(text) is None and text.startswith('/'):
             return None  # another command: not design's to refuse
         if _DESIGN_BUSY.get(owner) == 'prompt' and _design_command_args(text) is None:
-            return None  # the answer to the open design question
+            # The answer to the open design question. Answer it here, the
+            # way the bot core's typed-answer route would: returning None
+            # let a later hook (edit_dispatch) claim "make it 5 mm taller"
+            # or "undo" first and apply it to the channel's job (#1206).
+            adapter = _adapter_for(gateway, source)
+            answer_typed = getattr(adapter, 'answer_typed', None)
+            if text and answer_typed is not None and await answer_typed(
+                    gateway._session_key_for_source(source), text,
+                    user_id=getattr(source, 'user_id', None)):
+                return {'action': 'skip', 'reason': 'typed answer to the design question'}
+            return None
         from print_handy.core import design as _design
         if _design_command_args(text) is None and not _design.find_session_for_owner(
                 _design_root(_config.cfg()), owner):
             return None  # no live design session: not a design message
-        adapter = _adapter_for(gateway, source)
-        if adapter is None:
-            return {'action': 'skip', 'reason': 'design turn already running'}
-        metadata = {'thread_id': source.thread_id} if source.thread_id else None
-        await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='A design turn is already running — let it finish, '
-                                   'then send your change again. Nothing was changed.')
-        return {'action': 'skip', 'reason': 'design turn already running'}
-    _DESIGN_BUSY[owner] = 'turn'
-    try:
+        return await _design_busy_reply(_adapter_for(gateway, source), source)
+    with _design_claim(owner):
         return await _design_dispatch_turns(event, gateway, **kwargs)
-    finally:
-        _DESIGN_BUSY.pop(owner, None)
 
 
 async def _design_dispatch_turns(event, gateway, **kwargs):
@@ -841,7 +956,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     from print_handy.core.prepared_intake import model_file
     cfg = _config.cfg()
     root = _design_root(cfg)
-    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    owner = _design_owner(source)
     session = design.find_session_for_owner(root, owner)
 
     # Resolve what this message asks for before any state changes.
@@ -893,13 +1008,19 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
     complete, _kind = _design_transport(cfg)
+    engine = _design_engine(cfg, complete or _no_design_model)
+    # A button word, an undo or a plain parameter edit of the waiting
+    # design needs no model, so a missing endpoint does not refuse it (#1206).
+    model_free = (complete is None and intent[0] == "revision" and session is not None
+                  and (design.typed_choice(text) is not None
+                       or not engine.will_call_model(session, text)))
     design_raw = (cfg.get('design') or {}).get('enabled')
     if design_raw is False:
         await say('Design is not set up: design.enabled is false — set design.enabled = true '
                   '(PRINT_HANDY__DESIGN__ENABLED=true) or remove it to turn design on when a '
                   'model is configured — see docs/DESIGN.md. Nothing was designed.')
         return {'action': 'skip', 'reason': 'design not enabled'}
-    if complete is None:
+    if complete is None and not model_free:
         if design_raw is True:
             await say('Design is enabled but no design model is configured: set '
                       '[design] chat_url/model (or the [llm] values they inherit). '
@@ -911,13 +1032,28 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                   '(or the [llm] values they inherit), or PRINT_HANDY__DESIGN__ENABLED=true with '
                   'a design endpoint — see docs/DESIGN.md. Nothing was designed.')
         return {'action': 'skip', 'reason': 'design not enabled'}
-    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
-                                 complete, cfg=cfg)
     note = ''
     try:
         kind, instruction, file_path, link_url = intent
         if kind == "revision":
-            result = await engine.run_turn(session, text)
+            # After Change it, a typed button word is that button, not a
+            # change to send to the model (#1206): "never mind" cancels and
+            # "slice it" hands the current version to intake.
+            chosen = design.typed_choice(text)
+            current_stl = (root / session['id'] / session['stl']) if session.get('stl') else None
+            if chosen == design.CANCEL_LABEL:
+                engine.cancel(session)
+                await say('Design cancelled. The files stay in the session folder for a while; '
+                          'nothing was sliced or started.')
+                return {'action': 'skip', 'reason': 'design cancelled'}
+            if chosen == design.SLICE_LABEL and (
+                    design.unprintable(session.get('findings'))
+                    or (current_stl is not None and current_stl.is_file())):
+                return await _design_slice(event, gateway, adapter, engine, session, current_stl)
+            if chosen == design.CHANGE_LABEL:
+                await say('Say the change in your next message — e.g. "make it 5 mm taller".')
+                return {'action': 'skip', 'reason': 'design awaiting revision'}
+            result = await _run_design_turn(engine, session, text, adapter, source, metadata)
         elif kind == "ask":
             await say('Drop the file you want to work on, paste its model link, or tell me '
                       'what to make — e.g. "design me a 40 mm bracket with two holes". '
@@ -944,7 +1080,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                 if session:
                     engine.cancel(session)  # a fresh design supersedes the old session
                 session = engine.start_session(owner, source.chat_id, instruction)
-                result = await engine.run_turn(session, instruction)
+                result = await _run_design_turn(engine, session, instruction, adapter, source,
+                                              metadata)
             else:  # edit
                 if link_url:
                     instruction = instruction.replace(link_url, '').strip(" \t—–-:,.")
@@ -969,7 +1106,8 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                         file_path)
                 note = design.source_note(session)
                 if instruction:
-                    result = await engine.run_turn(session, instruction)
+                    result = await _run_design_turn(engine, session, instruction, adapter, source,
+                                              metadata)
                 else:
                     # No change asked for: show the dropped model exactly as
                     # it is, with no model call in between (#841 gap 4).
@@ -981,15 +1119,31 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         await say(f'{asked.question}\n(Answer in your next message — or say "you pick" and '
                   'I will choose a sensible size and tell you what I assumed.)')
         return {'action': 'skip', 'reason': 'design asked a question'}
-    except design.DesignError as exc:
-        await say(f'That design change did not work: {exc} Nothing was sliced or started.')
+    except Exception as exc:
+        await say(_design_failure_text(exc))
         return {'action': 'skip', 'reason': 'design turn failed'}
-    except Exception:
-        logger.exception('design turn failed unexpectedly')
-        await say('That design change did not work, and I could not tell why from here. Nothing was sliced or started. '
-                  'If it keeps happening, run `/print-handy bundle` and share the bundle so it can be looked into.')
-        return {'action': 'skip', 'reason': 'design turn failed'}
-    owner_phase_key = owner
+    return await _design_conversation(event, gateway, adapter, engine, result, note=note)
+
+
+async def _design_conversation(event, gateway, adapter, engine, result, *, note=''):
+    """Post a design turn, then ask "What next for this design?" until the
+    owner slices it, asks for a change, or cancels.
+
+    Shared by /print-design and the edit chat's geometry route (#1206), so
+    both post the same reply (what was made, measured, assumed, and any
+    check finding that survived the repairs), take the same typed answers
+    (a button word or number is that button, any other text is the next
+    turn), and mark the owner's claim "prompt" while the question is open
+    so design_dispatch answers typed text there.
+    """
+    from print_handy.core import design
+    source = event.source
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    owner_phase_key = _design_owner(source)
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
     timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     while True:
         session = result['session']
@@ -1017,9 +1171,13 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         finally:
             if owner_phase_key in _DESIGN_BUSY:
                 _DESIGN_BUSY[owner_phase_key] = 'turn'
+        if isinstance(answer, str) and answer not in design.CHOICES:
+            # A typed "cancel", "slice it" or "2" is that button (#1206);
+            # only other text is a change.
+            answer = design.typed_choice(answer) or answer
         if answer == design.SLICE_LABEL:
-            engine.mark_handed_off(session)
-            return await _design_handoff(event, gateway, adapter, session, result['stl_path'])
+            return await _design_slice(event, gateway, adapter, engine, session,
+                                       result['stl_path'])
         if answer == design.CHANGE_LABEL:
             engine.awaiting_revision(session)
             await say('Say the change in your next message — e.g. "make it 5 mm taller". '
@@ -1031,7 +1189,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         # A change typed instead of pressing a button ("make it 5 mm taller")
         # is the revision itself: run it as the next turn of the same design.
         try:
-            result = await engine.run_turn(session, typed)
+            result = await _run_design_turn(engine, session, typed, adapter, source, metadata)
         except design.DesignError as exc:
             engine.awaiting_revision(session)
             await say(f'That change did not work: {exc} The previous version is kept; '
@@ -1245,6 +1403,22 @@ async def print_next_dispatch(event, gateway, **kwargs):
                 _owner = _mj._job_printer_id(_job)
                 pid = _routed_form(_owner)
                 live_key = _live_key_for(source, gateway, _owner)
+        if part_id is None:
+            # Several plates can go next: ask which, the same question on
+            # every transport through the shared prompt layer (#1204 item 5),
+            # instead of silently taking plan order where no Discord picker
+            # exists. A pick is a choice, not an approval: the bed-clear
+            # confirmation below is still asked for the picked plate.
+            asked = print_next.plate_question(plan)
+            if asked is not None:
+                plate_q, plate_labels, plate_ids = asked
+                picked = await _confirm(
+                    adapter, source, metadata, 'print-next-plate', plate_q, plate_labels,
+                    (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+                    live_key=live_key)
+                if picked not in plate_labels[:-1]:
+                    raise print_next.NextPlateError('no plate was picked (cancelled, Later or expired)')
+                target = print_next.resolve_next(plan, part_id=plate_ids[plate_labels.index(picked)])
         from print_handy.hermes import discord_print_summary as print_summary
         job, plate = print_summary.find_job(target['gcode'])
         seconds = (plate or {}).get('seconds')
@@ -4150,10 +4324,15 @@ async def print_stop_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'deterministic print stop handled'}
 
 
+def _command_matches(text, command, with_args=False):
+    """The text half of _control_preamble: ``text`` (already stripped) is ``command``, or with_args its argument form."""
+    return text == command or with_args and text.startswith(command + ' ')
+
+
 def _control_preamble(event, gateway, command, with_args=False):
     """Shared gate for the /print-resume, /print-again and /print-reboot commands."""
     text = str(getattr(event, 'text', '')).strip()
-    if not (text == command or with_args and text.startswith(command + ' ')):
+    if not _command_matches(text, command, with_args):
         return None, None
     return _control_gate(event, gateway)
 
@@ -4468,7 +4647,15 @@ async def print_again_dispatch(event, gateway, **kwargs):
                            if previous else 'A reprint; it gets its own new print number when it starts. ')
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f"Preparing to start {target['title']}. {number_line}{estimate}.")
+            # A reprint of a project plate is a new logical run (#1008
+            # acceptance item 5): name it before the start so the start
+            # record carries the new run id and the original plan's counters
+            # never move. Bookkeeping only; the approval above is this
+            # start's own and is not reused.
+            await asyncio.to_thread(pc.arm_reprint_run, target)
             ok, detail = await print_next.start(target)
+            if not ok:
+                await asyncio.to_thread(pc.disarm_reprint_run, target)
             if ok:
                 # Queue bookkeeping lands in the job owner's own queue file,
                 # never another printer's (P2-135).
@@ -6221,6 +6408,54 @@ _DISPATCH_HOOKS = (
     plate_calibrate_dispatch,
     nozzle_dispatch,
 )
+
+# The dispatch class of each command hook (#1153 item 10). A hook listed
+# here answers only its own slash command: its first statement tests the
+# message text exactly as its gate below does and returns None otherwise,
+# before it reads the source, the gateway or any state. The Router tests
+# the gate once per message and skips the hook when it fails, which is the
+# answer the hook would have given. Every other hook takes free text
+# (typed replies, links, plain-language asks, open prompts) and always runs.
+# tests/bot/test_dispatch_classes.py holds each gate to its hook.
+_COMMAND_GATES = {
+    maintenance_dispatch: ('/print-maintenance', True),
+    coldpull_dispatch: ('/print-coldpull', False),
+    lookup_dispatch: ('/print-lookup', True),
+    source_dispatch: ('/print-source', False),
+    troubleshoot_dispatch: ('/print-troubleshoot', True),
+    macros_dispatch: ('/print-macros', True),
+    firmware_dispatch: ('/print-firmware', True),
+    calibration_dispatch: ('/print-calibration', True),
+    print_next_dispatch: ('/print-next', True),
+    exclude_dispatch: ('/exclude', True),
+    print_stop_dispatch: ('/print-stop', False),
+    print_resume_dispatch: ('/print-resume', False),
+    bed_down_dispatch: ('/print-bed-down', False),
+    live_dispatch: ('/print-live', True),
+    plate_calibrate_dispatch: ('/print-plate-calibrate', True),
+    nozzle_dispatch: ('/nozzle', True),
+}
+
+
+def _gate(command, with_args):
+    def gate(text):
+        return _command_matches(text, command, with_args)
+    gate.command = command
+    return gate
+
+
+for _hook, (_command, _with_args) in _COMMAND_GATES.items():
+    _hook.dispatch_gate = _gate(_command, _with_args)
+
+
+def _color_selection_gate(text):
+    return text.startswith('/print-colors ')
+
+
+_color_selection_gate.command = '/print-colors'
+color_selection_dispatch.dispatch_gate = _color_selection_gate
+del _hook, _command, _with_args
+
 
 def register(ctx):
     """Install the handler set on the bot's Router (the only host left)."""

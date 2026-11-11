@@ -3689,11 +3689,17 @@ class Listener:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
                     log(f"native screen error {key} file={self.filename!r}")
+                    episode = f"native-error:{key[0]}:{key[1]}"
                     mention = starter_pings.ping_for(
-                        "alert", job_key=self.filename,
-                        episode=f"native-error:{key[0]}:{key[1]}") or None
-                    await asyncio.to_thread(post, native_error_text(self.filename, key),
-                                            **({"mention_user_id": mention} if mention else {}))
+                        "alert", job_key=self.filename, episode=episode) or None
+                    delivered = await asyncio.to_thread(
+                        post, native_error_text(self.filename, key),
+                        **({"mention_user_id": mention} if mention else {}))
+                    if not delivered and mention:
+                        # The post failed, so the recorded ping never landed:
+                        # release it, as post_alert does, so the next post of
+                        # this error can still ping the starter.
+                        starter_pings.release_ping("alert", job_key=self.filename, episode=episode)
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)
@@ -3942,6 +3948,9 @@ class Listener:
         the watch died with no log. An overrun is abandoned, logged and
         counted in ``visual_timeouts``. Never raises.
         """
+        filename = self.filename
+        identity = self._visual_identity()
+        watch = self.visual_watch
         try:
             await asyncio.wait_for(self._visual_check_once(reason, layer), VISUAL_CHECK_DEADLINE_S)
         except asyncio.TimeoutError:
@@ -3949,6 +3958,23 @@ class Listener:
             log(f"visual check timed out file={self.filename!r} reason={reason} after "
                 f"{VISUAL_CHECK_DEADLINE_S:.0f}s (timeouts so far: {self.visual_timeouts}); "
                 "the camera or the vision endpoint did not answer")
+            # Do not send an old print's timeout to a replacement print.
+            if self.filename != filename or self._visual_identity() != identity or self.visual_watch is not watch:
+                return
+            try:
+                from . import print_alert_buttons as pab
+                last = watch.camera_failure_alert_at
+                if await asyncio.to_thread(pab.visual_muted, filename, identity):
+                    return
+                if last is not None and _watch_now() - last < watch.profile["periodic_s"]:
+                    return
+                watch.camera_failure_alert_at = _watch_now()
+                await asyncio.to_thread(
+                    _visual_alert_text, filename,
+                    "Camera watch check timed out; this print is unmonitored while the watch retries. "
+                    "Check the camera and vision endpoint.", identity=identity)
+            except Exception as alert_exc:
+                log(f"visual timeout alert failed file={filename!r}: {alert_exc!r}")
 
     async def _visual_check_once(self, reason, layer):
         """Capture and classify a print frame; notify humans only, never actuate.

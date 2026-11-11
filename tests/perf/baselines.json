@@ -17,5 +17,25 @@
   ],
   "max_ratio": 0.7,
   "ceiling_s": 0.25
+ },
+ "verify_line_scan": {
+  "calibration": "#1153 item 7. 8-core desktop (Windows, Python 3.12), 12 x paired min-of-5 on the 1.3 MB plate in test_perf_gate_1153.py; one GcodeLines scan against the removed one-re-call-per-question path.",
+  "baseline_ratio": 0.36,
+  "observed_range": [
+   0.347,
+   0.377
+  ],
+  "max_ratio": 0.6,
+  "ceiling_s": 0.4
+ },
+ "settings_read_cached": {
+  "calibration": "#1153 /config parse cache. Same host and method; a cached settings._read of the shipped home layer against _read_uncached (the parse every call used to pay).",
+  "baseline_ratio": 0.1,
+  "observed_range": [
+   0.027,
+   0.127
+  ],
+  "max_ratio": 0.35,
+  "ceiling_s": 0.005
  }
 }

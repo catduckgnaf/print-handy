@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Release check: fail closed on the mistakes past releases actually made.
 
-Run before a version is tagged (see docs/RELEASE-CHECKLIST.md). It checks
+Run before a version is tagged (see docs/history/RELEASE-CHECKLIST.md). It checks
 the surfaces that have shipped stale before:
 
 - version consistency: ``print_handy/__init__.py``, the README's
-  "Current release" line and the ``docs/INTERNAL_RELEASE_NOTES.md``
+  "Current release" line and the ``docs/history/INTERNAL_RELEASE_NOTES.md``
   section for the target version must all name the target version
   (the docker-publish surfaces gate checks a looser form of this at
   publish time; this check runs it before tagging, where fixes are
@@ -30,7 +30,7 @@ check-sync definition; this script does not reimplement it.
 Usage:
   check_release.py --version 2.2.6 --from-ref 2.2.5 \
       --notes path/to/draft-release-notes.md \
-      [--internal-notes docs/INTERNAL_RELEASE_NOTES.md] \
+      [--internal-notes docs/history/INTERNAL_RELEASE_NOTES.md] \
       [--range-file range.txt]
 
 ``--range-file`` supplies the PR numbers one per line (or in git-log
@@ -181,7 +181,7 @@ def main(argv=None):
     parser.add_argument("--notes", required=True,
                         help="draft GitHub release notes (Markdown)")
     parser.add_argument("--internal-notes",
-                        default=str(ROOT / "docs" / "INTERNAL_RELEASE_NOTES.md"))
+                        default=str(ROOT / "docs" / "history" / "INTERNAL_RELEASE_NOTES.md"))
     parser.add_argument("--range-file", default=None)
     parser.add_argument("--to-ref", default="HEAD",
                         help="range end (default HEAD; the version tag "

@@ -38,6 +38,9 @@ SANCTIONED = {
     "mention_starter_on_complete": {
         "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
     },
+    "wrapped_ai_video": {
+        "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
+    },
 }
 
 
