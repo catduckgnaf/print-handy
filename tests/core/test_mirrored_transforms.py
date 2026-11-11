@@ -119,3 +119,81 @@ def test_color_export_mirrors_are_outward_or_explicitly_refused(tmp_path, painte
     else:
         color_geometry.export_color_geometry(src, out, decisions)
         assert sum(_volume(leaf['tris']) for leaf in support_clearance.leaves(str(out))) == pytest.approx(6000)
+
+
+def _support_painted(src, attr='paint_supports', code='841'):
+    """Give every triangle of a written source a subdivided support-paint code."""
+    with zipfile.ZipFile(src) as archive:
+        xml = archive.read('3D/3dmodel.model')
+    xml = xml.replace(b'<triangle ', f'<triangle {attr}="{code}" '.encode())
+    with zipfile.ZipFile(src, 'w') as archive:
+        archive.writestr('3D/3dmodel.model', xml)
+    return src
+
+
+def _per_part_decisions(src):
+    from print_handy.core import source_colors
+    manifest = source_colors.inventory(src)
+    choices = {row['key']: {'slot': 1} for row in source_colors.canonical_prompts(manifest)}
+    return {'schema': 'part_slots_v1', 'mode': 'per_part',
+            'source_sha256': manifest['source_sha256'], 'choices': choices}
+
+
+@pytest.mark.parametrize('attr', ['paint_supports', 'paint_seam'])
+def test_mirrored_support_or_seam_paint_is_refused_not_rewound(tmp_path, attr):
+    # #1195 (painted leaves under a mirror, other paths): support and seam
+    # paint use the same vertex-order subdivision as color paint, and both
+    # exporters keep them. Rewinding a reflected leaf would move the painted
+    # enforcers or seam to sub-triangles the author never painted, so both
+    # exporters refuse instead.
+    src = _support_painted(_write(tmp_path / 'source.3mf', item_tf=MIRROR_X), attr)
+    out = tmp_path / 'out.3mf'
+    with pytest.raises(RuntimeError, match=f'mirrored geometry with painted {attr}'):
+        color_geometry.export_color_geometry(src, out, _per_part_decisions(src))
+    assert not out.exists()
+    plate = tmp_path / 'plate.3mf'
+    with pytest.raises(RuntimeError, match=f'mirrored geometry with painted {attr}'):
+        color_geometry.export_volume_plate(src, plate)
+    assert not plate.exists()
+
+
+def test_support_paint_without_a_mirror_still_exports_with_its_order(tmp_path):
+    # The refusal is only for a reflected leaf: an unmirrored source, and a
+    # source mirrored twice (orientation preserving), keep their support
+    # paint on the triangles exactly as authored.
+    for name, kw in (('plain', {}), ('twice', dict(item_tf=MIRROR_X, comp_tf=MIRROR_X))):
+        src = _support_painted(_write(tmp_path / f'{name}.3mf', **kw))
+        for export, out in ((lambda s, o: color_geometry.export_color_geometry(s, o, _per_part_decisions(s)),
+                             tmp_path / f'{name}-color.3mf'),
+                            (color_geometry.export_volume_plate, tmp_path / f'{name}-plate.3mf')):
+            export(src, out)
+            with zipfile.ZipFile(out) as archive:
+                model = archive.read('3D/3dmodel.model')
+            assert model.count(b'paint_supports="841"') == len(BOX_F)
+            assert sum(_volume(leaf['tris']) for leaf in support_clearance.leaves(str(out))) == pytest.approx(6000)
+
+
+def test_per_color_reader_counts_paint_the_same_under_a_mirror(tmp_path):
+    # #1195 (per-color source reader): the reader counts paint states per
+    # triangle leaf, which does not depend on vertex order, and it never
+    # flattens geometry, so a reflected source reads exactly like the
+    # unmirrored one. The order-dependent step is the flattening export,
+    # refused above.
+    from print_handy.core import painted_geometry, source_colors
+    project = {'filament_colour': ['#FF0000', '#00FF00'], 'filament_type': ['PLA', 'PLA']}
+    reads = {}
+    for name, kw in (('plain', {}), ('item', dict(item_tf=MIRROR_X)), ('diagonal', dict(item_tf=MIRROR_Z_ROT)),
+                     ('component', dict(comp_tf=MIRROR_X))):
+        src = _write(tmp_path / f'{name}.3mf', **kw)
+        with zipfile.ZipFile(src) as archive:
+            xml = archive.read('3D/3dmodel.model').replace(b'<triangle ', b'<triangle paint_color="841" ')
+        with zipfile.ZipFile(src, 'w') as archive:
+            archive.writestr('3D/3dmodel.model', xml)
+            archive.writestr('Metadata/project_settings.config', json.dumps(project))
+        census = painted_geometry.paint_census(src)
+        manifest = source_colors.inventory(src)
+        reads[name] = ([row['states'] for row in census.values()], manifest['painted'],
+                       [p['source_extruder'] for p in manifest['parts']],
+                       [row['key'].split(':')[0] for row in source_colors.canonical_prompts(manifest)])
+    assert reads['plain'][0] == [{1: len(BOX_F), 2: len(BOX_F)}]
+    assert all(read == reads['plain'] for read in reads.values()), reads
