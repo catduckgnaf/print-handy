@@ -2370,16 +2370,21 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
     result_path = folder / 'result.json'
-    post_gate = post_slice(output, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
+    # The finalized G-code, read once for every read-only check below (#1153):
+    # the post-slice guard, the vendor start-code check and the printer's own
+    # refusals used to read the whole file once each. Finalizing (above) is
+    # the last write, so all three see exactly the bytes they used to read.
+    final_text = output.read_text(errors='replace')
+    post_gate = post_slice(final_text, result_json=None if slicer != 'OrcaSlicer' else (result_path if result_path.is_file() else None),
                            bed=bed, filament_slots=(int(printer.slot_count) if multi_tool else FILAMENT_SLOTS), tool_slots=tool_slots,
                            templates=templates, profile_paths=filament_paths,
                            envelope=printer.motion_envelope_mm)
     # Each vendor runs only its own start code: e.g. no Klipper/ZMod macro reaches a Bambu Lab printer.
     if vendor is not None:
-        for problem in start_code_problems(output.read_text(errors='replace'), vendor):
+        for problem in start_code_problems(final_text, vendor):
             post_gate.block(problem)
     # Printer-specific refusals: the A1's vendor blocks, modal toolpath bounds, limits and hardware record.
-    for problem in printer.gcode_problems(output.read_text(errors='replace'), state):
+    for problem in printer.gcode_problems(final_text, state):
         post_gate.block(problem)
     # Each model approves its own protected settings; a model without a baseline file keeps the shared one.
     baseline_kw = {} if printer.baseline_path is None else {'path': printer.baseline_path}

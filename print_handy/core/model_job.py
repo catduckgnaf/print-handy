@@ -5624,7 +5624,20 @@ def _painted_fit(src, view, plates, ceiling, tower_mm):
 
 
 def painted_fit_for_job(src, decisions, state=None):
-    """Intake helper: shared painted-plate scale for an exact-source decision."""
+    """Intake helper: shared painted-plate scale for an exact-source decision.
+
+    The whole fit runs in one inventory scope (#1153): every geometry export
+    it tries (up to one per ladder step per plate) and the plate manifest
+    ask for the source's color manifest, and inside the scope a source whose
+    bytes hash the same is inventoried once. Each caller still gets its own
+    copy, and nothing outlives the call.
+    """
+    from .source_colors import inventory_scope
+    with inventory_scope():
+        return _painted_fit_for_job(src, decisions, state)
+
+
+def _painted_fit_for_job(src, decisions, state=None):
     from .source_colors import inventory
     manifest = inventory(src)
     view = _per_part_view(manifest, decisions)

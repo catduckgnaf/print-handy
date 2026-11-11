@@ -179,6 +179,15 @@ def checks(cfg):
     _ref_state, _ref_detail = _local_empty.reference_status(cfg)
     add("plate reference", _ref_state in ("off", "missing", "pending", "ready"),
         f"{_ref_state}: {_ref_detail}")
+    # Camera watch coverage (#1194): per printer, whether its family has the
+    # in-print watch at all (Moonraker and Bambu Lab do; the others get idle
+    # plate checks only) and whether a vision route lets it run. A pinned
+    # vision.watch_source that cannot work fails the row instead of the
+    # watch silently doing nothing.
+    from ..hermes import visual_watch as _visual_watch
+    for _watch_ok, _watch_detail in _visual_watch.coverage_report(
+            cfg, lambda: os.environ.get("CLIPROXY_API_KEY", "")):
+        add("camera watch", _watch_ok, _watch_detail)
     # Auto light-off (#516): the listener turns the printer's light on at
     # print start and off again after the camera verdict has seen an empty
     # plate for vision.auto_light_off_minutes. Off by default (0). Like

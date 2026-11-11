@@ -56,7 +56,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .. import go2rtc
+from .. import camera_url, go2rtc
 from ..live_stream import redact_url
 from . import _config
 from .print_records import _safe_slug
@@ -134,7 +134,7 @@ def dark_outcome_text(dark_frames) -> str:
 def fetch_frame(url, timeout=8) -> bytes:
     """One bounded JPEG snapshot. Raises on any transport or format problem;
     callers (CaptureSession) treat every raise as a soft capture failure."""
-    request = urllib.request.Request(url)
+    request = camera_url.request(url)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         image = response.read(MAX_FRAME_BYTES + 1)
     if len(image) > MAX_FRAME_BYTES or not image.startswith(JPEG_MAGIC):
@@ -159,7 +159,7 @@ def fetch_mjpeg_frame(url, timeout=8) -> bytes:
     fetch_frame; raises on any transport or format problem, and
     CaptureSession treats every raise as a soft capture failure.
     """
-    request = urllib.request.Request(url)
+    request = camera_url.request(url)
     buffer = bytearray()
     with urllib.request.urlopen(request, timeout=timeout) as response:
         while len(buffer) <= MAX_FRAME_BYTES + MJPEG_SCAN_SLACK:
