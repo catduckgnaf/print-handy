@@ -83,22 +83,53 @@ _is_mountpoint() {
 # a legitimate file can never collide with one and be deleted (#1215 review).
 # Ownership is not preserved: the copy runs as the volume's runtime user, and
 # a filesystem that refuses chown must not stop it.
+# Conflicts never stop the copy and never change /data/state: where the legacy
+# tree has a directory and /data/state has a file or a symlink of that name,
+# the /data/state entry is kept, that legacy subtree is skipped with a warning,
+# and every unrelated file is still copied (#1215 review). Nothing is written
+# through a symlink in /data/state, so the copy cannot land outside it.
+# $4 set means a resume: a pre-#1144 interrupted copy (`cp -a` straight onto
+# the final names) can have left a truncated file, so a /data/state file that
+# is a strict byte prefix of its legacy counterpart is completed from it. That
+# loses nothing: every byte of the existing file is the start of the new one.
+# The listing is taken in full before anything is copied, so a legacy folder
+# that cannot be read fails the start (the mark stays, the next start resumes)
+# instead of being recorded as migrated with parts silently left behind.
+_is_strict_prefix() {
+    local short long
+    short="$(stat -c %s "$1")" && long="$(stat -c %s "$2")" || return 1
+    [ "$short" -lt "$long" ] && cmp -s -n "$short" "$1" "$2"
+}
 _copy_missing() {
-    local src="$1" dst="$2" scratch="$3" path rel target tmp
+    local src="$1" dst="$2" scratch="$3" resume="${4:-}" path rel target parent tmp list
     tmp="$scratch/entry"
+    list="$scratch/list"
+    find -H "$src" -mindepth 1 -print0 > "$list"
     while IFS= read -r -d '' path; do
         rel="${path#"$src"/}"
         target="$dst/$rel"
         case "$rel" in .migration-incomplete|.migrated-from-legacy) continue ;; esac
+        parent="${target%/*}"
+        # Inside a legacy subtree skipped as a conflict (warned once below).
+        if [ ! -d "$parent" ] || [ -L "$parent" ]; then continue; fi
         if [ -d "$path" ] && [ ! -L "$path" ]; then
-            mkdir -p "$target"
+            if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+                mkdir "$target"
+            elif [ ! -d "$target" ] || [ -L "$target" ]; then
+                echo "Print Handy: WARNING /data/state/$rel already exists and is not a folder; it is kept, and the legacy folder of that name was not copied." >&2
+            fi
         elif [ ! -e "$target" ] && [ ! -L "$target" ]; then
             rm -rf -- "$tmp"
             cp -a --no-preserve=ownership "$path" "$tmp"
             mv -n "$tmp" "$target"
+        elif [ -n "$resume" ] && [ -f "$path" ] && [ ! -L "$path" ] && [ -f "$target" ] && [ ! -L "$target" ]                 && _is_strict_prefix "$target" "$path"; then
+            rm -rf -- "$tmp"
+            cp -a --no-preserve=ownership "$path" "$tmp"
+            mv -f "$tmp" "$target"
+            echo "Print Handy: completed /data/state/$rel, which an interrupted earlier copy had left truncated." >&2
         fi
-    done < <(find -H "$src" -mindepth 1 -print0)
-    rm -rf -- "$tmp"
+    done < "$list"
+    rm -rf -- "$tmp" "$list"
 }
 # The scratch directory an interrupted copy recorded in the mark file, when
 # the mark names one this script made; empty otherwise. Resume removes only
@@ -128,14 +159,16 @@ elif _legacy_is_source && { ! _has_files "$state_home" || [ -e "$mark_file" ]; }
         # (a partial copy) must not be deleted: both are populated from the
         # legacy volume instead of being replaced by a symlink. Entries that
         # already exist are kept, so nothing newer is overwritten.
+        resume=""
         if [ -e "$mark_file" ]; then
+            resume=1
             echo "Print Handy: an earlier copy of the legacy /data/hermes state volume into /data/state did not finish; completing it (files already in /data/state are kept)." >&2
             stale_scratch="$(_recorded_scratch)"
             if [ -n "$stale_scratch" ]; then rm -rf -- "$stale_scratch"; fi
         fi
         scratch="$(mktemp -d "$state_home/.ph-migrating.XXXXXX")"
         printf '%s\n' "$scratch" > "$mark_file"
-        _copy_missing "$legacy_home" "$state_home" "$scratch"
+        _copy_missing "$legacy_home" "$state_home" "$scratch" "$resume"
         rm -rf -- "$scratch"
         date -u +%Y-%m-%dT%H:%M:%SZ > "$done_file"
         rm -f "$mark_file"
@@ -152,12 +185,14 @@ elif [ -e "$mark_file" ]; then
     # the copy from (it was removed or unmapped between starts): say so
     # plainly instead of silently trusting a partial /data/state.
     echo "Print Handy: WARNING an earlier copy into /data/state did not finish, and the legacy /data/hermes volume now holds no files to complete it from; /data/state may be incomplete." >&2
-elif [ "$legacy_home" = "$data_root/hermes" ] && [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
-    # Only the new volume is mapped (Docker created it as an empty
-    # mountpoint directory) and the legacy name does not exist at all (the
-    # image does not create it): leave it as a symlink to the new volume so
-    # tools that still use the pre-2.2.5 path keep working (#938). A legacy
-    # path that exists as a real folder or mount is never replaced.
+fi
+if [ "$legacy_home" = "$data_root/hermes" ] && [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
+    # The legacy name does not exist at all (the image does not create it,
+    # and Compose no longer mounts it): leave it as a symlink to the state
+    # volume so tools and an explicit paths.hermes_home that still use the
+    # pre-2.2.5 path keep working (#938), including on an install whose
+    # legacy folder was already copied into /data/state. A legacy path that
+    # exists as a real folder or mount is never replaced.
     ln -s "$state_home" "$legacy_home"
     echo "Print Handy: /data/hermes is a symlink to /data/state so the pre-2.2.5 name keeps working (deprecated name; it stays accepted for at least two minor releases)." >&2
 fi

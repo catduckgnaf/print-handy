@@ -387,6 +387,10 @@ How the copy behaves (#1144):
 - **Nothing is overwritten.** Only files `/data/state` does not have are
   copied; a file that exists in `/data/state` stays as it is, whatever the
   timestamps say, so a stale `/data/hermes` can never replace newer data.
+  Where `/data/state` has a file or a symlink in the place of a legacy
+  folder, the `/data/state` entry is kept, that legacy folder is skipped
+  with a warning naming it, and everything else is still copied. Nothing is
+  written through a symlink in `/data/state`.
 - **It happens once.** When the copy completes, `/data/state` gets a
   `.migrated-from-legacy` file. From then on `/data/hermes` is ignored (with
   a warning while it still holds files) and is never copied again, even if
@@ -396,7 +400,12 @@ How the copy behaves (#1144):
   copy runs. Each file is written under a temporary name and renamed, so a
   file with its real name is complete. After a crash or a full disk the next
   start finishes the job and skips what is already there; running it again
-  over the mark is safe.
+  over the mark is safe. A copy interrupted on an earlier release could leave a
+  truncated file under its real name; the resume completes a file only when
+  it is an exact byte prefix of the legacy file, which loses nothing. If a
+  legacy file or folder cannot be read, the start stops with the error and
+  the mark stays, so the copy is never recorded as done with parts missing:
+  fix the permissions (`chown -R 1000:1000` on the folder) and start again.
 - **What counts as data.** A folder holds data when it contains anything that
   is not a directory: a file or a symlink (even a dangling one). Empty
   folders alone count as empty.

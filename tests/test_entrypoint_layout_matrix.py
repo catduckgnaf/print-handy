@@ -388,3 +388,119 @@ def test_the_image_does_not_precreate_the_legacy_folder():
     run_line = next(line for line in dockerfile.splitlines()
                     if line.startswith("RUN mkdir -p /data/state/state"))
     assert "/data/hermes" not in run_line
+
+
+def test_a_file_where_legacy_has_a_folder_is_kept_and_the_rest_still_migrates(tmp_path):
+    # #1215 review: /data/state/foo a file, legacy foo/bar a file inside a
+    # folder. `mkdir -p` failed under set -e and aborted the whole migration.
+    legacy = tmp_path / "hermes"
+    (legacy / "foo").mkdir(parents=True)
+    (legacy / "foo" / "bar").write_text("legacy bar\n")
+    (legacy / "foo" / "deeper").mkdir()
+    (legacy / "foo" / "deeper" / "x").write_text("x\n")
+    (legacy / "other.txt").write_text("other\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "foo").write_text("operator file\n")
+    (state / ".migration-incomplete").write_text("")
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (state / "foo").read_text() == "operator file\n"
+    assert (state / "other.txt").read_text() == "other\n"
+    assert "/data/state/foo already exists and is not a folder" in result.stderr
+    assert result.stderr.count("is not a folder") == 1
+    assert (state / ".migrated-from-legacy").is_file()
+    assert not (state / ".migration-incomplete").exists()
+
+
+def test_nothing_is_written_through_a_symlink_in_state(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    legacy = tmp_path / "hermes"
+    (legacy / "linked").mkdir(parents=True)
+    (legacy / "linked" / "x.txt").write_text("x\n")
+    (legacy / "plain.txt").write_text("plain\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    symlink(str(outside), state / "linked")
+    (state / ".migration-incomplete").write_text("")
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert list(outside.iterdir()) == []
+    assert (state / "linked").is_symlink()
+    assert (state / "plain.txt").read_text() == "plain\n"
+
+
+def test_resume_completes_a_file_an_old_style_copy_left_truncated(tmp_path):
+    # A pre-#1144 `cp -a` wrote straight onto the final names, so a copy
+    # killed mid-file left a truncated file under its real name. A strict
+    # prefix of the legacy file is completed; any other difference is kept.
+    legacy = tmp_path / "hermes"
+    legacy.mkdir()
+    (legacy / "db.json").write_text('{"jobs": [1, 2, 3]}\n')
+    (legacy / "edited.txt").write_text("legacy text\n")
+    (legacy / "longer.txt").write_text("ab\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "db.json").write_text('{"jobs": [1,')
+    (state / "edited.txt").write_text("legacy\n")        # not a prefix: kept
+    (state / "longer.txt").write_text("ab\nmore\n")      # longer: kept
+    (state / ".migration-incomplete").write_text("")
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (state / "db.json").read_text() == '{"jobs": [1, 2, 3]}\n'
+    assert (state / "edited.txt").read_text() == "legacy\n"
+    assert (state / "longer.txt").read_text() == "ab\nmore\n"
+    assert "completed /data/state/db.json" in result.stderr
+
+
+def test_a_first_copy_never_rewrites_an_existing_prefix_file(tmp_path):
+    # Without a mark (a first copy) an existing file always wins as is.
+    legacy = tmp_path / "hermes"
+    legacy.mkdir()
+    (legacy / "log.txt").write_text("line 1\nline 2\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "log.txt").write_text("line 1\n")
+    (state / "sub").mkdir()                            # state reads as empty
+    result = run_mounted(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (state / "log.txt").read_text() == "line 1\n"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                    reason="root reads a mode-000 folder, so the failure cannot be staged")
+def test_an_unreadable_legacy_folder_fails_the_start_and_is_not_recorded(tmp_path):
+    legacy = tmp_path / "hermes"
+    seed(legacy, "ok.txt")
+    locked = legacy / "locked"
+    locked.mkdir()
+    (locked / "secret.txt").write_text("s\n")
+    state = tmp_path / "state"
+    state.mkdir()
+    locked.chmod(0)
+    try:
+        result = run_mounted(tmp_path)
+    finally:
+        locked.chmod(0o755)
+    assert result.returncode != 0
+    assert (state / ".migration-incomplete").exists()
+    assert not (state / ".migrated-from-legacy").exists()
+    again = run_mounted(tmp_path)                       # fixed: the next start resumes
+    assert again.returncode == 0, again.stderr
+    assert (state / "locked" / "secret.txt").read_text() == "s\n"
+    assert (state / ".migrated-from-legacy").is_file()
+
+
+def test_a_migrated_install_without_the_legacy_folder_still_gets_the_compat_link(tmp_path):
+    # New Compose: print-handy-migrate copied ./data/hermes, and the main
+    # container mounts no /data/hermes. The pre-2.2.5 name (and an explicit
+    # paths.hermes_home=/data/hermes) must still resolve to /data/state.
+    state = tmp_path / "state"
+    seed(state)
+    (state / ".migrated-from-legacy").write_text("2026-11-10T00:00:00Z\n")
+    result = run_entrypoint(tmp_path)
+    assert result.returncode == 0, result.stderr
+    legacy = tmp_path / "hermes"
+    assert legacy.is_symlink() and os.readlink(legacy) == str(state)
+    assert (state / "record.txt").read_text() == "state\n"
