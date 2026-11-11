@@ -285,8 +285,13 @@ def test_parts_512_original_is_the_first_recording_not_the_unsubstantiated_raise
     for transport, first in (("direct", 4.74), ("standalone", 4.75)):
         entry = data["cases"][f"parts-512-four-color/{transport}"]
         assert entry["original"]["wall_s"] == first
-        assert entry["raised_from"]["wall_s"] == first
-        assert "3.77" not in entry["reason"] or "appears nowhere" in entry["reason"]
+        # 2.2.9 measured the case faster than its last raise (speed work, #1153),
+        # so the re-record carries no raise; when one comes back it starts from
+        # the first recording, never the unsubstantiated 3.77 s.
+        if "raised_from" in entry:
+            assert entry["raised_from"]["wall_s"] >= first
+        reason = entry.get("reason", "")
+        assert "3.77" not in reason or "appears nowhere" in reason
 
 
 def test_every_checked_in_entry_stores_its_original_explicitly():

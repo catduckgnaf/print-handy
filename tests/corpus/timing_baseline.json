@@ -1,180 +1,163 @@
 {
  "cases": {
   "assembly-2c-tight/direct": {
-   "first_prompt_s": 0.25,
+   "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
     "wall_s": 0.38
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.25,
     "fit_check_s": 0.0,
     "wall_s": 0.38
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.38
+   "reason": "2.2.9 re-record of assembly-2c-tight/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.38s -> 0.5s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.5
   },
   "assembly-2c-tight/standalone": {
-   "first_prompt_s": 0.36,
+   "first_prompt_s": 0.37,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.31,
     "fit_check_s": 0.0,
     "wall_s": 0.4
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.31,
+    "first_prompt_s": 0.36,
     "fit_check_s": 0.0,
-    "wall_s": 0.4
+    "wall_s": 0.41
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.41
+   "reason": "2.2.9 re-record of assembly-2c-tight/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.41s -> 0.42s, first_prompt_s 0.36s -> 0.37s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.42
   },
   "assembly-3c-tight/direct": {
-   "first_prompt_s": 0.23,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
-   "raised_from": {
-    "first_prompt_s": 0.17,
-    "fit_check_s": 0.0,
-    "wall_s": 0.23
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.29
+   "wall_s": 0.26
   },
   "assembly-3c-tight/standalone": {
-   "first_prompt_s": 0.23,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.18,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.18,
+    "first_prompt_s": 0.23,
     "fit_check_s": 0.0,
-    "wall_s": 0.23
+    "wall_s": 0.29
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.29
+   "reason": "2.2.9 re-record of assembly-3c-tight/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.29s -> 0.32s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.32
   },
   "assembly-four-color-tight/direct": {
-   "first_prompt_s": 0.25,
+   "first_prompt_s": 0.2,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
     "wall_s": 0.25
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.25,
     "fit_check_s": 0.0,
-    "wall_s": 0.25
+    "wall_s": 0.31
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.31
+   "reason": "2.2.9 re-record of assembly-four-color-tight/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.31s -> 0.42s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.42
   },
   "assembly-four-color-tight/standalone": {
-   "first_prompt_s": 0.26,
+   "first_prompt_s": 0.2,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.19,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.19,
+    "first_prompt_s": 0.26,
     "fit_check_s": 0.0,
-    "wall_s": 0.26
+    "wall_s": 0.31
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.31
+   "reason": "2.2.9 re-record of assembly-four-color-tight/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.31s -> 0.33s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.33
   },
   "assembly-small-tower/direct": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.16,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.21
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.0,
-    "wall_s": 0.21
+    "wall_s": 0.27
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.27
+   "reason": "2.2.9 re-record of assembly-small-tower/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.27s -> 0.37s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.37
   },
   "assembly-small-tower/standalone": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.16,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
     "wall_s": 0.22
    },
-   "raised_from": {
-    "first_prompt_s": 0.17,
-    "fit_check_s": 0.0,
-    "wall_s": 0.22
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.28
+   "wall_s": 0.22
   },
   "assembly-three-color-no-room/direct": {
-   "first_prompt_s": 0.28,
+   "first_prompt_s": 0.22,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
     "wall_s": 0.28
    },
-   "raised_from": {
-    "first_prompt_s": 0.22,
-    "fit_check_s": 0.0,
-    "wall_s": 0.28
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.31
+   "wall_s": 0.27
   },
   "assembly-three-color-no-room/standalone": {
-   "first_prompt_s": 0.27,
+   "first_prompt_s": 0.22,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
-   "raised_from": {
-    "first_prompt_s": 0.22,
-    "fit_check_s": 0.0,
-    "wall_s": 0.26
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.3
+   "wall_s": 0.25
   },
   "assembly-two-color-roomy/direct": {
-   "first_prompt_s": 0.08,
+   "first_prompt_s": 0.07,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.07,
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.07,
+    "first_prompt_s": 0.08,
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.13
+   "reason": "2.2.9 re-record of assembly-two-color-roomy/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.13s -> 0.15s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.15
   },
   "assembly-two-color-roomy/standalone": {
    "first_prompt_s": 0.08,
@@ -184,13 +167,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.14
    },
-   "raised_from": {
-    "first_prompt_s": 0.07,
-    "fit_check_s": 0.0,
-    "wall_s": 0.14
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.15
+   "wall_s": 0.14
   },
   "copies-multiple-plates/direct": {
    "first_prompt_s": 0.02,
@@ -200,13 +177,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.06
+    "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.07
+   "reason": "2.2.9 re-record of copies-multiple-plates/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.24s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.24
   },
   "copies-multiple-plates/standalone": {
    "first_prompt_s": 0.02,
@@ -216,7 +194,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "wall_s": 0.07
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "2.2.9 re-record of copies-multiple-plates/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.15s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.15
   },
   "core-basematerials-parts/direct": {
    "first_prompt_s": 0.03,
@@ -226,7 +211,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "wall_s": 0.1
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
+   "reason": "2.2.9 re-record of core-basematerials-parts/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.13s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.13
   },
   "core-basematerials-parts/standalone": {
    "first_prompt_s": 0.03,
@@ -236,7 +228,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "wall_s": 0.1
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
+   "reason": "2.2.9 re-record of core-basematerials-parts/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.17s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.17
   },
   "core-colorgroup-items/direct": {
    "first_prompt_s": 0.02,
@@ -246,7 +245,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "wall_s": 0.07
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "2.2.9 re-record of core-colorgroup-items/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "core-colorgroup-items/standalone": {
    "first_prompt_s": 0.02,
@@ -256,13 +262,25 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "wall_s": 0.07
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "2.2.9 re-record of core-colorgroup-items/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "core-cyclic-components/direct": {
    "original": {
     "wall_s": 0.01
    },
-   "wall_s": 0.01
+   "previous_reason": "",
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "2.2.9 re-record of core-cyclic-components/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.02
   },
   "core-cyclic-components/standalone": {
    "original": {
@@ -274,11 +292,7 @@
    "original": {
     "wall_s": 0.01
    },
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.02
+   "wall_s": 0.01
   },
   "core-dangling-build-item/standalone": {
    "original": {
@@ -304,7 +318,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-inch-nested-assembly/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.06
   },
   "core-multiproperties-texture/direct": {
    "first_prompt_s": 0.01,
@@ -314,7 +335,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-multiproperties-texture/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "core-multiproperties-texture/standalone": {
    "first_prompt_s": 0.01,
@@ -324,17 +352,31 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-multiproperties-texture/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.17s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.17
   },
   "core-one-color/direct": {
    "first_prompt_s": 0.03,
-   "fit_check_s": 0.0,
+   "fit_check_s": 0.03,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of core-one-color/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.2s, fit_check_s 0.0s -> 0.03s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.2
   },
   "core-one-color/standalone": {
    "first_prompt_s": 0.03,
@@ -344,7 +386,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "wall_s": 0.09
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.09
+   },
+   "reason": "2.2.9 re-record of core-one-color/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.09s -> 0.15s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.15
   },
   "core-prefixed-namespace/direct": {
    "first_prompt_s": 0.01,
@@ -354,7 +403,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-prefixed-namespace/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.07
   },
   "core-prefixed-namespace/standalone": {
    "first_prompt_s": 0.01,
@@ -364,13 +420,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.05
+    "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.07
+   "reason": "2.2.9 re-record of core-prefixed-namespace/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "core-triangle-colors/direct": {
    "first_prompt_s": 0.01,
@@ -380,7 +437,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-triangle-colors/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.06
   },
   "core-triangle-colors/standalone": {
    "first_prompt_s": 0.01,
@@ -390,7 +454,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of core-triangle-colors/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.06
   },
   "duplicate-part-names/direct": {
    "first_prompt_s": 0.01,
@@ -400,22 +471,23 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.09
+   "wall_s": 0.06
   },
   "duplicate-part-names/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
+   "reason": "2.2.9 re-record of duplicate-part-names/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
    "wall_s": 0.06
   },
   "five-colors-over-slots/direct": {
@@ -426,7 +498,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of five-colors-over-slots/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.14s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.14
   },
   "five-colors-over-slots/standalone": {
    "first_prompt_s": 0.02,
@@ -436,39 +515,48 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of five-colors-over-slots/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.1
   },
   "foreign-bambu-profile-split/direct": {
-   "first_prompt_s": 0.21,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.16,
+   "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
     "wall_s": 0.26
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.17,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.01,
-    "wall_s": 0.26
+    "wall_s": 0.29
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.29
+   "reason": "2.2.9 re-record of foreign-bambu-profile-split/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: fit_check_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.28
   },
   "foreign-bambu-profile-split/standalone": {
-   "first_prompt_s": 0.21,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.17,
+   "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
     "wall_s": 0.26
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.17,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.01,
-    "wall_s": 0.26
+    "wall_s": 0.3
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.3
+   "reason": "2.2.9 re-record of foreign-bambu-profile-split/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.3s -> 0.31s, fit_check_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.31
   },
   "foreign-bambu-profile/direct": {
    "first_prompt_s": 0.02,
@@ -478,13 +566,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.08
+    "wall_s": 0.09
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.09
+   "reason": "2.2.9 re-record of foreign-bambu-profile/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.09s -> 0.18s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.18
   },
   "foreign-bambu-profile/standalone": {
    "first_prompt_s": 0.02,
@@ -494,7 +583,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of foreign-bambu-profile/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "four-colors-one-plate/direct": {
    "first_prompt_s": 0.02,
@@ -504,7 +600,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of four-colors-one-plate/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "four-colors-one-plate/standalone": {
    "first_prompt_s": 0.02,
@@ -514,7 +617,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of four-colors-one-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "height-color-changes/direct": {
    "first_prompt_s": 0.01,
@@ -524,13 +634,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.06
+    "wall_s": 0.08
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.08
+   "reason": "2.2.9 re-record of height-color-changes/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "height-color-changes/standalone": {
    "first_prompt_s": 0.01,
@@ -540,104 +651,102 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.06
+    "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.07
+   "reason": "2.2.9 re-record of height-color-changes/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "islands-144-four-color/direct": {
    "first_prompt_s": 0.2,
-   "fit_check_s": 0.03,
+   "fit_check_s": 0.06,
    "original": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.03,
     "wall_s": 0.77
    },
-   "wall_s": 0.77
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.03,
+    "wall_s": 0.77
+   },
+   "reason": "2.2.9 re-record of islands-144-four-color/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.77s -> 0.87s, fit_check_s 0.03s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.87
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.2,
+   "first_prompt_s": 0.23,
    "fit_check_s": 0.04,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.05,
     "wall_s": 0.75
    },
-   "previous_reason": "",
+   "previous_reason": "Wall time 0.75s -> 0.85s (median of 3, CI run 42883041795). CI medians of main show #1165 sped this case up (0.68s at 42861430542), then a step back to 0.83s by f0a238df (window: #1172, #1174, #1177, #1179, #1181); the cause inside that window was not isolated, no per-commit bisect was run.",
    "raised_from": {
-    "first_prompt_s": 0.17,
-    "fit_check_s": 0.05,
-    "wall_s": 0.75
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.04,
+    "wall_s": 0.85
    },
-   "reason": "Wall time 0.75s -> 0.85s (median of 3, CI run 42883041795). CI medians of main show #1165 sped this case up (0.68s at 42861430542), then a step back to 0.83s by f0a238df (window: #1172, #1174, #1177, #1179, #1181); the cause inside that window was not isolated, no per-commit bisect was run.",
-   "wall_s": 0.85
+   "reason": "2.2.9 re-record of islands-144-four-color/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.85s -> 0.93s, first_prompt_s 0.2s -> 0.23s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.93
   },
   "loose-2c-tight/direct": {
-   "first_prompt_s": 0.07,
+   "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
     "wall_s": 0.11
    },
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.11
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.13
+   "wall_s": 0.12
   },
   "loose-2c-tight/standalone": {
-   "first_prompt_s": 0.07,
+   "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.13
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "wall_s": 0.14
   },
   "loose-3c-tight/direct": {
-   "first_prompt_s": 0.1,
+   "first_prompt_s": 0.09,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.08,
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.08,
+    "first_prompt_s": 0.1,
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.15
+   "reason": "2.2.9 re-record of loose-3c-tight/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.15s -> 0.23s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.23
   },
   "loose-3c-tight/standalone": {
-   "first_prompt_s": 0.1,
+   "first_prompt_s": 0.09,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.09,
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.09,
+    "first_prompt_s": 0.1,
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.15
+   "reason": "2.2.9 re-record of loose-3c-tight/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.15s -> 0.16s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.16
   },
   "loose-4c-tight/direct": {
    "first_prompt_s": 0.06,
@@ -647,13 +756,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.13
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.14
+   "wall_s": 0.12
   },
   "loose-4c-tight/standalone": {
    "first_prompt_s": 0.06,
@@ -663,12 +766,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.12
    },
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.12
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "wall_s": 0.14
   },
   "many-parts/direct": {
@@ -689,7 +786,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "wall_s": 0.07
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "2.2.9 re-record of many-parts/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.1
   },
   "missing-plate-metadata/direct": {
    "first_prompt_s": 0.01,
@@ -699,7 +803,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of missing-plate-metadata/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.12s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.12
   },
   "missing-plate-metadata/standalone": {
    "first_prompt_s": 0.01,
@@ -709,129 +820,129 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of missing-plate-metadata/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "multiplate-select/direct": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.16,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.0,
-    "wall_s": 0.23
+    "wall_s": 0.28
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.28
+   "reason": "2.2.9 re-record of multiplate-select/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.28s -> 0.41s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.41
   },
   "multiplate-select/standalone": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.24
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.0,
-    "wall_s": 0.24
+    "wall_s": 0.28
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.28
+   "reason": "2.2.9 re-record of multiplate-select/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.28s -> 0.29s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.29
   },
   "must-shrink/direct": {
-   "first_prompt_s": 0.38,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.3,
+   "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
     "wall_s": 0.36
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.3,
+    "first_prompt_s": 0.38,
     "fit_check_s": 0.01,
-    "wall_s": 0.36
+    "wall_s": 0.44
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.44
+   "reason": "2.2.9 re-record of must-shrink/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: fit_check_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.4
   },
   "must-shrink/standalone": {
-   "first_prompt_s": 0.4,
+   "first_prompt_s": 0.31,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
     "wall_s": 0.38
    },
-   "raised_from": {
-    "first_prompt_s": 0.3,
-    "fit_check_s": 0.01,
-    "wall_s": 0.38
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.45
+   "wall_s": 0.38
   },
   "needs-supports/direct": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
-    "wall_s": 0.1
+    "wall_s": 0.11
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.11
+   "reason": "2.2.9 re-record of needs-supports/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.11s -> 0.13s, first_prompt_s 0.03s -> 0.04s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.13
   },
   "needs-supports/standalone": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "wall_s": 0.1
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "fit_check_s": 0.0,
+    "wall_s": 0.1
+   },
+   "reason": "2.2.9 re-record of needs-supports/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.11s, first_prompt_s 0.03s -> 0.04s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "parts-512-four-color/direct": {
-   "first_prompt_s": 1.0,
-   "fit_check_s": 0.2,
+   "first_prompt_s": 0.74,
+   "fit_check_s": 0.16,
    "original": {
     "first_prompt_s": 0.68,
     "fit_check_s": 0.01,
     "wall_s": 4.74
    },
-   "raised_from": {
-    "first_prompt_s": 0.68,
-    "fit_check_s": 0.01,
-    "wall_s": 4.74
-   },
-   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.74 s (2026-11-03); the 2.2.5 re-record raised it to 5.35 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.68 s to 1.05 s, fit_check 0.01 s to 0.24 s on this 512-part job); 2.2.6 measured 5.20 s and 2.2.7 kept it. The 3.77 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
-   "wall_s": 5.2
+   "wall_s": 4.2
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.99,
-   "fit_check_s": 0.19,
+   "first_prompt_s": 0.76,
+   "fit_check_s": 0.16,
    "original": {
     "first_prompt_s": 0.67,
     "fit_check_s": 0.01,
     "wall_s": 4.75
    },
-   "raised_from": {
-    "first_prompt_s": 0.67,
-    "fit_check_s": 0.01,
-    "wall_s": 4.75
-   },
-   "reason": "Case history, corrected at the #1142 review: first recorded at wall 4.75 s (2026-11-03); the 2.2.5 re-record raised it to 5.50 s as the bed fit probes and assembly analysis moved ahead of the first prompt (first_prompt 0.67 s to 1.08 s, fit_check 0.01 s to 0.21 s on this 512-part job); 2.2.6 measured 5.21 s and 2.2.7 kept it. The 3.79 s previously carried as raised_from appears nowhere in this file's history as a recorded value for this case, so the +38% cumulative figure printed for it overstated the drift; against the first recording it is +10%. No single code regression was found. The shared 2.2.7 release reason that used to sit here (a rise of at most 0.1 s on a sub-second flow) never described this case.",
-   "wall_s": 5.21
+   "wall_s": 3.92
   },
   "parts-one-plate/direct": {
    "first_prompt_s": 0.04,
@@ -841,7 +952,14 @@
     "fit_check_s": 0.01,
     "wall_s": 0.1
    },
-   "wall_s": 0.1
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.1
+   },
+   "reason": "2.2.9 re-record of parts-one-plate/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "parts-one-plate/standalone": {
    "first_prompt_s": 0.04,
@@ -851,7 +969,14 @@
     "fit_check_s": 0.01,
     "wall_s": 0.12
    },
-   "wall_s": 0.12
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.12
+   },
+   "reason": "2.2.9 re-record of parts-one-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.12s -> 0.13s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.13
   },
   "plates-multicolor/direct": {
    "first_prompt_s": 0.04,
@@ -861,49 +986,51 @@
     "fit_check_s": 0.01,
     "wall_s": 0.14
    },
-   "wall_s": 0.14
+   "wall_s": 0.12
   },
   "plates-multicolor/standalone": {
-   "first_prompt_s": 0.04,
+   "first_prompt_s": 0.06,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.04,
     "fit_check_s": 0.01,
     "wall_s": 0.11
    },
-   "wall_s": 0.11
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.01,
+    "wall_s": 0.11
+   },
+   "reason": "2.2.9 re-record of plates-multicolor/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.11s -> 0.16s, first_prompt_s 0.04s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.16
   },
   "prime-tower-clearance/direct": {
-   "first_prompt_s": 0.16,
+   "first_prompt_s": 0.13,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
-   "raised_from": {
-    "first_prompt_s": 0.13,
-    "fit_check_s": 0.0,
-    "wall_s": 0.26
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.27
+   "wall_s": 0.26
   },
   "prime-tower-clearance/standalone": {
-   "first_prompt_s": 0.15,
+   "first_prompt_s": 0.12,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
     "wall_s": 0.24
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.13,
+    "first_prompt_s": 0.15,
     "fit_check_s": 0.0,
-    "wall_s": 0.24
+    "wall_s": 0.26
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.26
+   "reason": "2.2.9 re-record of prime-tower-clearance/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.26s -> 0.27s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.27
   },
   "print-next-second-plate/direct": {
    "first_prompt_s": 0.0,
@@ -929,55 +1056,65 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.01,
+    "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.07
+    "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.06
+   "reason": "2.2.9 re-record of prusa-mmu-project/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.07
   },
   "prusa-mmu-project/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "wall_s": 0.06
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
+   "reason": "2.2.9 re-record of prusa-mmu-project/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.07s, first_prompt_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.07
   },
   "rotation-fit/direct": {
-   "first_prompt_s": 0.11,
+   "first_prompt_s": 0.1,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.09,
     "fit_check_s": 0.01,
     "wall_s": 0.14
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.09,
+    "first_prompt_s": 0.11,
     "fit_check_s": 0.01,
-    "wall_s": 0.14
+    "wall_s": 0.17
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.17
+   "reason": "2.2.9 re-record of rotation-fit/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.17s -> 0.32s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.32
   },
   "rotation-fit/standalone": {
-   "first_prompt_s": 0.12,
+   "first_prompt_s": 0.1,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.1,
     "fit_check_s": 0.01,
     "wall_s": 0.15
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.1,
+    "first_prompt_s": 0.12,
     "fit_check_s": 0.01,
-    "wall_s": 0.15
+    "wall_s": 0.17
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.17
+   "reason": "2.2.9 re-record of rotation-fit/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.17s -> 0.18s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.18
   },
   "single-part/direct": {
    "first_prompt_s": 0.01,
@@ -987,7 +1124,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of single-part/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.07
   },
   "single-part/standalone": {
    "first_prompt_s": 0.02,
@@ -997,45 +1141,48 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.01,
+    "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.05
+    "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.06
+   "reason": "2.2.9 re-record of single-part/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.23s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.23
   },
   "split-plan/direct": {
-   "first_prompt_s": 0.2,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.16,
+   "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.01,
     "wall_s": 0.25
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.2,
     "fit_check_s": 0.01,
-    "wall_s": 0.25
+    "wall_s": 0.28
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.28
+   "reason": "2.2.9 re-record of split-plan/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.28s -> 0.38s, fit_check_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.38
   },
   "split-plan/standalone": {
-   "first_prompt_s": 0.21,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.17,
+   "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
     "wall_s": 0.25
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
-    "first_prompt_s": 0.17,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.01,
-    "wall_s": 0.25
+    "wall_s": 0.29
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.29
+   "reason": "2.2.9 re-record of split-plan/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: fit_check_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.28
   },
   "stl-ascii/direct": {
    "first_prompt_s": 0.01,
@@ -1045,7 +1192,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.04
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "2.2.9 re-record of stl-ascii/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "stl-ascii/standalone": {
    "first_prompt_s": 0.01,
@@ -1055,7 +1209,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of stl-ascii/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "stl-degenerate-zero-volume/direct": {
    "original": {
@@ -1077,7 +1238,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "wall_s": 0.06
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
+   "reason": "2.2.9 re-record of stl-inverted-normals/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.1
   },
   "stl-inverted-normals/standalone": {
    "first_prompt_s": 0.01,
@@ -1087,7 +1255,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "wall_s": 0.06
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.06
+   },
+   "reason": "2.2.9 re-record of stl-inverted-normals/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "stl-large-plate/direct": {
    "first_prompt_s": 0.05,
@@ -1097,7 +1272,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "wall_s": 0.09
+   "wall_s": 0.08
   },
   "stl-large-plate/standalone": {
    "first_prompt_s": 0.05,
@@ -1107,39 +1282,34 @@
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "wall_s": 0.09
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.05,
+    "fit_check_s": 0.0,
+    "wall_s": 0.09
+   },
+   "reason": "2.2.9 re-record of stl-large-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.09s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "stl-must-shrink/direct": {
-   "first_prompt_s": 0.37,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
     "wall_s": 0.33
    },
-   "raised_from": {
-    "first_prompt_s": 0.29,
-    "fit_check_s": 0.0,
-    "wall_s": 0.33
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.41
+   "wall_s": 0.36
   },
   "stl-must-shrink/standalone": {
-   "first_prompt_s": 0.37,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
     "wall_s": 0.35
    },
-   "raised_from": {
-    "first_prompt_s": 0.29,
-    "fit_check_s": 0.0,
-    "wall_s": 0.35
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.41
+   "wall_s": 0.38
   },
   "stl-needs-supports/direct": {
    "first_prompt_s": 0.01,
@@ -1149,17 +1319,31 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of stl-needs-supports/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.14s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.14
   },
   "stl-needs-supports/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.08
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.08
+   },
+   "reason": "2.2.9 re-record of stl-needs-supports/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.1s, first_prompt_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.1
   },
   "stl-open-thin-wall/direct": {
    "first_prompt_s": 0.01,
@@ -1169,7 +1353,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "wall_s": 0.07
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "2.2.9 re-record of stl-open-thin-wall/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.07s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "stl-open-thin-wall/standalone": {
    "first_prompt_s": 0.01,
@@ -1179,13 +1370,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.07
+    "wall_s": 0.08
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.08
+   "reason": "2.2.9 re-record of stl-open-thin-wall/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.14s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.14
   },
   "stl-single-part/direct": {
    "first_prompt_s": 0.01,
@@ -1195,12 +1387,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.04
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "wall_s": 0.05
   },
   "stl-single-part/standalone": {
@@ -1221,13 +1407,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.08
+   "wall_s": 0.05
   },
   "stl-tall/standalone": {
    "first_prompt_s": 0.01,
@@ -1237,7 +1417,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of stl-tall/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.09
   },
   "stl-text-solid-header/direct": {
    "first_prompt_s": 0.01,
@@ -1247,7 +1434,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of stl-text-solid-header/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.12s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.12
   },
   "stl-text-solid-header/standalone": {
    "first_prompt_s": 0.01,
@@ -1257,13 +1451,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.04
+    "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.06
+   "reason": "2.2.9 re-record of stl-text-solid-header/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.11
   },
   "stl-thin-footprint/direct": {
    "first_prompt_s": 0.01,
@@ -1273,7 +1468,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.04
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "2.2.9 re-record of stl-thin-footprint/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.1
   },
   "stl-thin-footprint/standalone": {
    "first_prompt_s": 0.01,
@@ -1283,7 +1485,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.04
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "2.2.9 re-record of stl-thin-footprint/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.06
   },
   "stl-tiny/direct": {
    "first_prompt_s": 0.01,
@@ -1293,7 +1502,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.04
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "2.2.9 re-record of stl-tiny/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.05s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.05
   },
   "stl-tiny/standalone": {
    "first_prompt_s": 0.01,
@@ -1303,13 +1519,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
+   "previous_reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.04
+    "wall_s": 0.05
    },
-   "reason": "Re-recorded for 2.2.7 from CI run 42464271849 (bc4c7ab), the release commit's run on main; both timing jobs succeeded there (the run's only failure was the unrelated arm runtime-image build, an external download returning 504s). The rise is at most 0.1 s on a sub-second mock flow, inside this leg's 0.5 s slack and the runner spread measured in tests/README.md; the 2.2.7 range adds intake work on these journeys (declared part roles and assembly checks, multi-part project handling, the no-LLM roast engine), and this is its measured cost.",
-   "wall_s": 0.05
+   "reason": "2.2.9 re-record of stl-tiny/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "stl-very-thin-wall/direct": {
    "first_prompt_s": 0.01,
@@ -1319,7 +1536,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.04
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "2.2.9 re-record of stl-very-thin-wall/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.06
   },
   "stl-very-thin-wall/standalone": {
    "first_prompt_s": 0.01,
@@ -1351,7 +1575,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of unicode-part-extra-plate/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.07
   },
   "unicode-part-extra-plate/standalone": {
    "first_prompt_s": 0.01,
@@ -1361,41 +1592,48 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.05
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "2.2.9 re-record of unicode-part-extra-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 0.08
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.42,
-   "fit_check_s": 0.13,
+   "first_prompt_s": 0.47,
+   "fit_check_s": 0.12,
    "original": {
     "first_prompt_s": 0.38,
     "fit_check_s": 0.13,
     "wall_s": 1.12
    },
-   "previous_reason": "",
+   "previous_reason": "Wall time 1.12s -> 1.30s (median of 3, CI run 42883041795). Main CI medians: 1.11s after #1165, 1.24s at f0a238df, 1.30s on this head; the step lies in #1172/#1174/#1177/#1179/#1181 plus the later filament warn-and-accept change (#1190); the cause was not isolated, no per-commit bisect was run.",
    "raised_from": {
-    "first_prompt_s": 0.38,
+    "first_prompt_s": 0.42,
     "fit_check_s": 0.13,
-    "wall_s": 1.12
+    "wall_s": 1.3
    },
-   "reason": "Wall time 1.12s -> 1.30s (median of 3, CI run 42883041795). Main CI medians: 1.11s after #1165, 1.24s at f0a238df, 1.30s on this head; the step lies in #1172/#1174/#1177/#1179/#1181 plus the later filament warn-and-accept change (#1190); the cause was not isolated, no per-commit bisect was run.",
-   "wall_s": 1.3
+   "reason": "2.2.9 re-record of witch-ghost-cults3d/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 1.3s -> 1.43s, first_prompt_s 0.42s -> 0.47s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 1.43
   },
   "witch-ghost-cults3d/standalone": {
    "first_prompt_s": 0.45,
-   "fit_check_s": 0.12,
+   "fit_check_s": 0.15,
    "original": {
     "first_prompt_s": 0.4,
     "fit_check_s": 0.12,
     "wall_s": 1.16
    },
-   "previous_reason": "",
+   "previous_reason": "Wall time 1.16s -> 1.61s (median of 3, CI run 42883041795; repeats read 1.89, 1.61, 1.27s, so noisy). Main CI medians: 1.06s after #1165, 1.25s at f0a238df; the rest of the rise is within runner noise or from #1190, cause not isolated, no per-commit bisect was run. Sits at +39% over the first recording, in the drift warning band.",
    "raised_from": {
-    "first_prompt_s": 0.4,
+    "first_prompt_s": 0.45,
     "fit_check_s": 0.12,
-    "wall_s": 1.16
+    "wall_s": 1.61
    },
-   "reason": "Wall time 1.16s -> 1.61s (median of 3, CI run 42883041795; repeats read 1.89, 1.61, 1.27s, so noisy). Main CI medians: 1.06s after #1165, 1.25s at f0a238df; the rest of the rise is within runner noise or from #1190, cause not isolated, no per-commit bisect was run. Sits at +39% over the first recording, in the drift warning band.",
-   "wall_s": 1.61
+   "reason": "2.2.9 re-record of witch-ghost-cults3d/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: fit_check_s 0.12s -> 0.15s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "wall_s": 1.31
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
@@ -1412,7 +1650,7 @@
   "stl-tall/direct",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 42464271849 (bc4c7ab43e3c2e0eda109d70087c87c639214851), artifact discord-timing, median of 3; except islands-144-four-color/standalone, witch-ghost-cults3d/direct, witch-ghost-cults3d/standalone and the print-next-second-plate and typed-setup-walkthrough cases: CI run 42883041795 (2c76bcdd97a9f1b375c02ff44fdb9c34ab5b6f3b), median of 3",
+ "recorded_from": "CI run 42975457360 (f8a3f6ee0bdad2eeb7077a8d97d89994f6d74ff0), artifact discord-timing, median of 3",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
