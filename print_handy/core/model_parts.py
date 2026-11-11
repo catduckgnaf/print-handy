@@ -286,6 +286,18 @@ def combine(target, sources, bed=None, gap=10.0, stl_inches=False):
     seen = {}
     for src in sources:
         inch = stl_inches and Path(src).suffix.lower() == '.stl'
+        if Path(src).suffix.lower() == '.3mf':
+            import zipfile
+            from .source_colors import negative_volumes
+            with zipfile.ZipFile(src) as archive:
+                negatives = negative_volumes(archive)
+            if negatives:
+                # A geometry-only 3MF cannot subtract: the object would print
+                # uncut (#1260). Modifier and support volumes print nothing
+                # and are left out by load_parts.
+                raise ValueError(f'{Path(src).name} cuts holes with negative volumes ('
+                                 + ', '.join(negatives) + '), which a combined geometry-only '
+                                 'model cannot carry')
         loaded, _, _, _ = load_parts(Path(src), input_unit='inch' if inch else None)
         for part in loaded:
             name = str(part.get('node') or part['id'])

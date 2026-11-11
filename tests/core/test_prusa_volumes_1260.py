@@ -345,3 +345,43 @@ def test_slice_adoption_types_a_component_volume(tmp_path):
     assert len(orca_adapter._parse_3mf_triangles(path)) == 12
     report = orca_adapter.export_geometry(path, tmp_path / "geometry.3mf")
     assert report["volumes"] == {"normal_part": 1, "modifier_part": 1}
+
+
+# --- geometry-only paths ------------------------------------------------------------------------
+
+def test_geometry_loaders_read_only_the_printed_triangles(tmp_path):
+    from print_handy.core import geometry_layout, support_clearance
+    path = prusa_volume_source(tmp_path / "sign.3mf", _volume(12, 23, "Band", kind="ParameterModifier"))
+    [part] = geometry_layout.load_parts(path)[0]
+    assert len(part["triangles"]) == 12
+    [leaf] = support_clearance.leaves(path)
+    assert len(leaf["tris"]) == 12
+
+
+def test_geometry_only_arrangement_refuses_a_prusa_volume_by_name(tmp_path):
+    from print_handy.core import geometry_layout
+    path = prusa_volume_source(tmp_path / "sign.3mf", _volume(12, 23, "Band", kind="ParameterModifier"))
+    semantics = geometry_layout.inspect_3mf_semantics(path)
+    assert semantics["has_negative_volumes"]
+    assert semantics["cutter_pairs"] == [["1", "volume 'Band' (ParameterModifier)"]]
+    with pytest.raises(RuntimeError, match="Band"):
+        geometry_layout.arrange_and_export(path, tmp_path / "out")
+
+
+def test_stl_conversion_drops_a_modifier_and_refuses_a_negative_volume(tmp_path):
+    from print_handy.core import design, orca_adapter as oa
+    modifier = prusa_volume_source(tmp_path / "mod.3mf", _volume(12, 23, "Band", kind="ParameterModifier"))
+    stl = design.convert_to_stl(modifier, tmp_path / "mod.stl")
+    assert len(oa.read_stl_triangles(stl)) == 12
+    negative = prusa_volume_source(tmp_path / "neg.3mf", _volume(12, 23, "Hole", kind="NegativeVolume"))
+    with pytest.raises(design.DesignError, match="object 1 volume 'Hole'"):
+        design.convert_to_stl(negative, tmp_path / "neg.stl")
+
+
+def test_mesh_repair_and_combine_refuse_a_negative_volume_by_name(tmp_path):
+    from print_handy.core import mesh_repair, model_parts
+    negative = prusa_volume_source(tmp_path / "neg.3mf", _volume(12, 23, "Hole", kind="NegativeVolume"))
+    with pytest.raises(mesh_repair.FixError, match="object 1 volume 'Hole'"):
+        mesh_repair.load_triangles(negative)
+    with pytest.raises(ValueError, match="object 1 volume 'Hole'"):
+        model_parts.combine(tmp_path / "combined.3mf", [negative])

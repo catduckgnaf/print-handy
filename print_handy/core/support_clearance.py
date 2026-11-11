@@ -145,6 +145,12 @@ def leaves(source):
             cutters = source_colors.cutter_ids(archive)
         except Exception:
             cutters = {}
+        # PrusaSlicer modifier, negative and support volumes (#1260): ranges of
+        # one mesh keep only the model-part triangles, component volumes are
+        # cutters. A model config that cannot be read refuses (strict).
+        from print_handy.core.orca_adapter import _prusa_printed_ranges
+        prusa_keep, prusa_cutters = _prusa_printed_ranges(archive)
+        cutters = {**cutters, **prusa_cutters}
         models = {}
 
         def model(name):
@@ -181,6 +187,9 @@ def leaves(source):
                 faces = np.array([[int(t.get('v1')), int(t.get('v2')), int(t.get('v3'))]
                                   for ts in _kids(mesh, 'triangles') for t in _kids(ts, 'triangle')],
                                  int).reshape(-1, 3)
+                if name.lstrip('/') == '3D/3dmodel.model' and oid == top_oid and oid in prusa_keep:
+                    from print_handy.core.orca_adapter import _printed_faces
+                    faces = _printed_faces(faces, prusa_keep[oid])
                 if len(verts) and len(faces):
                     world = (np.c_[verts, np.ones(len(verts))] @ matrix)[:, :3]
                     if np.linalg.det(matrix[:3, :3]) < 0:
@@ -1299,6 +1308,12 @@ def _instance_matrices(source):
             cutters = source_colors.cutter_ids(archive)
         except Exception:
             cutters = {}
+        # PrusaSlicer modifier, negative and support volumes (#1260): ranges of
+        # one mesh keep only the model-part triangles, component volumes are
+        # cutters. A model config that cannot be read refuses (strict).
+        from print_handy.core.orca_adapter import _prusa_printed_ranges
+        prusa_keep, prusa_cutters = _prusa_printed_ranges(archive)
+        cutters = {**cutters, **prusa_cutters}
         models = {}
 
         def model(name):

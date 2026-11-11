@@ -241,6 +241,21 @@ def prusa_volume_layout(archive, strict=True):
     return out
 
 
+def negative_volumes(archive):
+    """Names of a 3MF's negative volumes (Bambu/Orca negative_part, PrusaSlicer NegativeVolume).
+
+    A path that flattens geometry (an STL, a mesh repair, a geometry-only
+    combine) cannot subtract one, so it refuses by these names rather than
+    print the object uncut (#1260).
+    """
+    out = [f'object {oid} part {pid}' for (oid, pid), subtype in sorted(cutter_ids(archive).items())
+           if subtype == 'negative_part']
+    out += [f"object {oid} volume {volume['name']!r}"
+            for oid, entry in sorted(prusa_volume_layout(archive, strict=True).items())
+            for volume in entry['volumes'] if volume['subtype'] == 'negative_part']
+    return out
+
+
 def _split_prusa_volumes(parts, layout):
     """Inventory rows with PrusaSlicer non-model-part volumes split out (#1260).
 

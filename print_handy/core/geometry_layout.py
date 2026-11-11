@@ -25,9 +25,9 @@ from pathlib import Path
 from .compact_geometry import CompactTriangles, IndexedTriangles, transform_vertices_array
 from .mesh_fast import archive_tables, bounds_and_volume
 from .model_job import mesh_topology
-from .orca_adapter import _hull, read_stl_triangles, transform_mirrors
+from .orca_adapter import _hull, _printed_faces, _prusa_printed_ranges, read_stl_triangles, transform_mirrors
 from .painted_geometry import paint_census
-from .source_colors import cutter_ids, inventory as color_inventory
+from .source_colors import cutter_ids, inventory as color_inventory, prusa_volume_layout
 from .threemf_canonical import UNIT_TO_MM
 
 NS = {'c': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
@@ -248,6 +248,11 @@ def inspect_3mf_semantics(path: Path) -> dict:
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         cutters = sorted([list(pair) for pair in cutter_ids(archive)])
+        # PrusaSlicer modifier, negative and support volumes (#1260) are
+        # cutters too, named by object and volume.
+        cutters += [[oid, f"volume {volume['name']!r} ({volume['type']})"]
+                    for oid, entry in sorted(prusa_volume_layout(archive, strict=True).items())
+                    for volume in entry['volumes'] if volume['type'] != 'ModelPart']
         has_model_settings = 'Metadata/model_settings.config' in names
         has_project_settings = 'Metadata/project_settings.config' in names
         raw_model = archive.read('3D/3dmodel.model') if '3D/3dmodel.model' in names else b''
@@ -283,6 +288,10 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
         if '3D/3dmodel.model' not in archive.namelist():
             raise ValueError(f'{path} is missing 3D/3dmodel.model')
         cutters = cutter_ids(archive)
+        # A PrusaSlicer object's non-model volumes (#1260): triangle ranges of
+        # one mesh are left out, component volumes skipped like cutters.
+        prusa_keep, prusa_cutters = _prusa_printed_ranges(archive)
+        cutters = {**cutters, **prusa_cutters}
         root_bytes, _ = archive_tables(archive, '3D/3dmodel.model')
         root_el = ET.fromstring(root_bytes)
         declared_unit = root_el.get('unit') or 'millimeter'
@@ -326,6 +335,7 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                 import numpy as np
                 # A mirroring chain reverses the winding (orca_adapter.transform_mirrors).
                 order = [0, 2, 1] if transform_mirrors(chain) else [0, 1, 2]
+                keep = prusa_keep.get(object_id) if model_path == '3D/3dmodel.model' else None
                 if tables is not None:
                     table = tables.get(object_id)
                     if table is not None:
@@ -334,7 +344,8 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                         # keep the faces as indices; never expand per-face
                         # point tuples.
                         verts = transform_vertices_array(table.vertices, transforms, apply)
-                        tris.extend_indexed(verts, np.asarray(table.triangles).reshape((-1, 3))[:, order])
+                        tris.extend_indexed(verts, _printed_faces(np.asarray(table.triangles).reshape((-1, 3)),
+                                                                  keep)[:, order])
                 else:
                     verts = [
                         (float(v.attrib['x']), float(v.attrib['y']), float(v.attrib['z']))
@@ -350,7 +361,7 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                         face_array = np.where(face_array < 0, face_array + count, face_array)
                         verts = transform_vertices_array(
                             np.array(verts, dtype=np.float64).reshape((-1, 3)), transforms, apply)
-                        tris.extend_indexed(verts, face_array[:, order])
+                        tris.extend_indexed(verts, _printed_faces(face_array, keep)[:, order])
             for comp in obj.findall('c:components/c:component', NS):
                 comp_oid = comp.get('objectid')
                 if (object_id, comp_oid) in cutters:
