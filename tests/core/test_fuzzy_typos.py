@@ -51,6 +51,292 @@ OPERATOR_MINED_2 = {
     "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
     "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
 }
+# Third mining pass: the operator typed both of these in one question on
+# 2026-11-10 asking whether they were covered — they were not (0 hits in
+# the repo, neither key in any table). Same aggregate-only rule: pairs,
+# never message text. "mispellings" is the misspelling of "misspellings".
+OPERATOR_MINED_3 = {
+    "epsecially": "especially", "mispellings": "misspellings",
+}
+# The acknowledge family: the operator typed "acknowladge" on 2026-11-10
+# and asked for it plus more like it. Each variant was screened the usual
+# way (not a real word per the spellchecker, no table collision, exactly
+# one edit from its target and uniquely closest to it). "aknowledge" was
+# screened out, not guessed: it is one edit from both "acknowledge" and
+# "knowledge", so it is ambiguous. "acknowledgment" is a legitimate
+# variant spelling, never a key here.
+ACKNOWLEDGE_FAMILY = {
+    "acknowladge": "acknowledge", "acknowlege": "acknowledge",
+    "acknowlegde": "acknowledge", "acknowldege": "acknowledge",
+    "acknowladged": "acknowledged", "acknowleged": "acknowledged",
+    "acknowladges": "acknowledges", "acknowleges": "acknowledges",
+    "acknowladging": "acknowledging", "acknowleging": "acknowledging",
+    "acknowladgement": "acknowledgement",
+    "acknowlegement": "acknowledgement",
+    "aknowledgement": "acknowledgement",
+    "acknowladgements": "acknowledgements",
+}
+# The commit family: the operator typed "comitted" on 2026-11-10 and, told
+# it was one edit from both "committed" and "omitted", ruled the committed
+# reading wins (the table already carries "commited" -> "committed" on the
+# same basis). Before this round, canonical("comitted") even mangled the
+# word to "comit". The five cousins screened clean the usual way.
+COMMIT_FAMILY = {
+    "comitted": "committed", "commiting": "committing",
+    "comittee": "committee", "commitee": "committee",
+    "comitment": "commitment", "committment": "commitment",
+}
+# Fourth operator-mined pass from actual chat messages (Nov 2026).
+# These are observed spellings, not invented lookalikes. The compound
+# "justmake" drops a space; leave correctly spelled words untouched.
+OPERATOR_MINED_4 = {
+    "justmake": "just make",
+    "suggeestions": "suggestions",
+    "tictok": "tiktok",
+}
+
+# Double-letter round (catduck, 2026-11-10, on PR #1191): more pairs
+# whose correct spelling carries a doubled ss, rr or ll — the pattern
+# behind both round-3 words ("especially", "misspellings"). Each typo
+# drops one of the doubled letters, doubles the wrong neighbor, or
+# triples the letter. Same curation rules as the rounds above: every
+# key verified absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS, not
+# a real English word per pyspellchecker, and its word a real word
+# carrying the double. Six candidates were rejected by that screen:
+# "alow" and "instal" (real words), "eror" and "isue" (already in
+# TOKEN_FORMS), "yelow" (already in the table), and "skil" -> "skill"
+# (the lookup carry re-routes the word "skill" itself to "still", so
+# the pair cannot be carried correctly — verified with no table entry
+# present; that routing quirk is outside this round's scope).
+DOUBLE_LETTER_TYPOS = {
+    "acces": "access", "acess": "access", "acros": "across",
+    "actualy": "actually", "addres": "address", "alowed": "allowed",
+    "anualy": "annually", "arange": "arrange", "arive": "arrive",
+    "arrrow": "arrow", "asembly": "assembly", "asess": "assess",
+    "asist": "assist", "assesment": "assessment", "baloon": "balloon",
+    "barier": "barrier", "borow": "borrow", "chalenge": "challenge",
+    "clasroom": "classroom", "colect": "collect", "colege": "college",
+    "controled": "controlled", "corect": "correct", "corected": "corrected",
+    "corespond": "correspond", "coridor": "corridor", "curent": "current",
+    "curently": "currently", "discusion": "discussion", "dolar": "dollar",
+    "erors": "errors", "esential": "essential", "excelent": "excellent",
+    "expres": "express", "folow": "follow", "folowing": "following",
+    "fullly": "fully", "fuly": "fully", "galery": "gallery",
+    "glas": "glass", "helo": "hello", "instaled": "installed",
+    "inteligence": "intelligence", "leson": "lesson", "mesage": "message",
+    "messsage": "message", "miror": "mirror", "mision": "mission",
+    "overal": "overall", "paralell": "parallel", "pasword": "password",
+    "permision": "permission", "posible": "possible", "presure": "pressure",
+    "proces": "process", "profesional": "professional", "progres": "progress",
+    "puley": "pulley", "referal": "referral", "sesion": "session",
+    "smal": "small", "sory": "sorry",
+    "speling": "spelling", "spelings": "spellings", "stil": "still",
+    "succes": "success", "sucess": "success", "suround": "surround",
+    "terible": "terrible", "teritory": "territory", "tisue": "tissue",
+    "totaly": "totally", "usualy": "usually", "valey": "valley",
+    "waranty": "warranty", "woried": "worried",
+}
+# Extended double-letter forms added for PR #1191 (Nov 2026).
+# These are plausible non-word slips, not claims that the operator typed
+# every one. Screen against existing typo/token keys and REAL_WORDS.
+# Avoid legitimate lookalikes (e.g., planing, meting, siting, griping).
+# All pairs inherit typo-fold, canonical, scoring and chat lookup coverage.
+# Five pairs were removed again in the round-5 fix (see ROUND5_SCREENED
+# below): "cliping", "greting", "shiped", "shiping" and "shoping" fold
+# fine, but their correct words are re-routed by the lookup carry itself
+# (clipping -> clicking, greeting -> getting, shipped -> skipped,
+# shipping/shopping -> skipping, verified identical on the base commit),
+# the same pre-existing quirk that blocks "skil" -> "skill".
+EXTENDED_DOUBLE_LETTER_TYPOS = {
+    # gg: 12 pairs
+    "agressive": "aggressive",
+    "agression": "aggression",
+    "biger": "bigger",
+    "bugy": "buggy",
+    "debuging": "debugging",
+    "debuged": "debugged",
+    "draging": "dragging",
+    "dragable": "draggable",
+    "joging": "jogging",
+    "lagy": "laggy",
+    "taging": "tagging",
+    "togling": "toggling",
+    # tt: 21 pairs
+    "atach": "attach",
+    "atachment": "attachment",
+    "atachments": "attachments",
+    "atempt": "attempt",
+    "atempted": "attempted",
+    "batery": "battery",
+    "bateries": "batteries",
+    "botom": "bottom",
+    "buton": "button",
+    "butons": "buttons",
+    "comited": "committed",
+    "comiting": "committing",
+    "fiting": "fitting",
+    "fitings": "fittings",
+    "formating": "formatting",
+    "geting": "getting",
+    "leters": "letters",
+    "prety": "pretty",
+    "setled": "settled",
+    "cuting": "cutting",
+    "flaten": "flatten",
+    # ee: 13 pairs
+    "agrement": "agreement",
+    "agrements": "agreements",
+    "betwen": "between",
+    "feling": "feeling",
+    "felings": "feelings",
+    "meetngs": "meetings",
+    "neded": "needed",
+    "screns": "screens",
+    "seing": "seeing",
+    "sleping": "sleeping",
+    "spech": "speech",
+    "wekly": "weekly",
+    "freze": "freeze",
+    # ss: 19 pairs
+    "adres": "address",
+    "asignment": "assignment",
+    "asignments": "assignments",
+    "assesing": "assessing",
+    "clases": "classes",
+    "crosing": "crossing",
+    "expresion": "expression",
+    "expresive": "expressive",
+    "lesons": "lessons",
+    "mesages": "messages",
+    "mising": "missing",
+    "mispelled": "misspelled",
+    "mispelling": "misspelling",
+    "pasenger": "passenger",
+    "presing": "pressing",
+    "procesing": "processing",
+    "glases": "glasses",
+    "guesing": "guessing",
+    "expresed": "expressed",
+    # pp: 16 pairs
+    "aplication": "application",
+    "aplications": "applications",
+    "apointment": "appointment",
+    "apointments": "appointments",
+    "aproach": "approach",
+    "aproval": "approval",
+    "aproved": "approved",
+    "apropriate": "appropriate",
+    "disapointed": "disappointed",
+    "disapoint": "disappoint",
+    "droped": "dropped",
+    "droping": "dropping",
+    "hapen": "happen",
+    "hapened": "happened",
+    "maping": "mapping",
+    "skiping": "skipping",
+    # rr: 16 pairs
+    "borowed": "borrowed",
+    "caried": "carried",
+    "corection": "correction",
+    "corectly": "correctly",
+    "corupt": "corrupt",
+    "corupted": "corrupted",
+    "huried": "hurried",
+    "maried": "married",
+    "ocurred": "occurred",
+    "ocuring": "occurring",
+    "ocurence": "occurrence",
+    "waranties": "warranties",
+    "arived": "arrived",
+    "interupt": "interrupt",
+    "interupted": "interrupted",
+    "recuring": "recurring",
+    # ll: 19 pairs
+    "automaticaly": "automatically",
+    "especialy": "especially",
+    "eventualy": "eventually",
+    "folowed": "followed",
+    "generaly": "generally",
+    "initialy": "initially",
+    "instaling": "installing",
+    "instalation": "installation",
+    "literaly": "literally",
+    "localy": "locally",
+    "manualy": "manually",
+    "puling": "pulling",
+    "seler": "seller",
+    "seling": "selling",
+    "smaler": "smaller",
+    "specificaly": "specifically",
+    "walpaper": "wallpaper",
+    "normaly": "normally",
+    "originaly": "originally",
+    # dd: 14 pairs
+    "aditional": "additional",
+    "aditionally": "additionally",
+    "adition": "addition",
+    "aditions": "additions",
+    "adressing": "addressing",
+    "embeded": "embedded",
+    "embeding": "embedding",
+    "hiden": "hidden",
+    "midle": "middle",
+    "pading": "padding",
+    "paded": "padded",
+    "sudenly": "suddenly",
+    "budy": "buddy",
+    "lader": "ladder",
+    # mm: 12 pairs
+    "comunication": "communication",
+    "comand": "command",
+    "comands": "commands",
+    "coment": "comment",
+    "programing": "programming",
+    "programer": "programmer",
+    "gramar": "grammar",
+    "imediately": "immediately",
+    "sumary": "summary",
+    "recomendation": "recommendation",
+    "hamer": "hammer",
+    "comit": "commit",
+    # nn: 10 pairs
+    "runing": "running",
+    "begining": "beginning",
+    "beggining": "beginning",
+    "conection": "connection",
+    "conections": "connections",
+    "conected": "connected",
+    "anounce": "announce",
+    "anounced": "announced",
+    "scaning": "scanning",
+    "scaned": "scanned",
+    # ff: 10 pairs
+    "diferent": "different",
+    "diference": "difference",
+    "efect": "effect",
+    "efects": "effects",
+    "efective": "effective",
+    "ofline": "offline",
+    "oficial": "official",
+    "afordable": "affordable",
+    "dificult": "difficult",
+    "dificulty": "difficulty",
+    # cc: 7 pairs
+    "acount": "account",
+    "acounts": "accounts",
+    "acident": "accident",
+    "acuracy": "accuracy",
+    "acurate": "accurate",
+    "suceed": "succeed",
+    "suceded": "succeeded",
+    # zz: 5 pairs
+    "puzle": "puzzle",
+    "puzles": "puzzles",
+    "fuziness": "fuzziness",
+    "piza": "pizza",
+    "buzing": "buzzing",
+}
+
 # Generic high-frequency non-word misspellings: domain typos the bounded
 # edit-distance pass misses (filamet, nozel) plus classic English keyboard
 # slips (teh, recieve, definately). Suggested in a branch commit whose file
@@ -271,9 +557,44 @@ BATCH2_TITLE_TYPOS = {
     "sukl": "skull", "swro": "sword", "tawre": "tower",
     "tewre": "tower", "vsaa": "vase", "vsai": "vase",
 }
+# Round 5 for PR #1191, at the operator's word ("add 20 more words. fix
+# errors", 2026-11-10): 20 more screened pairs, held to the usual screen
+# (absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS; not a real English
+# word per pyspellchecker; target a real word) plus the carry screen the
+# 179-pair round's CI failures taught: the correct word itself must be
+# carried unchanged by the lookup carry in both phrasings, because a
+# word the carry re-routes (clipping, greeting, shipping, shipped,
+# shopping — and "skill" before them) cannot be carried correctly no
+# matter how clean the fold is. One further passed candidate,
+# "zealos" -> "zealous", was left out to land exactly 20.
+ROUND5_SCREENED_TYPOS = {
+    "argueing": "arguing", "frusterated": "frustrated",
+    "inocculate": "inoculate", "medeval": "medieval",
+    "occurance": "occurrence", "peircing": "piercing",
+    "preceed": "precede", "preferance": "preference",
+    "referance": "reference", "rehersal": "rehearsal",
+    "relevent": "relevant", "repitition": "repetition",
+    "secretay": "secretary", "siezure": "seizure",
+    "twelth": "twelfth", "unforseen": "unforeseen",
+    "wensday": "wednesday", "withdrawl": "withdrawal",
+    "withold": "withhold", "yatch": "yacht",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
+             **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
+             **OPERATOR_MINED_4,
+             **DOUBLE_LETTER_TYPOS,
+             **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
              **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
+
+
+# Legitimate real words that are *not* typos for doubled-letter targets.
+# In particular, "planing" is used for removing material and "siting"
+# describes selecting a location. Do not silently rewrite either.
+@pytest.mark.parametrize("real", ["planing", "meting", "siting", "griping"])
+def test_extended_double_letter_real_words_are_not_force_mapped(real):
+    assert real not in TYPO_FORMS
+    assert fuzzy.typo_fold(real) == real
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))
