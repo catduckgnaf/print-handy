@@ -47,7 +47,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
                           "coldpull_dispatch", "lookup_dispatch", "source_dispatch", "troubleshoot_dispatch",
                           "macros_dispatch", "firmware_dispatch", "calibration_dispatch",
                           "typed_quantity_dispatch"]
-    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
+    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
     assert router.platform_handlers["discord"], "listener button handlers were not registered"
 
 
@@ -282,10 +282,27 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
     assert model_file(SimpleNamespace(media_urls=paths)) is None
 
 
+def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
+    # #1204 item 3: a dropped .zip is cached so prepared intake can open it
+    # as a source archive; it is never a model file of its own, so the
+    # single-file callers (design, edit) still see no model.
+    discord, core = make(cfg)
+    archive = tmp_path / "Rack.zip"
+    archive.write_bytes(b"PK\x05\x06" + b"\0" * 18)
+    message = discord.message(attachments=[fake_discord.FakeAttachment(archive)])
+    paths = run(core.save_attachments(message))
+    assert len(paths) == 1 and paths[0].endswith("_Rack.zip")
+    from types import SimpleNamespace
+    from print_handy.core.prepared_intake import archive_files, model_file, model_files
+    event = SimpleNamespace(media_urls=paths)
+    assert model_file(event) is None and model_files(event) == []
+    assert [str(p) for p in archive_files(event)] == paths
+
+
 def test_status_has_no_hermes_modules_field(cfg):
     discord, core = make(cfg)
     status = core.status(True)
-    assert status["mode"] == "standalone" and status["handlers"] == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
+    assert status["mode"] == "standalone" and status["handlers"] == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
     assert "hermes_modules" not in status
 

@@ -4,7 +4,7 @@ Operator guidance for running Print Handy with a Flashforge Adventurer 5X
 on ZMod. Part of [Best practices on specific devices](DEVICE-BEST-PRACTICES.md).
 
 The contracts behind this page are in [ZMod printers](ZMOD.md),
-[AD5X integration contract](AD5X-CONTRACT.md) and
+[AD5X implementation contract](history/AD5X-CONTRACT.md) (a developer record) and
 [Printer calibration](CALIBRATION.md). This page says which choices to make
 and in what order.
 
