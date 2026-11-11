@@ -48,6 +48,7 @@ Web UI's own auth decision, as before.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextvars
 import hashlib
 import logging
@@ -172,6 +173,35 @@ class WebAdapter(BasePlatformAdapter):
                              "note": str(note or "")}, scope)
 
 
+class _PressGate:
+    """Claim-or-abandon for one button press (#1145, duckcatgnaf on #1106).
+
+    The press runs on the chat loop while the page's request thread waits.
+    Exactly one side wins: the loop claims the press before acting, or the
+    waiting thread abandons it after its timeout. A claimed press runs and
+    the page waits for its real result; an abandoned press never runs.
+    Cancelling the future alone cannot promise that once the coroutine has
+    been scheduled.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._state = None
+
+    def _take(self, state):
+        with self._lock:
+            if self._state is None:
+                self._state = state
+                return True
+            return False
+
+    def claim(self):
+        return self._take("claimed")
+
+    def abandon(self):
+        return self._take("abandoned")
+
+
 class WebChatService:
     """One BotCore for web chat, on its own event loop thread.
 
@@ -181,6 +211,10 @@ class WebChatService:
     method takes the ``scope``; the default "" is the unscoped
     transcript a caller without sessions uses. :meth:`view` binds one.
     """
+
+    # How long a button press waits to start on the chat loop before it is
+    # abandoned (never run) and the page says it did not reach the bot.
+    press_wait_s = 10
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -357,11 +391,27 @@ class WebChatService:
             logger.info("refused web chat press on prompt %s from another session",
                         clarify_id)
             return None
-        future = asyncio.run_coroutine_threadsafe(
-            self._in_scope(owner or scope, lambda: self.adapter.answer_choice(
-                clarify_id, index, user_id=OPERATOR_ID)),
-            self._loop)
-        return future.result(timeout=10)
+        gate = _PressGate()
+
+        async def press():
+            if not gate.claim():
+                return None  # the page already said it did not reach the bot
+            return await self._in_scope(owner or scope, lambda: self.adapter.answer_choice(
+                clarify_id, index, user_id=OPERATOR_ID))
+
+        future = asyncio.run_coroutine_threadsafe(press(), self._loop)
+        try:
+            return future.result(timeout=self.press_wait_s)
+        except concurrent.futures.TimeoutError:
+            if gate.abandon():
+                # Never started, and now never will: the page's "didn't
+                # reach the bot, the question is still open" is true.
+                future.cancel()
+                logger.info("web chat press on prompt %s abandoned after %ss",
+                            clarify_id, self.press_wait_s)
+                raise
+            # It started before the timeout: report what it actually did.
+            return future.result()
 
     # -- rendering side -------------------------------------------------------
 
