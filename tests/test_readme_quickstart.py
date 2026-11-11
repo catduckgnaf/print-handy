@@ -62,6 +62,24 @@ class ReadmeQuickstartExtraction(unittest.TestCase):
         self.assertEqual(quickstart.set_env_value(text, "KEY", "v"), "# KEY=example\nKEY=v\n")
         self.assertEqual(quickstart.set_env_value("# KEY=example\n", "KEY", "v"), "KEY=v\n")
 
+    def test_webui_wait_does_not_hinge_on_the_bot_heartbeat(self):
+        # CI has no platform token, so the bot never starts and /healthz (the
+        # bot heartbeat verdict) answers 503 for good; the wait must still end
+        # once the Web UI answers HTTP at all.
+        asked = []
+
+        def fake_request(method, path, body=None, headers=None):
+            asked.append(path)
+            return (503, "", "") if path == "/healthz" else (303, "/walkthrough", "")
+
+        original = quickstart._request
+        quickstart._request = fake_request
+        try:
+            self.assertEqual(quickstart._wait_webui(timeout=5), 303)
+        finally:
+            quickstart._request = original
+        self.assertNotIn("/healthz", asked)
+
     def test_missing_env_key_fails_by_name(self):
         with self.assertRaisesRegex(AssertionError, "NOT_THERE"):
             quickstart.set_env_value("A=1\n", "NOT_THERE", "x")

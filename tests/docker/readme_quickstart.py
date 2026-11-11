@@ -139,16 +139,23 @@ def _request(method, path, body=None, headers=None):
 
 
 def _wait_webui(timeout=120):
+    """Wait until the Web UI answers HTTP on its port.
+
+    Not /healthz: that route is the chat bot's heartbeat verdict, and with no
+    platform token in CI the bot never starts, so it answers 503 for good while
+    the Web UI and its in-process chat work. Any HTTP answer from / means the
+    server is up; ask_for_help then checks what / actually says.
+    """
     deadline = time.monotonic() + timeout
+    last = "no connection"
     while time.monotonic() < deadline:
         try:
-            status, _, _ = _request("GET", "/healthz")
-            if status == 200:
-                return
-        except OSError:
-            pass
+            status, _, _ = _request("GET", "/", headers={"Accept": "text/html"})
+            return status
+        except OSError as exc:
+            last = f"{type(exc).__name__}: {exc}"
         time.sleep(2)
-    raise QuickstartError(f"Web UI on port {WEBUI_PORT} did not answer /healthz within {timeout}s")
+    raise QuickstartError(f"Web UI on port {WEBUI_PORT} did not answer HTTP within {timeout}s ({last})")
 
 
 def ask_for_help(timeout=180):
