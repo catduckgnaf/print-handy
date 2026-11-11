@@ -37,7 +37,7 @@ def _volume(first, last, name, *, kind=None, modifier=None, extruder=None):
     return f'<volume firstid="{first}" lastid="{last}">{meta}</volume>'
 
 
-def prusa_modifier_source(path, modifier, *, object_extruder="1", members=None):
+def prusa_modifier_source(path, modifier, *, object_extruder="1", members=None, prusa_config=True):
     """One PrusaSlicer object: a body (triangles 0-11) plus one volume (12-23) in the same mesh."""
     body, band = _box(20, 20, 20), _box(4, 4, 4, offset=(8.0, 8.0, 8.0))
     # Merge the two boxes into one mesh, as PrusaSlicer writes an object.
@@ -56,8 +56,10 @@ def prusa_modifier_source(path, modifier, *, object_extruder="1", members=None):
     model_config = ('<?xml version="1.0" encoding="UTF-8"?><config><object id="1" instances_count="1">'
                     f'<metadata type="object" key="name" value="Sign"/>{own}'
                     f'{_volume(0, 11, "Sign", kind="ModelPart")}{modifier}</object></config>')
-    _write_package(path, {"3D/3dmodel.model": model, "Metadata/Slic3r_PE.config": _CONFIG,
-                          "Metadata/Slic3r_PE_model.config": model_config, **(members or {})})
+    files = {"3D/3dmodel.model": model, "Metadata/Slic3r_PE_model.config": model_config, **(members or {})}
+    if prusa_config:
+        files["Metadata/Slic3r_PE.config"] = _CONFIG
+    _write_package(path, files)
     return path
 
 
@@ -74,6 +76,19 @@ def test_prusa_modifier_volume_with_its_own_extruder_is_unknown_never_a_question
     assert 2 not in entry["source_filaments"]
     assert _question_keys(manifest) == _part_keys(manifest)
     assert sc.filament_readiness_warnings(manifest, {}, ["1"])
+
+
+def test_a_modifier_is_read_from_the_model_config_without_slic3r_pe_config(tmp_path):
+    # The volumes live in Slic3r_PE_model.config; a package without the
+    # print config still hides the modifier's region in one mesh.
+    path = prusa_modifier_source(tmp_path / "sign.3mf",
+                                 _volume(12, 23, "Band", kind="ParameterModifier", extruder="2"),
+                                 prusa_config=False)
+    entry = sc.inventory(path)["plate_usage"]["1"]
+    modifiers = entry["classes"]["modifiers"]
+    assert modifiers["status"] == "unknown"
+    assert "'Band' (object 1) names extruder 2" in modifiers["reason"]
+    assert not entry["usage_known"]
 
 
 def test_old_prusa_modifier_flag_without_volume_type_is_read(tmp_path):

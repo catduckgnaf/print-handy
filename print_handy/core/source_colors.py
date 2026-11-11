@@ -1188,7 +1188,11 @@ def _prusa_layer_usage(path):
         reason = f'PrusaSlicer per-layer members could not be read: {exc}'
         return {'layer_changes': reason, 'height_ranges': reason}
     object_extruders = {}
-    if PRUSA_MODEL_CONFIG in members and 'Metadata/Slic3r_PE.config' in names:
+    # The volumes are read from the model config itself, whether or not the
+    # package also carries Slic3r_PE.config. A package with Orca/Bambu's own
+    # Metadata/model_settings.config is the exception: there inventory reads
+    # each volume as its own part, so a modifier is not a hidden region.
+    if PRUSA_MODEL_CONFIG in members and 'Metadata/model_settings.config' not in names:
         try:
             object_extruders, modifiers = _prusa_object_extruders(members[PRUSA_MODEL_CONFIG])
         except ET.ParseError:
