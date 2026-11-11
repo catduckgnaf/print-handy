@@ -159,7 +159,9 @@ source filament re-resolved onto another slot), allowlisted profile
 settings (wall count, shell layers, first-layer height, wall generator,
 seam position, infill pattern), a bounded geometry repair (sink or extend
 an underside by the measured clearance gap, an outward surface offset that
-thickens thin walls, or a split into two parts), and/or a mesh repair. The
+thickens thin walls, or a split into two parts where the model is already
+in separate pieces; a split through solid material is refused, because it
+would leave both parts open along the cut), and/or a mesh repair. The
 proposal is shown in chat first, with a preview for geometry and mesh
 changes; applying it works on a copy, never the source file, and the job
 re-slices through the full intake so every gate runs again. A fix is never

@@ -46,6 +46,44 @@ def _dropped_part_settings(settings):
         return []
     kept = {key for key, _value in _kept_part_settings(settings)}
     return sorted(key for key in settings if key not in kept)
+# Triangle paint whose subdivision tree is read against the triangle's own
+# vertex order (the slicers' TriangleSelector encoding): support enforcers
+# and blockers, seam painting and fuzzy-skin painting, in the Orca/Bambu
+# ``paint_*`` and the PrusaSlicer ``slic3rpe:custom_*`` / ``fuzzy_skin``
+# spellings. Color paint (``paint_color`` / ``mmu_segmentation``) has the
+# same encoding and is handled by each exporter on its own terms (#1195).
+_ORDER_PAINT = frozenset(('paint_supports', 'paint_seam', 'paint_fuzzy_skin',
+                          'custom_supports', 'custom_seam', 'fuzzy_skin'))
+
+
+def _order_paint(mesh):
+    """Names of vertex-order-dependent paint attributes a mesh's triangles carry."""
+    found = set()
+    for node in mesh.iter():
+        if node.tag.split('}')[-1] == 'triangle':
+            for key, value in node.attrib.items():
+                local = key.split('}')[-1].split(':')[-1]
+                if value and local in _ORDER_PAINT:
+                    found.add(local)
+    return sorted(found)
+
+
+def _refuse_mirrored_order_paint(mesh):
+    """Refuse to rewind a reflected leaf whose support/seam paint would move.
+
+    Rewinding swaps two vertices of every triangle; a subdivided paint tree
+    read against the new order paints different sub-triangles, so painted
+    support enforcers or seams would land somewhere the author never
+    painted. No paint-tree permutation is attempted (#1195, the same rule
+    as mirrored color paint).
+    """
+    kinds = _order_paint(mesh)
+    if kinds:
+        raise RuntimeError('mirrored geometry with painted ' + ', '.join(kinds)
+                           + ' cannot be flattened safely; export an unmirrored source '
+                           'or remove that painting')
+
+
 def _rewound(mesh):
     """A copy of a 3MF mesh element with every triangle's winding reversed.
 
@@ -275,6 +313,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                     if painted:
                         raise RuntimeError('mirrored painted geometry cannot be flattened safely; '
                                            'export an unmirrored source or a geometry-only model')
+                    _refuse_mirrored_order_paint(mesh)
                     mesh = _rewound(mesh)
                 leaves.append((key, mesh, points))
                 return
@@ -731,9 +770,11 @@ def export_volume_plate(source, target, scale=1.0, rotation=None, bed=None):
                     if rotation is not None:
                         pt = _rotate(pt, rotation)
                     pts.append(tuple(c * scale for c in pt))
-                # Paint codes are dropped below, so a mirrored leaf can
-                # always be rewound to keep its normals outward.
+                # Color paint is dropped below, so a mirrored leaf can be
+                # rewound to keep its normals outward, unless it carries
+                # support or seam paint, which the export keeps (#1195).
                 if transform_mirrors(chain):
+                    _refuse_mirrored_order_paint(mesh)
                     mesh = _rewound(mesh)
                 leaves.append((key, item_id, mesh, pts))
                 return

@@ -269,3 +269,78 @@ def test_overlap_inside_the_contact_band_is_unchecked_not_clearance(tmp_path, de
     assert warn and warn[0].level == "warn"
     assert not _codes(findings, "assembly_collision")
     assert not _codes(findings, "assembly_no_collision")
+
+
+# ---------------------------------------------------------------- #1195 audit: concave and contained parts
+
+def _prism(outer, inner, height, z0=0.0):
+    """A closed, outward-wound prism over a CCW polygon, with an optional same-count CCW hole."""
+    tris = []
+    n = len(outer)
+    rings = [(outer, 1)]
+    if inner is None:
+        for i in range(1, n - 1):
+            a, b, c = outer[0], outer[i], outer[i + 1]
+            tris.append([(a[0], a[1], z0), (c[0], c[1], z0), (b[0], b[1], z0)])
+            tris.append([(a[0], a[1], z0 + height), (b[0], b[1], z0 + height), (c[0], c[1], z0 + height)])
+    else:
+        assert len(inner) == n
+        rings.append((inner, -1))
+        for i in range(n):
+            o0, o1, i0, i1 = outer[i], outer[(i + 1) % n], inner[i], inner[(i + 1) % n]
+            for z, top in ((z0, False), (z0 + height, True)):
+                quad = [(o0[0], o0[1], z), (o1[0], o1[1], z), (i1[0], i1[1], z), (i0[0], i0[1], z)]
+                pair = [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]]
+                tris += pair if top else [tri[::-1] for tri in pair]
+    for ring, sign in rings:
+        for i in range(len(ring)):
+            p, q = ring[i], ring[(i + 1) % len(ring)]
+            a, b = (p[0], p[1], z0), (q[0], q[1], z0)
+            c, d = (q[0], q[1], z0 + height), (p[0], p[1], z0 + height)
+            tris += [[a, b, c], [a, c, d]] if sign > 0 else [[a, c, b], [a, d, c]]
+    return tris
+
+
+def _circle(radius, n=24, turn=0.0):
+    return [(radius * math.cos(2 * math.pi * i / n + turn), radius * math.sin(2 * math.pi * i / n + turn))
+            for i in range(n)]
+
+
+def _placed_pair(tmp_path, a_tris, b_tris, b_transform=None):
+    a, b = tmp_path / "a.stl", tmp_path / "b.stl"
+    write_binary_stl(a_tris, a)
+    write_binary_stl(b_tris, b)
+    return ac.review([a, b], bed_mm=AD5X_BED, declarations={
+        "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
+        "b.stl": {"assembly_transform": b_transform or {"translate_mm": [0, 0, 0]}}})
+
+
+@pytest.mark.parametrize("peg_radius, turn, collides", [
+    (4.8, 0.0, False),                # 0.15 mm clearance to the bore's flats: no collision
+    (5.3, 0.0, True),                 # 0.3 mm interference, polygons aligned
+    (5.3, math.pi / 24, True),        # the same, peg facets turned half a step
+    (5.05, math.pi / 24, True),       # 0.05 mm interference, still past the contact band
+])
+def test_peg_through_a_bore_is_judged_by_the_material_not_the_bounds(tmp_path, peg_radius, turn, collides):
+    # A peg through a tube's bore: the placed bounds always overlap, and a
+    # clearance fit has no point of either solid inside the other, while an
+    # interference fit puts peg material inside the tube wall.
+    findings = _placed_pair(tmp_path, _prism(_circle(10), _circle(5), 20),
+                            _prism(_circle(peg_radius, turn=turn), None, 30, z0=-5))
+    assert bool(_codes(findings, "assembly_collision")) is collides
+    assert bool(_codes(findings, "assembly_no_collision")) is not collides
+    assert not _codes(findings, "assembly_collision_unchecked")
+
+
+def test_a_part_wholly_inside_another_collides(tmp_path):
+    findings = _placed_pair(tmp_path, _prism(_circle(20), None, 20), _prism(_circle(3), None, 5, z0=5))
+    assert _codes(findings, "assembly_collision")
+
+
+def test_rotated_placement_collides_through_its_turned_geometry(tmp_path):
+    bar = _prism([(0, 0), (100, 0), (100, 10), (0, 10)], None, 5)
+    crossing = _placed_pair(tmp_path, bar, bar, {"translate_mm": [50, -40, 0], "rotate_deg": [0, 0, 45]})
+    assert _codes(crossing, "assembly_collision")
+    # Turned 90 degrees and moved clear, the same bar is apart from the first.
+    apart = _placed_pair(tmp_path, bar, bar, {"translate_mm": [120, 0, 0], "rotate_deg": [0, 0, 90]})
+    assert _codes(apart, "assembly_no_collision") and not _codes(apart, "assembly_collision")
