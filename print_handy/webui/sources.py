@@ -33,6 +33,10 @@ def _status(source):
         return "Ready"
     if source.kind == "none":
         return "—"
+    if source.site not in site_accounts.LOGIN_SITES:
+        # A listing site with no saved credential to check (MakerOnline):
+        # credential_state only knows the login sites and raises for others.
+        return "No key needed"
     state = site_accounts.credential_state(source.site)
     if state == "ready":
         return "Connected" if source.kind == "login" else "Key saved"

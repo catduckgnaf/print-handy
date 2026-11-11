@@ -722,9 +722,11 @@ def _write_changes(changes, *, config_path, home, environ, timestamp,
         if field is None:
             raise WebUIConfigError(f"{raw_field!r} is not a Web UI catalog field; nothing was written")
         items.append((field, list(value) if isinstance(value, tuple) else value))
-    if not items:
-        return [], []
     target = Path(config_path) if config_path is not None else settings_file_path(environ)
+    if not items:
+        # Nothing submitted is a no-op save too: it answers for the file
+        # it leaves in place, like a save whose values all match.
+        return [], _note_noop_write(target, home=home, environ=environ)
     if target.suffix.lower() == ".toml":
         raise WebUIConfigError(f"{target}: the Web UI writes YAML settings files; "
                                "point PRINT_HANDY_CONFIG at a .yaml file or edit the TOML file by hand")
