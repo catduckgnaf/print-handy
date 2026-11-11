@@ -400,7 +400,7 @@ def remap_package(source, target, mapping, object_map=None):
     export paths (export_color_geometry, export_single_color_plate and
     adopt_job_settings in color_geometry) import only write_package_atomically
     from this module; remap_package is exercised by tests alone (see
-    docs/3MF-CONVERSION-EVIDENCE.md). Do not cite it as evidence that a
+    docs/history/3MF-CONVERSION-EVIDENCE.md). Do not cite it as evidence that a
     production export remaps a package.
 
     mapping is {source extruder: destination filament}; object_map, when
