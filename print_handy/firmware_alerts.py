@@ -73,8 +73,9 @@ BLOCK_PAIRING = "pairing"
 
 _BLOCK_TEXT = {
     BLOCK_INVALID: ("Moonraker marks this Z-Mod install as not valid (usually files "
-                    "changed by another installer) and refuses to update it. Check "
-                    f"{FLUIDD_HOW}."),
+                    "changed by another installer, such as HelixScreen's edit to ZMod's "
+                    "`moonraker.conf`) and refuses to update it. `/print-firmware` "
+                    "shows what changed and how to fix it."),
     BLOCK_UNREPORTED: ("the printer does not report this update yet (Moonraker shows "
                        "`?` as the latest version, often the printer's own GitHub "
                        f"limit). Update from {FLUIDD_HOW}."),
