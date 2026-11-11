@@ -18,6 +18,7 @@ placement, with no package built or written. These tests pin:
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import time
 import zipfile
@@ -271,3 +272,38 @@ def test_measuring_a_fit_is_faster_than_writing_each_step(tmp_path):
     # Measured about 0.33 on this source (one parse, nothing serialized);
     # the gate leaves room for a loaded runner.
     assert new / old < 0.6, (new, old)
+
+
+@pytest.mark.parametrize('bad', ['8G', '', '1', '80'])
+def test_a_paint_code_the_written_export_refuses_is_refused_when_measuring(tmp_path, bad):
+    # duckcatgnaf on #1264: the measure path must run the paint remap too.
+    # The census regex skips a non-hex code ('8G') and an empty one, so only
+    # the remap sees them; '1' is truncated and '80' has trailing data.
+    path = tmp_path / 'bad-paint.3mf'
+    _painted_two_plate_source(path)
+    with zipfile.ZipFile(path) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    holder = members['3D/Objects/object_1.model'].decode()
+    holder = holder.replace('<triangle v1="0" v2="2" v3="1"/>',
+                            '<triangle v1="0" v2="2" v3="1" paint_color="8"/>'
+                            f'<triangle v1="1" v2="2" v3="0" slic3rpe:mmu_segmentation="{bad}" '
+                            'xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06"/>')
+    members['3D/Objects/object_1.model'] = holder.encode()
+    with zipfile.ZipFile(path, 'w') as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    manifest, decisions = _decisions(path)
+    assert manifest['painted']
+
+    def written():
+        with tempfile.TemporaryDirectory() as tmp:
+            return export_color_geometry(path, Path(tmp) / 'g.3mf', decisions, scale=1.0)
+    full = _outcome(written)
+    assert full[0] == 'raised' and full[1] == 'ValueError'
+    assert _outcome(lambda: export_color_geometry(path, None, decisions, scale=1.0)) == full
+    view = model_job._per_part_view(manifest, decisions)
+    plates = _plates(path, manifest)
+    with pytest.raises(ValueError, match=re.escape(full[2])):
+        _old_painted_fit(path, view, plates, 1.0)
+    with pytest.raises(ValueError, match=re.escape(full[2])):
+        model_job.painted_fit(path, view, plates, 1.0)

@@ -109,6 +109,29 @@ def _child_count(mesh, name):
     return len(node)
 
 
+def _check_paint_remap(mesh, paint_table):
+    """Run the written export's paint remap on every distinct code of a mesh.
+
+    The measure-only export copies no triangles, but it must refuse what
+    the written export refuses: the same ``remap_code`` call is made once
+    per distinct ``paint_color`` (or PrusaSlicer ``mmu_segmentation``) code,
+    in triangle order, so the first bad code raises the same error.
+    """
+    triangles = next(n for n in mesh if n.tag.split('}')[-1] == 'triangles')
+    seen = set()
+    for tri in triangles:
+        code = tri.get('paint_color')
+        if not code:
+            mmu_key = next((k for k in tri.attrib if k.split('}')[-1] == 'mmu_segmentation'), None)
+            code = tri.get(mmu_key) if mmu_key is not None else None
+            if code is None:
+                continue
+        if code not in seen:
+            painted_geometry.remap_code(code, paint_table)
+            seen.add(code)
+    return True
+
+
 def _write_part_settings(pc, settings, features=()):
     for key, value in _kept_part_settings(settings):
         ET.SubElement(pc, 'metadata', key=key, value=str(value))
@@ -501,10 +524,17 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
         if measure:
             # Measure only (#1246): the placed points and the counts the
-            # report carries, without copying the mesh or rewriting it.
+            # report carries, without copying the mesh or rewriting it. The
+            # paint remap the written export runs is still run (once per
+            # distinct code per scope), so a code it refuses is refused here.
+            triangle_count = _child_count(mesh, 'triangles')
+            if painted:
+                painted_geometry.scoped(
+                    ('paint_remap', key, frozenset(object_ids) if object_ids is not None else None,
+                     tuple(sorted(paint_table.items()))),
+                    lambda: _check_paint_remap(mesh, paint_table), source=source)
             move = [float(v) for v in item_shifts[str(part['object_id'])]] if item_shifts is not None else delta
             placed = [tuple(point[a] + move[a] for a in range(3)) for point in points]
-            triangle_count = _child_count(mesh, 'triangles')
         else:
             new_mesh = copy.deepcopy(mesh)
             for node in new_mesh.iter():
