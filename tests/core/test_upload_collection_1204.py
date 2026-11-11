@@ -256,3 +256,16 @@ def test_restore_never_replaces_a_newer_collection(store, tmp_path):
     uc.add(scope, [upload(tmp_path, 'new.stl', b'new', 2)])
     assert uc.restore(scope, old) is False
     assert [f['name'] for f in uc.current(scope)['files']] == ['new.stl']
+
+
+def test_a_zip_alone_while_a_collection_is_open_takes_its_own_intake(store, tmp_path):
+    """Review of #1220 (answered, pinned here): a ZIP-only message while a
+    collection is open is never asked about joining it."""
+    scope = uc.scope_key(src(), 'ad5x')
+    uc.add(scope, [upload(tmp_path, 'lid.stl', b'lid', 1)])
+    archive = upload(tmp_path, 'parts.zip', b'PK', 2)
+    chat = Chat()
+    event = S(source=src(), text='', message_id='m2')
+    assert asyncio.run(uc.handle(event, chat, printer_id='ad5x', files=[], run_intake=chat.run_intake,
+                                 ask=chat.ask, archives=[archive])) is None
+    assert chat.questions == [] and chat.sent == [] and len(uc.current(scope)['files']) == 1

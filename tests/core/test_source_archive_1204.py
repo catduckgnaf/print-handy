@@ -194,7 +194,7 @@ def test_archive_files_selects_zip_only(tmp_path):
     assert prepared_intake.model_files(event) == [three]  # a 3MF keeps its own path
 
 
-@pytest.mark.parametrize('second', ['a/arm.stl', 'a//arm.stl', 'a\arm.stl', './a/arm.stl'])
+@pytest.mark.parametrize('second', ['a/arm.stl', 'a//arm.stl', 'a\\arm.stl', './a/arm.stl'])
 def test_two_entries_with_one_path_are_refused(tmp_path, second):
     """Review of #1220: extraction keyed parts by path, so a repeated path listed
     two parts in the report but extracted one. The ZIP is refused instead."""
