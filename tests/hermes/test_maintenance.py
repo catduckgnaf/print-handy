@@ -78,6 +78,8 @@ def test_listener_history_totals_are_hours_not_seconds(monkeypatch):
     assert mel._maintenance_history_totals() == 0.5
     # A run recorded at 2.0 total hours with 0.5 h printed since must not
     # read as thousands of hours and retrigger the reminder at once.
+    # The run is recorded just now: a fixed date ages past FULL_DAYS and turns
+    # this hours check into a calendar check (it began failing on 2026-11-11).
     state = {"runs": [{"kind": "full", "hours_total": 2.0,
-                       "at": datetime(2026, 10, 12, tzinfo=timezone.utc).isoformat()}]}
+                       "at": datetime.now(timezone.utc).isoformat()}]}
     assert maintenance.reminder_text(state, mel._maintenance_history_totals(), idle=True) is None
