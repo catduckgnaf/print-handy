@@ -117,11 +117,14 @@ that are fixed too, with tests in `tests/core/test_usage_reads_1155.py`
   filament. An unparsable member is `unknown`.
 - A PrusaSlicer modifier volume (`volume_type` `ParameterModifier`, or the
   older `modifier` flag, in `Metadata/Slic3r_PE_model.config`) that names an
-  extruder other than 0 and its object's own makes the `modifiers` class
-  `unknown` with the volume named. PrusaSlicer stores the volume as a
-  triangle range of its object's one mesh, which inventory does not split,
-  so the region is not carried with its own filament; it is never a used
-  filament or a new question. Tests: `tests/core/test_prusa_modifier_usage_1155.py`
+  extruder other than 0 and its object's own is the `modifiers` class of its
+  object's plates, read like a Bambu or OrcaSlicer `modifier_part`: inventory
+  splits the volume's triangle range out of its object's one mesh into a
+  cutter row (#1260), so a filament some color question maps is counted and
+  one that none maps is `unknown` with the volume named, never a used
+  filament or a new question. A model config that cannot be parsed makes the
+  class `unknown`. Tests: `tests/core/test_prusa_modifier_usage_1155.py`,
+  `tests/core/test_prusa_volumes_1260.py::test_prusa_modifier_extruder_a_question_maps_is_known_usage`
   (through `inventory`).
 
 ## Criterion 4: Atomic complete remapping
@@ -166,6 +169,7 @@ never silently drop colors.
 | Embedded G-code and `filament_sequence.json` | Under a non-identity mapping the single-color copy drops embedded G-code (named in `dropped_entries`) and keeps the sequence file byte for byte (named in `preserved_unremapped_entries`), because its preset record is provenance evidence about the source; the rebuilt export carries neither and names them in `dropped_members`. The generic remapper refuses both under a non-identity mapping | `tests/pipeline/test_remap_exhaustive.py::test_single_color_plate_carries_no_stale_filament_reference`, `tests/pipeline/test_feature_filament_remap_1155.py::test_single_color_plate_keeps_the_filament_sequence_byte_for_byte_under_a_remap`, `::test_rebuilt_export_drops_the_filament_sequence_member_by_name_under_a_remap`. No production-path test for the generic refusals (no production caller); the library test is `::test_generic_remap_refuses_the_filament_sequence_only_under_a_non_identity_mapping` |
 | One read per call | A slice, an export and an inventory each run in a `painted_geometry.decode_scope`: each `.model` member is decompressed once and each painted mesh decoded once, however many consumers ask (the multi-material scan in `slice_model` included). Verdicts do not change | `tests/pipeline/test_feature_filament_remap_1155.py::test_one_slice_reads_each_model_member_once_and_decodes_paint_once`, `::test_decode_scope_never_changes_a_verdict` |
 | One inventory per color flow | The Discord color flow (`discord_color_intake.collect`) runs in a `source_colors.inventory_scope`: the question build and each `intake_color_choices` pass (two in a warning round) share one inventory of the source, keyed by its content hash. Each caller gets its own copy; only the manifest is kept, never member bytes or decoded paint, and nothing outlives the flow. A changed source hashes differently and is inventoried again | `tests/pipeline/test_discord_color_intake.py::test_discord_flow_inventories_the_source_once`, `::test_discord_flow_reinventories_a_source_changed_during_selection`; `tests/pipeline/test_filament_warn_accept.py::DiscordWarningRoundTests::test_the_warning_round_inventories_the_source_once`; timing: `tests/core/test_usage_reads_1155.py::test_a_second_inventory_in_one_flow_skips_the_paint_pass` |
+| PrusaSlicer volumes | Inventory splits each PrusaSlicer object's `ParameterModifier`, `NegativeVolume`, `SupportBlocker` and `SupportEnforcer` triangle ranges (`<volume firstid lastid>` in `Metadata/Slic3r_PE_model.config`) out of its one mesh into cutter rows (#1260); the printed part keeps its key, so no question changes. The volume-plate and multicolor exports write each as its own typed part (`modifier_part`, `negative_part`, `support_blocker`, `support_enforcer`) with its own triangles, and fit and footprint read only model-part triangles. The single-color plate copy and the slice-time conversion of a PrusaSlicer model config cannot type a range inside one mesh, so they refuse that object by name; a component volume is typed there. A range that does not cover the mesh exactly once, an unknown volume type or an unparsable model config refuses by name | `tests/core/test_prusa_volumes_1260.py::test_export_geometry_writes_the_volume_typed_never_solid`, `::test_multicolor_export_carries_the_modifier_with_its_tool`, `::test_single_color_plate_copy_refuses_a_volume_inside_the_mesh_by_name`, `::test_slice_adoption_refuses_a_volume_inside_the_mesh`, `::test_a_volume_that_cannot_be_split_exactly_is_refused_by_name` |
 | Modifier extruders | The rebuilt export writes a `modifier_part`'s own extruder as the tool the decisions give that filament. A filament no tool of the job loads is not written (the body's tool prints the region) and is named in `feature_filaments` as unknown usage | `tests/core/test_usage_reads_1155.py::test_rebuilt_export_writes_the_modifiers_own_filament_as_its_tool`, `::test_rebuilt_export_names_a_modifier_filament_the_job_does_not_load` |
 
 Open gaps, all deferred past 2.2.9 in #1155:
