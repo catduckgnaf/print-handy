@@ -121,6 +121,10 @@ def from_files(intake_id: str, source_kind: str, sources: list[dict],
             "quantity_required": 1,
             "source_file": str(row.get("downloaded_file") or row.get("path") or ""),
         }
+        # A part that came out of a ZIP keeps its path inside the archive
+        # (#1204 item 3), so "arms/left.stl" and "spare/left.stl" stay told apart.
+        if row.get("archive_path"):
+            component["archive_path"] = str(row["archive_path"])
         # Declared assembly data (#1017 item 3): a source that knows a
         # part's role or its placement in the assembly declares it here,
         # validated — an invalid declaration fails the manifest build

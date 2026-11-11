@@ -1141,6 +1141,13 @@ def model_files(event):
             if (path := Path(str(p))).suffix.lower() in MODEL_FILE_EXTS and path.is_file()]
 
 
+def archive_files(event):
+    """Dropped .zip archives of model sources (#1204 item 3); a .3mf is never one of these."""
+    from .source_archive import ARCHIVE_EXTS
+    return [path for p in (getattr(event, 'media_urls', None) or [])
+            if (path := Path(str(p))).suffix.lower() in ARCHIVE_EXTS and path.is_file()]
+
+
 def model_file(event):
     """Single-file compatibility selector for existing design/edit callers."""
     hits = model_files(event)
@@ -1171,6 +1178,46 @@ def upload_job_set(paths):
         'sources': [{'n': i, 'name': name, 'title': Path(name).stem, 'path': str(path)}
                     for i, (name, path) in enumerate(zip(names, paths), 1)],
     }
+
+
+ARCHIVE_STAGING_KEEP_S = 7 * 24 * 3600
+
+
+def archive_job(archives, staging):
+    """A dropped ZIP as the same parts inventory a multi-file upload gets (#1204 item 3).
+
+    source_archive enumerates and extracts the printable STL/3MF entries
+    (everything else is reported, never extracted); the extracted files go
+    through upload_job_set unchanged, so the part chooser, combiner and
+    project manifest are the ones every other source uses. Each source row
+    keeps its path inside the archive.
+    """
+    import shutil
+    import time as _time
+    from . import source_archive
+    if len(archives) != 1:
+        raise source_archive.ArchiveRefused(
+            f'that message has {len(archives)} ZIP files; send one ZIP per message.')
+    staging = Path(staging)
+    with contextlib.suppress(OSError):
+        for old in staging.parent.glob('*.archive'):
+            if old != staging and _time.time() - old.stat().st_mtime > ARCHIVE_STAGING_KEEP_S:
+                shutil.rmtree(old, ignore_errors=True)
+    paths, report = source_archive.extract(archives[0], staging)
+    job = upload_job_set(paths)
+    for row, part in zip(job['sources'], report['printable']):
+        row['archive_path'] = part['archive_path']
+    stem = Path(re.sub(r'^doc_[0-9a-f]{12}_', '', Path(archives[0]).name)).stem
+    report['archive'] = Path(re.sub(r'^doc_[0-9a-f]{12}_', '', Path(archives[0]).name)).name
+    job['source_kind'] = 'upload_archive'
+    job['source_archive'] = report
+    if len(paths) > 1:
+        job.update(title=f'{stem} ({len(paths)} files)', model_id=stem, slug=_slug(stem) or 'uploaded-archive')
+    return job
+
+
+def _slug(text):
+    return re.sub(r'[^a-z0-9]+', '-', str(text).lower()).strip('-')[:60]
 
 
 def gcode_3mf_message(name):
@@ -2318,7 +2365,8 @@ def _combined_source(job, rows, paths, combined):
         project = projects.from_design(job['intake_id'], parts, job['design'], title=job.get('title'))
         source_kind = project['source_kind']
     else:
-        source_kind = 'uploaded_files' if job.get('site') == 'upload' else 'linked_files'
+        source_kind = {'upload_archive': 'uploaded_archive', 'upload_collection': 'uploaded_collection'}.get(
+            job.get('source_kind')) or ('uploaded_files' if job.get('site') == 'upload' else 'linked_files')
         project = projects.from_files(job['intake_id'], source_kind, parts, title=job.get('title'))
     return {'selected_source': selected, 'selected_sources': parts,
             'downloaded_file': combined['path'], 'combined_objects': combined['objects'],
@@ -2644,14 +2692,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     source = event.source
     url = None if reuse else model_link(event.text)
     uploads = [] if (url or reuse) else model_files(event)
+    # A ZIP is opened only when the message has no STL/3MF of its own (#1204 item 3).
+    archives = [] if (url or reuse or uploads) else archive_files(event)
     mid = getattr(event, 'message_id', None)
-    if not (url or uploads or reuse) or not mid:
+    if not (url or uploads or archives or reuse) or not mid:
         raise ValueError('plain model link requires a stable Discord message ID')
     iid = mj.intake_id_from_message(source, mid)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     receipt_path = root / (iid + '.json')
     origin = (url or (f'reprint:{reuse.get("intake_id")}' if reuse else None)
+              or (f'upload-archive:{Path(archives[0]).name}' if archives else None)
               or (f'upload:{upload_job(uploads[0])["sources"][0]["name"]}' if len(uploads) == 1
                   else f'upload-project:{len(uploads)}-files'))
     receipt = {'intake_id': iid, 'url': origin, 'status': 'INSPECTING_SOURCE',
@@ -2697,6 +2748,22 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 url = reuse.get('url')
         elif uploads:
             job = with_design_origin(upload_job_set(uploads), event_metadata.get('design_handoff'))
+            collected = event_metadata.get('upload_collection')
+            if isinstance(collected, dict) and len(uploads) > 1:
+                # Collected over several messages (#1204 item 2): the same
+                # inventory, marked so the project records where it came from.
+                job['source_kind'] = 'upload_collection'
+                job['upload_collection'] = collected
+            skipped = archive_files(event)
+            if skipped:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata, content=(
+                    f"I left out {', '.join(re.sub(r'^doc_[0-9a-f]{12}_', '', p.name) for p in skipped)}: "
+                    'a ZIP is opened only when it is sent in its own message.'))
+        elif archives:
+            job = await asyncio.to_thread(archive_job, archives, root / (iid + '.archive'))
+            from .source_archive import summary as _archive_summary
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=_archive_summary(job['source_archive']))
         else:
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
