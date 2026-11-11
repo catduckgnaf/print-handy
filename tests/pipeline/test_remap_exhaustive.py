@@ -202,7 +202,7 @@ def test_generic_remap_identity_preserves_object_ids_and_members(tmp_path):
 
 
 def test_generic_remap_refuses_the_unestablished_flush_vector(tmp_path):
-    project = dict(_PROJECT, flush_volumes_vector=["140", "140", "140", "140"])
+    project = dict(_PROJECT, flush_volumes_vector=["10", "11", "20", "21"])
     source = _generic_source(tmp_path / "source.3mf", project=project)
     target = tmp_path / "out.3mf"
     target.write_bytes(b"existing destination sentinel")
@@ -213,7 +213,7 @@ def test_generic_remap_refuses_the_unestablished_flush_vector(tmp_path):
     package_remap.remap_package(source, target, {1: 1, 2: 2})
     with zipfile.ZipFile(target) as archive:
         assert json.loads(archive.read("Metadata/project_settings.config"))["flush_volumes_vector"] == \
-            ["140", "140", "140", "140"]
+            ["10", "11", "20", "21"]
 
 
 def test_generic_remap_refuses_an_unmapped_range_extruder_atomically(tmp_path):

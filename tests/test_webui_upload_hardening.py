@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import os
+import socket
 import stat
 import sys
 import threading
@@ -349,3 +350,107 @@ def test_a_saved_file_carries_the_cleaned_name(data):
     # A name that is nothing but control characters and an extension is refused.
     saved, reason = upload.save_upload(data, "\x1b\x07.stl", b"solid n\n")
     assert saved is None and reason
+
+
+# -- a refused upload is answered, not reset (#1243) ---------------------------
+
+def post_then_send_body(port, path, content_type, length, body, headers=()):
+    """Send the request head, read the whole answer, then send ``body``
+    the way a browser still uploading would, and wait for the server to
+    end the connection. Returns (status, page, how the connection ended):
+    "closed" for an orderly close, else the error the client hit."""
+    sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+    try:
+        head = (f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+                f"Content-Type: {content_type}\r\nContent-Length: {length}\r\n"
+                + "".join(f"{name}: {value}\r\n" for name, value in headers)
+                + "\r\n")
+        sock.sendall(head.encode())
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = sock.recv(65536)
+            assert chunk, "the server closed before answering"
+            raw += chunk
+        head_part, _, page = raw.partition(b"\r\n\r\n")
+        lines = head_part.decode("latin-1").split("\r\n")
+        status = int(lines[0].split()[1])
+        size = int(next(line.split(":", 1)[1] for line in lines
+                        if line.lower().startswith("content-length:")))
+        while len(page) < size:
+            chunk = sock.recv(65536)
+            assert chunk
+            page += chunk
+        # Give a server that closes without draining time to do so, so
+        # the body below meets a closed socket (and a reset) there.
+        time.sleep(0.3)
+        try:
+            for start_at in range(0, len(body), 65536):
+                sock.sendall(body[start_at:start_at + 65536])
+            ended = "closed" if sock.recv(65536) == b"" else "more data"
+        except OSError as exc:
+            ended = type(exc).__name__
+        return status, page, ended
+    finally:
+        sock.close()
+
+
+def test_a_refused_upload_is_drained_so_the_answer_arrives(running):
+    httpd, port = running
+    token = upload.create_link(httpd.settings_data, httpd.access.credential_fingerprint())
+    body, content_type = multipart_body({}, "a.stl", os.urandom(1024 * 1024))
+    taken = 0
+    while upload.UPLOAD_SLOTS.try_acquire():
+        taken += 1
+    try:
+        with mock.patch.object(upload, "parse_multipart_stream") as parse:
+            status, page, ended = post_then_send_body(
+                port, f"/u/{token}", content_type, len(body), body)
+        assert status == 503
+        assert b"Try again in a moment" in page
+        assert ended == "closed"  # the whole body was taken, then a clean close
+        parse.assert_not_called()  # drained, never parsed
+    finally:
+        for _ in range(taken):
+            upload.UPLOAD_SLOTS.release()
+    assert upload.list_inbox(httpd.settings_data) == []
+
+
+def test_an_unauthenticated_upload_is_refused_unparsed_and_drained(running):
+    # Auth before parse still holds: the body is read only to be thrown away.
+    httpd, port = running
+    body, content_type = multipart_body({}, "a.stl", os.urandom(512 * 1024))
+    with mock.patch.object(upload, "parse_multipart_stream") as parse:
+        status, _page, ended = post_then_send_body(
+            port, "/upload", content_type, len(body), body)
+    assert status == 403
+    assert ended == "closed"
+    parse.assert_not_called()
+    assert upload.list_inbox(httpd.settings_data) == []
+
+
+def test_an_upload_over_the_cap_is_answered_and_drained_only_to_the_bound(running):
+    # A Content-Length over the cap is refused before a byte is read; the
+    # drain then reads at most DRAIN_LIMIT_BYTES, for at most
+    # DRAIN_TIMEOUT_S, so the size cap still bounds what the server takes.
+    httpd, port = running
+    token = upload.create_link(httpd.settings_data, httpd.access.credential_fingerprint())
+    sent = b"x" * (256 * 1024)
+    declared = upload.MAX_UPLOAD_BYTES + upload.MULTIPART_OVERHEAD_BYTES + 1
+    with mock.patch.object(server, "DRAIN_TIMEOUT_S", 0.5), \
+            mock.patch.object(upload, "parse_multipart_stream") as parse:
+        status, page, ended = post_then_send_body(
+            port, f"/u/{token}", "multipart/form-data; boundary=x", declared, sent)
+    assert status == 413
+    assert b"upload too large" in page
+    assert ended == "closed"
+    parse.assert_not_called()
+
+
+def test_the_drain_stops_at_its_byte_bound():
+    rfile = io.BufferedReader(io.BytesIO(b"x" * (server.DRAIN_LIMIT_BYTES * 3)))
+    sock = mock.Mock()
+    server._drain(sock, rfile, server.DRAIN_LIMIT_BYTES * 3)
+    assert rfile.tell() == server.DRAIN_LIMIT_BYTES
+    rfile = io.BufferedReader(io.BytesIO(b"x" * 1000))
+    server._drain(sock, rfile, 400)
+    assert rfile.tell() == 400  # never past the request's own body

@@ -685,13 +685,21 @@ _SYSTEM_PROMPT = (
     "applied to the variable directly.\n"
     "- Proceed on sensible assumptions instead of asking: choose realistic sizes for the "
     "object, and state each choice that matters in an Assumes line.\n"
-    "- Print it well: one connected solid lying on its largest flat face, resting on Z=0 "
+    "- Print it well: each printed piece is one connected solid lying on its largest flat "
+    "face, resting on Z=0 "
     "(nothing below Z=0, nothing floating); avoid overhangs steeper than 45 degrees from "
     "vertical where the shape allows (use 45-degree chamfers instead of flat ledges; "
     "chamfer bottom edges, do not round them); walls at least 1.2 mm, 2 mm or more where "
     "the part carries load; screw and pin holes 0.2-0.3 mm larger than the nominal "
     "diameter; 0.2-0.3 mm clearance per side between mating parts; details at least "
     "0.6 mm; $fn between 32 and 96 for curves.\n"
+    "- One piece, unless the request needs several separate printed parts (too big for the "
+    "bed, or pieces that must come apart or move). Then add a header line "
+    "'// Parts: <name of part 1>, <name of part 2>, ...', a top-level selector "
+    "'part = 0; // 0 = all parts side by side, N = part N alone', and build part N inside "
+    "'if (part == 0 || part == N) { ... }'. Each part rests on Z=0 in its own print "
+    "orientation; with part = 0 lay them side by side without touching. Each part is "
+    "rendered, checked and printed on its own.\n"
     "- You may NOT use import, include, use or surface statements: the file may not read "
     "other files.\n"
     "- Given current OpenSCAD and a change: return the complete updated file, change only "
@@ -837,6 +845,42 @@ def design_notes(source) -> dict:
     return notes
 
 
+# A multi-part design (#1204 item 4) declares its parts in one header line
+# and selects them with one top-level numeric parameter. The engine renders
+# part N by setting that parameter in the source (never a -D override, the
+# same rule as parameter edits), so every part file is the design itself.
+_PARTS_LINE = re.compile(r"^\s*//\s*parts\s*:\s*(.+?)\s*$", re.I | re.M)
+PART_SELECTOR = "part"
+MAX_DESIGN_PARTS = 12
+
+
+def design_parts(source) -> list:
+    """The part names a multi-part design declares, in order; [] for one part.
+
+    Only the ``// Parts:`` comment line is read. Fewer than two names is a
+    single-part design, exactly as before the declaration existed.
+    """
+    match = _PARTS_LINE.search(str(source or ""))
+    if not match:
+        return []
+    names = [" ".join(name.split())[:60] for name in match[1].split(",")]
+    names = [name for name in names if name]
+    return names if len(names) >= 2 else []
+
+
+def _parts_problem(source, names) -> str:
+    """Why a declared multi-part file cannot be rendered part by part, or ''."""
+    if len(names) > MAX_DESIGN_PARTS:
+        return (f"the file declares {len(names)} parts; at most {MAX_DESIGN_PARTS} parts "
+                "are rendered and handed to intake")
+    if len({name.casefold() for name in names}) != len(names):
+        return "the Parts line names the same part twice: give every part its own name"
+    if PART_SELECTOR not in scad_params(source):
+        return ("the file declares Parts but has no top-level selector "
+                f"'{PART_SELECTOR} = 0;' choosing which part to render")
+    return ""
+
+
 _PARAM_COMMENT = re.compile(r"[ \t]*;?[ \t]*//[ \t]*(.+?)[ \t]*$", re.M)
 
 
@@ -904,6 +948,25 @@ def check_design(info, *, notes=None, cfg=None, declared=True) -> list:
             fmt = lambda v: " x ".join(f"{x:g}" for x in v)
             findings.append(("warn", f"it measures {fmt(dims)} mm, not the {fmt(size)} mm on "
                                      "the Size line"))
+    return findings
+
+
+def check_attempt(attempt, *, notes=None, cfg=None, declared=True) -> list:
+    """check_design for one rendered attempt, part by part for a multi-part design.
+
+    A multi-part design prints each part on its own, so each part render is
+    checked as a part (one solid, on the bed, fits the printer) and named in
+    its findings. The side-by-side layout render is only the preview; its
+    piece count and footprint are not a print, so it is not checked as one,
+    and neither is the Size line, which describes that layout.
+    """
+    parts = attempt.get("parts") or []
+    if not parts:
+        return check_design(attempt["info"], notes=notes, cfg=cfg, declared=declared)
+    findings = []
+    for part in parts:
+        for level, text in check_design(part["info"], cfg=cfg, declared=False):
+            findings.append((level, f"part {part['index']} ({part['name']}): {text}"))
     return findings
 
 
@@ -1203,7 +1266,6 @@ class DesignEngine:
         already rendered reuses that version's STL instead of running
         OpenSCAD again (an undo, or a model that repeats itself).
         """
-        import hashlib
         folder = _session_path(self.root, session["id"])
         folder.mkdir(parents=True, exist_ok=True)
         turn = session["turns"] + 1
@@ -1219,9 +1281,49 @@ class DesignEngine:
             body_path = folder / f"{stem}.body.scad"
             body_path.write_text(source, encoding="utf-8")
             source = _MESH_HEADER.format(name=session["base_stl"]) + source
+        info, digest, error = self._render_file(session, source, scad_path, stl_path)
+        if info is None:
+            return None, error
+        result = {"scad_path": scad_path, "stl_path": stl_path, "body_path": body_path,
+                  "source": source, "authored": authored, "info": info, "hash": digest,
+                  "parts": []}
+        names = design_parts(source) if session.get("edit_mode") != "mesh" else []
+        if names:
+            # A declared multi-part design (#1204 item 4): the render above is
+            # the side-by-side layout for the preview; each part is rendered
+            # alone from the same source with its selector set, and a part
+            # that fails is a repairable error like any render error.
+            problem = _parts_problem(source, names)
+            if problem:
+                return None, problem
+            for index, name in enumerate(names, 1):
+                part_source = _set_scad_param(source, PART_SELECTOR, index)
+                part_info, part_digest, part_error = self._render_file(
+                    session, part_source, folder / f"{stem}.part{index}.scad",
+                    folder / f"{stem}.part{index}.stl")
+                if part_info is None:
+                    return None, f"part {index} ({name}) did not render: {part_error}"
+                result["parts"].append({
+                    "index": index, "name": name, "info": part_info, "hash": part_digest,
+                    "scad_path": folder / f"{stem}.part{index}.scad",
+                    "stl_path": folder / f"{stem}.part{index}.stl"})
+        return result, ""
+
+    def _render_file(self, session, source, scad_path, stl_path):
+        """Write, render and measure one render file: (info, sha256, "") or (None, sha256, error).
+
+        A render file byte-identical to one this session already rendered (a
+        turn or one of its parts) reuses that STL instead of running OpenSCAD.
+        """
+        import hashlib
+        folder = _session_path(self.root, session["id"])
         scad_path.write_text(source, encoding="utf-8")
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-        cached = next((folder / entry["stl"] for entry in session.get("history") or []
+        known = []
+        for entry in session.get("history") or []:
+            known.append(entry)
+            known.extend(entry.get("parts") or [])
+        cached = next((folder / entry["stl"] for entry in known
                        if entry.get("hash") == digest and entry.get("stl")
                        and (folder / entry["stl"]).is_file()), None)
         if cached is not None:
@@ -1232,13 +1334,11 @@ class DesignEngine:
             ok, error = render_scad(scad_path, stl_path, timeout_s=self.render_timeout_s,
                                     runner=self.runner)
             if not ok:
-                return None, error
+                return None, digest, error
         try:
-            info = validate_stl(stl_path)
+            return validate_stl(stl_path), digest, ""
         except DesignError as exc:
-            return None, str(exc)
-        return {"scad_path": scad_path, "stl_path": stl_path, "body_path": body_path,
-                "source": source, "authored": authored, "info": info, "hash": digest}, ""
+            return None, digest, str(exc)
 
     def _commit(self, session, attempt, *, instruction=None, findings=(), attempts=1,
                 reverted_to=None, declared=True):
@@ -1255,6 +1355,14 @@ class DesignEngine:
             attempt["body_path"].replace(body_path)
             body_name = body_path.name
             session["body_file"] = body_name
+        parts = []
+        for part in attempt.get("parts") or []:
+            part_scad = folder / f"turn-{turn}.part{part['index']}.scad"
+            part_stl = folder / f"turn-{turn}.part{part['index']}.stl"
+            part["scad_path"].replace(part_scad)
+            part["stl_path"].replace(part_stl)
+            parts.append({"index": part["index"], "name": part["name"], "scad": part_scad.name,
+                          "stl": part_stl.name, "hash": part["hash"], "geometry": part["info"]})
         for stale in folder.glob(f"turn-{turn}-try*"):
             stale.unlink(missing_ok=True)
         info = attempt["info"]
@@ -1276,19 +1384,25 @@ class DesignEngine:
         session["preview_error"] = preview_error
         session["geometry"] = info
         session["findings"] = findings
+        # The turn's printable parts: None for a single-part design, so a
+        # session written before #1204 and a one-part turn read the same.
+        session["parts"] = parts or None
         session["status"] = "active"
         history = list(session.get("history") or [])
-        history.append({"turn": turn, "hash": attempt["hash"], "scad": scad_path.name,
-                        "stl": stl_path.name, "body": body_name,
-                        "instruction": (str(instruction)[:300] if instruction else None),
-                        "reverted_to": reverted_to, "declared": bool(declared)})
+        entry = {"turn": turn, "hash": attempt["hash"], "scad": scad_path.name,
+                 "stl": stl_path.name, "body": body_name,
+                 "instruction": (str(instruction)[:300] if instruction else None),
+                 "reverted_to": reverted_to, "declared": bool(declared)}
+        if parts:
+            entry["parts"] = [{"stl": p["stl"], "hash": p["hash"]} for p in parts]
+        history.append(entry)
         session["history"] = history[-MAX_TURNS:]
         _save(self.root, session)
         return {"session": session, "scad_path": scad_path, "stl_path": stl_path,
                 "preview_path": preview_path, "preview_error": preview_error,
                 "param_changes": [], "geometry": info, "scad": attempt["source"],
                 "notes": design_notes(attempt["authored"]), "findings": findings,
-                "attempts": attempts, "reverted_to": reverted_to}
+                "attempts": attempts, "reverted_to": reverted_to, "parts": parts}
 
     def _discard_attempts(self, session):
         folder = _session_path(self.root, session["id"])
@@ -1301,8 +1415,8 @@ class DesignEngine:
         if attempt is None:
             self._discard_attempts(session)
             return None, error
-        findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
-                                cfg=self.cfg, declared=False)
+        findings = check_attempt(attempt, notes=design_notes(attempt["authored"]),
+                                 cfg=self.cfg, declared=False)
         return self._commit(session, attempt, instruction=instruction,
                             findings=findings, declared=False), ""
 
@@ -1438,7 +1552,7 @@ class DesignEngine:
                         f"{det_error}")
                 # The header's Size line is the model's and is now stale by
                 # design, so only the measured checks apply here.
-                findings = check_design(attempt["info"], cfg=self.cfg, declared=False)
+                findings = check_attempt(attempt, cfg=self.cfg, declared=False)
                 self._refuse_unprintable(session, findings)
                 result = await asyncio.to_thread(
                     lambda: self._commit(session, attempt, instruction=instruction,
@@ -1508,7 +1622,7 @@ class DesignEngine:
                 error, feedback = last_error, None
                 previous = source
                 continue
-            findings = check_design(attempt["info"], notes=design_notes(source), cfg=self.cfg)
+            findings = check_attempt(attempt, notes=design_notes(source), cfg=self.cfg)
             logger.info("design session %s attempt %s/%s rendered; findings: %s",
                         session["id"], number + 1, budget,
                         "; ".join(text for _level, text in findings) or "none")
@@ -1593,8 +1707,8 @@ class DesignEngine:
         # Checked the way the version was checked when it was made: a
         # parameter edit's Size line is stale by design.
         declared = entry.get("declared", True)
-        findings = check_design(attempt["info"], notes=design_notes(attempt["authored"]),
-                                cfg=self.cfg, declared=declared)
+        findings = check_attempt(attempt, notes=design_notes(attempt["authored"]),
+                                 cfg=self.cfg, declared=declared)
         result = self._commit(session, attempt, instruction=instruction, findings=findings,
                               attempts=0, reverted_to=entry.get("turn"), declared=declared)
         if session.get("edit_mode") != "mesh" and current:
@@ -1647,7 +1761,16 @@ def reply_lines(result) -> list:
     if result.get("reverted_to"):
         title = f"Back to version {result['reverted_to']}: {title[0].lower() + title[1:]}"
     lines = [f"**Design turn {session['turns']}** — {title.rstrip('.')}."]
-    lines.append(f"Measured: {summary_text(result)}.")
+    parts = result.get("parts") or []
+    if parts:
+        # Each part prints on its own, so each one's measured size is what
+        # matters; the layout's size is only the preview's.
+        lines.append(f"{len(parts)} parts, each checked and printed on its own: " + "; ".join(
+            f"{p['index']}. {p['name']} "
+            + " × ".join(f"{float(v):g}" for v in (p.get("geometry") or {}).get("dimensions_mm")
+                         or []) + " mm" for p in parts) + ".")
+    else:
+        lines.append(f"Measured: {summary_text(result)}.")
     assumptions = notes.get("assumptions") or []
     if assumptions:
         lines.append("Assumed: " + "; ".join(a.rstrip(".") for a in assumptions) + ".")
@@ -1655,7 +1778,8 @@ def reply_lines(result) -> list:
     if session.get("edit_mode") != "mesh" and scad:
         params = scad_params(scad)
         described = scad_param_notes(scad)
-        names = [n for n in params if not n.startswith("$")]
+        names = [n for n in params if not n.startswith("$")
+                 and not (parts and n == PART_SELECTOR)]
         names = sorted(names, key=lambda n: (n not in described, list(params).index(n)))
         shown = [f"{n} = {_format_number(params[n])}"
                  + (f" ({described[n]})" if n in described else "")
@@ -1668,6 +1792,44 @@ def reply_lines(result) -> list:
     if findings:
         lines.append("Heads-up: " + "; ".join(findings) + ".")
     return lines
+
+
+def multipart_handoff(root, session):
+    """(part STL paths, design record) for handing a multi-part turn to intake.
+
+    ([], None) for a single-part design, whose one STL is handed over exactly
+    as before. Intake names a project's components after its files, so each
+    part is copied to ``handoff-turn-N/<part-name>.stl`` in the session folder;
+    the turn's own files stay as rendered. The record is what intake keeps as
+    the project's design provenance (#1204 item 4): which session and turn,
+    and which declared part each file is. It authorizes nothing.
+    """
+    parts = session.get("parts") or []
+    if not parts:
+        return [], None
+    folder = _session_path(Path(root), session["id"])
+    dest = folder / f"handoff-turn-{session['turns']}"
+    dest.mkdir(exist_ok=True)
+    paths, rows = [], []
+    for part in parts:
+        source = folder / part["stl"]
+        if not source.is_file():
+            raise DesignError(f"part {part['index']} ({part['name']}) of this design is no "
+                              "longer on disk")
+        slug = re.sub(r"[^a-z0-9]+", "-", part["name"].casefold()).strip("-")[:40] or "part"
+        if any(row["file"] == f"{slug}.stl" for row in rows):
+            slug = f"{slug}-{part['index']}"  # two names that differ only in punctuation
+        target = dest / f"{slug}.stl"
+        shutil.copyfile(source, target)
+        paths.append(target)
+        rows.append({"file": target.name, "part": part["name"], "index": part["index"]})
+    scad = session.get("scad")
+    notes = design_notes((folder / scad).read_text(encoding="utf-8")
+                         if scad and (folder / scad).is_file() else "")
+    record = {"session_id": session["id"], "turn": session["turns"],
+              "title": str(notes.get("part") or session.get("description") or "AI design")[:120],
+              "parts": rows}
+    return paths, record
 
 
 def change_hint(session) -> str:

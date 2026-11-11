@@ -128,11 +128,26 @@ def _wait_healthy(qdir, env, timeout=420):
     raise QuickstartError(f"combined container not healthy after {timeout}s ({status})")
 
 
+# Cookies the Web UI set, sent back on every later request the way a browser
+# does. Web chat is per browser session since #1145 (PR #1219): without its
+# chat cookie each request is a new session that never sees its own reply.
+_COOKIES = {}
+
+
 def _request(method, path, body=None, headers=None):
+    headers = dict(headers or {})
+    if _COOKIES:
+        headers["Cookie"] = "; ".join(f"{name}={value}" for name, value in _COOKIES.items())
     conn = http.client.HTTPConnection("127.0.0.1", WEBUI_PORT, timeout=60)
     try:
-        conn.request(method, path, body=body, headers=headers or {})
+        conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
+        for name, value in response.getheaders():
+            if name.lower() == "set-cookie":
+                pair = value.split(";", 1)[0]
+                if "=" in pair:
+                    key, _, val = pair.partition("=")
+                    _COOKIES[key.strip()] = val.strip()
         return response.status, response.getheader("Location") or "", response.read().decode("utf-8", "replace")
     finally:
         conn.close()

@@ -342,12 +342,12 @@ As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flash
 
 ## Pinning the image
 
-`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.7` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
+`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.9` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
 
-The current release is 2.2.7. Its index digest, read from GHCR on 2026-11-08, is the same digest `:latest` pointed at that day:
+The current release is 2.2.9. Its index digest, read from GHCR on 2026-11-11, is the same digest `:latest` pointed at that day:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:36d44e6c3bfd285deb671508217e0296fcf8d26e39fc17bd5f6e69414b762a48
+ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec
 ```
 
 That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
@@ -355,7 +355,7 @@ That digest is the amd64 and arm64 index, not one architecture's image. The in-r
 Confirm a tag still points where you think before you pin it:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.7
+docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.9
 ```
 
 The `Digest:` line of the index is the value to pin. The per-architecture lines under `Manifests:` are not.
@@ -368,7 +368,7 @@ This is the edit. It is not applied by installing this repository.
 2. Change only the `Repository` element, from the moving tag to the digest:
 
 ```xml
-<Repository>ghcr.io/catduckgnaf/print-handy@sha256:36d44e6c3bfd285deb671508217e0296fcf8d26e39fc17bd5f6e69414b762a48</Repository>
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec</Repository>
 ```
 
 3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: every appdata path and any extra mounts (account tokens, timelapse archive) stay.

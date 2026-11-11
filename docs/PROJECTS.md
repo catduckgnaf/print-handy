@@ -22,8 +22,7 @@ printer fit, slot/color, slice and approval questions still apply. The
 combined 3MF is an intermediate print input, **not an assembled CAD model**.
 
 A single STL/3MF upload works as before. A model link in the same message
-still takes precedence over attached files. AI multi-output CAD remains part
-of the tracked feature issue, not a claim made here.
+still takes precedence over attached files.
 
 ## Collect a project over several messages
 
@@ -97,6 +96,19 @@ A message with STL/3MF attachments and a ZIP prints the attachments and says
 the ZIP was left out; send the ZIP in its own message. A ZIP is never
 collected into a multi-message project: "add to project" with a ZIP is
 refused, and a ZIP sent while a project is collecting is its own project.
+
+## A multi-part AI design
+
+A design made with `/print-design` that declares several parts (see
+[Designs with several parts](DESIGN.md#designs-with-several-parts)) enters
+this same flow. **Slice it** hands its part files to intake together, as
+if they had been dropped in one message, so the parts get the same
+questions, the same combiner and the same project manifest. The manifest's
+`source_kind` is `ai_design`, its title is the design's name, each
+component also records its declared part (`design_part`), and `design`
+records the design session and turn it came from. That record is
+provenance only; it approves nothing. A one-piece design is handed over
+as a single file, exactly as before.
 
 ## Project identity in JSON
 
@@ -199,10 +211,11 @@ is complete or can be resumed. It reads the job's manifest, the live plan
 file and the print records; it keeps no store of its own and starts
 nothing.
 
-**Not implemented yet:** handing AI-produced multi-part designs into this
-flow. That remains open on [#1204](https://github.com/catduckgnaf/print-handy/issues/1204),
-the successor of [#1008](https://github.com/catduckgnaf/print-handy/issues/1008);
-the CAD generator itself is [#998](https://github.com/catduckgnaf/print-handy/issues/998).
+**Not implemented yet:** an AI design's parts enter the project flow above,
+but the design does not yet declare assembly roles or placements for them,
+and the engineering-grade assembly generation described in
+[#998](https://github.com/catduckgnaf/print-handy/issues/998) (research,
+fit and collision checks across parts) is not claimed here.
 
 ## Safety and verification
 

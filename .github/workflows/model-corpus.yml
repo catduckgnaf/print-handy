@@ -57,6 +57,13 @@ jobs:
         env:
           PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
         run: python -m pytest -v -rs tests/corpus/test_complex_corpus.py
+      - name: Wedge-root rule on real corpus models
+        # The support-clearance wedge-root rule's real-model cases (#1195):
+        # chamfered corpus-v1 models, pinned on the verified download.
+        if: matrix.shard == 0
+        env:
+          PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
+        run: python -m pytest -v -rs tests/corpus/test_wedge_root_real_models.py
       - name: Run fake-Discord corpus shard
         env:
           PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
