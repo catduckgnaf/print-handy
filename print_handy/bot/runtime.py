@@ -281,11 +281,17 @@ _TASK_INTENT_SUGGESTIONS = (
     # named by component (zmod, helixscreen, ...) — the plain check above
     # only matched the literal word "firmware" in two narrow shapes, so
     # "can you check for zmod updates?" dead-ended (catduck, 2026-11-11).
+    # The component set also carries the fluidd/mainsail names and the
+    # bare "check <name>" form from #1290; every form lands on the bare
+    # command, whose own form is the read-only report — a check never
+    # routes to the update form, and the confirm discipline stays the
+    # command's own.
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+)?firmware\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:zmod|helixscreen|klipper|moonraker)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+|an\s+|any\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?(?:zmod|helixscreen|klipper|moonraker)\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in

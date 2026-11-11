@@ -32,7 +32,8 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse", "nest", "upstate", "fir"]
+              "states", "parse", "nest", "upstate", "fir", "skill", "firmware",
+              "fluid", "fluids"]
 # Second mining pass over the operator's chat history (same aggregate-only
 # rule: pairs, never message text). "iddint" maps to the apostrophe-less
 # form the matcher canonicalizes to, and "seel" is kept deliberately: it is
@@ -98,6 +99,124 @@ DIFFERNET_FAMILY = {
     "diffrently": "differently", "separete": "separate",
     "seprate": "separate",
 }
+# The firmware family: scope addition to #1290 (2026-11-11, at the
+# operator's word — "include the fuzzy items for firmware"). The word
+# itself first: "firmware" is carried unchanged today, but only because
+# it is a literal word in the task-intent patterns, so the corrector
+# short-circuits on vocabulary membership; it was missing from
+# REAL_WORDS, the shield every other correct_typos consumer consults.
+# It is shielded now and pinned in DO_NOT_MAP, so the protection no
+# longer depends on the pattern literals keeping the word. The pairs
+# are the single-edit family, screened the usual way (not a real word
+# per pyspellchecker, absent from TYPO_FORMS, TOKEN_FORMS and
+# REAL_WORDS, uniquely closest to "firmware", fuzzy score 99): every
+# letter drop, every adjacent transposition, the e-insertion and the
+# w-doubling. Screened out: "firmwear" and "firmwaer" (already in
+# TOKEN_FORMS, so canonical already routes them), "firmwares" (the
+# word's own plural — a genuine form, used as one in this repo;
+# canonical's stemmer already routes it to "firmware", and plurals are
+# a token-layer route, not typo keys), "ifrmware" (first-letter
+# transposition scores 88, not 99), and the vowel swaps "fermware" /
+# "firmwere" and edge doublings "ffirmware" / "firmwaree" (screened
+# clean but not added — the family is the drop, transposition and
+# internal-doubling slips).
+FIRMWARE_FAMILY = {
+    "firmare": "firmware", "firmawre": "firmware",
+    "firmeware": "firmware", "firmwae": "firmware",
+    "firmwar": "firmware", "firmwrae": "firmware",
+    "firmwre": "firmware", "firmwware": "firmware",
+    "fimrware": "firmware", "firware": "firmware",
+    "firwmare": "firmware", "frimware": "firmware",
+}
+# The firmware component families: second scope addition to #1290
+# (2026-11-11, at the operator's word — the firmware fuzzy items exist
+# so update checks can be named by product: "check for zmod updates",
+# "check for helixscreen updates"). The intent patterns now name the
+# components the /print-firmware report names — zmod, klipper,
+# moonraker, fluidd, mainsail, helixscreen — and each name gets the
+# firmware family's treatment. The names themselves were checked the
+# way "skill" and "firmware" were: no word in REAL_WORDS, the typo
+# table's values or the intent vocabulary sits within two edits of any
+# of them, so the bounded corrector has nothing to re-route them to
+# and none needs a REAL_WORDS shield or a DO_NOT_MAP pin ("zmod", at
+# four letters, is below the corrector's length floor entirely). The
+# reverse direction did bite: naming "fluidd" in the patterns put it
+# in the intent vocabulary, one edit from the real words "fluid" and
+# "fluids", which the corrector then rewrote to "fluidd" in the lookup
+# carry — so "fluid" and "fluids" are shielded in REAL_WORDS and
+# pinned in DO_NOT_MAP, the "skill" treatment for the neighbours of a
+# newly named word. The
+# pairs are the single-edit family per name, screened the usual way
+# (not a real word per pyspellchecker, absent from TYPO_FORMS,
+# TOKEN_FORMS and REAL_WORDS, uniquely closest to the name, fuzzy
+# score 99): every letter drop, every adjacent transposition and every
+# internal doubling — the firmware family's scope. Screened out:
+# "kipper" and "fluid" (real words per the spellchecker; "fluid" is
+# also fluidd's own base word), every zmod drop and transposition
+# ("zmd", "zomd" and family score 75-86, not 99 — a three/four-letter
+# slip cannot meet the score bar, the "ifrmware" shape), the
+# first-letter slips "oonraker" (94), "luidd" (91), "ainsail" (93),
+# "elixscreen" (95), "lfuidd" (83), "lkipper" (86), "ehlixscreen" (91),
+# "aminsail" (88), "omonraker" (89) and "lipper" (92) on score, and
+# the edge doublings ("zzmod", "zmodd", "kklipper", "mmoonraker",
+# "moonrakerr", "ffluidd", "mmainsail", "mainsaill", "hhelixscreen",
+# "helixscreenn": screened clean but outside the family's scope, the
+# "ffirmware" / "firmwaree" rule). Already carried before this round,
+# so not re-added: "kliper" and "klippr" (TOKEN_FORMS) and "klipperr"
+# (TYPO_FORMS).
+FIRMWARE_COMPONENT_TYPOS = {
+    # zmod: only the internal doublings meet the score bar (see above).
+    "zmmod": "zmod", "zmood": "zmod",
+    # klipper
+    "kilpper": "klipper", "kliipper": "klipper", "klipepr": "klipper",
+    "klippe": "klipper", "klippeer": "klipper", "klippper": "klipper",
+    "klippre": "klipper", "kllipper": "klipper", "klpiper": "klipper",
+    "klpper": "klipper",
+    # moonraker
+    "monoraker": "moonraker", "monraker": "moonraker",
+    "moonaker": "moonraker", "moonarker": "moonraker",
+    "moonnraker": "moonraker", "moonraaker": "moonraker",
+    "moonraekr": "moonraker", "moonraer": "moonraker",
+    "moonrake": "moonraker", "moonrakeer": "moonraker",
+    "moonrakker": "moonraker", "moonrakr": "moonraker",
+    "moonrakre": "moonraker", "moonrkaer": "moonraker",
+    "moonrker": "moonraker", "moonrraker": "moonraker",
+    "mooonraker": "moonraker", "mooraker": "moonraker",
+    "moornaker": "moonraker",
+    # fluidd ("fluid" itself is a real word, never a key)
+    "flidd": "fluidd", "fliudd": "fluidd", "flluidd": "fluidd",
+    "fludd": "fluidd", "fludid": "fluidd", "fluiddd": "fluidd",
+    "fluiidd": "fluidd", "fluuidd": "fluidd", "fuidd": "fluidd",
+    "fulidd": "fluidd",
+    # mainsail
+    "maainsail": "mainsail", "maiinsail": "mainsail",
+    "mainail": "mainsail", "mainasil": "mainsail",
+    "mainnsail": "mainsail", "mainsaail": "mainsail",
+    "mainsai": "mainsail", "mainsaiil": "mainsail",
+    "mainsal": "mainsail", "mainsali": "mainsail",
+    "mainsial": "mainsail", "mainsil": "mainsail",
+    "mainssail": "mainsail", "maisail": "mainsail",
+    "maisnail": "mainsail", "manisail": "mainsail",
+    "mansail": "mainsail", "miansail": "mainsail",
+    "minsail": "mainsail",
+    # helixscreen ("heliscreen", "helixcreen", "helixsceen" and
+    # "helixscren" from this family are registered in
+    # COMMAND_COVERAGE_TYPOS instead — #1298's registration is the
+    # canonical one for the keys both rounds screened in)
+    "heelixscreen": "helixscreen", "heilxscreen": "helixscreen",
+    "heixscreen": "helixscreen", "heliixscreen": "helixscreen",
+    "helisxcreen": "helixscreen",
+    "helixcsreen": "helixscreen",
+    "helixsccreen": "helixscreen",
+    "helixsceren": "helixscreen", "helixscree": "helixscreen",
+    "helixscreeen": "helixscreen",
+    "helixscrene": "helixscreen", "helixscrreen": "helixscreen",
+    "helixsrceen": "helixscreen", "helixsreen": "helixscreen",
+    "helixsscreen": "helixscreen", "helixxscreen": "helixscreen",
+    "hellixscreen": "helixscreen", "helxiscreen": "helixscreen",
+    "helxscreen": "helixscreen", "hleixscreen": "helixscreen",
+    "hlixscreen": "helixscreen",
+}
 # Fourth operator-mined pass from actual chat messages (Nov 2026).
 # These are observed spellings, not invented lookalikes. The compound
 # "justmake" drops a space; leave correctly spelled words untouched.
@@ -114,12 +233,14 @@ OPERATOR_MINED_4 = {
 # triples the letter. Same curation rules as the rounds above: every
 # key verified absent from TYPO_FORMS, TOKEN_FORMS and REAL_WORDS, not
 # a real English word per pyspellchecker, and its word a real word
-# carrying the double. Six candidates were rejected by that screen:
+# carrying the double. Five candidates were rejected by that screen:
 # "alow" and "instal" (real words), "eror" and "isue" (already in
-# TOKEN_FORMS), "yelow" (already in the table), and "skil" -> "skill"
-# (the lookup carry re-routes the word "skill" itself to "still", so
-# the pair cannot be carried correctly — verified with no table entry
-# present; that routing quirk is outside this round's scope).
+# TOKEN_FORMS), and "yelow" (already in the table). "skil" -> "skill"
+# was also held back in that round: the lookup carry re-routed the word
+# "skill" itself to "still", so the pair could not be carried correctly
+# (verified with no table entry present). #1290 fixed that routing —
+# the real word "skill" is shielded in REAL_WORDS — so the pair is in
+# the table below now.
 DOUBLE_LETTER_TYPOS = {
     "acces": "access", "acess": "access", "acros": "across",
     "actualy": "actually", "addres": "address", "alowed": "allowed",
@@ -141,7 +262,7 @@ DOUBLE_LETTER_TYPOS = {
     "permision": "permission", "posible": "possible", "presure": "pressure",
     "proces": "process", "profesional": "professional", "progres": "progress",
     "puley": "pulley", "referal": "referral", "sesion": "session",
-    "smal": "small", "sory": "sorry",
+    "skil": "skill", "smal": "small", "sory": "sorry",
     "speling": "spelling", "spelings": "spellings", "stil": "still",
     "succes": "success", "sucess": "success", "suround": "surround",
     "terible": "terrible", "teritory": "territory", "tisue": "tissue",
@@ -158,7 +279,8 @@ DOUBLE_LETTER_TYPOS = {
 # fine, but their correct words are re-routed by the lookup carry itself
 # (clipping -> clicking, greeting -> getting, shipped -> skipped,
 # shipping/shopping -> skipping, verified identical on the base commit),
-# the same pre-existing quirk that blocks "skil" -> "skill".
+# the same pre-existing quirk that blocked "skil" -> "skill" until #1290
+# shielded "skill" in REAL_WORDS (those five words are still re-routed).
 EXTENDED_DOUBLE_LETTER_TYPOS = {
     # gg: 12 pairs
     "agressive": "aggressive",
@@ -576,8 +698,8 @@ BATCH2_TITLE_TYPOS = {
 # 179-pair round's CI failures taught: the correct word itself must be
 # carried unchanged by the lookup carry in both phrasings, because a
 # word the carry re-routes (clipping, greeting, shipping, shipped,
-# shopping — and "skill" before them) cannot be carried correctly no
-# matter how clean the fold is. One further passed candidate,
+# shopping) cannot be carried correctly no matter how clean the fold
+# is. "skill" sat in that class too until #1290. One further passed candidate,
 # "zealos" -> "zealous", was left out to land exactly 20.
 ROUND5_SCREENED_TYPOS = {
     "argueing": "arguing", "frusterated": "frustrated",
@@ -605,7 +727,8 @@ COMMAND_COVERAGE_TYPOS = {
 }
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **OPERATOR_MINED_3, **ACKNOWLEDGE_FAMILY, **COMMIT_FAMILY,
-             **DIFFERNET_FAMILY,
+             **DIFFERNET_FAMILY, **FIRMWARE_FAMILY,
+             **FIRMWARE_COMPONENT_TYPOS,
              **OPERATOR_MINED_4,
              **DOUBLE_LETTER_TYPOS,
              **EXTENDED_DOUBLE_LETTER_TYPOS, **ROUND5_SCREENED_TYPOS,
