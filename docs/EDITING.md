@@ -53,7 +53,12 @@ out-of-range or malformed proposal is rejected with the reason. A
 request that changes the model's geometry itself (a hole, a taller
 wall) is routed to the design engine instead; requests about slicer
 settings (supports, brim, infill, layer height, scale, rotation,
-copies) are never turned into mesh edits.
+copies) are never turned into mesh edits. From there it is an ordinary
+design conversation ([DESIGN.md](DESIGN.md)): the reply names anything a
+check still found (for example that it does not fit the printer), a typed
+change at "What next for this design?" is the next turn, typed "cancel" or
+"slice it" act as the buttons, and a second design request while the turn
+runs gets a "design turn already running" reply.
 
 The AI lane uses the design endpoint ([design], inheriting [llm]).
 `ai.allowed_users` limits it to listed chat user IDs (empty keeps it open
