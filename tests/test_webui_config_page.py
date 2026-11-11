@@ -279,13 +279,13 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(data["logging"]["level"], "DEBUG")
             self.assertEqual(data["discord"]["chat_id"], "12345")
 
-    def test_wrapped_on_save_pins_the_following_data_switch(self):
-        # Stage 5 follow rule through the settings page: data_enabled is
-        # unset, so the form shows it as wrapped_enabled's value (off).
-        # A save that turns Wrapped on must pin the Data value the form
-        # showed — otherwise the restart silently turns the Data tab on
-        # even though the submitted form had it off, and the followed
-        # value is lost exactly as if it had been written explicitly.
+    def test_wrapped_on_save_leaves_the_following_data_switch_unset(self):
+        # Issue #1229, option 1 (the behavior SETTINGS.md and WEBUI.md
+        # promise): data_enabled is unset, so while unset it follows
+        # wrapped_enabled. A save that turns Wrapped on without touching
+        # the Data toggle must NOT pin the Data value the form showed:
+        # data_enabled stays out of the file, and after a reload the
+        # Data tab is on because it follows Wrapped, still unset.
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(
                 tmp, "timelapse:\n  wrapped_enabled: false\n")
@@ -295,23 +295,44 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(code, 200, body)
             saved = settings._read(local)
             self.assertIs(saved["timelapse"]["wrapped_enabled"], True)
-            self.assertIs(saved["timelapse"]["data_enabled"], False)
+            self.assertNotIn("data_enabled", saved["timelapse"])
             reloaded = settings.load(local=local, environ={})
             self.assertIs(reloaded["timelapse"]["wrapped_enabled"], True)
-            self.assertIs(reloaded["timelapse"]["data_enabled"], False)
-            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], True)
+            self.assertIs(reloaded["timelapse"]["data_enabled"], True)
+            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], False)
 
-    def test_wrapped_off_save_pins_the_following_data_switch(self):
-        # The mirror direction: data_enabled unset and shown on (it
-        # follows wrapped_enabled: true); turning Wrapped off in a save
-        # must not drag the Data tab off with it — the Data value the
-        # form showed (on) is pinned by the same save.
+    def test_wrapped_off_save_leaves_the_following_data_switch_unset(self):
+        # The mirror direction of the same rule: data_enabled unset and
+        # shown on (it follows wrapped_enabled: true); turning Wrapped
+        # off in a save that does not touch the Data toggle leaves
+        # data_enabled unset, so after a reload the Data tab follows
+        # Wrapped off — it is not pinned at the value the form showed.
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(
                 tmp, "timelapse:\n  wrapped_enabled: true\n")
             _code, _body, csrf = self.get_config(port, section="wrapped")
             code, body = self.save_flow(
                 port, environ, csrf, **{"timelapse.wrapped_enabled": None})
+            self.assertEqual(code, 200, body)
+            saved = settings._read(local)
+            self.assertIs(saved["timelapse"]["wrapped_enabled"], False)
+            self.assertNotIn("data_enabled", saved["timelapse"])
+            reloaded = settings.load(local=local, environ={})
+            self.assertIs(reloaded["timelapse"]["wrapped_enabled"], False)
+            self.assertIs(reloaded["timelapse"]["data_enabled"], False)
+            self.assertIs(reloaded["timelapse"]["data_enabled_explicit"], False)
+
+    def test_explicit_data_toggle_change_in_a_save_still_pins(self):
+        # The other half of #1229 option 1: a save pins data_enabled
+        # when the operator actually changes the Data toggle in that
+        # save. Wrapped stays off; turning the Data toggle on writes
+        # data_enabled explicitly and it stays on after a reload.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "timelapse:\n  wrapped_enabled: false\n")
+            _code, _body, csrf = self.get_config(port, section="wrapped")
+            code, body = self.save_flow(
+                port, environ, csrf, **{"timelapse.data_enabled": "true"})
             self.assertEqual(code, 200, body)
             saved = settings._read(local)
             self.assertIs(saved["timelapse"]["wrapped_enabled"], False)
