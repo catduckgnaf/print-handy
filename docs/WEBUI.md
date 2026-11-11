@@ -24,6 +24,8 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /designs` | The read-only designs catalog: AI design sessions on disk, newest first |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
+| `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
+| `GET /api/projects` | The same project readout as JSON |
 | `GET /layers` | Read-only list of sliced plates already in the archive |
 | `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
 | `GET /walkthrough` | The first-run walkthrough, while it is pending for this install |
@@ -38,7 +40,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `POST /wrapped/share` | The Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
 
-Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
+Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
 ### Chat page
 
@@ -57,6 +59,18 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 ### Designs page
 
 The designs page is a read-only catalog of the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled, and it has no write actions: nothing there deletes, slices or prints. See [AI design with OpenSCAD](DESIGN.md#browsing-designs-in-the-web-ui).
+
+### Projects page
+
+`/projects` is a read-only readout of the multi-part projects in the archive (see [multi-part print projects](PROJECTS.md#project-readout-in-the-web-ui)). One section per archived job that carries a `project_v1` manifest shows:
+
+- the source **components** from the manifest, with their required quantity and any declared role;
+- the **plates** from the job's multipart plan, each with its exact alias (`82A`), the parts on it, and how many of its required copies are printed, read from the live plan file;
+- every physical **attempt** of each plate, read from the print records by `project_id` and `project_plate_id`: its print number, its outcome, its start time, and the reprint run it belongs to;
+- the **runs**: the original run and each reprint run (`project_run_id`), counted separately, so a reprint never looks like progress on the original;
+- the **completion state**: complete, printing, or resumable with the plates still left and the chat command that continues it.
+
+The page keeps no store of its own and changes nothing: continuing or reprinting a project still happens in chat, where every plate asks for its own bed-clear confirmation. It is served under the same access rules as every other page (behind the login on a claimed install) and adds no script of its own.
 
 ### Sliced layers
 
