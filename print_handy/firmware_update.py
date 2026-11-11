@@ -454,8 +454,10 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
                      f"{os_version or 'an unreadable version'} but the `zmod` component "
                      f"is {zmod.current if zmod else 'unreadable'}. ZMod pairs the OS and "
                      "the `zmod` component in their first two version numbers, and "
-                     "component updates fail while they disagree. Update the ZMod base "
-                     "from USB instead — `/print-firmware guide zmod` walks through it.")
+                     "component updates fail while they disagree (ZMod's docs say a mismatch "
+                     "causes instability). Fluidd or Mainsail shows the OS version under System, "
+                     "Distribution. `/print-firmware guide zmod` walks through the update, "
+                     "including when ZMod requires the USB route.")
     elif pairing == "match":
         lines.append("\nZMod base and component versions pair correctly "
                      f"({'.'.join(str(p) for p in version_parts(os_version)[:2])}.x).")
@@ -751,38 +753,50 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
 GUIDE_VERIFY_LINE = ("When the printer is back, run `/print-firmware` and Print Handy will "
                      "read and verify the versions it now reports.")
 
-ZMOD_GUIDE = """**Updating the ZMod base firmware (guided — you do these steps at the printer)**
+ZMOD_GUIDE = """**Updating ZMod (guided: you do these steps in Fluidd or Mainsail, or at the printer)**
 
-This is the ZMod base layer: the firmware image ZMod itself runs from. It is
-separate from the components `/print-firmware update` can apply — there is no
-API for the base layer, so Print Handy cannot do these steps for you. This
-guide is the checklist, in ZMod's documented order.
+Print Handy cannot do these steps for you: ZMod updates itself through its
+web UI or a USB drive, and neither has an API Print Handy can drive. This
+guide is the checklist, in the order ZMod's setup guide gives
+("Updating the Mod"). Most updates need no USB drive.
 
-1. Make sure the printer is idle and stays powered. Have a USB drive the
-   printer can read (FAT/FAT32) ready.
-2. Easiest path — the `ZFLASH` macro: insert the USB drive, then run
-   `ZFLASH` from the printer's console (Fluidd/Mainsail). It checks for the
-   latest ZMod release, downloads it to the USB drive, verifies the MD5
-   hash, and installs it after a reboot.
-3. Or by hand: download the latest ZMod release for your model from ZMod's
-   releases, put it on the USB drive exactly as ZMod's setup guide
-   describes, insert the drive and reboot the printer.
-4. Wait for the install to finish — ZMod's docs say it can take up to about
-   40 minutes on the AD5X, with two reboots (one to extract, one to
-   initialise). Do not remove the USB drive or switch the printer off
-   during the install. Your `mod_data` settings are preserved across the
-   update.
-5. Afterwards, the printer's OS version and its `zmod` component version
-   must pair in their first two numbers (OS 1.9.x with ZMod 1.9.x). Then
-   bring the components up to date, one at a time, as ZMod's update
-   instructions say:
-   - A component `/print-firmware` reports with a real available version:
-     apply it with `/print-firmware update <component>`.
-   - A component whose latest version shows as not reported (Moonraker
+1. Find out which kind of update this is. In Fluidd or Mainsail, open
+   Settings, Software Update, and press Check for updates. If ZMod shows
+   "Update Z-Mod via USB", it is a firmware-level update: use step 3 or
+   4, even if you updated recently. Otherwise use step 2.
+2. Routine update, no USB drive: update ZMod and its modules from that
+   same Software Update page.
+   - Many errors on the first check are normal: the plugins are not part
+     of the firmware and download separately. Press Check for updates
+     again, then restore and update each module one by one. The printer
+     reboots partway through.
+   - A component `/print-firmware` reports with a real available version
+     can also be applied here with `/print-firmware update <component>`.
+     A component whose latest version shows as not reported (Moonraker
      says `?`, usual for the `zmod`, `klipper` and `moonraker` git
-     components): Print Handy cannot apply it. Use Fluidd or Mainsail,
-     Settings, Software Update: press Check for updates, then update each
-     module one by one. The printer may reboot along the way.
+     components) can only be updated from the Software Update page.
+   Then go to step 5.
+3. USB update with the `ZFLASH` macro: use a USB drive formatted FAT,
+   FAT16 or FAT32 (MBR). Insert it and power the printer on. Without the
+   native screen, the drive must be in **before** you power on. Then run
+   `ZFLASH` from the printer's console in Fluidd or Mainsail. It checks
+   for the latest ZMod release, downloads it to the USB drive, verifies
+   the MD5 hash, and installs it after a reboot. It saves a trip to your
+   computer, not a trip to the printer: the drive still has to be in it.
+   You can leave the drive in for future updates.
+4. Or a USB update by hand: download the latest ZMod release for your
+   model, copy the file to the root of the USB drive without unpacking
+   it, power the printer off, insert the drive and power on. Wait for
+   the reboot and the success message without removing the drive; ZMod's
+   docs say this can take up to about 40 minutes on the AD5X, with two
+   reboots. Then remove the drive and power cycle the printer.
+   After either USB update your `mod_data` settings are kept. Finish with
+   step 2 to bring the modules up to date.
+5. Check the version pairing: the OS version (Fluidd or Mainsail, System,
+   Distribution) must match the first two numbers of the ZMod version
+   (OS 1.9.x with ZMod 1.9.x). ZMod's docs say mismatched versions cause
+   instability. `/print-firmware` checks this pairing for you and names a
+   mismatch.
 6. If you use Klipper 13 and `/print-firmware` reports the MCU out of step
    after a `klipper` update, run `UPDATE_MCU FORCE=13` at the printer.
    Not a bare `UPDATE_MCU` here: without `FORCE` it switches the MCU to

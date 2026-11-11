@@ -804,8 +804,47 @@ def test_zmod_guide_routes_unappliable_components_to_software_update():
     assert "Fluidd or Mainsail" in text
     assert "`?`" in text
     assert "one by one" in text
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert step2.index("/print-firmware update") < step2.index("only be updated from the Software Update")
+
+
+def test_zmod_guide_puts_the_routine_no_usb_update_first():
+    # ZMod's "Updating the Mod" (wiki Setup): the normal path is Software
+    # Update in Fluidd/Mainsail with no USB drive; USB is required only when
+    # ZMod shows "Update Z-Mod via USB". First-check errors are expected.
+    text = fw.guide_text("zmod", AD5X)
+    step1 = text.split("\n1. ", 1)[1].split("\n2. ", 1)[0]
+    assert "Check for updates" in step1
+    assert '"Update Z-Mod via USB"' in step1 and "even if you updated recently" in step1
+    step2 = text.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+    assert "no USB drive" in step2
+    assert "errors on the first check are normal" in step2
+    assert "restore and update each module one by one" in step2
+    assert "reboots" in step2
+    assert text.index("Routine update") < text.index("`ZFLASH`")
+
+
+def test_zmod_guide_usb_steps_follow_zmods_drive_rules():
+    # ZFLASH downloads to the USB drive and installs on reboot, so the drive
+    # must be in; without the native screen it goes in before power on.
+    # A manual install copies the file, not unpacked, to the root, power off.
+    text = fw.guide_text("zmod", AD5X)
+    step3 = text.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+    assert "FAT32 (MBR)" in step3
+    assert "**before** you power on" in step3 and "native screen" in step3
+    assert "downloads it to the USB drive" in step3
+    step4 = text.split("\n4. ", 1)[1].split("\n5. ", 1)[0]
+    assert "without unpacking" in step4 and "power the printer off" in step4
+    assert "without removing the drive" in step4
+
+
+def test_zmod_guide_and_mismatch_report_say_where_the_os_version_is():
+    text = fw.guide_text("zmod", AD5X)
     step5 = text.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
-    assert step5.index("/print-firmware update") < step5.index("Software Update")
+    assert "System" in step5 and "Distribution" in step5
+    assert "first two numbers" in step5 and "instability" in step5
+    report = fw.firmware_report(FakeTransport(system_info=SYSTEM_INFO_180), AD5X)
+    assert "System, Distribution" in report and "instability" in report
 
 
 def test_zmod_guide_closing_mcu_step_names_force_13_never_bare():
