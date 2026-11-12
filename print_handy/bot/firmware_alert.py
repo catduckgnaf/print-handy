@@ -101,6 +101,10 @@ class FirmwareAlerter:
         self._checking: set[str] = set()
         self._applying: set[str] = set()
         self._failing: set[str] = set()
+        # In memory as well as on disk: a state write that fails must not make
+        # the next heartbeat re-check (and re-announce) every 15 seconds.
+        self._hold: dict[str, float] = {}
+        self._announced_mem: dict[str, set] = {}
         self.tasks: set[asyncio.Task] = set()
 
     # -------------------------------------------------------------- scheduling
@@ -109,9 +113,12 @@ class FirmwareAlerter:
         return settings.printer_state_dir(printer_id, self.core.cfg)
 
     def _due(self, printer_id, state, now):
+        hold = self._hold.get(printer_id, 0.0)
         stored = state.get("next_check_at")
         if isinstance(stored, (int, float)) and not isinstance(stored, bool):
-            return float(stored)
+            return max(float(stored), hold)
+        if hold:
+            return hold
         if printer_id not in self._first_due:
             self._first_due[printer_id] = now + FIRST_CHECK_S + self.rng.uniform(0, FIRST_JITTER_S)
         return self._first_due[printer_id]
@@ -162,6 +169,18 @@ class FirmwareAlerter:
         else:
             logger.debug("firmware update check for %s still failing: %s", printer_id, detail)
 
+    def _store(self, printer_id, state_dir, next_at, announced=None):
+        """Write next_check_at (and new announcements) over the state as it is
+        on disk now, so a Skip pressed while this check ran is kept. The hold
+        is set first, in memory, so a failing write cannot cause a re-check
+        storm."""
+        self._hold[printer_id] = next_at
+        latest = fa.load(state_dir, self.surface)
+        if announced:
+            latest = {**latest, "announced": {**(latest.get("announced") or {}),
+                                              **announced}}
+        fa.save(state_dir, {**latest, "next_check_at": next_at}, self.surface)
+
     async def check(self, printer_id, entry):
         """One check of one printer: read, decide, announce what is new."""
         state_dir = self._state_dir(printer_id)
@@ -173,28 +192,34 @@ class FirmwareAlerter:
                 printer_state = await asyncio.to_thread(fw.print_state, transport)
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
-                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S}, self.surface)
+                self._store(printer_id, state_dir, now + BUSY_RETRY_S)
                 return []
             if printer_state not in fw.IDLE_STATES:
                 # Never during a print: ask again later, alert nothing now.
-                fa.save(state_dir, {**state, "next_check_at": now + BUSY_RETRY_S}, self.surface)
+                self._store(printer_id, state_dir, now + BUSY_RETRY_S)
                 return []
             release = await asyncio.to_thread(self.releases.get)
             try:
                 observation = await asyncio.to_thread(fa.observe, transport, release)
             except fw.FirmwareError as exc:
                 self._fail(printer_id, exc)
-                fa.save(state_dir, {**state, "next_check_at": self._next(now)}, self.surface)
+                self._store(printer_id, state_dir, self._next(now))
                 return []
             self._failing.discard(printer_id)
-            fresh = fa.to_announce(fa.offers(observation), state,
-                                   skipped=fa.skipped_everywhere(state_dir))
+            mem = self._announced_mem.setdefault(printer_id, set())
+            fresh = [offer for offer in fa.to_announce(
+                         fa.offers(observation), state,
+                         skipped=fa.skipped_everywhere(state_dir))
+                     if (offer.key, offer.applicable) not in mem]
+            announced = {}
             for offer in fresh:
                 if await self.announce(printer_id, entry, offer):
-                    state = fa.record_announced(state, offer, self.clock())
-            fa.save(state_dir, {**state, "next_check_at": self._next(now)}, self.surface)
+                    mem.add((offer.key, offer.applicable))
+                    announced.update(fa.record_announced({}, offer, self.clock())["announced"])
+            self._store(printer_id, state_dir, self._next(now), announced)
             return fresh
         except Exception as exc:
+            self._hold[printer_id] = max(self._hold.get(printer_id, 0.0), now + BUSY_RETRY_S)
             self._fail(printer_id, repr(exc))
             return []
         finally:

@@ -170,6 +170,8 @@ When the alert has no button, it says why in one line and how instead:
 | The release needs USB | Its first two numbers differ from the ZMod base you installed from USB | Insert a USB drive and run `ZFLASH` (`/print-firmware guide zmod`) |
 | The base and component do not pair | The OS and `zmod` versions differ in their first two numbers | The base updates from USB first: `ZFLASH` |
 
+The USB rule is also an apply gate, not only alert text: `/print-firmware update zmod`, typed or pressed from any alert, refuses a target on a new base and sends nothing.
+
 The USB rule is ZMod's own: its `zversion.sh` prints "Update Z-Mod from
 USB" when the first two numbers of the network-updated version
 (`/usr/data/zmod/zmod/version.txt`) differ from the USB-installed one
