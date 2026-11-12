@@ -40,7 +40,7 @@ HOMES = {
     "print_handy.intake.fit_flow": "print_handy.core.prepared_intake",
 }
 # Packages and modules the decomposition adds: none may sit in an import cycle.
-NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake",
+NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake", "print_handy.bot.handlers",
                "print_handy._relocated")
 
 
@@ -321,3 +321,13 @@ def test_every_moved_offload_step_keeps_its_offload_name():
         short = worker._OFFLOAD_HOMES.get(func.__module__, func.__module__.rsplit(".", 1)[-1])
         assert short == "model_job", f"{name} moved to {func.__module__} without an _OFFLOAD_HOMES entry"
         assert (module, name) in heavy_worker.ALLOWED
+
+
+def test_patching_the_handler_package_reaches_the_handler_that_uses_the_name(monkeypatch):
+    from print_handy.bot import handlers
+    from print_handy.bot.handlers import common, print_stop
+    fake = mock.Mock()
+    monkeypatch.setattr(handlers, "_routed_printer_id", fake)
+    assert common._routed_printer_id is fake and print_stop._routed_printer_id is fake
+    assert "_LIVE_SESSION" not in vars(handlers)
+    assert handlers._LIVE_SESSION is common._LIVE_SESSION
