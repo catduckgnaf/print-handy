@@ -103,7 +103,7 @@ Verified support per model:
 
 | Model | Screen feed | Evidence |
 | --- | --- | --- |
-| AD5X | Yes, ZMod 1.7.4+ | 1.7.6 payload inspected: `S71screen`, the screen service, the Moonraker `screen` registration and the web-port `/screen/` proxy are all present; broadcast added in 1.7.4 per the ZMod changelog |
+| AD5X | Yes, ZMod 1.7.4+ | 1.7.6 payload inspected: `S71screen`, the screen service, the Moonraker `screen` registration and the web-port `/screen/` proxy are all present; broadcast added in 1.7.4 per the ZMod changelog. Live: verified on an AD5X running ZMod 1.7.5-2 (see below) |
 | AD5M | Yes, ZMod 1.7.6+ | 1.7.6 payload inspected, same components present; the 1.7.6 changelog and audit record screen streaming arriving on AD5M / AD5M Pro in this release |
 | AD5M Pro | Yes, ZMod 1.7.6+ | Its 1.7.6 payload is byte-identical to the AD5M one (same SHA-256), so the AD5M evidence covers it |
 | Creator 5 Pro | Yes, ZMod 1.7.4+ | The ZMod changelog records "Printer screen broadcast" for C5Pro in 1.7.4; the Creator payloads are encrypted, so this rests on the changelog, not on payload inspection |
@@ -112,9 +112,15 @@ Verified support per model:
 Screenless installs have no native screen content to show: depending
 on the install the registration may be absent or the service may not
 answer, and both read as an unavailable screen with the reason named,
-never as a broken page. No live verification of the screen view has
-been performed; the table above is payload and changelog evidence,
-and the behavior is covered by offline tests.
+never as a broken page.
+
+Live check, 2026-11-11, AD5X on ZMod 1.7.5-2 (read-only, owner's
+printer): Moonraker registered `screen` with service `iframe`, stream
+`/screen/stream` and snapshot `/screen/snapshot`, listed after the
+`video` camera. The view's discovery accepted it, and the still came
+back from `http://<printer>/screen/snapshot` through the no-redirect
+fetch as an 800x480 JPEG of the HelixScreen display. The other models
+rest on the payload and changelog evidence above and offline tests.
 
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
