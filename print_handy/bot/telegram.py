@@ -456,6 +456,9 @@ class TelegramClient:
         me = await asyncio.to_thread(tg.whoami, self.token, opener=self.opener)
         self.user = S(id=(me or {}).get("id"), username=(me or {}).get("username"))
         self.core = BotCore(self, self.cfg)
+        if getattr(self, "warm_worker", False):
+            from .runtime import enable_warm_worker
+            enable_warm_worker()
         try:  # best effort: typed commands work without the menu registration
             await asyncio.to_thread(self._register_commands)
         except Exception as exc:
@@ -556,6 +559,7 @@ def run_bot(cfg):
         print(f"Telegram bot token is empty: put it in the ${name} environment variable.", file=sys.stderr)
         return 3
     client = TelegramClient(cfg, token)
+    client.warm_worker = True  # the production loop keeps a warm heavy worker (#1332)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

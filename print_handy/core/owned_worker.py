@@ -190,21 +190,120 @@ def _write_record(path, data):
     os.replace(tmp, path)
 
 
-async def run(argv, payload, *, label, lane, cwd=None, record=None):
-    """Run argv with payload on stdin; return (stdout, stderr). Raises WorkerError when stopped early."""
+# --------------------------------------------------------------- warm spare (#1332)
+#
+# A cold heavy step pays 0.6 to 1.1 s of Python start and imports before it
+# does any work (#1153 item 2). A long-lived worker serving many steps would
+# remove that, but it would also share memory, module state and crash fate
+# between jobs. The warm spare keeps every isolation property of a cold
+# worker instead: it is the same single-use child, started ahead of time.
+# It imports the step modules, then blocks reading its one request; it runs
+# one step and exits, in its own process group, under the same deadline,
+# output limit, cancel and shutdown as any worker. Only the import cost moves
+# off the user's wait. At most one spare exists per event loop, and only on a
+# loop that asked for it (the bot runtimes, see enable_warm_spare); a spare
+# whose settings stamp or age no longer matches is stopped, never used.
+WARM_MAX_AGE_S = 15 * 60
+_WARM = weakref.WeakKeyDictionary()     # loop -> stamp callable; present = spares enabled
+_SPARE = weakref.WeakKeyDictionary()    # loop -> {'proc', 'argv', 'cwd', 'stamp', 'born'}
+_REFILLS = set()                        # background refill tasks, kept alive until done
+
+
+def enable_warm_spare(stamp=None, warm_argv=None, cwd=None):
+    """Keep one pre-started worker ready on the running loop (#1332).
+
+    ``stamp()`` names the state a worker would read at import (the parent's
+    settings); a spare started under another stamp is discarded. With
+    ``warm_argv`` the first spare starts now instead of after the first
+    step. Call from a long-lived loop only: shutdown() stops the spare with
+    the workers.
+    """
+    _WARM[asyncio.get_running_loop()] = stamp or (lambda: None)
+    if warm_argv:
+        _refill(warm_argv, cwd)
+
+
+def _stamp(loop):
+    try:
+        return _WARM[loop]()
+    except Exception:
+        return object()  # unknowable: matches nothing, so no spare is reused
+
+
+async def _spawn(argv, cwd):
+    return await asyncio.create_subprocess_exec(
+        *argv, cwd=cwd, start_new_session=True, env=resources.child_env(),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
+
+def _discard(proc):
+    _LIVE.pop(proc.pid, None)
+    task = asyncio.ensure_future(stop(proc))
+    _REFILLS.add(task)
+    task.add_done_callback(_REFILLS.discard)
+
+
+def _take_spare(warm_argv, cwd):
+    """The ready spare for this argv, or None. A spare that does not match is stopped."""
+    loop = asyncio.get_running_loop()
+    spare = _SPARE.pop(loop, None)
+    if spare is None:
+        return None
+    proc = spare['proc']
+    fresh = (spare['argv'] == tuple(warm_argv) and spare['cwd'] == cwd and proc.returncode is None
+             and time.monotonic() - spare['born'] < WARM_MAX_AGE_S and spare['stamp'] == _stamp(loop))
+    if not fresh:
+        _discard(proc)
+        return None
+    return proc
+
+
+def _refill(warm_argv, cwd):
+    """Start the next spare in the background, if this loop wants one and has none."""
+    loop = asyncio.get_running_loop()
+    if loop not in _WARM or loop in _SPARE or _admission_closed():
+        return
+
+    async def start():
+        stamp = _stamp(loop)
+        try:
+            proc = await _spawn(warm_argv, cwd)
+        except OSError:
+            return  # no spare this time; the next step starts cold, as before
+        if _admission_closed() or loop in _SPARE:
+            await stop(proc)
+            return
+        _LIVE[proc.pid] = proc
+        _SPARE[loop] = {'proc': proc, 'argv': tuple(warm_argv), 'cwd': cwd, 'stamp': stamp,
+                        'born': time.monotonic()}
+
+    task = loop.create_task(start())
+    _REFILLS.add(task)
+    task.add_done_callback(_REFILLS.discard)
+
+
+async def run(argv, payload, *, label, lane, cwd=None, record=None, warm_argv=None):
+    """Run argv with payload on stdin; return (stdout, stderr). Raises WorkerError when stopped early.
+
+    ``warm_argv`` is the same worker started as a warm spare (#1332). On a
+    loop with spares enabled the ready spare serves this step and the next
+    spare starts in the background; otherwise ``argv`` starts cold.
+    """
     async with lane.slot():
         if _admission_closed():
             raise WorkerError(f'{label} was not started because Print Handy is shutting down')
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv, cwd=cwd, start_new_session=True, env=resources.child_env(),
-                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        except OSError as exc:
-            # EAGAIN here is the container's PID limit, not a transient hiccup: name it.
-            limit = resources.explain_spawn_failure(exc)
-            if limit is not None:
-                raise WorkerError(f'{label} could not start: {limit}') from exc
-            raise
+        proc = _take_spare(warm_argv, cwd) if warm_argv else None
+        if proc is None:
+            try:
+                proc = await _spawn(argv, cwd)
+            except OSError as exc:
+                # EAGAIN here is the container's PID limit, not a transient hiccup: name it.
+                limit = resources.explain_spawn_failure(exc)
+                if limit is not None:
+                    raise WorkerError(f'{label} could not start: {limit}') from exc
+                raise
+        if warm_argv:
+            _refill(warm_argv, cwd)
         _LIVE[proc.pid] = proc
         how, started = None, time.time()
         try:
@@ -253,7 +352,9 @@ async def shutdown():
     """Stop every running worker and close admission, so a queued run cannot
     start a new worker afterwards. Running workers' callers raise WorkerError
     instead of returning a result."""
-    _CLOSED[asyncio.get_running_loop()] = True
+    loop = asyncio.get_running_loop()
+    _CLOSED[loop] = True
+    _SPARE.pop(loop, None)  # the spare is in _LIVE too, so it is stopped below
     procs = list(_LIVE.values())
     _SHUTTING_DOWN.update(p.pid for p in procs)
     await asyncio.gather(*(stop(p) for p in procs), return_exceptions=True)

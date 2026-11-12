@@ -609,6 +609,9 @@ class MatrixClient:
         self.bot_user_id = bot_id
         self.user = S(id=bot_id)
         self.core = BotCore(self, self.cfg, chat_id=self.room_id)
+        if getattr(self, "warm_worker", False):
+            from .runtime import enable_warm_worker
+            enable_warm_worker()
         limit = await asyncio.to_thread(mx.media_config, self.homeserver, self.token, opener=self.opener)
         if limit:  # the server's media cap wins when it is lower (best effort)
             self.core.adapter.upload_max_bytes = min(self.core.adapter.upload_max_bytes or limit, limit)
@@ -724,6 +727,7 @@ def run_bot(cfg):
         print("Matrix homeserver is empty: set [matrix] homeserver_url.", file=sys.stderr)
         return 3
     client = MatrixClient(cfg, homeserver, token)
+    client.warm_worker = True  # the production loop keeps a warm heavy worker (#1332)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

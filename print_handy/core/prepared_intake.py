@@ -538,6 +538,34 @@ def _forward_worker_log_lines(err):
         logger.log(level, '%s', message)
 
 
+_WORKER_ARGV = ('-m', 'print_handy.core.heavy_worker')
+
+
+def _worker_argv(warm=False):
+    """The heavy worker command; ``warm`` is the pre-started spare form (#1332)."""
+    return [sys.executable, *_WORKER_ARGV, *(['--warm'] if warm else [])]
+
+
+def _settings_stamp():
+    """What a worker reads at import: the parent's merged settings (#1332).
+
+    A warm spare started before a settings change would run on the old
+    values, so a spare is used only while this stamp is unchanged.
+    """
+    return hashlib.sha256(json.dumps(settings.current(), sort_keys=True, default=str).encode()).hexdigest()
+
+
+def enable_warm_worker():
+    """Keep one warm heavy worker ready on the running loop (#1332).
+
+    The bot runtimes call this once their loop is up; the first spare starts
+    now. Every step still runs in its own single-use process (see
+    owned_worker's warm spare notes), so isolation is unchanged; only the
+    0.6 to 1.1 s of start and imports leaves the user's wait.
+    """
+    owned_worker.enable_warm_spare(_settings_stamp, _worker_argv(warm=True), str(settings.ROOT))
+
+
 async def _heavy(func, *args, **kwargs):
     """Run CPU-heavy intake work in a child process (own GIL) so Discord buttons answer in time.
 
@@ -560,8 +588,9 @@ async def _heavy(func, *args, **kwargs):
     # A slice worker leaves a record in its intake folder, so a restart mid-slice can be explained.
     record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('model_job', 'slice_job') else None
     out, err = await owned_worker.run(
-        [sys.executable, '-m', 'print_handy.core.heavy_worker'], payload, label=_STEP_LABELS.get(name, name),
-        lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record)
+        _worker_argv(), payload, label=_STEP_LABELS.get(name, name),
+        lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record,
+        warm_argv=_worker_argv(warm=True))
     _forward_worker_log_lines(err)
     try:
         reply = json.loads(out.decode().rstrip().rsplit('\n', 1)[-1])
