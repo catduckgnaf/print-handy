@@ -791,7 +791,10 @@ other local path is removed.
 restart record (`supervisor_listener.json` in the printer's state
 directory). When a listener's restart budget is spent, the bot's next
 outage notice for that printer is a louder **CRITICAL** post naming both
-bundle commands, pinned in Discord where pinning is available; hourly
+bundle commands, pinned on Discord, Telegram and Matrix (a Telegram
+group bot needs the pin right and a Matrix bot the power level to change
+room state; without it the notice still posts, unpinned; Web UI chat
+has no pins); hourly
 reminders afterwards keep naming the exhaustion. **Degraded notices:**
 while a listener is down, the bot also polls Moonraker directly, and a
 pause, error or stop the printer itself reports gets one degraded

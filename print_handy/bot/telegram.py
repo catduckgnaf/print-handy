@@ -175,6 +175,17 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Telegram delete failed: %r", exc)
             return False
 
+    async def pin_message(self, chat_id, message_id):
+        """Pin a message this adapter sent: the budget-exhausted outage
+        escalation (#1020 B3, beyond Discord in #1332). pinChatMessage with
+        the notification on, so members hear it. A group bot needs the pin
+        right; without it the Bot API refuses and the outage path keeps the
+        unpinned CRITICAL notice."""
+        await asyncio.to_thread(self._call, "pinChatMessage",
+                                {"chat_id": str(chat_id), "message_id": int(message_id),
+                                 "disable_notification": False})
+        return True
+
     async def edit_message(self, chat_id, message_id, content, metadata=None):
         """Replace a posted message's text in place (progress updates, P2-236)."""
         try:

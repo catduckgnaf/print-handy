@@ -222,6 +222,15 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Matrix redact failed: %r", exc)
             return False
 
+    async def pin_message(self, chat_id, message_id):
+        """Pin a message this adapter sent: the budget-exhausted outage
+        escalation (#1020 B3, beyond Discord in #1332). Needs the power
+        level to change room state; without it the homeserver refuses and
+        the outage path keeps the unpinned CRITICAL notice."""
+        await asyncio.to_thread(mx.pin_event, self.homeserver, self.token, str(chat_id),
+                                str(message_id), opener=self.opener)
+        return True
+
     async def edit_message(self, chat_id, message_id, content, metadata=None):
         """Replace a posted message's text in place (progress updates, P2-236).
 
