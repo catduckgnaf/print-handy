@@ -4049,7 +4049,8 @@ class Listener:
                         self.visual_watch,
                         enabled=_visual_watch.watch_settings(_config.cfg())["auto_pause_early"],
                         printer_id=printer_id, identity=identity, state=self.state,
-                        verdict=verdict, frame_age_s=_watch_now() - captured_at, early=early)
+                        verdict=verdict, frame_age_s=_watch_now() - captured_at, early=early,
+                        frame_counted=frame_counted)
                     if streak and not pause_now:
                         log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     text = _camera_watch.alert_text(reason, layer, verdict, detail,
