@@ -431,6 +431,40 @@ def edit_message(token: str, channel_id: str, message_id: str, content: str,
         return False
 
 
+def latest_alert_message(kind: str, filename: str) -> tuple[str, str] | None:
+    """(channel_id, message_id) of the newest Discord alert of ``kind`` for this job, or None."""
+    with _LOCK:
+        data = _load()
+    best = None
+    for row in data.values():
+        if not isinstance(row, dict) or row.get("kind") != kind or row.get("filename") != filename:
+            continue
+        if not (row.get("message_id") and row.get("channel_id")):
+            continue
+        if best is None or float(row.get("at") or 0) >= float(best.get("at") or 0):
+            best = row
+    return (str(best["channel_id"]), str(best["message_id"])) if best else None
+
+
+def rearm_alert(token: str, channel_id: str, message_id: str, content: str, kind: str,
+                filename: str, printer_id: str | None = None) -> bool:
+    """Rewrite an existing alert message in place with fresh buttons. False on any failure.
+
+    The message's old buttons may already be spent (a press claims its
+    alert), so a new alert row is recorded for the same message and its
+    buttons replace the old ones. A failed edit forgets the new row.
+    """
+    extra: dict[str, Any] = {"message_id": str(message_id), "channel_id": str(channel_id)}
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
+    aid = record(kind, filename, **extra)
+    if edit_message(token, channel_id, message_id, content, components(aid, kind)):
+        return True
+    take(aid)
+    return False
+
+
 def post_insertion_confirmation(token: str, channel_id: str, content: str, slot: int) -> bool:
     """Post an answer-only IFS insertion UI. It has no printer or inventory side effect."""
     if not token or not channel_id or slot not in (1, 2, 3, 4):

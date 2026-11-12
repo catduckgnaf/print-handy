@@ -533,3 +533,78 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
             await lis.follow_failover((1, 2))
         resume.assert_not_called()
         post.assert_not_called()
+
+
+class RunoutRepauseTests(ListenerRunoutCase):
+    """Seen live: after a runout, the new filament had not reached the
+    toolhead, so the printer paused again seconds after each resume: eight
+    rounds in 26 minutes, each a full three-step "Print paused" post, and a
+    spool question re-opened for the spool created four minutes earlier."""
+
+    async def cycle(self, lis, rearm=None):
+        with mock.patch.object(mel, "post_alert") as post_alert, \
+                mock.patch.object(mel, "post"), \
+                mock.patch.object(mel, "run_announcer"), \
+                mock.patch.object(mel, "_bot_token", return_value="token"), \
+                mock.patch.object(print_stop, "status",
+                                  return_value=st("paused", layer=1, total=9)), \
+                mock.patch.object(pab, "latest_alert_message", return_value=("chan", "m1"),
+                                  create=True), \
+                mock.patch.object(pab, "rearm_alert", rearm or mock.Mock(return_value=True),
+                                  create=True) as rearm, \
+                mock.patch.object(lis, "_settle_launch_lease", lambda: None):
+            lis.open_question = mock.AsyncMock(return_value={"slot": 1})
+            await lis.on_status({"state": "paused", "message": ""}, "event")
+            for _ in range(3):
+                await lis.on_status({"state": "printing"}, "event")  # resume
+                await lis.on_status({"state": "paused", "message": ""}, "event")
+        return post_alert, rearm, lis.open_question
+
+    async def test_pausing_again_after_a_runout_resume_rewrites_the_alert(self):
+        lis = self.listener({1: True}, head=False)
+        post_alert, rearm, question = await self.cycle(lis)
+        post_alert.assert_called_once()  # the runout itself
+        self.assertIn("Filament runout", post_alert.call_args[0][0])
+        question.assert_awaited_once_with(1, "runout")  # asked once, never again
+        self.assertEqual(rearm.call_count, 3)
+        token, channel, message, text, kind, filename = rearm.call_args[0]
+        self.assertEqual((channel, message, kind), ("chan", "m1", "paused"))
+        self.assertIn("Paused again: the filament has not reached the toolhead yet", text)
+        self.assertIn("3 times", text)
+        self.assertNotIn("Answer the spool question", text)
+
+    async def test_without_an_editable_alert_one_short_alert_is_posted(self):
+        lis = self.listener({1: True}, head=False)
+        post_alert, _rearm, question = await self.cycle(lis, rearm=mock.Mock(return_value=False))
+        self.assertEqual(post_alert.call_count, 4)
+        for call in post_alert.call_args_list[1:]:
+            self.assertIn("Paused again", call.args[0])
+            self.assertNotIn("Filament runout", call.args[0])
+        question.assert_awaited_once()
+
+    async def test_a_runout_long_after_the_resume_is_a_new_runout(self):
+        lis = self.listener({1: True}, head=False)
+        with mock.patch.object(mel, "RUNOUT_REPAUSE_WINDOW_S", -1):
+            post_alert, rearm, question = await self.cycle(lis)
+        self.assertEqual(post_alert.call_count, 4)
+        rearm.assert_not_called()
+        self.assertEqual(question.await_count, 4)
+
+
+class RearmAlertTests(unittest.TestCase):
+    def test_rearm_rewrites_the_newest_alert_with_fresh_buttons(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(pab, "STATE", Path(tmp) / "alerts.json"), \
+                mock.patch.object(pab, "edit_message", return_value=True) as edit:
+            pab.record("paused", "a.gcode", now=1.0e9, message_id="old", channel_id="c")
+            pab.record("paused", "a.gcode", message_id="new", channel_id="c")
+            pab.record("paused", "b.gcode", message_id="other", channel_id="c")
+            self.assertEqual(pab.latest_alert_message("paused", "a.gcode"), ("c", "new"))
+            self.assertTrue(pab.rearm_alert("t", "c", "new", "Paused again", "paused", "a.gcode"))
+            _token, channel, message, text, components = edit.call_args[0]
+            self.assertEqual((channel, message, text), ("c", "new", "Paused again"))
+            self.assertTrue(components, "the rewritten alert has no buttons")
+            edit.return_value = False
+            before = {k for k, v in pab._load().items() if isinstance(v, dict)}
+            self.assertFalse(pab.rearm_alert("t", "c", "new", "x", "paused", "a.gcode"))
+            self.assertEqual({k for k, v in pab._load().items() if isinstance(v, dict)}, before)

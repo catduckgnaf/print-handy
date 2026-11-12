@@ -211,6 +211,13 @@ path, and report what you saw in the support Discord or as a GitHub issue.
   Print Handy closes the question as a refeed and says so. Otherwise the
   next print starts anyway with one notice that usage is paused, and
   reminders slow to every 6 hours once the print that ran out is over.
+- If the print pauses again within 10 minutes of resuming after a runout,
+  on the same slot, the new filament usually has not reached the toolhead
+  yet. Print Handy treats that as the same runout: it rewrites the runout
+  alert in place ("Paused again: the filament has not reached the toolhead
+  yet") with fresh Resume and Cancel buttons, and does not ask the spool
+  question again. Feed the filament until it comes out of the nozzle, then
+  resume.
 
 ## Camera and timelapse
 
