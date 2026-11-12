@@ -159,18 +159,28 @@ def camera_failed_text(reason, layer):
             "so this print is unmonitored until the camera answers again; check the camera")
 
 
-def decide_auto_pause(watch, *, enabled, printer_id, identity, state, verdict, frame_age_s, early):
+def decide_auto_pause(watch, *, enabled, printer_id, identity, state, verdict, frame_age_s, early,
+                      frame_counted=None):
     """``(pause_now, why)`` for the opt-in early-layer auto-pause, reserved once per print.
 
     The rule is ``visual_watch.auto_pause_decision`` (a risky print, two
     independent suspicious views, the printer still printing this print).
     A yes is reserved on the watch before the caller posts or yields, so
     two overlapping checks can never both send a pause.
+
+    ``frame_counted`` is whether THIS check's frame counted as an
+    independent view, captured right after its ``note_verdict``. Pass it:
+    ``watch.last_counted`` is shared by every check of the print, so an
+    overlapping check that records a not-independent frame in between
+    would otherwise make this check decide on that check's answer, and
+    no check would pause (the #1330 regression).
     """
+    if frame_counted is None:
+        frame_counted = watch.last_counted
     pause_now, why = _vw.auto_pause_decision(
         watch.pause_members, enabled=enabled, already_paused=watch.auto_paused,
         printer_id=printer_id, print_identity=identity, state=state, verdict=verdict,
-        frame_counted=watch.last_counted, frame_age_s=frame_age_s, mode=watch.mode,
+        frame_counted=frame_counted, frame_age_s=frame_age_s, mode=watch.mode,
         in_early_window=early)
     if pause_now:
         watch.auto_paused = True
