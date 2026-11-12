@@ -61,6 +61,19 @@ _config.set_override(TEST_SETTINGS)
 
 
 @pytest.fixture(autouse=True)
+def _quiet_status_voice(request, monkeypatch):
+    """Status quips are random by design, so suites that assert exact progress text see none.
+
+    A test module that sets STATUS_VOICE_LIVE = True keeps the real selector
+    (the corpus and selection tests); wiring tests seed their own quip.
+    """
+    if getattr(request.module, "STATUS_VOICE_LIVE", False):
+        return
+    from print_handy.core import status_voice
+    monkeypatch.setattr(status_voice, "quip", lambda *args, **kwargs: "")
+
+
+@pytest.fixture(autouse=True)
 def _offline_purge_detection(monkeypatch):
     """ZMod purge/plugin detection (#832) never reaches a network in tests: every read fails like an
     unreachable printer. Tests of the detection itself patch purge._fetch with their own fake."""
