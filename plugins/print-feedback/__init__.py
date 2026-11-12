@@ -2028,9 +2028,10 @@ def _cancel_spool_question_print(listener, spool_sync, context):
     context = current
     filename = context.get('filename') or ''
     label = filename or 'the paused print'
+    from print_handy import printer_control
     before = print_stop.status()
     if before.get('state') in print_stop.ACTIVE:
-        _sent, detail = print_stop.cancel(filename)
+        _sent, detail = printer_control.for_printer().cancel(filename)
         after = print_stop.status()
         if after.get('state') in print_stop.ACTIVE:
             raise spool_sync.SpoolError(
@@ -4211,7 +4212,9 @@ async def exclude_dispatch(event, gateway, **kwargs):
                 if answer != print_stop.STOP_LABEL:
                     message = 'Kept printing. Nothing sent.'
                 else:
-                    _sent, message = await asyncio.to_thread(print_stop.cancel, st.get('filename') or '', **_pkw(pid))
+                    from print_handy import printer_control
+                    _sent, message = await asyncio.to_thread(printer_control.for_printer(pid).cancel,
+                                                             st.get('filename') or '')
             else:
                 answer = await _confirm(adapter, source, metadata, 'exclude',
                                         plan['reason'],
@@ -4331,7 +4334,8 @@ async def print_stop_dispatch(event, gateway, **kwargs):
             if answer != print_stop.STOP_LABEL:
                 message = 'Kept printing. Nothing sent.'
             else:
-                _sent, message = await asyncio.to_thread(print_stop.cancel, st['filename'], **_pkw(pid))
+                from print_handy import printer_control
+                _sent, message = await asyncio.to_thread(printer_control.for_printer(pid).cancel, st['filename'])
     except Exception as exc:
         logger.exception('print-stop failed')
         message = _failure_post('Stop', exc, 'Check the printer screen.', subsystem='printer')
@@ -4458,7 +4462,8 @@ async def print_resume_dispatch(event, gateway, **kwargs):
             if answer != pc.RESUME_LABEL:
                 message = 'Left it paused. Nothing sent.'
             else:
-                _sent, message = await asyncio.to_thread(pc.resume, st['filename'], **_pkw(pid))
+                from print_handy import printer_control
+                _sent, message = await asyncio.to_thread(printer_control.for_printer(pid).resume, st['filename'])
     except Exception as exc:
         logger.exception('print-resume failed')
         message = _failure_post('Resume', exc, 'Check the printer screen.', subsystem='printer')
@@ -4739,7 +4744,8 @@ async def _offer_force_restart(adapter, source, metadata, pc, reason, printer_id
         return 'Not restarted. Nothing sent; retry the print only after checking the printer.'
     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                        content='Restarting the printer now. The print will not start automatically; retry it after restart.')
-    _ok, message = await asyncio.to_thread(pc.force_reboot, **_pkw(printer_id))
+    from print_handy import printer_control
+    _ok, message = await asyncio.to_thread(printer_control.for_printer(printer_id).force_reboot)
     return message + (' Retry the print manually.' if _ok else '')
 
 
@@ -4806,7 +4812,9 @@ async def print_reboot_dispatch(event, gateway, **kwargs):
             else:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content='Clearing the emergency stop now. Up to a minute.')
-                _ok, message = await asyncio.to_thread(pab.clear_shutdown, **pkw)
+                from print_handy import printer_control
+                _ok, message = await asyncio.to_thread(
+                    printer_control.for_printer(pkw.get('printer_id')).clear_shutdown)
                 after = await asyncio.to_thread(pc.status, **pkw)
                 message += f" Job state now {after.get('state')!r}."
         elif st.get('state') not in {'idle', 'standby', 'complete', 'cancelled', 'error'} or st.get('klippy') != 'ready':
@@ -4823,7 +4831,9 @@ async def print_reboot_dispatch(event, gateway, **kwargs):
             else:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content='Restarting the printer now. About two minutes.')
-                _ok, message = await asyncio.to_thread(pc.force_reboot, **pkw)
+                from print_handy import printer_control
+                _ok, message = await asyncio.to_thread(
+                    printer_control.for_printer(pkw.get('printer_id')).force_reboot)
     except Exception as exc:
         logger.exception('print-reboot failed')
         message = _failure_post('Restart', exc, 'Check the printer screen.', subsystem='printer')
@@ -6304,7 +6314,9 @@ def alert_button_handlers(bot, adapter):
                 return
             await interaction.response.defer()
             try:
-                _sent, message = await asyncio.to_thread(print_stop.cancel, alert.get('filename') or '', printer_id=printer_id)
+                from print_handy import printer_control
+                _sent, message = await asyncio.to_thread(printer_control.for_printer(printer_id).cancel,
+                                                         alert.get('filename') or '')
             except Exception as exc:
                 logger.exception('exclude stop failed')
                 message = f'Stop was not sent. The print was not cancelled. {exc}'

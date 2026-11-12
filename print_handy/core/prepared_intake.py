@@ -2073,7 +2073,8 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None, prin
     with contextlib.suppress(Exception):
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
-    ok, result = await asyncio.to_thread(pc.force_reboot, printer_id=printer_id)
+    from print_handy import printer_control
+    ok, result = await asyncio.to_thread(printer_control.for_printer(printer_id).force_reboot)
     return result + (' Send the link or press Print again to retry.' if ok else '')
 
 

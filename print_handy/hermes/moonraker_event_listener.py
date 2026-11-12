@@ -404,7 +404,9 @@ def native_screen_cancel(prev, now):
 
 def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer=None, poster=None):
     """House rule: a cancel from the printer screen force restarts Klipper. Never while printing."""
+    from print_handy import printer_control
     from . import print_alert_buttons as pab
+    control = printer_control.for_printer()
     read = status_reader or print_control.status
     say = poster or post
     st = read()
@@ -414,10 +416,10 @@ def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer
     label = print_summary.safe_label(filename) if filename else "the print"
     if st.get("klippy") == "shutdown":
         # The cancel report was just posted; one result line after the restart is enough.
-        ok, msg = (clearer or pab.clear_shutdown)()
+        ok, msg = (clearer or control.clear_shutdown)()
     else:
         say(f"Screen cancel on {label}. Force restarting the printer now, about two minutes.")
-        ok, msg = (rebooter or print_control.force_reboot)()
+        ok, msg = (rebooter or control.force_reboot)()
     log(f"screen cancel reboot ok={ok}: {msg}")
     if ok and clearer is None and rebooter is None and not _buttonless_standalone():  # real run only; tests inject fakes
         with contextlib.suppress(Exception):

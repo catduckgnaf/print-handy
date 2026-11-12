@@ -281,17 +281,13 @@ def purge(
 
 def _nozzle_ceiling_refusal(temp, adapter=None, state=None):
     """Why ``temp`` is above the configured printer's nozzle ceiling, or None."""
-    from print_handy.core import heater_ceiling
+    from print_handy import printer_control
     if adapter is None:
         from print_handy import printers
         adapter = printers.current()
-    if state is None:
-        try:
-            from print_handy.core import printer_state
-            state = printer_state.load()
-        except Exception:  # no hardware record: the configured nozzle type applies
-            state = None
-    return heater_ceiling.refusal(adapter, "nozzle", temp, state=state)
+    control = printer_control.for_printer(adapter=adapter)
+    # No state given: the configured printer's hardware record (None when unreadable).
+    return control.refusal("nozzle", temp, state=control.hardware_record() if state is None else state)
 
 
 def get_status(*, caller=None) -> dict[str, Any]:
@@ -362,20 +358,21 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("status", help="Read-only JSON of state, klippy, temperatures, and head sensor")
 
     args = parser.parse_args(argv)
+    from print_handy import printer_control
 
     if args.command == "force-restart":
         if args.printer_id and args.printer_flag and args.printer_id != args.printer_flag:
             print(json.dumps({"ok": False, "error": "Refused: two different printer ids given. Nothing sent."}))
             return 2
         try:
-            res = force_restart(printer_id=args.printer_id or args.printer_flag)
+            res = printer_control.for_printer(args.printer_id or args.printer_flag).emergency_stop()
         except ValueError as exc:
             print(json.dumps({"ok": False, "error": f"Refused: {exc}. Nothing sent."}))
             return 2
         print(json.dumps(res))
         return 0 if res.get("ok") else 1
     elif args.command == "purge":
-        res = purge(slot=args.slot, mm=args.mm, temp=args.temp)
+        res = printer_control.for_printer().purge(slot=args.slot, mm=args.mm, temp=args.temp)
         print(json.dumps(res))
         return 0 if res.get("ok") else 1
     elif args.command == "status":
