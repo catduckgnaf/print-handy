@@ -8,6 +8,7 @@ import pytest
 
 from print_handy.core import model_job as mj
 from print_handy.core import orca_adapter, slice_warnings
+from print_handy.jobs import slice as jobs_slice
 
 from .test_artifact_binding import setup_job
 
@@ -205,11 +206,21 @@ def _slice_model_calls(module):
             yield node
 
 
+# The job slicing paths moved from model_job to jobs/slice.py (#1323); scan both.
+JOB_SLICING_MODULES = (mj, jobs_slice)
+
+
+def _job_slice_model_calls():
+    calls = [call for module in JOB_SLICING_MODULES for call in _slice_model_calls(module)]
+    assert len(calls) >= 6, 'the job slicing paths and their slice_model calls were not found'
+    return calls
+
+
 def test_every_job_slicing_path_passes_the_support_decision():
     """Merged, multi-tool, painted, per-plate, split and single paths all reach Orca with it."""
     import ast
     missing = []
-    for call in _slice_model_calls(mj):
+    for call in _job_slice_model_calls():
         if any(k.arg == 'first_layer' for k in call.keywords):
             continue  # first-layer probe, not a printed job artifact
         carried = any(k.arg is None and isinstance(k.value, ast.Call)
@@ -218,7 +229,7 @@ def test_every_job_slicing_path_passes_the_support_decision():
                                  for k in call.keywords)
         if not carried:
             missing.append(call.lineno)
-    assert not missing, f'slice_model calls without the support decision at model_job.py lines {missing}'
+    assert not missing, f'slice_model calls without the support decision at lines {missing} of model_job.py or jobs/slice.py'
 
 
 def test_chosen_supports_never_print_an_unsupported_artifact(tmp_path, monkeypatch):
@@ -293,7 +304,7 @@ def test_every_job_slicing_path_passes_the_chat_edit_settings():
     """Codex P2 on #908: layer height, infill and support type edits reach
     Orca on the merged, painted, multi-tool and per-plate paths too."""
     missing = []
-    for call in _slice_model_calls(mj):
+    for call in _job_slice_model_calls():
         if any(k.arg == 'first_layer' for k in call.keywords):
             continue
         carried = any(k.arg is None and isinstance(k.value, ast.Call)
@@ -302,7 +313,7 @@ def test_every_job_slicing_path_passes_the_chat_edit_settings():
                                  for k in call.keywords)
         if not carried:
             missing.append(call.lineno)
-    assert not missing, f'slice_model calls without the edit settings at model_job.py lines {missing}'
+    assert not missing, f'slice_model calls without the edit settings at lines {missing} of model_job.py or jobs/slice.py'
 
 
 def test_edit_kw_and_support_kw_carry_the_chat_edit():

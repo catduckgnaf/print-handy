@@ -26,6 +26,9 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors'
             # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
             # scale. In a thread it held the GIL for whole stretches of a chat interaction.
             ('model_job', 'painted_fit_for_job')}
+# Steps that moved out of their offload module (#1323) keep its name: the worker
+# imports print_handy.core.<module>, which still re-exports them.
+_OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job'}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
 _SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
                  ('orca_adapter', 'largest_fitting_fraction')}
@@ -114,7 +117,7 @@ async def _heavy(func, *args, **kwargs):
     """
     import importlib
     mod, name = getattr(func, '__module__', None), getattr(func, '__name__', None)
-    short = (mod or '').rsplit('.', 1)[-1]
+    short = _OFFLOAD_HOMES.get(mod, (mod or '').rsplit('.', 1)[-1])
     real = (short, name) in _OFFLOAD and getattr(importlib.import_module(mod), name, None) is func
     if not real:
         return await owned_worker.in_thread(func, *args, **kwargs)
