@@ -34,6 +34,7 @@ from .quantity_selection import quantity_options, parse_quantity  # noqa: E402
 from .threemf_canonical import intake_working_copy  # noqa: E402
 from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E402
 from . import slice_warnings  # noqa: E402
+from . import status_voice  # noqa: E402
 
 RESLICE_SUPPORTS_LABEL = 'Re-slice with supports'
 PRINT_NO_SUPPORTS_LABEL = 'Print without supports'
@@ -65,6 +66,16 @@ _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory':
 
 
 logger = logging.getLogger(__name__)
+
+
+def _voice_identity(source):
+    """Scope first-time copy jokes to a user and platform, not the job."""
+    platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
+    user_id = getattr(source, 'user_id', None)
+    if user_id:
+        return f'{platform}:user:{user_id}'
+    return f"{platform}:chat:{getattr(source, 'chat_id', 'unknown')}"
+
 
 STOP_LABEL = "Stop"
 STOP_CUSTOM_ID = "pbstop:"
@@ -2882,7 +2893,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         actual_sha = await asyncio.to_thread(mj.file_sha256, path)
         if not (isinstance(manifest, dict) and manifest.get('source_sha256') == actual_sha):
             manifest = await _with_stop(
-                adapter, source, key, metadata, "Checking the model. Press Stop to cancel.",
+                adapter, source, key, metadata,
+                "Checking the model. Press Stop to cancel. " +
+                status_voice.quip("color_detection", identity=_voice_identity(source),
+                                  event_key=f"{iid}:color_detection"),
                 _heavy(inventory, path))
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
@@ -3140,7 +3154,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         fit_status = FitStatus(adapter, source, metadata)
         try:
             capacity = await fit_status.run('checking the layout as the author laid it out', fit_probe,
-                                            first_text='Checking whether it fits the bed.')
+                                            first_text=('Checking fit and calculating plate capacity. ' +
+                                                         status_voice.quip(
+                                                             'plate_capacity', identity=_voice_identity(source),
+                                                             event_key=f'{iid}:plate_capacity')))
         except Exception as exc:
             logger.exception('fit check failed; intake is resumable')
             receipt['status'] = 'FIT_UNKNOWN'
@@ -3568,6 +3585,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         mj.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        # Quantity is validated against real capacity above. A once-per-user
+        # Easter egg for 2, 10 or 11 must never influence selection or slicing.
+        if not preset_copies and len(quantities) > 1 and chosen_quantity > 1:
+            joke = status_voice.quip(
+                'quantity_selected', copies=chosen_quantity,
+                identity=_voice_identity(source),
+                event_key=f'{iid}:copies:{chosen_quantity}')
+            if joke:
+                try:
+                    await adapter.send(
+                        chat_id=source.chat_id,
+                        content=f'{chosen_quantity} copies selected. {joke}',
+                        metadata=metadata)
+                except Exception:
+                    logger.warning('could not send optional quantity joke', exc_info=True)
         if before_start is not None:
             # An edit carried beside the link or file ("<link> shrink this by
             # 20%", #903) applies to the prepared job BEFORE any slice is armed
