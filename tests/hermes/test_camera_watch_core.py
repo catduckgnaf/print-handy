@@ -183,17 +183,19 @@ def test_promote_stall_and_keep_frame():
 
 
 def test_alert_texts():
-    assert cw.alert_text("layer2", 2, "spaghetti", "tangle") == "layer2 at layer 2: spaghetti; tangle"
+    assert cw.alert_text("layer2", 2, "spaghetti", "tangle") == (
+        "First-layer check at layer 2: possible spaghetti (loose, tangled filament). Detail: tangle.")
     assert cw.alert_text("periodic", None, "uncertain", "") == (
-        "periodic at layer unknown: uncertain; visual check needs operator review")
+        "Routine check (no layer number reported): the check could not tell from this frame. "
+        "Please take a look at the print.")
     paused = cw.alert_text("layer2", 2, "spaghetti", "tangle", pause_why="two views")
     assert paused.endswith("\nAuto-pause (visual_watch.auto_pause_early): two views, "
                            "so I am pausing the print. It is not cancelled.")
     assert cw.alert_text("stalled_layers", 12, "ok", "fine") == vw.stall_alert_text(12, "ok", "fine")
     assert cw.vision_failed_text("periodic", 3).startswith(
-        "periodic at layer 3: the vision check could not be completed")
+        "Routine check at layer 3: the vision check could not be completed")
     assert cw.camera_failed_text("periodic", None).startswith(
-        "periodic at layer unknown: the camera snapshot could not be captured")
+        "Routine check (no layer number reported): the camera snapshot could not be captured")
     assert cw.watch_failed("uncertain", vw.VISION_FAILED_DETAIL)
     assert not cw.watch_failed("uncertain", "blurry")
 
@@ -379,3 +381,23 @@ def test_listeners_pass_their_own_frame_counted():
         source = (root / name).read_text(encoding="utf-8")
         assert "frame_counted=frame_counted" in source, name
 
+
+
+def test_alert_texts_name_no_internal_codes():
+    """Seen live: "layer2 at layer 211: uncertain; ..." and
+    "empty_idle_recheck at layer 1: empty_idle; ..." in chat."""
+    for reason in ("layer2", "layer5", "periodic", "early_layer", "early_periodic",
+                   "empty_idle_recheck", "layerless_start", "layer_progress"):
+        for verdict in ("air", "spaghetti", "detached", "empty_idle", "uncertain", "no", "unsafe"):
+            text = cw.alert_text(reason, 7, verdict, "")
+            assert reason not in text and f"{verdict};" not in text, text
+            assert text.startswith(cw.CHECK_LABELS[reason] + " at layer 7: "), text
+    assert "empty_idle" not in cw.alert_text("empty_idle_recheck", 1, "empty_idle", "")
+
+
+def test_a_below_threshold_detection_is_not_a_ping():
+    weak = ("local failure detector: possible failure at 39% confidence, below the "
+            "single-frame failure threshold (first consecutive detection)")
+    assert cw.below_threshold("uncertain", weak)
+    assert not cw.below_threshold("spaghetti", weak)  # escalated: a failure verdict pings
+    assert not cw.below_threshold("uncertain", "model unsure")

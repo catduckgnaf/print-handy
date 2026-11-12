@@ -102,6 +102,81 @@ def test_listener_runs_layerless_checks_and_posts_one_notice(monkeypatch):
     assert "no layer numbers" in posts[0] and "on a timer" in posts[0]
 
 
+
+def _timer_listener(monkeypatch, posts, launched):
+    monkeypatch.setattr(mel, "_vision_ready", lambda: True)
+    monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {"enabled": True, "sensitivity": 3}})
+    listener = mel.Listener()
+    listener.filename = "sliced.gcode"
+    listener.state = "printing"
+    listener._watch_context_seen = True
+
+    async def fake_check(reason, layer):
+        launched.append((reason, layer))
+
+    monkeypatch.setattr(listener, "visual_check", fake_check)
+    return listener
+
+
+def test_a_late_first_layer_marker_is_not_called_layerless(monkeypatch):
+    """Seen live: "reports no layer numbers (it was sliced without layer info)"
+    on a Print Handy-sliced file, 14 seconds before layer 2 arrived: the start
+    G-code ran past the first timed check before the first layer marker."""
+    posts, launched = [], []
+    listener = _timer_listener(monkeypatch, posts, launched)
+
+    async def run():
+        listener.last_stats = {"print_duration": 195.0, "info": {"current_layer": None}}
+        assert listener._visual_timer_tick(now=1000.0) == "layerless_start"
+        await listener.last_visual_task
+        listener.last_stats = {"print_duration": 209.0, "info": {"current_layer": 2, "total_layer": 40}}
+        for now in (1014.0, 1000.0 + 2 * vw.LAYERLESS_NOTICE_GRACE_S):
+            listener._visual_timer_tick(now=now)
+            await asyncio.sleep(0)
+        await asyncio.gather(*listener.background_tasks)
+
+    asyncio.run(run())
+    assert not [p for p in posts if "no layer numbers" in p]
+
+
+def test_a_print_that_reports_its_layer_count_never_gets_the_layerless_notice(monkeypatch):
+    posts, launched = [], []
+    listener = _timer_listener(monkeypatch, posts, launched)
+
+    async def run():
+        listener.last_stats = {"print_duration": 200.0, "info": {"current_layer": None, "total_layer": 40}}
+        for beat in range(0, 3 * vw.LAYERLESS_NOTICE_GRACE_S, 60):
+            listener._visual_timer_tick(now=1000.0 + beat)
+            await asyncio.sleep(0)
+        await asyncio.gather(*listener.background_tasks)
+
+    asyncio.run(run())
+    assert ("layerless_start", None) in launched  # still watched on the timer
+    assert not [p for p in posts if "no layer numbers" in p]
+
+
+def test_the_layerless_notice_waits_out_the_grace_period(monkeypatch):
+    posts, launched = [], []
+    listener = _timer_listener(monkeypatch, posts, launched)
+
+    async def run():
+        listener.last_stats = {"print_duration": 200.0, "info": {}}
+        for offset in (0, vw.LAYERLESS_NOTICE_GRACE_S - 1):
+            listener._visual_timer_tick(now=1000.0 + offset)
+            await asyncio.sleep(0)  # the check task finishes before the next beat
+        await asyncio.gather(*listener.background_tasks)
+        assert posts == []
+        for offset in (vw.LAYERLESS_NOTICE_GRACE_S, 2 * vw.LAYERLESS_NOTICE_GRACE_S):
+            listener._visual_timer_tick(now=1000.0 + offset)
+            await asyncio.sleep(0)
+        await asyncio.gather(*listener.background_tasks)
+
+    asyncio.run(run())
+    assert len(posts) == 1 and "no layer numbers" in posts[0]
+
+
 # -- 2. auto-pause needs independent evidence ---------------------------------
 
 

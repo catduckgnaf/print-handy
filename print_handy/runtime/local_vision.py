@@ -659,6 +659,12 @@ def detect(image: bytes, cfg=None):
         raise LocalVisionError(f"local detector outputs could not be read: {exc}") from exc
 
 
+#: The words every weak ("possible failure") detection carries in its
+#: detail; camera_watch.below_threshold keys on them to post such a frame
+#: without a ping.
+BELOW_THRESHOLD = "below the single-frame failure threshold"
+
+
 def _single_frame_verdict(kept) -> tuple[str, str]:
     """One frame's verdict, Stage 1 semantics: the mapping the bands
     above define, with no memory of earlier frames."""

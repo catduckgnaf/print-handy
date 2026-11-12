@@ -286,6 +286,29 @@ def test_layer_two_trigger_only_once():
     assert watch.due(3, 20) is None
 
 
+def test_a_below_threshold_detection_posts_plainly_and_without_a_ping(monkeypatch):
+    """Seen live: "layer5 at layer 5: uncertain; local failure detector:
+    possible failure at 39% confidence, below the single-frame failure
+    threshold ..." posted with a mention of the print's starter."""
+    import asyncio
+
+    alerts = []
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_visual_alert",
+                        lambda filename, image, reason, identity=None, ping=True: alerts.append((reason, ping)))
+    weak = ("local failure detector: possible failure at 39% confidence, below the single-frame "
+            "failure threshold (first consecutive detection; it escalates to a failure verdict "
+            "if later checks keep seeing it)")
+    monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt, streak=None: ("uncertain", weak))
+    listener = mel.Listener()
+    listener.filename = "bin.gcode"
+    asyncio.run(listener.visual_check("layer5", 5))
+    assert len(alerts) == 1
+    text, ping = alerts[0]
+    assert ping is False
+    assert text.startswith("Early check (layer 5) at layer 5: the check could not tell")
+    assert "layer5" not in text and "uncertain;" not in text
+
 def _jpeg():
     return bytes((0xff, 0xd8, 0xff, 0xd9))
 
@@ -343,8 +366,8 @@ def test_visual_check_alerts_on_air_uncertain_and_endpoint_error(monkeypatch):
         await listener.visual_check("layer2", 2)
 
     asyncio.run(run_boom())
-    assert any("air" in item for item in alerts)
-    assert any("uncertain" in item for item in alerts)
+    assert any("no plastic where the print should be" in item for item in alerts)
+    assert any("the check could not tell from this frame" in item for item in alerts)
     assert any("the vision check could not be completed" in item for item in alerts)
     assert all("endpoint down" not in item and "OSError" not in item for item in alerts)  # raw detail demoted (#467)
 
@@ -1078,7 +1101,7 @@ def test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second(monkey
     # 2. Second check with empty_idle_recheck reason also sees empty_idle -> alerts!
     asyncio.run(listener.visual_check("empty_idle_recheck", 1))
     assert len(alerts) == 1
-    assert "empty_idle_recheck" in alerts[0][0]
+    assert alerts[0][0].startswith("Second look at an empty-looking bed at layer 1")
     assert "empty bed again while the printer reports printing" in alerts[0][0]
 
 
@@ -1441,3 +1464,4 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     assert len(alerts) == 3
     assert pauses == ["race.gcode"]
     assert listener.visual_watch.auto_paused is True
+

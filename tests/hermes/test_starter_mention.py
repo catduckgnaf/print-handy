@@ -471,3 +471,20 @@ def test_button_post_allows_only_the_named_user_to_ping(monkeypatch, tmp_path):
                                       mention_user_id=STARTER)
     assert seen[-1]["content"] == f"<@{STARTER}> camera down"
     assert seen[-1]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+
+
+def test_a_watchdog_alert_without_a_ping_leaves_the_episode_unspent(archive, monkeypatch):
+    """A weak, below-threshold detection is posted for a look but pings
+    nobody, and does not use up the watchdog episode's one ping: a real
+    failure verdict later still pings the starter."""
+    from print_handy.runtime import print_alert_buttons as pab
+    seen = []
+    monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: seen.append(kwargs) or True)
+    monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "Early check (layer 5) at layer 5: ...",
+                      ping=False)
+    assert "mention_user_id" not in seen[-1]
+    mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "Routine check at layer 9: spaghetti")
+    assert seen[-1].get("mention_user_id") == STARTER
