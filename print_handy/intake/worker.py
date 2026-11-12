@@ -28,7 +28,7 @@ _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors'
             ('model_job', 'painted_fit_for_job')}
 # Steps that moved out of their offload module (#1323) keep its name: the worker
 # imports print_handy.core.<module>, which still re-exports them.
-_OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job'}
+_OFFLOAD_HOMES = {'print_handy.jobs.slice': 'model_job', 'print_handy.jobs.audit': 'model_job'}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
 _SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
                  ('orca_adapter', 'largest_fitting_fraction')}

@@ -30,6 +30,10 @@ HOMES = {
     "print_handy.launch.gates": "print_handy.core.model_job",
     "print_handy.launch.print_now": "print_handy.core.model_job",
     "print_handy.jobs.slice": "print_handy.core.model_job",
+    "print_handy.jobs.sources": "print_handy.core.model_job",
+    "print_handy.jobs.audit": "print_handy.core.model_job",
+    "print_handy.jobs.prompts": "print_handy.core.model_job",
+    "print_handy.jobs.cli": "print_handy.core.model_job",
     "print_handy.intake.worker": "print_handy.core.prepared_intake",
     "print_handy.intake.questions": "print_handy.core.prepared_intake",
     "print_handy.intake.support_flow": "print_handy.core.prepared_intake",
@@ -282,3 +286,38 @@ def test_moved_slice_steps_still_run_in_the_heavy_worker(monkeypatch, tmp_path):
     assert ("model_job", "slice_job") in heavy_worker.ALLOWED
     assert seen["lane"] is owned_worker.SLICER
     assert seen["record"] == tmp_path / owned_worker.RECORD
+
+
+def test_the_old_module_still_runs_the_cli():
+    """``python3 -m print_handy.core.model_job`` is the documented command line (#1323 moved it to jobs/cli.py)."""
+    import subprocess
+    import sys
+    from print_handy.jobs import cli
+    assert model_job.main is cli.main
+    out = subprocess.run([sys.executable, "-m", "print_handy.core.model_job", "--help"],
+                         cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert "print-now" in out.stdout and "fetch" in out.stdout
+
+
+def test_site_dispatch_by_name_finds_a_function_patched_on_the_old_path(monkeypatch):
+    """inventory_for_url looks its site function up by name; patching model_job still steers it."""
+    from print_handy.jobs import sources
+    fake = mock.Mock(return_value="inventory")
+    monkeypatch.setattr(model_job, "maker_inventory", fake)
+    assert sources.maker_inventory is fake
+    assert model_job.inventory_for_url("https://makerworld.com/en/models/1") == "inventory"
+    fake.assert_called_once_with("https://makerworld.com/en/models/1")
+
+
+def test_every_moved_offload_step_keeps_its_offload_name():
+    """Each ('model_job', step) the intake offloads resolves to a function whose home maps back to model_job."""
+    from print_handy.core import heavy_worker, prepared_intake
+    from print_handy.intake import worker
+    for module, name in sorted(prepared_intake._OFFLOAD):
+        if module != "model_job":
+            continue
+        func = getattr(model_job, name)
+        short = worker._OFFLOAD_HOMES.get(func.__module__, func.__module__.rsplit(".", 1)[-1])
+        assert short == "model_job", f"{name} moved to {func.__module__} without an _OFFLOAD_HOMES entry"
+        assert (module, name) in heavy_worker.ALLOWED
