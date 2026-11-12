@@ -1,0 +1,1016 @@
+{
+  "_about": "Print Handy local progress voice bank, part 4 of 5.",
+  "_license": "Original to Print Handy; AGPL-3.0-only",
+  "stages": {
+    "split": [
+      {
+        "id": "split-001",
+        "family": "split-01",
+        "text": "Evaluating whether this model needs an amicable separation. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-002",
+        "family": "split-01",
+        "text": "Evaluating whether this model needs an amicable separation. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-003",
+        "family": "split-01",
+        "text": "Evaluating whether this model needs an amicable separation. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-004",
+        "family": "split-01",
+        "text": "Evaluating whether this model needs an amicable separation. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-005",
+        "family": "split-02",
+        "text": "Finding a sensible place to split an oversized idea. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-006",
+        "family": "split-02",
+        "text": "Finding a sensible place to split an oversized idea. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-007",
+        "family": "split-02",
+        "text": "Finding a sensible place to split an oversized idea. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-008",
+        "family": "split-02",
+        "text": "Finding a sensible place to split an oversized idea. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-009",
+        "family": "split-03",
+        "text": "Checking whether the design can become a multipart responsibility. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-010",
+        "family": "split-03",
+        "text": "Checking whether the design can become a multipart responsibility. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-011",
+        "family": "split-03",
+        "text": "Checking whether the design can become a multipart responsibility. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-012",
+        "family": "split-03",
+        "text": "Checking whether the design can become a multipart responsibility. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-013",
+        "family": "split-04",
+        "text": "Considering a controlled breakup between incompatible dimensions. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-014",
+        "family": "split-04",
+        "text": "Considering a controlled breakup between incompatible dimensions. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-015",
+        "family": "split-04",
+        "text": "Considering a controlled breakup between incompatible dimensions. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-016",
+        "family": "split-04",
+        "text": "Considering a controlled breakup between incompatible dimensions. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-017",
+        "family": "split-05",
+        "text": "Working out split planes with unusually strong opinions. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-018",
+        "family": "split-05",
+        "text": "Working out split planes with unusually strong opinions. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-019",
+        "family": "split-05",
+        "text": "Working out split planes with unusually strong opinions. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-020",
+        "family": "split-05",
+        "text": "Working out split planes with unusually strong opinions. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-021",
+        "family": "split-06",
+        "text": "Asking which parts can survive a temporary divorce. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-022",
+        "family": "split-06",
+        "text": "Asking which parts can survive a temporary divorce. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-023",
+        "family": "split-06",
+        "text": "Asking which parts can survive a temporary divorce. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-024",
+        "family": "split-06",
+        "text": "Asking which parts can survive a temporary divorce. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-025",
+        "family": "split-07",
+        "text": "Finding seams before the build plate makes its own. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-026",
+        "family": "split-07",
+        "text": "Finding seams before the build plate makes its own. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-027",
+        "family": "split-07",
+        "text": "Finding seams before the build plate makes its own. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-028",
+        "family": "split-07",
+        "text": "Finding seams before the build plate makes its own. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-029",
+        "family": "split-08",
+        "text": "Checking whether a multipart plan preserves the useful geometry. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-030",
+        "family": "split-08",
+        "text": "Checking whether a multipart plan preserves the useful geometry. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-031",
+        "family": "split-08",
+        "text": "Checking whether a multipart plan preserves the useful geometry. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-032",
+        "family": "split-08",
+        "text": "Checking whether a multipart plan preserves the useful geometry. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-033",
+        "family": "split-09",
+        "text": "Planning the smallest reasonable number of pieces. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-034",
+        "family": "split-09",
+        "text": "Planning the smallest reasonable number of pieces. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-035",
+        "family": "split-09",
+        "text": "Planning the smallest reasonable number of pieces. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-036",
+        "family": "split-09",
+        "text": "Planning the smallest reasonable number of pieces. Some assemblies really do need counseling."
+      },
+      {
+        "id": "split-037",
+        "family": "split-10",
+        "text": "Trying to split the object without splitting everyone's patience. This is a manufacturing decision, not family court."
+      },
+      {
+        "id": "split-038",
+        "family": "split-10",
+        "text": "Trying to split the object without splitting everyone's patience. A bad seam lasts longer than a bad relationship."
+      },
+      {
+        "id": "split-039",
+        "family": "split-10",
+        "text": "Trying to split the object without splitting everyone's patience. The printer didn't sign up for joint custody."
+      },
+      {
+        "id": "split-040",
+        "family": "split-10",
+        "text": "Trying to split the object without splitting everyone's patience. Some assemblies really do need counseling."
+      }
+    ],
+    "supports": [
+      {
+        "id": "supports-001",
+        "family": "supports-01",
+        "text": "Checking which overhangs are about to test gravity's patience. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-002",
+        "family": "supports-01",
+        "text": "Checking which overhangs are about to test gravity's patience. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-003",
+        "family": "supports-01",
+        "text": "Checking which overhangs are about to test gravity's patience. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-004",
+        "family": "supports-01",
+        "text": "Checking which overhangs are about to test gravity's patience. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-005",
+        "family": "supports-02",
+        "text": "Planning supports for geometry that lacks self respect. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-006",
+        "family": "supports-02",
+        "text": "Planning supports for geometry that lacks self respect. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-007",
+        "family": "supports-02",
+        "text": "Planning supports for geometry that lacks self respect. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-008",
+        "family": "supports-02",
+        "text": "Planning supports for geometry that lacks self respect. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-009",
+        "family": "supports-03",
+        "text": "Determining where temporary plastic scaffolding might help. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-010",
+        "family": "supports-03",
+        "text": "Determining where temporary plastic scaffolding might help. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-011",
+        "family": "supports-03",
+        "text": "Determining where temporary plastic scaffolding might help. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-012",
+        "family": "supports-03",
+        "text": "Determining where temporary plastic scaffolding might help. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-013",
+        "family": "supports-04",
+        "text": "Asking the underside what it expects to stand on. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-014",
+        "family": "supports-04",
+        "text": "Asking the underside what it expects to stand on. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-015",
+        "family": "supports-04",
+        "text": "Asking the underside what it expects to stand on. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-016",
+        "family": "supports-04",
+        "text": "Asking the underside what it expects to stand on. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-017",
+        "family": "supports-05",
+        "text": "Measuring support contact before a floating surface becomes modern art. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-018",
+        "family": "supports-05",
+        "text": "Measuring support contact before a floating surface becomes modern art. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-019",
+        "family": "supports-05",
+        "text": "Measuring support contact before a floating surface becomes modern art. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-020",
+        "family": "supports-05",
+        "text": "Measuring support contact before a floating surface becomes modern art. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-021",
+        "family": "supports-06",
+        "text": "Finding overhangs that believe gravity is optional. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-022",
+        "family": "supports-06",
+        "text": "Finding overhangs that believe gravity is optional. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-023",
+        "family": "supports-06",
+        "text": "Finding overhangs that believe gravity is optional. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-024",
+        "family": "supports-06",
+        "text": "Finding overhangs that believe gravity is optional. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-025",
+        "family": "supports-07",
+        "text": "Assessing whether this bridge deserves an engineering permit. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-026",
+        "family": "supports-07",
+        "text": "Assessing whether this bridge deserves an engineering permit. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-027",
+        "family": "supports-07",
+        "text": "Assessing whether this bridge deserves an engineering permit. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-028",
+        "family": "supports-07",
+        "text": "Assessing whether this bridge deserves an engineering permit. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-029",
+        "family": "supports-08",
+        "text": "Planning removable scaffolding for permanent optimism. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-030",
+        "family": "supports-08",
+        "text": "Planning removable scaffolding for permanent optimism. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-031",
+        "family": "supports-08",
+        "text": "Planning removable scaffolding for permanent optimism. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-032",
+        "family": "supports-08",
+        "text": "Planning removable scaffolding for permanent optimism. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-033",
+        "family": "supports-09",
+        "text": "Looking at downward faces with the suspicion they deserve. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-034",
+        "family": "supports-09",
+        "text": "Looking at downward faces with the suspicion they deserve. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-035",
+        "family": "supports-09",
+        "text": "Looking at downward faces with the suspicion they deserve. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-036",
+        "family": "supports-09",
+        "text": "Looking at downward faces with the suspicion they deserve. The underside is where optimism goes to die."
+      },
+      {
+        "id": "supports-037",
+        "family": "supports-10",
+        "text": "Making sure support geometry actually reaches what it should support. Gravity votes no on wishful thinking."
+      },
+      {
+        "id": "supports-038",
+        "family": "supports-10",
+        "text": "Making sure support geometry actually reaches what it should support. A support that cannot touch is just an expensive decoration."
+      },
+      {
+        "id": "supports-039",
+        "family": "supports-10",
+        "text": "Making sure support geometry actually reaches what it should support. Scaffolding should not become the main attraction."
+      },
+      {
+        "id": "supports-040",
+        "family": "supports-10",
+        "text": "Making sure support geometry actually reaches what it should support. The underside is where optimism goes to die."
+      }
+    ],
+    "slice": [
+      {
+        "id": "slice-001",
+        "family": "slice-01",
+        "text": "Translating your model into a suspiciously detailed nozzle itinerary. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-002",
+        "family": "slice-01",
+        "text": "Translating your model into a suspiciously detailed nozzle itinerary. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-003",
+        "family": "slice-01",
+        "text": "Translating your model into a suspiciously detailed nozzle itinerary. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-004",
+        "family": "slice-01",
+        "text": "Translating your model into a suspiciously detailed nozzle itinerary. No machine movement has started yet."
+      },
+      {
+        "id": "slice-005",
+        "family": "slice-02",
+        "text": "Asking the slicer to turn triangles into actual instructions. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-006",
+        "family": "slice-02",
+        "text": "Asking the slicer to turn triangles into actual instructions. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-007",
+        "family": "slice-02",
+        "text": "Asking the slicer to turn triangles into actual instructions. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-008",
+        "family": "slice-02",
+        "text": "Asking the slicer to turn triangles into actual instructions. No machine movement has started yet."
+      },
+      {
+        "id": "slice-009",
+        "family": "slice-03",
+        "text": "Converting pretty surfaces into thousands of extremely literal moves. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-010",
+        "family": "slice-03",
+        "text": "Converting pretty surfaces into thousands of extremely literal moves. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-011",
+        "family": "slice-03",
+        "text": "Converting pretty surfaces into thousands of extremely literal moves. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-012",
+        "family": "slice-03",
+        "text": "Converting pretty surfaces into thousands of extremely literal moves. No machine movement has started yet."
+      },
+      {
+        "id": "slice-013",
+        "family": "slice-04",
+        "text": "Calculating toolpaths for this important plastic errand. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-014",
+        "family": "slice-04",
+        "text": "Calculating toolpaths for this important plastic errand. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-015",
+        "family": "slice-04",
+        "text": "Calculating toolpaths for this important plastic errand. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-016",
+        "family": "slice-04",
+        "text": "Calculating toolpaths for this important plastic errand. No machine movement has started yet."
+      },
+      {
+        "id": "slice-017",
+        "family": "slice-05",
+        "text": "Working out exactly how much time this object wants to consume. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-018",
+        "family": "slice-05",
+        "text": "Working out exactly how much time this object wants to consume. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-019",
+        "family": "slice-05",
+        "text": "Working out exactly how much time this object wants to consume. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-020",
+        "family": "slice-05",
+        "text": "Working out exactly how much time this object wants to consume. No machine movement has started yet."
+      },
+      {
+        "id": "slice-021",
+        "family": "slice-06",
+        "text": "Letting the slicer argue with geometry so you don't have to. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-022",
+        "family": "slice-06",
+        "text": "Letting the slicer argue with geometry so you don't have to. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-023",
+        "family": "slice-06",
+        "text": "Letting the slicer argue with geometry so you don't have to. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-024",
+        "family": "slice-06",
+        "text": "Letting the slicer argue with geometry so you don't have to. No machine movement has started yet."
+      },
+      {
+        "id": "slice-025",
+        "family": "slice-07",
+        "text": "Planning each layer like a tiny construction site. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-026",
+        "family": "slice-07",
+        "text": "Planning each layer like a tiny construction site. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-027",
+        "family": "slice-07",
+        "text": "Planning each layer like a tiny construction site. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-028",
+        "family": "slice-07",
+        "text": "Planning each layer like a tiny construction site. No machine movement has started yet."
+      },
+      {
+        "id": "slice-029",
+        "family": "slice-08",
+        "text": "Converting ambition into coordinates and temperatures. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-030",
+        "family": "slice-08",
+        "text": "Converting ambition into coordinates and temperatures. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-031",
+        "family": "slice-08",
+        "text": "Converting ambition into coordinates and temperatures. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-032",
+        "family": "slice-08",
+        "text": "Converting ambition into coordinates and temperatures. No machine movement has started yet."
+      },
+      {
+        "id": "slice-033",
+        "family": "slice-09",
+        "text": "Making sure the G-code knows what the model thinks it is. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-034",
+        "family": "slice-09",
+        "text": "Making sure the G-code knows what the model thinks it is. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-035",
+        "family": "slice-09",
+        "text": "Making sure the G-code knows what the model thinks it is. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-036",
+        "family": "slice-09",
+        "text": "Making sure the G-code knows what the model thinks it is. No machine movement has started yet."
+      },
+      {
+        "id": "slice-037",
+        "family": "slice-10",
+        "text": "Determining how to deposit plastic with industrial precision. The nozzle prefers explicit directions."
+      },
+      {
+        "id": "slice-038",
+        "family": "slice-10",
+        "text": "Determining how to deposit plastic with industrial precision. A layer is a promise, not a personality."
+      },
+      {
+        "id": "slice-039",
+        "family": "slice-10",
+        "text": "Determining how to deposit plastic with industrial precision. This is still cheaper than hiring a sculptor."
+      },
+      {
+        "id": "slice-040",
+        "family": "slice-10",
+        "text": "Determining how to deposit plastic with industrial precision. No machine movement has started yet."
+      }
+    ],
+    "gcode_validation": [
+      {
+        "id": "gcode_validation-001",
+        "family": "gcode_validation-01",
+        "text": "Reading the toolpath before it gets anywhere near a motor. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-002",
+        "family": "gcode_validation-01",
+        "text": "Reading the toolpath before it gets anywhere near a motor. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-003",
+        "family": "gcode_validation-01",
+        "text": "Reading the toolpath before it gets anywhere near a motor. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-004",
+        "family": "gcode_validation-01",
+        "text": "Reading the toolpath before it gets anywhere near a motor. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-005",
+        "family": "gcode_validation-02",
+        "text": "Checking the G-code for instructions with poor judgment. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-006",
+        "family": "gcode_validation-02",
+        "text": "Checking the G-code for instructions with poor judgment. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-007",
+        "family": "gcode_validation-02",
+        "text": "Checking the G-code for instructions with poor judgment. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-008",
+        "family": "gcode_validation-02",
+        "text": "Checking the G-code for instructions with poor judgment. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-009",
+        "family": "gcode_validation-03",
+        "text": "Verifying the sliced artifact rather than trusting a pretty preview. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-010",
+        "family": "gcode_validation-03",
+        "text": "Verifying the sliced artifact rather than trusting a pretty preview. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-011",
+        "family": "gcode_validation-03",
+        "text": "Verifying the sliced artifact rather than trusting a pretty preview. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-012",
+        "family": "gcode_validation-03",
+        "text": "Verifying the sliced artifact rather than trusting a pretty preview. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-013",
+        "family": "gcode_validation-04",
+        "text": "Inspecting commands that will eventually become hot plastic. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-014",
+        "family": "gcode_validation-04",
+        "text": "Inspecting commands that will eventually become hot plastic. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-015",
+        "family": "gcode_validation-04",
+        "text": "Inspecting commands that will eventually become hot plastic. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-016",
+        "family": "gcode_validation-04",
+        "text": "Inspecting commands that will eventually become hot plastic. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-017",
+        "family": "gcode_validation-05",
+        "text": "Making sure the output file isn't a procedural horror story. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-018",
+        "family": "gcode_validation-05",
+        "text": "Making sure the output file isn't a procedural horror story. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-019",
+        "family": "gcode_validation-05",
+        "text": "Making sure the output file isn't a procedural horror story. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-020",
+        "family": "gcode_validation-05",
+        "text": "Making sure the output file isn't a procedural horror story. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-021",
+        "family": "gcode_validation-06",
+        "text": "Checking that the printer instructions still describe the right job. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-022",
+        "family": "gcode_validation-06",
+        "text": "Checking that the printer instructions still describe the right job. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-023",
+        "family": "gcode_validation-06",
+        "text": "Checking that the printer instructions still describe the right job. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-024",
+        "family": "gcode_validation-06",
+        "text": "Checking that the printer instructions still describe the right job. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-025",
+        "family": "gcode_validation-07",
+        "text": "Auditing coordinates before they become kinetic opinions. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-026",
+        "family": "gcode_validation-07",
+        "text": "Auditing coordinates before they become kinetic opinions. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-027",
+        "family": "gcode_validation-07",
+        "text": "Auditing coordinates before they become kinetic opinions. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-028",
+        "family": "gcode_validation-07",
+        "text": "Auditing coordinates before they become kinetic opinions. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-029",
+        "family": "gcode_validation-08",
+        "text": "Confirming the final toolpath survives a second skeptical look. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-030",
+        "family": "gcode_validation-08",
+        "text": "Confirming the final toolpath survives a second skeptical look. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-031",
+        "family": "gcode_validation-08",
+        "text": "Confirming the final toolpath survives a second skeptical look. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-032",
+        "family": "gcode_validation-08",
+        "text": "Confirming the final toolpath survives a second skeptical look. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-033",
+        "family": "gcode_validation-09",
+        "text": "Inspecting the slice for surprises hidden under the preview. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-034",
+        "family": "gcode_validation-09",
+        "text": "Inspecting the slice for surprises hidden under the preview. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-035",
+        "family": "gcode_validation-09",
+        "text": "Inspecting the slice for surprises hidden under the preview. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-036",
+        "family": "gcode_validation-09",
+        "text": "Inspecting the slice for surprises hidden under the preview. The safety checks are not optional theater."
+      },
+      {
+        "id": "gcode_validation-037",
+        "family": "gcode_validation-10",
+        "text": "Looking for a sane sequence of moves in this digital treasure map. A valid filename is not evidence."
+      },
+      {
+        "id": "gcode_validation-038",
+        "family": "gcode_validation-10",
+        "text": "Looking for a sane sequence of moves in this digital treasure map. I trust the artifact only after checking it."
+      },
+      {
+        "id": "gcode_validation-039",
+        "family": "gcode_validation-10",
+        "text": "Looking for a sane sequence of moves in this digital treasure map. The motors deserve due process."
+      },
+      {
+        "id": "gcode_validation-040",
+        "family": "gcode_validation-10",
+        "text": "Looking for a sane sequence of moves in this digital treasure map. The safety checks are not optional theater."
+      }
+    ],
+    "approval": [
+      {
+        "id": "approval-001",
+        "family": "approval-01",
+        "text": "Waiting for your approval because consent matters even for molten plastic. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-002",
+        "family": "approval-01",
+        "text": "Waiting for your approval because consent matters even for molten plastic. The start button remains your problem."
+      },
+      {
+        "id": "approval-003",
+        "family": "approval-01",
+        "text": "Waiting for your approval because consent matters even for molten plastic. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-004",
+        "family": "approval-01",
+        "text": "Waiting for your approval because consent matters even for molten plastic. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-005",
+        "family": "approval-02",
+        "text": "Holding the job at the starting line until you say yes. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-006",
+        "family": "approval-02",
+        "text": "Holding the job at the starting line until you say yes. The start button remains your problem."
+      },
+      {
+        "id": "approval-007",
+        "family": "approval-02",
+        "text": "Holding the job at the starting line until you say yes. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-008",
+        "family": "approval-02",
+        "text": "Holding the job at the starting line until you say yes. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-009",
+        "family": "approval-03",
+        "text": "Presenting the plan without touching the start button. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-010",
+        "family": "approval-03",
+        "text": "Presenting the plan without touching the start button. The start button remains your problem."
+      },
+      {
+        "id": "approval-011",
+        "family": "approval-03",
+        "text": "Presenting the plan without touching the start button. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-012",
+        "family": "approval-03",
+        "text": "Presenting the plan without touching the start button. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-013",
+        "family": "approval-04",
+        "text": "Checking that the bed is clear before anybody gets ambitious. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-014",
+        "family": "approval-04",
+        "text": "Checking that the bed is clear before anybody gets ambitious. The start button remains your problem."
+      },
+      {
+        "id": "approval-015",
+        "family": "approval-04",
+        "text": "Checking that the bed is clear before anybody gets ambitious. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-016",
+        "family": "approval-04",
+        "text": "Checking that the bed is clear before anybody gets ambitious. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-017",
+        "family": "approval-05",
+        "text": "Keeping the printer idle while you review the consequences. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-018",
+        "family": "approval-05",
+        "text": "Keeping the printer idle while you review the consequences. The start button remains your problem."
+      },
+      {
+        "id": "approval-019",
+        "family": "approval-05",
+        "text": "Keeping the printer idle while you review the consequences. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-020",
+        "family": "approval-05",
+        "text": "Keeping the printer idle while you review the consequences. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-021",
+        "family": "approval-06",
+        "text": "Asking for permission instead of interpreting silence as enthusiasm. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-022",
+        "family": "approval-06",
+        "text": "Asking for permission instead of interpreting silence as enthusiasm. The start button remains your problem."
+      },
+      {
+        "id": "approval-023",
+        "family": "approval-06",
+        "text": "Asking for permission instead of interpreting silence as enthusiasm. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-024",
+        "family": "approval-06",
+        "text": "Asking for permission instead of interpreting silence as enthusiasm. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-025",
+        "family": "approval-07",
+        "text": "Offering one last chance to reconsider this miniature manufacturing project. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-026",
+        "family": "approval-07",
+        "text": "Offering one last chance to reconsider this miniature manufacturing project. The start button remains your problem."
+      },
+      {
+        "id": "approval-027",
+        "family": "approval-07",
+        "text": "Offering one last chance to reconsider this miniature manufacturing project. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-028",
+        "family": "approval-07",
+        "text": "Offering one last chance to reconsider this miniature manufacturing project. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-029",
+        "family": "approval-08",
+        "text": "Waiting for the human to accept responsibility for the next few hours. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-030",
+        "family": "approval-08",
+        "text": "Waiting for the human to accept responsibility for the next few hours. The start button remains your problem."
+      },
+      {
+        "id": "approval-031",
+        "family": "approval-08",
+        "text": "Waiting for the human to accept responsibility for the next few hours. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-032",
+        "family": "approval-08",
+        "text": "Waiting for the human to accept responsibility for the next few hours. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-033",
+        "family": "approval-09",
+        "text": "Leaving the hot parts alone until the final confirmation arrives. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-034",
+        "family": "approval-09",
+        "text": "Leaving the hot parts alone until the final confirmation arrives. The start button remains your problem."
+      },
+      {
+        "id": "approval-035",
+        "family": "approval-09",
+        "text": "Leaving the hot parts alone until the final confirmation arrives. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-036",
+        "family": "approval-09",
+        "text": "Leaving the hot parts alone until the final confirmation arrives. Even robots have learned to ask first."
+      },
+      {
+        "id": "approval-037",
+        "family": "approval-10",
+        "text": "Putting the nozzle on standby while the approval bureaucracy works. An unattended bed is not an approval."
+      },
+      {
+        "id": "approval-038",
+        "family": "approval-10",
+        "text": "Putting the nozzle on standby while the approval bureaucracy works. The start button remains your problem."
+      },
+      {
+        "id": "approval-039",
+        "family": "approval-10",
+        "text": "Putting the nozzle on standby while the approval bureaucracy works. I do not infer consent from a typing indicator."
+      },
+      {
+        "id": "approval-040",
+        "family": "approval-10",
+        "text": "Putting the nozzle on standby while the approval bureaucracy works. Even robots have learned to ask first."
+      }
+    ]
+  }
+}
