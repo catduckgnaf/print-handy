@@ -2474,7 +2474,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # contract (the stock AD5X, #658) binds its slot from the job at launch.
         native = printer.native_or_none
         if native is not None:
-            native.finalize(output, None, state, mapping)
+            # The slice's map can name a tool Orca's output never selects (a
+            # support filament's tool when no support was generated, #867);
+            # that entry is dropped here, not refused (#1305).
+            native.finalize(output, None, state, mapping, drop_unused=True)
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
     result_path = folder / 'result.json'

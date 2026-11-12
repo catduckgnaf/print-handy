@@ -253,14 +253,15 @@ def test_startup_controls_normal_cli(tmp_path, n, initial, header):
     pair = 'M190 S60\n; comments may separate commands\nM104 S210 T0\n'
     body = artifact(n).split('G90\n', 1)[1]
     if n == 1 and initial == 1:
-        # One extruding logical tool T1 still needs indexed T0/T1 metadata.
+        # One extruding logical tool T1 still needs indexed T0/T1 material
+        # metadata; its map names only T1 (an unused T0 entry is refused, #1305).
         body = body.replace('T0\n', 'T1\n').replace('filament_type = PLA\n', 'filament_type = PLA;PLA\n')
     preamble = 'M73 P0 R20\nM106 S0\nM106 P2 S0\n;TYPE:Custom\n' if header.startswith('orca-') else ''
     variant = header.removeprefix('orca-')
     text = preamble + {'prefix': pair+start, 'post': start+pair, 'bare': start}[variant]
     original = text + f'T{initial}\nG90\n' + body
     path.write_text(original)
-    mapping = {'0':1, '1':2} if n == 1 and initial == 1 else {str(i):i+1 for i in range(n)}
+    mapping = {'1':2} if n == 1 and initial == 1 else {str(i):i+1 for i in range(n)}
     mapfile = tmp_path/'map.json'
     mapfile.write_text(json.dumps(mapping))
     submissions = []
@@ -392,9 +393,50 @@ def test_sparse_tool_map_validates_and_describes():
     assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3}) == {'0': 1, '2': 3}
     assert contract.describe_mapping({'0': 1, '2': 3}, st).splitlines() == [
         'T0 -> slot 1: white PLA', 'T2 -> slot 3: black PLA']
-    # A map may also cover a tool the plate does not use (the project's
-    # other filament); the unused entry is not material-checked.
-    assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3, '3': 4}) == {'0': 1, '2': 3, '3': 4}
+    # An explicit map entry for a tool the plate never uses is refused by
+    # name: it would reach zmod_color_data and SET_ZCOLOR and make launch
+    # require that slot loaded, for nothing.
+    with pytest.raises(RuntimeError, match=r'names T3, which the file never uses \(it uses T0, T2\)'):
+        contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3, '3': 4})
+
+
+def test_explicit_map_with_unused_tool_refused_at_finalize(tmp_path):
+    st = state()
+    path = tmp_path / 'sparse.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match='names T3, which the file never uses'):
+        contract.finalize(path, None, st, {'0': 1, '2': 3, '3': 4})
+    assert path.read_bytes() == before
+
+
+def test_slice_path_drops_unused_tool_entries(tmp_path):
+    # Print Handy's own slice map can name a tool Orca never selected (a
+    # support filament's tool with no support generated, #867); that flow
+    # trims the entry instead of refusing.
+    st = state()
+    path = tmp_path / 'sparse.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    contract.finalize(path, None, st, {'0': 1, '2': 3, '3': 4}, drop_unused=True)
+    text = path.read_text()
+    assert contract.embedded_mapping(text, st) == {'0': 1, '2': 3}
+    assert '; zmod_color_data = 3|' not in text
+
+
+def test_shared_spool_map_is_accepted_and_each_tool_checked(tmp_path):
+    # Two tools on one slot (classify_ifs_action's 'shared_spool') is an
+    # accepted explicit map: both tools are material-checked against it.
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA'])
+    assert contract.normalize_mapping({'0': 1, '2': 1}, st) == {'0': 1, '2': 1}
+    assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 1}) == {'0': 1, '2': 1}
+    with pytest.raises(RuntimeError, match='T2 material'):
+        contract.validate_materials(sparse_artifact([0, 2], ['PLA', 'PLA', 'PETG']), 'PLA;PLA;PETG', st,
+                                    {'0': 1, '2': 1})
+    path = tmp_path / 'shared.gcode'
+    path.write_text(text)
+    contract.finalize(path, None, st, {'0': 1, '2': 1})
+    assert contract.embedded_mapping(path.read_text(), st) == {'0': 1, '2': 1}
 
 
 def test_lone_high_tool_map_validates():

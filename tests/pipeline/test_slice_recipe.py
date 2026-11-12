@@ -270,7 +270,8 @@ def test_remap_slot_keeps_a_bound_job_launchable_but_still_refuses_other_changes
     before = json.loads(jp.read_text())
     assert before['artifact_binding'] and before['color_decisions']
     selection = {**before['filament_selection'], 'slot': 2}
-    native = SimpleNamespace(normalize_mapping=lambda mapping, st: mapping, finalize=lambda *a: None)
+    native = SimpleNamespace(normalize_mapping=lambda mapping, st: mapping, finalize=lambda *a: None,
+                             used_tools=lambda text: {0})
     routed = SimpleNamespace(native=native)
     monkeypatch.setattr(mj, 'resolve_filament_selection', lambda st, request: selection)
     monkeypatch.setattr(mj, '_verify_routed', lambda *a, **k: None)

@@ -74,7 +74,27 @@ def normalize_mapping(mapping, state):
     # hold is coverage — every tool the file uses is mapped — and that is
     # enforced by validate_materials and finalize, which see the file's used
     # tools; this function only validates the map itself.
+    #
+    # Two tools may name one slot (a shared spool, classify_ifs_action's
+    # 'shared_spool'): each tool is still material-checked against that slot,
+    # and it does not enable infinite spool. Print Handy's own slices never
+    # produce one (two picks of one slot merge into one tool); only an
+    # operator's explicit map or remap can.
     return result
+
+
+def drop_unused_tools(text, mapping):
+    """The map without entries for tools the file never selects.
+
+    Only for maps Print Handy built itself, where an unused entry is a
+    known by-product (a support filament's tool when Orca generated no
+    support, #867); an operator's explicit map is checked, not trimmed, by
+    validate_materials. A file that selects no tool at all is left for the
+    coverage check to refuse."""
+    used = used_tools(text)
+    if not used:
+        return dict(mapping)
+    return {tool: slot for tool, slot in mapping.items() if int(tool) in used}
 
 
 def describe_mapping(mapping, state):
@@ -125,6 +145,15 @@ def validate_materials(text, material, state, mapping=None):
     mapping = normalize_mapping(mapping, state)
     if not tools or tools - set(map(int, mapping)):
         raise RuntimeError('used tools disagree with explicit mapping')
+    unused = sorted(set(map(int, mapping)) - tools)
+    if unused:
+        # An explicit map entry for a tool the file never selects would be
+        # finalized into zmod_color_data and SET_ZCOLOR, and launch would
+        # require that slot loaded and color-matched, for nothing (#1305).
+        names = ', '.join(f'T{tool}' for tool in unused)
+        used_names = ', '.join(f'T{tool}' for tool in sorted(tools))
+        raise RuntimeError(f'tool mapping names {names}, which the file never uses '
+                           f'(it uses {used_names}); map only the used tools')
 
     # Orca writes project-wide filament lists into G-code even when a derived
     # single-color plate remaps every object to T0. These unused entries are
@@ -151,8 +180,12 @@ def validate_materials(text, material, state, mapping=None):
     return mapping
 
 
-def finalize(path, colors, state=None, mapping=None):
+def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     """Idempotent color/map insertion, then MD5 of exact remaining bytes.
+
+    drop_unused=True trims map entries for tools the file never selects
+    (drop_unused_tools) before validation; only Print Handy's own slice path
+    passes it. An explicit operator map naming an unused tool is refused.
 
     Existing invalid checksums are refused, never silently repaired. Toolpaths,
     temperatures and tool commands are preserved; documented native startup
@@ -168,6 +201,8 @@ def finalize(path, colors, state=None, mapping=None):
     from .native_startup import normalize
     text = normalize(raw.decode('utf-8'))
     if mapping is not None:
+        if drop_unused:
+            mapping = drop_unused_tools(text, mapping)
         mapping = normalize_mapping(mapping, state)
         match = re.search(r'^; filament_type = (.+)$', text, re.M)
         if match is None:

@@ -312,17 +312,33 @@ silently overrides another's explicit selection.
   project's filaments (filaments 1 and 3, or filament 3 alone) emits
   exactly those tools (`T0` and `T2`, or `T2`), and a map naming just
   them is valid. What is enforced is coverage and validity, with named
-  refusals: every tool the file uses must be mapped; a mapped slot must
+  refusals: every tool the file uses must be mapped; no tool the file
+  never uses may be mapped (an explicit entry for an unused tool would
+  reach `zmod_color_data` and `SET_ZCOLOR` and make launch require that
+  slot loaded, so it is refused rather than dropped); a mapped slot must
   be a configured slot with a verified material and color; each used
   tool's sliced material must match its slot's material; an embedded map
   whose slot has since changed spools is refused until the operator
   reslices or explicitly accepts the swap. A multicolor file with no map
   at all is refused as ambiguous: Print Handy never guesses which slot
-  a tool means.
+  a tool means. Two tools may name one slot (a shared spool): each is
+  still material-checked against that slot, and it does not enable
+  infinite spool. Print Handy's own slices never produce one, since two
+  picks of one slot merge into one tool.
+  Print Handy's own slice map is the one exception to the unused-tool
+  refusal: it can name a tool Orca's output never selects (a support
+  filament's tool when no support was generated), and that entry is
+  dropped at finalization instead.
 - **A reprint or slot remap** (`/print-again`, `remap-slot`). The
   embedded map, amended by the operator's remap, is the authority; the
   file is re-finalized (new map, new checksum) before it is packaged
-  or uploaded.
+  or uploaded. The remapped tool must be one the file uses:
+  `remap-slot --tool N` refuses an unused tool, and without `--tool`
+  (and `print-now --slot S`) the file's single used tool is remapped
+  (`T2` for a plate that prints only filament 3). A file that uses more
+  than one tool is refused there by name; remap each tool with
+  `remap-slot --tool N --slot S`. Stale map entries for unused tools in
+  an older file are dropped by the remap.
 - **A dropped pre-sliced file printed as-is (yolo).** The file alone is
   the authority; Print Handy adds no map and runs no mapping checks,
   because the operator explicitly chose "as sent". ZMod's own file scan

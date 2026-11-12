@@ -232,3 +232,91 @@ def test_remap_slot_refuses_a_file_outside_a_split_jobs_binding(tmp_path):
     with pytest.raises(RuntimeError, match="no binding entry"):
         job.remap_slot(stray, 3, state=st)
     assert stray.read_bytes() == before
+
+
+# --- #1305: remap against a sparse (noncontiguous) tool map -------------------
+
+def _sparse_artifact(tools):
+    return (
+        "; HEADER_BLOCK_END\nM190 S60\nM104 S210 T0\n"
+        "START_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA\nG90\nM83\n"
+        + "".join(f"T{t}\nG1 X{10 + t} Y10 Z0.24 E1\n" for t in tools)
+        + ";LAYER_CHANGE\n;WIDTH:0.5\n;LAYER_CHANGE\n;WIDTH:0.44\nEND_PRINT\n"
+        "; nozzle_diameter = 0.4\n; first_layer_height = 0.24\n; filament_type = PLA;PLA;PLA\n"
+    )
+
+
+def _sparse_job(tmp_path, tools, mapping):
+    st = _state()
+    gcode = tmp_path / "plate_1.gcode"
+    gcode.write_text(_sparse_artifact(tools))
+    contract.finalize(gcode, None, st, mapping)
+    job_file = tmp_path / "JOB.json"
+    job_file.write_text(json.dumps({
+        "model_id": "sparse-model",
+        "gcode": str(gcode),
+        "filament_selection": {"slot": 3, "spoolman_id": 8, "color": "Black PLA", "material": "PLA"},
+    }, indent=2))
+    return st, gcode, job_file
+
+
+def test_remap_slot_lone_high_tool_remaps_that_tool(tmp_path):
+    st, gcode, _ = _sparse_job(tmp_path, [2], {"2": 3})
+    res = job.remap_slot(gcode, 1, state=st)
+    assert res["tool"] == "2"
+    assert res["mapping"] == {"2": 1}
+    text = gcode.read_text()
+    assert contract.embedded_mapping(text, st) == {"2": 1}
+    assert "; zmod_color_data = 2|#FFFFFF|PLA" in text
+    assert "; zmod_color_data = 0|" not in text
+
+
+def test_remap_slot_refuses_a_tool_the_file_does_not_use(tmp_path):
+    st, gcode, job_file = _sparse_job(tmp_path, [2], {"2": 3})
+    before, job_before = gcode.read_bytes(), job_file.read_text()
+    with pytest.raises(job.ToolRemapRefused, match=r"never uses T0 \(it uses T2\)"):
+        job.remap_slot(gcode, 1, tool="0", state=st)
+    assert gcode.read_bytes() == before and job_file.read_text() == job_before
+
+
+def test_remap_slot_without_tool_refuses_a_multi_tool_file(tmp_path):
+    st, gcode, _ = _sparse_job(tmp_path, [0, 2], {"0": 1, "2": 3})
+    before = gcode.read_bytes()
+    with pytest.raises(job.ToolRemapRefused, match=r"uses 2 tools \(T0, T2\)"):
+        job.remap_slot(gcode, 4, state=st)
+    assert gcode.read_bytes() == before
+    # Naming a used tool remaps only that tool.
+    res = job.remap_slot(gcode, 4, tool="2", state=st)
+    assert res["mapping"] == {"0": 1, "2": 4}
+    assert contract.embedded_mapping(gcode.read_text(), st) == {"0": 1, "2": 4}
+
+
+def _print_now_patches(st, mock_print_mapped):
+    return (patch.object(job.printer_state, "load", return_value=st),
+            patch.object(job, "print_mapped_native", mock_print_mapped),
+            patch.object(job, "verify_gcode"),
+            patch.object(job, "_printer_phase", return_value=("standby", "x.gcode", "Ready")),
+            patch.object(job, "mesh_readiness",
+                         return_value={"display_off": 0, "profile": "MESH_DATA", "problem": None}))
+
+
+def test_print_now_slot_remaps_the_lone_used_tool(tmp_path, capsys):
+    st, gcode, job_file = _sparse_job(tmp_path, [2], {"2": 3})
+    mock_print_mapped = MagicMock(return_value={"accepted": True, "started": True})
+    a, b, c, d, e = _print_now_patches(st, mock_print_mapped)
+    with a, b, c, d, e:
+        job.print_now(job_file, remap_slot_num=1)
+    assert mock_print_mapped.call_args[0][3] == {"2": 1}
+    assert "SLOT REMAPPED: T2 -> slot 1" in capsys.readouterr().out
+    assert json.loads(job_file.read_text())["filament_selection"]["slot"] == 1
+
+
+def test_print_now_slot_refuses_a_multi_tool_file(tmp_path):
+    st, gcode, job_file = _sparse_job(tmp_path, [0, 2], {"0": 1, "2": 3})
+    before, job_before = gcode.read_bytes(), job_file.read_text()
+    mock_print_mapped = MagicMock(return_value={"accepted": True, "started": True})
+    a, b, c, d, e = _print_now_patches(st, mock_print_mapped)
+    with a, b, c, d, e, pytest.raises(SystemExit, match=r"REFUSED: .*uses 2 tools \(T0, T2\).*Nothing uploaded"):
+        job.print_now(job_file, remap_slot_num=1)
+    assert not mock_print_mapped.called
+    assert gcode.read_bytes() == before and job_file.read_text() == job_before
