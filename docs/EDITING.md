@@ -190,6 +190,18 @@ Rules the repair keeps:
   question also stops offering Fix after 3 tries). Every request is recorded
   on the job with who asked and where (`ai_fix_attempts`). With the budget
   spent, the Fix button is gone and the reply says why.
+- **A failed fix is not offered again.** When a proposal cannot be applied
+  or built on this model (for example a geometry repair that would change
+  nothing), the rest of that intake's questions drop the Fix button and say
+  that an AI fix already failed for this job, since the same request fails
+  the same way. A fix you decline, or an AI endpoint that did not answer,
+  keeps the offer.
+- **Sloped undersides extend too.** Extend moves the underside's vertices
+  at the measured gap down to the plate. A sloped underside has no vertex
+  at its sampled gap, so extend then moves that low-clearance underside's
+  vertices from just above the plate up to the top of its measured band,
+  never a vertex of an upward-facing face, instead of reporting that it
+  moves nothing.
 - **Who can choose it.** Anyone the bot serves may ask for a fix. At the
   post-slice support gates the fix is offered on its own question ("Fix this
   for my printer", "Decide without a fix", "Cancel"); only the Print anyway

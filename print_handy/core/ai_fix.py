@@ -48,6 +48,8 @@ DECIDE_LABEL = 'Decide without a fix'
 UNCONFIGURED_NOTE = ('An AI fix is available when AI is set up: with the heavy AI tier '
                      'configured, "Fix this for my printer" can try to repair this automatically.')
 MAX_FIX_ATTEMPTS = 3  # per gate/failure question: an AI loop never runs unbounded
+FAILED_NOTE = ('An AI fix already failed for this job, so it is not offered again: '
+               'the same request would fail the same way.')
 
 # Explicit repair requests only, as the whole message (#978 review): "fix this",
 # "repair the model", "make it printable", "fix this for my printer". A message
@@ -582,6 +584,34 @@ def split_model(source_path, dest_path, axis, at_mm) -> dict:
             'volumes_mm3': [round(plane_cut.volume(*result.lower), 3),
                             round(plane_cut.volume(*result.upper), 3)],
             'output_path': str(dest_path)}
+
+
+_NOTHING_CHANGED = re.compile(r'[;,]?\s*(?:so\s+)?nothing (?:was )?changed\.?\s*$', re.IGNORECASE)
+
+
+def reason(exc) -> str:
+    """A FixError's text without its closing "nothing was changed".
+
+    Most FixErrors end by saying nothing was changed, and every message that
+    quotes one ends by saying it again; quoting the bare reason says it once.
+    """
+    return _NOTHING_CHANGED.sub('', str(exc)).rstrip() or str(exc)
+
+
+def measured_clearance_gap(report):
+    """The clearance gap (mm) a sink or extend must match on this job, or None.
+
+    The largest measured gap of the low-clearance findings: sinking by it
+    puts every flagged underside on the plate, and extend_underside finds
+    each finding by a gap inside its measured band. A supportable overhang
+    (1.0 mm or more) is not what a sink/extend repairs, so it only counts
+    when there is no low-clearance finding at all (as before).
+    """
+    report = report or {}
+    rows = [f for f in report.get('findings') or []
+            if f.get('code') == support_clearance.CODE_CLEARANCE] or report.get('regions') or []
+    gaps = [float(g) for g in ((r.get('clearance_mm') or {}).get('max') for r in rows) if g is not None]
+    return max(gaps) if gaps else None
 
 
 def apply_geometry(source_path, dest_path, geometry, *, measured_gap_mm=None) -> dict:

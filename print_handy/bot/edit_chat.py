@@ -569,7 +569,7 @@ async def _repair_flow(event, gateway, source, adapter):
         proposal = await asyncio.to_thread(ai_fix.propose_fix, problem, job, mesh=mesh)
     except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
         logger.warning('repair proposal failed: %r', exc)
-        detail = str(exc) if isinstance(exc, ai_fix.FixError) else 'the AI endpoint did not answer'
+        detail = ai_fix.reason(exc) if isinstance(exc, ai_fix.FixError) else 'the AI endpoint did not answer'
         await say(f'No AI fix could be prepared ({detail}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair proposal failed'}
     # "fix it and make it bigger": the edit half goes with the fix, or is named.
@@ -578,7 +578,8 @@ async def _repair_flow(event, gateway, source, adapter):
         ai_fix.check_file_fix(job, proposal)
         enriched = [edit_plan.enrich_plan(plan, job, source_path) for plan in proposal.plans]
     except (edit_plan.PlanError, ai_fix.FixError) as exc:
-        await say(f'The AI proposed a fix that cannot be applied ({exc}), so nothing was changed.')
+        await say(f'The AI proposed a fix that cannot be applied ({ai_fix.reason(exc)}), '
+                  'so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair plan refused'}
     fixed_path, report = None, {}
     if proposal.geometry or proposal.mesh_repair:
@@ -587,7 +588,7 @@ async def _repair_flow(event, gateway, source, adapter):
                 ai_fix.build_fixed_copy, source_path, proposal, job_path.parent)
         except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
             logger.warning('repair could not be built: %r', exc)
-            detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
+            detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
             await say(f'That fix could not be built{detail}, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair could not be built'}
     preview_failed = False
@@ -629,7 +630,7 @@ async def _repair_flow(event, gateway, source, adapter):
                 ai_fix.build_fixed_copy, source_path, proposal, job_path.parent,
                 fill_openings=False)
         except Exception as exc:  # noqa: BLE001 - nothing applied
-            detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
+            detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
             await say(f'Keeping the openings left nothing to repair{detail}; no fix applied.')
             return {'action': 'skip', 'reason': 'repair: nothing left with openings kept'}
     # The fix was built from the bytes read above; a source that changed since
@@ -659,7 +660,7 @@ async def _repair_flow(event, gateway, source, adapter):
             new_decisions = ai_fix.remapped_decisions(job, proposal.filament_map, resolver)
         except ai_fix.FixError as exc:
             ai_fix.discard_fixed_copy(fixed_path)
-            await say(f'{exc}, so nothing was changed.')
+            await say(f'{ai_fix.reason(exc)}, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair filament map refused'}
     if fixed_path is not None:
         fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
