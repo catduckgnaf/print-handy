@@ -6,7 +6,7 @@ real monitor class with a real family_control.PauseAlerts wired to
 recording posters. Before #460 "paused" was a silent active state in
 all five monitors: the pause post list was empty by construction.
 """
-from print_handy.hermes import (bambu_watch, elegoo_watch, family_control as fc,
+from print_handy.runtime import (bambu_watch, elegoo_watch, family_control as fc,
                                 octo_watch, prusa_watch, stock_watch)
 
 REMOTE = "benchy.gcode"

@@ -73,7 +73,7 @@ services:
 
 Put the token in the environment variable `[telegram] token_env` names
 (`TELEGRAM_BOT_TOKEN` by default), in the process environment or in the
-`.env` file in `paths.hermes_home`, mode 600. Never put the token in a
+`.env` file in `paths.state_home`, mode 600. Never put the token in a
 config file. Every setting can also come from the environment, for
 example `PRINT_HANDY__TELEGRAM__CHAT_ID=-1001234567890`.
 

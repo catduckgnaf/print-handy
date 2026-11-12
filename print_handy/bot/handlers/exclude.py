@@ -11,7 +11,7 @@ from .common import (
     _confirm, _control_preamble, _failure_post, _pkw, _routed_printer_id, _seen,
     _undecided_printer_ids,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -26,9 +26,9 @@ async def exclude_dispatch(event, gateway, **kwargs):
     if adapter is None:
         return {'action': 'skip', 'reason': 'exclude UI delivery unavailable'}
     from print_handy.core.exclude_object import exclude_plan, object_names
-    from print_handy.hermes import discord_print_summary as summary
-    from print_handy.hermes import exclude_chat, print_stop
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import discord_print_summary as summary
+    from print_handy.runtime import exclude_chat, print_stop
+    from print_handy.runtime import print_control as pc
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     text = str(getattr(event, 'text', '')).strip()
     target = text[len('/exclude'):].strip()

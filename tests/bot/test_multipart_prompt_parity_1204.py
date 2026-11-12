@@ -17,7 +17,7 @@ from print_handy.bot import matrix, telegram
 from print_handy.bot.adapter import StandaloneAdapter as DiscordAdapter
 from print_handy.bot.web import WebAdapter
 from print_handy.core import projects, prompts
-from print_handy.hermes import print_control, print_next
+from print_handy.runtime import print_control, print_next
 
 from .test_matrix import HOMESERVER, ROOM, HomeserverStub
 from .test_matrix import TOKEN as MX_TOKEN

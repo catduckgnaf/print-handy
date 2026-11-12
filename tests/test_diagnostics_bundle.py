@@ -123,7 +123,7 @@ class RuntimeAndPrinterLogsTests(unittest.TestCase):
 
     def _data(self, tmp, extra_toml=""):
         path = Path(tmp) / "local.toml"
-        path.write_text(f'[paths]\nhermes_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
+        path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
                         + extra_toml)
         return settings.load(local=path, environ={})
 

@@ -6,7 +6,7 @@ loads the same handlers for one release.
 import asyncio
 
 from .common import _confirm, _control_preamble
-from ...hermes import _config
+from ...runtime import _config
 
 
 async def plate_calibrate_dispatch(event, gateway, **kwargs):
@@ -16,7 +16,7 @@ async def plate_calibrate_dispatch(event, gateway, **kwargs):
     only the operator's "Make this my empty plate" answer promotes it
     to the live reference — Retake (or no answer) discards the staged
     frame and the previous reference keeps judging. The calibration
-    logic lives in print_handy.hermes.local_empty so a Web UI surface
+    logic lives in print_handy.runtime.local_empty so a Web UI surface
     can drive the same flow later; this command is the v1 surface.
     Nothing here moves the printer or starts a print.
     """
@@ -25,7 +25,7 @@ async def plate_calibrate_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'plate calibration UI delivery unavailable'}
-    from print_handy.hermes import local_empty
+    from print_handy.runtime import local_empty
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     cfg = _config.cfg()
     args = str(getattr(event, 'text', '')).strip()[len('/print-plate-calibrate'):].split()

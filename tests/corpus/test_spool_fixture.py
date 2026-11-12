@@ -28,7 +28,7 @@ def test_four_color_journey_slices_from_built_state(tmp_path):
 
 
 def test_bind_slot_during_spoolman_503_changes_nothing_then_succeeds(tmp_path):
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     path, spoolman = spool_fixture.build_state(tmp_path, harness.FIXTURE_STATE, spools=spool_fixture.SPOOLS[:1])
     before = path.read_text()
     spoolman.fail_first = 1

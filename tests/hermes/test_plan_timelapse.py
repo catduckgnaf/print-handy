@@ -1,10 +1,10 @@
 """Issue #41: one combined timelapse per multi-plate plan, posted after the last plate or on cancel."""
 import pytest
 
-from print_handy.hermes import _config
-from print_handy.hermes import moonraker_discord_announcements as announcer
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import plan_timelapse
+from print_handy.runtime import _config
+from print_handy.runtime import moonraker_discord_announcements as announcer
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import plan_timelapse
 
 
 def plan(*states):

@@ -293,7 +293,7 @@ def _display_tz(data):
         except (ZoneInfoNotFoundError, ValueError):
             pass
     try:
-        from ..hermes import _config
+        from ..runtime import _config
         return _config.tz()
     except Exception:
         from datetime import timezone

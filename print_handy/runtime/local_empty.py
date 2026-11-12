@@ -36,7 +36,7 @@ confirmed), :func:`confirm_calibration` promotes it,
 :func:`discard_calibration` drops it — so the bot command in
 ``plugins/print-feedback`` and a future Web UI page call the same
 routines. Storage sits with the install's state, alongside the detector
-model directory (``<hermes_home>/models/``).
+model directory (``<state_home>/models/``).
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def reference_dir(cfg=None) -> Path:
     """Where the reference lives: the models directory under the Hermes
     home, alongside the detector weights (the install's state)."""
     cfg = _config.cfg() if cfg is None else cfg
-    home = Path(os.path.expanduser(str(cfg["paths"]["hermes_home"])))
+    home = Path(os.path.expanduser(str(cfg["paths"]["state_home"])))
     return home / "models"
 
 

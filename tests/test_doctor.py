@@ -57,7 +57,7 @@ class DoctorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "local.toml"
             path.write_text('[bot]\nmode = "standalone"\n[discord]\nchat_id = "123"\n' + local_toml)
-            data = settings.load(local=path, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(self.profile)})
+            data = settings.load(local=path, environ={"PRINT_HANDY__PATHS__STATE_HOME": str(self.profile)})
         state = settings.state_dir(data)
         state.mkdir(parents=True, exist_ok=True)
         if hardware is not False:

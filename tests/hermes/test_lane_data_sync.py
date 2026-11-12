@@ -13,9 +13,9 @@ import copy
 import json
 from unittest import mock
 
-from print_handy.hermes import lane_data_sync
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import spool_sync
+from print_handy.runtime import lane_data_sync
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import spool_sync
 
 PID = "ad5x"
 

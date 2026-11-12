@@ -24,18 +24,18 @@ import subprocess
 import sys
 
 WATCH_MODULES = {
-    "octo": "print_handy.hermes.octo_watch",
-    "bambu": "print_handy.hermes.bambu_watch",
-    "elegoo": "print_handy.hermes.elegoo_watch",
-    "prusa": "print_handy.hermes.prusa_watch",
-    "stock": "print_handy.hermes.stock_watch",
+    "octo": "print_handy.runtime.octo_watch",
+    "bambu": "print_handy.runtime.bambu_watch",
+    "elegoo": "print_handy.runtime.elegoo_watch",
+    "prusa": "print_handy.runtime.prusa_watch",
+    "stock": "print_handy.runtime.stock_watch",
 }
 
 LOG_NAME = "monitor_worker.log"
 
 
 def watch_key(watch_module_name):
-    """'print_handy.hermes.stock_watch' -> 'stock'."""
+    """'print_handy.runtime.stock_watch' -> 'stock'."""
     short = watch_module_name.rsplit(".", 1)[-1]
     return short[:-len("_watch")] if short.endswith("_watch") else short
 
@@ -59,7 +59,7 @@ def spawn(watch_module_name, filename, printer_id=None, *, popen=None):
     stdio redirected): print-now exits immediately, and the worker —
     holding no inherited pipe — cannot keep the caller's stdout open.
     """
-    argv = [sys.executable, "-m", "print_handy.hermes.monitor_worker",
+    argv = [sys.executable, "-m", "print_handy.runtime.monitor_worker",
             "--watch", watch_key(watch_module_name), "--filename", str(filename)]
     if printer_id:
         argv += ["--printer", str(printer_id)]
@@ -121,7 +121,7 @@ def main(argv=None):
     from print_handy.core import resources
 
     resources.apply_to_environment()  # before numpy/onnxruntime load: pools follow the CPU quota
-    parser = argparse.ArgumentParser(prog="print_handy.hermes.monitor_worker")
+    parser = argparse.ArgumentParser(prog="print_handy.runtime.monitor_worker")
     parser.add_argument("--watch", choices=sorted(WATCH_MODULES), required=True)
     parser.add_argument("--filename", required=True)
     parser.add_argument("--printer", default=None)

@@ -3,7 +3,7 @@ confirmation to print-now."""
 import asyncio
 import json
 
-from print_handy.hermes import print_next, spool_sync
+from print_handy.runtime import print_next, spool_sync
 
 
 def _spool(sid, name, material="PLA"):

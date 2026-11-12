@@ -26,7 +26,7 @@ import subprocess
 import pytest
 
 from print_handy.core import print_stats
-from print_handy.hermes import print_records as records
+from print_handy.runtime import print_records as records
 
 SPOOL = {"vendor": "Generic", "material": "PLA", "color": "Black",
          "spool_id": 3, "id": 3}

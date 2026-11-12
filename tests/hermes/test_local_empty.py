@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from print_handy.hermes import local_empty as le
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import local_empty as le
+from print_handy.runtime import visual_watch as vw
 
 
 def jpeg(draw_fn, size=(320, 240)):
@@ -58,11 +58,11 @@ PART_SMALL_LIGHT = scene(part=(150, 120, 176, 142, (238, 236, 230)))
 
 @pytest.fixture()
 def cfg(tmp_path, monkeypatch):
-    data = {"paths": {"hermes_home": str(tmp_path)},
+    data = {"paths": {"state_home": str(tmp_path)},
             "vision": {"local_empty_enabled": True, "watch_source": "local"}}
     # visual_watch's vision_ready reads the process-global config, so
     # the calibrated fixture config must be the global one too.
-    from print_handy.hermes import _config as _hc
+    from print_handy.runtime import _config as _hc
     monkeypatch.setattr(_hc, "cfg", lambda: data)
     return data
 
@@ -250,7 +250,7 @@ def test_visual_verdict_idle_endpoint_answer_wins(cfg, monkeypatch):
     # Since #1169 the detector never downloads its model inside a check:
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
-    from print_handy.hermes import local_vision
+    from print_handy.runtime import local_vision
     assert local_vision.prefetch_model(cfg, wait=True)
     monkeypatch.setattr(vw, "_vision_answer",
                         lambda *a, **k: {"verdict": "ok", "reason": "part there"})
@@ -270,7 +270,7 @@ def test_visual_verdict_idle_part_present_falls_through_to_detector(
     # Since #1169 the detector never downloads its model inside a check:
     # the background prefetch must have landed first, as it does in
     # production once the watch reports ready.
-    from print_handy.hermes import local_vision
+    from print_handy.runtime import local_vision
     assert local_vision.prefetch_model(cfg, wait=True)
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("ok", "detector: no failure"))

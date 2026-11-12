@@ -23,7 +23,7 @@ import json
 import os
 import urllib.request
 
-from ..hermes import _config
+from ..runtime import _config
 
 SESSION_HEADER = "X-Print-Handy-Session"
 

@@ -11,8 +11,8 @@ from corpus import fake_discord
 from print_handy.bot import llm, runtime
 from print_handy.bot.adapter import parse_custom_id
 from print_handy.core import prompts
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import print_control, print_next, print_stop
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import print_control, print_next, print_stop
 
 LLM_URL = "http://llm.test/v1/chat/completions"
 
@@ -265,8 +265,8 @@ def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
 def test_llm_naming_a_write_command_runs_nothing(llm_cfg):
     opener = FakeLLM("Syncing the screens now!", "/spool sync")
     discord, core = make(llm_cfg, opener)
-    with mock.patch("print_handy.hermes.spool_sync.sync_all_screens") as sync, \
-            mock.patch("print_handy.hermes.spool_sync.bind_slot") as bind:
+    with mock.patch("print_handy.runtime.spool_sync.sync_all_screens") as sync, \
+            mock.patch("print_handy.runtime.spool_sync.bind_slot") as bind:
         out = asyncio.run(core.handle_message(discord.message("sync the spools on the screen")))
     sync.assert_not_called()
     bind.assert_not_called()
@@ -279,7 +279,7 @@ def test_llm_gcode_or_prose_is_only_text(llm_cfg):
     opener = FakeLLM(None, raw="Sure! Send M112 and G28 to the printer.")
     discord, core = make(llm_cfg, opener)
     with mock.patch("urllib.request.urlopen", side_effect=AssertionError("no other network")), \
-            mock.patch("print_handy.hermes.print_next.start") as start:
+            mock.patch("print_handy.runtime.print_next.start") as start:
         out = asyncio.run(core.handle_message(discord.message("home the printer")))
     start.assert_not_called()
     assert out["reason"] == "llm reply" and discord.sent == ["Sure! Send M112 and G28 to the printer."]
@@ -296,7 +296,7 @@ def test_llm_failure_falls_back_to_the_unmatched_reply(llm_cfg):
 def test_llm_is_never_asked_about_commands_or_links(llm_cfg):
     opener = FakeLLM("should not be asked")
     discord, core = make(llm_cfg, opener)
-    with mock.patch("print_handy.hermes.spool_sync.list_text", return_value="spools"):
+    with mock.patch("print_handy.runtime.spool_sync.list_text", return_value="spools"):
         asyncio.run(core.handle_message(discord.message("/spool list")))
     assert opener.requests == [] and discord.sent == ["spools"]
 

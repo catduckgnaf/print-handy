@@ -82,7 +82,7 @@ services:
 
 Put the access token in the environment variable `[matrix]
 access_token_env` names (`MATRIX_ACCESS_TOKEN` by default), in the
-process environment or in the `.env` file in `paths.hermes_home`, mode
+process environment or in the `.env` file in `paths.state_home`, mode
 600. Never put the token in a config file. Every setting can also come
 from the environment, for example
 `PRINT_HANDY__MATRIX__ROOM_ID='!abcd1234:matrix.org'`.

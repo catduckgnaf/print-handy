@@ -25,7 +25,7 @@ def _settings(tmp, environ=None):
     local = Path(tmp) / "local.yaml"
     local.write_text(
         "paths:\n"
-        f"  hermes_home: {tmp}/hermes\n"
+        f"  state_home: {tmp}/hermes\n"
         f"  cache: {tmp}/cache\n"
         f"  archive: {tmp}/archive\n"
         f"  records_vault: {tmp}/vault\n"

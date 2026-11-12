@@ -67,7 +67,7 @@ def edit_env(tmp_path, monkeypatch, request):
     (root / "r1.json").write_text(json.dumps(
         {"chat_id": "c", "thread_id": None, "job_json": str(job_path), "status": "SLICED"}))
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     cfg = {"agent": {}, "design": {}, "llm": {}, "discord": {"question_timeout_s": 5},
            "paths": {"cache": tmp_path / "cache"}}
     previous = _config.cfg()

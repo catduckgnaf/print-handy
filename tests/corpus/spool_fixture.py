@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 SPOOLS = (  # slot, brand, material, color, grams (the text /spool new accepts)
     (1, "Corpus", "PLA", "White", 1000),

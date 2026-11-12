@@ -291,7 +291,7 @@ def test_stock_print_starts_the_timelapse_monitor_on_a_confirmed_start(monkeypat
     Since P1-85 it starts in the detached monitor worker, not on a thread
     in the print-now process; the print path's contract is that it asks
     the worker for a monitor naming the started file."""
-    from print_handy.hermes import monitor_worker
+    from print_handy.runtime import monitor_worker
 
     started = []
     monkeypatch.setattr(monitor_worker, "spawn",
@@ -303,7 +303,7 @@ def test_stock_print_starts_the_timelapse_monitor_on_a_confirmed_start(monkeypat
 
 
 def test_stock_print_starts_no_monitor_when_the_start_is_unconfirmed(monkeypatch, tmp_path):
-    from print_handy.hermes import monitor_worker
+    from print_handy.runtime import monitor_worker
 
     started = []
     monkeypatch.setattr(monitor_worker, "spawn",

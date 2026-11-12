@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import moonraker_event_listener as mel
 
 LIVE = ("Nozzle hit bed or part detachment. Weight 1512>1500.0. Z=10. FIRMWARE_RESTART. "
         "https://wiki.zmod.link/Global/#nozzle_control\nOnce the underlying issue is corrected, use the\n")
@@ -58,9 +58,9 @@ def test_mute_store_survives_alert_recording(tmp_path):
 
 def test_mute_click_records_without_touching_the_printer(tmp_path):
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
-         patch("print_handy.hermes.print_control.status",
+         patch("print_handy.runtime.print_control.status",
                side_effect=AssertionError("printer read for a mute")), \
-         patch("print_handy.hermes.print_stop._lan_adapter",
+         patch("print_handy.runtime.print_stop._lan_adapter",
                side_effect=AssertionError("printer read for a mute")):
         out = pab.handle_click("mute", {"kind": "visual", "filename": "f.gcode", "identity": "job:9"})
         assert pab.visual_muted("f.gcode", "job:9")
@@ -268,16 +268,16 @@ def test_visual_acknowledgement_never_contacts_printer():
 
 
 def test_visual_pause_requires_current_matching_print():
-    with patch("print_handy.hermes.print_control.status", return_value={"klippy": "ready", "state": "printing", "filename": "other.gcode"}), \
-         patch("print_handy.hermes.print_control._call") as call:
+    with patch("print_handy.runtime.print_control.status", return_value={"klippy": "ready", "state": "printing", "filename": "other.gcode"}), \
+         patch("print_handy.runtime.print_control._call") as call:
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"})
     call.assert_not_called()
     assert "different print" in out
 
     seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
                 {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
-    with patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-         patch("print_handy.hermes.print_control._call") as call:
+    with patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.runtime.print_control._call") as call:
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"},
                                pause_wait_s=2, pause_poll_s=0.01)
     assert out.startswith("Paused.")
@@ -300,9 +300,9 @@ def test_visual_pause_stays_printing_says_did_not_pause_and_records_a_fresh_aler
     alert = {"kind": "visual", "filename": "f.gcode", "identity": "job:7"}
     ready = {"klippy": "ready", "state": "printing", "filename": "f.gcode"}
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", return_value=ready), \
-         patch("print_handy.hermes.print_control._call") as call, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_control.status", return_value=ready), \
+         patch("print_handy.runtime.print_control._call") as call, \
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.03, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
@@ -318,10 +318,10 @@ def test_visual_pause_post_failure_returns_a_string_and_records_a_fresh_alert(tm
     alert = {"kind": "visual", "filename": "f.gcode"}
     ready = {"klippy": "ready", "state": "printing", "filename": "f.gcode"}
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", return_value=ready), \
-         patch("print_handy.hermes.print_control._call",
+         patch("print_handy.runtime.print_control.status", return_value=ready), \
+         patch("print_handy.runtime.print_control._call",
                side_effect=urllib.error.URLError("refused")), \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.03, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     assert isinstance(out, str) and "not confirmed" in out and "did not pause" in out
@@ -338,9 +338,9 @@ def test_visual_pause_print_completes_during_confirmation_reports_actual_state(t
     seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
                 {"klippy": "ready", "state": "complete", "filename": "f.gcode"}])
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-         patch("print_handy.hermes.print_control._call") as call, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.runtime.print_control._call") as call, \
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
@@ -359,10 +359,10 @@ def test_visual_pause_unreadable_during_confirmation_reports_unknown_not_still_p
     seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"}]
                + [{"klippy": "unknown", "state": "unknown", "filename": ""}] * 10)
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-         patch("print_handy.hermes.print_control._call"), \
+         patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.runtime.print_control._call"), \
          patch.object(pab, "_repost_alert", wraps=pab._repost_alert) as repost, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.05, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     assert "could not be confirmed" in out or "unknown" in out
@@ -381,10 +381,10 @@ def test_visual_pause_post_failure_but_readback_paused_reports_paused(tmp_path):
     seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
                 {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-         patch("print_handy.hermes.print_control._call",
+         patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.runtime.print_control._call",
                side_effect=urllib.error.URLError("response lost")) as call, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
@@ -408,11 +408,11 @@ def test_visual_pause_post_failure_and_unreadable_reports_unknown_outcome(tmp_pa
             raise RuntimeError("printer unreachable")
 
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status", side_effect=status), \
-         patch("print_handy.hermes.print_control._call",
+         patch("print_handy.runtime.print_control.status", side_effect=status), \
+         patch("print_handy.runtime.print_control._call",
                side_effect=urllib.error.URLError("response lost")) as call, \
          patch.object(pab, "_repost_alert", wraps=pab._repost_alert) as repost, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert, pause_wait_s=0.05, pause_poll_s=0.01)
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
@@ -423,10 +423,10 @@ def test_visual_pause_post_failure_and_unreadable_reports_unknown_outcome(tmp_pa
 
 def test_visual_pause_controller_not_ready_sends_nothing():
     alert = {"kind": "visual", "filename": "f.gcode"}
-    with patch("print_handy.hermes.print_control.status",
+    with patch("print_handy.runtime.print_control.status",
                return_value={"klippy": "shutdown", "state": "printing", "filename": "f.gcode"}), \
-         patch("print_handy.hermes.print_control._call") as call, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_control._call") as call, \
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert)
     call.assert_not_called()
     assert "controller is shutdown" in out and "Nothing sent" in out
@@ -434,10 +434,10 @@ def test_visual_pause_controller_not_ready_sends_nothing():
 
 def test_visual_pause_when_already_paused_sends_nothing():
     alert = {"kind": "visual", "filename": "f.gcode"}
-    with patch("print_handy.hermes.print_control.status",
+    with patch("print_handy.runtime.print_control.status",
                return_value={"klippy": "ready", "state": "paused", "filename": "f.gcode"}), \
-         patch("print_handy.hermes.print_control._call") as call, \
-         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+         patch("print_handy.runtime.print_control._call") as call, \
+         patch("print_handy.runtime.print_stop._lan_adapter", return_value=None):
         out = pab.handle_click("pause", alert)
     call.assert_not_called()
     assert "Nothing to pause" in out and "Nothing sent" in out
@@ -451,9 +451,9 @@ def test_resume_still_paused_reposts_the_paused_alert(tmp_path):
     msg = ("Resume sent, but the printer still reports paused after 20s. "
            "Check the printer screen. Not retrying.")
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
-         patch("print_handy.hermes.print_control.status",
+         patch("print_handy.runtime.print_control.status",
                return_value={"klippy": "ready", "state": "paused", "filename": "f.gcode"}), \
-         patch("print_handy.hermes.print_control.resume", return_value=(False, msg)):
+         patch("print_handy.runtime.print_control.resume", return_value=(False, msg)):
         out = pab.handle_click("resume", {"kind": "paused", "filename": "f.gcode"})
         rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "paused"]
     assert out == msg
@@ -462,9 +462,9 @@ def test_resume_still_paused_reposts_the_paused_alert(tmp_path):
 
 def test_resume_success_records_no_fresh_alert(tmp_path):
     with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
-         patch("print_handy.hermes.print_control.status",
+         patch("print_handy.runtime.print_control.status",
                return_value={"klippy": "ready", "state": "paused", "filename": "f.gcode"}), \
-         patch("print_handy.hermes.print_control.resume", return_value=(True, "Resumed.")):
+         patch("print_handy.runtime.print_control.resume", return_value=(True, "Resumed.")):
         out = pab.handle_click("resume", {"kind": "paused", "filename": "f.gcode"})
         load_after = pab._load()
     assert out == "Resumed."
@@ -476,9 +476,9 @@ def test_cancel_after_shutdown_refuses_instead_of_restarting():
     clear_shutdown (FIRMWARE_RESTART) as a side effect; it refuses and
     points at /print-reboot. clear_shutdown itself is unchanged."""
     st = {"klippy": "shutdown", "state": "paused", "filename": "f.gcode"}
-    with patch("print_handy.hermes.print_control.status", return_value=st), \
+    with patch("print_handy.runtime.print_control.status", return_value=st), \
          patch.object(pab, "clear_shutdown") as clr, \
-         patch("print_handy.hermes.print_stop.cancel") as cancel:
+         patch("print_handy.runtime.print_stop.cancel") as cancel:
         out = pab.handle_click("cancel", {"filename": "f.gcode"})
     clr.assert_not_called(); cancel.assert_not_called()
     assert "/print-reboot" in out
@@ -486,18 +486,18 @@ def test_cancel_after_shutdown_refuses_instead_of_restarting():
 
 def test_cancel_paused_ready_cancels_same_file_only():
     st = {"klippy": "ready", "state": "paused", "filename": "other.gcode"}
-    with patch("print_handy.hermes.print_control.status", return_value=st), patch("print_handy.hermes.print_stop.cancel") as cancel:
+    with patch("print_handy.runtime.print_control.status", return_value=st), patch("print_handy.runtime.print_stop.cancel") as cancel:
         out = pab.handle_click("cancel", {"filename": "f.gcode"})
     cancel.assert_not_called(); assert "different print" in out
     st["filename"] = "f.gcode"
-    with patch("print_handy.hermes.print_control.status", return_value=st), patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+    with patch("print_handy.runtime.print_control.status", return_value=st), patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         assert pab.handle_click("cancel", {"filename": "f.gcode"}) == "Stopped."
     cancel.assert_called_once_with("f.gcode")
 
 
 def test_resume_after_shutdown_refuses_without_restart():
-    with patch("print_handy.hermes.print_control.status", return_value={"klippy": "shutdown", "state": "paused", "filename": "f"}), \
-         patch("print_handy.hermes.print_control._call") as call, patch.object(pab, "clear_shutdown") as clr:
+    with patch("print_handy.runtime.print_control.status", return_value={"klippy": "shutdown", "state": "paused", "filename": "f"}), \
+         patch("print_handy.runtime.print_control._call") as call, patch.object(pab, "clear_shutdown") as clr:
         out = pab.handle_click("resume", {"filename": "f"})
     call.assert_not_called(); clr.assert_not_called()
     assert "Nothing sent" in out
@@ -620,8 +620,8 @@ def test_family_alert_clicks_route_to_family_control_never_moonraker():
     from unittest.mock import Mock
     control = _FakeFamilyControl()
     alert = {"kind": "paused", "filename": "f.gcode", "connection": "prusalink"}
-    with patch("print_handy.hermes.family_control.control_for", return_value=control) as resolve, \
-         patch("print_handy.hermes.print_control.status", Mock(side_effect=AssertionError("Moonraker path taken"))):
+    with patch("print_handy.runtime.family_control.control_for", return_value=control) as resolve, \
+         patch("print_handy.runtime.print_control.status", Mock(side_effect=AssertionError("Moonraker path taken"))):
         assert pab.handle_click("resume", alert).startswith("Resumed.")
         assert pab.handle_click("cancel", alert).startswith("Stopped.")
     assert control.calls == [("resume", "f.gcode"), ("cancel", "f.gcode")]
@@ -630,13 +630,13 @@ def test_family_alert_clicks_route_to_family_control_never_moonraker():
 
 def test_family_alert_click_refuses_when_the_printer_is_not_controllable():
     alert = {"kind": "paused", "filename": "f.gcode", "connection": "prusalink"}
-    with patch("print_handy.hermes.family_control.control_for", return_value=None):
+    with patch("print_handy.runtime.family_control.control_for", return_value=None):
         out = pab.handle_click("resume", alert)
     assert "can't control" in out and "Nothing sent" in out
 
     wrong = _FakeFamilyControl()
     wrong.connection = "octoprint"
-    with patch("print_handy.hermes.family_control.control_for", return_value=wrong):
+    with patch("print_handy.runtime.family_control.control_for", return_value=wrong):
         out = pab.handle_click("cancel", alert)
     assert "Nothing sent" in out and wrong.calls == []
 
@@ -666,7 +666,7 @@ def test_family_alert_record_carries_its_connection(tmp_path):
 
 
 def test_insertion_options_name_the_material_once():
-    from print_handy.hermes import print_alert_buttons as pab_
+    from print_handy.runtime import print_alert_buttons as pab_
     spools = [{"id": 21, "remaining_weight": 800,
                "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     label = pab_.insertion_select_options(spools)[0]["label"]
@@ -711,7 +711,7 @@ def test_plate_picker_maps_long_part_ids_instead_of_truncating(tmp_path):
 
 def _insertion_sync(*, slot_prior=7, bind_error=None):
     """A fake spool_sync for the insertion create+bind path (P2-204)."""
-    from print_handy.hermes import spool_sync as real_sync
+    from print_handy.runtime import spool_sync as real_sync
 
     class Sync:
         SpoolError = real_sync.SpoolError
@@ -743,7 +743,7 @@ def _insertion_sync(*, slot_prior=7, bind_error=None):
 def test_stale_confirmation_creates_nothing():
     """The expected prior spool is re-checked against the slot's live
     mapping BEFORE the new spool is created (P2-204)."""
-    from print_handy.hermes import spool_sync as real_sync
+    from print_handy.runtime import spool_sync as real_sync
     Sync = _insertion_sync(slot_prior=9)
     with pytest.raises(real_sync.SpoolError) as excinfo:
         pab.create_and_bind_insertion(2, {"material": "PLA", "color": "Black", "grams": "1000"},
@@ -756,7 +756,7 @@ def test_bind_failure_reports_the_created_spool():
     """When the bind refuses after creation, the error names the created
     spool and that it stays on the shelf — never a bare failure that makes
     a retry create a duplicate (P2-204)."""
-    from print_handy.hermes import spool_sync as real_sync
+    from print_handy.runtime import spool_sync as real_sync
     Sync = _insertion_sync(bind_error=real_sync.SpoolError("spool #42 is archived"))
     with pytest.raises(real_sync.SpoolError) as excinfo:
         pab.create_and_bind_insertion(2, {"material": "PLA", "color": "Black", "grams": "1000"},
@@ -802,7 +802,7 @@ def test_retire_alerts_legacy_unscoped_alert_retires_for_the_default_printer_onl
 
 def test_resume_click_with_empty_head_reposts_paused_alert():
     """2026-11-04: a Resume tap while the head sensor reads empty sends nothing and keeps the buttons."""
-    from print_handy.hermes import print_alert_buttons as pab, print_control as pc
+    from print_handy.runtime import print_alert_buttons as pab, print_control as pc
     alert = {"filename": "foo.gcode"}
     with patch.object(pc, "status", return_value={"state": "paused", "klippy": "ready", "filename": "foo.gcode"}), \
          patch.object(pc, "resume", return_value=(False, pc.HEAD_EMPTY_TEXT)), \
@@ -829,9 +829,9 @@ def test_recover_restarts_then_cancels_loaded_job():
         order.append("restart"); return True, "Cleared the emergency stop."
     def cancel(name, **k):
         order.append(("cancel", name)); return True, "Stopped."
-    with patch("print_handy.hermes.print_control.status", side_effect=lambda **k: next(sts)), \
+    with patch("print_handy.runtime.print_control.status", side_effect=lambda **k: next(sts)), \
          patch.object(pab, "clear_shutdown", side_effect=clear), \
-         patch("print_handy.hermes.print_stop.cancel", side_effect=cancel):
+         patch("print_handy.runtime.print_stop.cancel", side_effect=cancel):
         out = pab.handle_click("recover", {"kind": "shutdown", "filename": "f.gcode"})
     assert order == ["restart", ("cancel", "f.gcode")]
     assert "Cleared the emergency stop." in out and "Stopped." in out and pab.MAINTENANCE_FOLLOW_UP in out
@@ -841,8 +841,8 @@ def test_recover_withholds_clearance_when_cancel_does_not_end_the_job():
     """A cancel that leaves the job printing or paused must not claim the print is cleared."""
     sts = iter([{"klippy": "ready", "state": "paused", "filename": "f.gcode"},
                 {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
-    with patch("print_handy.hermes.print_control.status", side_effect=lambda **k: next(sts)), \
-         patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Cancel sent, but the printer still reports paused after 20s.")):
+    with patch("print_handy.runtime.print_control.status", side_effect=lambda **k: next(sts)), \
+         patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Cancel sent, but the printer still reports paused after 20s.")):
         out = pab.recover_from_stop("f.gcode")
     assert "still reports paused" in out
     assert pab.MAINTENANCE_FOLLOW_UP not in out
@@ -850,8 +850,8 @@ def test_recover_withholds_clearance_when_cancel_does_not_end_the_job():
 
 def test_recover_withholds_clearance_when_a_different_file_is_loaded():
     sts = [{"klippy": "ready", "state": "printing", "filename": "other.gcode"}]
-    with patch("print_handy.hermes.print_control.status", side_effect=lambda **k: sts[0]), \
-         patch("print_handy.hermes.print_stop.cancel") as cancel:
+    with patch("print_handy.runtime.print_control.status", side_effect=lambda **k: sts[0]), \
+         patch("print_handy.runtime.print_stop.cancel") as cancel:
         out = pab.recover_from_stop("f.gcode")
     cancel.assert_not_called()
     assert "Not cancelling it" in out
@@ -865,17 +865,17 @@ def test_recover_withholds_clearance_when_the_outcome_cannot_be_read():
         if row is None:
             raise OSError("status unread")
         return row
-    with patch("print_handy.hermes.print_control.status", side_effect=status), \
-         patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped. Printer now reports cancelled.")):
+    with patch("print_handy.runtime.print_control.status", side_effect=status), \
+         patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped. Printer now reports cancelled.")):
         out = pab.recover_from_stop("f.gcode")
     assert "Stopped." in out
     assert pab.MAINTENANCE_FOLLOW_UP not in out
 
 
 def test_recover_does_not_cancel_when_restart_fails():
-    with patch("print_handy.hermes.print_control.status", return_value={"klippy": "shutdown", "state": "paused", "filename": "f.gcode"}), \
+    with patch("print_handy.runtime.print_control.status", return_value={"klippy": "shutdown", "state": "paused", "filename": "f.gcode"}), \
          patch.object(pab, "clear_shutdown", return_value=(False, "not ready")), \
-         patch("print_handy.hermes.print_stop.cancel") as cancel:
+         patch("print_handy.runtime.print_stop.cancel") as cancel:
         out = pab.handle_click("recover", {"kind": "shutdown", "filename": "f.gcode"})
     cancel.assert_not_called(); assert out == "not ready"
 
@@ -930,11 +930,11 @@ def test_buttons_act_on_the_alerts_printer(action):
     printing = {"klippy": "ready", "state": "printing" if action == "pause" else "paused", "filename": "f.gcode"}
     roster, default = _roster(TWO_PRINTERS)
     with roster, default, \
-            patch("print_handy.hermes.print_stop._lan_adapter", return_value=None) as lan, \
-            patch("print_handy.hermes.print_control.status", return_value=printing) as status, \
-            patch("print_handy.hermes.print_control._send") as send, \
-            patch("print_handy.hermes.print_control.resume", return_value=(True, "Resumed.")) as resume, \
-            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel, \
+            patch("print_handy.runtime.print_stop._lan_adapter", return_value=None) as lan, \
+            patch("print_handy.runtime.print_control.status", return_value=printing) as status, \
+            patch("print_handy.runtime.print_control._send") as send, \
+            patch("print_handy.runtime.print_control.resume", return_value=(True, "Resumed.")) as resume, \
+            patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel, \
             patch.object(pab, "recover_from_stop", return_value="Recovered.") as recover:
         pab.handle_click(action, alert, pause_wait_s=0.05, pause_poll_s=0.01)
     if action == "pause":
@@ -955,9 +955,9 @@ def test_buttons_act_on_the_alerts_printer(action):
 def test_an_old_alert_without_a_printer_is_refused_when_several_are_configured(action):
     kind = {"pause": "visual", "recover": "shutdown"}.get(action, "paused")
     roster, default = _roster(TWO_PRINTERS)
-    with roster, default, patch("print_handy.hermes.print_control.status") as status, \
-            patch("print_handy.hermes.print_stop.cancel") as cancel, \
-            patch("print_handy.hermes.print_control.resume") as resume:
+    with roster, default, patch("print_handy.runtime.print_control.status") as status, \
+            patch("print_handy.runtime.print_stop.cancel") as cancel, \
+            patch("print_handy.runtime.print_control.resume") as resume:
         out = pab.handle_click(action, {"kind": kind, "filename": "f.gcode"})
     assert out == pab.ALERT_PRINTER_UNKNOWN
     status.assert_not_called(); cancel.assert_not_called(); resume.assert_not_called()
@@ -966,8 +966,8 @@ def test_an_old_alert_without_a_printer_is_refused_when_several_are_configured(a
 def test_an_old_alert_without_a_printer_keeps_working_with_one_printer():
     st = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
     roster, default = _roster([{"id": "printer-a"}])
-    with roster, default, patch("print_handy.hermes.print_control.status", return_value=st), \
-            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+    with roster, default, patch("print_handy.runtime.print_control.status", return_value=st), \
+            patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         assert pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode"}) == "Stopped."
     cancel.assert_called_once_with("f.gcode")
 
@@ -975,8 +975,8 @@ def test_an_old_alert_without_a_printer_keeps_working_with_one_printer():
 def test_the_default_printers_alert_keeps_the_configured_printer_call_shape():
     st = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
     roster, default = _roster(TWO_PRINTERS)
-    with roster, default, patch("print_handy.hermes.print_control.status", return_value=st), \
-            patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+    with roster, default, patch("print_handy.runtime.print_control.status", return_value=st), \
+            patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode", "printer_id": "printer-a"})
     cancel.assert_called_once_with("f.gcode")
 

@@ -79,7 +79,7 @@ def alert_printers(cfg):
 
 
 def _moonraker_for(cfg, printer_id):
-    from ..hermes import spool_sync
+    from ..runtime import spool_sync
     default = settings.default_printer_id(cfg)
     return spool_sync.moonraker_for(None if printer_id == default else printer_id)
 

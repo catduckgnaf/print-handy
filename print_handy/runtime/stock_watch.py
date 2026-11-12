@@ -8,7 +8,7 @@ monitor for a print Print Handy itself launched. It polls the adapter's
 normalised /detail status, and:
 
 - on the first active poll it opens one shared timelapse capture session
-  (#246's print_handy.hermes.timelapse_capture) fed by the camera source
+  (#246's print_handy.runtime.timelapse_capture) fed by the camera source
   the printer itself advertises in /detail (printers.flashforge_stock.
   camera — the AD5X has no built-in camera, so an empty cameraStreamUrl
   simply means no capture for this print, logged once);
@@ -28,7 +28,7 @@ re-open the session and never post twice: the capture attempt and the
 terminal post each happen at most once per monitor.
 
 The monitor runs on a daemon thread inside the detached monitor
-worker (print_handy.hermes.monitor_worker) the print path starts for
+worker (print_handy.runtime.monitor_worker) the print path starts for
 the launch — print-now itself is a short-lived subprocess, so a monitor
 started there died with the submission (P1-85). The monitor keeps its
 capture state in the session manifest on disk, but the monitor itself

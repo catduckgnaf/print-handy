@@ -36,8 +36,8 @@ import time
 
 import pytest
 
-from print_handy.hermes import moonraker_discord_announcements as watcher
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_discord_announcements as watcher
+from print_handy.runtime import moonraker_event_listener as mel
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")

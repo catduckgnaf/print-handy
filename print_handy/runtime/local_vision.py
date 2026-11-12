@@ -152,7 +152,7 @@ def model_path(cfg=None) -> Path:
     raw = str((cfg.get("vision") or {}).get("local_model_path") or "").strip()
     if raw:
         return Path(os.path.expanduser(raw))
-    home = Path(os.path.expanduser(str(cfg["paths"]["hermes_home"])))
+    home = Path(os.path.expanduser(str(cfg["paths"]["state_home"])))
     return home / "models" / MODEL_FILENAME
 
 

@@ -26,8 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import family_event_listener as fel
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import family_event_listener as fel
 
 RECORDINGS = Path(__file__).parent / "recordings"
 REMOTE = "Replay-Part-1_plate_1.gcode"
@@ -131,7 +131,7 @@ def test_replayed_terminal_sequence_posts_once_with_starter_mention(
     # Post-#1095 shape: the rendered terminal text carries no mention;
     # the send path's classifier pings only the starter, once.
     assert "<@" not in text
-    from print_handy.hermes import starter_pings
+    from print_handy.runtime import starter_pings
     monkeypatch.setattr(starter_pings, "STATE", tmp_path / "pings.json")
     assert starter_pings.ping_for(kind, job_key=REMOTE) == STARTER
     assert rig.retires and rig.retires[-1][0] == REMOTE

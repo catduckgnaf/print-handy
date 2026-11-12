@@ -25,8 +25,8 @@ def _purchase_ai_call():
     inside the prompt when that is the only route.
     """
     import urllib.request
-    from print_handy.hermes import moonraker_event_listener as listener
-    from print_handy.hermes import visual_watch
+    from print_handy.runtime import moonraker_event_listener as listener
+    from print_handy.runtime import visual_watch
 
     def call(*, prompt, image=None, text=None):
         if image is not None:
@@ -65,7 +65,7 @@ def _purchase_ai_call():
 
 
 def _purchase_event_image_paths(event):
-    from print_handy.hermes import purchase_intake
+    from print_handy.runtime import purchase_intake
     return [str(p) for p in (getattr(event, 'media_urls', None) or [])
             if purchase_intake.is_image_name(p)]
 
@@ -99,7 +99,7 @@ async def purchase_dispatch(event, gateway, **kwargs):
     recognition here refuses them too). With no AI route, or nothing
     purchase-shaped, this returns None and the message is untouched.
     """
-    from print_handy.hermes import purchase_intake
+    from print_handy.runtime import purchase_intake
     text = str(getattr(event, 'text', '') or '')
     if not purchase_intake.looks_like_purchase(text, has_image=bool(_purchase_event_image_paths(event))):
         return None

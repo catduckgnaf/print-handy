@@ -100,7 +100,7 @@ async def _spool_slot_ask(adapter, source, metadata, gateway, spool_sync, state,
             lines.append(f"Slot {slot}: empty")
         elif rec.get('color') and rec.get('material'):
             # A fully recorded slot names its spool in the one picker shape.
-            from print_handy.hermes.discord_print_summary import spool_picker_label
+            from print_handy.runtime.discord_print_summary import spool_picker_label
             lines.append(f"Slot {slot}: {spool_picker_label(rec['color'], rec['material'], sid, rec.get('remaining_grams'))}")
         else:
             lines.append(f"Slot {slot}: #{sid} {rec.get('name') or ''}".rstrip())
@@ -297,7 +297,7 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
             'archive': f" Spool #{old_id} will be archived.",
             'depleted': f" Spool #{old_id} will be marked as depleted (0 g left).",
             'delete': f" Spool #{old_id} will be DELETED from Spoolman."}.get(disposition, '') if old_id else ''
-    from print_handy.hermes.discord_print_summary import spool_picker_label
+    from print_handy.runtime.discord_print_summary import spool_picker_label
     label = spool_picker_label(spec.get('color'), spec.get('material'), made_id, spec.get('grams'))
     load_label = f'Load spool #{made_id}'
     answer = await _spool_ask(adapter, source, metadata, gateway,
@@ -432,7 +432,7 @@ async def spool_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'spool UI delivery unavailable'}
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
     # A routed channel's spool state and screen pushes are that printer's:

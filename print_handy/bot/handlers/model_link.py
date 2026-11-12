@@ -152,7 +152,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
             if chosen not in candidates:
                 chosen = None
         if chosen is None:
-            from print_handy.hermes import print_control as _print_control
+            from print_handy.runtime import print_control as _print_control
             statuses = await _candidate_statuses(candidates, _print_control.status)
 
             def _picker_label(candidate, _statuses=statuses):

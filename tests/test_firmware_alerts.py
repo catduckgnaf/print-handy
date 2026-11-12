@@ -26,7 +26,7 @@ from print_handy.bot import firmware_alert as fal
 from print_handy.bot import routing
 from print_handy.bot.platform import SendResult
 from print_handy.core import prompts
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
 AD5X = fw.printer_entry("flashforge.ad5x")
@@ -113,7 +113,7 @@ class Adapter:
 @pytest.fixture
 def cfg(tmp_path):
     data = copy.deepcopy(_config.cfg())
-    data["paths"]["hermes_home"] = tmp_path / "home"
+    data["paths"]["state_home"] = tmp_path / "home"
     data["printers"] = [dict(data["printers"][0], id=PID, model="flashforge.ad5x",
                              name="Garage AD5X")]
     return data

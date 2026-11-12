@@ -68,7 +68,7 @@ def label_matches(label, material):
 
 
 def screen_command(slot, material, hex_code):
-    from ....hermes.spool_sync import SpoolError, screen_hex
+    from ....runtime.spool_sync import SpoolError, screen_hex
     stype = screen_type(material)
     hx = screen_hex(hex_code)
     if slot not in SLOTS:

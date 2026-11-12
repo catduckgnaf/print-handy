@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.hermes import bambu_watch
-from print_handy.hermes import local_vision as lv
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import bambu_watch
+from print_handy.runtime import local_vision as lv
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import visual_watch as vw
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -325,7 +325,7 @@ def test_bambu_start_monitor_binds_every_camera_post_to_its_printer(monkeypatch)
     monkeypatch.setattr(bambu_watch._config, "cfg", lambda: data)
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
     monkeypatch.setattr(bambu_watch, "BambuPrintMonitor", Recorder)
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     monkeypatch.setattr(family_control, "pause_alerts_for", lambda *a: None)
 
     class Adapter:

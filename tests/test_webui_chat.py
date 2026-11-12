@@ -20,7 +20,7 @@ from print_handy.webui import server as webui_server
 def load_settings(tmp, extra=""):
     local = Path(tmp) / "local.yaml"
     local.write_text(
-        f"paths:\n  hermes_home: {tmp}/hermes\n"
+        f"paths:\n  state_home: {tmp}/hermes\n"
         "webui:\n  enabled: true\n  port: 8765\n" + extra)
     return settings.load(local=local, environ={})
 

@@ -14,7 +14,7 @@ printers:
 
 def _write(tmp_path, text=ROSTER):
     path = tmp_path / "local.yaml"
-    path.write_text(text + f"paths:\n  hermes_home: {tmp_path}/h\n")
+    path.write_text(text + f"paths:\n  state_home: {tmp_path}/h\n")
     return path
 
 

@@ -1133,7 +1133,7 @@ def renumber_duplicate_prints(apply: bool = False, prints_dir: Path | None = Non
 def _renumber_cli(argv: list[str] | None = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(
-        prog="python -m print_handy.hermes.print_records",
+        prog="python -m print_handy.runtime.print_records",
         description="Find (and with --apply, fix) prints recorded under another print's number.")
     sub = parser.add_subparsers(dest="cmd", required=True)
     cmd = sub.add_parser("renumber-duplicates", help="duplicate print numbers from reprints (#979)")

@@ -9,7 +9,7 @@ import json, os, urllib.request
 from .. import settings
 
 
-PROFILE = settings.current()["paths"]["hermes_home"]
+PROFILE = settings.current()["paths"]["state_home"]
 STATE = settings.state_dir()/"printer_hardware.json"
 ARCHIVE = settings.current()["paths"]["archive"]
 MOONRAKERCTL = settings.ROOT/"bin"/"moonrakerctl"

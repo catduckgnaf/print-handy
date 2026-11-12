@@ -7,7 +7,7 @@ import logging
 import asyncio
 
 from .common import _control_gate
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -22,7 +22,7 @@ async def roast_dispatch(event, gateway, **kwargs):
     resolve it, and the line comes from the local roast corpus — no LLM,
     nothing sent to the printer. Off with vision.roast_enabled=false.
     """
-    from print_handy.hermes import roast_chat
+    from print_handy.runtime import roast_chat
     text = str(getattr(event, 'text', '')).strip()
     if roast_chat.roast_request(text) is None:
         return None
@@ -36,7 +36,7 @@ async def roast_dispatch(event, gateway, **kwargs):
     if not vision.get('roast_enabled', True):
         message = 'Roasts are turned off (vision.roast_enabled is false).'
     else:
-        from print_handy.hermes import _config as hermes_config
+        from print_handy.runtime import _config as hermes_config
         state_path = hermes_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json')
         try:
             message = await asyncio.to_thread(roast_chat.roast_reply, text, state_path=state_path,

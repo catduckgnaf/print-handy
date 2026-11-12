@@ -133,7 +133,7 @@ async def loaded_spools_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'loaded spools UI delivery unavailable'}
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     if not exact:
         answer = await _confirm(adapter, source, metadata, 'spools-suggest',

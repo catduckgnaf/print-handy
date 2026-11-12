@@ -113,7 +113,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_home": "~/.local/share/print-handy",
+      "state_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -276,7 +276,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_home": "~/.local/share/print-handy",
+      "state_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -439,7 +439,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_home": "~/.local/share/print-handy",
+      "state_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -602,7 +602,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.cache/print-handy",
       "ffmpeg": "ffmpeg",
-      "hermes_home": "~/.local/share/print-handy",
+      "state_home": "~/.local/share/print-handy",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {

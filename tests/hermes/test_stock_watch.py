@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import stock_watch, timelapse_capture
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import stock_watch, timelapse_capture
 
 REMOTE = "bag_clip.gcode"
 STREAM_URL = "http://192.0.2.10:8080/?action=stream"
@@ -427,7 +427,7 @@ def test_a_layer_trigger_falls_back_to_interval_on_stock(monkeypatch):
     could never fire. The watch substitutes the configured interval."""
     import types
 
-    from print_handy.hermes import timelapse_capture as tc
+    from print_handy.runtime import timelapse_capture as tc
 
     session = types.SimpleNamespace(trigger=tc.LayerTrigger())
     monkeypatch.setattr(tc, "begin", lambda *a, **k: session)
@@ -443,7 +443,7 @@ def test_a_layer_trigger_falls_back_to_interval_on_stock(monkeypatch):
 def test_an_interval_trigger_is_left_alone_on_stock(monkeypatch):
     import types
 
-    from print_handy.hermes import timelapse_capture as tc
+    from print_handy.runtime import timelapse_capture as tc
 
     trigger = tc.IntervalTrigger(30)
     session = types.SimpleNamespace(trigger=trigger)

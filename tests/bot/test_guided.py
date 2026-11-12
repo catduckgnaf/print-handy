@@ -10,7 +10,7 @@ import pytest
 
 from print_handy import __version__, settings
 from print_handy.bot import commands, guided, runtime
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 from corpus import fake_discord
 
@@ -254,7 +254,7 @@ def test_setup_restart_discards_saved_answers(tmp_path):
 
 def diag_cfg(tmp_path, **overrides):
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id=CHAT, allowed_user_ids=USER)
     cfg["services"].update(moonraker_url="http://printer.test:7125", spoolman_url="")
@@ -314,9 +314,9 @@ def test_debugging_probe_failure_is_actionable_and_redacted(tmp_path):
 def test_debugging_never_invokes_printer_write_operations(tmp_path):
     cfg = diag_cfg(tmp_path)
     (tmp_path / "profile" / "state").mkdir(parents=True, exist_ok=True)
-    writes = [mock.patch("print_handy.hermes.print_stop.cancel"),
-              mock.patch("print_handy.hermes.print_control.resume"),
-              mock.patch("print_handy.hermes.print_control.coldpull"),
+    writes = [mock.patch("print_handy.runtime.print_stop.cancel"),
+              mock.patch("print_handy.runtime.print_control.resume"),
+              mock.patch("print_handy.runtime.print_control.coldpull"),
               mock.patch("print_handy.core.printer_state.save", create=True),
               mock.patch("print_handy.core.model_job.request_json")]
     with writes[0] as a, writes[1] as b, writes[2] as c, writes[3] as d, writes[4] as e:

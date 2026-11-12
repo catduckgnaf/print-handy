@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from print_handy.hermes import timelapse_capture  # noqa: E402
+from print_handy.runtime import timelapse_capture  # noqa: E402
 
 JPEG = b"\xff\xd8" + b"fake-jpeg-payload" + b"\xff\xd9"
 START = 1_000_000.0

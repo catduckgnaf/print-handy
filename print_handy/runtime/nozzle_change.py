@@ -1,7 +1,7 @@
 """Guided physical nozzle change (#513).
 
 Backs ``/nozzle change`` in the print-feedback plugin. The procedure mirrors
-the cold pull's safety posture in :mod:`print_handy.hermes.print_control`:
+the cold pull's safety posture in :mod:`print_handy.runtime.print_control`:
 
 * Heating is a physical printer action. It happens only after an explicit,
   fresh operator confirmation (5-minute window, captured *after* the button

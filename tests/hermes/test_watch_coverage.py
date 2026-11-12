@@ -8,9 +8,9 @@ import asyncio
 
 import pytest
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import visual_watch as vw
 
 
 def _jpeg():
@@ -296,7 +296,7 @@ def test_no_pause_when_the_printer_stopped_printing_during_the_alert(monkeypatch
 
 
 def test_local_escalation_needs_spaced_changed_views():
-    from print_handy.hermes import local_vision as lv
+    from print_handy.runtime import local_vision as lv
     weak = [(0.35, [0.1, 0.1, 0.5, 0.5])]
     a, b, c = (vw.frame_signature(_frame(seed)) for seed in (1, 2, 3))
     streak = lv.FailureStreak()
@@ -352,7 +352,7 @@ def test_print_start_is_quiet_when_the_watch_runs(monkeypatch):
 
 
 def test_reason_names_the_misconfigured_source(monkeypatch):
-    from print_handy.hermes import local_vision as lv
+    from print_handy.runtime import local_vision as lv
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(lv, "watch_source", lambda cfg=None: "endpoint")
     monkeypatch.setattr(vw._config, "service_url", lambda key: "")
@@ -546,7 +546,7 @@ def test_heartbeat_stamps_even_when_the_default_pool_is_busy(monkeypatch):
 
 
 def _next_plate_listener(monkeypatch, verdict_fn):
-    from print_handy.hermes import next_plate_offer
+    from print_handy.runtime import next_plate_offer
     observed = []
     monkeypatch.setattr(next_plate_offer, "due", lambda: True)
     monkeypatch.setattr(next_plate_offer, "observe", lambda verdict: observed.append(verdict))

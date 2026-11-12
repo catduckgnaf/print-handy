@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 URL = os.environ.get("PRINT_HANDY_SPOOLMAN_TEST_URL", "")
 pytestmark = pytest.mark.skipif(not URL, reason="set PRINT_HANDY_SPOOLMAN_TEST_URL to a throwaway Spoolman")

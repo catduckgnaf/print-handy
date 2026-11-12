@@ -332,7 +332,7 @@ def _print_next_followups(work):
     """The typed /print-next for the plate that is next once the setup flow's first
     plate is recorded complete — credited through print_records, the same write the
     listener makes when that print finishes, so resolve_next targets the next plate."""
-    from print_handy.hermes import print_records
+    from print_handy.runtime import print_records
     plan_path = sorted((Path(work) / "plans").glob("*.json"))[-1]
     plan = json.loads(plan_path.read_text())
     first = plan["parts"][0]
@@ -395,7 +395,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
     spoolman_calls_built = len(spoolman.calls) if spoolman else 0
     entry = getattr(case, "entry", None) or {}
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
-    from print_handy.hermes import _config, print_next, print_records
+    from print_handy.runtime import _config, print_next, print_records
 
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -579,7 +579,7 @@ def _standalone_core(case, work, plugin, events, patch, *, auto=True):
     from print_handy.bot.router import Router
     from print_handy.bot.runtime import BotCore
     from print_handy.core import prepared_intake, prompts
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     from . import fake_discord
 
     discord = fake_discord.FakeDiscord(case.clicks, events=events, auto=auto)

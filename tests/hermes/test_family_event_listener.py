@@ -11,8 +11,8 @@ seen mid-flight is a baseline and gets nothing.
 import logging
 
 from print_handy import __version__
-from print_handy.hermes import family_control as fc
-from print_handy.hermes import family_event_listener as fel
+from print_handy.runtime import family_control as fc
+from print_handy.runtime import family_event_listener as fel
 
 REMOTE = "benchy.gcode"
 
@@ -84,7 +84,7 @@ def drive(rig, polls):
 def test_run_forever_startup_line_names_the_version(tmp_path, caplog):
     rig, _posts = listener(tmp_path, [st("printing")])
     rig._sleep = lambda _s: rig.stop()
-    with caplog.at_level(logging.INFO, logger="print_handy.hermes.family_event_listener"):
+    with caplog.at_level(logging.INFO, logger="print_handy.runtime.family_event_listener"):
         assert rig.run_forever() == 0
     assert f"family listener starting (Print Handy {__version__})" in caplog.text
 

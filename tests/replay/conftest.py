@@ -25,7 +25,7 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job, printer_state
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 from .helpers import FIXTURES, MOONRAKER_TIMEOUT_S, SCALE, hardware_record, recorded, reported_name
 
@@ -258,7 +258,7 @@ def ad5x(moonraker, tmp_path, monkeypatch):
     moonraker.record_path = record
     data = copy.deepcopy(settings.current())
     # Whatever an earlier test left installed, nothing here may write the host's profile or records.
-    data["paths"].update(hermes_home=tmp_path / "profile", archive=tmp_path / "archive",
+    data["paths"].update(state_home=tmp_path / "profile", archive=tmp_path / "archive",
                          records_vault=tmp_path / "vault", cache=tmp_path / "cache")
     data["services"].update(moonraker_url=moonraker.url, spoolman_url=moonraker.url)
     monkeypatch.setattr(settings, "_override", data)

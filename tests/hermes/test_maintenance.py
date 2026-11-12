@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import json
 
-from print_handy.hermes import maintenance
+from print_handy.runtime import maintenance
 def test_checklist_step_persists_in_session_shape():
     session = {"steps": [None] * 4}
     maintenance.checklist_step(session, 2, "problem")
@@ -68,7 +68,7 @@ def test_listener_history_totals_are_hours_not_seconds(monkeypatch):
     # Moonraker's /server/history/totals reports total_time/print_time in
     # SECONDS; maintenance records and thresholds are in HOURS, so the
     # listener's totals must be converted before reminder_text sees them.
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
 
     monkeypatch.setattr(mel.print_control, "_call",
                         lambda path: {"result": {"total_time": 7200.0, "print_time": 7000.0}})

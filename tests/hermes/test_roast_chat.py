@@ -10,9 +10,9 @@ import random
 
 import pytest
 
-from print_handy.hermes import print_control as pc
-from print_handy.hermes import print_records
-from print_handy.hermes import roast_chat
+from print_handy.runtime import print_control as pc
+from print_handy.runtime import print_records
+from print_handy.runtime import roast_chat
 
 
 @pytest.mark.parametrize("text,query", [

@@ -290,7 +290,7 @@ def _slice_failures_section(data):
     failed model are kept. Names and local paths only; the logs are not served."""
     from ..core import failure_report
     try:
-        return failure_report.failure_folders((data.get("paths") or {}).get("hermes_home") or ".")
+        return failure_report.failure_folders((data.get("paths") or {}).get("state_home") or ".")
     except Exception:  # a listing problem never breaks the status page
         return []
 
@@ -457,7 +457,7 @@ def snapshot_json(**kwargs):
 
 # The client read each non-Moonraker family performs for a status poll —
 # the same reads the launched-print monitors and the family listeners
-# poll (print_handy.hermes.family_control.status_fn_for is the
+# poll (print_handy.runtime.family_control.status_fn_for is the
 # reference; it is not imported here so the Web UI keeps no Hermes
 # dependency). Moonraker connections read through the objects query
 # below instead.

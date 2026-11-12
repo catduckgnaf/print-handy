@@ -167,7 +167,7 @@ def test_pending_rebinds_rules():
 
 def test_keyless_service_save_is_unchanged(monkeypatch):
     monkeypatch.delenv("NTFY_ACCESS_TOKEN", raising=False)
-    monkeypatch.setattr("print_handy.hermes._config.profile_env_value", lambda name, **kw: "")
+    monkeypatch.setattr("print_handy.runtime._config.profile_env_value", lambda name, **kw: "")
     old = {"notify.ntfy_url": "https://ntfy.example/a"}
     assert credential_binding.pending_rebinds(
         {"notify.ntfy_url": "https://evil.example/a"}, old, {}, {}) == []
@@ -280,7 +280,7 @@ def test_matrix_client_uses_the_binding(listener):
 
 
 def test_vision_text_call_uses_the_binding(listener, monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     from print_handy.webui import spools
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(mel, "_vision_chat_url", listener.url)
@@ -296,7 +296,7 @@ def test_vision_text_call_uses_the_binding(listener, monkeypatch):
 def test_purchase_image_call_reaches_the_endpoint_with_its_key(listener, monkeypatch):
     # The image branch of the Web UI purchase-intake call hands visual_extract
     # an api_key that visual_watch calls; it must be a callable, not the key itself.
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     from print_handy.webui import spools
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(mel, "_vision_chat_url", listener.url)
@@ -306,7 +306,7 @@ def test_purchase_image_call_reaches_the_endpoint_with_its_key(listener, monkeyp
 
 
 def test_vision_image_route_uses_the_binding(listener, monkeypatch):
-    from print_handy.hermes import visual_watch
+    from print_handy.runtime import visual_watch
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     _bind_elsewhere("services.vision_chat_url")
     visual_watch._vision_answer(b"img", "p", chat_url=listener.url, model="m",
@@ -321,7 +321,7 @@ class WebUISaveTests(unittest.TestCase):
 
     def start(self, tmp, environ):
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n  port: 8765\n"
                          "notify:\n  ntfy_url: https://ntfy.example/topic\n")
         environ = {"PRINT_HANDY_CONFIG": str(local), **environ}
@@ -411,7 +411,7 @@ class WebUISaveTests(unittest.TestCase):
     def test_write_api_refuses_without_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
             local = Path(tmp) / "local.yaml"
-            local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+            local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                              "notify:\n  ntfy_url: https://ntfy.example/topic\n")
             credential_binding.rebind("notify.ntfy_url", "https://ntfy.example/")
             environ = {"PRINT_HANDY_CONFIG": str(local)}

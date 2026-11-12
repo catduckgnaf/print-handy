@@ -14,7 +14,7 @@ def _data(tmp):
     path = Path(tmp) / "local.toml"
     path.write_text("")
     data = settings.load(local=path, environ={})
-    data["paths"]["hermes_home"] = Path(tmp) / "profile"
+    data["paths"]["state_home"] = Path(tmp) / "profile"
     return data
 
 

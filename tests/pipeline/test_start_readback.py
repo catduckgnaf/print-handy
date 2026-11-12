@@ -224,7 +224,7 @@ def test_require_idle_mirrors_the_chat_paths_live_idle_check(monkeypatch, state,
 def test_require_idle_and_live_idle_check_share_one_idle_set():
     import inspect
     from print_handy.core import model_job
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_next
     spelled = "(" + ", ".join(f'"{s}"' for s in model_job.IDLE_PRINT_STATES) + ")"
     source = inspect.getsource(print_next.live_idle_check)
     assert source.count(f"not in {spelled}") == 2  # the routed and the configured-printer branch

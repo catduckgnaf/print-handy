@@ -10,7 +10,7 @@ from .common import (
     _cold_pull_temps, _coldpull_workflow, _confirm, _control_preamble, _decide_printer,
     _live_key_for, _maintenance_hours_now, _pkw, _routed_printer_id, _seen,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -26,7 +26,7 @@ async def maintenance_dispatch(event, gateway, **kwargs):
         return {'action': 'skip', 'reason': 'maintenance UI delivery unavailable'}
     import json as _json
     import uuid
-    from print_handy.hermes import maintenance
+    from print_handy.runtime import maintenance
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
     mode = str(getattr(event, 'text', '')).strip()[len('/print-maintenance'):].strip().casefold() or 'full'
@@ -43,7 +43,7 @@ async def maintenance_dispatch(event, gateway, **kwargs):
         return {'action': 'skip', 'reason': 'maintenance already active'}
     _seen[key] = time.monotonic()
     try:
-        from print_handy.hermes import print_control as pc
+        from print_handy.runtime import print_control as pc
         decided = await _decide_printer(source, gateway, adapter, metadata,
                                         question='Maintenance on which printer?')
         if decided is None:

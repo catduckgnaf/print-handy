@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest.mock import AsyncMock, Mock, patch
 
-import print_handy.hermes as hermes_pkg
+import print_handy.runtime as hermes_pkg
 
 
 class RebootStandbyTests(unittest.TestCase):

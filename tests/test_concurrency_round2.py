@@ -30,7 +30,7 @@ import pytest
 from print_handy.bot.platform import BasePlatformAdapter, SendResult
 from print_handy.bot.rest import split_media
 from print_handy.core import print_stats, prompts
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 
 # --------------------------------------------------------------- (a) Spoolman race

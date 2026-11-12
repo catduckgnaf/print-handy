@@ -25,16 +25,16 @@ from pathlib import Path
 import pytest
 
 from print_handy import listeners
-from print_handy.hermes import camera_watch as cw
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import camera_watch as cw
+from print_handy.runtime import visual_watch as vw
 
 ROOT = Path(__file__).resolve().parents[2]
-MEL = "print_handy.hermes.moonraker_event_listener"
+MEL = "print_handy.runtime.moonraker_event_listener"
 
 # The modules every non-Moonraker listener runs on: the registry's own
 # listener modules plus the shared family module both the Bambu Lab sink
 # and the polled families' listener call into.
-SHARED_LISTENER_MODULES = ("print_handy.hermes.family_control",)
+SHARED_LISTENER_MODULES = ("print_handy.runtime.family_control",)
 
 
 def _listener_modules():
@@ -72,14 +72,14 @@ def test_listener_helper_paths_never_load_the_moonraker_listener():
     """Importing the listeners and reaching every moved helper leaves mel unloaded."""
     code = (
         "import sys\n"
-        "from print_handy.hermes import family_event_listener, family_control, start_claims, camera_watch\n"
+        "from print_handy.runtime import family_event_listener, family_control, start_claims, camera_watch\n"
         "from print_handy.printers.bambulab import listener\n"
         "helpers = family_control._mel()\n"
         "helpers.classify_pause('Filament runout'); helpers._buttonless_standalone(); helpers._vision_chat_url\n"
         "start_claims.start_claimed('x.gcode'); start_claims.AbandonedStartWatch()\n"
         "family_control.LaunchLeaseSettler('p1')._watch_for()\n"
         "camera_watch.coverage('prusalink')\n"
-        "print('loaded' if 'print_handy.hermes.moonraker_event_listener' in sys.modules else 'clean')\n")
+        "print('loaded' if 'print_handy.runtime.moonraker_event_listener' in sys.modules else 'clean')\n")
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True,
                          timeout=120)
     assert out.returncode == 0, out.stderr
@@ -87,7 +87,7 @@ def test_listener_helper_paths_never_load_the_moonraker_listener():
 
 
 def test_the_moonraker_listener_keeps_every_moved_name():
-    from print_handy.hermes import listener_common, moonraker_event_listener as mel, start_claims
+    from print_handy.runtime import listener_common, moonraker_event_listener as mel, start_claims
     for name in ("post", "_post_rest", "_post_rest_discord", "_bot_token", "_buttonless_standalone",
                  "_telegram_standalone", "_matrix_standalone", "_profile_env_value", "_vision_ready",
                  "_vision_chat_url", "start_claim_time", "start_claimed", "claimed_start_filenames",
@@ -101,7 +101,7 @@ def test_the_moonraker_listener_keeps_every_moved_name():
 
 def test_moonraker_seams_still_steer_the_shared_post_path(monkeypatch):
     """listener_common resolves through the Moonraker module, so its old patches still apply."""
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     sent = []
     monkeypatch.setattr(mel, "_platform_name", lambda: "telegram")
     monkeypatch.setattr(mel, "_telegram_chat_id", lambda: "")
@@ -111,7 +111,7 @@ def test_moonraker_seams_still_steer_the_shared_post_path(monkeypatch):
 
 
 def test_start_claim_wrappers_read_the_listener_path(monkeypatch, tmp_path):
-    from print_handy.hermes import moonraker_event_listener as mel, start_claims
+    from print_handy.runtime import moonraker_event_listener as mel, start_claims
     claims = tmp_path / "claims.json"
     claims.write_text(json.dumps({"a.gcode": 1000.0}))
     monkeypatch.setattr(mel, "START_CLAIMS", claims)
@@ -216,7 +216,7 @@ def test_decide_auto_pause_reserves_once(monkeypatch):
 
 
 def test_both_watches_share_one_deadline_and_prompt():
-    from print_handy.hermes import bambu_watch, moonraker_event_listener as mel
+    from print_handy.runtime import bambu_watch, moonraker_event_listener as mel
     assert mel.VISUAL_CHECK_DEADLINE_S == bambu_watch.CHECK_DEADLINE_S == cw.CHECK_DEADLINE_S
     assert bambu_watch.WATCH_PROMPT == cw.WATCH_PROMPT
 
@@ -290,7 +290,7 @@ def test_live_coverage_reads_the_heartbeat(monkeypatch, tmp_path):
 
 
 def test_family_listener_heartbeat_reports_its_coverage(tmp_path):
-    from print_handy.hermes import family_event_listener as fel
+    from print_handy.runtime import family_event_listener as fel
     beats = []
     listener = fel.FamilyListener("prusalink", lambda: {"state": "standby"}, printer_id="mk4",
                                   beat=lambda **details: beats.append(details),
@@ -301,7 +301,7 @@ def test_family_listener_heartbeat_reports_its_coverage(tmp_path):
 
 def test_moonraker_heartbeat_reports_its_coverage(monkeypatch):
     from unittest import mock
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     monkeypatch.setattr(mel, "_WATCH_COVERAGE",
                         cw.CoverageReporter(lambda: cw.coverage("moonraker")))
     listener = mel.Listener.__new__(mel.Listener)

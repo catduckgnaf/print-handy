@@ -603,7 +603,7 @@ def build_plan(w):
             "services": services,
             "discord": {k: v for k, v in discord.items() if v},
             "bot": {"mode": "standalone"},
-            "paths": {"hermes_home": data_home},
+            "paths": {"state_home": data_home},
         }
         if bambu_lan:
             config["bambu"] = bambu_lan
@@ -660,7 +660,7 @@ def build_plan(w):
             "services": {k: v for k, v in services.items() if k == "spoolman_url"},
             "discord": {k: v for k, v in discord.items() if v},
             "bot": {"mode": "standalone"},
-            "paths": {"hermes_home": data_home},
+            "paths": {"state_home": data_home},
         }
         notes.append("Multi-printer: the roster lives in the config file (it cannot come from the "
                      "environment); any entry value can be overridden later with the indexed spelling "
@@ -877,7 +877,7 @@ def update_env(folder, values):
 
 
 def effective_data_home(local, fallback):
-    """The data folder the installed services will actually use: paths.hermes_home in
+    """The data folder the installed services will actually use: paths.state_home in
     config/local.yaml once the merge has run. Existing values win in that merge and
     scripts/install-standalone.sh resolves the same key for the services'
     EnvironmentFile, so secrets must be saved to that folder — which is not
@@ -892,7 +892,7 @@ def effective_data_home(local, fallback):
     if isinstance(data, dict):
         paths = data.get("paths")
         if isinstance(paths, dict):
-            home = paths.get("hermes_home")
+            home = paths.get("state_home")
             if isinstance(home, str) and home.strip():
                 return home
     return fallback
@@ -913,7 +913,7 @@ def _apply_webui_access(plan, w, data_home):
               "WEBUI_ACCESS_TOKEN environment variable.")
         return
     from .webui import access as _access
-    data = {"paths": {"hermes_home": Path(data_home).expanduser()}}
+    data = {"paths": {"state_home": Path(data_home).expanduser()}}
     try:
         if choice == "password":
             _access.save_password(data, plan["webui_access"].get("password") or "",
