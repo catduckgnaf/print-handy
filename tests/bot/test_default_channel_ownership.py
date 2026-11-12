@@ -19,7 +19,7 @@ import pytest
 from print_handy.bot import runtime
 from print_handy.bot.router import load_plugin
 from print_handy.core import prompts
-from print_handy.hermes import _config, print_next
+from print_handy.runtime import _config, print_next
 
 OPERATOR = "200000000000000002"
 HOME = "100000000000000001"     # the default printer's own channel
@@ -132,7 +132,7 @@ def run_print_next(tmp_path, job_printer, chat_id=HOME):
             mock.patch.object(print_next, "resolve_next",
                               lambda plan, part_id=None: real_resolve(plan, tmp_path / "archive",
                                                                       part_id=part_id)), \
-            mock.patch("print_handy.hermes.discord_print_summary.find_job", return_value=(None, None)):
+            mock.patch("print_handy.runtime.discord_print_summary.find_job", return_value=(None, None)):
         result = run(plugin.print_next_dispatch(event("/print-next ghost", chat_id), gateway))
     return result, adapter, started, rows
 
@@ -172,8 +172,8 @@ def run_print_again(tmp_path, job_printer, chat_id=HOME):
         started.append(given["gcode"])
         return True, "START REQUEST ACCEPTED"
 
-    from print_handy.hermes import print_control as pc
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import print_control as pc
+    from print_handy.runtime import discord_print_summary as summary
     with mock.patch.object(pc, "resolve_print", lambda query: dict(target)), \
             mock.patch.object(pc, "again_question", lambda given: "Print Ghost again?"), \
             mock.patch.object(pc, "queue_copies", lambda given, **kw: queued.append(given)), \

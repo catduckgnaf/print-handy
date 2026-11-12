@@ -3,7 +3,8 @@
 Load order, later wins key by key:
   1. The printer's defaults: its vendor profile (print_handy/printers/<vendor>/__init__.py) under the
      printer model's own (print_handy/printers/<vendor>/<printer>.py)
-  2. config/home.yaml, falling back to config/home.toml
+  2. config/home.yaml (a TOML home is still read when home.yaml is absent; the shipped home.toml
+     twin was retired in #1322, so no shipped tree takes that path)
   3. $PRINT_HANDY_CONFIG, else config/local.yaml, falling back to config/local.toml
   4. Environment: PRINT_HANDY__SECTION__KEY, or a legacy name from LEGACY_ENV. Lists stay file-only
      except ENV_LISTS, which take a comma- or space-separated value (#270).
@@ -56,7 +57,7 @@ from . import printers as printer_registry
 
 ROOT = Path(__file__).resolve().parent.parent
 HOME = ROOT / "config" / "home.yaml"
-LEGACY_HOME = ROOT / "config" / "home.toml"
+LEGACY_HOME = ROOT / "config" / "home.toml"  # read only when home.yaml is absent; not shipped since #1322
 LOCAL = ROOT / "config" / "local.yaml"
 LEGACY_LOCAL = ROOT / "config" / "local.toml"
 SHIPPED_DOCKER_CONFIGS = {(ROOT / "config" / "docker.yaml").resolve(), (ROOT / "config" / "docker.toml").resolve()}
@@ -121,7 +122,25 @@ KEY_ALIASES = {
     # AI commentary was removed with #1003), so the key drops the "ai"
     # it never should have promised; the old spelling stays readable.
     ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
+    # #1323 (from #1157): the state directory was named after the Hermes install
+    # method, which no longer exists. The old spelling is read, with a warning,
+    # through 2.3.x.
+    ("paths", "hermes_home"): ("paths", "state_home"),
 }
+# Aliases that log a deprecation warning when an install still uses the old spelling.
+WARNED_KEY_ALIASES = {("paths", "hermes_home")}
+_warned_aliases = set()
+
+
+def _warn_key_alias(old, new):
+    """Log once per process that a deprecated key spelling was read."""
+    if old in WARNED_KEY_ALIASES and old not in _warned_aliases:
+        _warned_aliases.add(old)
+        import logging
+        logging.getLogger(__name__).warning(
+            "[%s] %s is deprecated and will stop working after 2.3.x; rename it to [%s] %s "
+            "(environment: PRINT_HANDY__%s__%s)", old[0], old[1], new[0], new[1],
+            new[0].upper(), new[1].upper())
 
 
 def _apply_key_aliases(layer):
@@ -130,6 +149,7 @@ def _apply_key_aliases(layer):
         values = layer.get(old_section)
         if not isinstance(values, dict) or old_key not in values:
             continue
+        _warn_key_alias((old_section, old_key), (new_section, new_key))
         target = layer.setdefault(new_section, {})
         if new_key in target:
             del values[old_key]  # both spellings in one layer: the current name wins
@@ -143,7 +163,7 @@ def _apply_key_aliases(layer):
 
 # Sections whose keys are names you choose, not a fixed set.
 OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning"}
-# Keys that can be optionally specified even if absent from base home.toml.
+# Keys that can be optionally specified even if absent from base home.yaml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
                  ("printer", "zmod_delivery_format"): str,
                  ("visual_watch", "enabled"): bool,
@@ -520,6 +540,8 @@ def _from_env(home, environ, declared=None):
             if len(parts) != 2:
                 raise SettingsError(f"${name} must look like PRINT_HANDY__SECTION__KEY")
             section, key = parts
+            if (section, key) in KEY_ALIASES:
+                _warn_key_alias((section, key), KEY_ALIASES[(section, key)])
             section, key = KEY_ALIASES.get((section, key), (section, key))
             if section == "printers":
                 # The roster is reached only through the indexed
@@ -612,7 +634,7 @@ SPACING_LABELS = {"minimum": "Minimum", "low": "Low", "medium": "Medium (Standar
 # The shipped defaults for these [paths] keys used to live under ~/.hermes. If an install has data
 # in the old directory and never explicitly set a path, keep using that directory after upgrade.
 LEGACY_PATH_DEFAULTS = {
-    "hermes_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
+    "state_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
     "cache": ("~/.cache/print-handy", "~/.hermes/cache"),
 }
 
@@ -2286,7 +2308,7 @@ def load(home=None, local=None, environ=None, user=None):
     """Read and validate settings. Prefer YAML and retain TOML during migration.
 
     Load order: model defaults, home configuration, explicit PRINT_HANDY_CONFIG (or
-    local YAML/TOML), then environment. If home.yaml is absent, home.toml is used.
+    local YAML/TOML), then environment. If home.yaml is absent, a home.toml beside it is used.
     If local.yaml is absent, local.toml is used. PRINT_HANDY_CONFIG selects one file.
     The operator's own file (user_config_path) is layered over that file and under the
     environment, so an image update that replaces the shipped config never touches it.
@@ -2468,8 +2490,8 @@ def by_id(printer_id, data=None):
 
 
 def state_dir(data=None):
-    """Where runtime state files live: <hermes_home>/state."""
-    return (data or current())["paths"]["hermes_home"] / "state"
+    """Where runtime state files live: <state_home>/state."""
+    return (data or current())["paths"]["state_home"] / "state"
 
 
 def default_printer_id(data=None):

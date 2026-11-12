@@ -709,7 +709,7 @@ A model failure posted to chat used to be "stopped before it was ready" or a sli
 - **Recovery:** the one thing to do next.
 - **What was submitted:** "Nothing was uploaded or started." when the failure happened before anything left Print Handy, "The file is on the printer, but nothing is printing." when the printer rejected the start, and "The printer may already have the file or have started it" when the outcome is unknown (an upload or launch that was not confirmed).
 
-The generic "Preparing that model stopped before it was ready." lead is kept only for a failure nothing recognizes, and it still names the stage and the bundle step. A slicer failure with no known signature says what the slicer reported only when that is one short sentence with no path, file name or traceback in it; otherwise nothing from the slicer's text is quoted. The raw logs stay in the archived failure folder (`<hermes_home>/state/slice-failures/<id>/`), and the Web UI status page lists the newest folders under "Recent model failures". Each receipt records the classification under `failure` (stage, cause, recovery, submitted, signature). A corpus guard (`tests/corpus/test_failure_messages.py`) fails if a known-bad corpus model ends in the generic message.
+The generic "Preparing that model stopped before it was ready." lead is kept only for a failure nothing recognizes, and it still names the stage and the bundle step. A slicer failure with no known signature says what the slicer reported only when that is one short sentence with no path, file name or traceback in it; otherwise nothing from the slicer's text is quoted. The raw logs stay in the archived failure folder (`<state_home>/state/slice-failures/<id>/`), and the Web UI status page lists the newest folders under "Recent model failures". Each receipt records the classification under `failure` (stage, cause, recovery, submitted, signature). A corpus guard (`tests/corpus/test_failure_messages.py`) fails if a known-bad corpus model ends in the generic message.
 
 ## Audit inventory (Stage 1)
 
@@ -756,7 +756,8 @@ What the bundle carries beyond versions and the redacted config summary:
 - **Runtime status**: the image tag and commit SHA when the environment
   records them (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the
   image digest is always shown when present), each printer's listener
-  heartbeat age and event-loop lag, the supervisor's persisted restart
+  heartbeat age and event-loop lag, the camera watch coverage the
+  listener reported (active, or off and why), the supervisor's persisted restart
   counts per printer (including a spent budget), and the
   capture-directory names with their lengths, one real hang was a
   capture name that outgrew its limit.

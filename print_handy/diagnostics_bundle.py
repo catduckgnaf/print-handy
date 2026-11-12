@@ -167,6 +167,11 @@ def runtime_section(data, *, now=None) -> str:
             lag = record.get("loop_lag_ms")
             if isinstance(lag, (int, float)):
                 beat_text += f", loop lag {lag / 1000:.1f}s"
+            # The camera watch's coverage as the listener reported it (#1320).
+            from .runtime import camera_watch
+            watch_text = camera_watch.coverage_text(record.get("camera_watch"))
+            if watch_text:
+                beat_text += f", camera watch {watch_text}"
         except Exception:
             pass
         sup = records.get(printer_id)
@@ -332,7 +337,7 @@ def _keep_roots(data):
     (root, label) pairs: paths under these keep their layout in an
     export, relabeled relative to the label; every other local path is
     removed."""
-    labels = {"hermes_home": "app-data", "cache": "app-cache",
+    labels = {"state_home": "app-data", "cache": "app-cache",
               "archive": "app-archive", "records_vault": "app-records"}
     roots = []
     for key, label in labels.items():

@@ -61,14 +61,14 @@ def library_status():
 
 def matrix_token(cfg=None):
     """The Matrix access token: the [matrix] access_token_env variable, then the profile .env files."""
-    from ..hermes import _config
+    from ..runtime import _config
     cfg = cfg if cfg is not None else _config.cfg()
     name = str((cfg.get("matrix") or {}).get("access_token_env") or "MATRIX_ACCESS_TOKEN")
     return _config.profile_env_value(name)
 
 
 def homeserver_url(cfg=None):
-    from ..hermes import _config
+    from ..runtime import _config
     cfg = cfg if cfg is not None else _config.cfg()
     return str((cfg.get("matrix") or {}).get("homeserver_url") or "").rstrip("/")
 
@@ -323,7 +323,7 @@ class StandaloneAdapter(BasePlatformAdapter):
         which are ignored silently so ordinary room reactions never
         draw bot noise.
         """
-        from print_handy.hermes import print_alert_buttons as pab
+        from print_handy.runtime import print_alert_buttons as pab
 
         action = pab.matrix_reaction_action(key)
         if action is None:

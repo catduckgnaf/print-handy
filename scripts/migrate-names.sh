@@ -16,6 +16,12 @@
 #    config/local.yaml or config/local.toml to model = "flashforge.ad5x" (klipper.generic,
 #    sovol.sv06). The file is first copied to <file>.pre-model.
 # 4. Prints the steps that have to be done by hand on the printer.
+#
+# Kept on purpose (#1322): Print Handy reads no Print Buddy name at runtime (no env, file or state
+# alias, by design), so for an install from before 2.1.7 this script is the only way across the
+# rename, and nothing tells us every such install has migrated. Retire it with a release note once
+# the oldest supported upgrade source is 2.1.7 or later. The loader does none of these steps itself:
+# a leftover [printer] family stops the import with the key named.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,7 +44,7 @@ done
 setting() {  # setting SECTION.KEY
     (cd "$REPO" && python3 -m print_handy.settings get "$1" 2>/dev/null) || true
 }
-HERMES_HOME=${HERMES_HOME:-$(setting paths.hermes_home)}
+HERMES_HOME=${HERMES_HOME:-$(setting paths.state_home)}
 HERMES_HOME=${HERMES_HOME:-$HOME/.hermes/profiles/3dprinting}
 ARCHIVE=${ARCHIVE:-$(setting paths.archive)}
 SYSTEMD_USER_DIR=${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}

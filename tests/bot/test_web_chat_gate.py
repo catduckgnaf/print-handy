@@ -84,9 +84,9 @@ def test_shipped_configs_show_both_chat_toggles_explicitly():
 
     A reviewer (and an operator) should find chat_llm_enabled in the
     defaults they are handed, at the same explicit true as
-    chat_enabled — in all four shipped files.
+    chat_enabled — in all three shipped files (home.toml was retired in #1322).
     """
-    for name in ("home.yaml", "home.toml", "docker.yaml", "docker.toml"):
+    for name in ("home.yaml", "docker.yaml", "docker.toml"):
         data = settings._read(settings.ROOT / "config" / name)
         assert data["webui"]["chat_enabled"] is True, name
         assert data["webui"]["chat_llm_enabled"] is True, name
@@ -117,7 +117,7 @@ def test_no_login_install_reaches_the_confirm_prompt(cfg, monkeypatch):
 
     from print_handy.bot import runtime
     from print_handy.core import link_intake, prepared_intake, printer_state
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
 
     monkeypatch.setattr(_config, "_override", cfg)
     monkeypatch.delenv("WEBUI_ACCESS_TOKEN", raising=False)

@@ -29,10 +29,10 @@ Or install by hand from the OrcaSlicer 2.5.0 release page: download the `x86_64`
 
 ## 3. Settings: YAML preferred, TOML supported
 
-Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; existing `config/home.toml` and `config/local.toml` files remain supported. YAML takes precedence when both formats are present. See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
+Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; an existing `config/local.toml` remains supported. YAML takes precedence when both formats are present. See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
 
 - `services.moonraker_url` and `services.spoolman_url`
-- `paths.hermes_home` (the state folder; the name is historical), `archive`, `records_vault` and `cache`
+- `paths.state_home` (the state folder; the name is historical), `archive`, `records_vault` and `cache`
 - `printer.model` and supported printer-specific overrides
 
 The guided setup (`python3 -m print_handy.bot setup`) writes these with you; see [guided setup and debugging](GUIDED-SETUP-DEBUGGING.md).
@@ -52,7 +52,7 @@ scripts/install-standalone.sh --python "$PWD/.venv/bin/python"
 systemctl --user enable --now print-handy-bot.service print-handy-listener.service
 ```
 
-Put the bot token in the data folder's `.env`; see the [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md) guide. The listener service runs `print_handy.hermes.moonraker_event_listener` (a module name left over from the project's history), and only applies to Moonraker printers.
+Put the bot token in the data folder's `.env`; see the [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md) guide. The listener service runs `print_handy.runtime.moonraker_event_listener` (a module name left over from the project's history), and only applies to Moonraker printers.
 
 ## 5. Check
 
@@ -77,6 +77,6 @@ The Hermes install is removed. Print Handy used to offer a second install that h
 To move an old Hermes-hosted install over:
 
 1. Stop the old gateway's Discord connection first. One bot token, one live connection.
-2. Keep your config and state where they are. `paths.hermes_home` is just the state folder's path, and it can keep pointing at the old profile directory.
+2. Keep your config and state where they are. `paths.state_home` is just the state folder's path, and it can keep pointing at the old profile directory.
 3. Set `bot.mode` to `standalone`.
 4. Install the services as in step 4 above.

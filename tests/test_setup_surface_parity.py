@@ -4,8 +4,11 @@ Catduck's testing requirement for the first-boot / walkthrough parity
 program: automated tests proving parity across five configuration
 surfaces — Docker variables (env), Web UI, Discord, Matrix, Telegram —
 for the access/setup behaviors. This module covers the env and Web UI
-drivers plus the shared access-state assertions; the three chat drivers
-live in tests/bot/test_setup_chat_parity.py.
+drivers plus the shared access-state assertions; the Discord, Telegram
+and Matrix drivers for the same scenarios live in
+tests/bot/test_firstboot_chat_parity.py, which imports CANONICAL from
+here (tests/bot/test_setup_chat_parity.py adds S5/S9 through the guided
+machine).
 
 Parity is about facts and outcomes, not bytes (the grain of
 tests/bot/test_transport_render_parity.py): the same canonical answers
@@ -16,8 +19,9 @@ Scenario names are the plan's: S1 first_boot_open_everywhere,
 S2 claim_password_via_each_surface, S3 leave_open_via_each_surface,
 S3b clear_claim_parity (Q1: chat may also clear a claim),
 S4 env_token_precedence, S5 full_walkthrough_identical_config,
-S7 cross_surface_completion. (S6 and S8 are chat-side; see the bot
-module. S9 is asserted there and, for the Web UI store, here.)
+S7 cross_surface_completion. (S6 and S8 are chat-side only, in
+tests/bot/test_firstboot_chat_parity.py; S9 is asserted there and in
+tests/bot/test_setup_chat_parity.py.)
 
 Rulings pinned here: Q2 leave-open is KEPT as an explicit saved record;
 Q4 env-token precedence stays exactly as today; Q6 the bare-metal
@@ -73,7 +77,7 @@ FAKE_SNAPSHOT = {
 def make_data(tmp, extra="", environ=None):
     """A settings load rooted at a temp home, LAN bind, Web UI on."""
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/home\n"
+    local.write_text(f"paths:\n  state_home: {tmp}/home\n"
                      "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8088\n" + extra)
     environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
     return settings.load(local=local, environ=environ), local, environ
@@ -93,19 +97,29 @@ def saved_record(data):
 
 class WebUIDriver:
     """The existing in-process handler harness (as in
-    tests/test_webui_walkthrough.py): a real server on an ephemeral port."""
+    tests/test_webui_walkthrough.py): a real server on an ephemeral port.
 
-    def __init__(self, test, tmp, extra="", environ=None):
-        self.data, self.local, self.environ = make_data(tmp, extra, environ)
+    The driver owns its data folder (#1322). A caller's
+    ``with TemporaryDirectory()`` block removed the folder when the test
+    body returned, before any addCleanup ran, so the server was still
+    serving from a folder that no longer existed. Registering the folder's
+    removal first makes it run last."""
+
+    def __init__(self, test, extra="", environ=None):
+        folder = tempfile.TemporaryDirectory()
+        test.addCleanup(folder.cleanup)
+        self.tmp = folder.name
+        self.data, self.local, self.environ = make_data(self.tmp, extra, environ)
         self.httpd = server.make_server(self.data, environ=self.environ,
                                         host="0.0.0.0", port=0,
                                         snapshot_func=lambda: FAKE_SNAPSHOT)
         self.port = self.httpd.server_address[1]
-        thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
-        thread.start()
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
         # addCleanup runs last-in-first-out: registering server_close
         # first makes shutdown() run first, so the serving loop stops
-        # before its socket closes (the old order warned on Windows).
+        # before its socket closes (the old order warned on Windows),
+        # and both run before the data folder registered above is removed.
         test.addCleanup(self.httpd.server_close)
         test.addCleanup(self.httpd.shutdown)
 
@@ -166,14 +180,13 @@ class S1FirstBootOpenEverywhere(unittest.TestCase):
         self.assertEqual(data["webui"]["port"], 8088)
 
     def test_s1_webui_first_boot_serves_the_walkthrough_with_no_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            driver = WebUIDriver(self, tmp)
-            self.assertTrue(gate_reversed(driver.data))
-            code, headers, _ = driver.request("GET", "/", headers=HTML)
-            self.assertNotEqual(headers.get("location"), "/setup")
-            code, _, body = driver.request("GET", "/walkthrough", headers=HTML)
-            self.assertEqual(code, 200)
-            self.assertIn("Printer", body)
+        driver = WebUIDriver(self)
+        self.assertTrue(gate_reversed(driver.data))
+        code, headers, _ = driver.request("GET", "/", headers=HTML)
+        self.assertNotEqual(headers.get("location"), "/setup")
+        code, _, body = driver.request("GET", "/walkthrough", headers=HTML)
+        self.assertEqual(code, 200)
+        self.assertIn("Printer", body)
 
 
 # --------------------------------------------------------------------- S2
@@ -199,17 +212,16 @@ class S2ClaimPassword(unittest.TestCase):
                 CANONICAL["username"], "wrong-password-1"))
 
     def test_s2_claim_password_via_webui(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            driver = WebUIDriver(self, tmp)
-            self.assertTrue(gate_reversed(driver.data))
-            code, _, _ = driver.claim_password()
-            self.assertIn(code, (200, 303))
-            resolved = access.resolve(driver.data, "0.0.0.0", environ={})
-            self.assertEqual(resolved.mode, access.PASSWORD)
-            self.assertTrue(resolved.matches_login(
-                CANONICAL["username"], CANONICAL["password"]))
-            self.assertFalse(resolved.matches_login(
-                CANONICAL["username"], "wrong-password-1"))
+        driver = WebUIDriver(self)
+        self.assertTrue(gate_reversed(driver.data))
+        code, _, _ = driver.claim_password()
+        self.assertIn(code, (200, 303))
+        resolved = access.resolve(driver.data, "0.0.0.0", environ={})
+        self.assertEqual(resolved.mode, access.PASSWORD)
+        self.assertTrue(resolved.matches_login(
+            CANONICAL["username"], CANONICAL["password"]))
+        self.assertFalse(resolved.matches_login(
+            CANONICAL["username"], "wrong-password-1"))
 
 
 # --------------------------------------------------------------------- S3
@@ -227,14 +239,13 @@ class S3LeaveOpen(unittest.TestCase):
             self.assertEqual(resolved.mode, access.OPEN)
 
     def test_s3_leave_open_via_webui(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            driver = WebUIDriver(self, tmp)
-            self.assertTrue(gate_reversed(driver.data))
-            code, _, _ = driver.leave_open()
-            self.assertIn(code, (200, 303))
-            self.assertEqual(saved_record(driver.data), {"mode": access.OPEN})
-            resolved = access.resolve(driver.data, "0.0.0.0", environ={})
-            self.assertEqual(resolved.mode, access.OPEN)
+        driver = WebUIDriver(self)
+        self.assertTrue(gate_reversed(driver.data))
+        code, _, _ = driver.leave_open()
+        self.assertIn(code, (200, 303))
+        self.assertEqual(saved_record(driver.data), {"mode": access.OPEN})
+        resolved = access.resolve(driver.data, "0.0.0.0", environ={})
+        self.assertEqual(resolved.mode, access.OPEN)
 
 
 class S3bClearClaim(unittest.TestCase):
@@ -378,42 +389,41 @@ class S5IdenticalConfig(unittest.TestCase):
         self.assertEqual(missing, set())
 
     def test_s5_full_walkthrough_via_webui_yields_the_reference_state(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            driver = WebUIDriver(self, tmp)
-            webui_fields = {f for fields in walkthrough.STEP_FIELDS.values()
-                            for f in fields}
-            self.assertIn("services.spoolman_url", webui_fields)
-            self.assertTrue(gate_reversed(driver.data))
-            # Drive every field step with the canonical answers, using
-            # the same form shape the existing walkthrough tests use.
-            by_id = {item.id: item for item in
-                     config_api.read_fields(environ=driver.environ)}
-            for step_id, _label in walkthrough.STEPS:
-                fields = {}
-                for field_id in walkthrough.STEP_FIELDS[step_id]:
-                    item = by_id[field_id]
-                    if item.overridden:
-                        continue
-                    value = item.value
-                    fields[field_id] = "" if value is None else str(value)
-                overrides = {
-                    "printer.model": CANONICAL["model"],
-                    "services.moonraker_url": CANONICAL["moonraker_url"],
-                    "services.spoolman_url": CANONICAL["spoolman_url"],
-                    "services.camera_snapshot_url":
-                        CANONICAL["camera_snapshot_url"],
-                    "bot.platform": "discord",
-                    "discord.chat_id": CANONICAL["chat_id"],
-                    "discord.allowed_user_ids": CANONICAL["user_id"],
-                }
-                fields.update({k: v for k, v in overrides.items()
-                               if k in fields})
-                code, _, _ = driver.post_step(step_id, **fields)
-                self.assertIn(code, (200, 303), f"step {step_id}")
-            reloaded = settings.load(local=driver.local,
-                                     environ=driver.environ)
-            self.assertEqual(parity_view(reloaded),
-                             {k: v.rstrip("/") for k, v in PARITY_KEYS.items()})
+        driver = WebUIDriver(self)
+        webui_fields = {f for fields in walkthrough.STEP_FIELDS.values()
+                        for f in fields}
+        self.assertIn("services.spoolman_url", webui_fields)
+        self.assertTrue(gate_reversed(driver.data))
+        # Drive every field step with the canonical answers, using
+        # the same form shape the existing walkthrough tests use.
+        by_id = {item.id: item for item in
+                 config_api.read_fields(environ=driver.environ)}
+        for step_id, _label in walkthrough.STEPS:
+            fields = {}
+            for field_id in walkthrough.STEP_FIELDS[step_id]:
+                item = by_id[field_id]
+                if item.overridden:
+                    continue
+                value = item.value
+                fields[field_id] = "" if value is None else str(value)
+            overrides = {
+                "printer.model": CANONICAL["model"],
+                "services.moonraker_url": CANONICAL["moonraker_url"],
+                "services.spoolman_url": CANONICAL["spoolman_url"],
+                "services.camera_snapshot_url":
+                    CANONICAL["camera_snapshot_url"],
+                "bot.platform": "discord",
+                "discord.chat_id": CANONICAL["chat_id"],
+                "discord.allowed_user_ids": CANONICAL["user_id"],
+            }
+            fields.update({k: v for k, v in overrides.items()
+                           if k in fields})
+            code, _, _ = driver.post_step(step_id, **fields)
+            self.assertIn(code, (200, 303), f"step {step_id}")
+        reloaded = settings.load(local=driver.local,
+                                 environ=driver.environ)
+        self.assertEqual(parity_view(reloaded),
+                         {k: v.rstrip("/") for k, v in PARITY_KEYS.items()})
 
 
 # --------------------------------------------------------------------- S7
@@ -430,6 +440,46 @@ class S7CrossSurfaceCompletion(unittest.TestCase):
             self.assertTrue(walkthrough.pending(data))
             setup_state.record_completion(data, surface="webui")
             self.assertFalse(walkthrough.pending(data))
+
+
+class WebUIDriverCleanupOrder(unittest.TestCase):
+    def test_the_server_stops_before_its_data_folder_is_removed(self):
+        """#1322: the scenarios' cleanups stop the server, close its socket,
+        then remove the folder it served from, in that order."""
+        from unittest import mock
+
+        events, drivers = [], []
+        real_cleanup = tempfile.TemporaryDirectory.cleanup
+
+        def cleanup(folder):
+            events.append(("folder removed", drivers[0].thread.is_alive()))
+            real_cleanup(folder)
+
+        class Scenario(unittest.TestCase):
+            def runTest(inner):
+                drivers.append(WebUIDriver(inner))
+                code, _, _ = drivers[0].request("GET", "/walkthrough", headers=HTML)
+                inner.assertEqual(code, 200)
+
+        result = unittest.TestResult()
+        with mock.patch.object(tempfile.TemporaryDirectory, "cleanup", autospec=True, side_effect=cleanup):
+            Scenario().run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        self.assertEqual(events, [("folder removed", False)])
+        self.assertFalse(Path(drivers[0].tmp).exists())
+
+
+class NoSkipProbes(unittest.TestCase):
+    def test_the_parity_suites_assert_instead_of_skipping(self):
+        """#1157/#1322: every lane these suites once probed for has landed, so a
+        skip here would hide a regression. A new lane asserts or is xfail-registered."""
+        import re
+        tests = Path(__file__).resolve().parent
+        probe = re.compile(r"skipTest\(|pytest\.skip\(|unittest\.skip|skipIf\(|skipUnless\(|pytest\.mark\.skip")
+        for path in (Path(__file__), tests / "bot" / "test_firstboot_chat_parity.py",
+                     tests / "bot" / "test_setup_chat_parity.py"):
+            text = path.read_text(encoding="utf-8").replace(probe.pattern, "")
+            self.assertEqual([], probe.findall(text), path.name)
 
 
 if __name__ == "__main__":

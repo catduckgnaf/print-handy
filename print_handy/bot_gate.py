@@ -22,7 +22,7 @@ import sys
 
 def decide():
     """(start, platform, detail). Raises on an unresolved configuration."""
-    from .hermes import _config
+    from .runtime import _config
     cfg = _config.cfg()
     name = str((cfg.get("bot") or {}).get("platform") or "discord").strip().lower()
     if name == "telegram":

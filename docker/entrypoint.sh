@@ -30,7 +30,7 @@ set -euo pipefail
 # this script with PRINT_HANDY_STATE_MIGRATE_ONLY=1 and the host folder (when
 # it exists) mounted read-only at PRINT_HANDY_LEGACY_STATE, so an install that
 # still has the folder keeps migrating and a new install never creates it.
-# An explicit paths.hermes_home pointing at /data/hermes is honored unchanged
+# An explicit paths.state_home pointing at /data/hermes is honored unchanged
 # (no symlink is needed then).
 data_root="${HOME:-/data}"
 state_home="$data_root/state"
@@ -244,7 +244,7 @@ fi
 if [ "$legacy_home" = "$data_root/hermes" ] && [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
     # The legacy name does not exist at all (the image does not create it,
     # and Compose no longer mounts it): leave it as a symlink to the state
-    # volume so tools and an explicit paths.hermes_home that still use the
+    # volume so tools and an explicit paths.state_home that still use the
     # pre-2.2.5 path keep working (#938), including on an install whose
     # legacy folder was already copied into /data/state. A legacy path that
     # exists as a real folder or mount is never replaced.

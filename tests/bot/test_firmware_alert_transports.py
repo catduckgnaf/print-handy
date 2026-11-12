@@ -67,7 +67,7 @@ def _pid(cfg):
 
 
 def test_discord_alert_button_runs_the_confirmed_update(cfg, tmp_path):
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     discord = fake_discord.FakeDiscord(
         clicks=[{"question": "ZMod update available", "button": "Update"},
                 {"question": "Update printer firmware?", "button": "Update now"}],
@@ -95,7 +95,7 @@ def test_discord_alert_button_runs_the_confirmed_update(cfg, tmp_path):
 
 
 def test_discord_alert_press_by_a_stranger_changes_nothing(cfg, tmp_path):
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, cfg)
@@ -125,7 +125,7 @@ def test_alert_prompt_closes_when_the_waiter_is_cancelled_before_starting(cfg, t
     test above ends exactly that way) must not leave the prompt open in the
     shared registry: a leaked prompt poisons the prompt bookkeeping of
     unrelated features for the rest of the process."""
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, cfg)
@@ -142,7 +142,7 @@ def test_alert_prompt_closes_when_the_waiter_is_cancelled_before_starting(cfg, t
 
 
 def test_telegram_alert_is_an_inline_keyboard(cfg, tmp_path):
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     stub = BotApiStub()
     adapter = telegram.StandaloneAdapter(None, [TG_USER], token=TG_TOKEN, opener=stub)
     core = S(cfg=cfg, adapter=adapter, platform_name="telegram", chat_id=CHAT,
@@ -164,7 +164,7 @@ def test_telegram_alert_is_an_inline_keyboard(cfg, tmp_path):
 
 def test_matrix_alert_names_the_typed_command(cfg, tmp_path):
     cfg = copy.deepcopy(cfg)
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     stub = HomeserverStub()
     adapter = matrix.StandaloneAdapter(None, [MX_USER], homeserver=HOMESERVER, token=MX_TOKEN,
                                        opener=stub)
@@ -185,7 +185,7 @@ def test_the_bot_heartbeat_schedules_alerts_on_every_platform(cfg, tmp_path):
     for module in (client, telegram, matrix):
         assert "await self.core.check_firmware_updates()" in inspect.getsource(module), \
             module.__name__
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, cfg)
@@ -199,8 +199,8 @@ def test_the_bot_heartbeat_schedules_alerts_on_every_platform(cfg, tmp_path):
 
 def _web(cfg, tmp_path, monkeypatch):
     from print_handy.bot import web
-    from print_handy.hermes import _config
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    from print_handy.runtime import _config
+    cfg["paths"]["state_home"] = tmp_path / "home"
     monkeypatch.setattr(_config, "_override", cfg)
     service = web.WebChatService(cfg)
     return web, service
@@ -305,7 +305,7 @@ def test_web_chat_print_firmware_update_helix_runs_the_confirmed_update(
     exactly one upgrade POST names the live component."""
     from unittest import mock
 
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     web, service = _web(cfg, tmp_path, monkeypatch)
 
     class Helix:

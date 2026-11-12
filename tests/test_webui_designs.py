@@ -28,7 +28,7 @@ SCAD_TEXT = "// a bracket\ncube([40, 20, 3]);\n"
 def load_settings(tmp, extra="", environ=None):
     local = Path(tmp) / "local.yaml"
     local.write_text(
-        f"paths:\n  hermes_home: {tmp}/hermes\n  cache: {tmp}/cache\n{extra}")
+        f"paths:\n  state_home: {tmp}/hermes\n  cache: {tmp}/cache\n{extra}")
     return settings.load(local=local, environ={} if environ is None else environ)
 
 

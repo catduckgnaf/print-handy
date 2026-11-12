@@ -102,7 +102,7 @@ WEB_OPERATOR = 'webui'
 def _approvers(platform, cfg):
     from .. import settings as _settings
     if cfg is None:
-        from ..hermes import _config
+        from ..runtime import _config
         cfg = _config.cfg()
     section = (cfg or {}).get(str(platform or 'discord')) or {}
     return section, _settings.approver_ids(section)

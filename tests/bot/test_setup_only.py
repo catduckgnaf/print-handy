@@ -132,7 +132,7 @@ def test_configured_install_with_one_bad_row_is_not_setup_only():
 
 def test_finished_setup_is_not_setup_only_but_a_skipped_one_is(tmp_path):
     from print_handy import setup_state
-    cfg = {"bot": {"platform": "discord"}, "paths": {"hermes_home": tmp_path}}
+    cfg = {"bot": {"platform": "discord"}, "paths": {"state_home": tmp_path}}
     assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is True
     setup_state.record_completion(cfg, "webui", skipped=True)
     assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is True

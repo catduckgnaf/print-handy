@@ -22,12 +22,12 @@ supervisor or healthcheck edits.
 
 | Domain (connection) | Listener | Transport |
 |---|---|---|
-| `moonraker` | implemented: `print_handy.hermes.moonraker_event_listener` | Moonraker websocket |
+| `moonraker` | implemented: `print_handy.runtime.moonraker_event_listener` | Moonraker websocket |
 | `bambulab_lan` | implemented: `print_handy.printers.bambulab.listener` | Bambu LAN MQTT, long-lived |
-| `prusalink` | implemented: `print_handy.hermes.family_event_listener` | PrusaLink HTTP status polling |
-| `elegoo_sdcp` | implemented: `print_handy.hermes.family_event_listener` | Elegoo SDCP status polling |
-| `octoprint` | implemented: `print_handy.hermes.family_event_listener` | OctoPrint HTTP status polling |
-| `flashforge_stock` | implemented: `print_handy.hermes.family_event_listener` | Stock Flashforge LAN HTTP status polling |
+| `prusalink` | implemented: `print_handy.runtime.family_event_listener` | PrusaLink HTTP status polling |
+| `elegoo_sdcp` | implemented: `print_handy.runtime.family_event_listener` | Elegoo SDCP status polling |
+| `octoprint` | implemented: `print_handy.runtime.family_event_listener` | OctoPrint HTTP status polling |
+| `flashforge_stock` | implemented: `print_handy.runtime.family_event_listener` | Stock Flashforge LAN HTTP status polling |
 | `offline` | none, by definition | Print Handy never contacts the printer |
 
 Every connection except `offline` now has a delivered listener. A domain with no listener yet is a normal
@@ -130,7 +130,14 @@ exclude or stop a print. Bambu, Prusa, OctoPrint, and stock Flashforge
 are not given an exclude. On Telegram and Matrix the same choice is
 `/exclude <name>`, which asks before anything is sent.
 #460 gives every other family the same contract through one shared
-mechanism (`print_handy/hermes/family_control.py`), not five copies:
+mechanism (`print_handy/runtime/family_control.py`), not five copies.
+The helpers every listener needs live outside the Moonraker listener
+(#1320): the chat post path, bot tokens, pause classes and the vision
+route in `listener_common.py`, start claims and the abandoned-start rule
+in `start_claims.py`, and the camera watch rules and coverage in
+`camera_watch.py`. No other listener imports
+`moonraker_event_listener`; `tests/hermes/test_camera_watch_core.py`
+enforces it.
 
 - **Launched prints** are claimed by the print path
   (`model_job.claim_start_announcement`, the same claim the Moonraker
@@ -141,7 +148,7 @@ mechanism (`print_handy/hermes/family_control.py`), not five copies:
   print's alerts when it ends.
 - **External prints** (started at the printer or from another app) are
   the listener domain's. The four polling families share one listener
-  (`print_handy/hermes/family_event_listener.py`): it polls the family's
+  (`print_handy/runtime/family_event_listener.py`): it polls the family's
   normalised status every 15 s, the same read its monitor uses, and
   runs the Moonraker state machine over it. The Bambu domain does the
   same through its event sink.

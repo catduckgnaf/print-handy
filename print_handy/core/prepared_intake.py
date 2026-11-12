@@ -25,7 +25,14 @@ from urllib.parse import urlsplit
 from .. import diagnostics, logs, printers, settings
 from . import _external, delivery, failure_report, owned_worker, plate_merge, purge, split_fit
 
-BED = settings.current()['printer']['bed_mm']
+from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
+    BED, FIT_FALLBACK_HEARTBEAT_S, FIT_HEARTBEAT_S, FIT_HINT_PREFIX, FIT_QUIET_S, FitStatus,
+    LARGE_MESH_MB, SCALE_LABEL, SCALE_STEP_PERCENTS, _auto_rearrange_eligible, _elapsed_text,
+    _fit_choice_reply, _fit_failure, _fit_state, _painted_no_fit_detail, _pct, _printer_name,
+    _rotation_phrase, _scale_direction_reply, _scale_fit_offer_reply, _scale_percent_reply,
+    _single_body, _unit_oversize_reply, audit_dimensions, auto_rearrange_notice, fit_choice_rows,
+    fit_hint, fit_question, large_model_notice, row_brim_policy, write_split_plan,
+)
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
 print_summary = _external.lazy('discord_print_summary')
 print_next = _external.lazy('print_next')
@@ -34,37 +41,45 @@ from .quantity_selection import quantity_options, parse_quantity  # noqa: E402
 from .threemf_canonical import intake_working_copy  # noqa: E402
 from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E402
 from . import slice_warnings  # noqa: E402
+from . import status_voice  # noqa: E402
 
-RESLICE_SUPPORTS_LABEL = 'Re-slice with supports'
-PRINT_NO_SUPPORTS_LABEL = 'Print without supports'
+from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
+    PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, with_supports_line,
+)
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 
-_OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors', 'inventory'),
-            ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
-            ('orca_adapter', 'largest_fitting_fraction'),
-            ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
-            ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
-            ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
-            ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
-            ('model_parts', 'combine'),
-            # The painted-plate fit (#1153 item 8): pure-Python 3MF geometry export at each ladder
-            # scale. In a thread it held the GIL for whole stretches of a chat interaction.
-            ('model_job', 'painted_fit_for_job')}
-# Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
-_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
-                 ('orca_adapter', 'largest_fitting_fraction')}
-_STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory': 'the color check',
-                'orca_plate_capacity': 'the bed fit check', 'fit_options': 'the bed fit check',
-                'largest_fitting_fraction': 'the bed fit check',
-                'per_part_fit_options': 'the per-part fit check', 'full_size_split_possible': 'the split check',
-                'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
-                'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
-                'check_source_against_split_plan': 'the split check', 'prepare_cad_split': 'the split',
-                'painted_fit_for_job': 'the bed fit check'}
+from ..intake.worker import (  # moved in 2.3.0 (#1323); old path kept for one release
+    _LOG_LEVELS, _OFFLOAD, _SLICER_STEPS, _STEP_LABELS, _WORKER_LOG_LINE, _await_background_slice,
+    _forward_worker_log_lines, _heavy, _prefetch,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _voice_identity(source):
+    """Scope first-time copy jokes to a user and platform, not the job."""
+    platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
+    user_id = getattr(source, 'user_id', None)
+    if user_id:
+        return f'{platform}:user:{user_id}'
+    return f"{platform}:chat:{getattr(source, 'chat_id', 'unknown')}"
+
+
+def _voiced(text, stage, source, key):
+    """``text`` plus one optional quip for a stage this intake really entered.
+
+    ``key`` is the intake id: a re-render or retry of the same stage shows the
+    same line, and an empty quip leaves ``text`` byte-identical.
+    """
+    return status_voice.voiced(text, stage, identity=_voice_identity(source), event_key=f'{key}:{stage}')
+
+
+def _voice(stage, source, key):
+    """A deferred quip for a FitStatus phase, chosen only if the phase is shown."""
+    return lambda: status_voice.quip(stage, identity=_voice_identity(source), event_key=f'{key}:{stage}')
+
 
 STOP_LABEL = "Stop"
 STOP_CUSTOM_ID = "pbstop:"
@@ -139,6 +154,8 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
             posted.add(stage)
             # A note is progress only: delivery failure never touches the start itself.
             with contextlib.suppress(Exception):
+                if stage in START_PROGRESS_VOICE:
+                    text = _voiced(text, START_PROGRESS_VOICE[stage], source, Path(timing_path).parent.name)
                 await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
 
 
@@ -282,32 +299,8 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
-async def _await_background_slice(runner, binding):
-    """Await the background slice without losing a cancellation (P2-58).
-
-    BackgroundSlice.take() absorbs CancelledError — it waits out its own
-    slice task — so a Stop delivered as a cancellation during the wait
-    would be swallowed and the intake would carry on as if the slice had
-    simply found nothing. Re-raise it, so _with_stop's race turns the
-    press back into the operator's Stop.
-    """
-    result = await runner.take(binding)
-    task = asyncio.current_task()
-    if task is not None and task.cancelling():
-        raise asyncio.CancelledError
-    return result
 
 
-# Fit-check progress: one status line, refreshed while a check runs. When the
-# chat adapter can edit messages (Discord, Matrix, Telegram) the same message is
-# updated; otherwise a new line is posted only when the phase changes or, for a
-# long phase, at most once per FIT_FALLBACK_HEARTBEAT_S.
-FIT_HEARTBEAT_S = 15.0
-FIT_FALLBACK_HEARTBEAT_S = 60.0
-# A fit check that settles this fast posts no status at all: the prefetched probe (#734) is
-# usually a second or two behind a quick color answer, and a status that appears and is
-# replaced at once is noise (2026-11-03).
-FIT_QUIET_S = 3.0
 
 # Start progress (#734): print-now runs as a child process and its result arrives only at
 # the end, while a real start spends 25-75 s between the tap and that result (the start
@@ -321,320 +314,34 @@ START_PROGRESS = (
     ('start_submitted', 3.0, 'The printer accepted the start. It may load filament and heat for a '
                              "few minutes before printing; I'll post when the start is confirmed."),
 )
+# The status voice stage each START_PROGRESS note really reports.
+START_PROGRESS_VOICE = {'upload_verified': 'upload', 'start_submitted': 'print_start'}
 
 
-def _elapsed_text(seconds):
-    seconds = max(0, int(round(seconds)))
-    if seconds < 60:
-        return f'{seconds} s'
-    minutes, rest = divmod(seconds, 60)
-    return f'{minutes} min {rest} s' if rest else f'{minutes} min'
 
 
-class FitStatus:
-    """A single, informative status message for the bed-fit checks.
-
-    ``run(phase, work)`` shows what is being tried and how long the fit check
-    has taken so far, refreshes that every FIT_HEARTBEAT_S while the work
-    runs, and never repeats identical text. Delivery failures never block
-    the check.
-    """
-
-    def __init__(self, adapter, source, metadata, clock=time.monotonic):
-        self.adapter, self.source, self.metadata, self.clock = adapter, source, metadata, clock
-        self.started = clock()
-        self.message_id = None
-        self.last_text = None
-        self.last_post = None
-        adapter_state = getattr(adapter, '__dict__', {})
-        # Scripted test adapters (picks/clicks) record questions only, as _with_stop does.
-        self.silent = 'picks' in adapter_state or 'clicks' in adapter_state
-        self.can_edit = callable(getattr(adapter, 'edit_message', None))
-
-    def elapsed(self):
-        return _elapsed_text(self.clock() - self.started)
-
-    def _target(self):
-        thread = (self.metadata or {}).get('thread_id') or getattr(self.source, 'thread_id', None)
-        return str(thread or self.source.chat_id)
-
-    async def show(self, text, heartbeat=False):
-        if self.silent or not text or text == self.last_text:
-            return
-        if self.message_id is not None and self.can_edit:
-            try:
-                result = await self.adapter.edit_message(chat_id=self._target(), message_id=self.message_id,
-                                                         content=text)
-            except Exception:
-                result = None
-            if result is not None and getattr(result, 'success', False):
-                self.last_text = text
-                return
-            self.can_edit = False  # this adapter or message cannot be edited: post instead
-        if heartbeat and self.last_post is not None and self.clock() - self.last_post < FIT_FALLBACK_HEARTBEAT_S:
-            return
-        try:
-            sent = await self.adapter.send(chat_id=str(self.source.chat_id), content=text, metadata=self.metadata)
-        except Exception:
-            return  # progress delivery must not block offline work
-        self.last_text, self.last_post = text, self.clock()
-        message_id = getattr(sent, 'message_id', None)
-        if message_id:
-            self.message_id = str(message_id)
-
-    async def run(self, phase, work, first_text=None):
-        """Await ``work`` while the status names ``phase`` and the time spent so far.
-
-        ``work`` may be a task started earlier (:func:`_prefetch`); when it has already
-        finished, or finishes within FIT_QUIET_S while no status is showing yet, no status
-        line is posted at all.
-        """
-        task = asyncio.ensure_future(work)
-        if task.done():
-            return task.result()
-        try:
-            if self.last_text is None and FIT_QUIET_S > 0:
-                # Nothing shown yet: give a nearly finished check a moment before announcing it.
-                # Inside the try, so a cancelled intake still cancels the worker below.
-                await asyncio.wait({task}, timeout=FIT_QUIET_S)
-                if task.done():
-                    return task.result()
-            await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
-            while True:
-                done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
-                if done:
-                    return task.result()
-                await self.show(f'Still checking the fit: {phase} ({self.elapsed()}).', heartbeat=True)
-        finally:
-            if not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
-
-    async def finish(self, outcome):
-        """Close the status line with the result and total time, only if one was shown."""
-        if self.last_text is not None:
-            await self.show(f'Fit check done in {self.elapsed()}: {outcome}')
 
 
-def _prefetch(work):
-    """Start ``work`` now and return its task, to be awaited (or abandoned) later.
-
-    An intake that ends before awaiting it (cancel, timeout, a refusal) must not log
-    "Task exception was never retrieved", so the outcome is always marked as read.
-    """
-    task = asyncio.ensure_future(work)
-    task.add_done_callback(lambda done: done.cancelled() or done.exception())
-    return task
 
 
-def _auto_rearrange_eligible(job, latest):
-    """A 100% one-plate rearrangement may be applied without asking.
-
-    Not when the operator already fixed a size or orientation for this job, and
-    not for an inch-confirmed STL (its capacity was probed at authored size).
-    """
-    if (job.get('unit_decision') or {}).get('units') == 'inch':
-        return False
-    scale = latest.get('scale')
-    if scale is not None and abs(float(scale) - 1.0) > 1e-9:
-        return False
-    return not (latest.get('orientation') or latest.get('full_size_split_plan'))
 
 
-def _single_body(job, manifest):
-    """True when the model is one object in one connected shell: nothing to rearrange or split.
-
-    Conservative: any missing measurement (no audit, unknown shell count, a
-    multi-part or multi-plate project) answers False so the full search runs.
-    """
-    audit = job.get('audit') if isinstance(job.get('audit'), dict) else {}
-    mesh = audit.get('mesh_audit') if isinstance(audit.get('mesh_audit'), dict) else {}
-    if mesh.get('shells') != 1:
-        return False
-    if len((manifest or {}).get('parts') or []) > 1:
-        return False
-    return int(audit.get('plates') or 1) <= 1 and int(audit.get('objects') or 1) <= 1
 
 
-def audit_dimensions(job):
-    """Measured [x, y, z] mm from the model audit, else None."""
-    audit = job.get('audit') if isinstance(job.get('audit'), dict) else {}
-    mesh = audit.get('mesh_audit') if isinstance(audit.get('mesh_audit'), dict) else {}
-    dims = mesh.get('dimensions_mm')
-    if isinstance(dims, (list, tuple)) and len(dims) >= 3 and all(isinstance(v, (int, float)) for v in dims[:3]):
-        return [float(v) for v in dims[:3]]
-    return None
 
 
-def auto_rearrange_notice(title, plan, printer=None):
-    """One line saying what was done, distinguishing the author's layout from ours."""
-    count = int(plan.get('part_count') or 0)
-    parts = f'the {count} parts' if count > 1 else 'the parts'
-    verb = 'rotated and rearranged' if int(plan.get('turned_parts') or 0) else 'rearranged'
-    return (f"{title} does not fit the {printer or _printer_name()} bed as the author laid it out, "
-            f"so I {verb} {parts} onto one plate at 100%.")
 
 
-LARGE_MESH_MB = 20
 
 
-def large_model_notice(path):
-    """A heads-up for meshes big enough that the model check takes minutes, else None."""
-    import zipfile
-    try:
-        path = Path(path)
-        if path.suffix.lower() == '.3mf':
-            with zipfile.ZipFile(path) as z:
-                size = sum(i.file_size for i in z.infolist() if i.filename.lower().endswith('.model'))
-        else:
-            size = path.stat().st_size
-    except (OSError, zipfile.BadZipFile):
-        return None
-    mb = size / 1e6
-    if mb < LARGE_MESH_MB:
-        return None
-    minutes = max(1, round(mb / 45))
-    return (f'This is a large model ({mb:.0f} MB of mesh). Checking it takes about '
-            f'{minutes} minute{"s" if minutes != 1 else ""}, so it is not stuck.')
 
 
-_WORKER_LOG_LINE = re.compile(r'^\S+\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+(.*)$')
-_LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
 
 
-def _forward_worker_log_lines(err):
-    """Re-emit a heavy worker's stderr through this process's logging (P2-55).
-
-    The worker configures the shared logging, so its lines are already
-    formatted, timestamped and redacted; forwarding keeps them in the
-    operator's log instead of dropping them whenever the JSON reply parses.
-    A line that does not start a formatted record (a traceback continuation)
-    follows the previous line's level, as does unformatted noise. The worker's
-    timestamp and level are dropped from the message: this logger adds its own
-    (2.2.5 review).
-    """
-    if not err:
-        return
-    level = logging.INFO
-    for raw in err.decode(errors='replace').splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        message = line
-        match = _WORKER_LOG_LINE.match(line)
-        if match:
-            level = getattr(logging, match.group(1))
-            message = match.group(2)
-        elif line.startswith('{'):
-            try:
-                record = json.loads(line)
-            except ValueError:
-                record = None
-            if isinstance(record, dict) and str(record.get('level', '')).upper() in _LOG_LEVELS:
-                level = getattr(logging, str(record['level']).upper())
-                if isinstance(record.get('message'), str):
-                    message = record['message']
-        logger.log(level, '%s', message)
 
 
-async def _heavy(func, *args, **kwargs):
-    """Run CPU-heavy intake work in a child process (own GIL) so Discord buttons answer in time.
-
-    Threads are not enough: large 3MF XML parsing holds the GIL for ~10 s stretches and starves the
-    gateway loop past Discord's 3 s interaction deadline. Substituted callables (tests) run in a thread.
-    The child is owned: it has a deadline and an output limit, and a cancel stops its process group.
-    """
-    import importlib
-    mod, name = getattr(func, '__module__', None), getattr(func, '__name__', None)
-    short = (mod or '').rsplit('.', 1)[-1]
-    real = (short, name) in _OFFLOAD and getattr(importlib.import_module(mod), name, None) is func
-    if not real:
-        return await owned_worker.in_thread(func, *args, **kwargs)
-    def plain(v):
-        return str(v) if isinstance(v, Path) else v
-    payload = json.dumps({'module': short, 'func': name, 'args': [plain(a) for a in args],
-                          'kwargs': {k: plain(v) for k, v in kwargs.items()},
-                          'log_context': logs.bound_context()}).encode()
-    slicer = (short, name) in _SLICER_STEPS
-    # A slice worker leaves a record in its intake folder, so a restart mid-slice can be explained.
-    record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('model_job', 'slice_job') else None
-    out, err = await owned_worker.run(
-        [sys.executable, '-m', 'print_handy.core.heavy_worker'], payload, label=_STEP_LABELS.get(name, name),
-        lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record)
-    _forward_worker_log_lines(err)
-    try:
-        reply = json.loads(out.decode().rstrip().rsplit('\n', 1)[-1])
-    except (ValueError, IndexError):
-        detail = err.decode(errors="replace")[-400:].strip() or 'it stopped without reporting why (killed or crashed)'
-        raise RuntimeError(f'{name} worker failed: {detail}') from None
-    if not reply.get('ok'):
-        from .worker_errors import decode
-        if reply.get('traceback'):
-            # The parent's own traceback ends at this raise; log where the child failed.
-            logger.error('%s worker raised %s; worker traceback:\n%s',
-                         name, reply.get('type') or 'an error', reply['traceback'].rstrip())
-        raise decode(reply)
-    return Path(reply['result']) if reply.get('path') else reply['result']
 
 
-def write_split_plan(job_path, job, manifest, gcodes, plan_id, plans_dir=None):
-    """Record a split slice as a multipart plan that /print-next can resolve exactly.
-
-    Each plate gets one required part bound to its archived JOB.json and absolute
-    G-code path. The plan id is also stored in JOB.json so record_start can put
-    it in the print context and completions advance the plan.
-    """
-    print_records = _external.load('print_records')
-    from . import projects
-    project = job.get('project') if isinstance(job.get('project'), dict) else None
-    project_id = (project or {}).get('project_id') or projects.project_id_for_intake(
-        str(job.get('intake_id') or plan_id))
-    source_kind = (project or {}).get('source_kind') or job.get('project_source_kind') or (
-        'multi_plate_3mf' if job.get('downloaded_file', '').lower().endswith('.3mf') else 'split_print')
-    names = {p['key']: re.sub(r'\.(stl|3mf)$', '', p['name'], flags=re.I) for p in manifest['parts']}
-    rows = {str(Path(r['gcode']).resolve()): r for r in job.get('derived_plates') or [] if r.get('gcode')}
-    parts = []
-    # Per-plate estimates in derived_plates order (plates_of keeps that order), keyed by G-code.
-    by_gcode = {}
-    derived = [r for r in job.get('derived_plates') or []]
-    for r, est in zip(derived, _external.load('discord_print_summary').plate_estimates(job)):
-        if r.get('gcode'):
-            by_gcode[str(Path(r['gcode']).resolve())] = est
-    for n, g in enumerate(gcodes, 1):
-        row = rows.get(str(Path(g).resolve()), {})
-        est = by_gcode.get(str(Path(g).resolve())) or {}
-        label = ', '.join(names.get(k, k) for k in row.get('part_keys') or []) or Path(g).stem
-        if row.get('slot') is not None:
-            label += f" (slot {row['slot']})"
-        parts.append({'id': f'plate{n}', 'label': label, 'plate': n, 'quantity': 1, 'completed_quantity': 0,
-                      'status': 'planned', 'gcode_file': Path(g).name, 'job_json': str(Path(job_path).resolve()),
-                      'gcode_path': str(Path(g).resolve()),
-                      **projects.plate_info(n - 1, row.get('part_keys'))})
-        # One part per plate, so the part and its plate share the plate's G-code time; unknown stays absent.
-        if est.get('seconds') is not None:
-            parts[-1]['estimated_part_seconds'] = parts[-1]['plate_estimate_seconds'] = est['seconds']
-        if est.get('filament_g') is not None:
-            parts[-1]['estimated_filament_g'] = est['filament_g']
-    merge = job.get('plate_merge') or {}
-    reason = merge.get('reason') or ('the chosen slots were sliced as separate single-color plates'
-                                     if not merge else 'the merge planner could not place them on one bed')
-    plan = {'plan_id': plan_id, 'title': job.get('title'), 'split_reason': reason, 'parts': parts,
-            'project_id': project_id, 'source_kind': source_kind, 'project_run_id': 'original'}
-    target = (plans_dir or print_records.PLANS_DIR) / f'{plan_id}.json'
-    print_records._atomic_write(target, json.dumps(plan, indent=2) + '\n')
-    latest = json.loads(Path(job_path).read_text())
-    latest['multipart_plan'] = dict(plan)
-    latest['project_id'] = project_id
-    latest['project_source_kind'] = source_kind
-    latest.setdefault('project', project or {
-        'schema': projects.SCHEMA, 'project_id': project_id,
-        'title': job.get('title') or 'Multi-plate project',
-        'source_kind': source_kind, 'components': [],
-    })
-    from . import model_job as mj
-    mj.write_job(Path(job_path).parent, latest)  # atomic; JOB.json is read concurrently
-    return plan
 
 
 def _preview_description(text):
@@ -728,31 +435,6 @@ def _preview_profile(row):
     return _preview_description(label)
 
 
-def _printer_name(job=None):
-    """The selected printer's name for user-facing text; never a hard-coded model name (#273).
-
-    For the configured printer this is its display_name (the configured
-    [printer] name, #267); for a job recorded for a different model it is
-    that model's label, because display_name would leak the configured
-    printer's name from the shared settings. A job that names its roster
-    printer (#335) is announced by that entry's name — the default printer
-    is named wherever its output stands in for "the printer".
-    """
-    try:
-        pid = job.get("printer_id") if isinstance(job, dict) else None
-        if pid:
-            from .. import settings
-            return settings.by_id(pid).get("name") or str(pid)
-    except Exception:
-        pass
-    try:
-        from . import model_job as mj
-        from .. import printers
-        adapter = mj._job_adapter(job if isinstance(job, dict) else None)
-        return adapter.display_name if adapter.key == printers.current().key else adapter.label
-    except Exception:
-        from .. import printers
-        return printers.current().display_name
 
 
 def preview_sentence(job, row, filament_note=None):
@@ -805,331 +487,57 @@ def _filament_note(job, state):
         return None
 
 
-async def send_preview(adapter, source, job, row, metadata, state=None):
+async def send_preview(adapter, source, job, row, metadata, state=None, voice_key=None):
     """Best effort, display only: no printer, Moonraker, Spoolman, HA or persistence I/O."""
     try:
         text = preview_sentence(job, row, _filament_note(job, state) if state is not None else None)
+        if text and voice_key and (job or {}).get('site') != 'upload':
+            text = _voiced(text, 'link_intake', source, voice_key)  # the link lookup really ran
         if text:
             await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
     except Exception:
         pass
 
 
-def _pct(scale):
-    return f'{round(scale * 100, 1):g}%'
 
 
-def fit_choice_rows(options):
-    """At most four short choices, with full-size rearrange/split before orientation/shrink."""
-    rows = []
-    rearrange = options.get('rearrange_100')
-    if rearrange:
-        rows.append({'kind': 'rearrange', 'label': '100% · rearrange 1 plate',
-                     'scale': 1.0, 'rearrange_100': rearrange})
-    split_plan = options.get('split_plan')
-    if split_plan and len(rows) < 2:
-        rows.append({'kind': 'split', 'label': f"100% · split {len(split_plan['plates'])} plates",
-                     'plates': split_plan['plates'], 'scale': 1.0,
-                     **({'yaw_by_object': split_plan['yaw_by_object']}
-                        if split_plan.get('yaw_by_object') else {}),
-                     **({'placement_by_object': split_plan['placement_by_object']}
-                        if split_plan.get('placement_by_object') else {}),
-                     **({'shifts_by_plate': split_plan['shifts_by_plate']}
-                        if split_plan.get('shifts_by_plate') else {}),
-                     **({'reorientation_by_object': split_plan['reorientation_by_object']}
-                        if split_plan.get('reorientation_by_object') else {})})
-    elif options.get('full_size_split') and len(rows) < 2:
-        rows.append({'kind': 'split', 'label': 'Split plates at 100%', 'scale': 1.0})
-    full_size_available = any(row['kind'] in ('split', 'rearrange') for row in rows)
-    rotations = options.get('rotations') or []
-
-    def rotate_row(alt, label):
-        return {'kind': 'rotate', 'label': label, 'scale': float(alt['scale']),
-                'rotation': alt['rotation'], 'axis': alt.get('axis'),
-                'dims_full_mm': alt.get('dims_full_mm'), 'supports': bool(alt.get('supports')),
-                'brim': bool(alt.get('brim'))}
-
-    full_rotations = 0
-    for alt in rotations:
-        scale = float(alt['scale'])
-        if scale < 0.995 or full_rotations >= (1 if full_size_available else 2):
-            continue
-        support = ' + supports' if alt.get('supports') else ' · rotated'
-        rows.append(rotate_row(alt, f'{_pct(scale)}{support}'))
-        full_rotations += 1
-        if len(rows) == 2:
-            break
-    # Below 100%: offer the largest sizes that really fit, best first. A rotation
-    # that needs supports is only worth a button when it beats every no-support
-    # one, and a plain shrink only when no rotation without supports prints larger.
-    partial = [alt for alt in rotations if 0 < float(alt['scale']) < 0.995]
-    plain = max((a for a in partial if not a.get('supports')), key=lambda a: float(a['scale']), default=None)
-    braced = max((a for a in partial if a.get('supports')), key=lambda a: float(a['scale']), default=None)
-    shrink = next((float(v) for v in options.get('scales') or [] if float(v) < 0.995), None)
-    offers = []
-    if shrink is not None and not (plain and float(plain['scale']) > shrink):
-        offers.append({'kind': 'scale', 'label': f'Shrink to {_pct(shrink)}', 'scale': shrink})
-    if plain:
-        offers.append(rotate_row(plain, f"{_pct(plain['scale'])} · {_rotation_phrase(plain)}"))
-    if braced and (not plain or float(braced['scale']) > float(plain['scale'])):
-        offers.append(rotate_row(braced, f"{_pct(braced['scale'])} · {_rotation_phrase(braced)} + supports"))
-    offers.sort(key=lambda row: -row['scale'])
-    for row in offers:
-        if len(rows) < 3:
-            rows.append(row)
-    rows.append({'kind': 'cancel', 'label': 'Cancel'})
-    return rows
 
 
-def _rotation_phrase(alt):
-    """Short button words for a rotated option: "turned 126°" or "rotated 90° on Y"."""
-    name = str(alt.get('name') or alt.get('label') or '')
-    turn = re.match(r'Turn (-?[\d.]+)°', name)
-    if turn:
-        return f'turned {turn[1]}°'
-    tilt = re.match(r'Rotate (-?[\d.]+)° on ([A-Z])', name)
-    return f'rotated {tilt[1]}° on {tilt[2]}' if tilt else 'rotated'
 
 
-FIT_HINT_PREFIX = 'Pick a fit option, or type '
 
 
-def row_brim_policy(row, options):
-    """Brim policy that goes with the chosen fit row, or None to use the model's own rule.
-
-    The tight-fit policy was sized for the authored orientation. A rotated row was
-    sized separately: no brim when its bed contact is wide, or the 5 mm
-    small-contact brim when it was flagged (that stays with the orientation).
-    """
-    if row.get('kind') != 'rotate':
-        return options.get('brim_policy')
-    if row.get('brim'):
-        return None
-    return {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}
 
 
-def fit_hint(rows):
-    """The "type ..." hint, naming only actions that are actually offered."""
-    kinds = {row['kind'] for row in rows}
-    words = []
-    if 'rearrange' in kinds:
-        words.append('rearrange')
-    if 'split' in kinds:
-        words.append('split')
-    if any(row['kind'] in ('rearrange', 'split') or (row['kind'] in ('rotate', 'painted') and row['scale'] >= 0.995)
-           for row in rows):
-        words.append('100%')
-    if any(row['kind'] == 'scale' or (row['kind'] in ('rotate', 'painted') and row['scale'] < 0.995)
-           for row in rows):
-        words.append('shrink')
-    words.append('cancel')
-    return FIT_HINT_PREFIX + ' / '.join(words) + '.'
 
 
-def _typo_words(value):
-    """Fold known misspellings word by word ("shrnik" -> "shrink"), keeping everything else as typed."""
-    from .fuzzy_vocabulary import TYPO_FORMS
-    return ' '.join(TYPO_FORMS.get(word, word) for word in value.split())
+from ..intake.questions import (  # moved in 2.3.0 (#1323); old path kept for one release
+    COLOR_CONFIRM_ROUNDS, PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, _COLOR_NAMES, _CONFIRM_COLOR,
+    _CONFIRM_LABEL, _LIVE_KEY, _NOISE, _ask, _color_guess_text, _color_phrase,
+    _raw_preupload_refusal, _retry_choice_reply, _typo_words, accept_color_mismatch,
+    accept_label_mismatch, clear_color_acceptance, clear_label_acceptance, color_confirm,
+    color_confirm_question, label_confirm, label_confirm_question, screen_unpushed_note,
+)
 
 
-def _fit_choice_reply(text, rows):
-    """Resolve typed fit intent only when it names one available action."""
-    value = _typo_words(str(text or '').strip().casefold())
-    if value in {'rearrange', 'rearrange 1 plate', 'rearrange plate', 'pack'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'rearrange']
-    elif value in {'split', 'separate', 'split plates'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'split'
-                   or (row['kind'] == 'painted' and 'split' in row['label'])]
-    elif value in {'100%', '100', 'full', 'full size'} or 'full size' in value:
-        matches = [i for i, row in enumerate(rows) if row['kind'] in ('rearrange', 'split')
-                   or (row['kind'] in ('painted', 'rotate') and row['scale'] >= 1.0)]
-    elif value in {'cancel', 'stop', "don't print"}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
-    elif value in {'shrink', 'smaller'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'scale'
-                   or (row['kind'] in ('painted', 'rotate') and row['scale'] < 0.995)]
-        if len(matches) > 1:  # several smaller sizes are offered: "shrink" means the largest
-            matches = [max(matches, key=lambda i: rows[i]['scale'])]
-    elif re.fullmatch(r'\d+(?:\.\d+)?\s*%', value):
-        percent = float(value.rstrip('%').strip())
-        matches = [i for i, row in enumerate(rows)
-                   if row['kind'] in ('scale', 'rotate', 'painted') and abs(row['scale'] * 100 - percent) < 0.06]
-    elif re.fullmatch(r'\d+(?:\.\d+)?', value):
-        percent = float(value)
-        matches = [i for i, row in enumerate(rows)
-                   if row['kind'] in ('scale', 'rotate', 'painted') and abs(row['scale'] * 100 - percent) < 0.06]
-    else:
-        return None
-    if len(matches) != 1:
-        raise ValueError('that fit choice is not available; choose a listed button')
-    return matches[0]
 
 
-SCALE_STEP_PERCENTS = (1, 5, 10)
-SCALE_LABEL = 'Scale the model'
 
 
-def _scale_direction_reply(text):
-    """Typed answer to the scale direction question: 0 bigger, 1 smaller, 2 back, else None."""
-    value = _typo_words(str(text or '').strip().casefold())
-    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
-        return 2
-    if any(word in value for word in ('bigger', 'larger', 'grow', 'up')):
-        return 0
-    if any(word in value for word in ('smaller', 'shrink', 'down')):
-        return 1
-    return None
 
 
-def _scale_percent_reply(text):
-    """Typed answer to the scale amount question: index into SCALE_STEP_PERCENTS, 3 back, else None."""
-    value = str(text or '').strip().casefold().rstrip('%').strip()
-    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
-        return len(SCALE_STEP_PERCENTS)
-    for index, step in enumerate(SCALE_STEP_PERCENTS):
-        if value == str(step):
-            return index
-    return None
 
 
-def _scale_fit_offer_reply(text):
-    """Typed answer to the biggest-fit offer: 0 take it, 1 keep the current size, 2 back, else None.
-
-    Refusals are read before affirmatives: "do not scale" and "no, keep the
-    current scale" both contain the word "scale" but decline the offer.
-    """
-    value = ' '.join(str(text or '').casefold().split()).strip('.,!')
-    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
-        return 2
-    if (value.startswith('no') or 'keep' in value or 'stay' in value or 'current' in value
-            or 'not scale' in value or "don't scale" in value or 'do not scale' in value):
-        return 1
-    if (value in {'yes', 'scale', 'biggest', 'do it', 'ok', 'okay', 'yep'}
-            or value.startswith('scale to') or value.startswith('scale it')):
-        return 0
-    return None
 
 
-def fit_question(title, options, rows=None):
-    rows = rows if rows is not None else fit_choice_rows(options)
-    scales = options.get('scales') or []
-    rotations = options.get('rotations') or []
-    parts = options.get('parts') or []
-    part_name = options.get('part_name') or (parts[0].get('name') if parts else title)
-    extent = options.get('extent_mm') or (parts[0].get('extent_mm') if parts else None)
-    extent_text = ' × '.join(f'{v:g}' for v in extent[:3]) + ' mm' if extent else 'measured dimensions unavailable'
-    checked = options.get('orientations_checked') or (parts[0].get('orientations_checked') if parts else None)
-    orientations = ', '.join(checked or ['authored XY', 'verified rotations'])
-    lines = [f'{part_name} ({extent_text}) does not fit the bed full size as the author laid it out.']
-    rearrange = options.get('rearrange_100')
-    if rearrange:
-        count = rearrange.get('part_count')
-        lines.append(f"Rearranged: {'all ' + str(count) + ' parts' if count else 'the parts'} "
-                     'fit one plate at full size.')
-    blocking = options.get('blocking_part') or next(
-        (part for part in parts if part.get('fits_full_size') is False), None)
-    if blocking:
-        # This part is oversized on its own (#76): say so plainly, with the
-        # measured limit it was checked against, before offering anything.
-        reason = blocking.get('blocking_reason')
-        if reason:
-            lines.append(f"{blocking.get('name') or part_name} does not fit a plate on its own: {reason}.")
-        lines.append('Splitting other parts onto separate plates, or reducing the gap between '
-                     'parts, does not shrink this part. Supports can help overhangs but do not '
-                     'make a part smaller, and can take more bed space.')
-    if scales:
-        lines.append(f'Shrink option: as authored it fits at {_pct(scales[0])} max.')
-    for alt in rotations[:2]:
-        size = ' x '.join(f'{v:g}' for v in alt.get('dims_mm') or [])
-        warn = []
-        if alt.get('supports'):
-            warn.append('needs supports (overhangs face down; expect support marks)')
-        if alt.get('brim'):
-            warn.append('small bed contact for its height, so a 5 mm brim is added')
-        lines.append(f"Rotated: {alt['label'].split(',')[0]} fits at "
-                     f"{'full size' if alt['scale'] >= 1 else _pct(alt['scale'])} ({size} mm)"
-                     + (f"; {'; '.join(warn)}" if warn else '') + '.')
-    if options.get('full_size_split'):
-        lines.append('Full-size option: separate already-independent parts onto the original plates (100%).')
-    policy = options.get('brim_policy')
-    if policy and float(policy.get('width_mm') or 0) > 0 and any(row['kind'] == 'scale' for row in rows):
-        lines.append('Tight-fit brim policy: ' + policy.get('label', 'Outer-only brim') + '.')
-    lines.append(fit_hint(rows))
-    return '\n'.join(lines)
 
 
-def _fit_failure(job, capacity):
-    model = str(job.get('title') or 'The selected model')
-    source = job.get('selected_source') or {}
-    if isinstance(source, dict):
-        plate = str(source.get('title') or source.get('name') or 'selected source')
-    else:
-        plate = str(source or 'selected source')
-    # Name the measured extent against the usable area, so the operator can
-    # tell whether the model is over by 2 mm or 80 mm (#839).
-    measured = ''
-    dims = audit_dimensions(job)
-    if dims:
-        hardware = job.get('hardware') if isinstance(job.get('hardware'), dict) else {}
-        bed = hardware.get('bed_mm') or BED
-        measured = (f" ({dims[0]:g} x {dims[1]:g} mm vs usable {float(bed[0]) - 16:g} x "
-                    f"{float(bed[1]) - 16:g} mm)")
-    return (f'{model} using {plate} does not fit on one {_printer_name(job)} plate{measured}: calculated capacity is {capacity} copy with '
-            '10 mm spacing and 8 mm edge margins. Choose a smaller profile, split it into plates, or scale it down.')
 
 
-def _painted_no_fit_detail(fit, state):
-    """The measured size sentence for a real painted no-fit (#839).
-
-    Uses the blocking plate's layout measured at the 50% floor by
-    painted_fit_for_job; when no measurement exists, says so instead of
-    inventing numbers.
-    """
-    layout = fit.get('blocking_layout') or {}
-    extent = layout.get('extent_mm')
-    if not extent or len(extent) < 2:
-        return ' I could not measure the plate layout, so no measured size is available for this refusal.'
-    bed = (state or {}).get('bed_mm') or BED
-    detail = (f" Even at 50%, the plate that blocks it measures {float(extent[0]):g} x "
-              f"{float(extent[1]):g} mm")
-    tower = layout.get('tower_mm')
-    if tower:
-        detail += f" plus a {float(tower):g} x {float(tower):g} mm prime tower"
-    return detail + f"; the usable area is {float(bed[0]):g} x {float(bed[1]):g} mm."
 
 
-def _unit_oversize_reply(text, rows):
-    """Typed answers for the oversize-inch question: mm, scale (or its percent), or cancel."""
-    value = _typo_words(str(text or '').strip().casefold())
-    if value in {'mm', 'millimeter', 'millimeters', 'use mm', 'use mm instead', 'millimeters instead'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'mm']
-    elif value in {'scale', 'shrink', 'smaller', 'scale it', 'scale to fit'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'scale']
-    elif re.fullmatch(r'\d+(?:\.\d+)?\s*%', value):
-        percent = float(value.rstrip('%').strip())
-        matches = [i for i, row in enumerate(rows)
-                   if row['kind'] == 'scale' and abs(row['scale'] * 100 - percent) < 0.06]
-    elif value in {'cancel', 'stop', "don't print"}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
-    else:
-        return None
-    if len(matches) != 1:
-        raise ValueError('that choice is not available; choose a listed button')
-    return matches[0]
 
 
-def _retry_choice_reply(text, rows):
-    """Typed answers for a Retry/Cancel question: 'retry'/'try again' or 'cancel'."""
-    value = str(text or '').strip().casefold()
-    if value in {'retry', 'try again', 'retry fit check'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'retry']
-    elif value in {'cancel', 'stop', "don't print"}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
-    else:
-        return None
-    if len(matches) != 1:
-        raise ValueError('that choice is not available; choose a listed button')
-    return matches[0]
 
 
 MODEL_FILE_EXTS = {'.3mf', '.stl'}
@@ -1362,7 +770,7 @@ def last_printed_job(archive=None, printer_id=None):
     #979 failure itself). /print-again can still reprint that job's exact
     G-code. Local files only; read only.
     """
-    from ..hermes import print_control as pc
+    from ..runtime import print_control as pc
     from . import model_job as mj
     archive = Path(archive or mj.ARCHIVE).resolve()
     for record in pc._launch_records(archive):
@@ -1556,7 +964,6 @@ async def announce_interrupted(root, adapter, now=None, platform=None):
     return announced
 
 
-_LIVE_KEY = contextvars.ContextVar('prepared_intake_live_key', default=None)
 
 
 from .link_intake import PromptCancelled as IntakeCancelled  # noqa: E402  typed Cancel/Stop at any prompt
@@ -1724,70 +1131,14 @@ async def _connect_account(adapter, source, key, metadata, exc, timeout):
     return saved in (0, SAVED_LABEL)
 
 
-def _color_guess_text(mj, job, decisions):
-    """Display only: say so when a slot this job uses has no real color code.
-
-    A slot whose color could not be worked out previews in neutral gray;
-    the operator hears that before slicing rather than discovering it.
-    """
-    try:
-        slots = {row.get('slot') for row in ((decisions or {}).get('choices') or {}).values()
-                 if isinstance(row, dict) and row.get('slot') is not None}
-        selection = (job or {}).get('filament_selection') or {}
-        if isinstance(selection, dict) and selection.get('slot') is not None:
-            slots.add(selection['slot'])
-        from .filament_color import chat_notes
-        if not slots:
-            return ''
-        return '\n'.join(chat_notes(mj.printer_state.load(), slots))
-    except Exception:
-        return ''
 
 
-async def _ask(adapter, source, key, question, choices, timeout=None, **kwargs):
-    """ask() registered under the live chat session so typed replies reach the prompt."""
-    live_key = kwargs.pop('live_key', None) or _LIVE_KEY.get() or key
-    on_shown = kwargs.pop('on_shown', None)
-    if on_shown is not None:  # fire as the question goes up, before the operator answers
-        on_shown()
-    from . import yolo
-    if yolo.ACTIVE.get() and choices:
-        # Yolo answers every question with its go option, out loud (no silent skips).
-        pick = yolo.auto_answer(choices)
-        if pick is not None:
-            # An AI fix is a model change a person must see and confirm
-            # (#978/#985): yolo never picks the fix offer or an apply button,
-            # so it goes to a person like a restart or a rescale does.
-            from . import ai_fix as _ai_fix
-            if str(list(choices)[pick]) in (_ai_fix.FIX_LABEL, _ai_fix.APPLY_LABEL,
-                                            _ai_fix.APPLY_KEEP_OPENINGS_LABEL):
-                pick = None
-        first = next((ln.strip() for ln in str(question or '').splitlines() if ln.strip()), 'question')
-        if len(first) > 120:
-            first = first[:117] + '...'
-        meta = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
-        if pick is not None:
-            with contextlib.suppress(Exception):
-                await adapter.send(chat_id=source.chat_id, metadata=meta,
-                                   content=f'Yolo: {first} -> {list(choices)[pick]}')
-            return pick
-        # A printer action or a model change: yolo never answers these itself.
-        with contextlib.suppress(Exception):
-            await adapter.send(chat_id=source.chat_id, metadata=meta,
-                               content=f'Yolo does not answer this one; a person has to: {first}')
-    return await ask(adapter, source, key, question, list(choices), timeout, live_key=live_key, **kwargs)
 
 
-_NOISE = re.compile(r'^(?:TIMING \{|G-CODE OK:)')
 _HEATER_TARGET = re.compile(
     r'(rightTargetTemp|platTargetTemp)\s*==\s*0\s*\(observed\s*([0-9]+(?:\.[0-9]+)?)', re.I)
 
 
-def _raw_preupload_refusal(tail):
-    """Return the refusal line, excluding timing and preflight diagnostics."""
-    lines = [ln.strip() for ln in str(tail or '').splitlines()
-             if ln.strip() and not _NOISE.match(ln.strip())]
-    return next((ln for ln in reversed(lines) if ln.startswith('REFUSED:')), '')
 
 
 START_PENDING_MESSAGE = ('Start sent, but the printer has not confirmed it yet. It is probably still heating '
@@ -1821,119 +1172,28 @@ def classify_start(ok, tail):
                       unknown, pending)
 
 
-_CONFIRM_COLOR = re.compile(r'printer slot (\d+) color is (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
-PRINT_ANYWAY_LABEL = 'Print anyway'
-SET_SCREEN_LABEL = 'Set screen to Spoolman color, then print'
-COLOR_CONFIRM_ROUNDS = 3  # the screen may change again between answers; the last round surfaces a Retry refusal
-_COLOR_NAMES = {
-    'red': 'E53935', 'orange': 'FB8C00', 'yellow': 'FDD835', 'green': '43A047', 'teal': '00897B',
-    'blue': '1E88E5', 'navy': '1A237E', 'purple': '8E24AA', 'pink': 'EC407A', 'brown': '6D4C41',
-    'bronze': 'CD7F32', 'gold': 'D4AF37', 'silver': 'B0B0B0', 'gray': '808080', 'white': 'FFFFFF',
-    'black': '000000', 'beige': 'D8C3A5'}
 
 
-def color_confirm(tail):
-    """Every slot color difference print-now stopped on before upload, in slot order ([] if none) (#795)."""
-    raw = _raw_preupload_refusal(tail)
-    if not raw.startswith('REFUSED:'):
-        return []
-    return [{'slot': int(m[1]), 'live': m[2], 'recorded': m[3], 'tool': int(m[4])}
-            for m in _CONFIRM_COLOR.finditer(raw)]
 
 
-def _color_phrase(shown):
-    """A shown hex in plain words ('red #E53935'); anything that is not a hex stays as shown."""
-    from . import filament_color
-    distances = {name: filament_color.color_distance(shown, hex_) for name, hex_ in _COLOR_NAMES.items()}
-    distances = {name: d for name, d in distances.items() if d is not None}
-    if not distances:
-        return shown
-    return f"{min(distances, key=distances.get)} {shown}"
 
 
-def color_confirm_question(confirms):
-    lines = [f"slot {c['slot']} (T{c['tool']}): the screen says {_color_phrase(c['live'])}, "
-             f"Spoolman has {_color_phrase(c['recorded'])}" for c in confirms]
-    return ("Heads-up: " + ('a slot color differs' if len(lines) == 1 else 'some slot colors differ')
-            + " between the printer screen and Spoolman.\n" + "\n".join(lines)
-            + "\nNothing is uploaded yet. Print anyway with the loaded spools, update the screen to the "
-              "Spoolman colors and print, or cancel?")
 
 
-def screen_unpushed_note(confirms):
-    """The post for slots 'Set screen to Spoolman color' could not update: the print goes ahead as is (#798)."""
-    slots = [f"slot {c['slot']}" for c in confirms]
-    named = slots[0] if len(slots) == 1 else ', '.join(slots[:-1]) + ' and ' + slots[-1]
-    return f"Couldn't update the screen color for {named}, so I'm printing with the screen color unchanged."
 
 
-def accept_color_mismatch(job_json, target, confirms):
-    """Record a single-use Print anyway for this exact G-code and these listed differences (#795)."""
-    from . import model_job as mj
-    job = json.loads(Path(job_json).read_text())
-    keys = [mj.color_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
-    prior = mj.accepted_color_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
-    job['color_mismatch_accepted'] = {
-        'gcode_sha256': target['gcode_sha256'],
-        'slots': sorted(prior | set(keys)),
-        'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
-    mj.write_job(Path(job_json).parent, job)
-    return job['color_mismatch_accepted']
 
 
-def clear_color_acceptance(job_json):
-    """Consume the acknowledgement: it never carries over to a later start."""
-    from . import model_job as mj
-    job = json.loads(Path(job_json).read_text())
-    if job.pop('color_mismatch_accepted', None) is not None:
-        mj.write_job(Path(job_json).parent, job)
 
 
-_CONFIRM_LABEL = re.compile(r'printer slot (\d+) is labeled (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
 
 
-def label_confirm(tail):
-    """Every slot material-label difference print-now stopped on before upload, in slot order ([] if none) (#839)."""
-    raw = _raw_preupload_refusal(tail)
-    if not raw.startswith('REFUSED:'):
-        return []
-    return [{'slot': int(m[1]), 'live': m[2], 'recorded': m[3], 'tool': int(m[4])}
-            for m in _CONFIRM_LABEL.finditer(raw)]
 
 
-def label_confirm_question(confirms):
-    lines = [f"slot {c['slot']} (T{c['tool']}): the screen label says {c['live']}, "
-             f"Spoolman has {c['recorded']}" for c in confirms]
-    return ("Heads-up: " + ('a slot material label differs' if len(lines) == 1
-                            else 'some slot material labels differ')
-            + " between the printer screen and Spoolman.\n" + "\n".join(lines)
-            + "\nNothing is uploaded yet. Print anyway with the loaded spools, or cancel?")
 
 
-def accept_label_mismatch(job_json, target, confirms):
-    """Record a single-use Print anyway for this exact G-code and these listed label differences (#839).
-
-    Mirrors accept_color_mismatch: same per-G-code-SHA binding, consumed
-    by the caller before the retry's start runs.
-    """
-    from . import model_job as mj
-    job = json.loads(Path(job_json).read_text())
-    keys = [mj.label_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
-    prior = mj.accepted_label_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
-    job['label_mismatch_accepted'] = {
-        'gcode_sha256': target['gcode_sha256'],
-        'slots': sorted(prior | set(keys)),
-        'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
-    mj.write_job(Path(job_json).parent, job)
-    return job['label_mismatch_accepted']
 
 
-def clear_label_acceptance(job_json):
-    """Consume the acknowledgement: it never carries over to a later start."""
-    from . import model_job as mj
-    job = json.loads(Path(job_json).read_text())
-    if job.pop('label_mismatch_accepted', None) is not None:
-        mj.write_job(Path(job_json).parent, job)
 
 
 async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, receipt_path=None):
@@ -2073,7 +1333,8 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None, prin
     with contextlib.suppress(Exception):
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
-    ok, result = await asyncio.to_thread(pc.force_reboot, printer_id=printer_id)
+    from print_handy import printer_control
+    ok, result = await asyncio.to_thread(printer_control.for_printer(printer_id).force_reboot)
     return result + (' Send the link or press Print again to retry.' if ok else '')
 
 
@@ -2422,7 +1683,7 @@ def _variant_estimate_str(job_data, result):
     if not result or not job_data:
         return 'slicing...'
     try:
-        from print_handy.hermes import discord_print_summary as dps
+        from print_handy.runtime import discord_print_summary as dps
         plates = dps.plate_estimates(job_data)
         if plates:
             secs = sum(p['seconds'] for p in plates if p.get('seconds') is not None)
@@ -2606,83 +1867,10 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
 
 
-def with_supports_line(reason, estimate, finding, clearance):
-    """The with-supports line of the Ready question.
-
-    Supports are recommended only when they can help. A risky clearance with
-    no slicer finding means the only evidence is a gap supports cannot reach,
-    so recommending them would contradict the reason given.
-    """
-    from . import support_clearance
-
-    if not finding and support_clearance.risky(clearance):
-        return f"- Slice and print with supports (not recommended: {reason}): {estimate}"
-    return f"- Slice and print with supports (recommended: {reason or 'floating regions found'}): {estimate}"
 
 
-def supports_decision(flagged, finding, clearance):
-    """(show, reason, inputs) for the supports question (#1020 F).
-
-    ``show`` is True only on evidence: a slicer floating-region finding,
-    a risky clearance report, or the slice's own flagged bit (which the
-    background slice derives from those same two sources). A flat model
-    — no finding, not flagged, clearance clean — never shows the menu.
-
-    ``reason`` names the evidence **with its numbers** (how many
-    floating regions; the smallest clearance in mm), because "supports
-    are recommended" without the measurement is not a decision the
-    operator can judge. ``inputs`` is the raw decision record: it is
-    logged at composition and stored on the intake record with the
-    clearance report and the finding, so a shown (or hidden) menu can
-    be audited later.
-    """
-    from . import support_clearance
-
-    risky = support_clearance.risky(clearance)
-    reasons = []
-    if finding:
-        objects = finding.get('objects') or []
-        texts = finding.get('texts') or []
-        count = len(objects) or len(texts)
-        if count == 1:
-            reasons.append("the slicer found 1 floating region that needs support")
-        elif count:
-            reasons.append(f"the slicer found {count} floating regions that need support")
-        else:
-            reasons.append("the slicer found floating regions that need support")
-    if risky:
-        gaps = []
-        for f in (clearance or {}).get('findings') or []:
-            window = f.get('clearance_mm') or {}
-            if isinstance(window.get('min'), (int, float)):
-                gaps.append(window['min'])
-        if gaps:
-            reasons.append(f"an underside clears what is below it by only "
-                           f"{support_clearance._fmt(min(gaps))} mm — too low for supports to reach")
-        else:
-            reasons.append("a low-clearance underside leaves no room for supports to reach")
-    if not reasons and flagged:
-        reasons.append("the slice was flagged for supports")
-    show = bool(flagged or finding or risky)
-    inputs = {'flagged': bool(flagged), 'finding': bool(finding),
-              'clearance_risky': bool(risky),
-              'clearance_codes': support_clearance.codes(clearance) if clearance else []}
-    return show, '; '.join(reasons), inputs
 
 
-def _fit_state(state, job):
-    """The printer state the bed fit probes read: ``state`` naming the job's printer model.
-
-    The probes run in a worker process whose settings are the default printer's,
-    so without the model they would apply the default printer's bed exclusion
-    area to another printer's job (#1195). A job with no printer id belongs to
-    the default printer and gets ``state`` unchanged. An id the roster does not
-    know raises (settings.by_id), so the probe fails by name instead of guessing.
-    """
-    printer_id = job.get('printer_id')
-    if not printer_id:
-        return state
-    return {**state, 'printer_model': settings.by_id(printer_id)['model']}
 
 
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
@@ -2844,7 +2032,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if len(picked) > 1:
                 parts = picked
                 chosen = {'kind': 'parts', 'title': _parts_title(parts)}
-        await send_preview(adapter, source, job, chosen, metadata, state=state)
+        await send_preview(adapter, source, job, chosen, metadata, state=state, voice_key=iid)
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
@@ -2870,7 +2058,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         await asyncio.to_thread(intake_working_copy, path)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
-        job['audit'] = await _with_stop(adapter, source, key, metadata, large_model_notice(path),
+        job['audit'] = await _with_stop(adapter, source, key, metadata,
+                                        _voiced(large_model_notice(path), 'model_audit', source, iid),
                                         _heavy(mj.audit, path))
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
@@ -2882,7 +2071,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         actual_sha = await asyncio.to_thread(mj.file_sha256, path)
         if not (isinstance(manifest, dict) and manifest.get('source_sha256') == actual_sha):
             manifest = await _with_stop(
-                adapter, source, key, metadata, "Checking the model. Press Stop to cancel.",
+                adapter, source, key, metadata,
+                _voiced("Checking the model. Press Stop to cancel.", "color_detection", source, iid),
                 _heavy(inventory, path))
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
@@ -3140,7 +2330,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         fit_status = FitStatus(adapter, source, metadata)
         try:
             capacity = await fit_status.run('checking the layout as the author laid it out', fit_probe,
-                                            first_text='Checking whether it fits the bed.')
+                                            first_text=_voiced('Checking fit and calculating plate capacity.',
+                                                               'plate_capacity', source, iid))
         except Exception as exc:
             logger.exception('fit check failed; intake is resumable')
             receipt['status'] = 'FIT_UNKNOWN'
@@ -3249,7 +2440,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                         latest.get('color_decisions'),
                                                         capacity=mj.position_limit(job_adapter),
                                                         multi_tool=job_adapter.multi_tool,
-                                                        job=latest))
+                                                        job=latest),
+                                                 voice=_voice('plate_arrangement', source, iid))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')
@@ -3273,7 +2465,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 options = await fit_status.run('trying rotations and smaller sizes',
                                                _heavy(orca_adapter.fit_options, path,
                                                       {**fit_state, 'fit_rearrange_checked': True}
-                                                      if rearrange_checked else fit_state))
+                                                      if rearrange_checked else fit_state),
+                                               voice=_voice('bed_fit', source, iid))
             except Exception as exc:
                 receipt['status'] = 'FIT_UNKNOWN'
                 receipt['fit_error'] = str(exc)
@@ -3330,7 +2523,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 split_plan = await fit_status.run('trying a split onto separate plates at 100%',
                                                   _heavy(split_fit.split_plan_100, path,
                                                          int((state.get('bed_mm') or BED)[0]),
-                                                         brim_policy=options.get('brim_policy'), state=fit_state))
+                                                         brim_policy=options.get('brim_policy'), state=fit_state),
+                                                  voice=_voice('split', source, iid))
             except Exception:
                 split_plan = None
             try:
@@ -3342,7 +2536,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                        _heavy(plate_merge.full_size_split_possible, path, manifest,
                                                               int((state.get('bed_mm') or BED)[0]),
                                                               brim_policy=options.get('brim_policy'),
-                                                              state=state))
+                                                              state=state),
+                                                       voice=_voice('split', source, iid))
             except Exception:
                 full_size_split = False
             if split_plan:
@@ -3568,6 +2763,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         mj.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        # Quantity is validated against real capacity above. A once-per-user
+        # Easter egg for 2, 10 or 11 must never influence selection or slicing.
+        if not preset_copies and len(quantities) > 1 and chosen_quantity > 1:
+            joke = status_voice.quip(
+                'quantity_selected', copies=chosen_quantity,
+                identity=_voice_identity(source),
+                event_key=f'{iid}:copies:{chosen_quantity}')
+            if joke:
+                try:
+                    await adapter.send(
+                        chat_id=source.chat_id,
+                        content=f'{chosen_quantity} copies selected. {joke}',
+                        metadata=metadata)
+                except Exception:
+                    logger.warning('could not send optional quantity joke', exc_info=True)
         if before_start is not None:
             # An edit carried beside the link or file ("<link> shrink this by
             # 20%", #903) applies to the prepared job BEFORE any slice is armed
@@ -3860,8 +3070,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         clearance = None
                     mj.write_job(folder, latest)
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content='Reoriented: laid the largest face flat. The support question '
-                                               'will be evaluated again for the new orientation.')
+                                       content=_voiced('Reoriented: laid the largest face flat. The support '
+                                                       'question will be evaluated again for the new orientation.',
+                                                       'rotation', source, iid))
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
@@ -3882,8 +3093,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     await early.discard()
                     res = support_clearance.extend_underside(path, gap_mm=f['clearance_mm']['min'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
-                                               f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...")
+                                       content=_voiced(
+                                           f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
+                                           f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...",
+                                           'mesh_repair', source, iid))
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -3914,8 +3127,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     await early.discard()  # see the extend action above
                     res = support_clearance.sink_model(path, dz=f['clearance_mm']['max'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Flattened model to plate by sinking {res['sink_mm']} mm "
-                                               f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...")
+                                       content=_voiced(
+                                           f"Flattened model to plate by sinking {res['sink_mm']} mm "
+                                           f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...",
+                                           'mesh_repair', source, iid))
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -4150,7 +3365,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     measured_gap = max(measured_gap or 0.0, float(region_gap))
             bed_mm = nozzle_mm = None
             with contextlib.suppress(Exception):
-                from ..hermes import _config
+                from ..runtime import _config
                 printer_cfg = (_config.cfg() or {}).get('printer') or {}
                 bed_mm = printer_cfg.get('bed_mm')
                 nozzle_mm = printer_cfg.get('nozzle_diameter')
@@ -4328,7 +3543,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Slicing with supports. Press Stop to cancel.",
+                                           _voiced("Slicing with supports. Press Stop to cancel.", 'supports', source, iid),
                                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
@@ -4338,7 +3553,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     raise early.error
                 if out is None:
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Slicing. Press Stop to cancel.",
+                                           _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
@@ -4349,7 +3564,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # the potentially longest wait of the intake no progress and
                     # a Stop button that did nothing.
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Waiting for the background slice to finish. Press Stop to cancel.",
+                                           _voiced("Waiting for the background slice to finish. Press Stop to cancel.",
+                                                   'slice', source, iid),
                                            _await_background_slice(early, binding),
                                            allow_stop=True)
                 else:
@@ -4358,11 +3574,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     raise early.error
                 if out is None:
                     if chosen_quantity and chosen_quantity > 1:
-                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
                                                allow_stop=True)  # nothing uploaded yet, so Stop is safe
                     else:
-                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
                                                allow_stop=True)
         except mj.FilamentWarningPending as pending:
@@ -4544,10 +3762,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             while True:
                 try:
                     if chosen_quantity and chosen_quantity > 1:
-                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
                     else:
-                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
                     break
                 except Exception as retry_error:
@@ -4921,7 +4141,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 copies_kw = {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {}
                 out = await _with_stop(adapter, source, key, metadata,
-                                       'Re-slicing with supports. Press Stop to cancel.',
+                                       _voiced('Re-slicing with supports. Press Stop to cancel.', 'supports', source, iid),
                                        _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
                                        allow_stop=True)  # still entirely pre-upload, so Stop is safe
                 gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
@@ -5105,13 +4325,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # earlier print from the launch registry, never as this start's number (#1017).
         previous = None
         with contextlib.suppress(Exception):
-            from ..hermes import print_control
+            from ..runtime import print_control
             previous = print_control.latest_number_for_job(jp)
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
         # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
         targets = ''
         with contextlib.suppress(Exception):
-            from ..hermes.print_control import start_targets_text
+            from ..runtime.print_control import start_targets_text
             targets = start_targets_text(Path(first).read_text(errors='replace'))
         prep_msg = ' · '.join(['Preparing to start']
                               + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])
@@ -5381,3 +4601,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             drop_runner(jp)
         _LIVE_KEY.reset(live_token)
         logs.unbind(log_token)
+
+
+# Code moved out of this module (#1323) still sees assignments made here
+# (mock.patch, monkeypatch) for one release; see print_handy/_relocated.py.
+from .. import _relocated  # noqa: E402
+from ..intake import fit_flow as _fit_flow, questions as _questions  # noqa: E402
+from ..intake import support_flow as _support_flow, worker as _worker  # noqa: E402
+_relocated.keep_old_path(__name__, _worker, _questions, _support_flow, _fit_flow)

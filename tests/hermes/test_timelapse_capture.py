@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from print_handy import settings  # noqa: E402
-from print_handy.hermes import _config, timelapse_capture  # noqa: E402
-from print_handy.hermes import moonraker_event_listener as mel  # noqa: E402
+from print_handy.runtime import _config, timelapse_capture  # noqa: E402
+from print_handy.runtime import moonraker_event_listener as mel  # noqa: E402
 
 JPEG = b"\xff\xd8" + b"fake-jpeg-payload" + b"\xff\xd9"
 SECRET_URL = "http://user:hunter2@cam.example/webcam/?action=snapshot"
@@ -609,7 +609,7 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
         # The completion's timelapse postprocess (find_capture) skips a
         # "capturing" manifest: run first, it found no video for a first
         # print and the previous job's video for a reprint.
-        from print_handy.hermes import timelapse_encode
+        from print_handy.runtime import timelapse_encode
         self.install_config(capture_enabled=True)
         listener = mel.Listener()
         found = []

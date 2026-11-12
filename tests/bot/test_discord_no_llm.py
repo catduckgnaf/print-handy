@@ -33,10 +33,10 @@ from print_handy.bot import runtime
 from print_handy.bot.adapter import StandaloneAdapter, parse_custom_id
 from print_handy.bot.router import Router
 from print_handy.core import design, link_intake, prompts
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_control as pc
-from print_handy.hermes import print_next
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_control as pc
+from print_handy.runtime import print_next
 
 LLM_URL = "http://llm.invalid/v1"
 
@@ -108,7 +108,7 @@ def test_discord_no_llm_configured_never_calls_the_llm(cfg):
     assert core.use_llm is True and core.status(True)["llm"] is False
     calls = []
     with mock.patch.object(runtime.llm, "ask", exploding_ask(calls)), \
-            mock.patch("print_handy.hermes.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
+            mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
         out = run(core.handle_message(discord.message("/spool list")))
         assert discord.sent == ["Slot 1: #7 black PLA"]
         out = run(core.handle_message(discord.message("can you make my printer go brrr")))
@@ -137,7 +137,7 @@ def test_discord_chat_llm_off_never_calls_the_llm_even_when_configured(no_llm_cf
     calls = []
     with mock.patch.object(runtime.llm, "ask", exploding_ask(calls)), \
             mock.patch.object(runtime.llm, "configured", return_value=True), \
-            mock.patch("print_handy.hermes.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
+            mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
         out = run(core.handle_message(discord.message("/spool list")))
         assert discord.sent == ["Slot 1: #7 black PLA"]  # deterministic commands unchanged
         out = run(core.handle_message(discord.message("what is the printer doing?")))

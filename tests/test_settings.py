@@ -12,6 +12,8 @@ from unittest import mock
 from print_handy import settings
 from print_handy.core import orca_adapter, plate_merge, slice_guard
 
+import toml_twin
+
 
 class HomeSettingsTests(unittest.TestCase):
     def setUp(self):
@@ -230,13 +232,17 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "mode 'hermes' was removed"):
             settings.load(local=path, environ={})
 
+    def legacy_home(self, name="legacy-home.toml", data=None):
+        """A TOML home with home.yaml's values (config/home.toml was retired in #1322)."""
+        return toml_twin.write_home_toml(self.dir / name, data)
+
     def test_yaml_home_preserves_effective_legacy_toml_values(self):
         yaml_data = settings.load(home=settings.HOME, local=False, environ={})
-        toml_data = settings.load(home=settings.LEGACY_HOME, local=False, environ={})
+        toml_data = settings.load(home=self.legacy_home(), local=False, environ={})
         self.assertEqual(yaml_data, toml_data)
 
     def test_legacy_home_toml_is_used_when_yaml_is_absent(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "home.toml")
+        home = self.legacy_home("home.toml")
         yaml_home = self.dir / "home.yaml"
         with mock.patch.object(settings, "HOME", yaml_home), mock.patch.object(settings, "LEGACY_HOME", home):
             data = settings.load(home=None, local=False, environ={})
@@ -252,13 +258,13 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(data["layout"]["multi_copy_edge_mm"], 6.0)
 
     def test_yaml_can_enable_visual_watch_with_legacy_home_toml(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         local = self.toml("visual_watch:\n  enabled: true\n", "local.yaml")
         data = settings.load(home=home, local=local, environ={})
         self.assertIs(data["visual_watch"]["enabled"], True)
 
     def test_env_can_enable_visual_watch_with_legacy_home_toml(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         data = settings.load(home=home, local=False, environ={"PRINT_HANDY__VISUAL_WATCH__ENABLED": "true"})
         self.assertIs(data["visual_watch"]["enabled"], True)
         disabled = settings.load(home=home, local=False, environ={"PRINT_HANDY__VISUAL_WATCH__ENABLED": "false"})
@@ -284,7 +290,7 @@ class OverrideTests(unittest.TestCase):
             "flashforge_stock": {"host"},
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},
-            "paths": {"hermes_home", "archive", "records_vault", "cache", "ffmpeg",
+            "paths": {"state_home", "archive", "records_vault", "cache", "ffmpeg",
                       "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
@@ -356,12 +362,14 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(roster[0]["moonraker_url"], inventory["services"]["moonraker_url"])
 
     def test_bambu_start_confirm_window_defaults_and_limits(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         self.assertEqual(settings.load(home=home, local=False, environ={})["bambu"]["start_confirm_s"], 90)
         env = {"PRINT_HANDY__BAMBU__START_CONFIRM_S": "120"}
         self.assertEqual(settings.load(home=home, local=False, environ=env)["bambu"]["start_confirm_s"], 120)
         # An older home file without the key still accepts it from the environment and from YAML.
-        older = self.toml(Path(settings.LEGACY_HOME).read_text().replace("start_confirm_s = 90\n", ""), "older-home.toml")
+        older_data = toml_twin.home_data()
+        del older_data["bambu"]["start_confirm_s"]
+        older = self.legacy_home("older-home.toml", older_data)
         self.assertEqual(settings.load(home=older, local=False, environ={})["bambu"]["start_confirm_s"], 90)
         self.assertEqual(settings.load(home=older, local=False, environ=env)["bambu"]["start_confirm_s"], 120)
         local = self.toml("bambu:\n  start_confirm_s: 60\n", "local.yaml")
@@ -413,7 +421,7 @@ class OverrideTests(unittest.TestCase):
         docker_yaml = settings.ROOT / "config" / "docker.yaml"
         docker_toml = settings.ROOT / "config" / "docker.toml"
         yaml_data = settings.load(home=settings.HOME, local=docker_yaml, environ={})
-        toml_data = settings.load(home=settings.LEGACY_HOME, local=docker_toml, environ={})
+        toml_data = settings.load(home=settings.HOME, local=docker_toml, environ={})
         self.assertEqual(yaml_data, toml_data)
 
     def test_docker_default_selects_yaml_and_explicit_legacy_mount_selects_toml(self):
@@ -620,16 +628,9 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(settings.load(local=local, environ={})["design"]["model"], "from-file")
 
     def test_design_env_works_with_a_legacy_home_without_the_section(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text().replace(
-            "[design]\n# AI design with OpenSCAD (#388): /print-design creates a new printable part\n"
-            "# from a description. No enabled line on purpose: unset means AUTO — design\n"
-            "# turns on whenever a design/LLM endpoint is configured, like roasts. Set\n"
-            "# enabled = false to force it off, or enabled = true to force it on. Empty\n"
-            "# chat_url/model/api_key_env inherit the [llm] values. In Hermes mode the\n"
-            "# endpoint fields are unused: the profile's auxiliary.print_design block\n"
-            "# pins the design model instead.\n"
-            "chat_url = \"\"\nmodel = \"\"\napi_key_env = \"\"\ntimeout_s = 180\n"
-            "repair_attempts = 3\n\n", ""), "older-home.toml")
+        older_data = toml_twin.home_data()
+        del older_data["design"]
+        home = self.legacy_home("older-home.toml", older_data)
         data = settings.load(home=home, local=False,
                              environ={"PRINT_HANDY__DESIGN__ENABLED": "true"})
         self.assertIs(data["design"]["enabled"], True)
@@ -662,13 +663,13 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(data["listener"]["spool_nag_s"], 300)
         self.assertEqual(data["discord"]["chat_id"], "123")
 
-    def test_hermes_home_env_does_not_move_state(self):
+    def test_state_home_env_does_not_move_state(self):
         # The multiplexed gateway runs with HERMES_HOME=~/.hermes for every profile. Reading it
         # sent the print plugin to ~/.hermes/state, where printer_hardware.json does not exist.
         data = settings.load(local=False, environ={"HERMES_HOME": "/somewhere/else/.hermes"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("~/.local/share/print-handy").expanduser())
-        data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": "/tmp/ph-profile"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("/tmp/ph-profile"))
+        self.assertEqual(data["paths"]["state_home"], Path("~/.local/share/print-handy").expanduser())
+        data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__STATE_HOME": "/tmp/ph-profile"})
+        self.assertEqual(data["paths"]["state_home"], Path("/tmp/ph-profile"))
 
     def test_generic_env_override(self):
         data = settings.load(local=False, environ={"PRINT_HANDY__MAINTENANCE__FULL_DAYS": "45"})
@@ -788,7 +789,7 @@ class RuntimeSettingsTests(unittest.TestCase):
 
     def test_paths_expand_and_state_lives_in_the_profile(self):
         data = settings.load(local=False, environ={})
-        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".local/share/print-handy")
+        self.assertEqual(data["paths"]["state_home"], Path.home() / ".local/share/print-handy")
         self.assertEqual(settings.state_dir(data), Path.home() / ".local/share/print-handy/state")
         self.assertEqual(data["paths"]["ffmpeg"], "ffmpeg")
 
@@ -1062,7 +1063,7 @@ class DefaultedModelWarningTests(unittest.TestCase):
         self.dir = Path(self.tmp.name)
 
     def load(self, record=AD5X_RECORD, local=DOCKER, **env):
-        environ = {"PRINT_HANDY__PATHS__HERMES_HOME": str(self.dir), **env}
+        environ = {"PRINT_HANDY__PATHS__STATE_HOME": str(self.dir), **env}
         data = settings.load(local=local, environ=environ)
         if record is not None:
             state = settings.state_dir(data)
@@ -1176,24 +1177,28 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
         settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})
 
 
-@pytest.mark.parametrize("name", ["home", "docker"])
-def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
-    """The TOML files are kept for existing installs; the YAML files are canonical.
-
-    Both formats must parse to the same data, and loading either one must give the
-    same settings with no unknown-setting warnings, so the two cannot drift apart."""
+def test_shipped_yaml_and_toml_configs_hold_the_same_values():
+    """YAML is canonical (#1322). docker.toml stays because PRINT_HANDY_CONFIG=/app/config/docker.toml
+    is a documented selection that needs no mount; it must parse to the same data as docker.yaml and
+    load to the same settings with no unknown-setting warnings, so the two cannot drift apart."""
     root = settings.ROOT / "config"
-    assert settings._read(root / f"{name}.yaml") == settings._read(root / f"{name}.toml")
-    if name == "home":
-        yaml_data = settings.load(home=root / "home.yaml", local=False, environ={}, user=False)
-        yaml_unknown = settings.unknown_settings()
-        toml_data = settings.load(home=root / "home.toml", local=False, environ={}, user=False)
-    else:
-        yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
-        yaml_unknown = settings.unknown_settings()
-        toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
+    assert settings._read(root / "docker.yaml") == settings._read(root / "docker.toml")
+    yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
+    yaml_unknown = settings.unknown_settings()
+    toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
     assert yaml_data == toml_data
     assert yaml_unknown == [] and settings.unknown_settings() == []
+
+
+def test_docker_toml_is_the_only_shipped_toml_twin():
+    """#1322: config/home.toml was retired. home.yaml ships in every tree and the loader prefers it,
+    so the TOML twin was never read and only doubled every new key. The loader still takes a TOML
+    home when home.yaml is absent (pinned by OverrideTests with a TOML rendered from home.yaml)."""
+    root = settings.ROOT / "config"
+    assert sorted(p.name for p in root.glob("*.toml")) == ["docker.toml"]
+    assert settings.HOME.is_file() and not settings.LEGACY_HOME.exists()
+    assert settings.load(local=False, environ={}, user=False) == settings.load(
+        home=settings.HOME, local=False, environ={}, user=False)
 
 
 def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):
@@ -1223,7 +1228,7 @@ def _home_at(monkeypatch, home):
 def test_fresh_install_defaults_to_the_neutral_data_and_cache_folders(tmp_path, monkeypatch):
     _home_at(monkeypatch, tmp_path)
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
     assert data["paths"]["cache"] == tmp_path / ".cache" / "print-handy"
     assert settings.state_dir(data) == tmp_path / ".local" / "share" / "print-handy" / "state"
 
@@ -1233,12 +1238,12 @@ def test_install_with_data_in_the_old_default_folders_keeps_using_them(tmp_path,
     (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
     (tmp_path / ".hermes" / "cache").mkdir()
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
+    assert data["paths"]["state_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
     assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
     # Only the folder that exists is kept: the cache alone does not drag the state folder back.
     (tmp_path / ".hermes" / "profiles" / "3dprinting").rmdir()
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
     assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
 
 
@@ -1246,8 +1251,8 @@ def test_an_explicit_path_beats_the_old_folder_even_when_it_matches_the_new_defa
     _home_at(monkeypatch, tmp_path)
     (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
     mine = tmp_path / "local.yaml"
-    mine.write_text("paths:\n  hermes_home: ~/.local/share/print-handy\n")
+    mine.write_text("paths:\n  state_home: ~/.local/share/print-handy\n")
     data = settings.load(local=mine, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
-    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(tmp_path / "elsewhere")}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / "elsewhere"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
+    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__STATE_HOME": str(tmp_path / "elsewhere")}, user=False)
+    assert data["paths"]["state_home"] == tmp_path / "elsewhere"

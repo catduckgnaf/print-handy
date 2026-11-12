@@ -6,7 +6,7 @@ from email.utils import formatdate
 from pathlib import Path
 
 from print_handy.core import launch_state
-from print_handy.hermes import timelapse_encode as enc
+from print_handy.runtime import timelapse_encode as enc
 
 
 class _Resp:
@@ -276,7 +276,7 @@ def test_a_residual_that_is_not_a_zone_gap_is_a_failure_not_a_second_guess(monke
 
 
 def test_listener_retries_a_busy_printer_and_backs_off_after_a_failure(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     listener = mel.Listener()
     outcomes = iter(["skipped:printer not idle", "failed:HTTPError", "ok"])
     tried = []

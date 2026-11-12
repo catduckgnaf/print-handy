@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from print_handy.core import model_job
-from print_handy.hermes import print_records as records
+from print_handy.runtime import print_records as records
 
 
 def test_normalize_utc_handles_various_formats():

@@ -24,7 +24,7 @@ from print_handy.bot import __main__ as bot_main
 from print_handy.bot import matrix, matrix_rest, runtime
 from print_handy.bot.router import Router
 from print_handy.core import link_intake, prompts
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 HOMESERVER = "https://matrix.example.org"
 TOKEN = "mx-test-access-token"
@@ -692,7 +692,7 @@ def test_a_config_without_a_matrix_section_loads_unchanged(tmp_path):
 
 
 def test_listener_post_routes_to_matrix_in_standalone_mode(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     sent = []
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "matrix")
@@ -713,11 +713,11 @@ def test_listener_alert_buttons_degrade_to_plain_text_on_matrix(monkeypatch):
     # The reaction post is the Matrix alert path (#1291); when it cannot
     # run (here: no token in this config), the alert still goes out as
     # plain text, and the Discord button post is never touched.
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "matrix")
     monkeypatch.setattr(mel, "post", lambda message: True)
-    with mock.patch("print_handy.hermes.print_alert_buttons.post_with_buttons",
+    with mock.patch("print_handy.runtime.print_alert_buttons.post_with_buttons",
                     side_effect=AssertionError("Discord buttons used")):
         assert mel.post_alert("Print paused", "paused", "cube.gcode") is True
     assert mel.post_plate_picker("plan-1") is True
@@ -782,7 +782,7 @@ def test_parse_reaction_event_accepts_annotations_and_ignores_the_rest():
 def _alert_adapter(monkeypatch, stub, *, alert, take_result="same",
                    click_text="Resumed. The printer now reports printing."):
     """An adapter whose alert store serves ``alert`` for $alert1; returns the click log."""
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     clicks = []
     monkeypatch.setattr(pab, "matrix_alert",
                         lambda event_id: ("ab12cd34", alert) if alert and event_id == "$alert1"
@@ -816,7 +816,7 @@ def test_alert_reaction_stranger_is_refused_before_any_claim(monkeypatch):
     stub = HomeserverStub()
     alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
     adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     taken = []
     monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
     assert run(adapter.handle_alert_reaction("@mallory:example.org", ROOM, "$alert1", "⏹️")) is True
@@ -828,7 +828,7 @@ def test_alert_reaction_in_another_room_is_refused(monkeypatch):
     stub = HomeserverStub()
     alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": "!other:example.org"}
     adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     taken = []
     monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
     assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "⏹️")) is True
@@ -877,7 +877,7 @@ def test_alert_reaction_not_offered_for_the_kind_is_ignored_and_keeps_the_alert(
     stub = HomeserverStub()
     alert = {"kind": "pause", "filename": "f.gcode", "matrix_room_id": ROOM}
     adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     taken = []
     monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
     assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "▶️")) is False

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from print_handy import live_stream
-from print_handy.hermes import timelapse_encode
+from print_handy.runtime import timelapse_encode
 
 ALL = {"h264_vaapi", "h264_nvenc", "h264_qsv", "libx264"}
 

@@ -96,7 +96,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="ph-browser-smoke-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, True))
         local = self.tmp / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {self.tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {self.tmp}/hermes\n"
                          "webui:\n  enabled: true\n  port: 8765\n")
         self.environ = {"PRINT_HANDY_CONFIG": str(local), "WEBUI_ACCESS_TOKEN": TOKEN}
         data = settings.load(local=local, environ=self.environ)

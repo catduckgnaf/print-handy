@@ -87,7 +87,7 @@ class HomeUpdateTests(unittest.TestCase):
         # a token, and update() runs the checks with a sitecustomize stub
         # (below) answering Discord's users/@me probe.
         (self.home / "config" / "local.toml").write_text(
-            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nhermes_home = "{profile}"\n\n[bot]\nmode = "standalone"\n\n[discord]\nchat_id = "123"\n')
+            f'[printer]\nname = "Home AD5X"\n\n[orca]\ncommand = ["true"]\n\n[paths]\nstate_home = "{profile}"\n\n[bot]\nmode = "standalone"\n\n[discord]\nchat_id = "123"\n')
         (profile / ".env").write_text("DISCORD_BOT_TOKEN=fixture-token\n")
         stub = base / "discord-stub"
         stub.mkdir()
@@ -206,7 +206,7 @@ class HomeUpdateTests(unittest.TestCase):
 
     def test_local_edits_to_tracked_files_block_the_update(self):
         self.commit_upstream("NOTES.txt", "harmless\n")
-        (self.home / "config" / "home.toml").write_text("# hand edited\n")
+        (self.home / "config" / "home.yaml").write_text("# hand edited\n")
         result = self.update()
         self.assertEqual(result.returncode, 1)
         self.assertIn("local edits", result.stdout)
@@ -248,7 +248,7 @@ class HomeUpdateTests(unittest.TestCase):
         loader applies them ahead of the throwaway checkout's local config,
         so the doctor would inspect the caller's real install."""
         head = self.commit_upstream("NOTES.txt", "harmless\n")
-        poison = {"PRINT_HANDY__PATHS__HERMES_HOME": str(Path(self.tmp.name) / "caller-real-profile"),
+        poison = {"PRINT_HANDY__PATHS__STATE_HOME": str(Path(self.tmp.name) / "caller-real-profile"),
                   "PRINT_HANDY_CONFIG": str(Path(self.tmp.name) / "caller-real-config.yaml")}
         with unittest.mock.patch.dict(os.environ, poison):
             result = self.update()

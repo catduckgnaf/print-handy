@@ -17,7 +17,7 @@ from unittest import mock
 import pytest
 
 from print_handy import knowledge, macros, printers
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"

@@ -8,7 +8,7 @@ carried in a camera URL appears in no error message and no repr.
 import pytest
 
 from print_handy import live_stream as ls
-from print_handy.hermes import timelapse_encode
+from print_handy.runtime import timelapse_encode
 
 SECRET = "s3cr3t-PASS-xyz789"
 MOONRAKER_BASE = "http://printer.local:7125"

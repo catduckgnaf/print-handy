@@ -1,6 +1,6 @@
 """Test settings for the Hermes helpers, installed before any test module imports them.
 
-print_handy.hermes reads its hosts and paths through print_handy.hermes._config. Here that is replaced by
+print_handy.runtime reads its hosts and paths through print_handy.runtime._config. Here that is replaced by
 a copy of the checked-in home config with fake `.test` hosts and temp directories, so no suite (hermes or pipeline)
 can read a live profile or reach a live service through those modules.
 """
@@ -27,7 +27,7 @@ for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
     os.environ.setdefault(f"PRINT_HANDY__NOZZLE_TEMP_OFFSETS__{_steel}", "0")
 
 from print_handy import settings  # noqa: E402
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 _tmp = Path(tempfile.mkdtemp(prefix="3dp-test-state-"))
 os.environ.setdefault("PRINT_BOT_CANCEL_MARKER", str(_tmp / "last_bot_cancel.json"))
@@ -37,7 +37,7 @@ os.environ.setdefault("PRINT_WATCH_FRAME_DIR", str(_tmp / "print-watch"))
 
 def _test_settings():
     data = settings.load(local=Path(os.devnull), environ={})
-    data["paths"].update(hermes_home=_tmp / "profile", archive=_tmp / "archive", records_vault=_tmp / "vault",
+    data["paths"].update(state_home=_tmp / "profile", archive=_tmp / "archive", records_vault=_tmp / "vault",
                          cache=_tmp / "cache")
     data["services"].update(
         moonraker_url="http://printer.test:7125", moonraker_ws_url="ws://printer.test:7125/websocket",
@@ -61,6 +61,19 @@ _config.set_override(TEST_SETTINGS)
 
 
 @pytest.fixture(autouse=True)
+def _quiet_status_voice(request, monkeypatch):
+    """Status quips are random by design, so suites that assert exact progress text see none.
+
+    A test module that sets STATUS_VOICE_LIVE = True keeps the real selector
+    (the corpus and selection tests); wiring tests seed their own quip.
+    """
+    if getattr(request.module, "STATUS_VOICE_LIVE", False):
+        return
+    from print_handy.core import status_voice
+    monkeypatch.setattr(status_voice, "quip", lambda *args, **kwargs: "")
+
+
+@pytest.fixture(autouse=True)
 def _offline_purge_detection(monkeypatch):
     """ZMod purge/plugin detection (#832) never reaches a network in tests: every read fails like an
     unreachable printer. Tests of the detection itself patch purge._fetch with their own fake."""
@@ -75,7 +88,7 @@ def _offline_purge_detection(monkeypatch):
 def _offline_stop_capture(tmp_path, monkeypatch):
     """Stop-reason capture never reaches a printer in tests and writes to the test's own dir.
     Tests of the capture itself pass their own fake fetch."""
-    from print_handy.hermes import stop_capture
+    from print_handy.runtime import stop_capture
 
     def offline(path, range_bytes=None):
         raise OSError(f"network disabled in tests: {path}")
@@ -104,7 +117,7 @@ def _head_sensor_unknown(request, monkeypatch):
     with @pytest.mark.real_head_sensor to exercise the sensor read itself."""
     if request.node.get_closest_marker("real_head_sensor"):
         return
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
     monkeypatch.setattr(print_control, "head_filament_loaded", lambda printer_id=None: None)
 
 

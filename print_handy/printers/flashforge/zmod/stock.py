@@ -23,7 +23,7 @@ def _request_json(*args, **kwargs):
 def _stock_credentials():
     """Serial + LAN check code from env, else the 3dprinting profile .env. Never logged."""
     found = {k: os.environ.get(k, "").strip() for k in STOCK_CRED_KEYS}
-    env_file = settings.current()["paths"]["hermes_home"] / ".env"
+    env_file = settings.current()["paths"]["state_home"] / ".env"
     if not all(found.values()) and env_file.is_file():
         for line in env_file.read_text(errors="ignore").splitlines():
             key, sep, value = line.partition("=")

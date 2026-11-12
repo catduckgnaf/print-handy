@@ -8,6 +8,7 @@ import pytest
 
 from print_handy.core import model_job as mj
 from print_handy.core import orca_adapter, slice_warnings
+from print_handy.jobs import slice as jobs_slice
 
 from .test_artifact_binding import setup_job
 
@@ -205,11 +206,21 @@ def _slice_model_calls(module):
             yield node
 
 
+# The job slicing paths moved from model_job to jobs/slice.py (#1323); scan both.
+JOB_SLICING_MODULES = (mj, jobs_slice)
+
+
+def _job_slice_model_calls():
+    calls = [call for module in JOB_SLICING_MODULES for call in _slice_model_calls(module)]
+    assert len(calls) >= 6, 'the job slicing paths and their slice_model calls were not found'
+    return calls
+
+
 def test_every_job_slicing_path_passes_the_support_decision():
     """Merged, multi-tool, painted, per-plate, split and single paths all reach Orca with it."""
     import ast
     missing = []
-    for call in _slice_model_calls(mj):
+    for call in _job_slice_model_calls():
         if any(k.arg == 'first_layer' for k in call.keywords):
             continue  # first-layer probe, not a printed job artifact
         carried = any(k.arg is None and isinstance(k.value, ast.Call)
@@ -218,7 +229,7 @@ def test_every_job_slicing_path_passes_the_support_decision():
                                  for k in call.keywords)
         if not carried:
             missing.append(call.lineno)
-    assert not missing, f'slice_model calls without the support decision at model_job.py lines {missing}'
+    assert not missing, f'slice_model calls without the support decision at lines {missing} of model_job.py or jobs/slice.py'
 
 
 def test_chosen_supports_never_print_an_unsupported_artifact(tmp_path, monkeypatch):
@@ -253,13 +264,20 @@ def _prepare_link_tree():
     return ast.parse(inspect.getsource(prepared_intake))
 
 
+def _progress_text(node):
+    """A progress literal passed to _with_stop as is, or through _voiced (#1326 status voice)."""
+    import ast
+    if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == '_voiced' and node.args:
+        node = node.args[0]
+    return node.value if isinstance(node, ast.Constant) else None
+
+
 def test_support_reslice_can_be_stopped():
     """The re-slice is pre-upload, so its progress offers Stop like the first slice."""
     import ast
     calls = [n for n in ast.walk(_prepare_link_tree()) if isinstance(n, ast.Call)
              and getattr(n.func, 'id', None) == '_with_stop'
-             and any(isinstance(a, ast.Constant) and str(a.value).startswith('Re-slicing with supports')
-                     for a in n.args)]
+             and any(str(_progress_text(a)).startswith('Re-slicing with supports') for a in n.args)]
     assert calls, 'support re-slice not found'
     for call in calls:
         assert any(k.arg == 'allow_stop' and getattr(k.value, 'value', None) is True for k in call.keywords)
@@ -277,8 +295,7 @@ def test_refused_plates_are_read_from_the_final_slice():
              and any(getattr(t, 'id', None) == 'refused_plates' for t in n.targets)]
     reslices = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Call)
                 and getattr(n.func, 'id', None) == '_with_stop'
-                and any(isinstance(a, ast.Constant) and str(a.value).startswith('Re-slicing with supports')
-                        for a in n.args)]
+                and any(str(_progress_text(a)).startswith('Re-slicing with supports') for a in n.args)]
     assert reads and reslices
     assert min(reads) > max(reslices), 'refused_plates is read before the support re-slice'
 
@@ -287,7 +304,7 @@ def test_every_job_slicing_path_passes_the_chat_edit_settings():
     """Codex P2 on #908: layer height, infill and support type edits reach
     Orca on the merged, painted, multi-tool and per-plate paths too."""
     missing = []
-    for call in _slice_model_calls(mj):
+    for call in _job_slice_model_calls():
         if any(k.arg == 'first_layer' for k in call.keywords):
             continue
         carried = any(k.arg is None and isinstance(k.value, ast.Call)
@@ -296,7 +313,7 @@ def test_every_job_slicing_path_passes_the_chat_edit_settings():
                                  for k in call.keywords)
         if not carried:
             missing.append(call.lineno)
-    assert not missing, f'slice_model calls without the edit settings at model_job.py lines {missing}'
+    assert not missing, f'slice_model calls without the edit settings at lines {missing} of model_job.py or jobs/slice.py'
 
 
 def test_edit_kw_and_support_kw_carry_the_chat_edit():

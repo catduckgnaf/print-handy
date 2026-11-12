@@ -116,7 +116,7 @@ def adapter_paths(files):
         if (
             name.startswith("print_handy/printers/")
             or name.startswith("print_handy/core/connection")
-            or name.startswith("print_handy/hermes/moonraker")
+            or name.startswith("print_handy/runtime/moonraker")
             or "adapter" in base
             or "moonraker" in name
             or "octoprint" in name

@@ -28,7 +28,7 @@ def main():
     try:
         from print_handy.state_volume import describe_state_volume
         print(f"ok  state volume: "
-              f"{describe_state_volume(settings.current()['paths']['hermes_home'])}")
+              f"{describe_state_volume(settings.current()['paths']['state_home'])}")
     except Exception as exc:
         print(f"ok  state volume: could not be determined ({exc})")
     # The same decision the supervisor made (print_handy.bot_gate): the

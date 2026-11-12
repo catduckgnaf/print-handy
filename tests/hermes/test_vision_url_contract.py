@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import visual_watch as vw
 
 FRAME = bytes((0xFF, 0xD8, 0xFF, 0xD9))  # the verdict path never decodes the frame
 PROMPT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
@@ -156,7 +156,7 @@ def test_reason_is_truncated_to_300_characters(stub_factory, monkeypatch):
 
 def test_http_error_status_degrades_to_uncertain_and_logs(stub_factory, monkeypatch, caplog):
     stub = stub_factory(status=500, payload={"verdict": "ok", "reason": "fine"})
-    with caplog.at_level(logging.WARNING, logger="print_handy.hermes.visual_watch"):
+    with caplog.at_level(logging.WARNING, logger="print_handy.runtime.visual_watch"):
         assert _verdict(monkeypatch, stub.url) == FAILED
     assert "vision check failed via PRINT_VISION_URL" in caplog.text
     assert "HTTP Error 500" in caplog.text  # the underlying error is diagnosable
@@ -173,7 +173,7 @@ def test_non_object_json_degrades_to_uncertain(stub_factory, monkeypatch):
 
 
 def test_unreachable_endpoint_degrades_to_uncertain_and_logs(monkeypatch, caplog):
-    with caplog.at_level(logging.WARNING, logger="print_handy.hermes.visual_watch"):
+    with caplog.at_level(logging.WARNING, logger="print_handy.runtime.visual_watch"):
         assert _verdict(monkeypatch, _refused_url()) == FAILED
     assert "vision check failed via PRINT_VISION_URL" in caplog.text
     assert "urlopen error" in caplog.text

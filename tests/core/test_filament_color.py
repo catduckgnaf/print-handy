@@ -14,8 +14,8 @@ import pytest
 from print_handy import diagnostics
 from print_handy.core import filament_color as fc
 from print_handy.core import slice_refusal
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import spool_sync
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import spool_sync
 
 
 # ------------------------------------------------------------- derivation

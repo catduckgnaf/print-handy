@@ -38,9 +38,9 @@ import pytest
 
 from print_handy import macros, printers
 from print_handy.core import prompts as core_prompts
-from print_handy.hermes import _config, maintenance, print_next, print_stop, spool_sync
-from print_handy.hermes import discord_print_summary as print_summary
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import _config, maintenance, print_next, print_stop, spool_sync
+from print_handy.runtime import discord_print_summary as print_summary
+from print_handy.runtime import print_control as pc
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"

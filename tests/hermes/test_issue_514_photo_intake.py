@@ -18,9 +18,9 @@ from unittest import mock
 
 import pytest
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import spool_codes, spool_label, spool_sync, visual_watch as vw
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import spool_codes, spool_label, spool_sync, visual_watch as vw
 
 SPEC = importlib.util.spec_from_file_location(
     "pf_issue_514", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")

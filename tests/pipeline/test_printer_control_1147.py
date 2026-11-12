@@ -14,8 +14,8 @@ import pytest
 
 from print_handy import macros, printers, settings
 from print_handy.core import heater_ceiling, launch_state, model_job
-from print_handy.hermes import family_event_listener as fel
-from print_handy.hermes import print_next, spool_sync
+from print_handy.runtime import family_event_listener as fel
+from print_handy.runtime import print_next, spool_sync
 
 from .test_launch_state import leases, make_job, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
@@ -214,7 +214,7 @@ def test_item5_the_ad5x_on_zmod_still_syncs():
 
 
 def test_item5_the_listener_passes_its_own_printer_to_the_clock_sync(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     seen = {}
     monkeypatch.setattr(mel.launch_state, "sync_printer_clock",
                         lambda url, tz, log=None, adapter=None: seen.update(adapter=adapter) or launch_state.NOT_ZMOD)
@@ -481,18 +481,18 @@ def test_ad5x_pin_the_zmod_moonraker_start_command_is_unchanged():
 
 
 def test_ad5x_pin_pause_sends_one_moonraker_pause_and_reads_back():
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
                 {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
-    with mock.patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-            mock.patch("print_handy.hermes.print_control._call") as call:
+    with mock.patch("print_handy.runtime.print_control.status", side_effect=lambda: next(seq)), \
+            mock.patch("print_handy.runtime.print_control._call") as call:
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"}, pause_wait_s=2, pause_poll_s=0.01)
     assert out == "Paused. Printer now reports paused."
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
 
 
 def test_ad5x_pin_force_restart_ladder_on_the_default_printer_is_unchanged():
-    from print_handy.hermes import panic
+    from print_handy.runtime import panic
     calls = []
     with mock.patch("time.sleep", return_value=None):
         res = panic.force_restart(caller=lambda path, **kw: calls.append((path, kw.get("method"))) or {},

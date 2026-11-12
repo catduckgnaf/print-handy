@@ -45,6 +45,8 @@ test = [
     "pytest-timeout>=2.3",
     "ruff>=0.8",
     "pip-audit>=2.7",
+    # tests/test_package_data_parity.py builds the sdist and wheels with the real backend (#1322).
+    "setuptools>=68",
 ]
 
 [tool.setuptools.dynamic]
@@ -58,7 +60,7 @@ include = ["print_handy*"]
 # bundle); ship every one of them in the wheel, not just the .py files.
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.toml", "*.pem", "*.js"]
-print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json"]
+print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json", "data/status_voice/*.json"]
 # Registry data inside subpackages (root cleanup PR-3): the knowledge
 # registry TOMLs and their schema README ride in knowledge/data/.
 "print_handy.knowledge" = ["data/*.toml", "data/*.md"]
@@ -85,3 +87,8 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82"]
+
+[tool.ruff.lint.per-file-ignores]
+# The old handler file defines its names by executing the handler modules'
+# code (print_handy/bot/handlers, #1323), which ruff cannot see.
+"plugins/print-feedback/__init__.py" = ["F821"]

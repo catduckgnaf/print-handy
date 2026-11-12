@@ -23,7 +23,7 @@ import pytest
 from PIL import Image
 
 from print_handy import settings
-from print_handy.hermes import _config, local_vision as lv, visual_watch as vw
+from print_handy.runtime import _config, local_vision as lv, visual_watch as vw
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tiny_failure_detector.onnx"
 FIXTURE_SHA256 = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
@@ -54,7 +54,7 @@ def frame(value, size=(120, 90)):
 def cfg_with(**vision):
     base = {"local_detector_enabled": True, "local_model_path": str(FIXTURE)}
     base.update(vision)
-    return {"vision": base, "paths": {"hermes_home": "/nonexistent-home"}}
+    return {"vision": base, "paths": {"state_home": "/nonexistent-home"}}
 
 
 @pytest.fixture
@@ -422,7 +422,7 @@ def test_preexisting_default_model_must_match_the_pinned_checksum(monkeypatch, t
     target.parent.mkdir(parents=True)
     target.write_bytes(FIXTURE.read_bytes())  # a valid model, but not the pinned one
     cfg = {"vision": {"local_detector_enabled": True, "local_model_path": ""},
-           "paths": {"hermes_home": home}}
+           "paths": {"state_home": home}}
     with pytest.raises(lv.LocalVisionError, match="does not match the pinned"):
         lv.local_verdict(frame(235), cfg)
 
@@ -837,7 +837,7 @@ def test_visual_verdict_threads_the_streak(process_cfg, independent_views):
 
 
 def test_listener_verdict_threads_its_streak(process_cfg, independent_views):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     listener = mel.Listener()
     assert isinstance(listener.local_streak, lv.FailureStreak)
     verdict, _ = mel._visual_verdict(frame(84), "prompt", listener.local_streak)
@@ -849,7 +849,7 @@ def test_listener_verdict_threads_its_streak(process_cfg, independent_views):
 
 
 def test_bambu_monitor_verdict_threads_its_streak(process_cfg, independent_views):
-    from print_handy.hermes import bambu_watch
+    from print_handy.runtime import bambu_watch
     adapter = SimpleNamespace(label="Test Bambu")
     streak = lv.FailureStreak()
     verdict = bambu_watch._default_verdict(adapter, streak=streak)

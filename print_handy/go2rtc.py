@@ -255,7 +255,7 @@ def transcode_plan(data=None, *, probe=None, run=None) -> dict | None:
     section = data.get("live_stream", {})
     if not live_enabled(data) or not transcode_engaged(section):
         return None
-    from .hermes import timelapse_encode
+    from .runtime import timelapse_encode
     # The configured executable is carried in the plan (P2-262): it is
     # the binary the probe below inspects, so it must also be the one
     # the generated exec command launches.

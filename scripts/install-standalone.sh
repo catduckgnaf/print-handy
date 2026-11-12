@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Install Print Handy as a standalone Discord bot: no Hermes, no LLM. Safe to run again.
+# Install Print Handy as a standalone chat bot, run by systemd user units. Safe to run again.
 #
 #   scripts/install-standalone.sh [--dry-run] [--python PATH]
 #
 # Writes two systemd user units, print-handy-bot.service and print-handy-listener.service, and the
-# data folder [paths] hermes_home (state, logs, the .env holding DISCORD_BOT_TOKEN). It enables nothing:
-# the last lines say what to run. Env: PYTHON, SYSTEMD_USER_DIR (default ~/.config/systemd/user),
-# NO_SYSTEMCTL=1 to skip daemon-reload. Use one bot token for one mode: stop the Hermes gateway
-# for this bot before starting the standalone one.
+# data folder (state, logs, the .env holding DISCORD_BOT_TOKEN). It enables nothing: the last lines
+# say what to run. Env: PYTHON, SYSTEMD_USER_DIR (default ~/.config/systemd/user), NO_SYSTEMCTL=1 to
+# skip daemon-reload. One bot token serves one running bot: stop any other bot using it first.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,7 +15,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) DRY=1 ;;
         --python) shift; PYTHON=${1:?--python needs a path} ;;
-        -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
@@ -24,7 +23,8 @@ done
 
 PYTHON=${PYTHON:-$(command -v python3)}
 SYSTEMD_USER_DIR=${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}
-DATA_HOME=$(cd "$REPO" && "$PYTHON" -m print_handy.settings get paths.hermes_home)
+# The data folder's settings key keeps its historical name until #1323 renames it (with an alias).
+DATA_HOME=$(cd "$REPO" && "$PYTHON" -m print_handy.settings get paths.state_home)
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 say() { printf '%s\n' "$*"; }
@@ -70,11 +70,6 @@ done
 if [ "${NO_SYSTEMCTL:-0}" != 1 ] && [ "$DRY" = 0 ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload || say "systemctl --user daemon-reload failed; run it yourself"
 fi
-for unit in hermes-gateway.service hermes-3dprinting-moonraker-listener.service; do
-    if [ -e "$SYSTEMD_USER_DIR/$unit" ]; then
-        say "NOTE: $unit is installed. If it uses the same bot token, stop and disable it first."
-    fi
-done
 say "Next: set DISCORD_BOT_TOKEN in $DATA_HOME/.env, set bot.mode: standalone and discord.chat_id"
 say "in config/local.yaml (discord.allowed_user_ids is optional; empty lets everyone in the channel in), then:"
 say "  $PYTHON -m print_handy.bot check"

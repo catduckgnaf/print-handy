@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import bot_gate
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).resolve().parents[1]
 

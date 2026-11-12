@@ -25,6 +25,17 @@ systemctl --user restart hermes-3dprinting-moonraker-listener.service
 
 The chat-facing bot name defaults to `Print Handy` now. To keep a different name, set `[discord] bot_name` in your local config (that setting was never renamed).
 
+### Why the script is still shipped (#1322)
+
+`scripts/migrate-names.sh` was reviewed for retirement in 2.3.0 and kept. Print Handy reads no Print Buddy name at runtime, by design, so for an install older than 2.1.7 (the first Print Handy release) the script is the only way across the rename, and there is no record that every such install has migrated. It is retired, with a release note, once the oldest supported upgrade source is 2.1.7 or later. Its Hermes options (`--hermes-home`, the profile default) go with the `hermes_home` key rename (#1323).
+
+## Package and state key renamed in 2.3.0 (#1323)
+
+Two names still pointed at the retired Hermes install method. Unlike the earlier renames, both keep their old spelling through 2.3.x:
+
+- **Python package:** `print_handy.hermes` is now `print_handy.runtime`. Importing the old name logs a `DeprecationWarning` and gives the same modules, so scripts and patches that use it keep working until the old name is removed.
+- **State folder setting:** `paths.hermes_home` is now `paths.state_home` (`PRINT_HANDY__PATHS__HERMES_HOME` is now `PRINT_HANDY__PATHS__STATE_HOME`). The old spelling, in a config file or the environment, is still read and logs a warning once; when both are set, the new one wins. Rename it in `config/local.yaml`, your compose file or `.env`, and the Unraid template. The folder itself does not move.
+
 ## Later leftovers renamed (#590)
 
 Two `PB_` spellings survived the main rename and were cleaned up later, again as a clean break with no aliases:

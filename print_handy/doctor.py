@@ -34,7 +34,7 @@ def check_state_volume(data):
     """Which state volume is in use (#914): the configured data folder, and
     whether the legacy /data/hermes volume is the one actually holding the
     data (entrypoint symlink, an explicit legacy path, or both present)."""
-    return state_volume.describe_state_volume(data["paths"]["hermes_home"])
+    return state_volume.describe_state_volume(data["paths"]["state_home"])
 
 
 def check_model(data):
@@ -311,7 +311,7 @@ def check_debug_mode(data):
 
 
 def _bot_token(data):
-    from .hermes import _config
+    from .runtime import _config
     name = data["discord"]["token_env"]
     return _config.profile_env_value(name), name
 

@@ -560,7 +560,7 @@ jobs:
       # the checkout as the working directory, so Python imports the checkout's print_handy, not the
       # wheel installed above: they prove the runtime dependencies and the standalone code path, not the
       # package a user gets from pip. This step runs from outside the checkout and so tests the installed
-      # wheel. It fails today because the wheel ships only print_handy/: config/home.toml (settings.ROOT
+      # wheel. It fails today because the wheel ships only print_handy/: config/home.yaml (settings.ROOT
       # is the parent of the package) and plugins/print-feedback (the command handlers, bot/router.py)
       # are not packaged. Fix the packaging, then delete continue-on-error so this step blocks.
       - name: Installed wheel check from outside the checkout (known gap, not blocking)
@@ -571,7 +571,7 @@ jobs:
           PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
-          PRINT_HANDY__PATHS__HERMES_HOME: /tmp/print-handy-wheel
+          PRINT_HANDY__PATHS__STATE_HOME: /tmp/print-handy-wheel
         run: |
           mkdir -p /tmp/outside && cd /tmp/outside
           "/tmp/clean/bin/python" -I -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
@@ -597,7 +597,7 @@ jobs:
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
       # #164 stages 2-3: Telegram and Matrix are standalone platforms too, and
@@ -612,7 +612,7 @@ jobs:
           PRINT_HANDY__TELEGRAM__ALLOWED_USER_IDS: "424242"
           TELEGRAM_BOT_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
       - name: Standalone bot setup check (Matrix)
@@ -624,7 +624,7 @@ jobs:
           PRINT_HANDY__MATRIX__ALLOWED_USER_IDS: "@user:example.org"
           MATRIX_ACCESS_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
 

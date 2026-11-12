@@ -555,7 +555,7 @@ class WriteAPITests(unittest.TestCase):
         # The values the Web UI writes are the values the capture loop and
         # the early-layer watch read back: persistence through the real
         # loader, consumption through the real reader functions.
-        from print_handy.hermes import timelapse_capture, visual_watch
+        from print_handy.runtime import timelapse_capture, visual_watch
         self.write_file("timelapse:\\n  capture_enabled: true\\n")
         changed = write_changes(
             {"timelapse.capture_trigger": "both", "timelapse.capture_interval_s": 2.5,

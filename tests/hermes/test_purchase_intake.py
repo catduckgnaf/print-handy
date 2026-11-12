@@ -15,8 +15,8 @@ from unittest import mock
 
 import pytest
 
-from print_handy.hermes import purchase_intake as pi
-from print_handy.hermes import spool_label, spool_sync
+from print_handy.runtime import purchase_intake as pi
+from print_handy.runtime import spool_label, spool_sync
 
 SPEC = importlib.util.spec_from_file_location(
     "pf_purchase_801", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
@@ -279,7 +279,7 @@ def test_pla_plus_uses_the_existing_variant_rule_not_a_duplicate():
 
 
 def test_purchase_comment_still_reads_as_print_handy_made():
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     comment = spool_sync.CREATED_SPOOL_COMMENT + "; purchased: https://shop.example/p/1"
     assert mel.created_by_print_handy({"comment": comment}) is True
     assert mel.created_by_print_handy({"comment": "bought at the fair"}) is False

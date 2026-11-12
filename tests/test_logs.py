@@ -13,7 +13,7 @@ import pytest
 
 from print_handy import logs, settings
 from print_handy.core import orca_adapter
-from print_handy.hermes import moonraker_event_listener as listener
+from print_handy.runtime import moonraker_event_listener as listener
 
 # Built from parts so no token shaped string sits in the source (GitHub push protection flags those).
 DISCORD_TOKEN = ".".join(["MTIzNDU2Nzg5MDEyMzQ1Njc4OQ", "GabcDE", "abcdefghijklmnopqrstuvwxyz0123456789"])
@@ -284,8 +284,10 @@ def test_stage_interruption_is_a_warning_without_a_traceback():
 
 # --- settings -------------------------------------------------------------------------------------------
 
-def test_logging_defaults_come_from_the_checked_in_config():
-    for home in (settings.load(local=False, environ={}), settings.load(home=settings.LEGACY_HOME, local=False, environ={})):
+def test_logging_defaults_come_from_the_checked_in_config(tmp_path):
+    import toml_twin  # a TOML home rendered from home.yaml: the legacy TOML loader path (#1322)
+    legacy = toml_twin.write_home_toml(tmp_path / "home.toml")
+    for home in (settings.load(local=False, environ={}), settings.load(home=legacy, local=False, environ={})):
         assert home["logging"] == {"level": "INFO", "format": "text", "file": "", "retention_days": 14, "levels": {}}
 
 

@@ -13,8 +13,8 @@ text completion post intact in every one (#126).
 """
 import pytest
 
-from print_handy.hermes import moonraker_discord_announcements as announcer
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_discord_announcements as announcer
+from print_handy.runtime import moonraker_event_listener as mel
 
 COMPLETE = "Print complete: Stand"
 

@@ -56,14 +56,14 @@ class RegistryShapeTests(unittest.TestCase):
         # #460: one module serves the four polling families; the registry
         # runtime for each must equal the listener's own runtime table,
         # or the healthcheck would expect a heartbeat that never comes.
-        from print_handy.hermes import family_event_listener
+        from print_handy.runtime import family_event_listener
         for connection in ("prusalink", "elegoo_sdcp",
                            "octoprint", "flashforge_stock"):
             with self.subTest(connection=connection):
                 domain = listeners.DOMAINS[connection]
                 self.assertEqual(domain.availability, listeners.IMPLEMENTED)
                 self.assertEqual(domain.module,
-                                 "print_handy.hermes.family_event_listener")
+                                 "print_handy.runtime.family_event_listener")
                 self.assertIsNotNone(importlib.util.find_spec(domain.module))
                 self.assertEqual(domain.runtime,
                                  family_event_listener.RUNTIMES[connection])
@@ -129,7 +129,7 @@ class LauncherTests(unittest.TestCase):
                 mock.patch.object(listeners.runpy, "run_module") as run_module:
             self.assertEqual(listeners.launch({}), 0)
         run_module.assert_called_once_with(
-            "print_handy.hermes.family_event_listener", run_name="__main__")
+            "print_handy.runtime.family_event_listener", run_name="__main__")
 
     def test_bambu_domain_runs_its_registered_module(self):
         with mock.patch.object(healthcheck, "listener_domain",
@@ -180,7 +180,7 @@ class LauncherTests(unittest.TestCase):
                 mock.patch.object(listeners.runpy, "run_module") as run_module:
             self.assertEqual(listeners.launch({}), 0)
         run_module.assert_called_once_with(
-            "print_handy.hermes.moonraker_event_listener", run_name="__main__")
+            "print_handy.runtime.moonraker_event_listener", run_name="__main__")
 
     def test_unresolved_configuration_keeps_the_gate_failure_code(self):
         with mock.patch.object(healthcheck, "listener_domain",
@@ -219,7 +219,7 @@ class MultiPrinterLaunchTests(unittest.TestCase):
             self.assertEqual(
                 listeners.launch(self.roster(), printer_id="moon-two"), 0)
         run_module.assert_called_once_with(
-            "print_handy.hermes.moonraker_event_listener", run_name="__main__")
+            "print_handy.runtime.moonraker_event_listener", run_name="__main__")
         self.assertEqual(listeners.instance_printer_id(), "moon-two")
         self.assertEqual(logs.bound_context().get("printer_id"), "moon-two")
 

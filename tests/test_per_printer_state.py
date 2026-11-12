@@ -21,7 +21,7 @@ import pytest
 from print_handy import printers as printer_registry
 from print_handy import settings
 from print_handy.core import launch_state, model_job, printer_state
-from print_handy.hermes import maintenance, spool_sync
+from print_handy.runtime import maintenance, spool_sync
 
 
 def load_local(text, suffix=".yaml"):

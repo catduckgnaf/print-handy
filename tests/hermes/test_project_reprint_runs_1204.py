@@ -16,8 +16,8 @@ import time
 
 import pytest
 
-from print_handy.hermes import print_control, print_records
-from print_handy.hermes.print_next import NextPlateError
+from print_handy.runtime import print_control, print_records
+from print_handy.runtime.print_next import NextPlateError
 
 from .test_print_again_project_scope import LABELS, PLAN_ID, _project
 
@@ -211,7 +211,7 @@ def _plate_hook(tmp_path, picks):
     from types import SimpleNamespace as S
     from unittest import mock
 
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_next
 
     from .test_print_next import load_plugin, make_job, make_plan
 
@@ -258,7 +258,7 @@ def _plate_hook(tmp_path, picks):
 
 
 def test_print_next_without_a_plate_asks_which_plate_then_confirms_it(tmp_path):
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_next
 
     adapter, started = _plate_hook(tmp_path, [1, 0])
     plate_question, confirm = adapter.questions

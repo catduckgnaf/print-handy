@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from print_handy.core import print_stats, wrapped_joins
-from print_handy.hermes import watchdog_events
+from print_handy.runtime import watchdog_events
 from print_handy.webui import wrapped_video
 
 
@@ -96,7 +96,7 @@ class BambuWatchEventTests(unittest.TestCase):
     event recording fails outright."""
 
     def _monitor(self, recorder):
-        from print_handy.hermes import bambu_watch, visual_watch
+        from print_handy.runtime import bambu_watch, visual_watch
         alerts = []
         monitor = bambu_watch.BambuPrintMonitor(
             "widget.gcode", status_fn=lambda: {"state": "printing"},
@@ -293,7 +293,7 @@ class RecordStartNativeListTests(unittest.TestCase):
     def test_record_start_stashes_per_tool_list_in_slicer_settings(self):
         from unittest import mock as _mock
         from print_handy.core import model_job
-        from print_handy.hermes import print_records
+        from print_handy.runtime import print_records
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             gcode = root / "job.gcode"

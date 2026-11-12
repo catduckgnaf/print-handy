@@ -14,7 +14,7 @@ import re
 import time
 from pathlib import Path
 
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 logger = logging.getLogger(__name__)
 

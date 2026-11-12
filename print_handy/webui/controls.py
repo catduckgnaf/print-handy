@@ -75,7 +75,7 @@ import shlex
 import urllib.error
 import urllib.request
 
-from .. import printers, settings
+from .. import printer_control, printers, settings
 from ..core import exclude_object as _exclude_object
 from ..core import heater_ceiling as _heater_ceiling
 from . import status as status_module
@@ -238,7 +238,8 @@ def temperature_limit(adapter, view, heater, printer_id=None):
     The firmware's own ``max_temp`` remains the real limit; this is the
     ceiling the Web UI refuses to send above.
     """
-    return _heater_ceiling.ceiling(adapter, heater, state=_hardware_record(printer_id), view=view)
+    return printer_control.for_printer(printer_id, adapter=adapter, view=view).ceiling(
+        heater, state=_hardware_record(printer_id))
 
 
 def control(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):
@@ -258,8 +259,9 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
         if state not in _ALLOWED_FROM[action]:
             raise ControlError(409, f"cannot {action}: printer is {state}. Nothing sent.")
         detail = f"{action} sent; check the printer's status for the result."
+        service = printer_control.for_printer(printer_id, adapter=adapter, view=view)
         try:
-            send(adapter, view, ("control", action))
+            service.send(("control", action), sender=send)
         except ControlError:
             raise
         except urllib.error.HTTPError as exc:
@@ -309,8 +311,9 @@ def set_temperature(data, printer_id, body=None, *, adapter=None, read=None, sen
             raise ControlError(400, f"{heater} target {target:g}°C is outside 0..{limit:g}°C "
                                     "for this printer. Nothing sent.")
         _live_state(adapter, view, read)
+        service = printer_control.for_printer(printer_id, adapter=adapter, view=view)
         try:
-            send(adapter, view, ("temperature", heater, float(target)))
+            service.send(("temperature", heater, float(target)), sender=send)
         except ControlError:
             raise
         except Exception as exc:
@@ -361,9 +364,10 @@ def set_targets(data, printer_id, body=None, *, adapter=None, read=None, send=No
                 raise ControlError(400, f"{key} {target:g}°C is outside 0..{limits[key]:g}°C "
                                         "for this printer. Nothing sent.")
         _live_state(adapter, view, read)
+        service = printer_control.for_printer(printer_id, adapter=adapter, view=view)
         for key, heater, target in wanted:
             try:
-                send(adapter, view, ("temperature", heater, target))
+                service.send(("temperature", heater, target), sender=send)
             except ControlError as refusal:
                 if sent:
                     raise ControlError(refusal.code, f"{refusal.reason} (already sent: "
@@ -401,9 +405,10 @@ def _live_status(adapter, view, read):
     return live if isinstance(live, dict) else {}
 
 
-def _dispatch(send, adapter, view, command, label):
+def _dispatch(send, service, command, label):
+    """Send one command through the control service; a failure to reach the printer is a 502."""
     try:
-        send(adapter, view, command)
+        service.send(command, sender=send)
     except ControlError:
         raise
     except Exception as exc:
@@ -411,7 +416,7 @@ def _dispatch(send, adapter, view, command, label):
                                 f"({type(exc).__name__}: {exc})") from None
 
 
-def _emergency_stop(entry, adapter, view, send):
+def _emergency_stop(entry, service, send):
     """Send the emergency stop without waiting on any status read.
 
     A hung or unreachable controller is exactly when the stop is
@@ -423,13 +428,13 @@ def _emergency_stop(entry, adapter, view, send):
     otherwise a 502 naming both failures and telling the operator to cut
     power."""
     try:
-        send(adapter, view, ("power", "emergency_stop"))
+        service.send(("power", "emergency_stop"), sender=send)
     except ControlError:
         raise  # 501: this family has no stop path; nothing was sent
     except Exception as primary:
         first = f"{type(primary).__name__}: {primary}"
         try:
-            send(adapter, view, ("gcode", "M112"))
+            service.send(("gcode", "M112"), sender=send)
         except Exception as fallback:
             second = (fallback.reason if isinstance(fallback, ControlError)
                       else f"{type(fallback).__name__}: {fallback}")
@@ -470,8 +475,9 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
         entry, view = _resolve(data, printer_id)
         _require_confirm(body, action)
         adapter = adapter or printers.get(entry["model"], view)
+        service = printer_control.for_printer(printer_id, adapter=adapter, view=view)
         if action == "emergency_stop":
-            return _emergency_stop(entry, adapter, view, send)
+            return _emergency_stop(entry, service, send)
         if action == "server_restart":
             # Best-effort read only: Moonraker rejects the objects query
             # while Klippy is disconnected, but /server/restart does not
@@ -484,7 +490,7 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
                 state = "unknown"
         else:
             state = str(_live_status(adapter, view, read).get("state") or "unknown")
-        _dispatch(send, adapter, view, ("power", action), action)
+        _dispatch(send, service, ("power", action), action)
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": action, "from_state": state,
@@ -758,7 +764,8 @@ def send_gcode(data, printer_id, body=None, *, adapter=None, read=None, send=Non
         if state.strip().lower() in _GCODE_REFUSED_STATES:
             raise ControlError(409, f"cannot send G-code: printer is {state}. "
                                     "Nothing sent.")
-        _dispatch(send, adapter, view, ("gcode", script), "send-G-code")
+        _dispatch(send, printer_control.for_printer(printer_id, adapter=adapter, view=view),
+                  ("gcode", script), "send-G-code")
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": "gcode", "from_state": state,
@@ -812,7 +819,8 @@ def exclude_object(data, printer_id, body=None, *, adapter=None, read=None, send
         if action != "exclude":
             raise ControlError(400, f'{plan["reason"]}. Nothing sent.')
         script = plan["body"]["params"]["script"]
-        _dispatch(send, adapter, view, ("gcode", script), "exclude-object")
+        _dispatch(send, printer_control.for_printer(printer_id, adapter=adapter, view=view),
+                  ("gcode", script), "exclude-object")
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": "exclude", "object": target,

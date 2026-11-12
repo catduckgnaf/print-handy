@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from print_handy.hermes import print_control
+from print_handy.runtime import print_control
 from print_handy.core import model_job
 
 OLD = "G4-Instant-Desk-Stand_plate_1_" + "e5" * 32 + ".gcode"
@@ -37,7 +37,7 @@ def _st(state="paused", klippy="ready", filename="foo.gcode"):
 
 def test_resume_refuses_after_emergency_stop_without_sending_or_restarting():
     call = MagicMock()
-    with patch("print_handy.hermes.print_control.status", return_value=_st(klippy="shutdown")), patch("print_handy.hermes.print_control._call", call):
+    with patch("print_handy.runtime.print_control.status", return_value=_st(klippy="shutdown")), patch("print_handy.runtime.print_control._call", call):
         ok, msg = print_control.resume("foo.gcode")
     assert not ok
     call.assert_not_called()
@@ -45,13 +45,13 @@ def test_resume_refuses_after_emergency_stop_without_sending_or_restarting():
 
 
 def test_resume_not_paused():
-    with patch("print_handy.hermes.print_control.status", return_value=_st(state="printing")):
+    with patch("print_handy.runtime.print_control.status", return_value=_st(state="printing")):
         ok, msg = print_control.resume("foo.gcode")
     assert not ok and "Nothing to resume" in msg
 
 
 def test_resume_paused_mismatched_filename():
-    with patch("print_handy.hermes.print_control.status", return_value=_st(filename="other.gcode")):
+    with patch("print_handy.runtime.print_control.status", return_value=_st(filename="other.gcode")):
         ok, msg = print_control.resume("foo.gcode")
     assert not ok and "A different print is paused" in msg
 
@@ -64,8 +64,8 @@ def test_resume_still_paused_reports_failure_and_sends_one_resume():
     """
     call = MagicMock(return_value={"result": "ok"})
     st = MagicMock(return_value=_st())  # paused before the POST and at every readback
-    with patch("print_handy.hermes.print_control._call", call), \
-            patch("print_handy.hermes.print_control.status", st):
+    with patch("print_handy.runtime.print_control._call", call), \
+            patch("print_handy.runtime.print_control.status", st):
         ok, msg = print_control.resume("foo.gcode", wait_s=0.03, poll_s=0.01)
     assert ok is False
     assert "still reports paused" in msg
@@ -75,7 +75,7 @@ def test_resume_still_paused_reports_failure_and_sends_one_resume():
 def test_resume_success_sends_one_resume():
     call = MagicMock(return_value={"result": "ok"})
     st = MagicMock(side_effect=[_st(), _st(state="printing")])
-    with patch("print_handy.hermes.print_control._call", call), patch("print_handy.hermes.print_control.status", st):
+    with patch("print_handy.runtime.print_control._call", call), patch("print_handy.runtime.print_control.status", st):
         ok, msg = print_control.resume("foo.gcode", wait_s=2, poll_s=0.01)
     assert ok and "Resumed" in msg and "layer 10/50" in msg
     call.assert_called_once_with("/printer/print/resume", method="POST", timeout=15)
@@ -120,7 +120,7 @@ def test_last_print_reuses_launched_slice_when_current(tmp_path):
 
 
 def test_last_print_with_no_records(tmp_path):
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     with pytest.raises(NextPlateError):
         print_control.resolve_last_print(tmp_path)
 
@@ -285,7 +285,7 @@ def test_resolve_by_number(tmp_path):
 
 
 def test_resolve_number_out_of_range(tmp_path):
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError, match="no print #9"):
         print_control.resolve_print("9", tmp_path)
@@ -304,7 +304,7 @@ def test_resolve_exact_title_beats_substring(tmp_path):
 
 
 def test_resolve_ambiguous_name_lists_numbers_and_refuses(tmp_path):
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("funko", tmp_path)
@@ -313,7 +313,7 @@ def test_resolve_ambiguous_name_lists_numbers_and_refuses(tmp_path):
 
 
 def test_resolve_unknown_name(tmp_path):
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError, match="no printed job matches"):
         print_control.resolve_print("benchy", tmp_path)
@@ -330,7 +330,7 @@ def test_resolve_typo_suggests_a_pick_list_and_refuses(tmp_path):
     """A typo'd name gets a numbered did-you-mean list in the same shape as
     the ambiguous-name refusal — and still refuses. The follow-up is the
     existing exact path: /print-again <number>."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("funco shelf", tmp_path)
@@ -340,7 +340,7 @@ def test_resolve_typo_suggests_a_pick_list_and_refuses(tmp_path):
 
 
 def test_resolve_typo_in_part_of_a_long_title_suggests_it(tmp_path):
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("desk stadn", tmp_path)
@@ -351,7 +351,7 @@ def test_resolve_single_strong_fuzzy_hit_still_never_resolves(tmp_path):
     """The safety pin for stage 2: even one candidate at 97/100 similarity
     ("funko pop riserr") is offered, never resolved — a fuzzy match may
     suggest, it may not pick the print."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("funko pop riserr", tmp_path)
@@ -370,7 +370,7 @@ def test_fuzzy_printed_orders_best_score_first(tmp_path):
 def test_resolve_unrelated_name_gets_no_suggestions(tmp_path):
     """No near match -> the pre-#468 refusal, byte-identical: no did-you-mean
     is attached when nothing is close enough to mean."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("benchy", tmp_path)
@@ -380,7 +380,7 @@ def test_resolve_unrelated_name_gets_no_suggestions(tmp_path):
 def test_resolve_number_like_query_never_goes_fuzzy(tmp_path):
     """Print numbers stay exact (#436): an out-of-range number is a number
     error, never a fuzzy suggestion, whatever the titles look like."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError, match="no print #22"):
         print_control.resolve_print("22", tmp_path)
@@ -391,7 +391,7 @@ def test_resolve_number_like_query_never_goes_fuzzy(tmp_path):
 def test_resolve_number_word_query_suggests_the_spelled_title(tmp_path):
     """Number equivalence is fuzzy-scorer-only: "mark 2" finds the print
     titled "Mark Two" — but as a did-you-mean pick-list, never a resolve."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _printed(tmp_path, "mark-two--a", "Mark Two Bracket", 100)
     _printed(tmp_path, "benchy--b", "Benchy", 200)
     with pytest.raises(NextPlateError) as exc:
@@ -404,7 +404,7 @@ def test_resolve_number_word_never_selects_a_print_number(tmp_path):
     """The other half of the boundary: the word "two" is not print #2.
     It is a name query, and with no title anywhere near it the answer is
     the plain no-match refusal — no target is ever resolved from it."""
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
     _three(tmp_path)
     with pytest.raises(NextPlateError) as exc:
         print_control.resolve_print("two", tmp_path)
@@ -569,8 +569,8 @@ def _sensor_call(head_detected, *, enabled=True, resume_reply=None):
 @pytest.mark.real_head_sensor
 def test_resume_refused_when_head_sensor_reads_empty():
     call = _sensor_call(False)
-    with patch("print_handy.hermes.print_control._call", call), \
-            patch("print_handy.hermes.print_control.status", return_value=_st()):
+    with patch("print_handy.runtime.print_control._call", call), \
+            patch("print_handy.runtime.print_control.status", return_value=_st()):
         ok, msg = print_control.resume("foo.gcode")
     assert ok is False and msg == print_control.HEAD_EMPTY_TEXT
     assert "/printer/print/resume" not in [c.args[0] for c in call.call_args_list]
@@ -580,8 +580,8 @@ def test_resume_refused_when_head_sensor_reads_empty():
 def test_resume_sent_when_head_sensor_reads_loaded():
     call = _sensor_call(True)
     st = MagicMock(side_effect=[_st(), _st(state="printing")])
-    with patch("print_handy.hermes.print_control._call", call), \
-            patch("print_handy.hermes.print_control.status", st):
+    with patch("print_handy.runtime.print_control._call", call), \
+            patch("print_handy.runtime.print_control.status", st):
         ok, _msg = print_control.resume("foo.gcode", wait_s=2, poll_s=0.01)
     assert ok
     assert [c.args[0] for c in call.call_args_list].count("/printer/print/resume") == 1
@@ -591,8 +591,8 @@ def test_resume_sent_when_head_sensor_reads_loaded():
 def test_disabled_head_sensor_does_not_block_resume():
     call = _sensor_call(False, enabled=False)
     st = MagicMock(side_effect=[_st(), _st(state="printing")])
-    with patch("print_handy.hermes.print_control._call", call), \
-            patch("print_handy.hermes.print_control.status", st):
+    with patch("print_handy.runtime.print_control._call", call), \
+            patch("print_handy.runtime.print_control.status", st):
         ok, _msg = print_control.resume("foo.gcode", wait_s=2, poll_s=0.01)
     assert ok
 
@@ -616,7 +616,7 @@ def test_active_head_sensors_follow_the_active_extruder():
 
 def test_copies_queue_pins_hash_and_claim_for_repeated_confirmations(tmp_path):
     import hashlib
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
 
     run = tmp_path / "archive" / "job"
     run.mkdir(parents=True)
@@ -640,7 +640,7 @@ def test_copies_queue_pins_hash_and_claim_for_repeated_confirmations(tmp_path):
 
 def test_legacy_queue_without_nonce_has_stable_claim_and_missing_hash_refuses(tmp_path):
     import hashlib
-    from print_handy.hermes.print_next import NextPlateError
+    from print_handy.runtime.print_next import NextPlateError
 
     run = tmp_path / "archive" / "job"
     run.mkdir(parents=True)
@@ -654,7 +654,7 @@ def test_legacy_queue_without_nonce_has_stable_claim_and_missing_hash_refuses(tm
               "total": 3, "started": 1, "queued_at": 12345.0}
     queue.write_text(json.dumps(legacy))
     first = print_control.next_copy_target(queue, run.parent)
-    with patch("print_handy.hermes.print_control.time.time", return_value=123456789):
+    with patch("print_handy.runtime.print_control.time.time", return_value=123456789):
         second = print_control.next_copy_target(queue, run.parent)
     assert first["copy"] == second["copy"]
     assert first["gcode_sha256"] == legacy["gcode_sha256"]

@@ -170,7 +170,7 @@ def test_server_serves_layers_and_a_disabled_webui_does_not_start(tmp_path):
     local = tmp_path / "local.yaml"
     local.write_text(
         "paths:\n"
-        f"  hermes_home: {tmp_path}/hermes\n"
+        f"  state_home: {tmp_path}/hermes\n"
         f"  archive: {archive}\n"
         "webui:\n  enabled: true\n  port: 8765\n",
         encoding="utf-8",

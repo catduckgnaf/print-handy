@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_event_listener as mel
 
 OLD_RECORD = {"active_slot": 2, "ifs_slots": {"2": {"spoolman_id": 12}}}
 

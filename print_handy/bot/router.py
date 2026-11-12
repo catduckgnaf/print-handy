@@ -1,7 +1,8 @@
-"""The command router: the print-feedback module's own handlers, in its own order.
+"""The command router: the chat handlers in their dispatch order.
 
-The module's ``register(ctx)`` is called with the router itself as the context, so the
-handler module stays the single place a handler is added.
+The handlers live in ``print_handy.bot.handlers`` (#1323); the package's
+``register(ctx)`` is called with the router itself as the context, so the
+handler package stays the single place a handler is added.
 """
 from __future__ import annotations
 
@@ -15,11 +16,20 @@ from .. import settings
 
 logger = logging.getLogger(__name__)
 
+# The old handler file (plugins/print-feedback), still loadable by path for one release.
 PLUGIN = settings.ROOT / "plugins" / "print-feedback" / "__init__.py"
 MODULE_NAME = "print_handy_print_feedback"
+HANDLERS = "print_handy.bot.handlers"
 
 
-def load_plugin(path=PLUGIN, name=MODULE_NAME):
+def load_plugin(path=None, name=MODULE_NAME):
+    """The handler module: the ``print_handy.bot.handlers`` package, which a wheel carries.
+
+    ``path`` loads a handler file instead (the old ``plugins/print-feedback``
+    layout), under ``name``.
+    """
+    if path is None:
+        return importlib.import_module(HANDLERS)
     if name in sys.modules:
         return sys.modules[name]
     if not Path(path).is_file():
@@ -49,7 +59,7 @@ def message_text(event):
 
 
 class Router:
-    """Collects the plugin's hooks through its register() and runs the dispatch hooks in order.
+    """Collects the handlers through their register() and runs the dispatch hooks in order.
 
     A hook may carry a ``dispatch_gate`` (#1153 item 10): a predicate over
     the stripped message text that is false exactly when the hook would

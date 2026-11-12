@@ -263,7 +263,7 @@ def run_cli(monkeypatch, *args):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(sys, "argv", ["bambu-templates.py", "--printer", "a1", *args])
-    monkeypatch.setenv("PRINT_HANDY__PATHS__HERMES_HOME", str(a1_fixture.HERMES))
+    monkeypatch.setenv("PRINT_HANDY__PATHS__STATE_HOME", str(a1_fixture.HERMES))
     return module.main()
 
 

@@ -862,8 +862,11 @@ def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str
         if isinstance(value, dict):
             value = {**value, "id": translate(value.get("id"))}
         chosen[key] = value
+    pool_history = state.get("pool_history")
+    pool_history = [name for name in (pool_history if isinstance(pool_history, list) else [])
+                    if isinstance(name, str)][-64:]
     return {"version": 1, "corpus": corpus["version"], "bags": bags,
-            "history": history, "chosen": chosen}
+            "history": history, "chosen": chosen, "pool_history": pool_history}
 
 
 # ---------------------------------------------------------------- selection
@@ -999,6 +1002,40 @@ def roast(ctx: Mapping[str, Any], *, status: str = "completed", key: str | None 
         return ""
 
 
+def _balance_fact_pools(pools, state, status):
+    """Rotate among eligible fact categories without letting a generic or
+    title-only joke displace a real, print-specific observation.
+
+    An earlier fixed order meant a long overnight print could repeatedly draw
+    from 'overnight', starving equally true heavy, repeat and color remarks.
+    Reprint-after-failure stays first because its context is unusually relevant.
+    Status-specific failed/cancelled/spaghetti selection is unchanged.
+    """
+    if status != "completed":
+        return pools
+    fixed, facts, fallback = [], [], []
+    reached_fallback = False
+    for name, entries in pools:
+        if name == "reprint_failed:completed" and not reached_fallback:
+            fixed.append((name, entries))
+        elif name == "generic" or name.startswith("title:"):
+            reached_fallback = True
+            fallback.append((name, entries))
+        elif reached_fallback:
+            fallback.append((name, entries))
+        else:
+            facts.append((name, entries))
+    history = state.get("pool_history", [])
+    recent = history[-12:]
+    last_used = {name: index for index, name in enumerate(history)}
+    # Fewest recent draws first; a tie goes to the bank drawn least recently,
+    # so two equally true banks alternate instead of the first one repeating
+    # whenever the window's counts come out even.
+    facts = sorted(enumerate(facts), key=lambda pair: (
+        recent.count(pair[1][0]), last_used.get(pair[1][0], -1), pair[0]))
+    return fixed + [pool for _idx, pool in facts] + fallback
+
+
 def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
     corpus = load_corpus(custom_path)
     state = _normalized(_load_state(state_path), corpus)
@@ -1007,7 +1044,7 @@ def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
         if isinstance(previous, dict) and isinstance(previous.get("line"), str):
             return previous["line"]
     rng = rng or random.Random()
-    pools = candidate_pools(ctx, status, corpus)
+    pools = _balance_fact_pools(candidate_pools(ctx, status, corpus), state, status)
     picked = None
     picked_pool = None
     for name, entries in pools:
@@ -1031,6 +1068,7 @@ def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
         if options:
             line = rng.choice(options)
     state["history"] = [h for h in state["history"] if h != eid][-(HISTORY_WINDOW - 1):] + [eid]
+    state["pool_history"] = (state.get("pool_history", []) + [picked_pool])[-64:]
     if key:
         state["chosen"][key] = {"line": line, "id": eid, "at": int(time.time())}
         if len(state["chosen"]) > CHOSEN_KEEP:

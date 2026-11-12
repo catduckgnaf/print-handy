@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from print_handy.hermes import bambu_watch, print_stop
+from print_handy.runtime import bambu_watch, print_stop
 from print_handy.printers.bambulab.client import BambuLanError
 
 JPEG = b"\xff\xd8\xff\xe0" + b"fake-jpeg-body" + b"\xff\xd9"
@@ -158,7 +158,7 @@ def test_start_monitor_with_injected_parts_uses_the_given_thread_factory():
 
 # -- Stage 3: the camera watchdog ----------------------------------------------
 
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import visual_watch as vw
 
 
 def _watch_monitor(*, sensitivity=3, verdict=("ok", "looks fine"), changed=True):
@@ -299,7 +299,7 @@ def test_dark_frame_posts_one_notice_and_never_alerts():
 
 def test_muted_bambu_print_posts_no_alert(monkeypatch, tmp_path):
     from unittest.mock import patch as _patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     alerts = []
     clock = FakeClock()
     monitor = bambu_watch.BambuPrintMonitor(
@@ -393,7 +393,7 @@ def test_snapshot_failure_alerts_are_throttled_to_the_periodic_interval():
 
 
 def test_dark_notice_delivery_posts_only_the_mute_button(monkeypatch):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seen = {}
     monkeypatch.setattr(pab, "post_visual_dark_notice",
                         lambda token, chat, text, filename, identity=None: seen.update(
@@ -405,7 +405,7 @@ def test_dark_notice_delivery_posts_only_the_mute_button(monkeypatch):
 
 
 def test_visual_alert_delivery_posts_buttons_like_the_moonraker_alert(monkeypatch):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seen = {}
     monkeypatch.setattr(pab, "post_visual_alert",
                         lambda token, chat, text, filename, path, identity=None: seen.update(
@@ -431,7 +431,7 @@ def test_text_alert_delivery_uses_the_real_button_helper(monkeypatch, tmp_path):
     # test stubs only the Discord transport under the real helper.
     import json as _json
     from unittest.mock import patch as _patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seen = {}
 
     class Response:
@@ -463,7 +463,7 @@ def test_text_alert_delivery_buttonless_posts_plain_text():
 
 
 def test_text_alert_delivery_falls_back_to_plain_text_when_the_button_post_fails(monkeypatch):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "post_visual_text_alert", lambda *args, **kwargs: False)
     posts = []
     bambu_watch.deliver_visual_text_alert(REMOTE, "periodic: camera down", post=posts.append,
@@ -478,8 +478,8 @@ _WATCH_STARTER = "111222333444555666"
 
 def _watchdog_ping_rig(monkeypatch, tmp_path):
     """Real starter-pings state in a tmp file, with the job resolvable."""
-    from print_handy.hermes import discord_print_summary as summary
-    from print_handy.hermes import starter_pings
+    from print_handy.runtime import discord_print_summary as summary
+    from print_handy.runtime import starter_pings
     job = {"title": "Widget", "gcode": "/archive/widget/plate.gcode",
            "started_by": {"platform": "discord", "user_id": _WATCH_STARTER}}
     monkeypatch.setattr(starter_pings, "STATE", tmp_path / "starter_pings.json")
@@ -492,8 +492,8 @@ def test_visual_alert_releases_the_ping_when_every_delivery_fails(monkeypatch, t
     """Button post and plain fallback both failing means the recorded
     watchdog ping never landed: it is released, so a later watchdog
     alert for the same print can ping instead of arriving silently."""
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
     _watchdog_ping_rig(monkeypatch, tmp_path)
     monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: False)
     delivered = []
@@ -508,8 +508,8 @@ def test_visual_alert_releases_the_ping_when_every_delivery_fails(monkeypatch, t
 
 
 def test_visual_text_alert_releases_the_ping_when_every_delivery_fails(monkeypatch, tmp_path):
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
     _watchdog_ping_rig(monkeypatch, tmp_path)
     monkeypatch.setattr(pab, "post_visual_text_alert", lambda *args, **kwargs: False)
     delivered = []
@@ -527,8 +527,8 @@ def test_visual_alert_keeps_the_episode_when_the_fallback_delivers(monkeypatch, 
     """A fallback that lands is a delivered ping: the episode stays
     recorded, so the next watchdog alert for the print does not ping
     a second time."""
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
     _watchdog_ping_rig(monkeypatch, tmp_path)
     monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: False)
     delivered = []
@@ -565,7 +565,7 @@ def test_pause_refuses_a_different_file_without_sending(monkeypatch):
 
 def test_handle_click_visual_pause_routes_to_the_bambu_pause(monkeypatch):
     from unittest import mock
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     adapter, _client = _bambu_pause(monkeypatch, [bst2("printing"), bst2("paused")])
     with mock.patch.object(print_stop.time, "sleep"):
         text = pab.handle_click("pause", {"kind": "visual", "filename": "plate_1.gcode.3mf"})
@@ -838,8 +838,8 @@ import subprocess as _subprocess
 import pytest as _pytest
 from PIL import Image as _Image
 
-from print_handy.hermes import moonraker_event_listener as _mel
-from print_handy.hermes import timelapse_capture as _capture
+from print_handy.runtime import moonraker_event_listener as _mel
+from print_handy.runtime import timelapse_capture as _capture
 
 _FFMPEG = _shutil.which("ffmpeg")
 _FFPROBE = _shutil.which("ffprobe")

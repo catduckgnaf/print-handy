@@ -495,7 +495,7 @@ def test_an_unreadable_legacy_folder_fails_the_start_and_is_not_recorded(tmp_pat
 def test_a_migrated_install_without_the_legacy_folder_still_gets_the_compat_link(tmp_path):
     # New Compose: print-handy-migrate copied ./data/hermes, and the main
     # container mounts no /data/hermes. The pre-2.2.5 name (and an explicit
-    # paths.hermes_home=/data/hermes) must still resolve to /data/state.
+    # paths.state_home=/data/hermes) must still resolve to /data/state.
     state = tmp_path / "state"
     seed(state)
     (state / ".migrated-from-legacy").write_text("2026-11-10T00:00:00Z\n")

@@ -67,7 +67,7 @@ def test_model_link_flows_through_intake_to_the_confirm_prompt(cfg, monkeypatch)
 
     from print_handy.bot import runtime
     from print_handy.core import link_intake, prepared_intake, printer_state
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
 
     monkeypatch.setattr(_config, "_override", cfg)
     seen = {}
@@ -104,7 +104,7 @@ def test_print_source_command_reaches_its_handler(cfg, monkeypatch):
     Before 'webui' joined BOT_PLATFORMS this fell through every
     handler and landed on the unmatched reply.
     """
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
 
     monkeypatch.setattr(_config, "_override", cfg)
     service = web.WebChatService(cfg)
@@ -121,7 +121,7 @@ def test_print_design_reaches_the_design_handler(cfg, monkeypatch):
     reply is its deterministic not-set-up refusal — the point is that
     the handler produced it, not the stray-chat fallthrough.
     """
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
 
     monkeypatch.setattr(_config, "_override", cfg)
     service = web.WebChatService(cfg)

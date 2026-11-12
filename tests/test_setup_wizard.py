@@ -188,13 +188,13 @@ def _apply_standalone(tmp_path, monkeypatch, local):
 
 
 def test_secrets_go_to_a_preserved_custom_data_folder(tmp_path, monkeypatch):
-    # An existing config pins paths.hermes_home elsewhere; the merge preserves it
+    # An existing config pins paths.state_home elsewhere; the merge preserves it
     # (existing keys win) and install-standalone.sh points the services' env file
     # at that folder — so the token must be written there, not to the proposed
     # default (P2-60).
     custom = tmp_path / "elsewhere"
     local = tmp_path / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {custom}\n")
+    local.write_text(f"paths:\n  state_home: {custom}\n")
     plan = _apply_standalone(tmp_path, monkeypatch, local)
     assert plan["data_home"] != str(custom)  # the wizard proposed its own default
     env = (custom / ".env").read_text()
@@ -204,10 +204,10 @@ def test_secrets_go_to_a_preserved_custom_data_folder(tmp_path, monkeypatch):
 
 def test_secrets_go_to_a_custom_data_folder_even_when_the_merge_is_declined(tmp_path, monkeypatch):
     # Declining the merge leaves the existing config in force, so its
-    # paths.hermes_home is still the effective folder for the services.
+    # paths.state_home is still the effective folder for the services.
     custom = tmp_path / "elsewhere"
     local = tmp_path / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {custom}\n")
+    local.write_text(f"paths:\n  state_home: {custom}\n")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     plan = build_plan(_wizard(ONE_PRINTER))
     w = _wizard({"merge_config": "no", "run_linger": "no", "run_start": "no"})

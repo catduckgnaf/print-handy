@@ -2,8 +2,8 @@
 import json
 import time
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_next
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_next
 
 UPLOADED = "Slim_plate_1_ab.gcode.3mf"
 

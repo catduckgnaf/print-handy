@@ -114,7 +114,7 @@ EXEMPTIONS = {
     # path settings have no catalog fields in this codebase.
     ("paths", "piper"): (frozenset({"webui"}), "#981"),
     ("paths", "piper_model"): (frozenset({"webui"}), "#981"),
-    ("paths", "hermes_home"): (frozenset({"webui"}), "#657"),
+    ("paths", "state_home"): (frozenset({"webui"}), "#657"),
     ("paths", "records_vault"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "edge_mm"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "merge_slack_mm"): (frozenset({"webui"}), "#657"),

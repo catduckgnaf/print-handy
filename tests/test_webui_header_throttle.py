@@ -52,7 +52,7 @@ class PasswordGuidanceTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.mkdtemp()
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n")
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n")
         self.data = settings.load(local=local, environ={})
 
     def refused(self, password, username=None):

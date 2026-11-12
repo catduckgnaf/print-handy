@@ -44,7 +44,7 @@ FAKE_SNAPSHOT = {
 class WalkthroughServerTests(unittest.TestCase):
     def start(self, tmp, *, setup_done=False, host="0.0.0.0", environ=None, extra=""):
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n"
                          f"  host: {host}\n  port: 8765\n" + extra)
         environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
@@ -588,7 +588,7 @@ class WalkthroughServerTests(unittest.TestCase):
 class ThemeTests(unittest.TestCase):
     def start(self, tmp, *, setup_done=False, host="0.0.0.0", environ=None, extra=""):
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n"
                          f"  host: {host}\n  port: 8765\n" + extra)
         environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
@@ -775,7 +775,7 @@ class PrinterNameShapeTests(unittest.TestCase):
 
     def start(self, tmp, *, extra="", environ=None, user_text=None):
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n  host: 127.0.0.1\n  port: 8765\n"
                          + extra)
         environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}

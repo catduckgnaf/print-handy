@@ -137,7 +137,7 @@ def test_thermal_assumptions_lines_show_known_and_unknown(registry):
 
 
 def test_slice_summary_includes_thermal_lines_for_registered_model(tmp_path):
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text("; estimated printing time (normal mode) = 1h 0m 0s\n"
                      "; total filament used [g] = 5\nG1 X1\n")

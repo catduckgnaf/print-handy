@@ -2,8 +2,8 @@
 import json
 
 from print_handy.core import prepared_intake
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import print_records as records
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import print_records as records
 
 
 def _gcode(path, duration, grams):

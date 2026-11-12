@@ -63,7 +63,7 @@ def bambu_flow(work, stl, **overrides):
     overrides are extra environment for the flow process; the caller picks the slicer path there.
     """
     env = {**os.environ, "PRINT_HANDY__PRINTER__MODEL": "bambulab.a1",
-           "PRINT_HANDY__PATHS__HERMES_HOME": str(work / "flow-hermes"), **overrides}
+           "PRINT_HANDY__PATHS__STATE_HOME": str(work / "flow-hermes"), **overrides}
     out = subprocess.run([sys.executable, "-m", "tests.printers.a1_flow", str(work / "flow"), "--stl", str(stl),
                           "--resources", str(installed_resources())],
                          cwd=ROOT, capture_output=True, text=True, env=env, timeout=900)
