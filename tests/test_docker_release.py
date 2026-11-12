@@ -1405,6 +1405,15 @@ class AcceptanceFixtureTests(unittest.TestCase):
         self.assertEqual(overlay["services"]["combined"]["depends_on"]["fake-moonraker"]["condition"], "service_healthy")
         self.assertFalse((ROOT / "tests" / "docker" / "compose.acceptance-spoolman.yml").exists())
 
+    def test_readonly_probes_mount_writable_data_root_without_disabling_checks(self):
+        script = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()
+        args = script.split("probe_args=(", 1)[1].split("\nprobe()", 1)[0]
+        self.assertIn('-v "$data:/data"', args)
+        self.assertIn('mkdir -p "$data"/{state,hermes,archive,records,cache,spoolman}', script)
+        self.assertIn('probe readonly --read-only --tmpfs /tmp:size=64m -- "$check"', script)
+        self.assertIn('for check in payload closure slice egress ffmpeg openscad; do', script)
+        self.assertNotIn('--entrypoint', args)
+
     def test_harness_owns_its_names_and_publishes_no_port(self):
         script = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()
         self.assertIn('project="ph-accept-${mode}-${run_id}"', script)
