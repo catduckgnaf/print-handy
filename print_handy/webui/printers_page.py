@@ -91,12 +91,20 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
     for entry in roster:
         pid = quote(str(entry["id"]), safe="")
         default = ' <span class="badge ok">Default printer</span>' if entry.get("default") else ""
+        model = printers.MODELS.get(entry.get("model") or "")
+        # The printer screen view (#1303) discovers its screen through
+        # Moonraker, so only Moonraker printers carry the link; the page
+        # itself explains when no screen is published.
+        screen_link = (f' <a class="button" href="/printers/{pid}/screen">'
+                       'Printer screen</a>'
+                       if model is not None
+                       and model.vendor.connection == "moonraker" else "")
         cards.append(
             '<div class="card printer-card">'
             f'<h3>{esc(entry.get("name") or entry["id"])}{default}</h3>'
             f'<p class="mono">{esc(entry["id"])} · {esc(entry.get("model") or "")}</p>'
             f'<p><a class="button" href="/spools/{pid}">Open spools</a> '
-            '<a class="button" href="/layers">Layers</a></p></div>')
+            f'<a class="button" href="/layers">Layers</a>{screen_link}</p></div>')
     parts.append("<h2>Printers</h2>" + ("".join(cards) or "<p>No printers configured.</p>"))
     options = "".join(
         f'<option value="{esc(key)}">{esc(model.label)}</option>'

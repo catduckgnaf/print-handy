@@ -19,6 +19,8 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /config` | The picker configuration page |
 | `GET /api/status` | The same status snapshot as JSON |
 | `GET /api/printers/<id>/status` | One roster printer's live status as JSON: its identity plus the adapter's normalized status (`state`, `filename`, `progress`, temperatures, and any target/ETA/layer fields that printer's adapter reports). An unknown id is a 404; a printer that cannot be reached answers with `state: "unavailable"` instead of an error |
+| `GET /printers/<id>/screen` | The printer screen view (#1303): that printer's own display as a labeled, read-only page, refreshed while open. A printer that publishes no screen gets the page with the reason, not a broken image |
+| `GET /api/printers/<id>/screen/snapshot` | One JPEG of that printer's own display (not the bed camera), discovered through Moonraker's registered `screen` webcam and served without naming the printer's address. A printer with no Moonraker connection or no registered screen is a 404 with the reason; an unreachable printer or screen service is a 502 |
 | `GET /healthz` | The standalone bot heartbeat verdict: `200` when it passes, `503` when it does not |
 | `GET /readyz` | Per-component readiness as JSON: `spoolman`, `slicer` and one `printers.<id>` row each, plus `ready`. `200` when no component is known to be down, `503` when one is. Same access token as `/api/status` |
 | `GET /designs` | The read-only designs catalog: AI design sessions on disk, newest first |

@@ -24,6 +24,11 @@ step) serving:
 - ``GET /api/printers/<id>/camera/snapshot`` — one JPEG from that
   printer's camera (:mod:`print_handy.webui.camera`, #708), never the
   camera URL itself;
+- ``GET /api/printers/<id>/screen/snapshot`` — one JPEG of that
+  printer's own display (:mod:`print_handy.webui.screen`, #1303),
+  discovered through Moonraker's registered ``screen`` webcam and
+  never the printer's address; ``GET /printers/<id>/screen`` is its
+  labeled, read-only page;
 - ``GET /api/printers/<id>/spools`` and
   ``POST /api/printers/<id>/spools/{assign,swap,unassign,add,edit,sync,
   purchase/propose,purchase/create}`` — spool management (#789,
@@ -173,6 +178,7 @@ from . import layers as layers_module
 from . import pages
 from . import printers_page
 from . import projects as projects_module
+from . import screen as screen_module
 from . import shell
 from . import sources as sources_module
 from . import spools as spools_module
@@ -1119,6 +1125,8 @@ class _Handler(BaseHTTPRequestHandler):
                            "text/html; charset=utf-8")
             elif path == "/printers":
                 self._printers_page()
+            elif path.startswith("/printers/") and path.endswith("/screen"):
+                self._screen_page(unquote(path[len("/printers/"):-len("/screen")]))
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
@@ -1412,10 +1420,18 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
             return
+        if len(segments) == 3 and segments[0] and segments[1:] == ["screen", "snapshot"]:
+            code, body, content_type = self.server.screen_snapshot_func(unquote(segments[0]))
+            if code != 200:
+                self._json(code, body)
+                return
+            self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
+            return
         self._json(404, {"ok": False,
                          "reason": "try /api/printers/<id>/status, "
-                                   "/api/printers/<id>/spools or "
-                                   "/api/printers/<id>/camera/snapshot"})
+                                   "/api/printers/<id>/spools, "
+                                   "/api/printers/<id>/camera/snapshot or "
+                                   "/api/printers/<id>/screen/snapshot"})
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
@@ -1542,6 +1558,33 @@ class _Handler(BaseHTTPRequestHandler):
             self._redirect("/printers?done=" + quote(message, safe=""))
         else:
             self._printers_page(error=message, code=400)
+
+    def _screen_page(self, printer_id):
+        """GET /printers/<id>/screen: the printer screen view (#1303).
+
+        Availability is probed (discovery only, no frame is pulled);
+        the page renders the labeled read-only view when a screen is
+        published and the reason when it is not, so an unsupported or
+        unavailable screen is an explanation, never a broken image.
+        An unknown id is a 404 in the same shape.
+        """
+        if not printer_id or "/" in printer_id:
+            self._json(404, {"ok": False,
+                             "reason": "that printer id does not name a "
+                                       "printer screen page"})
+            return
+        try:
+            entry = settings.by_id(printer_id, self.server.settings_data)
+        except settings.SettingsError:
+            self._json(404, {"ok": False,
+                             "reason": f"no printer with id {printer_id!r} "
+                                       f"is configured"})
+            return
+        ok, reason = self.server.screen_probe_func(printer_id)
+        self._send(200, screen_module.render_page(
+            entry.get("name") or printer_id, printer_id,
+            ok=ok, reason=reason, theme=self._theme()),
+            "text/html; charset=utf-8")
 
     def _spools_page(self, printer_id):
         """GET /spools/<id>: the per-printer Spools page (#789).
@@ -2660,7 +2703,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
                 printer_status_func=None, printer_control_func=None,
-                camera_snapshot_func=None, spools_view_func=None, spools_action_func=None,
+                camera_snapshot_func=None, screen_snapshot_func=None,
+                screen_probe_func=None, spools_view_func=None, spools_action_func=None,
                 readiness_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
@@ -2745,6 +2789,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda printer_id, verb, body: _printer_control(data, printer_id, verb, body))
     server.camera_snapshot_func = camera_snapshot_func or (
         lambda printer_id: camera_module.snapshot(data, printer_id))
+    server.screen_snapshot_func = screen_snapshot_func or (
+        lambda printer_id: screen_module.snapshot(data, printer_id))
+    server.screen_probe_func = screen_probe_func or (
+        lambda printer_id: screen_module.probe(data, printer_id))
     server.spools_view_func = spools_view_func or (
         lambda printer_id: spools_module.spools_view(data, printer_id))
     server.spools_action_func = spools_action_func or (
