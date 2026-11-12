@@ -229,10 +229,12 @@ require_confirmation`) and the project's `bot/configuration.py` /
 
 - **Buttons**: prompts are inline keyboards. Answering edits the message
   to remove the keyboard and record the choice.
-- **Alert buttons**: the listener's Discord button posts (pause alerts,
-  plate picker, insertion and spool questions) are sent as plain text on
-  Telegram. The text names the typed command or reply that does the same
-  job; nothing is lost except the tap target.
+- **Alert buttons**: pause and stop alerts carry their Resume / Cancel
+  buttons on Telegram too, as an inline keyboard with the same actions
+  as Discord; a press re-reads the printer first, exactly like a Discord
+  click. The listener's other button posts (plate picker, insertion and
+  spool questions) are still sent as plain text on Telegram. The text
+  names the typed command or reply that does the same job.
 - **Messages are plain text.** No Markdown parse mode is set, so file
   names, model names and G-code fragments are shown exactly as written
   (Discord's `**bold**` markers appear literally).

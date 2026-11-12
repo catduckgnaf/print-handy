@@ -1512,7 +1512,7 @@ def _validate_timelapse(data):
         raise SettingsError(
             f"[timelapse] capture_trigger must be one of {', '.join(CAPTURE_TRIGGERS)}, got {trigger!r}")
     timelapse["capture_trigger"] = trigger
-    encoder = str(timelapse.setdefault("capture_encoder", "auto") or "auto").strip().lower()
+    encoder = str(timelapse.setdefault("capture_encoder", "cpu") or "cpu").strip().lower()
     if encoder not in CAPTURE_ENCODERS:
         raise SettingsError(
             f"[timelapse] capture_encoder must be one of {', '.join(CAPTURE_ENCODERS)}, got {encoder!r}")

@@ -288,17 +288,25 @@ _TASK_INTENT_SUGGESTIONS = (
     # named by component (zmod, helixscreen, ...) — the plain check above
     # only matched the literal word "firmware" in two narrow shapes, so
     # "can you check for zmod updates?" dead-ended (catduck, 2026-11-11).
+    # The component set also carries the fluidd/mainsail names and the
+    # bare "check <name>" form from #1290; every check form lands on the
+    # bare command, whose own form is the read-only report — a check never
+    # routes to the update form, and the confirm discipline stays the
+    # command's own.
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+)?firmware\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+|any\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+there\s+)?(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+)?{_FW_COMPONENT}\s+up\s+to\s+date{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?{_FW_COMPONENT}{_END}", re.I), "/print-firmware"),
     # "update helix" (the owner's words, 2026-11-11): the update form for
     # the named component, its name through firmware_update's one alias
     # table ("helix", "helix screen" -> helixscreen; "guppy" ->
     # guppyscreen). Only ever the did-you-mean prompt; the command then
     # resolves the name against the live status and asks its own
-    # confirmation before anything is sent.
+    # confirmation before anything is sent. This supersedes the bare-report
+    # route #1298 first gave "update <name>": an instruction to update a
+    # named component is an update ask, not a check.
     (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every

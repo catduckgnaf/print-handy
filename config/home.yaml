@@ -300,7 +300,7 @@ timelapse:
   # pad = blurred background fill (default); crop = centre crop.
   vertical_short_mode: pad
   vertical_short_overlay: true
-  # Data tab and Print Handy Wrapped (#956): read-only statistics over the
+  # Data tab and Pasta Wrapped (#956): read-only statistics over the
   # print records plus the once-a-year Wrapped recap in the Web UI. On by
   # default; while off, each page is not in the navigation and its routes
   # refuse by name. An install that set wrapped_enabled: false before the
@@ -350,9 +350,8 @@ timelapse:
   capture_max_frames: 3600
   capture_max_bytes: 536870912
   # Encoder preference for the Stage 3 encode (auto | vaapi | nvenc | qsv |
-  # cpu). Capture itself never encodes; the value is recorded now so the
-  # encode stage needs no settings change.
-  capture_encoder: auto
+  # cpu). Capture itself never encodes; auto probes GPU encoders first.
+  capture_encoder: cpu
 logging:
   level: INFO
   format: text

@@ -196,7 +196,7 @@
   {
    "id": "short_print-title-concluded-in-duration-the",
    "family": "short_print-title-concluded-in-duration-the",
-   "text": "{title} concluded in {duration}; the completion notification arrived faster than expected."
+   "text": "{title} concluded in {duration}, a whole print job in the time it takes coffee to cool."
   },
   {
    "id": "short_print-a-swift-duration-for-title",

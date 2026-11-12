@@ -127,8 +127,10 @@ def _buttonless_standalone():
     """The platform name when the bot's posts have no Discord buttons, else None.
 
     Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
-    button posts: alerts go out as plain text and the operator answers
-    with the typed commands the text names.
+    button posts: the interactive offers go out as plain text and the
+    operator answers with the typed commands the text names. The one
+    exception is ``post_alert`` on Telegram, which carries the alert's
+    own buttons as an inline keyboard (#1291).
     """
     if _telegram_standalone():
         return "telegram"
@@ -220,9 +222,12 @@ def _post_rest_discord(message, mention_user_id=None):
 def post_alert(message, kind, filename, episode=None):
     """Post with Resume/Cancel buttons; fall back to plain text if Discord refuses.
 
-    On Telegram and Matrix (#164 stages 2-3) the Discord-shaped button
-    posts do not apply: the alert goes out as plain text and the operator
-    answers with the typed commands the text names.
+    On Telegram the alert carries its buttons as an inline keyboard
+    (#1291): the same recorded alert, and the press returns through the
+    Telegram adapter's callback polling. On Matrix (#164 stage 3) the
+    Discord-shaped button posts do not apply: the alert goes out as
+    plain text and the operator answers with the typed commands the
+    text names.
     """
     # An alert that needs a person pings the print's starter (#1095): the
     # classifier decides from the alert kind and the job behind the
@@ -240,7 +245,23 @@ def post_alert(message, kind, filename, episode=None):
         episode = f"paused:{classify_pause(message)}" if kind == "paused" else kind
     mention = starter_pings.ping_for(kind, job_key=filename, episode=episode) or None
     delivered = None
-    if _buttonless_standalone():
+    if _telegram_standalone():
+        try:
+            from . import print_alert_buttons as pab
+            kwargs = {}
+            from .. import listeners as _listeners
+            # The alert's buttons act on this listener's printer, as on Discord.
+            if _listeners.instance_printer_id():
+                kwargs["printer_id"] = _listeners.instance_printer_id()
+            if pab.post_telegram_with_buttons(_telegram_token(), _telegram_chat_id(),
+                                              message, kind, filename, **kwargs):
+                log(f"post telegram buttons kind={kind} {message.splitlines()[0][:120]!r}")
+                return True
+            log("telegram button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"telegram button post error: {exc!r}")
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    elif _buttonless_standalone():
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     else:
         try:
@@ -2597,24 +2618,36 @@ class AbandonedStartWatch:
     reads must never reset another claim's window (#848 — with a single shared window, two
     outstanding claims alternately reset each other and neither was ever reported). Any
     heater target or an unreadable target restarts that claim's window only — neither is
-    evidence a start was abandoned. A printing/paused read retires the claim's window
-    outright: that start took, so its later idle reads are a finished print's story, not an
-    abandoned start's. `retire` drops a claim the poll has released, and `retain` drops
-    windows for claims that are no longer outstanding, so a later claim of the same file
-    always starts a fresh window.
+    evidence a start was abandoned. A printing/paused read settles the claim for good: that
+    start took, so its later idle reads (complete, then standby with cold heaters once the
+    printer resets) are a finished print's story, not an abandoned start's (#1282: the old
+    code dropped the window on the printing read, so the next cold read opened a fresh one
+    and a print that ran to completion was reported as "never became a print"). `claimed_at`
+    is the claim's own timestamp: a re-claim of the same file (a reprint) carries a new one
+    and starts a fresh window. `retire` drops a claim the poll has released, and `retain`
+    drops windows for claims that are no longer outstanding, so a later claim of the same
+    file always starts a fresh window.
     """
 
     def __init__(self):
-        self._claims = {}  # filename -> {"cold_since": float | None, "announced": bool}
+        # filename -> {"cold_since": float | None, "announced": bool, "took": bool,
+        #              "claimed_at": float | None}
+        self._claims = {}
 
-    def observe(self, filename, state, extruder_target, bed_target, now=None):
+    def observe(self, filename, state, extruder_target, bed_target, now=None, claimed_at=None):
         if not filename:
             return False
         now = time.time() if now is None else now
+        claim = self._claims.get(filename)
+        if claim is None or (claimed_at is not None and claim["claimed_at"] != claimed_at):
+            claim = self._claims[filename] = {"cold_since": None, "announced": False,
+                                              "took": False, "claimed_at": claimed_at}
         if state in ("printing", "paused"):
-            self._claims.pop(filename, None)  # this claim's start took: retire its window
+            claim["took"] = True  # this claim's start took: nothing later is an abandoned start
+            claim["cold_since"] = None
             return False
-        claim = self._claims.setdefault(filename, {"cold_since": None, "announced": False})
+        if claim["took"]:
+            return False
         cold = (state in ("standby", "error")
                 and extruder_target is not None and bed_target is not None
                 and float(extruder_target) == 0.0 and float(bed_target) == 0.0)
@@ -2697,7 +2730,11 @@ def announce_warmup_done(filename):
         log(f"start message lookup failed file={filename!r}: {exc!r}")
     if not message_id:
         # The intake already posted the one "Print started" message; a second line after it is noise.
-        log(f"no recorded start message; warmup done silently file={filename!r}")
+        # Expected, not a fault (#1282): only a Discord intake whose start was still warming
+        # records its card for this edit. Other print-now starts (web UI, reprints, a start
+        # already printing when print-now returned) posted their final start text already.
+        log(f"no warmup edit recorded for this claimed start (its start post is final); "
+            f"warmup done silently file={filename!r}")
         return False
     if message_id:
         try:
@@ -3617,7 +3654,8 @@ class Listener:
                 value = (status.get(name) or {}).get("target")
                 return float(value) if isinstance(value, (int, float)) else None
             if self.abandoned_watch.observe(filename, stats.get("state"),
-                                            target("extruder"), target("heater_bed")):
+                                            target("extruder"), target("heater_bed"),
+                                            claimed_at=start_claim_time(filename)):
                 log(f"claimed start never became a print file={filename!r}")
                 await asyncio.to_thread(announce_start_abandoned, filename)
                 await asyncio.to_thread(release_start_claim, filename)
@@ -4412,9 +4450,9 @@ class Listener:
                 if new_state == "error":
                     await asyncio.to_thread(capture_stop, self.filename, "error")
                     facts = {}
-                    duration = self.last_stats.get("print_duration")
-                    if isinstance(duration, (int, float)) and duration > 0:
-                        facts["duration_s"] = float(duration)
+                    duration = announcer.elapsed_print_seconds(self.last_stats)
+                    if duration is not None:
+                        facts["duration_s"] = duration
                     mention = starter_pings.ping_for("error", job_key=self.filename) or None
                     await asyncio.to_thread(
                         post, _with_status_roast(

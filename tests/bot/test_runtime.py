@@ -412,6 +412,31 @@ def _recording_router(seen):
     ("what maintenance is due", "/print-maintenance"),
     ("update the firmware", "/print-firmware"),
     ("is there a firmware update?", "/print-firmware"),
+    # #1290 scope addition: update checks named by product — the
+    # "check for <name> update(s)" shape lands on the read-only
+    # /print-firmware report, never on an apply.
+    ("can you check for firmware updates", "/print-firmware"),
+    ("can you check for zmod updates?", "/print-firmware"),
+    ("can you check for helixscreen updates?", "/print-firmware"),
+    ("check for firmware updates", "/print-firmware"),
+    ("check for a firmware update", "/print-firmware"),
+    ("check for any zmod updates", "/print-firmware"),
+    ("check for klipper updates", "/print-firmware"),
+    ("check for moonraker updates", "/print-firmware"),
+    ("check for fluidd updates", "/print-firmware"),
+    ("check for mainsail updates", "/print-firmware"),
+    ("check zmod", "/print-firmware"),
+    # #1297 supersedes the bare-report route for the instruction form:
+    # "update <name>" suggests that component's update form, which asks
+    # its own confirmation before anything is sent.
+    ("update zmod", "/print-firmware update zmod"),
+    ("is there a zmod update?", "/print-firmware"),
+    ("is there a helixscreen update", "/print-firmware"),
+    ("can you check for zmmod updates", "/print-firmware"),
+    ("check for helixscren updates", "/print-firmware"),
+    ("check for mooraker updates", "/print-firmware"),
+    ("check for firmwre updates", "/print-firmware"),
+    ("check for system updates", None),   # "system" deliberately not wired (see #1292)
     ("the nozzle is clogged", "/print-troubleshoot clog"),
     ("filament is stuck", "/print-troubleshoot clog"),
     ("extruder is clicking", "/print-troubleshoot clog"),

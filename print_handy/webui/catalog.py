@@ -639,7 +639,7 @@ CATALOG = (
            "is stored here, never the key contents.",
            validator="settings type check"),
     _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
-           "Print Handy Wrapped (#956): the once-a-year recap over the "
+           "Pasta Wrapped (#956): the once-a-year recap over the "
            "print records. On by default; while off, the Wrapped page "
            "is not in the navigation and its routes refuse by name. "
            "The Data tab has its own switch below.",

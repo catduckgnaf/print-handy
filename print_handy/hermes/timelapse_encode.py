@@ -24,7 +24,8 @@ Encoder selection is shared, as the issue requires:
   there is exactly one place that knows each vendor's argv.
 
 The sizing strategy mirrors the shrink's: a budget-derived bitrate
-(90% of the cap over the video's duration), then a second attempt at
+(90% of the cap over the video's duration, never above
+:data:`MAX_KBITS_PER_FRAME` per output frame), then a second attempt at
 70%. A hardware encoder that fails — or produces an oversize file on
 both attempts — falls through to the next candidate; CPU is always the
 last candidate, and a total failure returns None. Nothing here raises
@@ -85,11 +86,17 @@ def dri_status(dri_dir=None, *, access=None, sys_drm="/sys/class/drm", environ=N
         if str(environ.get(live_stream.VAAPI_DEVICE_ENV) or "").strip():
             chosen = live_stream.vaapi_device(environ=environ)
             if access(chosen, os.R_OK | os.W_OK):
+                failed = vaapi_open_failure(chosen)
+                if failed:
+                    return False, failed
                 return True, f"{chosen} is usable (set by {live_stream.VAAPI_DEVICE_ENV})"
             return False, (f"{chosen} (set by {live_stream.VAAPI_DEVICE_ENV}) is missing or not "
                            f"readable and writable (add the device's group: group_add / --group-add)")
         node = live_stream.usable_render_node(dri_dir, sys_drm, access=access)
         if node is not None:
+            failed = vaapi_open_failure(str(node))
+            if failed:
+                return False, failed
             return True, f"{node} is usable"
         if all(live_stream._render_driver(sys_drm, n.name) == "nvidia" for n in nodes):
             return False, f"{dri_dir} has only NVIDIA render nodes (no VAAPI driver; NVENC uses the NVIDIA runtime)"
@@ -157,6 +164,57 @@ def ffmpeg_failure(exc) -> str:
     return repr(exc)
 
 
+# One VAAPI open check per (ffmpeg, render node) per process (#1282). A render node that exists
+# and is readable can still refuse VAAPI: a container whose /sys hides the driver link (so an
+# NVIDIA node is not recognised as one), an Intel/AMD node without its VA driver in the image.
+# ffmpeg then fails at "-vaapi_device" before any encoding, exit 234 "Error parsing global
+# options: Invalid argument", once per encode. The check runs that same option on a one-frame
+# null input, so a node that cannot open is skipped up front with the reason named.
+VAAPI_OPEN_TIMEOUT_S = 20
+_VAAPI_OPEN: dict = {}  # (ffmpeg, device) -> "" when it opened, else the named reason
+_VAAPI_OPEN_LOCK = threading.Lock()
+
+
+def vaapi_open_argv(ffmpeg, device) -> list:
+    """The cheap check: open ``device`` exactly as an encode does, decode one null frame, discard it."""
+    return [str(ffmpeg), "-hide_banner", "-v", "error", "-vaapi_device", str(device),
+            "-f", "lavfi", "-i", "nullsrc=s=16x16:d=0.04", "-frames:v", "1", "-f", "null", "-"]
+
+
+def vaapi_open_problem(ffmpeg, device=None, *, run=None) -> str:
+    """"" when ``ffmpeg`` can open ``device`` for VAAPI, else the named reason. Never raises.
+
+    The real ffmpeg's verdict is reused for the life of the process; an injected ``run``
+    (tests) always runs, so one test's fake never answers for another. Every verdict is
+    recorded, so :func:`dri_status` can name the failure.
+    """
+    device = str(device or live_stream.vaapi_device())
+    key = (str(ffmpeg), device)
+    if run is None:
+        with _VAAPI_OPEN_LOCK:
+            if key in _VAAPI_OPEN:
+                return _VAAPI_OPEN[key]
+    try:
+        (run or subprocess.run)(vaapi_open_argv(ffmpeg, device), capture_output=True,
+                                timeout=VAAPI_OPEN_TIMEOUT_S, check=True)
+        problem = ""
+    except Exception as exc:  # noqa: BLE001 - a probe must never fail an encode
+        problem = (f"{device} could not be opened for VAAPI ({ffmpeg_failure(exc)}); "
+                   f"set {live_stream.VAAPI_DEVICE_ENV} to the Intel/AMD render node, "
+                   f"or VAAPI stays skipped")
+    with _VAAPI_OPEN_LOCK:
+        _VAAPI_OPEN[key] = problem
+    return problem
+
+
+def vaapi_open_failure(device) -> str:
+    """The latest recorded open failure for ``device`` in this process, or ""."""
+    device = str(device)
+    with _VAAPI_OPEN_LOCK:
+        failures = [problem for (_ffmpeg, dev), problem in _VAAPI_OPEN.items() if dev == device]
+    return failures[-1] if failures else ""
+
+
 def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> live_stream.EncoderProbe:
     """Probe the real ffmpeg for H.264 encoders and GPU device presence.
 
@@ -164,8 +222,11 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
     an empty encoder set — candidate selection then still offers CPU,
     and the encode itself reports the real failure if ffmpeg is broken.
     The Intel/AMD device counts only when a render node is accessible
-    (:func:`dri_status`), not merely when /dev/dri exists.
+    (:func:`dri_status`), not merely when /dev/dri exists, and when this
+    ffmpeg can actually open it for VAAPI (:func:`vaapi_open_problem`,
+    checked once per process, #1282).
     """
+    injected_run = run
     run = run or subprocess.run
     encoders = set()
     try:
@@ -177,6 +238,10 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
         encoders = set()
     if dri_present is None:
         dri_present = dri_status()[0]
+        if dri_present and encoders & {"h264_vaapi", "h264_qsv"}:
+            # A usable-looking node must also open (#1282): otherwise every encode would try
+            # VAAPI first and fail on "-vaapi_device" before falling through.
+            dri_present = not vaapi_open_problem(ffmpeg, run=injected_run)
     if nvidia_present is None:
         nvidia_present = nvidia_status()[0]
     return live_stream.EncoderProbe(encoders=frozenset(encoders),
@@ -207,11 +272,11 @@ def candidates(preference="auto", probe=None, *, ffmpeg=None, run=None) -> tuple
 
 
 def capture_preference(data=None) -> str:
-    """The [timelapse] capture_encoder preference, 'auto' when unset/invalid."""
+    """The [timelapse] capture_encoder preference, 'cpu' when unset/invalid."""
     data = _config.cfg() if data is None else data
     timelapse = data.get("timelapse", {}) if isinstance(data, dict) else {}
-    value = str(timelapse.get("capture_encoder") or "auto").strip().lower()
-    return value if value in ("auto", "vaapi", "nvenc", "qsv", "cpu") else "auto"
+    value = str(timelapse.get("capture_encoder") or "cpu").strip().lower()
+    return value if value in ("auto", "vaapi", "nvenc", "qsv", "cpu") else "cpu"
 
 
 def unique_partial(target) -> Path:
@@ -383,6 +448,30 @@ def plan_playback(frame_count, settings=None):
     return fps_int, indices
 
 
+def playback_summary(count, settings=None) -> str:
+    """How the assembled frames relate to the captured ones, for the assembly log (#1282).
+
+    The playback plan can skip captured frames (decimation), repeat them (a short capture
+    stretched to ``min_length_s``) and repeat the last one (``hold_last_frame_s``), so the
+    assembled count alone ("109 frame(s)" from a 99-frame capture) reads as a miscount.
+    """
+    n = int(count)
+    fps, indices = plan_playback(n, settings)
+    if n <= 0 or indices == list(range(n)):
+        return f"{len(indices)} frame(s)"
+    hold = int(round(float(settings["hold_last_frame_s"]) * fps)) if settings else 0
+    body = indices[:len(indices) - hold] if hold else indices
+    shown = len(set(body))
+    parts = [f"{n} captured"]
+    if shown < n:
+        parts.append(f"{n - shown} skipped to fit the target length")
+    if len(body) > shown:
+        parts.append(f"+{len(body) - shown} repeated to reach the minimum length")
+    if hold:
+        parts.append(f"+{hold} holding the last frame {float(settings['hold_last_frame_s']):g} s")
+    return f"{len(indices)} frame(s) ({', '.join(parts)})"
+
+
 def expected_playback_frames(count, data=None) -> int:
     """Frames the assembled video holds for ``count`` captured frames (at least 1)."""
     return max(1, len(plan_playback(count, playback_settings(data))[1]))
@@ -538,9 +627,25 @@ def caption_with_number(text, job_key, filename=None) -> str:
     return text
 
 
+# A ceiling on the budget bitrate (#1282). The budget alone spends the whole upload cap on any
+# clip: an 11 s, 10 fps, 720p capture got 6275k (8.7 MB) where a third of that looks the same,
+# because a printer camera's frames are mostly a still background. 300 kbit per output frame
+# (about 0.33 bits per pixel at 1280x720) is still generous: 3000k at 10 fps, 9000k at 30 fps.
+# Long clips are unaffected; their budget is already lower.
+MAX_KBITS_PER_FRAME = 300
+
+
+def encode_kbps(frame_count, fps, max_bytes) -> int:
+    """The first-attempt bitrate: 90% of the cap over the duration, capped per frame, floor 200k."""
+    fps = float(fps or PLAYBACK_FPS)
+    duration = max(1.0, int(frame_count) / fps)
+    budget = int(max_bytes * 8 * 0.90 / duration / 1000)
+    return max(200, min(budget, int(MAX_KBITS_PER_FRAME * fps)))
+
+
 def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLAYBACK_FPS,
                     probe=None, ffmpeg=None, run=None, log=None, validate=None,
-                    playback=None) -> Path | None:
+                    playback=None, frames_note=None) -> Path | None:
     """Assemble frames into target under max_bytes, or None on total failure.
 
     Candidates run in selection order; each gets the two-attempt
@@ -561,9 +666,9 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
         with playback_frames(frames_dir, playback) as (planned_dir, planned_fps, _count):
             return assemble_frames(planned_dir, target, max_bytes=max_bytes, preference=preference,
                                    fps=planned_fps, probe=probe, ffmpeg=ffmpeg, run=run, log=log,
-                                   validate=validate)
-    duration = max(1.0, len(frames) / float(fps or PLAYBACK_FPS))
-    kbps = max(200, int(max_bytes * 8 * 0.90 / duration / 1000))
+                                   validate=validate,
+                                   frames_note=playback_summary(len(frames), playback))
+    kbps = encode_kbps(len(frames), fps, max_bytes)
     if validate is None:
         # Injected fake runners write placeholder bytes; only the real
         # ffmpeg path can be held to a real decode.
@@ -572,7 +677,8 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
     partial = unique_partial(target)
     try:
         return _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
-                         probe, ffmpeg, run, log, validate)
+                         probe, ffmpeg, run, log, validate,
+                         frames_note=frames_note or f"{len(frames)} frame(s)")
     finally:
         partial.unlink(missing_ok=True)
 
@@ -602,13 +708,17 @@ def selection_note(preference, ordered, probe, *, dri_note=None, nvidia_note=Non
 
 
 def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
-              probe, ffmpeg, run, log, validate):
+              probe, ffmpeg, run, log, validate, *, frames_note):
     if probe is None:
         probe = probe_ffmpeg(ffmpeg, run=run)
     ordered = candidates(preference, probe, ffmpeg=ffmpeg, run=run)
     note = selection_note(preference, ordered, probe)
     if note:
         log(note)
+    elif not any(c.vendor == "vaapi" for c in ordered):
+        skipped = vaapi_open_failure(live_stream.vaapi_device())
+        if skipped:
+            log(f"timelapse encode: VAAPI skipped, {skipped}")
     gpu_failures = []
     for candidate in ordered:
         for attempt_kbps in (kbps, int(kbps * 0.7)):
@@ -632,7 +742,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
                 if candidate.vendor == "cpu" and gpu_failures:
                     log("timelapse encode fell back to CPU (libx264) after GPU failure: "
                         + "; ".join(gpu_failures))
-                log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
+                log(f"timelapse assembled {frames_note} -> {target} "
                     f"({target.stat().st_size} bytes, {candidate.encoder} at {attempt_kbps}k)")
                 return target
             partial.unlink(missing_ok=True)
@@ -644,7 +754,7 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
         log("timelapse encode falling back to CPU (libx264, constant quality) after: "
             + "; ".join(gpu_failures))
     fitted = _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
-                                        ffmpeg, run, log, validate)
+                                        ffmpeg, run, log, validate, frames_note=frames_note)
     if fitted is not None:
         return fitted
     log(f"timelapse assembly failed for {frames_dir}: no encoder produced a video "
@@ -659,7 +769,7 @@ _FALLBACK_WIDTHS = (1280, 960, 640)
 
 
 def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
-                               ffmpeg, run, log, validate):
+                               ffmpeg, run, log, validate, *, frames_note=None):
     """Last resort: software libx264 at constant quality until the video fits max_bytes."""
     for width in _FALLBACK_WIDTHS:
         for crf in _FALLBACK_CRF:
@@ -679,7 +789,7 @@ def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, f
                     partial.unlink(missing_ok=True)
                     continue
                 os.replace(partial, target)
-                log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
+                log(f"timelapse assembled {frames_note or f'{len(frames)} frame(s)'} -> {target} "
                     f"({target.stat().st_size} bytes, libx264 crf {crf}, width {width})")
                 return target
             partial.unlink(missing_ok=True)
