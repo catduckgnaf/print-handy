@@ -128,9 +128,10 @@ def _buttonless_standalone():
 
     Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
     button posts: the interactive offers go out as plain text and the
-    operator answers with the typed commands the text names. The one
-    exception is ``post_alert`` on Telegram, which carries the alert's
-    own buttons as an inline keyboard (#1291).
+    operator answers with the typed commands the text names. The
+    exceptions are ``post_alert`` itself: on Telegram it carries the
+    alert's own buttons as an inline keyboard, and on Matrix as
+    reactions (#1291).
     """
     if _telegram_standalone():
         return "telegram"
@@ -224,10 +225,11 @@ def post_alert(message, kind, filename, episode=None):
 
     On Telegram the alert carries its buttons as an inline keyboard
     (#1291): the same recorded alert, and the press returns through the
-    Telegram adapter's callback polling. On Matrix (#164 stage 3) the
-    Discord-shaped button posts do not apply: the alert goes out as
-    plain text and the operator answers with the typed commands the
-    text names.
+    Telegram adapter's callback polling. On Matrix the alert carries
+    its actions as reactions (#1291): the same recorded alert, the
+    alert text names one reaction per action, the bot seeds them on
+    its own message, and a reaction returns through the Matrix
+    adapter's /sync ingest.
     """
     # An alert that needs a person pings the print's starter (#1095): the
     # classifier decides from the alert kind and the job behind the
@@ -260,6 +262,22 @@ def post_alert(message, kind, filename, episode=None):
             log("telegram button post failed; falling back to plain text")
         except Exception as exc:
             log(f"telegram button post error: {exc!r}")
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    elif _matrix_standalone():
+        try:
+            from . import print_alert_buttons as pab
+            kwargs = {"mention_user_id": mention} if mention else {}
+            from .. import listeners as _listeners
+            # The alert's reactions act on this listener's printer, as on Discord.
+            if _listeners.instance_printer_id():
+                kwargs["printer_id"] = _listeners.instance_printer_id()
+            if pab.post_matrix_with_reactions(_matrix_homeserver(), _matrix_token(),
+                                              _matrix_room_id(), message, kind, filename, **kwargs):
+                log(f"post matrix reactions kind={kind} {message.splitlines()[0][:120]!r}")
+                return True
+            log("matrix reaction post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"matrix reaction post error: {exc!r}")
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     elif _buttonless_standalone():
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
