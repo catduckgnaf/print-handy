@@ -11,6 +11,7 @@ import asyncio
 import copy
 import io
 import json
+import time
 import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace as S
@@ -250,8 +251,9 @@ def test_first_run_starts_from_now_and_persists_the_token(cfg, tmp_path):
             assert client._since == "s100"
             assert (tmp_path / "since").read_text() == "s100"
             assert client.core is not None and client.core.chat_id == ROOM
-            assert client.user.id == BOT  # bot_user_id was configured: no whoami needed
-            assert "whoami" not in stub.routes()
+            # whoami is asked even with bot_user_id configured: own-event
+            # filtering uses the id the token really is.
+            assert client.user.id == BOT and "whoami" in stub.routes()
             await client.close()
 
     run(boot())
@@ -754,8 +756,9 @@ def test_a_number_cannot_approve_a_print_for_a_non_approver(cfg, tmp_path):
 # ------------------------------------------------- alert reactions (#1291 item 15)
 
 
-def reaction_event(key="▶️", target="$alert1", sender=USER, event_id="$r1"):
+def reaction_event(key="▶️", target="$alert1", sender=USER, event_id="$r1", ts=None):
     return {"type": "m.reaction", "sender": sender, "event_id": event_id,
+            "origin_server_ts": int(time.time() * 1000) if ts is None else ts,
             "content": {"m.relates_to": {"rel_type": "m.annotation",
                                          "event_id": target, "key": key}}}
 
@@ -854,8 +857,9 @@ def test_reactions_that_are_not_alert_actions_are_ignored_silently(monkeypatch):
 
 
 def test_client_routes_reaction_events_from_sync(cfg, tmp_path):
-    stub = HomeserverStub(sync_script=[_sync_result([reaction_event()])])
+    stub = HomeserverStub()
     client, core = make_core(cfg, stub, tmp_path)
+    stub.sync_script.append(_sync_result([reaction_event()]))
     seen = []
 
     async def fake_handle(sender_id, room_id, target, key):
@@ -865,3 +869,92 @@ def test_client_routes_reaction_events_from_sync(cfg, tmp_path):
     core.adapter.handle_alert_reaction = fake_handle
     assert run(client.poll_once()) == 1
     assert seen == [(USER, ROOM, "$alert1", "▶️")]
+
+
+def test_alert_reaction_not_offered_for_the_kind_is_ignored_and_keeps_the_alert(monkeypatch):
+    # A pause/error alert offers only Cancel: a Resume reaction on it must
+    # neither resume the print nor consume the alert before a real press.
+    stub = HomeserverStub()
+    alert = {"kind": "pause", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    from print_handy.hermes import print_alert_buttons as pab
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "▶️")) is False
+    assert clicks == [] and taken == [] and stub.sent_bodies() == []
+    # The offered action still works afterwards.
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "⏹️")) is True
+    assert clicks == [("cancel", alert)] and taken == ["ab12cd34"]
+
+
+def test_alert_reaction_refusals_are_rate_limited_per_sender(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    for _ in range(3):
+        assert run(adapter.handle_alert_reaction("@mallory:example.org", ROOM, "$alert1", "⏹️")) is True
+    assert run(adapter.handle_alert_reaction("@eve:example.org", ROOM, "$alert1", "⏹️")) is True
+    assert clicks == []
+    assert sum("Not allowed" in b for b in stub.sent_bodies()) == 2  # one per sender
+
+
+def _routed_reactions(cfg, tmp_path, events, *, started_ms=None):
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    if started_ms is not None:
+        client._started_ms = started_ms
+    stub.sync_script.append(_sync_result(events))
+    seen = []
+
+    async def fake_handle(sender_id, room_id, target, key):
+        seen.append(key)
+        return True
+
+    core.adapter.handle_alert_reaction = fake_handle
+
+    async def poll():
+        await client.poll_once()
+        await client.drain_handlers()
+
+    run(poll())
+    return seen
+
+
+def test_reaction_older_than_the_window_or_the_process_never_acts(cfg, tmp_path):
+    now = int(time.time() * 1000)
+    # Older than the 5 minute window (process started long ago).
+    old = reaction_event(ts=now - (matrix.REACTION_MAX_AGE_S + 5) * 1000)
+    assert _routed_reactions(cfg, tmp_path, [old], started_ms=0) == []
+    # Fresh by the window but sent before this process started: a replay
+    # from the saved since token after a restart.
+    before_start = reaction_event(ts=now - 30_000)
+    assert _routed_reactions(cfg, tmp_path, [before_start], started_ms=now - 10_000) == []
+    # No timestamp at all is treated as stale.
+    untimed = reaction_event(ts=0)
+    assert _routed_reactions(cfg, tmp_path, [untimed], started_ms=0) == []
+    # A fresh press after start acts.
+    assert _routed_reactions(cfg, tmp_path, [reaction_event(ts=now)], started_ms=now - 10_000) == ["▶️"]
+
+
+def test_own_reactions_are_dropped_even_with_a_mistyped_bot_user_id(cfg, tmp_path):
+    cfg["matrix"]["bot_user_id"] = "@wrong:example.org"
+    stub = HomeserverStub()
+    client = matrix.MatrixClient(cfg, HOMESERVER, TOKEN, opener=stub, state_path=tmp_path / "since")
+
+    async def boot():
+        with mock.patch.object(matrix.health, "write", lambda status: None):
+            await client.start()
+            try:
+                # whoami wins over the mistyped configured id.
+                assert client.bot_user_id == BOT
+                assert client.parse_reaction(reaction_event(sender=BOT)) is None
+                assert client.parse_reaction(reaction_event()) is not None
+            finally:
+                await client.close()
+
+    run(boot())
+    # A seed carrying this device's transaction id is dropped whatever the
+    # sender, even when no bot id is known at all.
+    seeded = reaction_event(sender="@someone:example.org")
+    seeded["unsigned"] = {"transaction_id": "ph-123"}
+    assert matrix.parse_reaction_event(seeded, ROOM, "") is None
