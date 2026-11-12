@@ -297,6 +297,197 @@ Source: [ZMod wiki, Global
   Fluidd-menu change already has; no new stale-state hazard, and
   no new code to close it.
 
+## Spool state across ZMod AFC, Spoolman and Print Handy (#1304)
+
+ZMod 1.7.6 integrates its AFC lanes with colors, materials and
+Spoolman, so three systems now hold spool facts about the same
+printer: ZMod's AFC on the printer, Spoolman, and Print Handy. This
+section is the record of who owns which fact, the data formats each
+side actually ships, and how changes converge, traced from Print
+Handy's code, the 1.7.6 audit above, and the published
+ZMod-ecosystem documentation (the ZMod wiki plugins page; the
+zmod_nfc README, whose project has since moved to FF_NFC, for the
+AFC Lite contracts it documents). Where a format is not published
+in material that can be verified, this section names the gap
+instead of guessing: Print Handy makes no direct database writes
+against any store it has not verified.
+
+### Who owns which fact
+
+- **Spool identity and filament metadata** (material, color,
+  weights): Spoolman. Its spool and filament records are the only
+  ones; every other surface is a view or a claim on them.
+- **Which spool sits in which IFS slot**: Spoolman, through Print
+  Handy's extra field `ph_slot` (`<printer_id>:<slot>`, #798). The
+  human-readable `location` (`IFS Slot N`, `Shelf`) is written for
+  display and never read as truth. Print Handy's local
+  `filament_slots` cache is rebuilt from `ph_slot` by
+  `spool_sync.reconcile` and is written by nothing else.
+- **What is physically loaded right now**: the printer. Presence
+  comes from `zmod_color` (screenless), the native `/detail` read
+  and the IFS sensors, read as presence only, never stored as an
+  assignment.
+- **The screen's slot colors**: the printer screen (HelixScreen),
+  told what Spoolman says through `CHANGE_ZCOLOR` and the
+  `lane_data` record Print Handy writes on a bind (#791).
+- **Filament usage charging**: Moonraker's active-spool pointer is
+  the single charger. Print Handy points it at the launching slot's
+  spool at print start (verified readback), clears it for
+  multi-slot jobs, suspends it on an unidentified mid-print swap
+  and resumes it when the spool is named. Print Handy never
+  charges usage by writing `used_weight` itself.
+- **AFC lane assignment**: ZMod's AFC on the printer. Assigning a
+  spool goes through its `SET_SPOOL_ID` (the AFC Lite contract);
+  each lane tracks its own spool and Moonraker's active spool
+  follows whichever lane is loaded. A tag's identity is matched
+  through the Spoolman extra field `card_uids` (the field AFC Lite
+  uses) or `nfc_id`, matched by the printer-side tools, not by
+  Print Handy.
+- **Per-slot spool ids without AFC**: when AFC Lite is absent,
+  zmod_nfc saves the spool id per slot in Klipper
+  `save_variables`. Print Handy does not read that store (see the
+  named gaps below).
+
+### The shared `lane_data` namespace: three key shapes
+
+The Moonraker `lane_data` namespace has three authors with
+different shapes, and telling them apart is most of the safety
+story:
+
+- **Screen shape** (HelixScreen, and Print Handy writing on its
+  behalf): keys `lane1`..`lane4` are 1-based slots and the inner
+  `lane` field is 0-based, one below the key (`lane1` ->
+  `"lane": "0"` = slot 1). Records carry `spool_id`, `scan_time` or
+  `helix_*` fields.
+- **ZMod `orca_lanes` shape** (#851, ZMod 1.7.6): keys
+  `lane0`..`lane3` are 0-based and the inner `lane` field equals the
+  key (`lane0` -> `"lane": "0"` = slot 1). Records carry only
+  `lane`/`material`/`color`/`name`, assignment data for
+  OrcaSlicer's Sync button, naming no spool, and the parser skips
+  them. Because the two keyings collide at `lane1`–`lane3`, a
+  vanished spool-bearing record converges to "unloaded" only when
+  the printer's own presence read agrees the slot is empty (#852).
+- **Enriched shape** (zmod_nfc after a tag or QR assignment): the
+  spool's details (material, color, `spool_id`, vendor,
+  temperatures) added to the slot's existing entry, keeping other
+  writers' keys; the entry is found by its inner `lane` field. So
+  the enriched record carries whichever keying the entry already
+  had: screen keying when HelixScreen wrote it, `orca_lanes` keying
+  (`lane0`..`lane3`) when HelixScreen is absent. On the Creator 5
+  the keys are `T0`..`T3` (below).
+
+New in #1304: the inbound watcher reads spool-bearing records in
+**both** keyings. The record's own inner `lane` field is the slot
+authority whenever it is consistent with either keying (key = inner
++ 1, screen; key = inner, ZMod, `lane0` included), and the record
+converges into slot inner + 1. The inner `lane` may be a string or
+an integer and `scan_time` an ISO string or an epoch number; both
+are accepted, and non-lane top-level keys (such as `seated`) are
+ignored. A record whose inner `lane` fits neither keying is
+self-contradicting: it is named once as a slot disagreement and
+converges no slot, an unload-shaped record included, deliberately
+(fail closed: unloading from it could empty the wrong slot), and
+any pending mid-print note for that slot is withdrawn. Correcting
+only the inner `lane` is a change the watcher acts on, not a
+rescan. Two spool-bearing records that resolve to the same slot
+(one under each keying) collapse to one when they name the same
+spool, material and color; otherwise they are named once as a slot
+conflict and converge nothing until one is removed. A Print Handy
+bind no longer writes an IFS-shaped `laneN` record into the Creator
+toolhead namespace (below); every other family, single-slot Klipper
+printers running HelixScreen included, keeps the #791 record.
+
+Live evidence (2026-11-11, AD5X, ZMod 1.7.5-2 with HelixScreen
+installed): the namespace held `lane2` (inner `"lane": "1"`, a
+string; `scan_time` ISO; spool 19) and `lane3` (inner `"lane": 2`,
+an integer; `scan_time` epoch; spool 21) beside a non-lane
+`"seated": 1` key, screen keying. Both records are a verbatim
+regression fixture that must converge `lane2` -> slot 2 and
+`lane3` -> slot 3 with no disagreement.
+
+### Creator 5 / Creator 5 Pro toolheads
+
+Investigated separately, because the filament positions are
+toolheads, not IFS slots: spool identity is one Spoolman record
+per toolhead from the recorded intake map, Spoolman locations
+read `Toolhead N` (the naming ZMod AFC Lite's lanes use), and
+there is no native-screen sync. `lane_data` there is keyed
+`T0`..`T3`; those records parse to no screen lanes and produce no
+watcher events; a toolhead assignment is never converged into an
+IFS slot, and that is pinned by a test. Not built: converging
+toolhead assignments from `T`-keyed records. Print Handy's
+assignment write contract (`ph_slot`, the `laneN` record, the
+`IFS Slot N` location text) is IFS-shaped, and no verified
+toolhead form of it is published; inventing one is refused. The
+recorded toolhead map stands as the toolhead source, exactly as
+before this issue.
+
+### Conflict resolution and failure modes
+
+The rules the shipped code already enforces, gathered in one
+place:
+
+- The screen wins for what is physically loaded; Spoolman wins
+  for spool record data (#798). A converge writes the screen's
+  spool into `ph_slot`, then the reconciler rebuilds the cache;
+  the watcher never writes the cache itself.
+- A screen-locked color or material that differs from the Spoolman
+  record, a lane linked to an archived or deleted spool, and a
+  material identity mismatch are named prompts. Nothing is
+  silently overwritten in either direction.
+- A lane the screen exposes only by material and color (no
+  Spoolman id) is named as unresolved. No spool is guessed or
+  bound.
+- An unreachable Spoolman, Moonraker or `lane_data` namespace
+  reads as unknown, never as empty: the poll changes nothing.
+- Mid-print screen changes are noted once and applied when the
+  print ends; a load into a slot with an open runout question on a
+  paused print feeds the existing runout recovery instead.
+- Stale writes lose: a rejected `ph_slot` write aborts the
+  converge with the previous claim kept, and a reconcile that
+  settles a different spool than the screen's is refused and
+  retried on a later poll. The echo of Print Handy's own bind is
+  adopted silently; it is not a screen-side change.
+- Double counting: there is exactly one charger (above). Two
+  writers can move its pointer; Print Handy at a launch, AFC as
+  lanes load. For a Print Handy print, the operator-confirmed
+  slot map owns the launch pointer; usage that cannot be reported
+  is recorded as pending in the job record and retried after the
+  next successful reconcile, never charged twice by Print Handy,
+  and a print whose spool is unidentified charges no one until a
+  human names it.
+- Loops: the watcher announces each change exactly once (a
+  persisted pending map; a retry re-announces, it never
+  re-applies), and the reconciler is idempotent; a second run
+  over the same facts writes nothing.
+
+### Version notes and named gaps
+
+- AFC Lite was a plugin up to the ZMod 1.7.5 era; 1.7.6 removes
+  `zmod_afclite` and builds the AFC panel into ZMod, and its
+  spool and weight settings migrate automatically on the printer
+  (the 1.7.6 audit, #1269). Print Handy never read the plugin's
+  variables, so nothing changes for Print Handy in that move.
+- **Gap: the built-in AFC's own store.** Where 1.7.6's built-in
+  panel keeps its lane-to-spool bindings, and in what format, is
+  not published in material Print Handy can verify (the firmware
+  ships in release payloads, not in the `ghzserg/zmod` repo). AFC
+  panel changes therefore reach Print Handy only through surfaces
+  with a verified contract: a `lane_data` record carrying a spool
+  id (the shape tag and QR assignments leave behind), and
+  Spoolman itself. No reads or writes against the unverified
+  store are made.
+- **Gap: `save_variables`.** The variable names under which
+  zmod_nfc saves per-slot spool ids are not published in the
+  material above, so Print Handy does not read them: a spool
+  assigned only that way is invisible to Print Handy's map until
+  it is bound through a Print Handy surface or appears in
+  `lane_data`.
+- Live verification of any of this needs separate authorization;
+  everything in this section is established from shipped code,
+  the repo's audits and the published documentation named above,
+  and the behaviors are covered by offline tests.
+
 ## How the models differ
 
 All five models speak the same ZMod language, Moonraker transport and ZMod's

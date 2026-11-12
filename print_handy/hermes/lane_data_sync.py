@@ -46,6 +46,22 @@ Hardening (the drift classes from #791):
   echo of Print Handy's own bind (which writes the claim and the lane
   record together), not a screen-side change: it is adopted silently,
   with no announcement and no mid-print note (#1063).
+- Two keyings share the namespace (#1304). The screen shape keys
+  ``lane1``..``lane4`` with a 0-based inner ``lane`` one below the key
+  (``lane1`` -> ``"lane": 0`` = slot 1); ZMod 1.7.6 ``orca_lanes`` keys
+  ``lane0``..``lane3`` with the inner ``lane`` equal to the key
+  (``lane0`` -> ``"lane": 0`` = slot 1). zmod_nfc enriches the slot's
+  existing entry, found by its inner ``lane`` field, with ``spool_id``
+  and the rest, so without HelixScreen the spool-bearing record is
+  orca-keyed. The inner ``lane`` field is therefore the slot authority
+  whenever it is consistent with either keying, and the record
+  converges into slot ``lane + 1``. A record whose inner ``lane`` fits
+  neither keying is self-contradicting: it is named once as a slot
+  disagreement and never converged into any slot (the print-start
+  self-check applies the same distrust, #1020 D3). Two records that
+  resolve to the same physical slot (one under each keying) collapse
+  to one when they say the same thing, and are otherwise named once as
+  a slot conflict and converge nothing until one of them is removed.
 
 Announcements follow the #483 watcher pattern: an event waits in a
 persisted "pending" map until the caller reports it delivered, is
@@ -181,28 +197,82 @@ def foreign_lane_slots(value: Any) -> set[int]:
     return slots
 
 
+def _resolve_slot(key_n: int, record: dict[str, Any]) -> tuple[int | None, str]:
+    """(physical slot, keying) for one spool-bearing ``laneN`` record (#1304).
+
+    ``keying`` is ``"screen"`` (``key == inner + 1``), ``"orca"`` (``key ==
+    inner``, ZMod 1.7.6 ``orca_lanes`` including ``lane0``), ``"keyed"``
+    (no usable inner ``lane``: the key's screen meaning, as before #1304)
+    or ``"disagreement"`` (the inner ``lane`` fits neither keying; the slot
+    returned is only where the disagreement is reported — the screen
+    meaning of the key, or slot 1 for ``lane0`` — never a converge target).
+    """
+    inner = spool_sync.slot_from_lane_index0(record.get("lane"))
+    if inner is not None:
+        if key_n == inner:
+            return inner, "screen"
+        if key_n == inner - 1:
+            return inner, "orca"
+        if key_n in spool_sync.SLOTS:
+            return key_n, "disagreement"
+        if key_n + 1 in spool_sync.SLOTS:
+            return key_n + 1, "disagreement"
+        return None, "disagreement"
+    return (key_n if key_n in spool_sync.SLOTS else None), "keyed"
+
+
+# Deterministic order among records claiming one physical slot.
+_KEYING_ORDER = {"screen": 0, "keyed": 1, "orca": 2, "disagreement": 3}
+
+
+def _says(lane: dict[str, Any]) -> tuple[Any, str, str]:
+    return (lane.get("spool_id"), _norm_text(lane.get("material")), _norm_color(lane.get("color")))
+
+
 def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
     """{slot: normalized lane} from a raw ``lane_data`` namespace value, or None when unknown.
 
-    The outer keys are ``laneN`` (1-based) for the screen-side writers this
-    watcher converges; marker-less records in ZMod's ``orca_lanes`` shape
-    (#851) are not screen lanes and are skipped (see ``_SCREEN_MARKERS``).
-    A value that is not a mapping at all is unknown (None), while a mapping
-    with no lane keys is a genuinely empty namespace ({}) — every lane was
-    cleared.
+    Spool-bearing (screen-marked) records under ``laneN`` keys are read in
+    either keying (#1304): the screen shape (``lane1``..``lane4``, inner
+    ``lane`` = key - 1) or ZMod 1.7.6 ``orca_lanes`` keying
+    (``lane0``..``lane3``, inner ``lane`` = key) that zmod_nfc enriches
+    when HelixScreen is absent. Each converges into slot ``lane + 1``. A
+    record fitting neither keying carries ``slot_issue="disagreement"``;
+    two differing records resolving to one slot carry
+    ``slot_issue="conflict"`` (identical ones collapse silently to the
+    first in a fixed keying order). Marker-less records in ZMod's minimal
+    ``orca_lanes`` shape (#851) name no spool and are skipped (see
+    ``_SCREEN_MARKERS``). A value that is not a mapping at all is unknown
+    (None), while a mapping with no lane keys is a genuinely empty
+    namespace ({}) — every lane was cleared.
     """
     if not isinstance(value, dict):
         return None
-    lanes: dict[int, dict[str, Any]] = {}
+    claims: dict[int, list[dict[str, Any]]] = {}
     for key, record in value.items():
         match = re.fullmatch(r"lane(\d+)", str(key))
         if not match or not isinstance(record, dict):
             continue
         if not _screen_authored(record):
             continue
-        slot = int(match.group(1))
-        if slot in spool_sync.SLOTS:
-            lanes[slot] = normalize_lane(slot, record)
+        slot, keying = _resolve_slot(int(match.group(1)), record)
+        if slot is None:
+            continue
+        lane = normalize_lane(slot, record)
+        lane.update(key=str(key), keying=keying,
+                    slot_issue="disagreement" if keying == "disagreement" else None)
+        claims.setdefault(slot, []).append(lane)
+    lanes: dict[int, dict[str, Any]] = {}
+    for slot, found in claims.items():
+        found.sort(key=lambda lane: (_KEYING_ORDER[lane["keying"]], lane["key"]))
+        first = found[0]
+        if len(found) > 1 and (any(lane["slot_issue"] for lane in found)
+                               or len({_says(lane) for lane in found}) > 1):
+            first = {**first, "slot_issue": "conflict",
+                     "claims": [{"key": lane["key"], "keying": lane["keying"],
+                                 "spool_id": lane["spool_id"], "material": lane["material"],
+                                 "color": lane["color"]} for lane in found]}
+        lanes[slot] = first
     return lanes
 
 
@@ -271,20 +341,46 @@ def lane_fingerprint(lane: dict[str, Any]) -> dict[str, Any]:
         "material": _norm_text(lane.get("material")),
         "locked_color": bool(lane.get("locked_color")),
         "locked_material": bool(lane.get("locked_material")),
+        "slot_issue": _slot_issue_token(lane),
     }
+
+
+def _slot_issue_token(lane: dict[str, Any]) -> str:
+    """'' for a self-consistent lane; otherwise what makes it untrustworthy (#1304).
+
+    Part of the action key, so a correction of only the inner ``lane``
+    field (or the removal of one of two conflicting records) is a change
+    to act on, not a rescan — and a converged lane turning
+    self-contradicting is named.
+    """
+    issue = lane.get("slot_issue")
+    if issue == "disagreement":
+        return f"disagreement:{lane.get('key')}:{lane.get('lane_slot')}"
+    if issue == "conflict":
+        return "conflict:" + ",".join(
+            f"{c['key']}={c['spool_id']}/{_norm_text(c['material'])}/{_norm_color(c['color'])}"
+            for c in lane.get("claims") or [])
+    return ""
 
 
 def _action_key(fingerprint: dict[str, Any] | None) -> str:
     """What a lane materially says: which spool, of what material and color, under which locks.
 
-    A fresh ``scan_time`` (or a rewritten inner ``lane``) with the same
-    spool, material, color and locks is a rescan of the same physical
-    state, not a change to act on or announce. A lock change is not a
-    rescan: it can unblock (or newly block) the lane's convergence.
+    A fresh ``scan_time`` (or a re-keyed record whose inner ``lane``
+    still resolves to the same slot) with the same spool, material,
+    color and locks is a rescan of the same physical state, not a change
+    to act on or announce. A lock change is not a rescan: it can unblock
+    (or newly block) the lane's convergence; nor is a change in the
+    record's slot trust (#1304): a disagreement or conflict appearing or
+    being corrected changes what the watcher may do with the lane.
+    Baselines written before #1304 carry no ``slot_issue`` and read as
+    consistent, so an upgrade re-announces nothing.
     """
     fp = fingerprint or {}
-    return (f"{fp.get('spool_id')}|{fp.get('material')}|{fp.get('color')}"
-            f"|{fp.get('locked_color')}|{fp.get('locked_material')}")
+    key = (f"{fp.get('spool_id')}|{fp.get('material')}|{fp.get('color')}"
+           f"|{fp.get('locked_color')}|{fp.get('locked_material')}")
+    issue = fp.get("slot_issue") or ""
+    return f"{key}|{issue}" if issue else key
 
 
 def _spool_label(spool: dict[str, Any]) -> str:
@@ -612,11 +708,58 @@ class LaneDataWatcher:
             else:
                 seen[slot] = cur_fp
 
+        # -- the record cannot be trusted to name its slot (#1304) ---------
+        # Caught before the cleared-lane branch on purpose: a clear-shaped
+        # (unload) record that fits neither keying is as self-contradicting
+        # as a spool-bearing one, and unloading a slot from it could empty
+        # the wrong slot. Fail closed: name it, change nothing.
+        issue = lane.get("slot_issue") if lane is not None else None
+        if lane is not None and issue:
+            # Any pending mid-print or unverified note for this slot
+            # promised a converge this record now blocks: withdraw it.
+            self._drop_noted(pending, noted, slot)
+            if issue == "conflict":
+                claims = "; ".join(
+                    f"`{c['key']}` ({'ZMod' if c['keying'] == 'orca' else 'screen'} keying) "
+                    + (f"names spool #{c['spool_id']}" if c["spool_id"] is not None
+                       else "names no spool")
+                    for c in lane.get("claims") or [])
+                self._queue(pending, noted, slot, "slot_conflict",
+                            f"**HelixScreen lane needs attention:** two lane records describe "
+                            f"{_slot(slot)} and they differ — {claims}. Nothing was changed: "
+                            "no slot was rebound from either. Remove the stale record at the "
+                            "printer, or relink the slot with "
+                            f"`/spool change {slot} <spool#>`.",
+                            action, spool_id=None)
+            else:
+                key = str(lane.get("key") or f"lane{slot}")
+                key_n = int(key[4:]) if key[4:].isdigit() else slot
+                inner_slot = lane.get("lane_slot")
+                screen_meaning = _slot(key_n) if key_n in spool_sync.SLOTS else "no slot"
+                orca_meaning = (_slot(key_n + 1) if key_n + 1 in spool_sync.SLOTS
+                                else "no slot")
+                spool_part = (f" naming spool #{lane['spool_id']}"
+                              if lane.get("spool_id") is not None else "")
+                self._queue(pending, noted, slot, "slot_disagreement",
+                            f"**HelixScreen lane needs attention:** the lane record under "
+                            f"`{key}`{spool_part} says in its own lane field that it describes "
+                            f"{_slot(inner_slot)}, but `{key}` is {screen_meaning} in the "
+                            f"screen keying and {orca_meaning} in ZMod's, so Print Handy "
+                            "cannot tell which slot it describes. Nothing was changed: no "
+                            "slot was rebound from it. Correct the record at the printer, or "
+                            "relink the slot it really describes with "
+                            f"`/spool change {inner_slot} <spool#>`.",
+                            action, spool_id=lane.get("spool_id"))
+            adopt()
+            return True
+
         # -- cleared lane --------------------------------------------------
         if lane is None or (lane["spool_id"] is None and not lane["material"] and not lane["color"]):
-            if not old_fp or old_fp.get("spool_id") is None:
+            if not old_fp or old_fp.get("spool_id") is None or old_fp.get("slot_issue"):
+                # Nothing was recorded loaded — or what was recorded was an
+                # untrusted record nothing converged from (#1304): a silent clear.
                 adopt()
-                return True  # nothing was recorded loaded: a silent clear
+                return True
             if lane is None and self._colliding:
                 blocked = self._vanished_unload_blocked(slot, old_fp, pending, noted)
                 if blocked is not None:
