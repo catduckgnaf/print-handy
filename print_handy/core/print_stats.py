@@ -1,4 +1,4 @@
-"""Print-record statistics for the Data tab and Print Handy Wrapped (#956).
+"""Print-record statistics for the Data tab and Pasta Wrapped (#956).
 
 Pure aggregation over the durable print JSON records
 (``<records vault>/Prints/print-*.json``, #392). The loader is the only
@@ -1013,9 +1013,9 @@ def _script(year, stats, highlights, tz=None):
     lines = []
     total = stats["total_prints"]
     if not total:
-        return [f"Print Handy Wrapped {year}: no prints were recorded this year. "
+        return [f"Pasta Wrapped {year}: no prints were recorded this year. "
                 "The printer rested. Respect."]
-    lines.append(f"Print Handy Wrapped {year}: you made {plural(total, 'print')}. "
+    lines.append(f"Pasta Wrapped {year}: you made {plural(total, 'print')}. "
                  "The printer did the work, but you get the recap.")
     hours = stats["total_hours"]
     if hours >= 1:
