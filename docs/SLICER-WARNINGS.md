@@ -74,6 +74,15 @@ A Spoolman spool that is archived or records another material than the slot reco
 
 From the command line, `model_job print-now` (and `--reprint`) takes `--accept-material-mismatch` to print as sliced through every material warning of that run. A chat answer passes the exact warnings with `--accept-material KEY` (the `[accept KEY]` the refusal printed) and `--accept-material-sha256` for the G-code it was given for.
 
+### Not enough filament on a slot (print anyway)
+
+Before anything is uploaded, a Klipper start (the AD5X and other Moonraker printers) compares the grams the G-code says each slot feeds with what that slot's spool has left: Spoolman's remaining weight, else the slot record's. Every slot the print uses is checked, not only the first, and tools that share a slot add up. When a spool has less than the print needs, the same question as above asks, on the same transports and flows, with two buttons:
+
+- **Print anyway**: the start runs again with your answer for this exact G-code only. The spool may run out partway, which pauses the print until the slot is reloaded.
+- **Cancel**: nothing starts. Load more filament (or correct the spool's weight in Spoolman) and start again.
+
+Each short slot is named with its spool, the grams needed and the grams left, for example "Slot 2 (bronze PLA+ spool #19) needs about 6.8 g but Spoolman says the spool has 0 g left, short by about 6.8 g". A spool at 0 g still asks, and the warning says the 0 g came from Spoolman: a spool whose remaining weight was never set in Spoolman reads as 0 g, so check it there if the spool is not really empty. A spool whose weight is unknown (no Spoolman weight and no slot record) is not asked about. From the command line the shortage keys work like the material ones (`--accept-material KEY`, or `--accept-material-mismatch` for every warning of that run).
+
 ## Every other warning (information only)
 
 Other non-critical warnings never gate, block or add a button. Identical text is shown once, and the pre-print summary carries one compact line (count plus the first warning); the full list stays in the job's slice provenance. Warnings known to be harmless go in `print_handy/data/slice_warning_ignore.json` (`{"ignore": [{"pattern": "<regex>"}]}`); they are logged and not shown. The support finding cannot be ignored.

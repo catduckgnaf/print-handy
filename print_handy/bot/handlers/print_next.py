@@ -77,7 +77,7 @@ async def _start_with_offers(adapter, source, metadata, print_next, target, live
             choices = material_accept.choices(warnings)
             answer = await _confirm(adapter, source, metadata, 'print-material', material_accept.question(warnings),
                                     choices, timeout, live_key=live_key, approval=True)
-            if answer != material_accept.PRINT_AS_SLICED_LABEL:
+            if answer != material_accept.print_label(warnings):
                 return False, (material_accept.reslice_message(warnings) if answer == choices[0]
                                else 'Cancelled. Nothing uploaded or started.'), True
             # A new dict per start: an earlier start's target is never changed after the fact.

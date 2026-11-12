@@ -143,6 +143,97 @@ def _sync_active_spool(st, slot, printer_id=None):
     return result
 
 
+def _grams(value):
+    """A finite, non-negative number of grams, else None (bools are not grams)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if value >= 0 and value == value and value != float('inf') else None
+
+
+def filament_need_by_slot(text, mapping=None, slot=None):
+    """{slot: grams} the G-code's own header says each slot feeds; {} when it names no usage.
+
+    ``mapping`` is the launch's tool -> slot map (a multi-slot print): each
+    tool's grams come from the per-filament ``filament used [g]`` list, and
+    tools sharing a slot add up. Without one, the whole print's grams go to
+    ``slot`` (None for a single-spool printer).
+    """
+    try:
+        rows = gcode_3mf.plate_metadata(text).get('filaments') or []
+    except Exception:
+        rows = []
+    per_tool = {}
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get('id'), int) and _grams(row.get('used_g')) is not None:
+            per_tool[row['id'] - 1] = _grams(row['used_g'])
+    total = _filament_total_g(text)
+    if total is None and per_tool:
+        total = sum(per_tool.values())
+    if not mapping:
+        return {slot: total} if total is not None else {}
+    need = {}
+    for tool, target in mapping.items():
+        try:
+            tool_i, slot_i = int(str(tool).lstrip('Tt')), int(target)
+        except (TypeError, ValueError):
+            continue
+        grams = per_tool.get(tool_i)
+        if grams is None and len(mapping) == 1:
+            grams = total
+        if grams is not None:
+            need[slot_i] = need.get(slot_i, 0.0) + grams
+    return need
+
+
+def check_filament_amount(st, need):
+    """Each used slot's spool against what this print needs: a shortage warns, never blocks.
+
+    Owner ruling (#1336): a filament shortage is warn-and-accept. Every slot
+    the print uses whose spool has less than the G-code needs is named in one
+    refusal the chat flows ask about (Print anyway / Cancel); an accepted
+    run prints the warning and goes ahead. The amount is Spoolman's live
+    remaining weight, else the slot record's; an unknown amount is no warning.
+    A 0 g reading is still a warning, worded so a Spoolman spool whose weight
+    was never set reads as that. Raises SystemExit (a REFUSED line) when a
+    shortage is not accepted.
+    """
+    problems = []
+    base = None
+    for slot in sorted(need, key=lambda s: (s is None, s if s is not None else 0)):
+        grams = _grams(need[slot])
+        if not grams:
+            continue
+        if slot is None:
+            record = (st or {}).get('spool') or {}
+        else:
+            record = ((st or {}).get('filament_slots') or {}).get(str(slot)) or {}
+        sid = record.get('spoolman_id')
+        have, source = None, None
+        if isinstance(sid, int) and not isinstance(sid, bool):
+            if base is None:
+                base = printer_state.spoolman_url(st) or ''
+            if base:
+                try:
+                    spool = spoolman_client.get_spool(sid, base_url=base, timeout=5)
+                except Exception:
+                    spool = None
+                if spool is None:
+                    base = ''  # Spoolman did not answer: the other slots use their records, no second wait
+                have = _grams((spool or {}).get('remaining_weight'))
+                source = 'spoolman' if have is not None else None
+        if have is None:
+            have = _grams(record.get('remaining_grams'))
+            source = 'record' if have is not None else None
+        if have is None or round(grams - have, 1) <= 0:
+            continue
+        name = ' '.join(str(x) for x in (record.get('color'), record.get('material')) if x) or record.get('name')
+        problems += material_accept.shortage_problem(slot, sid, name, round(grams, 1), round(have, 1), source)
+    if problems:
+        raise SystemExit('REFUSED: ' + material_accept.message(problems, 'filament shortage: ')
+                         + '. Nothing uploaded or started.')
+
+
 def _clear_active_spool(st):
     """Clear Moonraker's active spool before a multi-slot launch (P1-24).
 
@@ -1284,6 +1375,8 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     if found_segments:
         # One refusal naming every mismatched slot, so the intake asks once (#795).
         _refuse("slot color/label", 'REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
+    # Every slot this print feeds, not only the first: a short spool warns and can be accepted.
+    _gate("filament amount", check_filament_amount, st, filament_need_by_slot(text, mapped))
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
     lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
@@ -2755,6 +2848,12 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     except RuntimeError as exc:
         if adapter.multi_slot: raise
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
+    single_slot = None
+    if adapter.multi_slot:
+        chosen = selection.get('filament_selection', selection) if isinstance(selection, dict) else None
+        single_slot = chosen.get('slot') if isinstance(chosen, dict) else None
+    if single_slot is not None or not adapter.multi_slot:
+        _gate("filament amount", check_filament_amount, st, filament_need_by_slot(gcode_text, slot=single_slot))
     sha=hashlib.sha256(gcode_raw).hexdigest(); remote=remote_name(g, sha, job)
     text=gcode_text  # the strict decode succeeded, so errors="ignore" would give the same text
     if mesh.get('display_off') in (0, 1):

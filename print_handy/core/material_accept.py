@@ -38,6 +38,7 @@ import re
 PREFIX = 'material warning, your answer is needed: '
 RESLICE_LABEL = 'Reslice for the loaded material'
 PRINT_AS_SLICED_LABEL = 'Print as sliced'
+PRINT_ANYWAY_LABEL = 'Print anyway'
 CANCEL_LABEL = 'Cancel'
 TOKEN = re.compile(r'\s*\[accept ([^\]]+)\]')
 
@@ -53,7 +54,12 @@ CONSEQUENCE = {
     'remap': 'the slot holds another material than the one the G-code was sliced for, so it prints at the '
              'sliced temperatures',
     'label': 'the printer screen names another material for this slot than the record does',
+    'filament': ('the spool can run out partway through: the print then pauses (or stops) until the slot '
+                 'is reloaded, and a color can end up missing or short'),
 }
+
+# Kinds a reslice cannot help: the answer is print anyway or cancel, never Reslice.
+NO_RESLICE = frozenset({'filament'})
 
 _ACCEPTED = contextvars.ContextVar('material_accept_keys', default=frozenset())
 _ACCEPT_ALL = contextvars.ContextVar('material_accept_all', default=False)
@@ -78,8 +84,9 @@ def problem(kind, text, *parts):
     warning_key = key(kind, *parts)
     text = ' '.join(str(text).split())
     if accepted(warning_key):
-        print(f'MATERIAL WARNING ACCEPTED: {text}; {CONSEQUENCE.get(kind, "")}. The operator chose '
-              f'{PRINT_AS_SLICED_LABEL} for this G-code.', flush=True)
+        label = PRINT_ANYWAY_LABEL if kind in NO_RESLICE else PRINT_AS_SLICED_LABEL
+        print(f'{"FILAMENT" if kind in NO_RESLICE else "MATERIAL"} WARNING ACCEPTED: {text}; '
+              f'{CONSEQUENCE.get(kind, "")}. The operator chose {label} for this G-code.', flush=True)
         used = _USED.get()
         if used is not None and warning_key not in used:
             used.append(warning_key)
@@ -169,6 +176,24 @@ def material_problem(sliced, loaded, where=''):
                                f'sliced for {sliced} and {loaded} is loaded', sliced, loaded)
 
 
+def shortage_problem(slot, spool_id, name, need_g, have_g, source, position_noun='Slot'):
+    """A spool with less filament than the print needs: a warning to accept, never a block.
+
+    ``source`` is where ``have_g`` came from ('spoolman' or 'record'). A 0 g
+    reading is said as such, so the operator can tell an empty spool from a
+    Spoolman spool whose weight was never set.
+    """
+    where = f'{position_noun} {slot}' if slot is not None else 'The loaded spool'
+    spool = ' '.join(str(x) for x in (name, f'spool #{spool_id}' if spool_id is not None else '') if x)
+    said = 'Spoolman says' if source == 'spoolman' else 'the slot record says'
+    text = (f'{where} ({spool}) needs about {need_g:g} g but {said} the spool has {have_g:g} g left, '
+            f'short by about {round(need_g - have_g, 1):g} g')
+    if have_g <= 0:
+        text += (' (Spoolman shows 0 g: if the spool is not empty, its remaining weight may not be set '
+                 'in Spoolman)' if source == 'spoolman' else ' (0 g recorded for this slot)')
+    return problem('filament', text, slot, spool_id)
+
+
 def pending(tail):
     """Every acceptable warning one refused print-now run stopped on, or [] (also for a mixed refusal)."""
     lines = [ln.strip() for ln in str(tail or '').splitlines() if ln.strip()]
@@ -200,8 +225,23 @@ def reslice_label(warnings):
     return f'Reslice for {loaded}' if loaded else RESLICE_LABEL
 
 
+def shortage_only(warnings):
+    """True when every warning is one a reslice cannot help (a filament shortage)."""
+    return bool(warnings) and all(item['kind'] in NO_RESLICE for item in warnings)
+
+
+def print_label(warnings):
+    """The button that accepts these warnings: Print anyway for a shortage, else Print as sliced."""
+    return PRINT_ANYWAY_LABEL if shortage_only(warnings) else PRINT_AS_SLICED_LABEL
+
+
 def choices(warnings):
-    """Reslice first (the default answer), then Print as sliced, then Cancel."""
+    """Reslice first (the default answer), then Print as sliced, then Cancel.
+
+    A filament shortage alone has nothing to reslice: Print anyway, then Cancel.
+    """
+    if shortage_only(warnings):
+        return [PRINT_ANYWAY_LABEL, CANCEL_LABEL]
     return [reslice_label(warnings), PRINT_AS_SLICED_LABEL, CANCEL_LABEL]
 
 
@@ -210,6 +250,11 @@ def question(warnings):
     for item in warnings:
         consequence = CONSEQUENCE.get(item['kind'], '')
         lines.append(f"- {item['text']}" + (f'. If you print anyway, {consequence}.' if consequence else '.'))
+    if shortage_only(warnings):
+        return ('Heads-up: ' + ('a spool is' if len(lines) == 1 else 'some spools are')
+                + ' short of filament for this print.\n' + '\n'.join(lines)
+                + '\nNothing is uploaded yet. Load more filament (or correct the weight in Spoolman) and '
+                  'start again, print anyway, or cancel?')
     return ('Heads-up: ' + ('a material warning' if len(lines) == 1 else 'some material warnings')
             + ' before this print starts.\n' + '\n'.join(lines)
             + '\nNothing is uploaded yet. Reslicing for what is loaded is the safe choice. '
@@ -218,6 +263,9 @@ def question(warnings):
 
 
 def reslice_message(warnings):
+    if shortage_only(warnings):
+        return ('Not started. Load more filament into the short slot (or correct the spool weight in '
+                'Spoolman), then start again. Nothing uploaded or started.')
     loaded = loaded_name(warnings) or 'the loaded material'
     return (f'Not started. To reslice for {loaded}, send the model or link again (or slice the job again) '
             f'and it is sliced for what is loaded now. Nothing uploaded or started.')

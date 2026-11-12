@@ -504,6 +504,42 @@ def test_material_mismatch_reslice_is_the_default_and_starts_nothing_1336(env, m
     assert any('To reslice for PLA' in m for m in adapter.log)
 
 
+SHORTAGE_REFUSAL = ("REFUSED: material warning, your answer is needed: Slot 2 (bronze PLA+ spool #19) needs about "
+                    "6.8 g but Spoolman says the spool has 0 g left, short by about 6.8 g (Spoolman shows 0 g: if "
+                    "the spool is not empty, its remaining weight may not be set in Spoolman) "
+                    "[accept filament|2|19]. Nothing uploaded or started.")
+
+
+def _shortage_start(monkeypatch):
+    seen = []
+
+    async def start(target):
+        seen.append(list(target.get('accept_material') or []))
+        return (False, SHORTAGE_REFUSAL) if len(seen) == 1 else (True, 'started')
+
+    monkeypatch.setattr(print_next, 'start', start)
+    return seen
+
+
+def test_filament_shortage_asks_print_anyway_and_starts_once(env, monkeypatch):
+    """A short spool on a slot the print uses asks Print anyway / Cancel before upload, never a block."""
+    seen = _shortage_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    question = adapter.questions[-1]
+    assert question['choices'] == ['Print anyway', 'Cancel']
+    assert 'Slot 2' in question['question'] and 'spool #19' in question['question']
+    assert 'may not be set in Spoolman' in question['question']
+    assert seen == [[], ['filament|2|19']]
+    assert 'accept_material' not in (receipt.get('retry_target') or {})
+
+
+def test_filament_shortage_cancel_starts_nothing(env, monkeypatch):
+    seen = _shortage_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... Cancel
+    assert len(seen) == 1 and receipt['status'] == 'SLICED_NOT_STARTED'
+    assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
+
+
 def test_swapped_spool_asks_use_the_loaded_spool_in_the_intake_1336(env, monkeypatch):
     """#1336: the intake start answers --accept-spool-change in chat (base 1d452a58 had no path)."""
     seen = []

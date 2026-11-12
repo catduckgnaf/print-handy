@@ -2269,7 +2269,7 @@ def alert_button_handlers(bot, adapter):
         stored = json.loads(json.dumps({k: v for k, v in target.items() if k != 'accept_material'}, default=str))
         material_aid = await asyncio.to_thread(pab.record, 'start-material', '', target=stored, keys=keys)
         view = view or discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
-        view.add_item(discord.ui.Button(label=material_accept.PRINT_AS_SLICED_LABEL, style=discord.ButtonStyle.danger,
+        view.add_item(discord.ui.Button(label=material_accept.print_label(warnings), style=discord.ButtonStyle.danger,
                                         custom_id=f'{pab.PLATE_PREFIX}:material:{material_aid}'))
         return view, (f"{lead}\n{material_accept.question(warnings)}\n"
                       f"{material_accept.reslice_message(warnings)}")
