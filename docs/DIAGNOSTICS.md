@@ -756,7 +756,8 @@ What the bundle carries beyond versions and the redacted config summary:
 - **Runtime status**: the image tag and commit SHA when the environment
   records them (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the
   image digest is always shown when present), each printer's listener
-  heartbeat age and event-loop lag, the supervisor's persisted restart
+  heartbeat age and event-loop lag, the camera watch coverage the
+  listener reported (active, or off and why), the supervisor's persisted restart
   counts per printer (including a spent budget), and the
   capture-directory names with their lengths, one real hang was a
   capture name that outgrew its limit.

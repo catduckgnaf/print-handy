@@ -130,7 +130,14 @@ exclude or stop a print. Bambu, Prusa, OctoPrint, and stock Flashforge
 are not given an exclude. On Telegram and Matrix the same choice is
 `/exclude <name>`, which asks before anything is sent.
 #460 gives every other family the same contract through one shared
-mechanism (`print_handy/hermes/family_control.py`), not five copies:
+mechanism (`print_handy/hermes/family_control.py`), not five copies.
+The helpers every listener needs live outside the Moonraker listener
+(#1320): the chat post path, bot tokens, pause classes and the vision
+route in `listener_common.py`, start claims and the abandoned-start rule
+in `start_claims.py`, and the camera watch rules and coverage in
+`camera_watch.py`. No other listener imports
+`moonraker_event_listener`; `tests/hermes/test_camera_watch_core.py`
+enforces it.
 
 - **Launched prints** are claimed by the print path
   (`model_job.claim_start_announcement`, the same claim the Moonraker

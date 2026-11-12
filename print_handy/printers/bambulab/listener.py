@@ -82,6 +82,29 @@ class _StaleConnection(Exception):
 _UNSET = object()  # lan_client sentinel: "build it from the adapter" vs an explicit None
 
 
+def _watch_coverage_reporter():
+    """The camera watch's coverage for a Bambu Lab printer, for the heartbeat (#1320).
+
+    The in-print watch runs in the launched-print monitor, not here; the
+    listener reports whether it can run (camera_watch.listener_coverage).
+    Imported lazily, like the event sink: the bot core must not become an
+    import-time dependency of the printer package. Never raises.
+    """
+    def compute():
+        from ...hermes import _config, camera_watch, listener_common
+        return camera_watch.listener_coverage(
+            "bambulab_lan", _config.cfg(),
+            lambda: listener_common._profile_env_value("CLIPROXY_API_KEY"))
+    try:
+        from ...hermes import camera_watch
+        return camera_watch.CoverageReporter(compute)
+    except Exception:
+        class _Off:
+            def current(self):
+                return None
+        return _Off()
+
+
 class BambuListener:
     """One long-lived Bambu MQTT session for the configured printer instance.
 
@@ -106,6 +129,8 @@ class BambuListener:
         self._clock = clock
         self._sleep = sleep
         self._beat_fn = beat or (lambda **details: healthcheck.beat(runtime=RUNTIME, **details))
+        # The camera watch's coverage for this printer (#1320), in the heartbeat.
+        self._coverage = _watch_coverage_reporter()
         self.events = []
         self._emit_sink = emit
         self._stopped = False
@@ -355,8 +380,12 @@ class BambuListener:
         fresh = bool(self._connected and self._last_message_at is not None
                      and self._clock() - self._last_message_at <= STALE_AFTER_S)
         state = self._status["state"] if self._status else "unknown"
+        details = {}
+        coverage = self._coverage.current()
+        if coverage is not None:
+            details["camera_watch"] = coverage  # #1320: active, or off and why
         try:
-            self._beat_fn(printer_connected=fresh, state=state)
+            self._beat_fn(printer_connected=fresh, state=state, **details)
         except Exception as exc:
             log(f"heartbeat write failed: {exc!r}")
 
