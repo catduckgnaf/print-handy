@@ -1,6 +1,6 @@
 """Encode captured timelapse frames and deliver them (#246, Stage 3).
 
-Stage 2 (:mod:`print_handy.hermes.timelapse_capture`) stores JPEG frames
+Stage 2 (:mod:`print_handy.runtime.timelapse_capture`) stores JPEG frames
 per job and never encodes. This module is the other half: it assembles a
 finished capture's frames into one H.264 MP4 that fits the platform
 upload cap, so the listener's completion post can carry the
@@ -19,7 +19,7 @@ Encoder selection is shared, as the issue requires:
   plus device presence (``/dev/dri`` for VAAPI/QSV, ``/dev/nvidia*``
   for NVENC).
 - *How* one encoder is spelled on the ffmpeg command line comes from
-  :mod:`print_handy.hermes.vertical_short`'s encoder seam — the same
+  :mod:`print_handy.runtime.vertical_short`'s encoder seam — the same
   seam the Discord sizing shrink (#314) and the plan combine use, so
   there is exactly one place that knows each vendor's argv.
 

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import settings
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 TEST_SETTINGS = _config.cfg()
 
@@ -108,7 +108,7 @@ def _scratch_root_is_not_an_ancestor(tmp_path_factory, monkeypatch):
 def _never_touch_live_printer(monkeypatch, request):
     """No test may send a POST to Moonraker or auto restart the printer."""
     try:
-        from print_handy.hermes import print_control
+        from print_handy.runtime import print_control
     except Exception:
         print_control = None
     if print_control is not None:
@@ -121,7 +121,7 @@ def _never_touch_live_printer(monkeypatch, request):
         monkeypatch.setattr(print_control, "_call", guarded)
     if "test_screen_cancel_reboot_paths" not in request.node.name:
         try:
-            from print_handy.hermes import moonraker_event_listener as mel
+            from print_handy.runtime import moonraker_event_listener as mel
             monkeypatch.setattr(mel, "screen_cancel_reboot", lambda *a, **k: (False, "test stub"))
         except Exception:
             pass

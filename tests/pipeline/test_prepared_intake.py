@@ -956,7 +956,7 @@ def test_preparing_line_never_shows_the_jobs_first_number_as_this_starts(env, mo
     """#1017: JOB.json keeps the job's FIRST print number, and this start mints
     its own at print-now. A job printed before is named as a reprint of its
     newest earlier print (from the launch registry); a fresh job shows none."""
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
 
     async def preparing(target):
         env.starts.append(target)
@@ -971,7 +971,7 @@ def test_preparing_line_never_shows_the_jobs_first_number_as_this_starts(env, mo
 
 
 def test_preparing_line_for_a_fresh_job_names_no_number(env, monkeypatch):
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
 
     async def preparing(target):
         env.starts.append(target)

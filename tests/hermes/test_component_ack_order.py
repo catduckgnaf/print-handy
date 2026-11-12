@@ -60,7 +60,7 @@ async def _noop(*a, **k):
 
 
 def test_plate_confirm_acknowledges_before_print_next_start(tmp_path, monkeypatch):
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_next
     starts, order = [], Order()
     on_interaction, picker, _ = plate_clicks(tmp_path, monkeypatch, starts)
     pick = Interaction(f"pbplate:pick:{picker}", ["plate3"])
@@ -78,7 +78,7 @@ def test_plate_confirm_acknowledges_before_print_next_start(tmp_path, monkeypatc
 
 def test_intake_retry_acknowledges_before_print_next_start(tmp_path, monkeypatch):
     from tests.hermes.test_stop_button_view import _install
-    from print_handy.hermes import print_alert_buttons as pab, print_next
+    from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
@@ -103,7 +103,7 @@ def test_an_unexpected_retry_error_is_uncertain_and_offers_no_retry(tmp_path, mo
     # Codex on #182: an exception out of print_next.start may follow an upload or start, so it must not
     # be dressed up as "REFUSED: ... Nothing uploaded or started" with a fresh Retry button.
     from tests.hermes.test_stop_button_view import _install
-    from print_handy.hermes import print_alert_buttons as pab, print_next
+    from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
@@ -132,7 +132,7 @@ def test_an_unexpected_retry_error_is_uncertain_and_offers_no_retry(tmp_path, mo
 
 def _spool_question_click(tmp_path, monkeypatch, action, slow_name, order):
     from tests.hermes.test_stop_button_view import _install
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
 
@@ -171,7 +171,7 @@ def test_intake_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
     Moonraker calls that can outlast Discord's 3 s window; the interaction
     must be deferred before the bind starts (P2-191)."""
     from tests.hermes.test_stop_button_view import _install
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
     order = Order()
@@ -193,7 +193,7 @@ def test_new_spool_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
     """The #483 prompt's Confirm load binds through spool_sync.bind_slot;
     same 3 s rule as the walkthrough confirmation (P2-191)."""
     from tests.hermes.test_stop_button_view import _install
-    from print_handy.hermes import print_alert_buttons as pab, spool_sync
+    from print_handy.runtime import print_alert_buttons as pab, spool_sync
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
     order = Order()
@@ -216,7 +216,7 @@ def _spoolman_rig(tmp_path, monkeypatch, order):
     """Plugin handlers plus a Spoolman whose every call records "slow"."""
     import importlib.util
     from pathlib import Path
-    from print_handy.hermes import print_alert_buttons as pab, spool_sync
+    from print_handy.runtime import print_alert_buttons as pab, spool_sync
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     # Real discord.ui (the pickers build Select/View); the shared _install fake has none.
     spec = importlib.util.spec_from_file_location(

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from print_handy import settings
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import vertical_short as vs
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import vertical_short as vs
 
 
 # --- filter graphs / aspect handling -------------------------------------
@@ -269,7 +269,7 @@ def test_short_meta_reads_the_nested_spool_material_and_record_duration(monkeypa
     overlay must read both from where they actually are."""
     import json as _json
 
-    from print_handy.hermes import print_records
+    from print_handy.runtime import print_records
 
     context = {"title": "Bench", "active_spool": {"id": 7, "material": "PETG", "color": "Red"}}
     monkeypatch.setattr(print_records, "load_context", lambda key: dict(context))
@@ -287,7 +287,7 @@ def test_short_meta_reads_the_nested_spool_material_and_record_duration(monkeypa
 def test_short_meta_prefers_the_newest_completed_record(monkeypatch, tmp_path):
     import json as _json
 
-    from print_handy.hermes import print_records
+    from print_handy.runtime import print_records
 
     monkeypatch.setattr(print_records, "load_context", lambda key: {"title": "Bench"})
     prints = tmp_path / "Prints"

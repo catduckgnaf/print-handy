@@ -3,7 +3,7 @@ import importlib.util
 import sys
 from pathlib import Path
 HERE = Path(__file__).resolve().parents[2] / "scripts"
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_event_listener as mel
 
 def test_completion_with_video_is_one_combined_discord_post(monkeypatch):
     sent=[]

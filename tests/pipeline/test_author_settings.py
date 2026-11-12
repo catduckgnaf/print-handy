@@ -589,7 +589,7 @@ def test_a_plain_stl_slice_records_no_designer_intent_and_attributes_selected_va
     # A plain STL has no designer metadata at all: its record must not say
     # "designer intent unknown"; values the operator or the job set are
     # attributed to them, not to an unknown designer.
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
     from tests.corpus.make_models import write_stl
     stl = tmp_path / "part.stl"
     write_stl(stl, box(20, 20, 10))

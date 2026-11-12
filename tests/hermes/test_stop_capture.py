@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from print_handy.hermes import print_records as records
-from print_handy.hermes import stop_capture
+from print_handy.runtime import print_records as records
+from print_handy.runtime import stop_capture
 
 NOW = 1793893797.0  # 2026-11-05T15:49:57Z, the 10:49:57 ET V12 shutdown
 

@@ -22,8 +22,8 @@ from print_handy.bot import __main__ as bot_main
 from print_handy.bot import runtime, telegram, telegram_rest
 from print_handy.bot.router import Router
 from print_handy.core import link_intake, prompts
-from print_handy.hermes import _config
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import _config
+from print_handy.runtime import print_alert_buttons as pab
 
 TOKEN = "123456789:AA" + "x" * 33  # the shape logs.py redacts; never a real token
 CHAT = "-1001234567890"
@@ -462,7 +462,7 @@ def test_a_config_without_a_telegram_section_loads_unchanged(tmp_path):
 
 
 def test_listener_post_routes_to_telegram_in_standalone_mode(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     sent = []
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "telegram")
@@ -479,11 +479,11 @@ def test_listener_post_routes_to_telegram_in_standalone_mode(monkeypatch):
 
 
 def test_listener_alert_buttons_degrade_to_plain_text_on_telegram(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "telegram")
     monkeypatch.setattr(mel, "post", lambda message: True)
-    with mock.patch("print_handy.hermes.print_alert_buttons.post_with_buttons",
+    with mock.patch("print_handy.runtime.print_alert_buttons.post_with_buttons",
                     side_effect=AssertionError("Discord buttons used")):
         assert mel.post_alert("Print paused", "paused", "cube.gcode") is True
     assert mel.post_plate_picker("plan-1") is True

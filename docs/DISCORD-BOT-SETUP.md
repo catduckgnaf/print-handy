@@ -49,7 +49,7 @@ only to the data folder's `.env` file (mode 600); it is never printed or written
 Doing it by hand instead:
 
 - Docker: put `DISCORD_BOT_TOKEN=...` and `PRINT_HANDY__DISCORD__CHAT_ID=...` in the `.env` file next to `docker-compose.yml` (the [Docker quickstart](DOCKER.md#first-run-configuration) has the whole sequence), then `docker compose up -d`.
-- Standalone: put `DISCORD_BOT_TOKEN=...` in `~/.local/share/print-handy/.env` (or your `paths.hermes_home`),
+- Standalone: put `DISCORD_BOT_TOKEN=...` in `~/.local/share/print-handy/.env` (or your `paths.state_home`),
   and set `discord.chat_id` in `config/local.yaml` (`discord.allowed_user_ids` is optional; see
   [Who can use the bot](#who-can-use-the-bot)). See [standalone bot](STANDALONE.md).
 
@@ -71,14 +71,14 @@ bot:
   sync_commands: true
   health_port: 0
 paths:
-  hermes_home: ~/.local/share/print-handy
+  state_home: ~/.local/share/print-handy
 discord:
   chat_id: "123456789012345678"             # replace with your channel ID
   allowed_user_ids: ""                      # optional whitelist; empty lets everyone in the channel use the bot
   token_env: DISCORD_BOT_TOKEN
 ```
 
-These IDs are placeholders, not usable setup values. `paths.hermes_home` is the data directory;
+These IDs are placeholders, not usable setup values. `paths.state_home` is the data directory;
 its name is historical and does not require Hermes. Keep the printer-specific configuration
 created by the installer. This example only shows the Discord fields.
 

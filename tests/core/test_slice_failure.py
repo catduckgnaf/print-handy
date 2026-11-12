@@ -83,8 +83,8 @@ def test_slicer_timeout_keeps_partial_output_before_cleanup(monkeypatch, tmp_pat
     work = tmp_path / 'work'
     work.mkdir()
     kept = tmp_path / 'kept'
-    from print_handy.hermes import _config
-    monkeypatch.setattr(_config, 'hermes_home', lambda: str(kept))
+    from print_handy.runtime import _config
+    monkeypatch.setattr(_config, 'state_home', lambda: str(kept))
 
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired(['secret'], 600, output=b'partial output', stderr=b'partial error')

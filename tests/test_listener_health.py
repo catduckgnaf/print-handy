@@ -42,7 +42,7 @@ class ListenerHealthTests(unittest.TestCase):
 
     def test_listener_cancels_heartbeat_on_shutdown(self):
         import asyncio
-        from print_handy.hermes import moonraker_event_listener as mel
+        from print_handy.runtime import moonraker_event_listener as mel
 
         async def flow():
             listener = mel.Listener.__new__(mel.Listener)
@@ -90,7 +90,7 @@ class ListenerHealthTests(unittest.TestCase):
     def test_beat_once_reports_the_loop_lag(self):
         import time as time_module
 
-        from print_handy.hermes import moonraker_event_listener as mel
+        from print_handy.runtime import moonraker_event_listener as mel
 
         listener = mel.Listener.__new__(mel.Listener)
         listener.state = "printing"

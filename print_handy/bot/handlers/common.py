@@ -9,15 +9,15 @@ import asyncio, contextlib, functools, json, re, time
 from collections import OrderedDict
 from pathlib import Path
 
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
 logger = logging.getLogger("print_handy_print_feedback")
 
 
-def _hermes_home():
-    return _config.hermes_home()
+def _state_home():
+    return _config.state_home()
 
 
 def _state_dir():
@@ -341,7 +341,7 @@ def _adapter_for(gateway, source):
 def _design_root(cfg):
     from print_handy.core import design
     cache = (cfg.get('paths') or {}).get('cache')
-    return design.sessions_root(cache) if cache else design.sessions_root(_hermes_home() / 'cache')
+    return design.sessions_root(cache) if cache else design.sessions_root(_state_home() / 'cache')
 
 
 def _design_transport(cfg):
@@ -413,7 +413,7 @@ async def _design_handoff(event, gateway, adapter, session, stl_path):
         # which printer, like a dropped link — design sessions are keyed by
         # channel, so the conversation stays one design; only its print
         # target was undecided.
-        from print_handy.hermes import print_control as _print_control
+        from print_handy.runtime import print_control as _print_control
         statuses = await _candidate_statuses(candidates, _print_control.status)
         chosen = await _ask_which_printer(source, gateway, adapter, candidates,
                                           question='Which printer should I print this design on?',
@@ -516,7 +516,7 @@ async def _design_busy_reply(adapter, source):
 def _design_engine(cfg, complete):
     """The design engine over the same session folder _design_root reads."""
     from print_handy.core import design
-    return design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
+    return design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_state_home() / 'cache'),
                                complete, cfg=cfg)
 
 
@@ -669,8 +669,8 @@ async def _announce_command_start(send, target, detail, job=None, plate=None, ch
     this post after warmup. Start posts never carry the roast; it belongs to
     the completion post.
     """
-    from print_handy.hermes import discord_print_summary as print_summary
-    from print_handy.hermes import print_next
+    from print_handy.runtime import discord_print_summary as print_summary
+    from print_handy.runtime import print_next
     if job is None:
         with contextlib.suppress(Exception):
             job, plate = print_summary.find_job(target['gcode'])
@@ -688,7 +688,7 @@ async def _announce_command_start(send, target, detail, job=None, plate=None, ch
 
 
 def _maintenance_hours_now(printer_id=None):
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
     payload = (print_control._send('/server/history/totals', printer_id=printer_id)
                if printer_id else print_control._call('/server/history/totals'))
     result = payload.get('result') or {}
@@ -700,7 +700,7 @@ def _maintenance_hours_now(printer_id=None):
 
 def _cold_pull_temps():
     """(pla_hot, pla_cold, petg_hot, petg_cold, pla_retry_cold) from [cold_pull] in the home configuration."""
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     pla_hot, pla_cold = pc.COLD_PULL_PROFILES['pla_trial']
     petg_hot, petg_cold = pc.COLD_PULL_PROFILES['petg']
     return pla_hot, pla_cold, petg_hot, petg_cold, pla_cold + 5
@@ -709,8 +709,8 @@ def _cold_pull_temps():
 async def _coldpull_workflow(adapter, source, metadata, *, source_tag, initial_cold=None, selected_material=None,
                              printer_id=None, live_key=None):
     """Shared user interaction for the standalone and maintenance cold-pull paths."""
-    from print_handy.hermes import maintenance
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import maintenance
+    from print_handy.runtime import print_control as pc
 
     if printer_id is None:
         # No explicit printer (the standalone /print-coldpull call): the
@@ -838,7 +838,7 @@ def _cancel_spool_question_print(listener, spool_sync, context):
     this raises and the question stays open and answerable, so the operator
     is never deadlocked by a failed cancel.
     """
-    from print_handy.hermes import print_stop
+    from print_handy.runtime import print_stop
     current = listener.load_runout_pause()
     if current is None:
         raise spool_sync.SpoolError('that spool question was already answered; nothing changed')
@@ -1022,13 +1022,13 @@ def _photo_intake_ready():
     services.vision_chat_url with its key). No route, no offer, and the
     walkthrough is exactly as it was without one."""
     try:
-        from print_handy.hermes import moonraker_event_listener as listener
+        from print_handy.runtime import moonraker_event_listener as listener
         if listener._vision_ready():
             return True
     except Exception:
         pass
     try:
-        from print_handy.hermes import spool_codes, spool_label
+        from print_handy.runtime import spool_codes, spool_label
         return bool(spool_codes.codes_available() or spool_label.tesseract_available())
     except Exception:
         return False
@@ -1037,8 +1037,8 @@ def _photo_intake_ready():
 def _spool_label_vision_call():
     """The shared vision call for label extraction (#514), carrying the
     listener's configured values — the same endpoint the camera watch uses."""
-    from print_handy.hermes import moonraker_event_listener as listener
-    from print_handy.hermes import visual_watch
+    from print_handy.runtime import moonraker_event_listener as listener
+    from print_handy.runtime import visual_watch
 
     def call(image, prompt):
         return visual_watch.visual_extract(
@@ -1060,14 +1060,14 @@ def _spool_label_routes(state):
     chain (spool_label.extract_spool_spec_any) takes the first valid spec
     and never merges partial results across routes.
     """
-    from print_handy.hermes import spool_codes, spool_label
+    from print_handy.runtime import spool_codes, spool_label
 
     known = state.get('types') or []
     routes = []
     if spool_codes.codes_available():
         routes.append(('code', lambda image: spool_codes.extract_via_codes(image, known)))
     try:
-        from print_handy.hermes import moonraker_event_listener as listener
+        from print_handy.runtime import moonraker_event_listener as listener
         if listener._vision_ready():
             call = _spool_label_vision_call()
             routes.append(('vision', lambda image: spool_label.extract_spool_spec(image, call)))
@@ -1080,7 +1080,7 @@ def _spool_label_routes(state):
 
 def _picker_label(entry):
     """The one spool picker label for a shelf entry (#792 part 2)."""
-    from print_handy.hermes.discord_print_summary import spool_picker_label
+    from print_handy.runtime.discord_print_summary import spool_picker_label
     return spool_picker_label(entry.get('name'), entry.get('material'),
                               entry.get('spool_id'), entry.get('remaining_grams'))
 
@@ -1337,7 +1337,7 @@ _INTAKE_UNAVAILABLE_REASON = 'new model intake unavailable; no start authorized'
 
 def alert_button_handlers(bot, adapter):
     """Handle listener buttons, including IFS inventory choices, for authorized Discord users."""
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     def allowed(interaction):
         user = getattr(interaction, 'user', None)
@@ -1376,7 +1376,7 @@ def alert_button_handlers(bot, adapter):
     async def edit_refusal(source, message, text, context, raw):
         """Retire Stop and replace it with plain guidance plus a single Retry button."""
         import discord
-        from print_handy.hermes import print_alert_buttons as pab
+        from print_handy.runtime import print_alert_buttons as pab
         receipt = (context or {}).get('receipt') or {}
         receipt_id = str(receipt.get('intake_id') or '')
         if not re.fullmatch(r'[a-f0-9]{32}', receipt_id):
@@ -1404,7 +1404,7 @@ def alert_button_handlers(bot, adapter):
     _pi.STOP_SENDER = send_stop
     async def insertion_select(interaction, aid, alert):
         import discord
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         slot = alert.get('slot')
         if slot not in (1, 2, 3, 4):
             await interaction.response.send_message('That insertion prompt is invalid. Nothing changed.', ephemeral=True)
@@ -1473,7 +1473,7 @@ def alert_button_handlers(bot, adapter):
         labeled wrong. The actual number is announced the moment the
         creation assigns it, before the load question.
         """
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         if slot not in (1, 2, 3, 4):
             await interaction.response.send_message('That prompt has no usable slot. Nothing changed.', ephemeral=True)
             return
@@ -1528,7 +1528,7 @@ def alert_button_handlers(bot, adapter):
         an unusable one refuses with the named reason and re-posts the
         manual steps.
         """
-        from print_handy.hermes import spool_label
+        from print_handy.runtime import spool_label
 
         def is_image(attachment):
             if str(getattr(attachment, 'content_type', '') or '').startswith('image/'):
@@ -1660,13 +1660,13 @@ def alert_button_handlers(bot, adapter):
         # buttons standing over a completed bind.
         await interaction.response.defer()
         try:
-            from print_handy.hermes import spool_sync
+            from print_handy.runtime import spool_sync
             values = {'brand': state.get('brand') or '', 'material': state.get('material') or '',
                       'color': state.get('color') or '', 'grams': str(state.get('grams') or ''), 'lot': '',
                       'nozzle_temp': state.get('nozzle_temp'), 'bed_temp': state.get('bed_temp'),
                       'hex': state.get('hex')}
             if state.get('origin') == 'spool-question':
-                from print_handy.hermes import moonraker_event_listener as listener
+                from print_handy.runtime import moonraker_event_listener as listener
                 choice = {'status': 'new', 'brand': values['brand'] or None, 'material': values['material'],
                           'color': values['color'], 'grams': values['grams'], 'lot': None,
                           'nozzle_temp': values['nozzle_temp'], 'bed_temp': values['bed_temp'],
@@ -1817,7 +1817,7 @@ def alert_button_handlers(bot, adapter):
 
     async def spool_question_select(interaction, alert):
         import discord
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         context = alert.get('context') or {}
         slot = context.get('slot')
         if slot not in (1, 2, 3, 4):
@@ -1872,8 +1872,8 @@ def alert_button_handlers(bot, adapter):
                 f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Cancel print. "
                 'Checking the printer first.')
             try:
-                from print_handy.hermes import moonraker_event_listener as listener
-                from print_handy.hermes import spool_sync
+                from print_handy.runtime import moonraker_event_listener as listener
+                from print_handy.runtime import spool_sync
                 result = await asyncio.to_thread(_cancel_spool_question_print, listener, spool_sync,
                                                  alert.get('context') or {})
             except Exception as exc:
@@ -1908,8 +1908,8 @@ def alert_button_handlers(bot, adapter):
             f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {tapped}. "
             'Checking the printer first.')
         try:
-            from print_handy.hermes import moonraker_event_listener as listener
-            from print_handy.hermes import spool_sync
+            from print_handy.runtime import moonraker_event_listener as listener
+            from print_handy.runtime import spool_sync
             result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
                                              context, {'status': status})
         except Exception as exc:
@@ -1932,8 +1932,8 @@ def alert_button_handlers(bot, adapter):
         for a runout question's spent spool — and only its Confirm bind
         button writes anything.
         """
-        from print_handy.hermes import spool_sync
-        from print_handy.hermes.discord_print_summary import spool_picker_label
+        from print_handy.runtime import spool_sync
+        from print_handy.runtime.discord_print_summary import spool_picker_label
         # Acknowledge before the Spoolman re-read (3 s window).
         await interaction.response.defer()
         label = spool_picker_label(None, None, spool_id, None)
@@ -1982,14 +1982,14 @@ def alert_button_handlers(bot, adapter):
         # calls inside can outlast Discord's 3 s initial-response window.
         await interaction.response.defer()
         try:
-            from print_handy.hermes import spool_sync
+            from print_handy.runtime import spool_sync
             if pending.get('origin') == 'insertion':
                 result = await asyncio.to_thread(
                     pab.bind_insertion_existing, pending['slot'], pending['spool_id'], spool_sync,
                     expected_prior_spool_id=(int(pending['old_spool_id'])
                                              if pending.get('old_spool_id') else None))
             else:
-                from print_handy.hermes import moonraker_event_listener as listener
+                from print_handy.runtime import moonraker_event_listener as listener
                 result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
                                                  pending['context'],
                                                  {'status': 'existing', 'spool_id': pending['spool_id']})
@@ -2058,7 +2058,7 @@ def alert_button_handlers(bot, adapter):
         which a button press does not carry in either runtime.
         """
         import discord
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         state = await asyncio.to_thread(spool_sync.load_state)
         select_aid = await asyncio.to_thread(pab.record, 'spoolman-new-slot', '',
                                              spool_id=int(spool_id), label=label)
@@ -2126,7 +2126,7 @@ def alert_button_handlers(bot, adapter):
         # Acknowledge before the bind (P2-191), as in intake_finish.
         await interaction.response.defer()
         try:
-            from print_handy.hermes import spool_sync
+            from print_handy.runtime import spool_sync
             result = await asyncio.to_thread(spool_sync.bind_slot, int(alert['slot']), int(spool_id),
                                              prior_disposition=alert.get('disposition') or 'shelf',
                                              expected_prior_spool_id=(int(alert['old_spool_id'])
@@ -2145,7 +2145,7 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That slot choice is old or was already used. Nothing changed.', ephemeral=True)
             return
         import discord
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         spool_id = pending.get('spool_id')
         label = pending.get('label') or f'#{spool_id}'
         try:
@@ -2179,7 +2179,7 @@ def alert_button_handlers(bot, adapter):
     async def handle_plate_pick(interaction, aid):
         """Choosing a plate only prepares one Confirm button; nothing starts here."""
         import discord
-        from print_handy.hermes import print_next
+        from print_handy.runtime import print_next
         alert = await asyncio.to_thread(pab.peek, aid)
         if not alert or alert.get('kind') != 'plate-picker':
             await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
@@ -2206,14 +2206,14 @@ def alert_button_handlers(bot, adapter):
         if not alert:
             await interaction.response.send_message('That offer is old or was already used. Nothing started.', ephemeral=True)
             return
-        from print_handy.hermes import next_plate_offer
+        from print_handy.runtime import next_plate_offer
         with contextlib.suppress(Exception):
             await asyncio.to_thread(next_plate_offer.clear)
         await interaction.response.edit_message(content='Left the queue alone. Nothing started.', view=None)
 
     async def handle_plate_go(interaction, aid):
         """The one Confirm tap. The alert is single use and print_next.start re-checks the printer and claim."""
-        from print_handy.hermes import print_next
+        from print_handy.runtime import print_next
         alert = await asyncio.to_thread(pab.take, aid)
         if not alert or alert.get('kind') != 'plate-confirm':
             await interaction.response.send_message('That confirmation is old or was already used. Nothing started.', ephemeral=True)
@@ -2229,7 +2229,7 @@ def alert_button_handlers(bot, adapter):
     async def run_plate_start(interaction, target, alert, accept_spool_change=False):
         """Start the plate once. A spool swapped since slicing gets one extra single-use button, not a retry."""
         import discord
-        from print_handy.hermes import print_next
+        from print_handy.runtime import print_next
         view = None
         ok, detail = False, ''
         try:
@@ -2256,7 +2256,7 @@ def alert_button_handlers(bot, adapter):
 
     async def handle_plate_spool(interaction, aid):
         """Single-use 'use the loaded spool' tap. start() still re-checks the printer, claim and live slot."""
-        from print_handy.hermes import print_next
+        from print_handy.runtime import print_next
         alert = await asyncio.to_thread(pab.take, aid)
         if not alert or alert.get('kind') != 'plate-spool':
             await interaction.response.send_message('That spool confirmation is old or was already used. Nothing started.', ephemeral=True)
@@ -2272,7 +2272,7 @@ def alert_button_handlers(bot, adapter):
     async def handle_intake_retry(interaction, receipt_id):
         """Retry this exact refused plate through print_next.start and all of its guards."""
         import discord
-        from print_handy.hermes import print_alert_buttons as pab, print_next
+        from print_handy.runtime import print_alert_buttons as pab, print_next
         from print_handy.core import prepared_intake as intake
         receipt_path = _state_dir() / 'model-link-intakes' / f'{receipt_id}.json'
 
@@ -2328,8 +2328,8 @@ def alert_button_handlers(bot, adapter):
     async def handle_exclude(interaction, action, aid):
         """One object: ask, then send. The last object uses the stop confirm. Nothing is sent on the ask."""
         import discord
-        from print_handy.hermes import exclude_chat, print_stop
-        from print_handy.hermes import print_control as pc
+        from print_handy.runtime import exclude_chat, print_stop
+        from print_handy.runtime import print_control as pc
         timeout = (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600)
         if action == 'pick':
             alert = await asyncio.to_thread(pab.peek, aid)
@@ -2420,7 +2420,7 @@ def alert_button_handlers(bot, adapter):
                 return
             await handle_stop(interaction, str(custom_id)[len(STOP_PREFIX):])
             return
-        from print_handy.hermes import exclude_chat
+        from print_handy.runtime import exclude_chat
         parsed_exclude = exclude_chat.parse_custom_id(custom_id)
         if parsed_exclude:
             if not allowed(interaction):

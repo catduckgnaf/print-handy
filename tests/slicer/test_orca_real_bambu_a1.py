@@ -61,7 +61,7 @@ def packed():
 def adapter_for(key, hermes=None):
     env = {"PRINT_HANDY__PRINTER__MODEL": key}
     if hermes is not None:
-        env["PRINT_HANDY__PATHS__HERMES_HOME"] = str(hermes)
+        env["PRINT_HANDY__PATHS__STATE_HOME"] = str(hermes)
     return printers.get(key, settings.load(local=False, environ=env))
 
 
@@ -85,7 +85,7 @@ def production_flow(work, stl):
     """tests.printers.a1_flow with the real configured Orca: slice_job -> verification -> bambu_handoff -> print_now."""
     # Bambu Studio is the Bambu Lab default; this file checks the OrcaSlicer path ([printer] slicer: orca).
     env = {**os.environ, "PRINT_HANDY__PRINTER__MODEL": "bambulab.a1", "PRINT_HANDY__PRINTER__SLICER": "orca",
-           "PRINT_HANDY__PATHS__HERMES_HOME": str(work / "flow-hermes")}
+           "PRINT_HANDY__PATHS__STATE_HOME": str(work / "flow-hermes")}
     out = subprocess.run([sys.executable, "-m", "tests.printers.a1_flow", str(work / "flow"), "--stl", str(stl),
                           "--resources", str(installed_resources())],
                          cwd=ROOT, capture_output=True, text=True, env=env, timeout=900)

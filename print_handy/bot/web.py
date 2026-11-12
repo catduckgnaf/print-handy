@@ -321,7 +321,7 @@ class WebChatService:
         """
         try:
             from ..core import prepared_intake
-            from ..hermes import _config
+            from ..runtime import _config
             await prepared_intake.announce_interrupted(
                 _config.state_dir() / "model-link-intakes", self.adapter,
                 platform=WebAdapter.name)

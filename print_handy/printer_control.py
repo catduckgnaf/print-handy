@@ -5,7 +5,7 @@ the chat commands (``/print-stop``, ``/print-resume``, ``/print-reboot``,
 the exclude and spool-question stops), the listener alert buttons on every
 platform (Discord, Telegram and Matrix all land in
 ``print_alert_buttons.handle_click``), the Web UI control routes
-(``webui/controls.py``) and the CLI (``python -m print_handy.hermes.panic``).
+(``webui/controls.py``) and the CLI (``python -m print_handy.runtime.panic``).
 ``tests/test_printer_control_entry_points.py`` enumerates those entry points
 and fails when one reaches a transport without passing through here.
 
@@ -69,7 +69,7 @@ _DEFAULT = object()  # "this printer's own hardware record" for the heater ceili
 
 
 def _driver(name: str):
-    """A transport driver module, looked up at call time (print_handy.hermes.<name>)."""
+    """A transport driver module, looked up at call time (print_handy.runtime.<name>)."""
     return _external.load(name)
 
 
@@ -276,9 +276,9 @@ ENTRY_POINTS = (
     ("print_handy/bot/handlers/common.py", "alert_button_handlers"),
     ("print_handy/core/prepared_intake.py", "_offer_force_restart"),
     # listener alert buttons (Discord, Telegram and Matrix clicks all land here)
-    ("print_handy/hermes/print_alert_buttons.py", "handle_click"),
-    ("print_handy/hermes/print_alert_buttons.py", "recover_from_stop"),
-    ("print_handy/hermes/moonraker_event_listener.py", "screen_cancel_reboot"),
+    ("print_handy/runtime/print_alert_buttons.py", "handle_click"),
+    ("print_handy/runtime/print_alert_buttons.py", "recover_from_stop"),
+    ("print_handy/runtime/moonraker_event_listener.py", "screen_cancel_reboot"),
     # Web UI control routes
     ("print_handy/webui/controls.py", "temperature_limit"),
     ("print_handy/webui/controls.py", "control"),
@@ -288,6 +288,6 @@ ENTRY_POINTS = (
     ("print_handy/webui/controls.py", "send_gcode"),
     ("print_handy/webui/controls.py", "exclude_object"),
     # CLI
-    ("print_handy/hermes/panic.py", "main"),
-    ("print_handy/hermes/panic.py", "_nozzle_ceiling_refusal"),
+    ("print_handy/runtime/panic.py", "main"),
+    ("print_handy/runtime/panic.py", "_nozzle_ceiling_refusal"),
 )

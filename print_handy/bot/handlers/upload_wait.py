@@ -6,7 +6,7 @@ loads the same handlers for one release.
 import re, time
 
 from .common import _is_print_discord_event
-from ...hermes import _config
+from ...runtime import _config
 
 
 # Upload-wait freeze length. Read at use time so a settings override in tests is honored.

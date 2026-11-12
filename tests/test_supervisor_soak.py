@@ -40,7 +40,7 @@ BUDGET, WINDOW = 5, 600
 
 def _data(tmp):
     path = Path(tmp) / "local.toml"
-    path.write_text(f'[paths]\nhermes_home = "{tmp}/hermes"\n')
+    path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\n')
     return settings.load(local=path, environ={})
 
 
@@ -187,7 +187,7 @@ def test_budget_exhaustion_then_recovery_after_the_window(tmp_path):
 def test_persisted_budget_survives_a_process_restart(tmp_path):
     """The record supervise.sh writes via the CLI is read back verbatim
     by a different process: no amnesia, and the spend is not doubled."""
-    env = {**os.environ, "PRINT_HANDY__PATHS__HERMES_HOME": f"{tmp_path}/hermes"}
+    env = {**os.environ, "PRINT_HANDY__PATHS__STATE_HOME": f"{tmp_path}/hermes"}
     proc = subprocess.run(
         [sys.executable, "-m", "print_handy.supervisor_state",
          "--printer", PID, "--restarts", "6", "--budget", "5",

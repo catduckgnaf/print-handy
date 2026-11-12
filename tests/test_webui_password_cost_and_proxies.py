@@ -26,7 +26,7 @@ OLD_ITERATIONS = 200_000
 
 def load_settings(tmp, extra="", environ=None):
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                      "webui:\n  enabled: true\n  port: 8765\n" + extra)
     return settings.load(local=local, environ=environ or {})
 

@@ -5,7 +5,7 @@ and bot check never downloads or infers."""
 from pathlib import Path
 
 from print_handy.bot import __main__ as bot_main
-from print_handy.hermes import local_vision as lv
+from print_handy.runtime import local_vision as lv
 
 FIXTURE = Path(__file__).parent.parent / "hermes" / "fixtures" / "tiny_failure_detector.onnx"
 

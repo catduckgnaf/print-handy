@@ -7,7 +7,7 @@ import logging
 import time
 
 from .common import _confirm, _control_preamble, _seen
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.

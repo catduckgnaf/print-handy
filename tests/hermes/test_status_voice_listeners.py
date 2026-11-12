@@ -8,8 +8,8 @@ byte-identical.
 import pytest
 
 from print_handy.core import status_voice
-from print_handy.hermes import family_control
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import family_control
+from print_handy.runtime import moonraker_event_listener as mel
 from .test_print_messages import (  # noqa: F401  (pytest fixtures)
     _claimed_listener, _drive_listener, _fix_finish_text_on_windows, job)
 

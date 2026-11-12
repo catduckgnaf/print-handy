@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import credential_binding
-from .hermes import _config
+from .runtime import _config
 
 logger = logging.getLogger(__name__)
 

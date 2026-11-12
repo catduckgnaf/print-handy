@@ -436,7 +436,7 @@ def lane_index0(slot: int) -> int:
 
     THE conversion between the two bases, used in both directions:
     Print Handy writes it into ``lane_data`` records here, and
-    :mod:`print_handy.hermes.lane_data_sync` converts back with
+    :mod:`print_handy.runtime.lane_data_sync` converts back with
     :func:`slot_from_lane_index0` when it normalizes what it reads.
     Slot numbers everywhere else in Print Handy are 1-based; a value
     named ``*_index0`` is the only 0-based form.

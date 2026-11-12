@@ -2,4 +2,4 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
-exec python3 -m print_handy.hermes.panic purge "$@"
+exec python3 -m print_handy.runtime.panic purge "$@"

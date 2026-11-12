@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def checks(cfg):
     """[(label, ok, detail)]. Offline: nothing here contacts the chat platform."""
-    from ..hermes import _config
+    from ..runtime import _config
     from . import agent, llm, platform
     from .runtime import allowed_users, discord_chat_llm_enabled
     rows = []
@@ -164,7 +164,7 @@ def checks(cfg):
     # watchdog on installs with no vision endpoint. Off by default; when on
     # it judges frames only while no endpoint route is configured (endpoint
     # routes keep precedence), and it never answers roasts or label reads.
-    from ..hermes import local_vision as _local_vision
+    from ..runtime import local_vision as _local_vision
     _detector_state, _detector_detail = _local_vision.detector_status(cfg)
     if _detector_state == "off":
         add("local detector", True, f"off ({_detector_detail})")
@@ -175,7 +175,7 @@ def checks(cfg):
         add("local detector", False, f"on, but unavailable: {_detector_detail}")
     # Local empty-plate reference (#455): the idle checks can certify an
     # empty plate locally only when a fresh reference exists.
-    from ..hermes import local_empty as _local_empty
+    from ..runtime import local_empty as _local_empty
     _ref_state, _ref_detail = _local_empty.reference_status(cfg)
     add("plate reference", _ref_state in ("off", "missing", "pending", "ready"),
         f"{_ref_state}: {_ref_detail}")
@@ -184,7 +184,7 @@ def checks(cfg):
     # plate checks only) and whether a vision route lets it run. A pinned
     # vision.watch_source that cannot work fails the row instead of the
     # watch silently doing nothing.
-    from ..hermes import visual_watch as _visual_watch
+    from ..runtime import visual_watch as _visual_watch
     for _watch_ok, _watch_detail in _visual_watch.coverage_report(
             cfg, lambda: os.environ.get("CLIPROXY_API_KEY", "")):
         add("camera watch", _watch_ok, _watch_detail)

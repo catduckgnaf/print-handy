@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest import mock
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_event_listener as mel
 
 E0102 = {"status": "error", "errorCode": "E0102", "matlStationInfo": {"currentLoadSlot": 3}}
 OK = {"status": "printing", "errorCode": "", "matlStationInfo": {"currentLoadSlot": 1}}

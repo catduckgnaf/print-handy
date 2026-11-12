@@ -272,7 +272,7 @@ def test_a_year_at_three_roasts_a_day_has_no_exact_repeat_inside_the_window(tmp_
 
 # ---------------------------------------------------------------- no-LLM proofs
 
-ROAST_MODULES = ["print_handy/core/roast.py", "print_handy/hermes/roast_chat.py"]
+ROAST_MODULES = ["print_handy/core/roast.py", "print_handy/runtime/roast_chat.py"]
 FORBIDDEN_IMPORTS = {"urllib", "http", "socket", "requests", "httpx", "aiohttp", "ssl",
                      "print_handy.ai_routes", "ai_routes", "print_handy.core.design"}
 
@@ -296,7 +296,7 @@ def test_roast_modules_import_no_network_or_model_client(path):
 
 
 def test_generate_roast_has_no_model_call():
-    source = (ROOT / "print_handy/hermes/moonraker_event_listener.py").read_text(encoding="utf-8")
+    source = (ROOT / "print_handy/runtime/moonraker_event_listener.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "generate_roast")
     body = ast.get_source_segment(source, fn)

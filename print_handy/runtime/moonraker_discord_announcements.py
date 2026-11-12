@@ -75,7 +75,7 @@ class ArchiveOutcome(NamedTuple):
 ACTIVE_STATES = {"Printing", "Paused", "Pausing", "Resuming"}
 # Pinned to the print profile from config. The multiplex gateway exports the launching profile's
 # HERMES_HOME to cron scripts, which would point profile-relative files at the wrong profile.
-PROFILE_HOME = _config.pinned_hermes_home()
+PROFILE_HOME = _config.pinned_state_home()
 
 
 def _context_value(context, *keys):

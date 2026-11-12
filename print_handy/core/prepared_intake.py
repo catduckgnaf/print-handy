@@ -770,7 +770,7 @@ def last_printed_job(archive=None, printer_id=None):
     #979 failure itself). /print-again can still reprint that job's exact
     G-code. Local files only; read only.
     """
-    from ..hermes import print_control as pc
+    from ..runtime import print_control as pc
     from . import model_job as mj
     archive = Path(archive or mj.ARCHIVE).resolve()
     for record in pc._launch_records(archive):
@@ -1683,7 +1683,7 @@ def _variant_estimate_str(job_data, result):
     if not result or not job_data:
         return 'slicing...'
     try:
-        from print_handy.hermes import discord_print_summary as dps
+        from print_handy.runtime import discord_print_summary as dps
         plates = dps.plate_estimates(job_data)
         if plates:
             secs = sum(p['seconds'] for p in plates if p.get('seconds') is not None)
@@ -3365,7 +3365,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     measured_gap = max(measured_gap or 0.0, float(region_gap))
             bed_mm = nozzle_mm = None
             with contextlib.suppress(Exception):
-                from ..hermes import _config
+                from ..runtime import _config
                 printer_cfg = (_config.cfg() or {}).get('printer') or {}
                 bed_mm = printer_cfg.get('bed_mm')
                 nozzle_mm = printer_cfg.get('nozzle_diameter')
@@ -4325,13 +4325,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # earlier print from the launch registry, never as this start's number (#1017).
         previous = None
         with contextlib.suppress(Exception):
-            from ..hermes import print_control
+            from ..runtime import print_control
             previous = print_control.latest_number_for_job(jp)
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
         # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
         targets = ''
         with contextlib.suppress(Exception):
-            from ..hermes.print_control import start_targets_text
+            from ..runtime.print_control import start_targets_text
             targets = start_targets_text(Path(first).read_text(errors='replace'))
         prep_msg = ' · '.join(['Preparing to start']
                               + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])

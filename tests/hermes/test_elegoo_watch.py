@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from print_handy.hermes import elegoo_watch, moonraker_event_listener as mel
-from print_handy.hermes import timelapse_capture
+from print_handy.runtime import elegoo_watch, moonraker_event_listener as mel
+from print_handy.runtime import timelapse_capture
 from print_handy.printers.elegoo_sdcp import camera as elegoo_camera
 
 REMOTE = "benchy.gcode"

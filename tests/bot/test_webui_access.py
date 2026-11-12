@@ -9,7 +9,7 @@ from print_handy.webui import access
 def _data(tmp_path):
     # The minimal settings shape the access writers need: a data
     # home under tmp, plus the [webui] token-env name.
-    return {"paths": {"hermes_home": tmp_path},
+    return {"paths": {"state_home": tmp_path},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN",
                       "require_auth": True}}
 

@@ -229,7 +229,7 @@ def test_undelivered_recovery_is_reoffered_too():
 
 
 def test_listener_poll_posts_watch_messages_once(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
 
     listener = mel.Listener()
     clock = FakeClock()
@@ -250,7 +250,7 @@ def test_listener_poll_posts_watch_messages_once(monkeypatch):
 
 
 def test_listener_poll_reposts_when_delivery_fails(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
 
     listener = mel.Listener()
     clock = FakeClock()

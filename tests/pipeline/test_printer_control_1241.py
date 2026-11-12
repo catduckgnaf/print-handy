@@ -17,7 +17,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import heater_ceiling, launch_state, model_job, printer_state
-from print_handy.hermes import family_control
+from print_handy.runtime import family_control
 from print_handy.printers.bambulab.listener import BambuListener
 from print_handy.webui import controls
 
@@ -28,7 +28,7 @@ PRINTER = "flashforge-ad5x"
 
 def _data(tmp_path):
     local = tmp_path / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp_path}/hermes\nwebui:\n  controls_enabled: true\n")
+    local.write_text(f"paths:\n  state_home: {tmp_path}/hermes\nwebui:\n  controls_enabled: true\n")
     return settings.load(local=local, environ={})
 
 

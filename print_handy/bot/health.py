@@ -14,7 +14,7 @@ import math
 import sys
 import time
 
-from ..hermes import _config
+from ..runtime import _config
 
 def path():
     return _config.state_file(None, "bot_health.json")

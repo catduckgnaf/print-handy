@@ -9,8 +9,8 @@ import pytest
 
 from print_handy import ai_routes, settings
 from print_handy.bot import llm
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import visual_watch as vw
 
 URL = "http://models.test/v1/chat/completions"
 LOCAL_URL = "http://127.0.0.1:11434/v1/chat/completions"

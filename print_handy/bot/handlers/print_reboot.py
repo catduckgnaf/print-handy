@@ -10,7 +10,7 @@ from .common import (
     _adapter_for, _confirm, _control_preamble, _decide_printer, _failure_post,
     _is_print_discord_event, _live_key_for, _routed_printer_id, _seen,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -45,7 +45,7 @@ async def print_reboot_dispatch(event, gateway, **kwargs):
             return {'action': 'skip', 'reason': 'print reboot UI delivery unavailable'}
     if adapter is None:
         return {'action': 'skip', 'reason': 'print reboot UI delivery unavailable'}
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     # The routing helpers are resolved defensively: an offline regression
     # test execs this function alone in a bare namespace (test_reboot_standby).
@@ -78,7 +78,7 @@ async def print_reboot_dispatch(event, gateway, **kwargs):
         if st.get('klippy') == 'shutdown' and st.get('state') != 'printing':
             # Emergency stop: REBOOT is a G-code macro Klipper rejects while shut down.
             # One FIRMWARE_RESTART clears it; no motion, no heat. Still needs the confirm button.
-            from print_handy.hermes import print_alert_buttons as pab
+            from print_handy.runtime import print_alert_buttons as pab
             reason = await asyncio.to_thread(pab.shutdown_message, **pkw)
             answer = await _confirm(adapter, source, metadata, 'print-reboot',
                                     "The printer is in an emergency stop. " + pab.explain(reason)

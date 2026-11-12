@@ -9,7 +9,7 @@ from print_handy.bot import commands, recent_links, runtime
 from print_handy.bot.adapter import parse_custom_id
 from print_handy.bot.router import Router
 from print_handy.core import prompts
-from print_handy.hermes import print_stop
+from print_handy.runtime import print_stop
 
 
 def make(cfg, auto=False, router=None):
@@ -53,7 +53,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
 
 def test_unmatched_text_without_an_llm_gets_the_short_reply_and_starts_nothing(cfg):
     discord, core = make(cfg)
-    with mock.patch("print_handy.hermes.print_next.start") as start, \
+    with mock.patch("print_handy.runtime.print_next.start") as start, \
             mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
         out = run(core.handle_message(discord.message("can you make my printer go brrr")))
     assert out == {"action": "skip", "reason": "command list"}
@@ -197,7 +197,7 @@ def test_a_press_is_acknowledged_before_the_waiting_flow_wakes(cfg):
 def test_slash_command_runs_as_its_typed_text(cfg):
     discord, core = make(cfg)
     interaction = fake_discord.FakeInteraction(discord, discord.operator, channel=discord.channel)
-    with mock.patch("print_handy.hermes.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
+    with mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
         run(core.run_slash(interaction, "spool", {"args": "list"}))
     assert interaction.replies[0] == {"content": "`/spool list`", "ephemeral": False}
     assert discord.sent[-1] == "Slot 1: #7 black PLA"
@@ -207,7 +207,7 @@ def test_slash_command_from_a_stranger_is_refused(cfg):
     discord, core = make(cfg)
     stranger = fake_discord.FakeUser(999, "stranger")
     interaction = fake_discord.FakeInteraction(discord, stranger, channel=discord.channel)
-    with mock.patch("print_handy.hermes.spool_sync.list_text") as listing:
+    with mock.patch("print_handy.runtime.spool_sync.list_text") as listing:
         run(core.run_slash(interaction, "spool", {"args": "list"}))
     assert interaction.replies == [{"content": "Not allowed. Nothing changed.", "ephemeral": True}]
     listing.assert_not_called()
@@ -312,12 +312,12 @@ def test_listener_alert_buttons_are_wired_and_checked(cfg):
     discord, core = make(cfg)
     message = fake_discord.FakeMessage(discord.channel, discord.bot_user, "Paused", None)
     stranger = fake_discord.FakeUser(999, "stranger")
-    with mock.patch("print_handy.hermes.print_alert_buttons.handle_click") as handle_click:
+    with mock.patch("print_handy.runtime.print_alert_buttons.handle_click") as handle_click:
         refused = run(discord.press(message, "pbalert:resume:abcd1234", user=stranger))
         handle_click.assert_not_called()
         assert refused.replies[0]["content"] == "Not allowed. Nothing changed."
         handle_click.return_value = "Resumed."
-        with mock.patch("print_handy.hermes.print_alert_buttons.take", return_value={"kind": "paused"}):
+        with mock.patch("print_handy.runtime.print_alert_buttons.take", return_value={"kind": "paused"}):
             clicked = run(discord.press(message, "pbalert:resume:abcd1234"))
     handle_click.assert_called_once()
     assert clicked.replies[-1]["content"] == "Resumed."

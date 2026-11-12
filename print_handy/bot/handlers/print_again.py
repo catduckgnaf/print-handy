@@ -13,7 +13,7 @@ from .common import (
     _routed_form, _routed_printer_id, _seen, _start_refused_needs_restart, _undecided_printer_ids,
     intake_plain_start_failure,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -65,8 +65,8 @@ async def print_again_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'print again UI delivery unavailable'}
-    from print_handy.hermes import print_control as pc
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_control as pc
+    from print_handy.runtime import print_next
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
     # Ownership compares against the channel's actual printer (P1-77): the
@@ -180,7 +180,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
         if answer != pc.AGAIN_LABEL:
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:
-            from print_handy.hermes import discord_print_summary as print_summary
+            from print_handy.runtime import discord_print_summary as print_summary
             gcode_seconds, filament_g = print_summary.gcode_metadata(target['gcode'])
             # target['index'] is the print being repeated (the row the
             # operator picked); the reprint mints its own new number at start

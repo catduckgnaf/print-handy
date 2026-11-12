@@ -22,7 +22,7 @@ from print_handy import firmware_update as fw
 from print_handy import printers
 from print_handy.bot import commands as bot_commands
 from print_handy.bot import llm
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"

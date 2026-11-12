@@ -9,7 +9,7 @@ no mutation tool is installed or required:
    whether the Rust bounds parser is trusted, when the Python parser
    is the fallback, and which result a fit decision sees.
 2. **The slot-naming conversion**: `lane_index0` /
-   `slot_from_lane_index0` in `print_handy/hermes/spool_sync.py` (the
+   `slot_from_lane_index0` in `print_handy/runtime/spool_sync.py` (the
    one 1-based <-> 0-based conversion, #1020 D2) and `slot_display`
    in `print_handy/core/filament_color.py` (#1020 D1).
 

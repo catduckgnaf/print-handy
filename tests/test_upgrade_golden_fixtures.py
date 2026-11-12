@@ -26,8 +26,8 @@ import pytest
 
 from print_handy import doctor, settings
 from print_handy.core import printer_state, print_stats
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import print_control as pc
 
 LEGACY = Path(__file__).parent / "fixtures" / "legacy"
 
@@ -143,7 +143,7 @@ def test_doctor_reads_the_old_install_layout(tmp_path, monkeypatch):
     """Doctor's own checks over an old layout: the ifs_slots hardware
     record in the state folder of a data set loaded from defaults."""
     local = tmp_path / "local.toml"
-    local.write_text(f'[paths]\nhermes_home = "{tmp_path}/hermes"\n')
+    local.write_text(f'[paths]\nstate_home = "{tmp_path}/hermes"\n')
     data = settings.load(local=local, environ={})
     state_dir = settings.state_dir(data)
     state_dir.mkdir(parents=True, exist_ok=True)

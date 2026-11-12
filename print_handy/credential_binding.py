@@ -135,8 +135,8 @@ def record_path() -> Path:
     override = os.environ.get(PATH_ENV)
     if override:
         return Path(override)
-    from .hermes import _config
-    return Path(_config.cfg()["paths"]["hermes_home"]) / "state" / RECORD_NAME
+    from .runtime import _config
+    return Path(_config.cfg()["paths"]["state_home"]) / "state" / RECORD_NAME
 
 
 def _read() -> dict:
@@ -252,7 +252,7 @@ class Rebind:
 
 
 def _key_present(slot, cfg, environ) -> bool:
-    from .hermes import _config
+    from .runtime import _config
     for name in slot.key_names(cfg):
         if (environ or {}).get(name):
             return True

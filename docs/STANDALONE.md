@@ -79,7 +79,7 @@ the same variable from `.env`. Restart the bot after changing it. This changes i
 not the Discord account username or server nickname; set those in Discord. The default stays `Print Handy`.
 
 The token is only ever read from the environment variable `discord.token_env` names, or from the `.env` file in
-`paths.hermes_home` (the data folder; the name is historical, it does not need Hermes). With no allow list,
+`paths.state_home` (the data folder; the name is historical, it does not need Hermes). With no allow list,
 everyone in the print channel can use the bot, the channel is the access boundary, and `check` reports
 `access: channel (everyone)`; set `discord.allowed_user_ids` to restrict the bot to listed users, and
 `discord.denied_user_ids` to exclude specific users in any mode. A refused message is logged at INFO with
@@ -94,7 +94,7 @@ discord:
   chat_id: "123456789012345678"
   allowed_user_ids: "111111111111111111, 222222222222222222"
 paths:
-  hermes_home: ~/.local/share/print-handy   # state, logs and the .env with DISCORD_BOT_TOKEN
+  state_home: ~/.local/share/print-handy   # state, logs and the .env with DISCORD_BOT_TOKEN
 services:
   moonraker_url: http://192.168.1.10:7125
   spoolman_url: http://192.168.1.10:7912
@@ -107,10 +107,10 @@ services:
 | `python3 -m print_handy.bot` (or `... run`) | Start the bot. Refuses to start, and lists why, unless every check below passes |
 | `python3 -m print_handy.bot check` | Offline setup check: mode, token present, channel, allowed users, discord.py, handlers loaded, no host module imported, state folder writable, LLM, roast. Exit 1 on any FAIL |
 | `python3 -m print_handy.bot health` | Exit 0 only while a running bot reports a fresh heartbeat, is logged in, its process is alive and no host module is loaded in it |
-| `python3 -m print_handy.hermes.moonraker_event_listener` | The printer listener. It posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its pause and stop alerts carry an inline keyboard on Telegram and reactions on Matrix, and its other Discord button posts degrade to plain text there) |
+| `python3 -m print_handy.runtime.moonraker_event_listener` | The printer listener. It posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its pause and stop alerts carry an inline keyboard on Telegram and reactions on Matrix, and its other Discord button posts degrade to plain text there) |
 | `python3 -m print_handy.doctor` | Also reports the bot mode and the Discord login |
 
-The bot writes its heartbeat to `<paths.hermes_home>/state/bot_health.json` every 15 seconds. `health` and
+The bot writes its heartbeat to `<paths.state_home>/state/bot_health.json` every 15 seconds. `health` and
 `GET /healthz` read the same record:
 
 ```json
@@ -131,13 +131,13 @@ The bot and the listener are two long-running processes from one image:
 
 ```
 python3 -m print_handy.bot run                                  # Discord bot
-python3 -m print_handy.hermes.moonraker_event_listener          # printer listener
+python3 -m print_handy.runtime.moonraker_event_listener          # printer listener
 HEALTHCHECK: python3 -m print_handy.bot health                  # or GET :$PRINT_HANDY__BOT__HEALTH_PORT/healthz
 ```
 
 Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, `PRINT_HANDY__DISCORD__CHAT_ID`,
 `PRINT_HANDY__DISCORD__ALLOWED_USER_IDS`, `PRINT_HANDY__SERVICES__MOONRAKER_URL`. Both processes must share
-`paths.hermes_home` (state) and `paths.archive`; the bot also writes dropped files under
+`paths.state_home` (state) and `paths.archive`; the bot also writes dropped files under
 `<paths.cache>/discord-uploads`.
 
 ## What you get
@@ -267,7 +267,7 @@ switch if you want no model calls at all.
 | Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments; no subprocess poster |
 | "print it" link recall | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json` |
 | /print-design model | The `[design]`/`[llm]` HTTP transport: the configured endpoint answers |
-| Data folder, install script, systemd units | `paths.hermes_home` is just the data folder (the name is historical); `scripts/install-standalone.sh` and `systemd/*.service.template` |
+| Data folder, install script, systemd units | `paths.state_home` is just the data folder (the name is historical); `scripts/install-standalone.sh` and `systemd/*.service.template` |
 
 There is no agent behind the bot: a message no handler claims simply ends (or gets the
 bounded stray-chat reply, above) instead of falling through to an assistant.
@@ -279,7 +279,7 @@ is refused at load with a message naming the removal. Moving an existing install
 
 1. Stop the gateway for this bot (or remove the Discord token from that profile). One
    token, one connection: two live connections on one token answer twice.
-2. Keep `paths.hermes_home` pointing at the old profile folder to keep its state (print
+2. Keep `paths.state_home` pointing at the old profile folder to keep its state (print
    numbers, plans, alerts), or copy its `state/` folder to the new data folder.
 3. Set `bot.mode: standalone` (or remove the mode line) and `discord.chat_id`
    (`discord.allowed_user_ids` is optional), and put `DISCORD_BOT_TOKEN` in the

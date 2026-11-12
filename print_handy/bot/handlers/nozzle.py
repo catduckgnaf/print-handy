@@ -7,7 +7,7 @@ import logging
 import asyncio, time
 
 from .common import _confirm, _control_preamble, _decide_printer, _live_key_for, _pkw, _seen
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -29,8 +29,8 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
     turns the heater off and records nothing; a UI failure after heat
     attempts the same heater-off before the failure surfaces.
     """
-    from print_handy.hermes import nozzle_change as nc
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import nozzle_change as nc
+    from print_handy.runtime import print_control as pc
 
     question_timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     safety_timeout = (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600)

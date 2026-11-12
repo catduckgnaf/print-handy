@@ -197,7 +197,7 @@ class RoutePolicyEnforcementTests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n  port: 8765\n")
         environ = {"WEBUI_ACCESS_TOKEN": TOKEN}
         data = settings.load(local=local, environ=environ)

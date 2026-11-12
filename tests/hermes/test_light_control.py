@@ -1,12 +1,12 @@
 """Auto light-off (#516): command builders, light discovery, and the idle policy.
 
-Everything here is the pure module (print_handy/hermes/light_control.py):
+Everything here is the pure module (print_handy/runtime/light_control.py):
 no Moonraker, no camera, no clock — times are injected. The listener
 wiring that feeds it is exercised only through these contracts.
 """
 import pytest
 
-from print_handy.hermes import light_control as lc
+from print_handy.runtime import light_control as lc
 
 T0 = 1_000_000.0
 MIN = 60.0

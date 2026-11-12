@@ -290,7 +290,7 @@ class OverrideTests(unittest.TestCase):
             "flashforge_stock": {"host"},
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},
-            "paths": {"hermes_home", "archive", "records_vault", "cache", "ffmpeg",
+            "paths": {"state_home", "archive", "records_vault", "cache", "ffmpeg",
                       "piper", "piper_model"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
@@ -663,13 +663,13 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(data["listener"]["spool_nag_s"], 300)
         self.assertEqual(data["discord"]["chat_id"], "123")
 
-    def test_hermes_home_env_does_not_move_state(self):
+    def test_state_home_env_does_not_move_state(self):
         # The multiplexed gateway runs with HERMES_HOME=~/.hermes for every profile. Reading it
         # sent the print plugin to ~/.hermes/state, where printer_hardware.json does not exist.
         data = settings.load(local=False, environ={"HERMES_HOME": "/somewhere/else/.hermes"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("~/.local/share/print-handy").expanduser())
-        data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": "/tmp/ph-profile"})
-        self.assertEqual(data["paths"]["hermes_home"], Path("/tmp/ph-profile"))
+        self.assertEqual(data["paths"]["state_home"], Path("~/.local/share/print-handy").expanduser())
+        data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__STATE_HOME": "/tmp/ph-profile"})
+        self.assertEqual(data["paths"]["state_home"], Path("/tmp/ph-profile"))
 
     def test_generic_env_override(self):
         data = settings.load(local=False, environ={"PRINT_HANDY__MAINTENANCE__FULL_DAYS": "45"})
@@ -789,7 +789,7 @@ class RuntimeSettingsTests(unittest.TestCase):
 
     def test_paths_expand_and_state_lives_in_the_profile(self):
         data = settings.load(local=False, environ={})
-        self.assertEqual(data["paths"]["hermes_home"], Path.home() / ".local/share/print-handy")
+        self.assertEqual(data["paths"]["state_home"], Path.home() / ".local/share/print-handy")
         self.assertEqual(settings.state_dir(data), Path.home() / ".local/share/print-handy/state")
         self.assertEqual(data["paths"]["ffmpeg"], "ffmpeg")
 
@@ -1063,7 +1063,7 @@ class DefaultedModelWarningTests(unittest.TestCase):
         self.dir = Path(self.tmp.name)
 
     def load(self, record=AD5X_RECORD, local=DOCKER, **env):
-        environ = {"PRINT_HANDY__PATHS__HERMES_HOME": str(self.dir), **env}
+        environ = {"PRINT_HANDY__PATHS__STATE_HOME": str(self.dir), **env}
         data = settings.load(local=local, environ=environ)
         if record is not None:
             state = settings.state_dir(data)
@@ -1228,7 +1228,7 @@ def _home_at(monkeypatch, home):
 def test_fresh_install_defaults_to_the_neutral_data_and_cache_folders(tmp_path, monkeypatch):
     _home_at(monkeypatch, tmp_path)
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
     assert data["paths"]["cache"] == tmp_path / ".cache" / "print-handy"
     assert settings.state_dir(data) == tmp_path / ".local" / "share" / "print-handy" / "state"
 
@@ -1238,12 +1238,12 @@ def test_install_with_data_in_the_old_default_folders_keeps_using_them(tmp_path,
     (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
     (tmp_path / ".hermes" / "cache").mkdir()
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
+    assert data["paths"]["state_home"] == tmp_path / ".hermes" / "profiles" / "3dprinting"
     assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
     # Only the folder that exists is kept: the cache alone does not drag the state folder back.
     (tmp_path / ".hermes" / "profiles" / "3dprinting").rmdir()
     data = settings.load(local=False, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
     assert data["paths"]["cache"] == tmp_path / ".hermes" / "cache"
 
 
@@ -1251,8 +1251,8 @@ def test_an_explicit_path_beats_the_old_folder_even_when_it_matches_the_new_defa
     _home_at(monkeypatch, tmp_path)
     (tmp_path / ".hermes" / "profiles" / "3dprinting").mkdir(parents=True)
     mine = tmp_path / "local.yaml"
-    mine.write_text("paths:\n  hermes_home: ~/.local/share/print-handy\n")
+    mine.write_text("paths:\n  state_home: ~/.local/share/print-handy\n")
     data = settings.load(local=mine, environ={}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / ".local" / "share" / "print-handy"
-    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(tmp_path / "elsewhere")}, user=False)
-    assert data["paths"]["hermes_home"] == tmp_path / "elsewhere"
+    assert data["paths"]["state_home"] == tmp_path / ".local" / "share" / "print-handy"
+    data = settings.load(local=False, environ={"PRINT_HANDY__PATHS__STATE_HOME": str(tmp_path / "elsewhere")}, user=False)
+    assert data["paths"]["state_home"] == tmp_path / "elsewhere"

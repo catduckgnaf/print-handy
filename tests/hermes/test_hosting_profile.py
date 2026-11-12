@@ -10,7 +10,7 @@ exactly that stamp.
 import importlib.util
 from pathlib import Path
 
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).resolve().parents[2]
 

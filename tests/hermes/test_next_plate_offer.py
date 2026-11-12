@@ -1,5 +1,5 @@
 """#621: offer the next plate only when the bed looks clear. Never start it."""
-from print_handy.hermes.next_plate_offer import confirm_components, decide
+from print_handy.runtime.next_plate_offer import confirm_components, decide
 
 
 def test_empty_bed_offers_once_and_names_the_existing_command():
@@ -41,7 +41,7 @@ def test_dismiss_handler_does_not_start_and_go_still_uses_print_next():
 
 
 def test_each_plate_of_the_same_plan_gets_its_own_offer(tmp_path, monkeypatch):
-    from print_handy.hermes import next_plate_offer as npo
+    from print_handy.runtime import next_plate_offer as npo
     monkeypatch.setenv("PRINT_HANDY_NEXT_PLATE_OFFER", str(tmp_path / "offer.json"))
     npo.remember("plan-a")
     data = npo._load()
@@ -66,9 +66,9 @@ def test_the_picker_registers_the_plan_on_a_buttonless_platform(tmp_path, monkey
     registration lived behind that return (inside the Discord branch),
     so on buttonless platforms the plan was never registered and the
     empty-bed offer could never become due."""
-    from print_handy.hermes import _config
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import next_plate_offer as npo
+    from print_handy.runtime import _config
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import next_plate_offer as npo
     monkeypatch.setenv("PRINT_HANDY_NEXT_PLATE_OFFER", str(tmp_path / "offer.json"))
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "telegram")
@@ -82,8 +82,8 @@ def test_the_picker_registers_the_plan_on_a_buttonless_platform(tmp_path, monkey
 
 def test_bed_check_does_not_run_during_a_print(tmp_path, monkeypatch):
     import asyncio
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import next_plate_offer as npo
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import next_plate_offer as npo
     monkeypatch.setenv("PRINT_HANDY_NEXT_PLATE_OFFER", str(tmp_path / "offer.json"))
     npo.remember("plan-a")
     looked = []

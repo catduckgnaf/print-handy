@@ -2,7 +2,7 @@
 import os
 
 from print_handy import live_stream as ls
-from print_handy.hermes import vertical_short as vs
+from print_handy.runtime import vertical_short as vs
 
 
 def _node(dri, sysfs, name, driver):
@@ -92,7 +92,7 @@ def test_single_gpu_renderD128_is_unchanged(tmp_path):
 
 
 def test_dri_status_agrees_with_vaapi_device(tmp_path):
-    from print_handy.hermes import timelapse_encode as te
+    from print_handy.runtime import timelapse_encode as te
 
     dri, sysfs = _dirs(tmp_path)
     _node(dri, sysfs, "renderD128", "nvidia")
@@ -105,7 +105,7 @@ def test_dri_status_agrees_with_vaapi_device(tmp_path):
 
 
 def test_dri_status_judges_the_override(tmp_path):
-    from print_handy.hermes import timelapse_encode as te
+    from print_handy.runtime import timelapse_encode as te
 
     dri, sysfs = _dirs(tmp_path)
     _node(dri, sysfs, "renderD128", "i915")

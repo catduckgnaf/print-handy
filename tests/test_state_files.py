@@ -46,7 +46,7 @@ class StrayTests(unittest.TestCase):
         patch = mock.patch.dict(os.environ, {"HOME": str(self.home)})
         patch.start()
         self.addCleanup(patch.stop)
-        self.config = settings.load(local=Path(os.devnull), environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(self.profile)})
+        self.config = settings.load(local=Path(os.devnull), environ={"PRINT_HANDY__PATHS__STATE_HOME": str(self.profile)})
 
     def paths(self, strays):
         return {s.path for s in strays}
@@ -80,7 +80,7 @@ class StrayTests(unittest.TestCase):
     def test_profile_outside_a_profiles_folder_scans_only_home_and_old_names(self):
         solo = self.base / "solo"
         (solo / "state").mkdir(parents=True)
-        config = settings.load(local=Path(os.devnull), environ={"PRINT_HANDY__PATHS__HERMES_HOME": str(solo)})
+        config = settings.load(local=Path(os.devnull), environ={"PRINT_HANDY__PATHS__STATE_HOME": str(solo)})
         (self.base / "state").mkdir()
         (self.base / "state" / "print_alert_buttons.json").write_text("{}")
         self.assertEqual([], state_files.find_strays(config))

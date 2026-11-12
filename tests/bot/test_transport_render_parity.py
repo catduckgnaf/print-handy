@@ -38,8 +38,8 @@ from print_handy.bot import matrix, matrix_rest, rest, runtime, telegram, telegr
 from print_handy.bot.platform import BasePlatformAdapter, SendResult
 from print_handy.bot.rest import split_media
 from print_handy.bot.router import Router
-from print_handy.hermes import _config
-from print_handy.hermes import discord_print_summary as summary
+from print_handy.runtime import _config
+from print_handy.runtime import discord_print_summary as summary
 
 STARTER = "111222333444555666"
 GARAGE = "garage-ad5x"
@@ -104,7 +104,7 @@ def test_terminal_ping_decision_is_discord_only(archive, monkeypatch, kind):
     """The starter pings classifier, asked the way the listener's send
     path asks it: on a Discord install the terminal kind pings the
     starter; on Telegram/Matrix installs it names nobody."""
-    from print_handy.hermes import starter_pings
+    from print_handy.runtime import starter_pings
     monkeypatch.setattr(starter_pings, "STATE", archive.parent / "pings.json")
     _install("discord", monkeypatch)
     assert starter_pings.ping_for(kind, job_key="plate.gcode") == STARTER
@@ -189,7 +189,7 @@ def test_each_sender_delivers_the_rendered_text_within_its_limit(archive, monkey
     # rendered text stays mention-free, and the Discord sender puts the one
     # allowed ping in the posted content (allowed_mentions alone notifies
     # nobody) with allowed_mentions restricted to that user.
-    from print_handy.hermes import starter_pings
+    from print_handy.runtime import starter_pings
     monkeypatch.setattr(starter_pings, "STATE", archive.parent / "pings.json")
     mention = starter_pings.ping_for("complete", job_key="plate.gcode")
     assert mention == STARTER

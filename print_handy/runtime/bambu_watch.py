@@ -17,7 +17,7 @@ instead, from the Bambu LAN path itself:
   camera snapshot through the MEDIA: marker when one could be taken.
   It also drives the #295 timelapse capture session for the print: on
   the first active poll it opens one shared capture session
-  (#246's print_handy.hermes.timelapse_capture) fed by the adapter's
+  (#246's print_handy.runtime.timelapse_capture) fed by the adapter's
   camera frame source (printers/bambulab adapter.camera_frame_source —
   port-6000 stills for A1/P1, go2rtc stills for the X1 family), and on
   the terminal transition it stops the session, encodes the frames

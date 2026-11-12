@@ -16,7 +16,7 @@ import pytest
 from PIL import Image, ImageDraw
 import io
 
-from print_handy.hermes import _config, local_empty
+from print_handy.runtime import _config, local_empty
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
@@ -66,7 +66,7 @@ def _gateway(adapter):
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
-    cfg = {"paths": {"hermes_home": str(tmp_path)},
+    cfg = {"paths": {"state_home": str(tmp_path)},
            "vision": {"local_empty_enabled": True, "watch_source": "local"}}
     monkeypatch.setattr(local_empty, "capture_frame",
                         lambda c=None: EMPTY)

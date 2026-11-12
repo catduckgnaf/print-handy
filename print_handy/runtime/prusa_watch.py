@@ -10,7 +10,7 @@ and then nothing at all: no completion post, ever. It polls the
 adapter's normalised status (PrusaLink snapshots), and:
 
 - on the first active poll it opens one shared timelapse capture session
-  (#246's print_handy.hermes.timelapse_capture) fed by the camera
+  (#246's print_handy.runtime.timelapse_capture) fed by the camera
   PrusaLink itself registers for the printer (printers.prusa.camera —
   the printer is the only authority on whether it has one, so a
   printer/firmware with no connected camera simply means no capture

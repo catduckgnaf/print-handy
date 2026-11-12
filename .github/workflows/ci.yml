@@ -571,7 +571,7 @@ jobs:
           PRINT_HANDY__DISCORD__CHAT_ID: "100000000000000001"
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
-          PRINT_HANDY__PATHS__HERMES_HOME: /tmp/print-handy-wheel
+          PRINT_HANDY__PATHS__STATE_HOME: /tmp/print-handy-wheel
         run: |
           mkdir -p /tmp/outside && cd /tmp/outside
           "/tmp/clean/bin/python" -I -c "import print_handy, sys; print(print_handy.__file__); sys.exit(0 if '/tmp/clean/' in print_handy.__file__ else 1)"
@@ -597,7 +597,7 @@ jobs:
           PRINT_HANDY__DISCORD__ALLOWED_USER_IDS: "200000000000000002"
           DISCORD_BOT_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
       # #164 stages 2-3: Telegram and Matrix are standalone platforms too, and
@@ -612,7 +612,7 @@ jobs:
           PRINT_HANDY__TELEGRAM__ALLOWED_USER_IDS: "424242"
           TELEGRAM_BOT_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
       - name: Standalone bot setup check (Matrix)
@@ -624,7 +624,7 @@ jobs:
           PRINT_HANDY__MATRIX__ALLOWED_USER_IDS: "@user:example.org"
           MATRIX_ACCESS_TOKEN: not-a-real-token
         run: |
-          export PRINT_HANDY__PATHS__HERMES_HOME="/tmp/print-handy"
+          export PRINT_HANDY__PATHS__STATE_HOME="/tmp/print-handy"
           cd /tmp/outside
           "/tmp/clean/bin/python" -I -m print_handy.bot check
 

@@ -86,7 +86,7 @@ def write_vault(tmp):
 
 def load_settings(tmp, extra="", environ=None):
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                      f"  records_vault: {tmp}/vault\n{extra}")
     return settings.load(local=local, environ={} if environ is None else environ)
 

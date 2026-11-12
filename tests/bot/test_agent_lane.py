@@ -171,7 +171,7 @@ def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
     for content in ("/print-stop", '{"reply": "stopping", "command": "/print-stop"}'):
         opener = FakeAgent(content)
         discord, core = make(agent_cfg, agent_opener=opener)
-        with mock.patch("print_handy.hermes.print_stop._call") as moonraker:
+        with mock.patch("print_handy.runtime.print_stop._call") as moonraker:
             out = asyncio.run(core.handle_message(discord.message("chat with me")))
         moonraker.assert_not_called()
         assert out == {"action": "skip", "reason": "agent reply"}

@@ -14,7 +14,7 @@ from print_handy import settings, supervisor_state  # noqa: E402
 
 def _data(tmp):
     path = Path(tmp) / "local.toml"
-    path.write_text(f'[paths]\nhermes_home = "{tmp}/hermes"\n')
+    path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\n')
     return settings.load(local=path, environ={})
 
 

@@ -6,7 +6,7 @@ distance (``[maintenance] bed_separate_mm``, default 20 mm) so the bed can be
 cleaned, and degrades to instruction-only guidance whenever a safe live move
 cannot be established.
 
-Safety posture (mirrors :mod:`print_handy.hermes.nozzle_change`):
+Safety posture (mirrors :mod:`print_handy.runtime.nozzle_change`):
 
 * Motion is a physical printer action. It is sent only after an explicit,
   fresh operator confirmation (5-minute window, captured after the button

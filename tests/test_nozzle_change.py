@@ -18,7 +18,7 @@ from print_handy.core.nozzle import (
     get_nozzle_type_adjustments,
     normalize_nozzle_type,
 )
-from print_handy.hermes import nozzle_change as nc
+from print_handy.runtime import nozzle_change as nc
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +120,7 @@ def test_finish_change_persists_via_printer_state(tmp_path, monkeypatch):
 def _finish_with_sync(monkeypatch, connection, sync):
     """finish_change on a state record carrying a Moonraker URL, with the
     adapter connection and the Klipper sync faked (P2-196)."""
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     monkeypatch.setattr(pc, "_adapter_for", lambda pid: S(connection=connection))
     monkeypatch.setattr(printer_state, "save", lambda st, pid=None: None)
     st = _state()
@@ -383,7 +383,7 @@ def _fake_adapter(monkeypatch, objects):
     class _Adapter:
         def moonraker_objects(self):
             return objects
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     monkeypatch.setattr(pc, "_adapter_for", lambda printer_id=None: _Adapter())
 
 
@@ -392,7 +392,7 @@ CREATOR_OBJECTS = ["webhooks", "print_stats", "virtual_sdcard", "extruder", "ext
 
 
 def test_cooldown_without_reader_sees_hot_extruder1(monkeypatch):
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     fake = _FakePrinter(["extruder", "extruder1", "extruder2", "extruder3"])
 
     def stubborn(path, **kw):
@@ -409,7 +409,7 @@ def test_cooldown_without_reader_sees_hot_extruder1(monkeypatch):
 
 
 def test_cooldown_turns_off_every_heater(monkeypatch):
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     fake = _FakePrinter(["extruder", "extruder1", "extruder2", "extruder3"])
     monkeypatch.setattr(pc, "_send", fake)
     _fake_adapter(monkeypatch, CREATOR_OBJECTS)
@@ -422,7 +422,7 @@ def test_cooldown_turns_off_every_heater(monkeypatch):
 
 
 def test_cooldown_single_extruder_unchanged(monkeypatch):
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     fake = _FakePrinter(["extruder"])
     monkeypatch.setattr(pc, "_send", fake)
     _fake_adapter(monkeypatch, ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed"])
@@ -432,7 +432,7 @@ def test_cooldown_single_extruder_unchanged(monkeypatch):
 
 
 def test_extruder_names_fall_back_to_moonraker_object_list(monkeypatch):
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
 
     def no_adapter(printer_id=None):
         raise RuntimeError("no adapter")
@@ -447,7 +447,7 @@ def test_extruder_names_fall_back_to_moonraker_object_list(monkeypatch):
 
 
 def test_heat_for_loosen_failure_path_turns_off_every_heater(monkeypatch):
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     fake = _FakePrinter(["extruder", "extruder1"])
     for h in fake.heaters.values():
         h.update(temperature=25.0, target=0.0)

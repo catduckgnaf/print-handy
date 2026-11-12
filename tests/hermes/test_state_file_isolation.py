@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import listeners
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 FIRST = "first-printer"
 SECOND = "second-printer"
@@ -39,7 +39,7 @@ def two_printer_state(tmp_path):
     # test in the process).
     previous = _config.cfg()
     data = copy.deepcopy(previous)
-    data["paths"]["hermes_home"] = tmp_path
+    data["paths"]["state_home"] = tmp_path
     data["printers"] = [{"id": FIRST}, {"id": SECOND}]
     _config.set_override(data)
     yield tmp_path / "state"
@@ -99,16 +99,16 @@ def test_sibling_moonraker_listeners_do_not_suppress_each_other(two_printer_stat
     monkeypatch.delenv("PRINT_HANDY_NOTIFICATION_STATE", raising=False)
     state = two_printer_state
     listeners._set_instance_printer_id(SECOND)
-    second = _load_copy("print_handy.hermes.moonraker_event_listener",
-                        "print_handy.hermes._mel_second_copy")
+    second = _load_copy("print_handy.runtime.moonraker_event_listener",
+                        "print_handy.runtime._mel_second_copy")
     assert second.NOTIFICATION_STATE == \
         state / "printers" / SECOND / "lifecycle_notifications.json"
     assert second._claim_notification("job:7", "started") is True
     assert second._claim_notification("job:7", "started") is False  # own claims dedupe
 
     listeners._set_instance_printer_id(FIRST)
-    first = _load_copy("print_handy.hermes.moonraker_event_listener",
-                       "print_handy.hermes._mel_first_copy")
+    first = _load_copy("print_handy.runtime.moonraker_event_listener",
+                       "print_handy.runtime._mel_first_copy")
     assert first.NOTIFICATION_STATE == state / "lifecycle_notifications.json"
     # The sibling claimed the same printer-local job id and phase; this
     # listener's identical claim must still go through (pre-fix it was
@@ -120,8 +120,8 @@ def test_announcer_state_is_namespaced_per_instance(two_printer_state, monkeypat
     monkeypatch.delenv("MOONRAKER_ANNOUNCEMENT_STATE", raising=False)
     state = two_printer_state
     listeners._set_instance_printer_id(SECOND)
-    announcer = _load_copy("print_handy.hermes.moonraker_discord_announcements",
-                           "print_handy.hermes._announcer_second_copy")
+    announcer = _load_copy("print_handy.runtime.moonraker_discord_announcements",
+                           "print_handy.runtime._announcer_second_copy")
     assert announcer.STATE_PATH == \
         state / "printers" / SECOND / "moonraker_discord_announcements.json"
     announcer.save_state({"job_key": "benchy.gcode"})
@@ -136,7 +136,7 @@ def test_announcer_state_is_namespaced_per_instance(two_printer_state, monkeypat
 def test_family_listener_default_state_path_is_namespaced(two_printer_state,
                                                           monkeypatch):
     monkeypatch.delenv("PRINT_HANDY_FAMILY_LISTENER_STATE", raising=False)
-    from print_handy.hermes import family_event_listener as fel
+    from print_handy.runtime import family_event_listener as fel
 
     state = two_printer_state
 

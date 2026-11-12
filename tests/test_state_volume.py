@@ -101,7 +101,7 @@ class TestDoctorRow:
     def test_doctor_reports_the_configured_state_volume(self, tmp_path):
         home = tmp_path / "hermes"
         seed(home / "state")
-        text = doctor.check_state_volume({"paths": {"hermes_home": str(home)}})
+        text = doctor.check_state_volume({"paths": {"state_home": str(home)}})
         assert text.startswith(str(home))
         assert "legacy" in text
 
@@ -288,5 +288,5 @@ class TestReportingWiring:
     def test_docker_defaults_point_at_the_new_volume(self):
         for suffix in ("yaml", "toml"):
             cfg = settings.load(local=ROOT / "config" / f"docker.{suffix}", user=False, environ={})
-            assert cfg["paths"]["hermes_home"] == Path("/data/state")
+            assert cfg["paths"]["state_home"] == Path("/data/state")
             assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"

@@ -9,7 +9,7 @@ import os
 import threading
 import time
 
-from ..hermes import _config
+from ..runtime import _config
 
 LIMIT = 50
 TTL_S = 7 * 24 * 3600

@@ -7,7 +7,7 @@ import logging
 import asyncio, time
 
 from .common import _adapter_for, _delete_secret_message, _is_print_discord_event, _platform_value, _state_dir
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.

@@ -11,7 +11,7 @@ ever. It polls the adapter's normalised status (SDCP Cmd 0 answers),
 and:
 
 - on the first active poll it opens one shared timelapse capture
-  session (#246's print_handy.hermes.timelapse_capture) fed by the
+  session (#246's print_handy.runtime.timelapse_capture) fed by the
   printer's camera source (printers.elegoo_sdcp.camera). No SDCP
   camera endpoint is verified in this codebase — the seam resolves
   to "no source" today (see that module for the audit), so a launched

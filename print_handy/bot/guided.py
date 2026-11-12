@@ -1020,7 +1020,7 @@ def _default_onboard_probe(answers):
     """Resolve the domain's secrets by name (never values in the session) and
     run the per-domain proof from core.connection_probe."""
     from ..core import connection_probe
-    from ..hermes import _config
+    from ..runtime import _config
 
     conn = printers.MODELS[answers["model"]].vendor.connection
     pid = answers.get("printer_id") or ""
@@ -2295,7 +2295,7 @@ def _default_version_runner(command):
 
 
 def _default_token_getter(cfg):
-    from ..hermes import _config
+    from ..runtime import _config
     return _config.profile_env_value(str(cfg["discord"].get("token_env") or "DISCORD_BOT_TOKEN"))
 
 

@@ -11,7 +11,7 @@ from .common import (
     _design_engine, _design_failure_text, _design_owner, _design_root, _design_slice,
     _design_transport, _is_print_discord_event, _recent_model_link, _run_design_turn,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 
 def _fetch_design_link(url, target_dir):

@@ -11,7 +11,7 @@ from .. import settings
 CTL = settings.ROOT / "bin" / "moonrakerctl"
 ACTIVE = {"printing", "paused"}
 IDLE_NATIVE = {"ready", "cancel", "cancelled"}
-EVIDENCE_DIR = settings.current()["paths"]["hermes_home"] / "printer-audit" / "clear-job"
+EVIDENCE_DIR = settings.current()["paths"]["state_home"] / "printer-audit" / "clear-job"
 
 
 def moonraker():
@@ -88,7 +88,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="verify idle only; never issue cancellation")
     parser.add_argument("--allow-active-cancel", action="store_true",
                         help="explicitly authorize one cancellation of a currently active job")
-    parser.add_argument("--evidence", type=Path, help="audit JSON path; defaults to a timestamped file under <hermes_home>/printer-audit/clear-job")
+    parser.add_argument("--evidence", type=Path, help="audit JSON path; defaults to a timestamped file under <state_home>/printer-audit/clear-job")
     args = parser.parse_args()
     from datetime import datetime, timezone
     evidence_path = args.evidence or EVIDENCE_DIR / (datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z") + ".json")

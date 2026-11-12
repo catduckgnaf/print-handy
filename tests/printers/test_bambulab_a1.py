@@ -39,7 +39,7 @@ PLACEHOLDER_VALUES = {"bed_temperature_initial_layer_single": "60", "nozzle_temp
 
 
 def config_for(key, hermes=a1_fixture.HERMES, **printer):
-    env = {"PRINT_HANDY__PRINTER__MODEL": key, "PRINT_HANDY__PATHS__HERMES_HOME": str(hermes),
+    env = {"PRINT_HANDY__PRINTER__MODEL": key, "PRINT_HANDY__PATHS__STATE_HOME": str(hermes),
            **{f"PRINT_HANDY__PRINTER__{k.upper()}": str(v) for k, v in printer.items()}}
     return settings.load(local=False, environ=env)
 
@@ -373,7 +373,7 @@ def test_zmod_md5_header_is_refused():
 def test_the_a1_package_imports_no_zmod_code():
     code = ("import sys\nfrom print_handy import printers\nprinters.get('bambulab.a1')\n"
             "print([m for m in sys.modules if m.startswith(('print_handy.printers.flashforge.zmod',"
-            "'print_handy.hermes.spool_sync'))])\n")
+            "'print_handy.runtime.spool_sync'))])\n")
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, env={"PATH": ""})
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"
@@ -824,7 +824,7 @@ def run_a1_flow(tmp_path, gcode_text):
     fake = tmp_path / "fake.gcode"
     fake.write_text(gcode_text)
     env = {**os.environ, "PRINT_HANDY__PRINTER__MODEL": A1, "PRINT_HANDY_CONFIG": str(settings.HOME),
-           "PRINT_HANDY__PATHS__HERMES_HOME": str(tmp_path / "hermes")}
+           "PRINT_HANDY__PATHS__STATE_HOME": str(tmp_path / "hermes")}
     for key in [k for k in env if k.startswith("PRINT_HANDY__SERVICES__")]:
         env.pop(key)
     out = subprocess.run([sys.executable, "-m", "tests.printers.a1_flow", str(tmp_path / "work"), "--fake-gcode", str(fake),

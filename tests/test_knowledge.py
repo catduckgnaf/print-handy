@@ -507,7 +507,7 @@ def test_unknown_flow_rejected():
 # --------------------------------------------------------------- no-command proof
 
 def test_knowledge_package_has_no_printer_or_network_imports():
-    forbidden = ("print_handy.printers", "print_handy.hermes", "print_handy.core",
+    forbidden = ("print_handy.printers", "print_handy.runtime", "print_handy.core",
                  "requests", "urllib", "socket", "subprocess", "discord")
     package = ROOT / "print_handy" / "knowledge"
     for path in package.glob("*.py"):

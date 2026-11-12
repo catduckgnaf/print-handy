@@ -5245,7 +5245,7 @@ def _install_stack_dump_handler():
     The shared installer (healthcheck) dumps to stderr and to the state
     file beside the heartbeat; it is also installed by the listeners
     entry point for the other domains, and this call keeps a direct
-    ``python -m print_handy.hermes.moonraker_event_listener`` run covered.
+    ``python -m print_handy.runtime.moonraker_event_listener`` run covered.
     """
     healthcheck.install_stack_dump_handler()
 

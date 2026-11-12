@@ -9,7 +9,7 @@ from pathlib import Path
 # matching how the bash entrypoints set PYTHONPATH="$ROOT".
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from print_handy.hermes.slot_load import load_slot  # noqa: E402
+from print_handy.runtime.slot_load import load_slot  # noqa: E402
 
 
 def main() -> None:

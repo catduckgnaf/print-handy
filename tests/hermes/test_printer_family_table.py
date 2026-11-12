@@ -20,8 +20,8 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import model_job
-from print_handy.hermes import family_control
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import family_control
+from print_handy.runtime import print_alert_buttons as pab
 
 FILE = "plate_1_abc.gcode"
 BAMBU_PACKAGE = "plate_1_abc.gcode.3mf"
@@ -207,9 +207,9 @@ def test_a_press_on_the_second_printers_alert_reaches_only_that_printers_adapter
     monkeypatch.setattr(family_control, "FamilyControl", QuickControl)
     alert = {"kind": "paused", "filename": shown, "printer_id": "printer-b", "connection": connection}
     roster, default = _roster()
-    with roster, default, mock.patch("print_handy.hermes.print_control.status") as mr_status, \
-            mock.patch("print_handy.hermes.print_control.resume") as mr_resume, \
-            mock.patch("print_handy.hermes.print_stop.cancel") as mr_cancel, \
+    with roster, default, mock.patch("print_handy.runtime.print_control.status") as mr_status, \
+            mock.patch("print_handy.runtime.print_control.resume") as mr_resume, \
+            mock.patch("print_handy.runtime.print_stop.cancel") as mr_cancel, \
             mock.patch.object(pab, "_repost_alert"):
         text = pab.handle_click(action, alert)
     printer_b.control.assert_called_once_with("resume" if action == "resume" else "stop")
@@ -243,9 +243,9 @@ def test_moonraker_families_route_the_press_to_the_alerts_printer(monkeypatch, m
     control_for = mock.Mock()
     monkeypatch.setattr(family_control, "control_for", control_for)
     roster, default = _roster()
-    with roster, default, mock.patch("print_handy.hermes.print_control.status", return_value=paused) as status, \
-            mock.patch("print_handy.hermes.print_control.resume", return_value=(True, "Resumed.")) as resume, \
-            mock.patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+    with roster, default, mock.patch("print_handy.runtime.print_control.status", return_value=paused) as status, \
+            mock.patch("print_handy.runtime.print_control.resume", return_value=(True, "Resumed.")) as resume, \
+            mock.patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         pab.handle_click(action, {"kind": "paused", "filename": FILE, "printer_id": "printer-b"})
     status.assert_called_once_with(printer_id="printer-b")
     if action == "resume":

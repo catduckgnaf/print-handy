@@ -14,7 +14,7 @@ from print_handy.webui import pages, server, upload
 
 def load_settings(tmp):
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n")
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n")
     return settings.load(local=local, environ={})
 
 
@@ -335,7 +335,7 @@ class UploadRouteTests(unittest.TestCase):
         environ = {"WEBUI_ACCESS_TOKEN": ROUTE_TOKEN}
         local = Path(tmp) / "local.yaml"
         local.write_text(
-            f"paths:\n  hermes_home: {tmp}/hermes\n"
+            f"paths:\n  state_home: {tmp}/hermes\n"
             "webui:\n  enabled: true\n  port: 8765\n")
         data = settings.load(local=local, environ=environ)
         httpd = server.make_server(data, environ=environ, port=0,

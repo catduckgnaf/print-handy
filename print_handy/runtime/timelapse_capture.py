@@ -9,7 +9,7 @@ and stores the frames under the cache discipline:
     <paths.cache>/timelapse/<job>/frames/frame-000001.jpg
     <paths.cache>/timelapse/<job>/capture.json     (the manifest)
 
-Stage 3 (:mod:`print_handy.hermes.timelapse_encode`) encodes those
+Stage 3 (:mod:`print_handy.runtime.timelapse_encode`) encodes those
 frames into the timelapse MP4 for the completion post; this module
 never encodes and never posts anything.
 

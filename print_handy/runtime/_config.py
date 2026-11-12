@@ -24,14 +24,14 @@ def cfg() -> dict[str, Any]:
     return _override if _override is not None else settings.current()
 
 
-def hermes_home() -> Path:
-    return Path(cfg()["paths"]["hermes_home"])
+def state_home() -> Path:
+    return Path(cfg()["paths"]["state_home"])
 
 
 _pinned: dict[str, Any] | None = None
 
 
-def pinned_hermes_home() -> Path:
+def pinned_state_home() -> Path:
     """The profile home from config files only, ignoring $HERMES_HOME.
 
     A cron job's HERMES_HOME is the launching profile, not the print profile, so anything that
@@ -39,10 +39,15 @@ def pinned_hermes_home() -> Path:
     """
     global _pinned
     if _override is not None:
-        return Path(_override["paths"]["hermes_home"])
+        return Path(_override["paths"]["state_home"])
     if _pinned is None:
         _pinned = settings.load(environ={})
-    return Path(_pinned["paths"]["hermes_home"])
+    return Path(_pinned["paths"]["state_home"])
+
+
+# The old names (paths.hermes_home, #1323), kept through 2.3.x.
+hermes_home = state_home
+pinned_hermes_home = pinned_state_home
 
 
 # The shipped default profile name, and the bot's identity label
@@ -207,7 +212,7 @@ def profile_env_value(name: str, *, include_global: bool = True) -> str:
     value = os.environ.get(name)
     if value:
         return value
-    home = hermes_home()
+    home = state_home()
     paths = [home / ".env"]
     if include_global:
         paths.append(home.parent.parent / ".env")

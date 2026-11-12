@@ -22,7 +22,7 @@ import pytest
 
 from print_handy import settings
 from print_handy.bot import matrix_rest
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_event_listener as mel
 
 COMPLETE = "Print complete: Stand"
 

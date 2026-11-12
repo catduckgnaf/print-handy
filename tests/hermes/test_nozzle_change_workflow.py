@@ -14,8 +14,8 @@ from unittest import mock
 
 import pytest
 
-from print_handy.hermes import nozzle_change as nc
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import nozzle_change as nc
+from print_handy.runtime import print_control as pc
 
 SPEC = importlib.util.spec_from_file_location(
     "print_feedback_nozzle_workflow",

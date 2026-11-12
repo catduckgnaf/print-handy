@@ -17,7 +17,7 @@ import pytest
 
 from print_handy.core import design, prepared_intake, printer_state
 from print_handy.core import prompts as core_prompts
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"
@@ -77,7 +77,7 @@ def design_env(tmp_path):
            "design": {"enabled": True, "chat_url": "", "model": "", "api_key_env": "",
                       "timeout_s": 180, "repair_attempts": 3},
            "llm": {"chat_url": "", "model": "", "api_key_env": "LLM_API_KEY", "timeout_s": 20},
-           "paths": {"cache": tmp_path / "cache", "hermes_home": tmp_path},
+           "paths": {"cache": tmp_path / "cache", "state_home": tmp_path},
            "printer": {"bed_mm": [220, 220]},
            "discord": {"question_timeout_s": 5}}
     previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear

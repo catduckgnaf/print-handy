@@ -7,7 +7,7 @@ import logging
 import asyncio, time
 
 from .common import _confirm, _control_preamble, _decide_printer, _live_key_for, _seen
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -38,7 +38,7 @@ async def firmware_dispatch(event, gateway, **kwargs):
     if adapter is None:
         return {'action': 'skip', 'reason': 'firmware UI delivery unavailable'}
     from print_handy import firmware_update, printers
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     decided = await _decide_printer(source, gateway, adapter, metadata,
                                     question='Firmware on which printer?')

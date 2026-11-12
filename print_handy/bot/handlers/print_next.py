@@ -14,7 +14,7 @@ from .common import (
     _spool_change_text, _start_refused_needs_restart, _undecided_printer_ids,
     intake_plain_start_failure,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -71,7 +71,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
     if adapter is None:
         return {'action': 'skip', 'reason': 'next plate UI delivery unavailable'}
     import uuid
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_next
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     args = text[len('/print-next'):].split()
     plan_id = args[0] if args else ''
@@ -130,7 +130,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
                 if picked not in plate_labels[:-1]:
                     raise print_next.NextPlateError('no plate was picked (cancelled, Later or expired)')
                 target = print_next.resolve_next(plan, part_id=plate_ids[plate_labels.index(picked)])
-        from print_handy.hermes import discord_print_summary as print_summary
+        from print_handy.runtime import discord_print_summary as print_summary
         job, plate = print_summary.find_job(target['gcode'])
         seconds = (plate or {}).get('seconds')
         # No number here: this plate gets its own new print number when it
@@ -180,7 +180,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
                        else f"Did not start {target['label']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
             if not ok and _start_refused_needs_restart(detail):
-                from print_handy.hermes import print_control as pc
+                from print_handy.runtime import print_control as pc
                 message += '\n' + await _offer_force_restart(adapter, source, metadata, pc, detail,
                                                              live_key=live_key,
                                                              **_pkw(pid))

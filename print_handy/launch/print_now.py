@@ -178,7 +178,7 @@ def _start_family_monitor(watch, adapter, remote, job):
     job's recorded printer_id rides along so the worker serves that
     printer and the monitor's pause alerts act on it (SAFE-4 / P1-101).
     """
-    from print_handy.hermes import monitor_worker
+    from print_handy.runtime import monitor_worker
     return monitor_worker.spawn(watch.__name__, remote, _recorded_printer_id(job))
 
 
@@ -1767,7 +1767,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         # domain (family_event_listener). A monitor that cannot start
         # never fails the print.
         try:
-            from print_handy.hermes import octo_watch
+            from print_handy.runtime import octo_watch
             _start_family_monitor(octo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
@@ -1921,7 +1921,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         # listener domain covers prints started outside Print Handy; a
         # monitor that cannot start never fails the print.
         try:
-            from print_handy.hermes import bambu_watch
+            from print_handy.runtime import bambu_watch
             _start_family_monitor(bambu_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: camera monitor did not start: {exc}")
@@ -2008,7 +2008,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
         # elegoo_sdcp listener domain (family_event_listener). A monitor
         # that cannot start never fails the print.
         try:
-            from print_handy.hermes import elegoo_watch
+            from print_handy.runtime import elegoo_watch
             _start_family_monitor(elegoo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
@@ -2093,7 +2093,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
         # prusalink listener domain (family_event_listener). A monitor
         # that cannot start never fails the print.
         try:
-            from print_handy.hermes import prusa_watch
+            from print_handy.runtime import prusa_watch
             _start_family_monitor(prusa_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
@@ -2233,7 +2233,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         # flashforge_stock listener domain (family_event_listener). A
         # monitor that cannot start never fails the print.
         try:
-            from print_handy.hermes import stock_watch
+            from print_handy.runtime import stock_watch
             _start_family_monitor(stock_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")

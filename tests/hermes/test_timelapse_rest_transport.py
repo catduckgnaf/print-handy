@@ -6,7 +6,7 @@ the bot token, in both modes. These tests pin that boundary: the exact
 arguments rest.send receives, failure propagation, and honest refusal
 (no token / no chat id) with no subprocess fallback.
 """
-from print_handy.hermes import moonraker_event_listener as listener
+from print_handy.runtime import moonraker_event_listener as listener
 
 
 def _no_subprocess(monkeypatch):

@@ -8,7 +8,7 @@ import importlib.util
 from pathlib import Path
 from unittest import mock
 
-from print_handy.hermes import _config  # noqa: F401  (kept: handler tests read config helpers)
+from print_handy.runtime import _config  # noqa: F401  (kept: handler tests read config helpers)
 
 SPEC = importlib.util.spec_from_file_location(
     "print_feedback_guard", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
@@ -21,7 +21,7 @@ def test_reboot_dispatch_requires_safe_job_and_controller_states(monkeypatch):
     import asyncio
     import sys
     from types import SimpleNamespace as S
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
     class Adapter:
         def __init__(self): self.sent = []
         async def send(self, **kw): self.sent.append(kw.get('content')); return S(success=True)
@@ -46,8 +46,8 @@ def test_reboot_during_emergency_stop_offers_confirmed_firmware_restart():
     import asyncio
     import sys
     from types import SimpleNamespace as S
-    from print_handy.hermes import print_control as pc
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_control as pc
+    from print_handy.runtime import print_alert_buttons as pab
     class Adapter:
         def __init__(self): self.sent = []
         async def send(self, **kw): self.sent.append(kw.get('content')); return S(success=True)
@@ -78,7 +78,7 @@ def test_runout_new_spool_carries_slot_hex_into_created_filament():
     from types import SimpleNamespace
 
     scripts = Path(__file__).parents[1] / 'scripts'
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
 
     created_filaments = []
 
@@ -133,9 +133,9 @@ def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
     from types import SimpleNamespace as S
 
     scripts = Path(__file__).parents[1] / 'scripts'
-    from print_handy.hermes import print_control as pc
-    from print_handy.hermes import print_next
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import print_control as pc
+    from print_handy.runtime import print_next
+    from print_handy.runtime import discord_print_summary as summary
 
     class Adapter:
         def __init__(self):
@@ -203,7 +203,7 @@ def test_runout_new_spool_multi_color_name_keeps_its_palette():
     palette whenever a hex is given — the blend silently became one color."""
     from types import SimpleNamespace
 
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
 
     created_filaments = []
     patches = []

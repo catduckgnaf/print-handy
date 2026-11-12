@@ -10,7 +10,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
-from print_handy.hermes import (bambu_watch, elegoo_watch, octo_watch,
+from print_handy.runtime import (bambu_watch, elegoo_watch, octo_watch,
                                 prusa_watch, stock_watch)
 
 REMOTE = "benchy.gcode"

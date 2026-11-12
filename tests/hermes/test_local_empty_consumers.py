@@ -13,11 +13,11 @@ import time
 
 from PIL import Image, ImageDraw
 
-from print_handy.hermes import family_control as fc
-from print_handy.hermes import light_control
-from print_handy.hermes import local_empty as le
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import family_control as fc
+from print_handy.runtime import light_control
+from print_handy.runtime import local_empty as le
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import visual_watch as vw
 
 
 def _jpeg(part=None):
@@ -38,7 +38,7 @@ PART = _jpeg(part=(110, 110, 210, 175))
 
 
 def _calibrated_cfg(tmp_path):
-    cfg = {"paths": {"hermes_home": str(tmp_path)},
+    cfg = {"paths": {"state_home": str(tmp_path)},
            "vision": {"local_empty_enabled": True, "watch_source": "local"}}
     le.begin_calibration(cfg, EMPTY)
     assert le.confirm_calibration(cfg, EMPTY, force=True)
@@ -130,7 +130,7 @@ def test_next_plate_offer_uses_the_reference_verdict(monkeypatch, tmp_path):
     monkeypatch.setattr(vw, "_local_verdict",
                         lambda image, streak=None: ("uncertain", "detector"))
     monkeypatch.setattr(vw, "_chat_route_configured", lambda key: False)
-    from print_handy.hermes import next_plate_offer
+    from print_handy.runtime import next_plate_offer
     monkeypatch.setattr(next_plate_offer, "due", lambda: True)
     monkeypatch.setattr(next_plate_offer, "observe",
                         lambda verdict: observed.append(verdict) or {"action": "none"})
@@ -194,7 +194,7 @@ def test_family_idle_check_uses_the_reference_when_vision_is_not_ready(
 
 
 def test_family_idle_check_without_reference_stays_blocked(monkeypatch, tmp_path):
-    cfg = {"paths": {"hermes_home": str(tmp_path)},
+    cfg = {"paths": {"state_home": str(tmp_path)},
            "vision": {"local_empty_enabled": True, "watch_source": "local"}}
     monkeypatch.setattr(le._config, "cfg", lambda: cfg)
     sends = []

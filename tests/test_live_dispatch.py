@@ -15,7 +15,7 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy import live_stream
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
 PLUGIN_PATH = ROOT / "plugins/print-feedback/__init__.py"

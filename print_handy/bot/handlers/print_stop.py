@@ -11,7 +11,7 @@ from .common import (
     _is_bot_platform, _is_hosting_profile, _live_key_for, _pkw, _printer_label, _routed_form,
     _routed_printer_id, _seen, _undecided_printer_ids,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -35,8 +35,8 @@ async def print_stop_dispatch(event, gateway, **kwargs):
     if adapter is None:
         return {'action': 'skip', 'reason': 'print stop UI delivery unavailable'}
     import uuid
-    from print_handy.hermes import print_stop
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import print_stop
+    from print_handy.runtime import discord_print_summary as summary
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
     key = ('print-stop', source.chat_id, source.thread_id)

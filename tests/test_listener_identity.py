@@ -60,7 +60,7 @@ def test_main_module_launch_installs_identity_for_canonical_importers(tmp_path):
         listeners._set_instance_printer_id(None)
         logs.clear_context()
     assert seen["exit"] == 0
-    assert ran == [("print_handy.hermes.moonraker_event_listener", "__main__")]
+    assert ran == [("print_handy.runtime.moonraker_event_listener", "__main__")]
     # The point of the finding: importers of the canonical module (the
     # healthcheck, the domain listeners) see the launched identity.
     assert seen["identity"] == "moon-two"

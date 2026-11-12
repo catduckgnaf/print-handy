@@ -42,7 +42,7 @@ def archive_root(data) -> Path:
     archive = paths.get("archive")
     if archive:
         return Path(str(archive)).expanduser()
-    return Path(str(paths.get("hermes_home") or ".")) / "archive"
+    return Path(str(paths.get("state_home") or ".")) / "archive"
 
 
 def classify_type(label: str) -> str:

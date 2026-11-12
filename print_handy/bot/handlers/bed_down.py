@@ -10,7 +10,7 @@ from .common import (
     _confirm, _control_preamble, _decide_printer, _failure_post, _live_key_for, _pkw,
     _routed_printer_id, _seen,
 )
-from ...hermes import _config
+from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -27,7 +27,7 @@ async def bed_down_dispatch(event, gateway, **kwargs):
     The plain-language forms ("reset the bed", "lower the bed", "prepare to
     clean") reach this only through the did-you-mean prompt, so a fuzzy
     match never moves anything by itself. Refused while a print is active;
-    asks before moving; and print_handy.hermes.bed_separate moves only when
+    asks before moving; and print_handy.runtime.bed_separate moves only when
     Klipper reports Z homed and the bounded target fits, otherwise it posts
     instructions and sends nothing. No homing, no heat.
     """
@@ -36,8 +36,8 @@ async def bed_down_dispatch(event, gateway, **kwargs):
         return None
     if adapter is None:
         return {'action': 'skip', 'reason': 'bed down UI delivery unavailable'}
-    from print_handy.hermes import bed_separate as bs
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import bed_separate as bs
+    from print_handy.runtime import print_control as pc
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     _route = globals().get('_routed_printer_id')
     pid = _route(source, gateway) if _route else None

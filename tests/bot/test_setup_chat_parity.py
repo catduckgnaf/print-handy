@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from print_handy.bot import guided, platform, runtime, webui_access
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 from print_handy.webui import access
 
 from corpus import fake_discord
@@ -25,7 +25,7 @@ def _store(tmp_path):
 
 
 def _data(tmp_path):
-    return {"paths": {"hermes_home": tmp_path},
+    return {"paths": {"state_home": tmp_path},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN", "require_auth": True}}
 
 
@@ -248,7 +248,7 @@ def _clean_guided_store():
 
 @pytest.fixture
 def core(_clean_guided_store, cfg, monkeypatch, tmp_path):
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
     discord = fake_discord.FakeDiscord(chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))

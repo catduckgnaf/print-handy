@@ -48,7 +48,7 @@ def library_status():
 
 def telegram_token(cfg=None):
     """The Telegram bot token: the [telegram] token_env variable, then the profile .env files."""
-    from ..hermes import _config
+    from ..runtime import _config
     cfg = cfg if cfg is not None else _config.cfg()
     name = str((cfg.get("telegram") or {}).get("token_env") or "TELEGRAM_BOT_TOKEN")
     return _config.profile_env_value(name)
@@ -283,7 +283,7 @@ class StandaloneAdapter(BasePlatformAdapter):
         counts only in the chat the alert was posted to, the same rule
         prompts follow (#335).
         """
-        from print_handy.hermes import print_alert_buttons as pab
+        from print_handy.runtime import print_alert_buttons as pab
 
         query_id = query.get("id")
         sender = query.get("from") or {}

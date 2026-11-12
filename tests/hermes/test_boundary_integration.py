@@ -22,8 +22,8 @@ import websockets
 from websockets.asyncio.server import serve
 
 from print_handy.bot import matrix_rest, rest, telegram_rest
-from print_handy.hermes import _config
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import _config
+from print_handy.runtime import moonraker_event_listener as mel
 
 TOKEN = "tok-secret-123"
 LOOPBACK = "127.0.0.2"

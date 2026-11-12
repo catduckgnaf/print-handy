@@ -41,7 +41,7 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
     text = str(getattr(event, 'text', '')).strip()
     if source is None or not text or text.startswith('/'):
         return None
-    from print_handy.hermes import moonraker_event_listener as listener
+    from print_handy.runtime import moonraker_event_listener as listener
     context = listener.load_runout_pause()
     if context is None:
         return None
@@ -53,7 +53,7 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
     adapter = _adapter_for(gateway, source)
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     if listener.parse_cancel_print_reply(text):
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         try:
             message = await asyncio.to_thread(_cancel_spool_question_print, listener, spool_sync, context)
         except Exception as exc:
@@ -75,7 +75,7 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
             '`cancel the print` — or tap a button on the question in Discord. '
             'Nothing was changed.'))
         return {'action': 'skip', 'reason': 'spool reply needs a choice'}
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     try:
         message = await asyncio.to_thread(_answer_spool_question, listener, spool_sync, context, choice)
     except Exception as exc:
