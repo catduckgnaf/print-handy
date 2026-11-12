@@ -432,7 +432,17 @@ def _material_key(material: Any) -> str:
     return material_family(text) if text else ""
 
 
-def lane_matches_spool_material(lane_material: Any, spool_material: Any) -> bool:
+def _strip_vendor(material: Any, vendor: Any) -> str:
+    text = str(material or "")
+    name = str(vendor or "").strip()
+    if name:
+        text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(name) + r"(?![A-Za-z0-9])", " ", text,
+                      flags=re.I)
+    return " ".join(text.split())
+
+
+def lane_matches_spool_material(lane_material: Any, spool_material: Any,
+                                vendor: Any = None) -> bool:
     """Whether a lane's material and its spool's Spoolman material name one filament.
 
     Same slicing family (``printer_state.same_material``: PLA+, PLA Pro,
@@ -441,6 +451,10 @@ def lane_matches_spool_material(lane_material: Any, spool_material: Any) -> bool
     different polymer are real differences: PLA vs PLA-CF, PLA vs PETG.
     """
     from ..core.printer_state import same_material
+    # A vendor name is tracking data: the spool's own vendor is dropped from
+    # both labels too, for vendors printer_state's list does not know.
+    lane_material = _strip_vendor(lane_material, vendor)
+    spool_material = _strip_vendor(spool_material, vendor)
     if same_material(lane_material, spool_material):
         return True
     lane_text = str(lane_material or "")
@@ -457,7 +471,10 @@ def _lock_conflicts(lane: dict[str, Any], spool: dict[str, Any]) -> list[str]:
     conflicts = []
     if lane.get("locked_material") and lane.get("material"):
         spool_material = str(filament.get("material") or "").strip()
-        if spool_material and not lane_matches_spool_material(lane["material"], spool_material):
+        vendor = ((filament.get("vendor") or {}).get("name")
+                  if isinstance(filament.get("vendor"), dict) else None)
+        if spool_material and not lane_matches_spool_material(lane["material"], spool_material,
+                                                              vendor):
             conflicts.append(
                 f"the material is locked on the screen to {lane['material']}, "
                 f"but spool #{spool.get('id')} is {spool_material} in Spoolman")
@@ -871,7 +888,10 @@ class LaneDataWatcher:
         filament = spool.get("filament") or {}
         lane_material = _norm_text(lane["material"])
         spool_material = _norm_text(filament.get("material"))
-        if lane_material and spool_material and not lane_matches_spool_material(lane_material, spool_material):
+        vendor = ((filament.get("vendor") or {}).get("name")
+                  if isinstance(filament.get("vendor"), dict) else None)
+        if lane_material and spool_material and not lane_matches_spool_material(
+                lane_material, spool_material, vendor):
             self._queue(pending, noted, slot, "identity_conflict",
                         f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen names "
                         f"spool #{spool_id} as {lane['material']}, but Spoolman records that "

@@ -230,7 +230,23 @@ def material_family(material):
     return m
 
 
-_BRAND_WORDS = re.compile(r"\b(?:BAMBU\s*LAB|BAMBU|GENERIC)\b")
+# Vendor and brand names are tracking data, never part of a material's
+# identity: "eSUN PLA+" is PLA+, "Polymaker PETG" is PETG (owner ruling,
+# 2026-11-11). Spoolman keeps the vendor in its own field; these names are
+# stripped when a vendor is also written into the material label. Speed or
+# flow lines that change how a filament prints (Creality Hyper, Elegoo
+# Rapid) are not vendor names and stay out of this list.
+_VENDOR_NAMES = (
+    r"BAMBU\s*LAB", "BAMBU", "GENERIC", "ESUN", "POLYMAKER", "OVERTURE", "SUNLU", "ELEGOO",
+    "CREALITY", "PRUSAMENT", "PRUSA", "HATCHBOX", "INLAND", "JAYO", "KINGROON", "ANYCUBIC",
+    "FLASHFORGE", "SOVOL", "QIDI", "SNAPMAKER", "ATOMIC", "MATTERHACKERS", "AMOLEN",
+    "GEEETECH", "DURAMIC", "COLORFABB", "FILLAMENTUM", "EXTRUDR", "FORMFUTURA", "SPECTRUM",
+    r"SIRAYA\s*TECH", "SIRAYA", "ERYONE", "TINMORRY", "ZIRO", "KEXCELLED", "SAKATA", "ZYLTECH",
+    r"PUSH\s*PLASTIC", "PROTOPASTA", "NINJATEK", "3DXTECH", "TTYT3D", "IIIDMAX", "ANKERMAKE",
+    "ANKER", "VOXELAB", "FIBERLOGY", r"DAS\s*FILAMENT", "AZUREFILM", "ROSA3D", "GIANTARM",
+    "MIKA3D", "YOUSU", "ARIA", r"3D\s*FUEL", "CC3D", "VERBATIM",
+)
+_BRAND_WORDS = re.compile(r"(?<![A-Z0-9])(?:" + "|".join(_VENDOR_NAMES) + r")(?![A-Z0-9])")
 _POLYMER_ALIASES = {"PET": "PETG", "PAHT": "PA", "NYLON": "PA", "POLYAMIDE": "PA", "FLEXIBLE": "TPU"}
 _POLYMER_TOKEN = re.compile(r"^(PA\d{1,3}|PAHT|PET|PETG|PCTG|PLA|ABS|ASA|TPU|PC)(CF|GF)?$")
 _SHORE_HARDNESS = re.compile(r"^\d{2,3}[AD]$")

@@ -1286,3 +1286,19 @@ def test_lane_matches_spool_material_rules():
     assert not same("PETG-HF", "PETG")
     assert not same("PLA", "PLA-CF") and not same("PETG", "PETG-CF")
     assert not same("PLA", "PETG") and not same("", "PLA") and not same("PLA", "")
+
+
+def test_a_vendor_name_in_a_material_label_is_tracking_not_identity(tmp_path):
+    from print_handy.core.printer_state import material_family, same_material
+    assert material_family("eSUN PLA+") == "PLA"
+    assert material_family("Prusament PETG") == "PETG"
+    assert material_family("Atomic PETG CF") == "PETG-CF"
+    assert same_material("Polymaker PLA Pro", "PLA")
+    # Speed lines are not vendor names: they keep their own family.
+    assert material_family("Elegoo Rapid PLA") != "PLA"
+    assert material_family("Creality Hyper PLA") != "PLA"
+    # The spool's own Spoolman vendor is stripped too, for vendors the list lacks.
+    same = lane_data_sync.lane_matches_spool_material
+    assert same("PLA", "Acme PLA+", "Acme") and not same("PLA", "Acme PLA+")
+    assert "identity_conflict" not in _identity_events(tmp_path, "PLA", "eSUN PLA+")
+
