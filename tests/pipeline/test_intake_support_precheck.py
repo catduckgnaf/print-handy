@@ -423,7 +423,8 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), print anyway(5),
+    # Menu (without supports leads here, #1366): nosup(0), sup(1), extend(2),
+    # sink(3), reorient(4), print anyway(5),
     # The fixture already lies flat on its largest face (its lay-flat turn
     # is identity, which is now answered without recording anything), so
     # the lay-flat search is pinned to a real turn: on its side.
@@ -436,7 +437,7 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)']
+             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
     assert 'Reorient (lay flat)' in ready[0]
     assert all('Reorient (lay flat)' not in choices for choices in ready[1:]) and len(ready) > 1
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -468,14 +469,15 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     # The fixture already lies on its largest face: its real lay-flat turn is identity.
     tris = [tuple(map(tuple, tri)) for p in support_clearance.leaves(str(V12_FIXTURE)) for tri in p['tris']]
     assert edit_plan.lay_flat_rotation(tris)[0] == pytest.approx([1, 0, 0, 0, 1, 0, 0, 0, 1])
-    # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), ... Pick
-    # reorient, then cancel the repeated question, which has no Reorient
-    # (sup, nosup, extend, sink, print anyway, slice only, scale, cancel=7).
+    # Menu (supports not recommended here, so without supports leads, #1366):
+    # nosup(0), sup(1), extend(2), sink(3), reorient(4), ... Pick reorient,
+    # then cancel the repeated question, which has no Reorient
+    # (nosup, sup, extend, sink, print anyway, slice only, scale, cancel=7).
     adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
     assert any('already lies flat' in m for m in adapter.sent)
     assert not any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)']
+             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
     assert len(ready) == 2
     assert 'Reorient (lay flat)' in ready[0] and 'Reorient (lay flat)' not in ready[1]
     job = json.loads(Path(receipt['job_json']).read_text())
