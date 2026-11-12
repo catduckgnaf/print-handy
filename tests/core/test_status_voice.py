@@ -129,4 +129,4 @@ def test_authoritative_progress_remains_outside_corpus():
     all_text = " ".join(row["text"].lower() for rows in stages.values() for row in rows)
     assert "press stop to cancel" not in all_text
     assert "click to print now" not in all_text
-    assert "bed is clear" not in all_text
+    assert "click approve to start the print" not in all_text
