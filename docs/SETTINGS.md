@@ -123,7 +123,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `design.repair_attempts` | `PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS` | `3` | How many times a failed render, a reply with no OpenSCAD code, or a failed check (wrong size, separate pieces, off the bed, too big for the printer) is sent back to the model before the turn gives up; a turn makes at most this many plus one model calls. A value below 0 counts as 0 and a non-number as 3 |
 | `listener.tick_s` | `PRINT_HANDY__LISTENER__TICK_S` | `600` | Listener housekeeping interval |
 | `listener.ifs_presence_poll_s` | `PRINT_HANDY__LISTENER__IFS_PRESENCE_POLL_S` | `15` | IFS spool presence poll |
-| `listener.spool_nag_s` | `PRINT_HANDY__LISTENER__SPOOL_NAG_S` | `600` | Reminder interval for an unanswered spool question |
+| `listener.spool_nag_s` | `PRINT_HANDY__LISTENER__SPOOL_NAG_S` | `600` | Reminder interval for an unanswered spool question during its print; once that print is over, reminders slow to every 6 hours |
 | `listener.start_claim_ttl_s` | `PRINT_HANDY__LISTENER__START_CLAIM_TTL_S` | `1800` | How long a start button stays claimed |
 | `vision.model` | `PRINT_HANDY__VISION__MODEL` | `gemini-latest` | Model for camera checks. The default is a CLIProxyAPI alias: set your own server's vision model name |
 | `vision.roast_enabled` | `PRINT_HANDY__VISION__ROAST_ENABLED` | `true` | The one-line roast: exactly one per print on the completion post, one on the failure and cancel posts and on a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print", "roast print 84"), on every platform. Drawn from the local roast corpus (`print_handy/data/roasts/`) with no LLM and no endpoint. `false` turns roasts off without disabling camera checks |

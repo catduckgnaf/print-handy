@@ -399,7 +399,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `design` | `enabled`, `chat_url`, `model`, `api_key_env`, `timeout_s`, `repair_attempts` | unset (auto), empty, empty, empty, `180`, `3` | `/print-design` (alias `/design`) AI design; `enabled` unset = auto-on when an endpoint is configured, `false` forces off; empty fields inherit `llm`; an endpoint must be configured for design to run |
 | `listener` | `tick_s` | `600` | Listener housekeeping interval |
 | | `ifs_presence_poll_s` | `15` | IFS spool presence poll |
-| | `spool_nag_s` | `600` | Reminder interval for an unanswered spool question |
+| | `spool_nag_s` | `600` | Reminder interval for an unanswered spool question during its print; once that print is over, reminders slow to every 6 hours |
 | | `start_claim_ttl_s` | `1800` | How long a start button stays claimed |
 | `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Model for camera checks; `roast_model` is legacy and unused (roasts are local, #1002) |
 | | `roast_enabled` | `true` | The roast switch: one line per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, and on request in chat, from the local corpus with no LLM, on every platform; `false` turns roasts off, camera checks unaffected |
