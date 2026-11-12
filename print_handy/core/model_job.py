@@ -2891,6 +2891,40 @@ def apply_stock_presence(status, stock):
     return printers.current().native.apply_stock_presence(status, stock)
 
 
+def _saved_selection_drift(state, selection):
+    """(warning, current selection) when a job's saved slot selection no longer matches the slot (#1336).
+
+    The slot's record now names another spool or another material than the
+    job chose (a spool swapped since the job was set up). That is a filament
+    warning the operator may accept in the #1190 round, never a refusal:
+    accepting re-resolves the selection from the slot's current record, so
+    the slice is made for the spool that is loaded there now. (None, None)
+    when the record agrees, names no spool or material, or the slot is not
+    color-verified (an integrity check the existing refusal keeps).
+    """
+    if not isinstance(selection, dict):
+        return None, None
+    slot = selection.get('slot')
+    record = (state.get('filament_slots') or {}).get(str(slot)) or {}
+    material, spool = record.get('material'), record.get('spoolman_id')
+    if not material or not spool or not record.get('physical_color_verified'):
+        return None, None
+    same = (spool == selection.get('spoolman_id')
+            and ' '.join(str(material).casefold().split())
+            == ' '.join(str(selection.get('material') or '').casefold().split()))
+    if same:
+        return None, None
+    try:
+        current = resolve_filament_selection(state, {'slot': slot})
+    except (ValueError, RuntimeError):
+        return None, None
+    def describe(item):
+        name = ' '.join(str(item.get(k) or '').strip() for k in ('color', 'material')).strip() or 'a spool'
+        return f"{name} (spool #{item.get('spoolman_id')})" if item.get('spoolman_id') else name
+    return (f"slot {slot} now holds {describe(current)}; the job chose {describe(selection)}. "
+            f"Accepting slices it for what slot {slot} holds now"), current
+
+
 def _validate_slot_selection(state, selection):
     """The selected IFS slot, not the globally active spool, owns a single-color job."""
     slot = state.get('filament_slots', {}).get(str(selection['slot']), {})
@@ -4713,6 +4747,15 @@ def record_filament_warning_acknowledgement(folder_or_job, warnings=None, source
         source_sha256 = pending.get('source_sha256')
     if selected_plates is None:
         selected_plates = pending.get('selected_plates')
+    prior = job.get('filament_warning_acknowledgement') or {}
+    if (prior.get('acknowledged') is True and prior.get('source_sha256') == source_sha256
+            and {str(p) for p in prior.get('selected_plates') or []}
+            == {str(p) for p in selected_plates or []}):
+        # A later gate of the same slicing attempt asked about further warnings
+        # (#1336: the saved-selection round, then a usage round): the operator's
+        # earlier answers for this source and these plates stand with the new ones,
+        # so the resumed slice is not asked the first question again.
+        warnings = list(dict.fromkeys(list(prior.get('warnings') or []) + warnings))
     job['filament_warning_acknowledgement'] = {
         'code': 'FILAMENT_WARNINGS_ACCEPTED',
         'acknowledged': True,
@@ -6460,7 +6503,70 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
     return [row['gcode'] for row in artifacts]
 
 
+def _accepted_slice_abrasive(job_path):
+    """The abrasive-on-a-soft-nozzle keys the job's unused filament acceptance covers (#1336).
+
+    Read before the slicing run so the pre-slice guard (inside the slicer
+    adapter) warns instead of refusing for exactly those: the run's own
+    filament round still checks the acceptance's source and plate binding
+    before anything slices, and a used acceptance grants nothing.
+    """
+    try:
+        ack = json.loads(Path(job_path).read_text()).get('filament_warning_acknowledgement') or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    if ack.get('acknowledged') is not True or ack.get('used_by_slice'):
+        return []
+    keys = []
+    for text in ack.get('warnings') or []:
+        found = material_accept.ABRASIVE_TEXT.match(str(text))
+        if found:
+            keys.append(material_accept.key('abrasive', found.group(1), found.group(2)))
+    return keys
+
+
+def _slice_abrasive_warnings(state, job, decisions, selection=None):
+    """Abrasive filament this slice would use on a brass or soft nozzle: filament warnings (#1336)."""
+    from .nozzle import AbrasiveNozzleError, NozzleError, check_nozzle_material_safety, normalize_nozzle_type
+    materials = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            if isinstance(value.get('material'), str):
+                materials.append(value['material'])
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+    collect(selection if selection is not None else job.get('filament_selection'))
+    collect(decisions)
+    if not materials:
+        materials.append(((state.get('spool') or {}).get('material')) or '')
+    nozzle_type = printer_state.recorded_nozzle_type(state)
+    warnings = []
+    for material in dict.fromkeys(m for m in materials if m):
+        try:
+            check_nozzle_material_safety(nozzle_type, material)
+        except AbrasiveNozzleError:
+            try:
+                nozzle = normalize_nozzle_type(nozzle_type).replace('_', ' ')
+            except NozzleError:
+                nozzle = str(nozzle_type)
+            warnings.append(material_accept.abrasive_text(material, nozzle))
+        except NozzleError:
+            pass
+    return warnings
+
+
 def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
+    """Slice one job; an accepted abrasive warning lets the pre-slice guard warn instead of refusing (#1336)."""
+    with material_accept.accepting(_accepted_slice_abrasive(job_path)):
+        return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
+                          recipe_sha256=recipe_sha256)
+
+
+def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
     job = json.loads(Path(job_path).read_text())
@@ -6498,6 +6604,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         copies = job.get('copies')
     if copies:
         job['copies'] = int(copies)
+    drift_warnings, drift_selection = [], None  # a saved selection the slot no longer matches (#1336)
     _recorded_slot = (job.get("filament_selection") or {}).get("slot") if isinstance(job.get("filament_selection"), dict) else None
     _slot_past_limit = type(_recorded_slot) is int and not 1 <= _recorded_slot <= position_limit(adapter)
     if not generic and job.get("filament_selection") is not None and (job.get('color_decisions') or {}).get('mode') != 'per_part' \
@@ -6505,9 +6612,16 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         # A recorded one-color slot past the printer's slot count is not
         # refused here: the #1189 fallback below replaces it (named in a
         # warning the operator accepts) and validates the replacement.
-        selection = resolve_filament_selection(st, job["filament_selection"])
-        _validate_slot_selection(st, selection)
-        job["filament_selection"] = selection
+        drift_warning, drift_selection = _saved_selection_drift(st, job["filament_selection"])
+        if drift_warning:
+            # The slot now holds another spool or material than the job chose:
+            # a filament warning in the round below (#1336), never a refusal.
+            # Accepting slices with what the slot holds now.
+            drift_warnings = [drift_warning]
+        else:
+            selection = resolve_filament_selection(st, job["filament_selection"])
+            _validate_slot_selection(st, selection)
+            job["filament_selection"] = selection
     src=Path(job["downloaded_file"]); ad=job["audit"]; multi_plate=False
     if src.suffix.lower() not in (".3mf",".stl"): raise RuntimeError("only STL/3MF can be sliced; selected source is not geometry")
     from . import slice_recipe as sr
@@ -6650,15 +6764,38 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
-    if fallback_warnings and not filament_gate_ran:
+    if drift_selection is not None and (job.get('color_decisions') or {}).get('mode') == 'single_color' \
+            and isinstance(slice_decisions_in, dict):
+        slice_decisions_in = {**slice_decisions_in, 'selection': drift_selection}
+    # #1336: a saved selection the slot no longer matches, and abrasive filament on
+    # a soft nozzle, are filament warnings in this one round, never refusals.
+    material_round = drift_warnings + _slice_abrasive_warnings(st, job, slice_decisions_in, drift_selection)
+    if (fallback_warnings or material_round) and not filament_gate_ran:
         # Present the fallbacks before the decisions are validated: the
         # operator sees the named slot first, and a fallback slot that the
         # record cannot resolve (no loaded-slot information) refuses only
         # after acceptance, as the slot check it is.
-        _enforce_filament_warnings(job, fallback_warnings + usage_warnings,
+        _enforce_filament_warnings(job, fallback_warnings + usage_warnings + material_round,
                                    manifest.get('source_sha256'), selected_plates,
                                    job_folder=Path(job_path).parent, via_slice=True)
         filament_gate_ran = True
+    elif material_round:
+        # An earlier gate (plate readiness) already ran this round: these still need
+        # the operator's answer; an acceptance covering them passes straight through.
+        _enforce_filament_warnings(job, fallback_warnings + usage_warnings + material_round,
+                                   manifest.get('source_sha256'), selected_plates,
+                                   job_folder=Path(job_path).parent, via_slice=True)
+    if drift_selection is not None:
+        # Accepted: the job's selection is re-resolved from the slot's current
+        # record and the slice is made for the spool that is loaded there now.
+        _validate_slot_selection(st, drift_selection)
+        job['filament_selection'] = drift_selection
+        on_disk = json.loads(Path(job_path).read_text())
+        on_disk['filament_selection'] = drift_selection
+        write_job(Path(job_path).parent, on_disk)
+        recipe = sr.record(sr.slice_recipe(job, file_sha256(src), st, copies=copies, scale=scale,
+                                           brim_override=brim_override))
+        job['slice_recipe'] = recipe
     decisions = None if (generic and not multi_tool and not layered_single) else slice_decisions_in
     if decisions is not None:
         decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection,
@@ -8688,6 +8825,52 @@ class ToolRemapRefused(RuntimeError):
     """A slot remap names a tool the file does not use, or cannot tell which tool is meant."""
 
 
+def _remap_material_check(gcode_path, tool, slot_int, selection, used, job, job_path):
+    """A remap to a slot holding another material: a warning, and accepting it reslices (#1336).
+
+    Re-finalizing alone would keep the sliced material's temperatures and
+    profile, so the accepted answer reslices the job for the remapped slot
+    instead (the job's selection moves to that slot first). Returns None when
+    the slot holds the sliced material; raises ToolRemapRefused carrying the
+    acceptable warning when it does not and this run has not accepted it, or
+    a plain refusal when there is no job to reslice from.
+    """
+    if not gcode_path.is_file():
+        return None
+    from .orca_config import split_config_list
+    raw = _verify_lines(gcode_path.read_text(errors="ignore")).config_value("filament_type")
+    try:
+        materials = [m.strip() for m in split_config_list(raw)] if raw else []
+    except ValueError:
+        materials = []
+    if not materials:
+        return None
+    sliced = materials[int(tool)] if int(tool) < len(materials) else materials[0]
+    holds = selection.get("material")
+    if not sliced or not holds or printer_state.same_material(sliced, holds):
+        return None
+    found = material_accept.problem(
+        "remap", f"T{tool} was sliced for {sliced} and slot {slot_int} holds {holds}; accepting reslices it "
+                 f"for slot {slot_int}", tool, slot_int, sliced, holds)
+    if found:
+        raise ToolRemapRefused(material_accept.message(found, ""))
+    if job is None or job_path is None or len(used) > 1 or job.get("derived_plates"):
+        raise ToolRemapRefused(
+            f"T{tool} was sliced for {sliced} and slot {slot_int} holds {holds}; this file has no single-plate "
+            "job to reslice it from, so reslice the model for that slot")
+    job["filament_selection"] = selection
+    decisions = job.get("color_decisions")
+    if isinstance(decisions, dict) and decisions.get("mode") == "single_color":
+        job["color_decisions"] = {**decisions, "selection": selection}
+    write_job(job_path.parent, job)
+    print(f"RESLICING for slot {slot_int} ({holds}): the remapped slot holds another material than "
+          f"T{tool} was sliced for ({sliced}).", flush=True)
+    out = slice_job(str(job_path))
+    gcode = out[0] if isinstance(out, list) else out
+    return {"ok": True, "slot": slot_int, "tool": str(tool), "mapping": {str(tool): slot_int},
+            "selection": selection, "gcode": str(gcode), "resliced": True}
+
+
 def remap_slot(target, new_slot, tool=None, state=None):
     """Remap one logical tool of a job or G-code to a different physical IFS slot.
 
@@ -8791,6 +8974,9 @@ def remap_slot(target, new_slot, tool=None, state=None):
         # same rule the slice path applies (#1305).
         mapping = {t: s for t, s in mapping.items() if int(t) in used}
     mapping[tool] = slot_int
+    resliced = _remap_material_check(gcode_path, tool, slot_int, selection, used, job, job_path)
+    if resliced is not None:
+        return resliced
     normalize_mapping = routed_adapter.native.normalize_mapping
     mapping = normalize_mapping(mapping, st)
 
@@ -10280,6 +10466,7 @@ def _main():
     remap.add_argument("target", help="JOB.json or plate.gcode")
     remap.add_argument("--slot", type=int, required=True, help="physical IFS slot (1-4)")
     remap.add_argument("--tool", type=str, default=None, help="logical tool index the file uses (default: the file's only used tool)")
+    remap.add_argument("--accept-material-mismatch", action="store_true", help="the slot holds another material than the file was sliced for: reslice the job for that slot (#1336)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
     pn.add_argument("--accept-material-mismatch",action="store_true",help="print as sliced: accept this run's material warnings (sliced vs loaded material, abrasive filament on a soft nozzle, a material the maker does not recommend, an AMS tray or slot holding another material); this G-code and this run only, heater and axis limits are never waived")
@@ -10440,7 +10627,8 @@ def _main():
     elif getattr(a,"bed_clear_confirmed",False): pn_kw["bed_clear"]=True
     if a.cmd=="remap-slot":
         try:
-            res = remap_slot(a.target, a.slot, a.tool)
+            with material_accept.accepting(accept_all=getattr(a, "accept_material_mismatch", False)):
+                res = remap_slot(a.target, a.slot, a.tool)
         except ToolRemapRefused as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing changed.") from exc
         print("SLOT REMAPPED " + json.dumps(res, indent=2))

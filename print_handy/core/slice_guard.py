@@ -59,7 +59,16 @@ def pre_slice(*, bounds=None, bed=None, profile=None, required_keys=(), before_p
             try:
                 check_nozzle_material_safety(nozzle_type, mat)
             except AbrasiveNozzleError as exc:
-                r.block(str(exc))
+                # Warn-and-accept (#1336 ruling): an abrasive filament the operator accepted
+                # for this slice warns (problem() prints it); otherwise the slice stops here
+                # and the job's filament round asks first.
+                from .material_accept import TOKEN, abrasive_problem
+                from .nozzle import normalize_nozzle_type
+                found = abrasive_problem(mat, normalize_nozzle_type(nozzle_type).replace('_', ' '))
+                if found:
+                    r.block(TOKEN.sub('', found[0]) + '. ' + str(exc))
+                else:
+                    r.warn(TOKEN.sub('', str(exc)))
         if nozzle_temp is not None:
             try:
                 if nozzle_temp_is_effective:

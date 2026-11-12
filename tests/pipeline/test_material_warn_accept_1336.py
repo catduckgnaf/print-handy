@@ -250,3 +250,40 @@ def test_print_next_start_passes_the_answer_bound_to_the_gcode_sha(tmp_path, mon
     argv = list(seen["argv"])
     assert argv[argv.index("--accept-material") + 1] == "material|PETG|PLA"
     assert argv[argv.index("--accept-material-sha256") + 1] == sha
+
+
+# ---- site 5: remap to a slot holding another material ------------------------------------------
+
+def _remap_env(tmp_path, monkeypatch):
+    slots = {"1": {"spoolman_id": 10, "material": "PLA", "color": "white", "physical_color_verified": True},
+             "2": {"spoolman_id": 11, "material": "PETG", "color": "black", "physical_color_verified": True}}
+    state = {"filament_slots": slots, "spool": {"spoolman_id": 10, "material": "PLA"},
+             "nozzle": {"diameter_mm": 0.4, "type": "hardened_steel"}}
+    monkeypatch.setattr(model_job.printer_state, "load", lambda *a, **k: state)
+    gcode = tmp_path / "plate.gcode"
+    gcode.write_text("; filament_type = PLA\nT0\nG1 X1 Y1 E1\n")
+    job = {"gcode": str(gcode), "filament_selection": {"slot": 1, "spoolman_id": 10, "material": "PLA",
+                                                      "color": "white"}}
+    (tmp_path / "JOB.json").write_text(json.dumps(job))
+    resliced = []
+    monkeypatch.setattr(model_job, "slice_job", lambda path: resliced.append(
+        json.loads(Path(path).read_text())["filament_selection"]) or gcode)
+    return tmp_path / "JOB.json", resliced
+
+
+def _remap_cli(monkeypatch, job_json, *flags):
+    monkeypatch.setattr("sys.argv", ["model_job", "remap-slot", str(job_json), "--slot", "2", *flags])
+    try:
+        model_job.main()
+    except SystemExit as exc:
+        return str(exc.code)
+    return "OK"
+
+
+def test_remap_to_another_material_warns_then_accepting_reslices_for_that_slot(tmp_path, monkeypatch):
+    job_json, resliced = _remap_env(tmp_path, monkeypatch)
+    out = _remap_cli(monkeypatch, job_json)
+    assert material_accept.PREFIX in out and "[accept remap|0|2|PLA|PETG]" in out, out
+    assert resliced == []  # nothing re-finalized or resliced without the answer
+    assert _remap_cli(monkeypatch, job_json, "--accept-material-mismatch") == "OK"
+    assert [s["slot"] for s in resliced] == [2] and resliced[0]["material"] == "PETG"

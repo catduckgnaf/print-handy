@@ -150,10 +150,17 @@ def recheck_loaded_nozzle(nozzle_type, loaded_material):
         print(f'NOZZLE CHECK: the loaded {loaded_material} suits the fitted nozzle.', flush=True)
 
 
+def abrasive_text(material, nozzle):
+    """The abrasive-on-a-soft-nozzle warning, in plain words (#1336 ruling); ABRASIVE_TEXT reads it back."""
+    return (f'{material} is abrasive and the fitted nozzle is {nozzle}: this filament will wear out the '
+            f'{nozzle} nozzle')
+
+
+ABRASIVE_TEXT = re.compile(r'^(.+?) is abrasive and the fitted nozzle is (.+?): this filament will wear out')
+
+
 def abrasive_problem(material, nozzle):
-    """The abrasive-on-a-soft-nozzle warning, in plain words (#1336 ruling)."""
-    return problem('abrasive', f'{material} is abrasive and the fitted nozzle is {nozzle}: this filament will '
-                               f'wear out the {nozzle} nozzle', material, nozzle)
+    return problem('abrasive', abrasive_text(material, nozzle), material, nozzle)
 
 
 def material_problem(sliced, loaded, where=''):

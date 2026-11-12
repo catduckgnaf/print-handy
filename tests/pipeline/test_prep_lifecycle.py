@@ -502,3 +502,21 @@ def test_material_mismatch_reslice_is_the_default_and_starts_nothing_1336(env, m
     assert len(seen) == 1
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert any('To reslice for PLA' in m for m in adapter.log)
+
+
+def test_swapped_spool_asks_use_the_loaded_spool_in_the_intake_1336(env, monkeypatch):
+    """#1336: the intake start answers --accept-spool-change in chat (base 1d452a58 had no path)."""
+    seen = []
+
+    async def start(target):
+        seen.append(bool(target.get('accept_spool_change')))
+        if len(seen) == 1:
+            return False, ("REFUSED: slot 1 spool changed since slicing (was 11, now 22); reslice or confirm. "
+                           "Nothing uploaded or started.")
+        return True, 'started'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... Use the loaded spool
+    assert adapter.questions[-1]['choices'][0] == prepared_intake.USE_LOADED_SPOOL_LABEL
+    assert seen == [False, True]
+    assert 'accept_spool_change' not in (receipt.get('retry_target') or {})

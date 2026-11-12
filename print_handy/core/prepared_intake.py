@@ -199,7 +199,8 @@ def _color_prompt_follows(refusal_context, tail):
     refusal keeps its guidance plus Retry like any other pre-upload refusal."""
     from . import material_accept
     return bool(refusal_context.get('color_prompt') and (color_confirm(tail) or label_confirm(tail)
-                                                         or material_accept.pending(tail)))
+                                                         or material_accept.pending(tail)
+                                                         or SPOOL_CHANGED in str(tail)))
 
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
@@ -1870,6 +1871,8 @@ def classify_start(ok, tail):
 _CONFIRM_COLOR = re.compile(r'printer slot (\d+) color is (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
 PRINT_ANYWAY_LABEL = 'Print anyway'
 SET_SCREEN_LABEL = 'Set screen to Spoolman color, then print'
+USE_LOADED_SPOOL_LABEL = 'Use the loaded spool · bed is clear'
+SPOOL_CHANGED = 'spool changed since slicing'  # the multicolor contract's refusal (#1336 asks instead)
 COLOR_CONFIRM_ROUNDS = 3  # the screen may change again between answers; the last round surfaces a Retry refusal
 _COLOR_NAMES = {
     'red': 'E53935', 'orange': 'FB8C00', 'yellow': 'FDD835', 'green': '43A047', 'teal': '00897B',
@@ -5229,6 +5232,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                        | {w['key'] for w in material_warnings})
                     uploading = "Uploading to the printer. Press Stop to request cancellation."
                     continue
+                if (not ok and start_context['color_prompt'] and SPOOL_CHANGED in str(tail)
+                        and not target.get('accept_spool_change')):
+                    # A slot spool swapped since slicing (same material family): ask, never
+                    # a Retry-only refusal; yes passes --accept-spool-change (#1336).
+                    pick = await _ask(adapter, source, key,
+                                      'A slot holds another spool than when this was sliced (the same material '
+                                      'family is still required). Print with the spool that is loaded now?',
+                                      [USE_LOADED_SPOOL_LABEL, print_next.CANCEL_LABEL], timeout, approval=True)
+                    receipt['spool_change'] = {'choice': pick}
+                    if pick != 0:
+                        receipt['status'] = 'SLICED_NOT_STARTED'
+                        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='Cancelled. Nothing uploaded or started.')
+                        return {'action': 'skip', 'reason': 'operator cancelled on a swapped spool'}
+                    target['accept_spool_change'] = True
+                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    continue
                 if not confirms and not label_confirms:
                     await _post_yolo_waivers(adapter, source, metadata, tail, receipt, receipt_path)
                     break
@@ -5290,6 +5311,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 clear_label_acceptance(jp)
             # A Print as sliced answer is this start's only: a later Retry asks again (#1336).
             target.pop('accept_material', None)
+            target.pop('accept_spool_change', None)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending

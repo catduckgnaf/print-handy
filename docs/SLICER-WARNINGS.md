@@ -61,9 +61,18 @@ What an acceptance never does:
 
 A refusal that names a material warning beside a real fault (a wrong nozzle size, for example) offers no Print as sliced: fix the fault first.
 
+Two more material conditions join the slicing round described above (**Print anyway (accept the filament warnings)**), so they are answered on every surface that already answers filament warnings:
+
+- **The job's saved slot selection no longer matches the slot**: "slot N now holds <current>; the job chose <saved>". Accepting slices the job for what the slot holds now (the job's selection moves to the slot's current spool).
+- **Abrasive filament on a brass or other soft nozzle** at slicing time, with the same plain wording.
+
+A remap to a slot holding another material (`model_job remap-slot` or `print-now --remap-slot`) warns the same way, and accepting it (`--accept-material-mismatch`) reslices the job for that slot: re-finalizing the old G-code would keep the sliced material's temperatures. A file with no single-plate job to reslice from is refused with that reason.
+
+A slot spool swapped since slicing (same material family) is asked in chat as **Use the loaded spool**, which passes `--accept-spool-change` for that start.
+
 A Spoolman spool that is archived or records another material than the slot record is a plain warning at start (usage may be charged to the wrong spool until Spoolman is corrected); the print uses the slot record.
 
-From the command line, `model_job print-now` (and `--reprint`) takes `--accept-material-mismatch` to print as sliced through every material warning of that run. A chat answer passes the exact warnings with `--accept-material KEY` (the `[accept KEY]` the refusal printed) and `--accept-material-sha256` for the G-code it was given for. `--accept-spool-change` is answered in chat with **Use the loaded spool**.
+From the command line, `model_job print-now` (and `--reprint`) takes `--accept-material-mismatch` to print as sliced through every material warning of that run. A chat answer passes the exact warnings with `--accept-material KEY` (the `[accept KEY]` the refusal printed) and `--accept-material-sha256` for the G-code it was given for.
 
 ## Every other warning (information only)
 
