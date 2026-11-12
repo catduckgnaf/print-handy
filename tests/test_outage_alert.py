@@ -152,7 +152,7 @@ class DegradedNoticeTests(unittest.TestCase):
         text = outage_alert.degraded_notice(state, "p1", "paused",
                                             filename="benchy.gcode", now=10.0)
         self.assertIn("**paused**", text)
-        self.assertIn("benchy.gcode", text)
+        self.assertIn("on benchy.", text)
         self.assertIn("direct check of the printer", text)
         self.assertIsNone(outage_alert.degraded_notice(
             state, "p1", "paused", filename="benchy.gcode", now=20.0))

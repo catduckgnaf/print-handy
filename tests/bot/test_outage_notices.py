@@ -290,7 +290,36 @@ def test_degraded_notice_from_a_direct_poll_posts_once(cfg, tmp_path, monkeypatc
     run(core.check_listener_outages())
     degraded = [c for _chat, c in core.adapter.calls if "Degraded alert" in c]
     assert len(degraded) == 1
-    assert "**paused**" in degraded[0] and "benchy.gcode" in degraded[0]
+    assert "**paused**" in degraded[0] and "benchy" in degraded[0]
     run(core.check_listener_outages())
     degraded = [c for _chat, c in core.adapter.calls if "Degraded alert" in c]
     assert len(degraded) == 1, "the same reported state was noticed twice"
+
+
+def test_a_restarting_listener_posts_the_degraded_notice_once(cfg, tmp_path, monkeypatch):
+    # Seen live: a listener restarting every few minutes was healthy for a
+    # moment between failures, the bot forgot the notice it had sent, and
+    # the same "listener is down" notice went out five times, naming the
+    # raw remote path with its content hash.
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="5"),
+                     [{"id": "p1", "chat_id": "424242"}])
+    remote = ("3mf_print/Remote-Holder_plate_1_"
+              "5869735638d19cbd24e19e141476903f94d919f2b4f401dfe5e3b72af8b18965.gcode")
+    monkeypatch.setattr(runtime, "_poll_moonraker_state", lambda entry: ("paused", remote))
+    for statuses in (DOWN, UP, DOWN, UP, DOWN):
+        core._listener_statuses = lambda statuses=statuses: statuses
+        run(core.check_listener_outages())
+    degraded = [c for _chat, c in core.adapter.calls if "Degraded alert" in c]
+    assert len(degraded) == 1, degraded
+    assert "on Remote-Holder plate 1." in degraded[0]
+    assert "3mf_print/" not in degraded[0] and ".gcode" not in degraded[0]
+
+
+def test_degraded_notices_are_forgotten_after_the_recovery_hold():
+    state = {}
+    assert outage_alert.degraded_notice(state, "p1", "paused", filename="a.gcode", now=0.0)
+    assert outage_alert.degraded_recovered(state, "p1", now=100.0)
+    assert outage_alert.degraded_notice(state, "p1", "paused", filename="a.gcode", now=150.0) is None
+    outage_alert.degraded_recovered(state, "p1", now=100.0 + outage_alert.DEGRADED_RECOVERY_HOLD_S)
+    assert "p1" not in state
+    assert outage_alert.degraded_notice(state, "p1", "paused", filename="a.gcode", now=900.0)
