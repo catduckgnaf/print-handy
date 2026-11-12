@@ -354,10 +354,18 @@ async def shutdown():
     instead of returning a result."""
     loop = asyncio.get_running_loop()
     _CLOSED[loop] = True
-    _SPARE.pop(loop, None)  # the spare is in _LIVE too, so it is stopped below
+    # Spare starts and discards still in flight finish first: a start sees
+    # admission closed and stops its process; a discard completes its stop.
+    pending = [t for t in list(_REFILLS) if t.get_loop() is loop and not t.done()]
+    await asyncio.gather(*pending, return_exceptions=True)
+    spare = _SPARE.pop(loop, None)
     procs = list(_LIVE.values())
     _SHUTTING_DOWN.update(p.pid for p in procs)
     await asyncio.gather(*(stop(p) for p in procs), return_exceptions=True)
+    if spare is not None:
+        # An idle spare has no run() whose finally unregisters it (#1332).
+        _LIVE.pop(spare['proc'].pid, None)
+        _SHUTTING_DOWN.discard(spare['proc'].pid)
 
 
 def interrupted(folder):

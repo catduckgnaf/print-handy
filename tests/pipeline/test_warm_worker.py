@@ -98,6 +98,7 @@ def test_a_step_is_served_by_the_spare_started_before_it(box):
         await box.wait_born(3)
         leftover = box.born()[2][0]
         await owned_worker.shutdown()
+        assert not owned_worker._LIVE, 'shutdown left the idle spare registered'
         return leftover
 
     leftover = asyncio.run(run())
@@ -116,6 +117,7 @@ def test_a_spare_from_older_settings_is_stopped_not_used(box, monkeypatch):
         served_by = await asyncio.wait_for(_step(), 10)
         cold = [pid for pid, warm, _t in box.born() if not warm]
         await owned_worker.shutdown()
+        assert not owned_worker._LIVE
         return stale, served_by, cold
 
     stale, served_by, cold = asyncio.run(run())
@@ -124,6 +126,22 @@ def test_a_spare_from_older_settings_is_stopped_not_used(box, monkeypatch):
     while _alive(stale) and time.monotonic() < deadline:
         time.sleep(0.02)
     assert not _alive(stale), 'the stale spare was left running'
+
+
+@posix_only
+def test_shutdown_stops_and_unregisters_an_idle_spare(box):
+    # CI on the first head of #1335: shutdown stopped the idle spare but left
+    # it in _LIVE (only run()'s finally unregisters a worker), so the next
+    # test's `assert not owned_worker._LIVE` saw a dead spare.
+    async def run():
+        prepared_intake.enable_warm_worker()
+        await box.wait_born(1)
+        await owned_worker.shutdown()
+        return box.born()[0][0]
+
+    spare = asyncio.run(run())
+    assert not owned_worker._LIVE
+    assert not _alive(spare)
 
 
 @posix_only
