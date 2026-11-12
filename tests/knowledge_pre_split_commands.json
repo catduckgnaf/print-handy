@@ -232,7 +232,7 @@
   "command": "SET_EXTRUDER_SLOT SLOT=<1-4>",
   "description": "Records in ZMod which IFS slot is the one loaded in the extruder. It is the bookkeeping step at the end of a slot load — Print Handy's own slot-load flow sends it after the IFS feed macros — and it does not feed or move filament by itself.",
   "safety": "No motion. Recording the wrong slot makes the screen, ZMod's automatic spool switching and usage accounting all agree on the wrong spool.",
-  "notes": "Source: ghzserg/zmod_ff5x@5409ffe7ffee572219837fbd0d7de381469537f6, en/ad5x.cfg; also sent by Print Handy itself in print_handy/hermes/slot_load.py. Generic firmware knowledge from the shipped config, not verified on a Print Handy printer."
+  "notes": "Source: ghzserg/zmod_ff5x@5409ffe7ffee572219837fbd0d7de381469537f6, en/ad5x.cfg; also sent by Print Handy itself in print_handy/runtime/slot_load.py. Generic firmware knowledge from the shipped config, not verified on a Print Handy printer."
  },
  {
   "id": "zmod.set-active-spool",
