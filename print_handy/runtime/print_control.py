@@ -300,7 +300,10 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
         return False, "A different print is paused than the one you confirmed. Nothing sent."
     if head_filament_loaded(printer_id) is False:
         return False, HEAD_EMPTY_TEXT
-    _send("/printer/print/resume", method="POST", timeout=15, printer_id=printer_id)
+    from .print_stop import NO_REPLY_WAIT_S, post_print_command
+    replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+    if not replied:
+        wait_s = max(wait_s, NO_REPLY_WAIT_S)
     deadline = time.monotonic() + wait_s
     after = before
     while time.monotonic() < deadline:
@@ -317,6 +320,9 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
     # #837: the resume was sent but never took, so this is not a success —
     # callers that trust the boolean (alert buttons, /print-resume) must
     # not report a resumed print while the printer still reports paused.
+    if not replied:
+        return False, (f"Resume sent. The printer has not answered and still reports {after['state']} "
+                       f"after {wait_s:.0f}s. Check the printer screen. Not retrying.")
     return False, f"Resume sent, but the printer still reports {after['state']} after {wait_s:.0f}s. Check the printer screen. Not retrying."
 
 
@@ -1409,8 +1415,8 @@ def start_estimate_text(target: dict[str, Any], seconds, grams) -> str:
     """
     summary = _summary()
     if _known(seconds):
-        base = (f"estimated print time ~{summary.human(seconds)}, plus warmup "
-                f"~{summary.human(seconds + summary.WARMUP_S)} total")
+        base = (f"estimated print time ~{summary.human(seconds)}, "
+                f"~{summary.human(seconds + summary.WARMUP_S)} total including warmup")
     else:
         base = "estimated print time unknown"
     copies = int(target.get("copies") or 1)

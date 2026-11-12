@@ -167,7 +167,7 @@ def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
     assert result['reason'] == 'deterministic print again handled'
     queued.assert_called_once()
     assert adapter.sent[0] == ('Preparing to start Widget. A reprint of print #8; it gets its own new print number '
-                               'when it starts. Estimated print time ~1m, plus warmup ~6m total.')
+                               'when it starts. Estimated print time ~1m, ~6m total including warmup.')
     assert any(message.startswith('Print started') for message in adapter.sent)
 
 

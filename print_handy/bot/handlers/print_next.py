@@ -177,8 +177,8 @@ async def print_next_dispatch(event, gateway, **kwargs):
         seconds = (plate or {}).get('seconds')
         # No number here: this plate gets its own new print number when it
         # starts, and the start announcement shows it.
-        target['estimate_text'] = (f"Estimated print time ~{print_summary.human(seconds)} "
-                                   f"plus warmup ~{print_summary.human(seconds + print_summary.WARMUP_S)} total"
+        target['estimate_text'] = (f"Estimated print time ~{print_summary.human(seconds)}, "
+                                   f"~{print_summary.human(seconds + print_summary.WARMUP_S)} total including warmup"
                                    if isinstance(seconds, (int, float)) else
                                    "Estimated print time unknown")
         from print_handy.core.prompts import gateway as _prompts

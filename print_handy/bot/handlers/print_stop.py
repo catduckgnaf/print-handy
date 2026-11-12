@@ -58,6 +58,17 @@ async def print_stop_dispatch(event, gateway, **kwargs):
             active = {cid: st for cid, st in statuses.items()
                       if isinstance(st, dict) and st.get('state') in print_stop.ACTIVE}
             chosen = None
+            if not active:
+                # No print running, but a start may be on its way to one printer: that is
+                # the stop target, never "nothing to stop".
+                starting = {}
+                for cid, st in statuses.items():
+                    if isinstance(st, dict):
+                        found = await asyncio.to_thread(print_stop.start_in_flight, _routed_form(cid), st)
+                        if found is not None:
+                            starting[cid] = st
+                if len(starting) == 1:
+                    active = starting
             if len(active) == 1:
                 chosen = next(iter(active))
             elif len(active) > 1:
@@ -83,15 +94,12 @@ async def print_stop_dispatch(event, gateway, **kwargs):
                                    content=f"Camera now — {st['filename'] or 'current print'}:\nMEDIA:{st['camera_image_path']}")
             except Exception:
                 pass
-        if st['state'] not in print_stop.ACTIVE:
-            message = f"Nothing to stop: printer is {st['state']}. Nothing sent."
-        else:
+        start = (await asyncio.to_thread(print_stop.start_in_flight, pid, st)
+                 if st['state'] not in print_stop.ACTIVE else None)
+
+        async def ask(question, choices):
             from print_handy.core.prompts import gateway as _prompts
             cm = _prompts()
-            name = summary.format_event('started', st['filename'], emit=False).splitlines()[0].split(': ', 1)[-1]
-            where = print_stop.where_text(st)
-            question = f"Stop {name} ({st['state']}{', ' + where if where else ''})? This cancels the print."
-            choices = [print_stop.STOP_LABEL, print_stop.KEEP_LABEL]
             cid = uuid.uuid4().hex
             session_key = f'print-stop:{source.chat_id}:{source.thread_id}'
             # Register under the live chat session key (the _confirm pattern):
@@ -105,9 +113,30 @@ async def print_stop_dispatch(event, gateway, **kwargs):
                                                   session_key=session_key, metadata=metadata)
                 if not getattr(sent, 'success', False):
                     raise RuntimeError('button delivery failed')
-                answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600))
+                return await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600))
             finally:
                 cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+
+        if start is not None:
+            # A start in flight (2026-11-05): nothing is printing yet, so the offer is to
+            # stop that print the moment the printer reports it. Nothing is sent before then.
+            name = print_stop.start_label(start['file'])
+            answer = await ask(f"Nothing is printing yet, but {name} is starting. Stop it as soon as it starts?",
+                               [print_stop.STOP_START_LABEL, print_stop.LET_START_LABEL])
+            if answer != print_stop.STOP_START_LABEL:
+                message = 'Letting it print. Nothing sent.'
+            else:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=(f"Waiting for {name} to start, then stopping it. "
+                                            "Nothing is sent before the printer reports the print."))
+                _sent, message = await asyncio.to_thread(print_stop.stop_pending_start, start['file'], **_pkw(pid))
+        elif st['state'] not in print_stop.ACTIVE:
+            message = print_stop.nothing_to_stop_text(st)
+        else:
+            name = summary.format_event('started', st['filename'], emit=False).splitlines()[0].split(': ', 1)[-1]
+            where = print_stop.where_text(st)
+            answer = await ask(f"Stop {name} ({st['state']}{', ' + where if where else ''})? This cancels the print.",
+                               [print_stop.STOP_LABEL, print_stop.KEEP_LABEL])
             if answer != print_stop.STOP_LABEL:
                 message = 'Kept printing. Nothing sent.'
             else:

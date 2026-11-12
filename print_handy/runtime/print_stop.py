@@ -46,6 +46,28 @@ def _send(path: str, method: str = "GET", timeout: float = 10, printer_id: str |
     return _call(path, method=method, timeout=timeout)
 
 
+# Moonraker answers a print resume or cancel only once the printer's macro has finished, and
+# on an AD5X that can take longer than the 15 s request timeout (2026-11-08: the reply timed
+# out, the printer went paused -> printing 10 s later). A reply that times out after the
+# request went out is not a failure: the printer may be acting on it, so the state read-back
+# decides, over this longer window.
+NO_REPLY_WAIT_S = 90.0
+
+
+def post_print_command(send, path: str, **kw) -> bool:
+    """POST one print command through ``send``. True when it answered; False when the request
+    went out but the reply timed out. Errors before the request was sent still raise.
+
+    urllib wraps a failure to connect or send in URLError; only the read of the reply raises a
+    bare TimeoutError, so that is the one case read as "sent, waiting for the printer".
+    """
+    try:
+        send(path, method="POST", timeout=15, **kw)
+    except TimeoutError:
+        return False
+    return True
+
+
 def _lan_adapter(printer_id: str | None = None):
     """A printer's adapter when it talks Bambu Lab LAN MQTT; None for Moonraker printers (#276).
 
@@ -199,6 +221,101 @@ def where_text(st: dict[str, Any]) -> str:
     return ", ".join(bits)
 
 
+# A print start still on its way to the printer (#B 2026-11-05: Stop 24 s after "Print started"
+# said "Nothing to stop: printer is standby", and the print began 40 s later). A start claim
+# counts for this long; a held launch lease counts while launch_state calls it in flight.
+START_IN_FLIGHT_S = 600.0
+# After "stop it when it starts", how long to wait for the printer to report the print.
+PENDING_START_WAIT_S = 600.0
+STOP_START_LABEL = "Stop it when it starts"
+LET_START_LABEL = "Let it print"
+
+
+def start_in_flight(printer_id: str | None = None, st: dict[str, Any] | None = None,
+                    now: float | None = None, max_age_s: float | None = START_IN_FLIGHT_S) -> dict[str, Any] | None:
+    """The print start under way on this printer while it is not yet printing, or None.
+
+    {"file": the uploaded file name ("" when not known yet)}. Evidence is the printer's
+    launch lease (checks, upload, start sent), or a recent start claim while the printer
+    still reads standby. Read only; never raises. ``max_age_s=None`` accepts any unexpired claim.
+    """
+    if st is not None and st.get("state") in ACTIVE:
+        return None
+    try:
+        from ..core import launch_state
+        row = launch_state.in_flight(printer_id, now=now)
+    except Exception:
+        row = None
+    if row is not None:
+        return {"file": str(row.get("remote") or "")}
+    if st is not None and st.get("state") != "standby":
+        return None  # a finished, cancelled or failed job is not a start on its way
+    try:
+        from . import start_claims
+        now = time.time() if now is None else now
+        claims = []
+        for name in start_claims.claimed_start_filenames(now):
+            ts = start_claims.start_claim_time(name, now)
+            if ts is not None and (max_age_s is None or now - ts <= max_age_s):
+                claims.append((ts, name))
+    except Exception:
+        return None
+    return {"file": str(max(claims)[1])} if claims else None
+
+
+def start_label(filename: str) -> str:
+    """The plain print name for a start file, as the start card shows it; "a print" when unknown."""
+    if not filename:
+        return "a print"
+    try:
+        from . import discord_print_summary as summary
+        return summary.format_event("started", filename, emit=False).splitlines()[0].split(": ", 1)[-1]
+    except Exception:
+        from pathlib import PurePosixPath
+        return PurePosixPath(filename).name
+
+
+def nothing_to_stop_text(st: dict[str, Any], start: dict[str, Any] | None = None) -> str:
+    """The reply when the printer is not printing; names a start in flight instead of 'nothing'."""
+    if start is not None:
+        return (f"Nothing is printing yet, but {start_label(start.get('file') or '')} is starting "
+                f"(the printer reads {st.get('state')}). To stop it, type /print-stop and choose "
+                f"{STOP_START_LABEL}. Nothing sent.")
+    return f"Nothing to stop: printer is {st.get('state')}. Nothing sent."
+
+
+def stop_pending_start(start_file: str, printer_id: str | None = None,
+                       wait_s: float = PENDING_START_WAIT_S, poll_s: float = 2.0) -> tuple[bool, str]:
+    """Wait for a start in flight to become a print, then stop it with one cancel. (sent, text).
+
+    Nothing is sent before the printer reports the print. A different file printing is
+    refused; a start that goes away (no lease, no claim) or never prints says so.
+    """
+    from ..core.launch_state import same_remote
+    kw = {"printer_id": printer_id} if printer_id else {}
+    name = start_label(start_file)
+    deadline = time.monotonic() + wait_s
+    st: dict[str, Any] | None = None
+    while True:
+        try:
+            st = status(**kw)
+        except Exception:
+            st = None
+        if st is not None and st.get("state") in ACTIVE:
+            running = str(st.get("filename") or "")
+            if start_file and running != start_file and not same_remote(running, start_file):
+                return False, "A different print is running now than the start you asked to stop. Nothing sent."
+            sent, text = cancel(running, **kw)
+            return sent, (f"{name} started, so it was stopped right away. {text}" if sent else text)
+        if st is not None and start_in_flight(printer_id, st, max_age_s=None) is None:
+            return False, f"{name} did not start, so there was nothing to stop. Nothing sent."
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(poll_s)
+    state = (st or {}).get("state") or "unknown"
+    return False, (f"{name} has not started printing after {wait_s / 60:.0f} min (the printer reads "
+                   f"{state}). Nothing sent. If it starts, stop it on the printer screen or type /print-stop again.")
+
 def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
            printer_id: str | None = None) -> tuple[bool, str]:
     """One cancel, only if the same file is still printing or paused. Returns (sent, truthful text).
@@ -214,10 +331,11 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             return False, _unconnected_text(family_adapter)
     before = status(printer_id)
     if before["state"] not in ACTIVE:
-        return False, f"Nothing to stop: printer is {before['state']}. Nothing sent."
+        return False, nothing_to_stop_text(before, start_in_flight(printer_id, before))
     if expected_filename and before["filename"] != expected_filename:
         return False, "A different print is running now than the one you confirmed. Nothing sent."
     adapter = _lan_adapter() if printer_id is None else _lan_adapter(printer_id)
+    replied = True
     if adapter is not None:
         adapter.control("stop")  # one LAN MQTT stop; the printer answers on the next snapshot
     else:
@@ -226,7 +344,11 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             klipper_report.mark_bot_cancel()
         except Exception:
             pass
-        _send("/printer/print/cancel", method="POST", timeout=15, printer_id=printer_id)
+        # Moonraker holds the reply until the cancel macro finishes; a reply that times out
+        # after the request went out means "sent, waiting for the printer", not failure.
+        replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
+        if not replied:
+            wait_s = max(wait_s, NO_REPLY_WAIT_S)
     deadline = time.monotonic() + wait_s
     after = before
     while time.monotonic() < deadline:
@@ -238,6 +360,9 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
         if after["state"] not in ACTIVE:
             break
     if after["state"] in ACTIVE:
+        if not replied:
+            return True, (f"Cancel sent. The printer has not answered and still reports {after['state']} "
+                          f"after {wait_s:.0f}s. Check the printer screen. Not retrying.")
         return True, (f"Cancel sent, but the printer still reports {after['state']} after {wait_s:.0f}s. "
                       "Check the printer screen. Not retrying.")
     # Read the heater targets back (#1147) rather than assume the stop turned them off:
