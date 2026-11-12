@@ -57,6 +57,27 @@ reports it too, on its own `zmod version` row, so the diagnostics bundle
 carries it into bug reports. Print Handy never guesses a version and
 never gates printing on it.
 
+### The screen is a webcam entry, and never the camera
+
+ZMod's `WEB_SCREEN` parameter (on by default) redirects the printer
+screen as a virtual camera named `screen` in Fluidd/Mainsail, so a
+ZMod printer's Moonraker webcam list can hold the screen next to the
+real camera — and screen streaming reaches every supported model in
+1.7.6. That feed shows the printer's display, not the build plate.
+Print Handy classifies it as a screen feed
+(`print_handy.live_stream.is_screen_feed_name`, #1306) and automatic
+camera selection never picks it: the live view, snapshot, timelapse
+and monitoring paths that resolve a source from the webcam registry
+all share that selection. A ZMod printer whose only listed feed is
+its screen resolves to a clear "no camera available" refusal, never
+to a stream of the display — the screen can show prompts and
+information intended for the person standing at the printer, so
+treating it as a bed camera would be a privacy leak as well as a
+wrong picture. Only an explicitly configured camera name can select
+the screen entry, under its real name; the labeled, read-only screen
+view is a separate feature (#1303) and no camera path exposes screen
+controls.
+
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
 Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
