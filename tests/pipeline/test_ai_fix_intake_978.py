@@ -123,17 +123,33 @@ def test_unbuildable_geometry_fix_records_nothing_and_earns_no_acknowledgement(
         env, monkeypatch):
     """A geometry fix that cannot be built on the model changes nothing:
     the gate asks again, no ai_fix is recorded, the job is not repointed,
-    and no waiver or clearance acknowledgement appears."""
+    and no waiver or clearance acknowledgement appears.
+
+    The gate asked again offers no second AI fix (the same request fails the
+    same way), says why, and the failure is said once, not twice (2.3.0 live
+    run: "...moves nothing on it), so nothing was changed), so nothing was
+    changed." and the same Fix button again)."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'extend', 'mm': 5.0},
                                            summary='extend the underside'))
-    # Fix (0) -> cannot be built on this fixture -> gate asks again ->
-    # Decide (1) -> Cancel (1) on the waiver question.
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1, 1], mid='gate-noop')
-    assert any('could not be built' in (s or '') or 'would not change the model' in (s or '')
-               for s in adapter.sent)
+
+    def no_op_build(*args, **kwargs):  # the live run's refusal, word for word
+        raise ai_fix.FixError('that fix would not change the model (the proposed extend '
+                              'moves nothing on it), so nothing was changed')
+    monkeypatch.setattr(ai_fix, 'build_fixed_copy', no_op_build)
+    # Fix (0) -> cannot be built on this fixture -> gate asks again, now
+    # without the fix offer -> Cancel (1) on the approval question.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1], mid='gate-noop')
+    failure = [s for s in adapter.sent if 'could not be built' in (s or '')]
+    assert len(failure) == 1 and 'would not change the model' in failure[0]
+    assert failure[0].count('nothing was changed') == 1
+    offers = [q for q in adapter.questions if ai_fix.FIX_LABEL in (q.get('choices') or [])]
+    assert len(offers) == 1  # offered once, not re-posted after it failed
+    regate = adapter.questions[-1]
+    assert regate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert ai_fix.FAILED_NOTE in regate['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'ai_fix' not in receipt and 'support_override' not in receipt
     job = json.loads(Path(receipt['job_json']).read_text())

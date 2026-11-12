@@ -1354,6 +1354,59 @@ def _instance_matrices(source):
     return out
 
 
+UP_NZ = 0.5  # a face whose outward normal points this far up is a top, never an underside
+
+
+def _extend_bands(source_path, gap_mm, tol):
+    """The underside bands extend_underside moves when no vertex sits at gap_mm.
+
+    A sloped underside's measured clearance is sampled per ray between its
+    vertices, so the gap a finding (or the AI fix) names is usually no vertex
+    height at all. Each low-clearance finding over the plate whose measured
+    band holds ``gap_mm`` gives one band: its XY bounding box grown by one
+    ray cell, and world Z from just above the plate up to the top of the
+    sampled underside.
+    """
+    try:
+        rep = analyze(source_path)
+    except Exception:  # noqa: BLE001 - nothing measurable means nothing to extend
+        return []
+    margin = float(rep.get('cell_mm') or CELL_MM) + tol
+    bands = []
+    for f in rep.get('findings') or []:
+        if f.get('code') != CODE_CLEARANCE or f.get('over') != 'plate' or not f.get('bbox_mm'):
+            continue
+        window = f.get('clearance_mm') or {}
+        if not (window.get('min', 0) - tol <= gap_mm <= window.get('max', 0) + tol):
+            continue
+        (x0, y0), (x1, y1) = f['bbox_mm']
+        bands.append((x0 - margin, y0 - margin, x1 + margin, y1 + margin, float(f['z_mm']['max'])))
+    return bands
+
+
+def _band_select(world, up, bands, tol):
+    """Vertices inside a band that are on no upward-facing face (never a part's top)."""
+    keep = np.zeros(len(world), bool)
+    for x0, y0, x1, y1, ztop in bands:
+        keep |= ((world[:, 0] >= x0) & (world[:, 0] <= x1) & (world[:, 1] >= y0) & (world[:, 1] <= y1)
+                 & (world[:, 2] > tol) & (world[:, 2] <= ztop + tol))
+    return keep & ~up
+
+
+def _up_vertices(world, tris_idx, mirrored=False):
+    """Per-vertex flag: the vertex belongs to a face whose normal points up."""
+    up = np.zeros(len(world), bool)
+    if len(tris_idx) == 0:
+        return up
+    t = world[tris_idx]
+    n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    nz = n[:, 2] / np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+    if mirrored:
+        nz = -nz
+    up[np.unique(tris_idx[nz > UP_NZ])] = True
+    return up
+
+
 def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
     """Extend downward underside vertices at gap_mm down to the build plate.
 
@@ -1366,15 +1419,42 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
     The measured volume change is returned as ``added_volume_mm3`` (#922
     gap 5); instances that disagree on a shared vertex's target leave it
     alone and count it in ``skipped_shared_vertices``.
+
+    A flat underside has its vertices at exactly gap_mm (``mode`` 'exact').
+    A sloped one does not: its measured clearance is sampled between its
+    vertices, so no vertex matched and the repair moved nothing while the
+    analysis promised the gap fill. Then the low-clearance finding whose
+    measured band holds gap_mm is extended instead (``mode`` 'band'): its
+    underside vertices from just above the plate up to the top of the band
+    move to the plate, never a vertex of an upward-facing face.
     """
     dest_path = dest_path or source_path
+    result = _extend(source_path, dest_path,
+                     lambda world, up: np.abs(world[:, 2] - gap_mm) <= tol)
+    result['mode'] = 'exact'
+    if result['modified_vertices'] or result['skipped_shared_vertices']:
+        return result
+    bands = _extend_bands(source_path, gap_mm, tol)
+    if not bands:
+        return result
+    result = _extend(source_path, dest_path, lambda world, up: _band_select(world, up, bands, tol))
+    result['mode'] = 'band'
+    return result
+
+
+def _extend(source_path, dest_path, select):
+    """Move every vertex that ``select(world_xyz, on_upward_face)`` picks onto the plate."""
     before_volume = _mesh_volume(source_path)
     if str(source_path).lower().endswith('.stl'):
         # An STL has no transforms to compose: its vertices are already in
         # printer coordinates, so the same rule applies directly (#922
         # gap 8 made STL findings offer these repairs, so they must run).
         tris = _stl_tris(source_path)
-        mask = np.abs(tris[:, :, 2] - gap_mm) <= tol
+        flat = tris.reshape(-1, 3)
+        keys, inverse = np.unique(np.round(flat, 5), axis=0, return_inverse=True)
+        inverse = np.asarray(inverse).reshape(-1)
+        up = _up_vertices(keys, inverse.reshape(-1, 3))
+        mask = select(flat, up[inverse]).reshape(tris.shape[:2])
         modified = int(mask.sum())
         tris[:, :, 2] = np.where(mask, 0.0, tris[:, :, 2])
         _write_binary_stl(dest_path, tris)
@@ -1401,24 +1481,30 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
                     mesh = next(iter(_kids(obj, 'mesh')), None)
                     if mesh is None:
                         continue
-                    for vs in _kids(mesh, 'vertices'):
-                        for v in _kids(vs, 'vertex'):
-                            x = float(v.get('x') or 0)
-                            y = float(v.get('y') or 0)
-                            z = float(v.get('z') or 0)
-                            targets = []
-                            for m in mats:
-                                wz = x * m[0, 2] + y * m[1, 2] + z * m[2, 2] + m[3, 2]
-                                if abs(wz - gap_mm) <= tol and abs(m[2, 2]) > 1e-9:
-                                    targets.append(z - wz / m[2, 2])
-                            if targets and max(targets) - min(targets) <= 1e-6:
-                                v.set('z', f'{targets[0]:.8f}')
-                                modified_count += 1
-                                changed = True
-                            elif targets:
-                                # Instances disagree on the local target:
-                                # leave the shared vertex alone (#922 gap 5).
-                                skipped_shared += 1
+                    verts = [v for vs in _kids(mesh, 'vertices') for v in _kids(vs, 'vertex')]
+                    if not verts:
+                        continue
+                    local = np.array([[float(v.get(a) or 0) for a in ('x', 'y', 'z')] for v in verts])
+                    tri_idx = np.array([[int(t.get(a)) for a in ('v1', 'v2', 'v3')]
+                                        for ts in _kids(mesh, 'triangles') for t in _kids(ts, 'triangle')],
+                                       dtype=np.int64).reshape(-1, 3)
+                    targets = [[] for _ in verts]
+                    for m in mats:
+                        if abs(m[2, 2]) <= 1e-9:
+                            continue
+                        world = local @ m[:3, :3] + m[3, :3]
+                        up = _up_vertices(world, tri_idx, mirrored=np.linalg.det(m[:3, :3]) < 0)
+                        for i in np.nonzero(select(world, up))[0]:
+                            targets[i].append(local[i, 2] - world[i, 2] / m[2, 2])
+                    for v, tg in zip(verts, targets):
+                        if tg and max(tg) - min(tg) <= 1e-6:
+                            v.set('z', f'{tg[0]:.8f}')
+                            modified_count += 1
+                            changed = True
+                        elif tg:
+                            # Instances disagree on the local target:
+                            # leave the shared vertex alone (#922 gap 5).
+                            skipped_shared += 1
                 if changed:
                     data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             zout.writestr(item, data)
