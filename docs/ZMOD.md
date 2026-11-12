@@ -329,6 +329,9 @@ silently overrides another's explicit selection.
   refusal: it can name a tool Orca's output never selects (a support
   filament's tool when no support was generated), and that entry is
   dropped at finalization instead.
+  The unused-tool rule applies to a map being set, not to one already
+  embedded: a file finalized before this rule (an unused support tool,
+  an extra `T0`) launches exactly as it did, with its embedded map.
 - **A reprint or slot remap** (`/print-again`, `remap-slot`). The
   embedded map, amended by the operator's remap, is the authority; the
   file is re-finalized (new map, new checksum) before it is packaged

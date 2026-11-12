@@ -588,3 +588,14 @@ def test_live_slot_label_pla_accepts_pla_plus_spool(tmp_path):
         cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
         cli(['print-now', str(path)])
     assert len(submissions) == 1
+
+
+def test_a_file_finalized_before_1305_with_an_unused_tool_still_launches():
+    # Files finalized under the old contiguity rule can embed a map entry for
+    # a tool they never select (an unused support tool). Launch validation
+    # reads that embedded map and must keep accepting it: only an operator's
+    # explicit map is held to "map only the used tools".
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA', 'PLA'])
+    text = text.rstrip('\n') + '\n' + contract.MAP_PREFIX + json.dumps({'0': 1, '1': 2, '2': 3, '3': 4}) + '\n'
+    assert contract.validate_materials(text, 'PLA;PLA;PLA;PLA', st) == {'0': 1, '1': 2, '2': 3, '3': 4}
