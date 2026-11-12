@@ -15,6 +15,12 @@ Matrix has no native buttons, so prompts are a numbered choice list
 ("Reply with the number, or the choice text") resolved through the typed
 answer path. The number-to-choice translation happens in this adapter, so
 the core prompt registry only ever sees real choice text.
+
+Listener pause/stop alerts are the one button-shaped exception (#1291):
+Matrix's button equivalent is an ``m.reaction`` annotation, so the alert
+names one reaction per action (▶️ Resume, ⏹️ Cancel, …), the bot seeds
+those reactions on its own alert, and a reaction from an allowed user
+runs the same claim-then-act path as a Discord button click.
 """
 from __future__ import annotations
 
@@ -100,6 +106,34 @@ def parse_event(event, room_id, bot_user_id=""):
         return None
     return S(author=S(id=sender, bot=False), channel=S(id=str(room_id), parent_id=None),
              content=text, id=event.get("event_id"), attachments=attachments)
+
+
+def parse_reaction_event(event, room_id, bot_user_id=""):
+    """An m.reaction annotation as its routing fields, or None.
+
+    Only an ``m.annotation`` relation from the configured room counts,
+    and never the bot's own: the bot seeds one reaction per action on
+    its own alerts (#1291), and those seeds must not act. Everything
+    else — a reaction with no target or key, another event type — is
+    not an alert press.
+    """
+    if not isinstance(event, dict) or event.get("type") != "m.reaction":
+        return None
+    sender = str(event.get("sender") or "")
+    if not sender or (bot_user_id and sender == bot_user_id):
+        return None
+    content = event.get("content") or {}
+    if not isinstance(content, dict):
+        return None
+    relates = content.get("m.relates_to") or {}
+    if not isinstance(relates, dict) or relates.get("rel_type") != "m.annotation":
+        return None
+    target = str(relates.get("event_id") or "")
+    key = str(relates.get("key") or "")
+    if not target or not key:
+        return None
+    return S(sender_id=sender, room_id=str(room_id), target_event_id=target, key=key,
+             id=event.get("event_id"))
 
 
 class StandaloneAdapter(BasePlatformAdapter):
@@ -246,6 +280,49 @@ class StandaloneAdapter(BasePlatformAdapter):
             resolved = self.registry.resolve_gateway_clarify(cid, str(text))
         return bool(resolved)
 
+    async def handle_alert_reaction(self, sender_id, room_id, target_event_id, key):
+        """Resolve one reaction press on a listener alert (#1291).
+
+        The listener recorded the alert (``print_alert_buttons``) when it
+        posted the alert with its reactions; a press claims it exactly
+        like a Discord click or a Telegram callback — find, check, take
+        once — and ``handle_click`` re-reads the printer before acting.
+        The gate is the allow-list every typed answer passes; an alert
+        press is not a print-start approval, so the separate approval
+        gate does not apply. The press counts only in the room the alert
+        was posted to. Matrix has no ephemeral answer, so refusals and
+        the outcome are short follow-up messages in the room — except
+        for reactions that are not alert actions at all (an unrelated
+        emoji, or any reaction on a message that is not a live alert),
+        which are ignored silently so ordinary room reactions never
+        draw bot noise.
+        """
+        from print_handy.hermes import print_alert_buttons as pab
+
+        action = pab.matrix_reaction_action(key)
+        if action is None:
+            return False
+        aid, alert = await asyncio.to_thread(pab.matrix_alert, str(target_event_id))
+        if not aid or not alert:
+            return False
+
+        async def post(text):
+            await self.send(chat_id=str(room_id), content=text)
+
+        if not self._is_allowed_user(str(sender_id), S(bot=False)):
+            await post("Not allowed. Nothing changed.")
+            return True
+        posted_room = str(alert.get("matrix_room_id") or "")
+        if posted_room and posted_room != str(room_id):
+            await post("Not allowed. Nothing changed.")
+            return True
+        if not await asyncio.to_thread(pab.take, aid):
+            await post("That alert is old or was already answered. Nothing sent.")
+            return True
+        outcome = await asyncio.to_thread(pab.handle_click, action, alert)
+        await post(str(outcome))
+        return True
+
     async def close_prompt(self, clarify_id, note):
         """No message edit on Matrix: a short follow-up message records the answer."""
         with _prompts_guard(self):
@@ -347,7 +424,20 @@ class MatrixClient:
         bot_id = self.bot_user_id or (str(self.user.id) if self.user is not None else "")
         return parse_event(event, room_id or self.room_id, bot_id)
 
+    def parse_reaction(self, event, room_id=None):
+        bot_id = self.bot_user_id or (str(self.user.id) if self.user is not None else "")
+        return parse_reaction_event(event, room_id or self.room_id, bot_id)
+
     async def handle_event(self, event, room_id=None):
+        reaction = self.parse_reaction(event, room_id)
+        if reaction is not None:
+            if self.core is None:
+                return None
+            handler = getattr(self.core.adapter, "handle_alert_reaction", None)
+            if handler is None:
+                return None
+            return await handler(reaction.sender_id, reaction.room_id,
+                                 reaction.target_event_id, reaction.key)
         parsed = self.parse(event, room_id)
         if parsed is None or self.core is None:
             return None
@@ -420,7 +510,7 @@ class MatrixClient:
         await self._maybe_join(data)
         dispatched = 0
         for room_id, event in self._room_events(data):
-            if self.parse(event, room_id) is None:
+            if self.parse(event, room_id) is None and self.parse_reaction(event, room_id) is None:
                 continue
             task = asyncio.create_task(self._run_event(event, room_id))
             self._handlers.add(task)

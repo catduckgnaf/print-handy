@@ -87,6 +87,9 @@ class HomeserverStub:
         if "/send/m.room.message/" in path:
             self.calls.append(("send", {"path": path, "body": body}))
             return _Response(json.dumps({"event_id": f"$evt{self._next}"}).encode())
+        if "/send/m.reaction/" in path:
+            self.calls.append(("reaction", {"path": path, "body": body}))
+            return _Response(json.dumps({"event_id": f"$evt{self._next}"}).encode())
         raise AssertionError(f"unexpected homeserver call: {req.method} {url}")
 
     def routes(self):
@@ -705,6 +708,9 @@ def test_listener_post_routes_to_matrix_in_standalone_mode(monkeypatch):
 
 
 def test_listener_alert_buttons_degrade_to_plain_text_on_matrix(monkeypatch):
+    # The reaction post is the Matrix alert path (#1291); when it cannot
+    # run (here: no token in this config), the alert still goes out as
+    # plain text, and the Discord button post is never touched.
     from print_handy.hermes import moonraker_event_listener as mel
     monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
     monkeypatch.setitem(_config.cfg()["bot"], "platform", "matrix")
@@ -743,3 +749,119 @@ def test_a_number_cannot_approve_a_print_for_a_non_approver(cfg, tmp_path):
 
     assert run(scenario(other)) == (False, True)
     assert run(scenario(USER)) == (True, False)
+
+
+# ------------------------------------------------- alert reactions (#1291 item 15)
+
+
+def reaction_event(key="▶️", target="$alert1", sender=USER, event_id="$r1"):
+    return {"type": "m.reaction", "sender": sender, "event_id": event_id,
+            "content": {"m.relates_to": {"rel_type": "m.annotation",
+                                         "event_id": target, "key": key}}}
+
+
+def test_parse_reaction_event_accepts_annotations_and_ignores_the_rest():
+    parsed = matrix.parse_reaction_event(reaction_event(), ROOM, BOT)
+    assert parsed.sender_id == USER and parsed.room_id == ROOM
+    assert parsed.target_event_id == "$alert1" and parsed.key == "▶️"
+    # The bot's own seeded reactions never act.
+    assert matrix.parse_reaction_event(reaction_event(sender=BOT), ROOM, BOT) is None
+    # A message is not a reaction, and a reaction without its target or
+    # key is not actionable.
+    assert matrix.parse_reaction_event(text_event("hi"), ROOM, BOT) is None
+    broken = reaction_event()
+    del broken["content"]["m.relates_to"]["key"]
+    assert matrix.parse_reaction_event(broken, ROOM, BOT) is None
+    # parse_event still treats a reaction as no message at all.
+    assert matrix.parse_event(reaction_event(), ROOM, BOT) is None
+
+
+def _alert_adapter(monkeypatch, stub, *, alert, take_result="same",
+                   click_text="Resumed. The printer now reports printing."):
+    """An adapter whose alert store serves ``alert`` for $alert1; returns the click log."""
+    from print_handy.hermes import print_alert_buttons as pab
+    clicks = []
+    monkeypatch.setattr(pab, "matrix_alert",
+                        lambda event_id: ("ab12cd34", alert) if alert and event_id == "$alert1"
+                        else (None, None))
+    monkeypatch.setattr(pab, "take", lambda aid: alert if take_result == "same" else take_result)
+    monkeypatch.setattr(pab, "handle_click",
+                        lambda action, a: clicks.append((action, a)) or click_text)
+    adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER,
+                                       token=TOKEN, opener=stub)
+    return adapter, clicks
+
+
+def test_alert_reaction_runs_the_action_and_posts_the_outcome(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "▶️")) is True
+    assert clicks == [("resume", alert)]
+    assert any("Resumed. The printer now reports printing." in b for b in stub.sent_bodies())
+
+
+def test_alert_reaction_without_variation_selector_still_maps(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "⏹")) is True
+    assert clicks == [("cancel", alert)]
+
+
+def test_alert_reaction_stranger_is_refused_before_any_claim(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    from print_handy.hermes import print_alert_buttons as pab
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    assert run(adapter.handle_alert_reaction("@mallory:example.org", ROOM, "$alert1", "⏹️")) is True
+    assert clicks == [] and taken == []
+    assert any("Not allowed. Nothing changed." in b for b in stub.sent_bodies())
+
+
+def test_alert_reaction_in_another_room_is_refused(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": "!other:example.org"}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    from print_handy.hermes import print_alert_buttons as pab
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "⏹️")) is True
+    assert clicks == [] and taken == []
+    assert any("Not allowed. Nothing changed." in b for b in stub.sent_bodies())
+
+
+def test_alert_reaction_second_press_loses_the_claim_race(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert, take_result=None)
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "▶️")) is True
+    assert clicks == []
+    assert any("old or was already answered" in b for b in stub.sent_bodies())
+
+
+def test_reactions_that_are_not_alert_actions_are_ignored_silently(monkeypatch):
+    stub = HomeserverStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "matrix_room_id": ROOM}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    # An unrelated emoji on the alert, and an action emoji on some other
+    # message: neither posts anything and neither claims the alert.
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$alert1", "🎉")) is False
+    assert run(adapter.handle_alert_reaction(USER, ROOM, "$someone-elses", "▶️")) is False
+    assert clicks == [] and stub.sent_bodies() == []
+
+
+def test_client_routes_reaction_events_from_sync(cfg, tmp_path):
+    stub = HomeserverStub(sync_script=[_sync_result([reaction_event()])])
+    client, core = make_core(cfg, stub, tmp_path)
+    seen = []
+
+    async def fake_handle(sender_id, room_id, target, key):
+        seen.append((sender_id, room_id, target, key))
+        return True
+
+    core.adapter.handle_alert_reaction = fake_handle
+    assert run(client.poll_once()) == 1
+    assert seen == [(USER, ROOM, "$alert1", "▶️")]

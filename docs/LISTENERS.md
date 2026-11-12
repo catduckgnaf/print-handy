@@ -180,8 +180,9 @@ external start post, completion attaches as before #460):
 | `flashforge_stock` | `stock_watch` monitor | polling listener | adapter `control()` over stock LAN HTTP (`jobCtl_cmd`; resume is spelled `continue`) |
 | `octoprint` | `octo_watch` monitor | polling listener | adapter `control()` over OctoPrint HTTP (`/api/job`; stop is spelled `cancel`) |
 
-On buttonless standalone platforms (Telegram/Matrix) the pause alert is
-plain text, exactly as the Moonraker listener's is there.
+On standalone Telegram and Matrix the family pause alert is plain
+text; the inline-keyboard and reaction forms belong to the Moonraker
+listener's own pause and stop alerts.
 
 ## Instances
 
