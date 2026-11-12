@@ -61,6 +61,15 @@ def test_the_old_environment_name_loads_and_the_new_one_wins():
     assert settings.load(local=False, environ=both)["paths"]["state_home"] == ROOT / "new"
 
 
+def test_an_install_setting_only_the_old_environment_name_gets_the_same_state_path(tmp_path):
+    folder = str(tmp_path / "state")
+    old = settings.load(local=False, environ={"PRINT_HANDY__PATHS__HERMES_HOME": folder})
+    new = settings.load(local=False, environ={"PRINT_HANDY__PATHS__STATE_HOME": folder})
+    assert old["paths"]["state_home"] == new["paths"]["state_home"] == Path(folder)
+    assert settings.state_dir(old) == settings.state_dir(new)
+    assert "PRINT_HANDY__PATHS__HERMES_HOME" in (ROOT / "docs" / "SETTINGS.md").read_text(encoding="utf-8")
+
+
 def test_the_old_helper_names_are_the_new_ones():
     assert _config.hermes_home is _config.state_home
     assert _config.pinned_hermes_home is _config.pinned_state_home

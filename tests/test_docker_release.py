@@ -179,6 +179,17 @@ mv dot-config .config
         for name in sorted(names):
             section, key = name[len("PRINT_HANDY__"):].lower().split("__")
             with self.subTest(env=name):
+                if (section, key) in settings.KEY_ALIASES:
+                    # A deprecated spelling documented beside its new name (#1323: paths.hermes_home):
+                    # the loader must still read it, into the current key.
+                    new_section, new_key = settings.KEY_ALIASES[(section, key)]
+                    self.assertIn((new_section, new_key), self.inventory, name)
+                    if section == "paths":
+                        value = "/tmp/alias-check"
+                        loaded = settings.load(local=False, environ={name: value})[new_section][new_key]
+                        self.assertEqual(loaded, settings.load(
+                            local=False, environ={f"PRINT_HANDY__{new_section.upper()}__{new_key.upper()}": value})[new_section][new_key], name)
+                    continue
                 self.assertTrue((section, key) in self.inventory or section in settings.OPEN_SECTIONS, name)
 
     def test_every_commented_example_value_loads_when_uncommented(self):
