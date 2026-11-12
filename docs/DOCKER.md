@@ -342,12 +342,12 @@ As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flash
 
 ## Pinning the image
 
-`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.3.0` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
+`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.3.1` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
 
-The current release is 2.3.0. Its index digest, read anonymously from GHCR on 2026-11-12, is the same digest `:latest` pointed at that day:
+The current release is 2.3.1. Its index digest, read anonymously from GHCR on 2026-11-12, is the same digest `:latest` pointed at that day:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:2d0bc32a8d84bdfd288b4a01114bd86cacb101ba49ec91b8abb8ce1f1178beb9
+ghcr.io/catduckgnaf/print-handy@sha256:87c8047007cd004d22222fae7fb66b882c569da21d231d23187679f37fa1a467
 ```
 
 That digest is the amd64 and arm64 index, not one architecture's image. The Unraid templates (in-repo and Community Applications) never pin it: their `Repository` is `:latest`, so Unraid offers each release as a normal container update. Pin on your own install only if you want to hold a version. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
@@ -355,7 +355,7 @@ That digest is the amd64 and arm64 index, not one architecture's image. The Unra
 Confirm a tag still points where you think before you pin it:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.3.0
+docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.3.1
 ```
 
 The `Digest:` line of the index is the value to pin. The per-architecture lines under `Manifests:` are not.
@@ -368,7 +368,7 @@ This is an optional, per-install edit for holding a version. The templates stay 
 2. Change only the `Repository` element, from the moving tag to the digest:
 
 ```xml
-<Repository>ghcr.io/catduckgnaf/print-handy@sha256:2d0bc32a8d84bdfd288b4a01114bd86cacb101ba49ec91b8abb8ce1f1178beb9</Repository>
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:87c8047007cd004d22222fae7fb66b882c569da21d231d23187679f37fa1a467</Repository>
 ```
 
 3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: every appdata path and any extra mounts (account tokens, timelapse archive) stay.
@@ -473,13 +473,19 @@ To adopt the new name (optional, any time before that removal):
 
 ### Rollback
 
-Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The previous release, 2.2.9, is:
+Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The previous release, 2.3.0, is:
+
+```text
+ghcr.io/catduckgnaf/print-handy@sha256:2d0bc32a8d84bdfd288b4a01114bd86cacb101ba49ec91b8abb8ce1f1178beb9
+```
+
+2.3.1 changes no existing data format. What it adds to the state folder (the multicolor usage ledger, and new fields in the runout question and finish-post bookkeeping) is simply unused by 2.3.0, and multicolor prints are not charged to Spoolman again under 2.3.0. The release before that, 2.2.9, is:
 
 ```text
 ghcr.io/catduckgnaf/print-handy@sha256:e7358f7363af4b67e46cc26c78289c24926f6e7ddb54558eb81a6a31858da9ec
 ```
 
-Rolling back from 2.3.0 to 2.2.9: 2.2.9 does not know the `paths.state_home` name (2.3.0's rename of `paths.hermes_home`). In Docker the state folder is `/data/state` either way, so nothing changes; on a native install that set only `state_home`, set `hermes_home` to the same folder before starting 2.2.9.
+Rolling back to 2.2.9: 2.2.9 does not know the `paths.state_home` name (2.3.0's rename of `paths.hermes_home`). In Docker the state folder is `/data/state` either way, so nothing changes; on a native install that set only `state_home`, set `hermes_home` to the same folder before starting 2.2.9.
 
 Put that value back in `Repository` (or in `PRINT_HANDY_IMAGE`) and recreate. If the container will not start on the new digest, put the digest you copied out of the template backup back instead of guessing a tag.
 
