@@ -307,6 +307,12 @@ household, exactly as you would for print approvals.
 - One bot serves one printer's camera per instance (the multi-instance rule): a second
   printer is a second Print Handy instance with its own channel, tunnel hostname and
   settings.
+- The printer's own screen is never the camera. Z-Mod lists its screen as a webcam
+  entry (the `WEB_SCREEN` redirect), and screen UIs can carry prompts and information
+  meant for whoever is standing at the printer. Automatic camera selection from the
+  webcam registry skips screen feeds, and every live view that resolves its source
+  there gets that rule. A printer whose only listed feed is its screen reports that
+  no camera is available instead of streaming the display.
 
 ### Support and verification matrix
 

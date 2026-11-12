@@ -13,7 +13,19 @@ the precedent of :mod:`print_handy.macros`.
   ``{"webcams": [...]}`` whose entries carry ``stream_url`` /
   ``snapshot_url`` / ``service`` / ``name``. Relative URLs are resolved
   against the Moonraker base URL; the configured (preferred) name wins,
-  otherwise the first usable webcam.
+  otherwise the first usable webcam. One class of entry is never an
+  automatic pick: a **printer screen feed** (#1306). Z-Mod redirects
+  the printer's physical screen as a virtual webcam named ``screen``
+  (its ``WEB_SCREEN`` parameter, on by default), HelixScreen's screen
+  sharing registers ``HelixScreen Screen``, and its built-in remote
+  screen is the ``gui`` webcam. Those feeds show the printer's display
+  — prompts and on-screen information — not the build plate, so
+  automatic selection skips them (:func:`is_screen_feed_name`), a
+  registry whose only usable entries are screen feeds resolves to a
+  clear unavailable-camera error instead of a silent screen stream,
+  and only an explicit preferred-name configuration can select one,
+  under its real name. The dedicated, labeled screen view is a
+  separate feature (#1303); nothing here exposes screen controls.
 - **Fallback derivation**: when there is no usable webcams payload, a
   stream URL is derived from the existing snapshot-URL convention
   (``?action=snapshot`` becomes ``?action=stream``). A snapshot URL with
@@ -124,6 +136,7 @@ __all__ = [
     "derive_from_snapshot_url",
     "encoder_candidates",
     "expire_empty",
+    "is_screen_feed_name",
     "plan_encoders",
     "pointer_text",
     "read_session_file",
@@ -446,7 +459,42 @@ def _webcam_entries(payload):
     return [entry for entry in entries if isinstance(entry, dict)]
 
 
-def _pick_entry(entries, preferred_name):
+# --------------------------------------------------------------------- screen feeds
+
+#: Webcam names that are printer screen feeds in their own right, with no
+#: "screen" substring to catch: HelixScreen's built-in remote screen is
+#: exposed as the ``gui`` webcam — a feed of the screen UI.
+_SCREEN_FEED_EXACT_NAMES = frozenset({"gui"})
+
+
+def is_screen_feed_name(name) -> bool:
+    """True when a webcam entry name identifies a printer screen feed (#1306).
+
+    The classification is evidence-based and deliberately narrow, so
+    legitimate cameras keep working:
+
+    - Z-Mod redirects the printer screen as a virtual camera named
+      ``screen`` (the ``WEB_SCREEN`` global parameter, on by default);
+    - HelixScreen's screen sharing registers ``HelixScreen Screen``;
+    - HelixScreen's built-in remote screen is the ``gui`` webcam.
+
+    Any name containing "screen" (case-insensitive) is therefore a
+    screen feed — physical cameras are named for what they watch (bed,
+    nozzle, chamber), never for a display — and the exact name ``gui``
+    is the known screen-UI feed. Everything else, including a missing,
+    empty or non-string name, is treated as a camera: an ambiguous name
+    is never enough to exclude a real camera.
+    """
+    if not isinstance(name, str):
+        return False
+    cleaned = name.strip().casefold()
+    if not cleaned:
+        return False
+    return cleaned in _SCREEN_FEED_EXACT_NAMES or "screen" in cleaned
+
+
+def _usable_entries(entries):
+    """The enabled entries carrying a stream or snapshot URL, in order."""
     usable = []
     for entry in entries:
         if entry.get("enabled") is False:
@@ -455,6 +503,17 @@ def _pick_entry(entries, preferred_name):
         snapshot = _clean(entry.get("snapshot_url") or entry.get("snapshotUrl"))
         if stream or snapshot:
             usable.append(entry)
+    return usable
+
+
+def _all_screens(entries) -> bool:
+    """True when entries exist, are usable, and every one is a screen feed."""
+    usable = _usable_entries(entries)
+    return bool(usable) and all(is_screen_feed_name(entry.get("name")) for entry in usable)
+
+
+def _pick_entry(entries, preferred_name):
+    usable = _usable_entries(entries)
     if not usable:
         return None
     if preferred_name:
@@ -462,8 +521,16 @@ def _pick_entry(entries, preferred_name):
         for entry in usable:
             entry_name = entry.get("name")
             if isinstance(entry_name, str) and entry_name.casefold() == wanted:
+                # An explicitly configured name is the operator's choice
+                # and is honored as-is — even for a screen feed, which
+                # then keeps its real name and is never mislabeled as a
+                # bed view. Automatic selection below is the path that
+                # must never land on a screen (#1306).
                 return entry
-    return usable[0]
+    for entry in usable:
+        if not is_screen_feed_name(entry.get("name")):
+            return entry
+    return None
 
 
 def camera_source_from_moonraker(payload, *, base_url=None, preferred_name=None,
@@ -489,6 +556,17 @@ def camera_source_from_moonraker(payload, *, base_url=None, preferred_name=None,
             service = entry.get("service") if isinstance(entry.get("service"), str) else None
             return _make_source(stream_url=stream, snapshot_url=snapshot,
                                 name=name, service=service)
+        if _all_screens(entries):
+            # Every usable entry is a printer screen feed: excluded from
+            # camera selection on purpose (#1306), so the refusal says
+            # so — a screen is not an unavailable camera's silence to
+            # fill, and it is never streamed as a bed view instead.
+            if fallback_snapshot_url:
+                return derive_from_snapshot_url(fallback_snapshot_url)
+            raise LiveStreamError(
+                "Moonraker's webcams payload listed only printer screen "
+                "feed(s), which are not bed cameras; no camera source is "
+                "available (a screen feed is never selected as the camera)")
     if fallback_snapshot_url:
         return derive_from_snapshot_url(fallback_snapshot_url)
     raise LiveStreamError(
@@ -533,6 +611,7 @@ def camera_source_from_octoprint(payload, *, base_url=None, preferred_name=None,
     """
     single, entries = _octoprint_single_and_entries(payload)
     entry = None
+    entries_all_screens = False
     if entries:
         # OctoPrint entries use the same name/enabled conventions; reuse the picker.
         normalised = []
@@ -542,6 +621,7 @@ def camera_source_from_octoprint(payload, *, base_url=None, preferred_name=None,
                 copy["enabled"] = copy["webcamEnabled"]
             normalised.append(copy)
         entry = _pick_entry(normalised, preferred_name)
+        entries_all_screens = entry is None and _all_screens(normalised)
     elif single is not None:
         if single.get("webcamEnabled") is False or single.get("enabled") is False:
             entry = None
@@ -555,6 +635,16 @@ def camera_source_from_octoprint(payload, *, base_url=None, preferred_name=None,
         if stream or snapshot:
             name = entry.get("name") if isinstance(entry.get("name"), str) else ""
             return _make_source(stream_url=stream, snapshot_url=snapshot, name=name)
+    if entries_all_screens:
+        # Same rule as the Moonraker resolver (#1306): a list of nothing
+        # but printer screen feeds is a named refusal, not a silent
+        # screen stream and not a generic "no webcam" shrug.
+        if fallback_snapshot_url:
+            return derive_from_snapshot_url(fallback_snapshot_url)
+        raise LiveStreamError(
+            "OctoPrint's settings payload listed only printer screen "
+            "feed(s), which are not bed cameras; no camera source is "
+            "available (a screen feed is never selected as the camera)")
     if fallback_snapshot_url:
         return derive_from_snapshot_url(fallback_snapshot_url)
     raise LiveStreamError(
