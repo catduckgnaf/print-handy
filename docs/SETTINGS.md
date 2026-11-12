@@ -569,6 +569,8 @@ Image build inputs (`docker build --build-arg NAME=value`), not runtime settings
 | `WITH_BAMBU` | `false` | `true` builds Bambu Studio from pinned source into `/usr/bin/bambu-studio`; `false` omits it and Bambu Lab slicing fails closed |
 | `BAMBU_REF` | `56a57d00a591360cf41bf21383915ee5bf357be5` | Pinned Bambu Studio 02.09.01.70 source commit |
 | `BAMBU_BUILD_PROFILE` | `release-static-fhs` | Names the Bambu Studio build options; rename it to reset the build trees |
+| `IMAGE_TAG` | empty | The image tag the diagnostics bundle reports, exposed as `PRINT_HANDY_IMAGE_TAG`; the publish, develop and nightly workflows pass the version they label the image with (#1332), and a local build leaves it empty ("not recorded") |
+| `IMAGE_SHA` | empty | The source commit the diagnostics bundle reports, exposed as `PRINT_HANDY_IMAGE_SHA`; the same workflows pass the commit they label the image with |
 
 ## Secrets
 
