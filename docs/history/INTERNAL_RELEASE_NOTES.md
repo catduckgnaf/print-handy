@@ -19,6 +19,7 @@
 
 Merged PRs in the range, one line each:
 
+- test(timing): re-record the 2.3.0 slicing-speed baselines from CI run 43194364519 (#1346) (PR #1347).
 - Material mismatches warn and can be accepted at print start, never hard-block (#1336) (PR #1340).
 - #1160 H: warm heavy worker, timing bisect, outage pins, image stamp, starter mentions, slot strings (#1332) (PR #1335).
 - #1323 (7/7): print_handy.hermes becomes print_handy.runtime; paths.hermes_home becomes paths.state_home (PR #1344).

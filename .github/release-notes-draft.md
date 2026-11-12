@@ -86,6 +86,6 @@ Not verified live: the module split, the printer-control service, start-truth an
 - A warm heavy-worker for faster slicing starts, outage escalation beyond Discord, the image tag and commit stamped by the publish workflow, the old "slot N" strings swept, timelapse clips joined by record time, and the Discord-flow timing rise bisected. (#1335)
 - CI: a pull request's superseded runs are cancelled but a main run never is, a burst of merges to main keeps only the newest queued run, and the read-only image probes get a writable data root. (#1248) (#1293) (#1308)
 - Contribution rules enforced by Actions: a bug fix carries a regression test seen failing, and an issue closes only with its checklist finished. (#1230)
-- Slicing-speed baselines re-recorded from the release commit's own CI run. (#1324)
+- Slicing-speed baselines re-recorded from the release commit's own CI run. (#1324) (#1347)
 - The encoder default shown in `.env.example` and the Docker GPU steps matches the real default (`cpu`). (#1327)
 - Docs: US spelling across the user guides, the AD5X contract moved to history, the 2.2.9 index digest pinned and the CA template snapshot refreshed, and the README quickstart test keeps the Web UI's cookies. (#1259) (#1251) (#1256) (#1258)
