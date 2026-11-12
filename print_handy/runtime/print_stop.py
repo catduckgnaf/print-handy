@@ -68,6 +68,23 @@ def post_print_command(send, path: str, **kw) -> bool:
     return True
 
 
+def read_back(read, done, wait_s: float, poll_s: float = 1.0):
+    """Re-read until ``done(reading)`` or ``wait_s`` passes. The last good reading; None when none.
+
+    The read-back after one print command: a read that raises is skipped, never retried as a send.
+    """
+    deadline = time.monotonic() + wait_s
+    last = None
+    while time.monotonic() < deadline:
+        time.sleep(poll_s)
+        try:
+            last = read()
+        except Exception:
+            continue
+        if done(last):
+            break
+    return last
+
 def _lan_adapter(printer_id: str | None = None):
     """A printer's adapter when it talks Bambu Lab LAN MQTT; None for Moonraker printers (#276).
 
@@ -349,16 +366,8 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
         replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
         if not replied:
             wait_s = max(wait_s, NO_REPLY_WAIT_S)
-    deadline = time.monotonic() + wait_s
-    after = before
-    while time.monotonic() < deadline:
-        time.sleep(poll_s)
-        try:
-            after = status(printer_id)
-        except Exception:
-            continue
-        if after["state"] not in ACTIVE:
-            break
+    after = read_back(lambda: status(printer_id), lambda st: st["state"] not in ACTIVE,
+                      wait_s, poll_s) or before
     if after["state"] in ACTIVE:
         if not replied:
             return True, (f"Cancel sent. The printer has not answered and still reports {after['state']} "

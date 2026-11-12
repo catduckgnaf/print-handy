@@ -300,20 +300,12 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
         return False, "A different print is paused than the one you confirmed. Nothing sent."
     if head_filament_loaded(printer_id) is False:
         return False, HEAD_EMPTY_TEXT
-    from .print_stop import NO_REPLY_WAIT_S, post_print_command
+    from .print_stop import NO_REPLY_WAIT_S, post_print_command, read_back
     replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
     if not replied:
         wait_s = max(wait_s, NO_REPLY_WAIT_S)
-    deadline = time.monotonic() + wait_s
-    after = before
-    while time.monotonic() < deadline:
-        time.sleep(poll_s)
-        try:
-            after = status(printer_id)
-        except Exception:
-            continue
-        if after["state"] == "printing":
-            break
+    after = read_back(lambda: status(printer_id), lambda st: st["state"] == "printing",
+                      wait_s, poll_s) or before
     if after["state"] == "printing":
         where = where_text(after)
         return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."
