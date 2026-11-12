@@ -1254,6 +1254,116 @@ def post_telegram_with_buttons(token: str, chat_id: str, content: str, kind: str
     return True
 
 
+# ---------------------------------------------------------------------------
+# Matrix reaction buttons (#1291 item 15)
+#
+# Matrix has no inline keyboards; its button equivalent is an m.reaction
+# annotation on the alert message. One reaction key per alert action,
+# derived from the same ``components`` table Discord and Telegram use, so
+# every platform offers the same actions for an alert kind. Clients vary
+# in whether they send the U+FE0F variation selector, so lookups strip it.
+
+MATRIX_REACTION_KEYS = {
+    "resume": "▶️",
+    "cancel": "⏹️",
+    "pause": "⏸️",
+    "acknowledge": "✅",
+    "mute": "🔇",
+    "recover": "🔄",
+}
+
+
+def _reaction_key(key: Any) -> str:
+    return str(key or "").replace("\ufe0f", "").strip()
+
+
+_MATRIX_REACTION_ACTIONS = {_reaction_key(key): action for action, key in MATRIX_REACTION_KEYS.items()}
+
+
+def matrix_reaction_choices(kind: str) -> list[tuple[str, str, str]]:
+    """(reaction key, action, label) for one alert kind, from the Discord components table."""
+    choices = []
+    for row in components("matrix", kind):
+        for button in row["components"]:
+            action = str(button["custom_id"]).split(":")[1]
+            choices.append((MATRIX_REACTION_KEYS[action], action, str(button["label"])))
+    return choices
+
+
+def matrix_reaction_action(key: Any) -> str | None:
+    """The alert action one reaction key names, or None when it names no action."""
+    return _MATRIX_REACTION_ACTIONS.get(_reaction_key(key))
+
+
+def matrix_alert_text(content: str, kind: str) -> str:
+    """The alert text plus its reaction instructions, one key and label per action."""
+    named = " · ".join(f"{key} {label}" for key, _action, label in matrix_reaction_choices(kind))
+    return f"{content}\n\nReact to act: {named}"
+
+
+def matrix_alert(event_id: str) -> tuple[str | None, dict[str, Any] | None]:
+    """(alert id, alert) for the live alert posted as one Matrix event, else (None, None).
+
+    A reaction carries the message it annotates, not an alert id, so the
+    alert is found by the Matrix event id its post stored. Freshness is
+    the same TTL ``peek`` enforces.
+    """
+    if not event_id:
+        return None, None
+    now = time.time()
+    for aid, alert in _load().items():
+        if isinstance(alert, dict) and alert.get("matrix_event_id") == str(event_id) and _fresh(alert, now):
+            return aid, alert
+    return None, None
+
+
+def post_matrix_with_reactions(homeserver: str, token: str, room_id: str, content: str, kind: str,
+                               filename: str, connection: str | None = None,
+                               printer_id: str | None = None, identity: Any = None,
+                               mention_user_id: str | None = None) -> bool:
+    """Post the alert to a Matrix room with its actions as reactions (#1291).
+
+    The Matrix mirror of ``post_with_buttons``: the same recorded alert
+    and the same actions, offered as m.reaction annotations instead of
+    buttons. The alert text names each reaction, and the bot seeds one
+    reaction per action on its own message, so in a client each action
+    is a single tap on the seeded reaction rather than an emoji-picker
+    hunt; the press returns through the Matrix adapter's /sync ingest.
+    The Matrix event/room ids are stored under their own keys —
+    ``retire_alerts`` edits Discord messages by ``message_id``/
+    ``channel_id`` and must never see Matrix ids there. False means the
+    caller should fall back to plain text.
+    """
+    if not homeserver or not token or not room_id:
+        return False
+    extra: dict[str, Any] = {}
+    if connection:
+        extra["connection"] = connection
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
+    if identity:
+        extra["identity"] = str(identity)
+    aid = record(kind, filename, **extra)
+    from print_handy.bot import matrix_rest
+    kwargs = {"mention_user_id": mention_user_id} if mention_user_id else {}
+    ok, detail = matrix_rest.send(homeserver, token, str(room_id),
+                                  matrix_alert_text(content, kind), **kwargs)
+    if not ok or not detail:
+        take(aid)
+        return False
+    event_id = str(detail)
+    with _LOCK:
+        data = _load()
+        if aid in data:
+            data[aid].update(matrix_event_id=event_id, matrix_room_id=str(room_id))
+            _save(data)
+    for key, _action, _label in matrix_reaction_choices(kind):
+        with contextlib.suppress(Exception):
+            matrix_rest.send_reaction(homeserver, token, str(room_id), event_id, key)
+    return True
+
+
 def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str, ...] = ("shutdown", "error", "pause", "paused"),
                   *, headline: str = "Printer firmware stopped.", printer_id: str | None = None) -> int:
     """Strip the buttons from stale alerts for this job and say why, so a dead Cancel button is not left behind.

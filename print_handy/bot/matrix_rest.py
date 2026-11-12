@@ -103,6 +103,14 @@ def send_event(homeserver, token, room_id, event_type, content, txn_id=None, *, 
                     content, timeout=timeout, opener=opener)
 
 
+def send_reaction(homeserver, token, room_id, event_id, key, *, txn_id=None, opener=None, timeout=30):
+    """One m.reaction annotation on ``event_id`` with reaction ``key``. Returns the event id, or ''."""
+    content = {"m.relates_to": {"rel_type": "m.annotation", "event_id": str(event_id), "key": str(key)}}
+    sent = send_event(homeserver, token, room_id, "m.reaction", content, txn_id,
+                      opener=opener, timeout=timeout)
+    return str((sent or {}).get("event_id") or "")
+
+
 def redact(homeserver, token, room_id, event_id, *, txn_id=None, opener=None, timeout=30):
     """Redact (delete) one event. Returns the response dict."""
     room = urllib.parse.quote(str(room_id), safe="")

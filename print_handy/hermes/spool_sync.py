@@ -6,7 +6,10 @@ stays human-readable (`IFS Slot N` / `Shelf`) and is written but never read
 as truth, and ``printer_hardware.json``'s ``filament_slots`` is a cache that
 :func:`reconcile` rebuilds from Spoolman. The AD5X screen is *told* what
 Spoolman says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=` macro and
-through the Moonraker ``lane_data`` record written on a bind (#791). The
+through the Moonraker ``lane_data`` record written on a bind (#791) — on
+every family except the multi-tool Creator family, whose ``lane_data``
+keys are ``T0``..``T3`` and which gets no IFS-shaped ``laneN`` record in
+its namespace (#1304). The
 inbound direction — screen-initiated changes read back from ``lane_data``
 and converged through :func:`reconcile` — lives in ``lane_data_sync``.
 
@@ -317,6 +320,20 @@ def _printer_adapter(printer_id: str | None):
         return None
     from print_handy import settings
     return printers.get(settings.by_id(printer_id)["model"], settings.view_for(printer_id))
+
+
+def _toolhead_lane_namespace(printer_id: str | None) -> bool:
+    """True when the printer is the multi-tool (Creator) family, whose ``lane_data`` keys are ``T0``..``T3`` (#1304).
+
+    Only that family skips the IFS-shaped ``laneN`` record on a bind. An
+    adapter that cannot be resolved keeps the #791 behavior (the record is
+    written), as on every other family.
+    """
+    try:
+        adapter = _printer_adapter(printer_id) if printer_id else printers.current()
+    except Exception:
+        return False
+    return getattr(adapter, "multi_tool", False) is True
 
 
 def _pending_path(pending_path: Path | None, printer_id: str | None) -> Path:
@@ -866,15 +883,26 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
     lane_data = "not requested"
     if push_screen_update:
-        # The lane_data side of the screen converge (#791): write this slot's
-        # record beside the CHANGE_ZCOLOR push_screen sends below (the gcode
-        # itself is not duplicated here). Best effort, like the screen push:
-        # a Moonraker database failure names itself and never fails the bind.
-        try:
-            write_lane_record(slot, spool, mr=mr, name=record["name"])
-            lane_data = "written"
-        except Exception:
-            lane_data = "not updated — run `/spool sync` to try again"
+        if _toolhead_lane_namespace(printer_id):
+            # The Creator toolhead family keys its lane_data namespace
+            # T0..T3, not laneN: an IFS-shaped lane record would sit there
+            # as a foreign record, and writers that find entries by their
+            # lane field could act on it as another toolhead's (#1304).
+            # Every other family keeps the #791 record, single-slot
+            # Klipper printers running HelixScreen included. The bind's
+            # Spoolman side above stands; only the record is skipped.
+            lane_data = "unsupported"
+        else:
+            # The lane_data side of the screen converge (#791): write this
+            # slot's record beside the CHANGE_ZCOLOR push_screen sends below
+            # (the gcode itself is not duplicated here). Best effort, like
+            # the screen push: a Moonraker database failure names itself
+            # and never fails the bind.
+            try:
+                write_lane_record(slot, spool, mr=mr, name=record["name"])
+                lane_data = "written"
+            except Exception:
+                lane_data = "not updated — run `/spool sync` to try again"
         try:
             if printer_id:
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr,

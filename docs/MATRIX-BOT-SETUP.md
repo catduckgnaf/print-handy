@@ -125,9 +125,30 @@ Matrix prompt.
 - **No buttons**: Matrix has no inline keyboards, so a prompt is the
   question plus a numbered list, reply with the number (`2`) or with
   the choice text itself. Answering posts a short note recording the
-  choice. The listener's Discord button posts (pause alerts, plate
-  picker, insertion and spool questions) are sent as plain text that
-  names the typed command or reply doing the same job.
+  choice. The listener's other Discord button posts (plate picker,
+  insertion and spool questions) are sent as plain text that names
+  the typed command or reply doing the same job.
+- **Alert reactions**: pause and stop alerts carry their actions as
+  reactions instead, the Matrix equivalent of the Discord buttons.
+  The alert names one reaction per action (▶️ Resume print, ⏹️ Cancel
+  print; a shutdown alert offers 🔄 for its restart-and-end-job
+  action), and the bot seeds those reactions on its own alert, so
+  each action is a single tap on the seeded reaction. Reacting runs
+  the same action a Discord click does, re-reading the printer
+  first; only allowed users' reactions count, only in the room the
+  alert was posted to, and only the reactions that alert offered (a
+  ▶️ on a Cancel-only alert does nothing). The first counted reaction
+  answers the alert and later ones do nothing. The outcome is posted
+  as a short follow-up message; a refused user gets at most one
+  "Not allowed" note a minute.
+  - Only users in `allowed_user_ids` can act. Matrix has no open-room
+    mode: an empty allow list refuses every reaction, so list each
+    person who may resume, cancel or recover a print.
+  - Reactions in an encrypted room are not seen (the bot does not
+    decrypt), so alert reactions only work in an unencrypted room.
+  - Reactions older than 5 minutes, or sent before the bot started,
+    are ignored. A press made while the bot was down does not run
+    when it comes back; react again once it is up.
 - **One room**: the configured room is the print chat. Threads are not
   used in this version, and only that room is served.
 - **Messages are plain text.** No formatted body is sent, so file names,

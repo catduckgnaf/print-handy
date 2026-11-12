@@ -481,6 +481,11 @@ class TelegramClient:
                 await self.core.check_listener_outages()
             except Exception:
                 logger.exception("listener outage check failed")
+            try:
+                # Opt-out ZMod update alerts ([firmware] update_alerts): schedules only.
+                await self.core.check_firmware_updates()
+            except Exception:
+                logger.exception("firmware update alert check failed")
             await asyncio.sleep(HEARTBEAT_S)
 
     async def run(self):

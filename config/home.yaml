@@ -416,6 +416,14 @@ notify:
   # may name the topic itself, or set ntfy_topic and it is appended.
   ntfy_url: ''
   ntfy_topic: ''
+firmware:
+  # Chat alerts when a ZMod update is available (one alert per release,
+  # checked once a day, never while printing). The alert's Update button
+  # asks once more and applies only through the confirmed path; nothing
+  # updates without that press. false turns the alerts off.
+  update_alerts: true
+  # Hours between checks for each printer, 1 to 168.
+  update_check_hours: 24
 maintenance:
   quick_hours: 25
   full_hours: 75

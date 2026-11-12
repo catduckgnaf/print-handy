@@ -67,9 +67,34 @@ def normalize_mapping(mapping, state):
             if os.environ.get('PRINT_ACCEPT_SPOOL_CHANGE') != '1':
                 raise RuntimeError(f'slot {slot} spool changed since slicing (was {embedded_spool_id}, now {configured.get("spoolman_id")}); reslice or confirm')
         result[str(key)] = slot
-    if set(map(int, result)) != set(range(len(result))):
-        raise RuntimeError('tool mapping must be contiguous from T0')
+    # The mapped tools need not be contiguous from T0 (#1305): a slicer plate
+    # that uses a subset of the project's filaments (filaments 1 and 3, or
+    # filament 3 alone) emits exactly those tools (T0 and T2, or T2), and the
+    # operator's explicit map for them is the selection to preserve. What must
+    # hold is coverage — every tool the file uses is mapped — and that is
+    # enforced by validate_materials and finalize, which see the file's used
+    # tools; this function only validates the map itself.
+    #
+    # Two tools may name one slot (a shared spool, classify_ifs_action's
+    # 'shared_spool'): each tool is still material-checked against that slot,
+    # and it does not enable infinite spool. Print Handy's own slices never
+    # produce one (two picks of one slot merge into one tool); only an
+    # operator's explicit map or remap can.
     return result
+
+
+def drop_unused_tools(text, mapping):
+    """The map without entries for tools the file never selects.
+
+    Only for maps Print Handy built itself, where an unused entry is a
+    known by-product (a support filament's tool when Orca generated no
+    support, #867); an operator's explicit map is checked, not trimmed, by
+    validate_materials. A file that selects no tool at all is left for the
+    coverage check to refuse."""
+    used = used_tools(text)
+    if not used:
+        return dict(mapping)
+    return {tool: slot for tool, slot in mapping.items() if int(tool) in used}
 
 
 def describe_mapping(mapping, state):
@@ -108,6 +133,10 @@ def validate_materials(text, material, state, mapping=None):
     if any(not re.fullmatch(r'[A-Za-z0-9_+ .()-]+', item) for item in materials):
         raise RuntimeError('malformed per-tool filament_type metadata')
     tools = used_tools(text)
+    # An operator's explicit map is held to "map only the used tools"; a map
+    # already embedded in a finalized file is not, so files finalized before
+    # #1305 (an unused support tool, a stale T0) keep launching as they did.
+    explicit = mapping is not None
     if mapping is None:
         mapping = embedded_mapping(text, state)
     if mapping is None:
@@ -120,11 +149,25 @@ def validate_materials(text, material, state, mapping=None):
     mapping = normalize_mapping(mapping, state)
     if not tools or tools - set(map(int, mapping)):
         raise RuntimeError('used tools disagree with explicit mapping')
+    unused = sorted(set(map(int, mapping)) - tools)
+    if unused and explicit:
+        # An explicit map entry for a tool the file never selects would be
+        # finalized into zmod_color_data and SET_ZCOLOR, and launch would
+        # require that slot loaded and color-matched, for nothing (#1305).
+        names = ', '.join(f'T{tool}' for tool in unused)
+        used_names = ', '.join(f'T{tool}' for tool in sorted(tools))
+        raise RuntimeError(f'tool mapping names {names}, which the file never uses '
+                           f'(it uses {used_names}); map only the used tools')
 
     # Orca writes project-wide filament lists into G-code even when a derived
     # single-color plate remaps every object to T0. These unused entries are
     # slicer metadata, not extra toolheads or physical IFS slots.
-    if len(materials) == len(mapping):
+    # The positional branch (material index == tool index for every mapped
+    # tool) applies only when the list is long enough to index every mapped
+    # tool; a sparse map can share the list's length by coincidence (a map
+    # for T0 and T2 against a two-entry list), and indexing it positionally
+    # would run past the list instead of naming the omission.
+    if len(materials) == len(mapping) and max(map(int, mapping)) < len(materials):
         indexes = sorted(mapping, key=int)
     else:
         indexes = sorted(str(tool) for tool in tools)
@@ -141,8 +184,12 @@ def validate_materials(text, material, state, mapping=None):
     return mapping
 
 
-def finalize(path, colors, state=None, mapping=None):
+def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     """Idempotent color/map insertion, then MD5 of exact remaining bytes.
+
+    drop_unused=True trims map entries for tools the file never selects
+    (drop_unused_tools) before validation; only Print Handy's own slice path
+    passes it. An explicit operator map naming an unused tool is refused.
 
     Existing invalid checksums are refused, never silently repaired. Toolpaths,
     temperatures and tool commands are preserved; documented native startup
@@ -158,6 +205,8 @@ def finalize(path, colors, state=None, mapping=None):
     from .native_startup import normalize
     text = normalize(raw.decode('utf-8'))
     if mapping is not None:
+        if drop_unused:
+            mapping = drop_unused_tools(text, mapping)
         mapping = normalize_mapping(mapping, state)
         match = re.search(r'^; filament_type = (.+)$', text, re.M)
         if match is None:

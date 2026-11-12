@@ -231,6 +231,13 @@ def _whole_name_winner(decision, wholes):
 # degrades into a lookup.
 _LEAD = r"(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+|(?:can|could|would)\s+you\s+(?:please\s+)?|how\s+(?:do|can)\s+i\s+)?"
 _END = r"\s*[?.!]?\s*$"
+# A firmware component named in words: every spelling in
+# firmware_update.COMPONENT_ALIASES ("z-mod", "helix screen", "guppy",
+# "klippy", "moon"...), plus the Moonraker web clients. Captured as "c"
+# and canonicalized by firmware_update.canonical_component.
+_FW_COMPONENT = (r"(?P<c>z[\s-]?mod|helix(?:[\s-]?screen)?|guppy(?:[\s-]?screen)?"
+                 r"|klipper|klippy|moonraker|fluidd|mainsail)")
+_FW_COMPONENT_VOCABULARY = ("helixscreen", "klipper", "moonraker")
 _TASK_INTENT_SUGGESTIONS = (
     # Spools: change / add / what is loaded
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
@@ -282,16 +289,25 @@ _TASK_INTENT_SUGGESTIONS = (
     # only matched the literal word "firmware" in two narrow shapes, so
     # "can you check for zmod updates?" dead-ended (catduck, 2026-11-11).
     # The component set also carries the fluidd/mainsail names and the
-    # bare "check <name>" form from #1290; every form lands on the bare
-    # command, whose own form is the read-only report — a check never
+    # bare "check <name>" form from #1290; every check form lands on the
+    # bare command, whose own form is the read-only report — a check never
     # routes to the update form, and the confirm discipline stays the
     # command's own.
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+)?firmware\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:a\s+|an\s+|any\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+|any\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail)\s+updates?{_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
-    (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?(?:zmod|helixscreen|klipper|moonraker|fluidd|mainsail){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+)?{_FW_COMPONENT}\s+up\s+to\s+date{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?{_FW_COMPONENT}{_END}", re.I), "/print-firmware"),
+    # "update helix" (the owner's words, 2026-11-11): the update form for
+    # the named component, its name through firmware_update's one alias
+    # table ("helix", "helix screen" -> helixscreen; "guppy" ->
+    # guppyscreen). Only ever the did-you-mean prompt; the command then
+    # resolves the name against the live status and asks its own
+    # confirmation before anything is sent. This supersedes the bare-report
+    # route #1298 first gave "update <name>": an instruction to update a
+    # named component is an update ask, not a check.
+    (re.compile(rf"^{_LEAD}(?:update|upgrade)\s+(?:the\s+|my\s+)?{_FW_COMPONENT}(?:\s+(?:firmware|now|please))?{_END}", re.I), "/print-firmware update {c}"),
     # Colors, macros, live view, plate reference, setup and help: the
     # registered commands that had no plain-language route at all. Every
     # command carries a fuzzy equivalent (the coverage guard in
@@ -378,9 +394,13 @@ _INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what
 
 def _intent_vocabulary():
     """Every literal word the task-intent patterns match, for typo correction."""
-    words = set()
+    # The firmware component group contributes only the names the earlier
+    # firmware patterns already carried: its sub-words ("screen", "helix",
+    # "guppy") would otherwise become correction targets for every other
+    # route ("what does screns mean" must stay "screens").
+    words = set(_FW_COMPONENT_VOCABULARY)
     for pattern, _cmd in _TASK_INTENT_SUGGESTIONS:
-        source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern)
+        source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern.replace(_FW_COMPONENT, " "))
         words.update(w.casefold() for w in re.findall(r"[A-Za-z]{5,}", source))
     return frozenset(words - _INTENT_REGEX_JUNK)
 
@@ -416,6 +436,10 @@ def _match_task_intent(clean):
         match = pattern.match(clean)
         if not match:
             continue
+        if "{c}" in cmd:
+            from .. import firmware_update
+            component = firmware_update.canonical_component(match.group("c"))
+            return cmd.replace("{c}", component)
         if "{q}" in cmd:
             query = " ".join((match.groupdict().get("q") or "").split()).strip(" ?.!")
             if not query:
@@ -1368,6 +1392,25 @@ class BotCore:
             return messages
         except Exception:
             logger.exception("listener outage check failed")
+            return []
+
+    async def check_firmware_updates(self):
+        """Start any due ZMod update checks ([firmware] update_alerts).
+
+        Runs from the bot heartbeat on every platform. It only schedules:
+        each due printer is checked in a background task (see
+        print_handy/bot/firmware_alert.py), so the heartbeat never waits on
+        a printer or on GitHub, and it never raises into the heartbeat.
+        """
+        try:
+            alerter = getattr(self, "firmware_alerts", None)
+            if alerter is None:
+                from .firmware_alert import FirmwareAlerter
+
+                alerter = self.firmware_alerts = FirmwareAlerter(self)
+            return alerter.tick()
+        except Exception:
+            logger.exception("firmware update alert check failed")
             return []
 
     async def _check_degraded(self, statuses, state_dir):

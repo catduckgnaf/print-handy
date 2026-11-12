@@ -107,7 +107,7 @@ services:
 | `python3 -m print_handy.bot` (or `... run`) | Start the bot. Refuses to start, and lists why, unless every check below passes |
 | `python3 -m print_handy.bot check` | Offline setup check: mode, token present, channel, allowed users, discord.py, handlers loaded, no host module imported, state folder writable, LLM, roast. Exit 1 on any FAIL |
 | `python3 -m print_handy.bot health` | Exit 0 only while a running bot reports a fresh heartbeat, is logged in, its process is alive and no host module is loaded in it |
-| `python3 -m print_handy.hermes.moonraker_event_listener` | The printer listener. It posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its Discord button posts degrade to plain text on Telegram and Matrix) |
+| `python3 -m print_handy.hermes.moonraker_event_listener` | The printer listener. It posts over the configured platform's REST API with that platform's bot token (Discord REST, the Telegram Bot API when `bot.platform` is `telegram`, or the Matrix Client-Server API when it is `matrix`; its pause and stop alerts carry an inline keyboard on Telegram and reactions on Matrix, and its other Discord button posts degrade to plain text there) |
 | `python3 -m print_handy.doctor` | Also reports the bot mode and the Discord login |
 
 The bot writes its heartbeat to `<paths.hermes_home>/state/bot_health.json` every 15 seconds. `health` and

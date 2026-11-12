@@ -1060,3 +1060,115 @@ def test_listener_telegram_button_failure_falls_back_to_plain_post():
             patch.object(mel, "post", return_value=True) as plain:
         assert mel.post_alert("hi", "paused", "f") is True
     plain.assert_called_once_with("hi")
+
+
+# ------------------------------------------------- Matrix reaction alert buttons (#1291 item 15)
+
+
+def _fake_matrix_send(captured, ok=True):
+    def send(homeserver, token, room_id, text, **kwargs):
+        captured.update(homeserver=homeserver, token=token, room_id=room_id, text=text, kwargs=kwargs)
+        return (True, "$evt777") if ok else (False, "boom")
+    return send
+
+
+def _fake_matrix_reaction(captured):
+    def send_reaction(homeserver, token, room_id, event_id, key, **kwargs):
+        captured.append((event_id, key))
+        return "$r1"
+    return send_reaction
+
+
+def test_matrix_reaction_choices_mirror_the_discord_components():
+    for kind in ("paused", "visual", "visual-dark", "shutdown", "failed"):
+        choices = pab.matrix_reaction_choices(kind)
+        discord = [b for row in pab.components("ab12cd34", kind) for b in row["components"]]
+        assert [label for _key, _action, label in choices] == [b["label"] for b in discord]
+        assert [action for _key, action, _label in choices] == [
+            b["custom_id"].split(":")[1] for b in discord]
+        keys = [key for key, _action, _label in choices]
+        assert len(set(keys)) == len(keys)  # one reaction per action, no collisions
+
+
+def test_matrix_reaction_action_normalizes_the_variation_selector():
+    assert pab.matrix_reaction_action("▶️") == "resume"
+    assert pab.matrix_reaction_action("▶") == "resume"  # no U+FE0F
+    assert pab.matrix_reaction_action("⏹️") == "cancel"
+    assert pab.matrix_reaction_action("⏸️") == "pause"
+    assert pab.matrix_reaction_action("✅") == "acknowledge"
+    assert pab.matrix_reaction_action("🔇") == "mute"
+    assert pab.matrix_reaction_action("🔄") == "recover"
+    assert pab.matrix_reaction_action("🎉") is None
+    assert pab.matrix_reaction_action("") is None
+
+
+def test_post_matrix_with_reactions_records_seeds_and_stores_its_own_ids(tmp_path):
+    captured, seeded = {}, []
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.matrix_rest.send", _fake_matrix_send(captured)), \
+            patch("print_handy.bot.matrix_rest.send_reaction", _fake_matrix_reaction(seeded)):
+        assert pab.post_matrix_with_reactions("https://hs", "tok", "!room:hs",
+                                              "Paused. Fix it.", "paused", "f.gcode") is True
+        # The alert text names the reactions, with their labels.
+        assert "▶️ Resume print" in captured["text"] and "⏹️ Cancel print" in captured["text"]
+        aid, alert = pab.matrix_alert("$evt777")
+        assert alert is not None and alert["kind"] == "paused"
+        # Matrix ids live under their own keys: retire_alerts edits Discord
+        # messages by message_id/channel_id and must never see these.
+        assert alert.get("matrix_event_id") == "$evt777" and alert.get("matrix_room_id") == "!room:hs"
+        assert "message_id" not in alert and "channel_id" not in alert
+        # The bot seeds one reaction per action on its own alert, so each is
+        # a single tap in a client instead of an emoji-picker hunt.
+        assert seeded == [("$evt777", key) for key, _a, _l in pab.matrix_reaction_choices("paused")]
+        assert pab.matrix_alert("$nope") == (None, None)
+
+
+def test_post_matrix_with_reactions_failure_takes_the_alert(tmp_path):
+    captured, seeded = {}, []
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.matrix_rest.send", _fake_matrix_send(captured, ok=False)), \
+            patch("print_handy.bot.matrix_rest.send_reaction", _fake_matrix_reaction(seeded)):
+        assert pab.post_matrix_with_reactions("https://hs", "tok", "!room:hs",
+                                              "Paused.", "paused", "f.gcode") is False
+        assert pab.matrix_alert("$evt777") == (None, None)
+    assert seeded == []
+    import json as _json
+    assert _json.loads((tmp_path / "alerts.json").read_text()) == {}
+
+
+def test_post_matrix_with_reactions_needs_a_homeserver_token_and_room(tmp_path):
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.matrix_rest.send", side_effect=AssertionError("must not send")):
+        assert pab.post_matrix_with_reactions("", "tok", "!r", "x", "paused", "f") is False
+        assert pab.post_matrix_with_reactions("https://hs", "", "!r", "x", "paused", "f") is False
+        assert pab.post_matrix_with_reactions("https://hs", "tok", "", "x", "paused", "f") is False
+
+
+def test_listener_matrix_alert_goes_out_with_reactions():
+    sent = {}
+
+    def fake_post_matrix(homeserver, token, room_id, content, kind, filename, **kw):
+        sent.update(homeserver=homeserver, token=token, room_id=room_id, content=content,
+                    kind=kind, filename=filename, kw=kw)
+        return True
+
+    with patch.object(mel, "_matrix_standalone", lambda: True), \
+            patch.object(mel, "_matrix_homeserver", lambda: "https://hs"), \
+            patch.object(mel, "_matrix_token", lambda: "tok"), \
+            patch.object(mel, "_matrix_room_id", lambda: "!room:hs"), \
+            patch.object(pab, "post_matrix_with_reactions", fake_post_matrix), \
+            patch.object(mel, "post", return_value=False) as plain:
+        assert mel.post_alert("hi", "paused", "f") is True
+    plain.assert_not_called()
+    assert sent["kind"] == "paused" and sent["room_id"] == "!room:hs" and sent["token"] == "tok"
+
+
+def test_listener_matrix_reaction_failure_falls_back_to_plain_post():
+    with patch.object(mel, "_matrix_standalone", lambda: True), \
+            patch.object(mel, "_matrix_homeserver", lambda: "https://hs"), \
+            patch.object(mel, "_matrix_token", lambda: "tok"), \
+            patch.object(mel, "_matrix_room_id", lambda: "!room:hs"), \
+            patch.object(pab, "post_matrix_with_reactions", return_value=False), \
+            patch.object(mel, "post", return_value=True) as plain:
+        assert mel.post_alert("hi", "paused", "f") is True
+    plain.assert_called_once_with("hi")

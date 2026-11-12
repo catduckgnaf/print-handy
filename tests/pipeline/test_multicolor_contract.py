@@ -253,14 +253,15 @@ def test_startup_controls_normal_cli(tmp_path, n, initial, header):
     pair = 'M190 S60\n; comments may separate commands\nM104 S210 T0\n'
     body = artifact(n).split('G90\n', 1)[1]
     if n == 1 and initial == 1:
-        # One extruding logical tool T1 still needs indexed T0/T1 metadata.
+        # One extruding logical tool T1 still needs indexed T0/T1 material
+        # metadata; its map names only T1 (an unused T0 entry is refused, #1305).
         body = body.replace('T0\n', 'T1\n').replace('filament_type = PLA\n', 'filament_type = PLA;PLA\n')
     preamble = 'M73 P0 R20\nM106 S0\nM106 P2 S0\n;TYPE:Custom\n' if header.startswith('orca-') else ''
     variant = header.removeprefix('orca-')
     text = preamble + {'prefix': pair+start, 'post': start+pair, 'bare': start}[variant]
     original = text + f'T{initial}\nG90\n' + body
     path.write_text(original)
-    mapping = {'0':1, '1':2} if n == 1 and initial == 1 else {str(i):i+1 for i in range(n)}
+    mapping = {'1':2} if n == 1 and initial == 1 else {str(i):i+1 for i in range(n)}
     mapfile = tmp_path/'map.json'
     mapfile.write_text(json.dumps(mapping))
     submissions = []
@@ -369,6 +370,191 @@ def test_slot_commands_do_not_enable_infinite_spool():
         contract.classify_ifs_action('SAVE_ZMOD_DATA')
 
 
+# --- #1305: noncontiguous (sparse) tool maps ---------------------------------
+# A slicer plate that uses a subset of the project's filaments emits exactly
+# those tools: filaments 1 and 3 used, 2 skipped -> T0 and T2; filament 3
+# alone -> T2. The operator's explicit map for such a file is the selection
+# the launch must preserve; coverage of the used tools, not contiguity of
+# the mapped ones, is the invariant (validate_materials/finalize see the
+# file, normalize_mapping does not).
+
+def sparse_artifact(tools, materials):
+    return ('; HEADER_BLOCK_END\nM190 S60\nM104 S210 T0\nSTART_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA\n'
+            'G90\nM83\n' +
+            ''.join(f'T{t}\nG1 X{10 + t} Y10 Z0.24 E1\n' for t in tools) +
+            ';LAYER_CHANGE\n;WIDTH:0.5\n;LAYER_CHANGE\n;WIDTH:0.44\nEND_PRINT\n'
+            '; nozzle_diameter = 0.4\n; first_layer_height = 0.24\n; filament_type = ' +
+            ';'.join(materials) + '\n')
+
+
+def test_sparse_tool_map_validates_and_describes():
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA'])
+    assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3}) == {'0': 1, '2': 3}
+    assert contract.describe_mapping({'0': 1, '2': 3}, st).splitlines() == [
+        'T0 -> slot 1: white PLA', 'T2 -> slot 3: black PLA']
+    # An explicit map entry for a tool the plate never uses is refused by
+    # name: it would reach zmod_color_data and SET_ZCOLOR and make launch
+    # require that slot loaded, for nothing.
+    with pytest.raises(RuntimeError, match=r'names T3, which the file never uses \(it uses T0, T2\)'):
+        contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3, '3': 4})
+
+
+def test_explicit_map_with_unused_tool_refused_at_finalize(tmp_path):
+    st = state()
+    path = tmp_path / 'sparse.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    before = path.read_bytes()
+    with pytest.raises(RuntimeError, match='names T3, which the file never uses'):
+        contract.finalize(path, None, st, {'0': 1, '2': 3, '3': 4})
+    assert path.read_bytes() == before
+
+
+def test_slice_path_drops_unused_tool_entries(tmp_path):
+    # Print Handy's own slice map can name a tool Orca never selected (a
+    # support filament's tool with no support generated, #867); that flow
+    # trims the entry instead of refusing.
+    st = state()
+    path = tmp_path / 'sparse.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    contract.finalize(path, None, st, {'0': 1, '2': 3, '3': 4}, drop_unused=True)
+    text = path.read_text()
+    assert contract.embedded_mapping(text, st) == {'0': 1, '2': 3}
+    assert '; zmod_color_data = 3|' not in text
+
+
+def test_shared_spool_map_is_accepted_and_each_tool_checked(tmp_path):
+    # Two tools on one slot (classify_ifs_action's 'shared_spool') is an
+    # accepted explicit map: both tools are material-checked against it.
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA'])
+    assert contract.normalize_mapping({'0': 1, '2': 1}, st) == {'0': 1, '2': 1}
+    assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 1}) == {'0': 1, '2': 1}
+    with pytest.raises(RuntimeError, match='T2 material'):
+        contract.validate_materials(sparse_artifact([0, 2], ['PLA', 'PLA', 'PETG']), 'PLA;PLA;PETG', st,
+                                    {'0': 1, '2': 1})
+    path = tmp_path / 'shared.gcode'
+    path.write_text(text)
+    contract.finalize(path, None, st, {'0': 1, '2': 1})
+    assert contract.embedded_mapping(path.read_text(), st) == {'0': 1, '2': 1}
+
+
+def test_lone_high_tool_map_validates():
+    st = state()
+    text = sparse_artifact([2], ['PLA', 'PLA', 'PLA'])
+    assert contract.validate_materials(text, 'PLA;PLA;PLA', st, {'2': 3}) == {'2': 3}
+
+
+def test_sparse_tool_map_finalizes_and_reads_back(tmp_path):
+    st = state()
+    path = tmp_path / 'sparse.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    contract.finalize(path, None, st, {'0': 1, '2': 3})
+    text = path.read_text()
+    assert contract.embedded_mapping(text, st) == {'0': 1, '2': 3}
+    assert '; zmod_color_data = 0|' in text and '; zmod_color_data = 2|' in text
+    assert '; zmod_color_data = 1|' not in text
+    assert job.zmod_md5_valid(path)
+
+
+def test_sparse_map_material_mismatch_names_the_sparse_tool():
+    st = state()
+    st['filament_slots']['3']['material'] = 'PETG'
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA'])
+    with pytest.raises(RuntimeError, match='T2 material'):
+        contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1, '2': 3})
+    assert contract.validate_materials(
+        sparse_artifact([0, 2], ['PLA', 'PLA', 'PETG']), 'PLA;PLA;PETG', st, {'0': 1, '2': 3}) == {'0': 1, '2': 3}
+
+
+def test_sparse_map_missing_slot_refused():
+    st = state()
+    st['filament_slots']['3'] = {'material': '', 'physical_color_verified': False}
+    with pytest.raises(RuntimeError, match='unknown or unverified mapping for physical slot 3'):
+        contract.normalize_mapping({'0': 1, '2': 3}, st)
+    st = state()
+    del st['filament_slots']['3']
+    with pytest.raises(RuntimeError, match='unknown or unverified mapping for physical slot 3'):
+        contract.normalize_mapping({'0': 1, '2': 3}, st)
+
+
+def test_sparse_map_omitting_a_used_tool_refused():
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA'])
+    with pytest.raises(RuntimeError, match='used tools disagree with explicit mapping'):
+        contract.validate_materials(text, 'PLA;PLA;PLA', st, {'0': 1})
+    # The pre-#1305 invalid case {'0':1,'2':3} against a four-tool file is
+    # still refused — now by omission of T1/T3, not by noncontiguity.
+    with pytest.raises(RuntimeError, match='used tools disagree with explicit mapping'):
+        contract.validate_materials(artifact(4), 'PLA;PLA;PLA;PLA', st, {'0': 1, '2': 3})
+
+
+def test_sparse_map_short_material_list_names_the_omission():
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA'])
+    with pytest.raises(RuntimeError, match='per-tool material metadata omits a used logical tool'):
+        contract.validate_materials(text, 'PLA;PLA', st, {'0': 1, '2': 3})
+
+
+def test_sparse_map_conflicting_embedded_metadata_refused(tmp_path):
+    st = state()
+    path = tmp_path / 'conflict.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    contract.finalize(path, None, st, {'0': 1, '2': 3})
+    lines = path.read_text().splitlines(keepends=True)
+    dup = [line for line in lines if line.startswith(contract.MAP_PREFIX)]
+    assert len(dup) == 1
+    path.write_text(''.join(lines) + dup[0])
+    with pytest.raises(RuntimeError, match='duplicate tool mapping metadata'):
+        contract.embedded_mapping(path.read_text(), st)
+
+
+def test_sparse_map_spool_swap_since_slicing_refused(tmp_path):
+    st = state()
+    path = tmp_path / 'swapped.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    contract.finalize(path, None, st, {'0': 1, '2': 3})
+    st['filament_slots']['3']['spoolman_id'] = 99
+    with pytest.raises(RuntimeError, match=r'slot 3 spool changed since slicing \(was 13, now 99\)'):
+        contract.embedded_mapping(path.read_text(), st)
+
+
+def test_sparse_public_prepare_verify_launch(tmp_path):
+    st = state()
+    path = tmp_path / 'sparse_coupon.gcode'
+    path.write_text(sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA']))
+    mapping = {'0': 1, '2': 4}
+    mapfile = tmp_path / 'map.json'
+    mapfile.write_text(json.dumps(mapping))
+    submissions = []
+    def upload(cmd, **kwargs):
+        result = {'item': {'root': 'gcodes', 'path': cmd[3]}}
+        return type('R', (), {'returncode': 0, 'stdout': json.dumps({'result': result}), 'stderr': ''})()
+    with patch.object(job.printer_state, 'load', return_value=st), \
+         patch.object(job.printer_state, 'check', return_value=(True, [], {})), \
+         patch.object(job, '_mr', side_effect=transport(st, submissions)), \
+         patch.object(job, 'request_json', side_effect=spoolman), \
+         patch.object(job, '_printer_phase', return_value=('standby', '', 'Ready')), \
+         patch.object(job, 'mesh_readiness', return_value={'display_off': 0, 'profile': 'MESH_DATA', 'problem': None}), \
+         patch.object(job, 'read_stock_detail', return_value=detail(st)), \
+         patch.object(job.subprocess, 'run', side_effect=upload), \
+         patch.object(job, '_fetch_remote_gcode_sha256', side_effect=lambda *a: job.file_sha256(path)), \
+         patch.object(job, '_wait_printing', return_value='printing'), \
+         patch.object(job, 'record_start', return_value=tmp_path / 'record.md'):
+        cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
+        finalized = path.read_bytes()
+        cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
+        assert path.read_bytes() == finalized
+        assert job.zmod_md5_valid(path)
+        cli(['verify-gcode', str(path)])
+        cli(['print-now', str(path)])
+    assert len(submissions) == 1
+    command = submissions[0]['script']
+    assert 'T0=1' in command and 'T2=4' in command
+    assert 'T1=' not in command and 'T3=' not in command
+    assert 'AUTO_ASSIGN=0' in command
+
+
 def test_live_slot_label_pla_accepts_pla_plus_spool(tmp_path):
     # zmod_color labels a PLA+ spool's slot as plain PLA. The live check must use the material
     # family rule (same_material), not an exact string, or a correctly loaded PLA+ spool is refused.
@@ -402,3 +588,14 @@ def test_live_slot_label_pla_accepts_pla_plus_spool(tmp_path):
         cli(['finalize-gcode', str(path), '--tool-map', str(mapfile)])
         cli(['print-now', str(path)])
     assert len(submissions) == 1
+
+
+def test_a_file_finalized_before_1305_with_an_unused_tool_still_launches():
+    # Files finalized under the old contiguity rule can embed a map entry for
+    # a tool they never select (an unused support tool). Launch validation
+    # reads that embedded map and must keep accepting it: only an operator's
+    # explicit map is held to "map only the used tools".
+    st = state()
+    text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA', 'PLA'])
+    text = text.rstrip('\n') + '\n' + contract.MAP_PREFIX + json.dumps({'0': 1, '1': 2, '2': 3, '3': 4}) + '\n'
+    assert contract.validate_materials(text, 'PLA;PLA;PLA;PLA', st) == {'0': 1, '1': 2, '2': 3, '3': 4}
