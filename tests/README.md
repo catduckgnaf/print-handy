@@ -557,6 +557,10 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
            --baseline tests/corpus/timing_baseline_real_slicer.json --record \
            --recorded-from "CI run <id> (<sha>), artifact slicer-timing-real, median of 3" > proposed-real.json
 
+   Every run file and the gate summary name the runner CPU (`cpu_model`, #1332), and `--record` appends it to
+   `recorded_from`. Hosted runners differ by up to about 1.6x on the same commit (the post-#1165 "rise" was
+   that, not code), so before accepting a raise, compare it with a run on the same CPU.
+
 4. Copy them over `tests/corpus/timing_baseline.json` and `tests/corpus/timing_baseline_real_slicer.json`. Review
    the diff. The `--record` step printed every raised entry's cumulative drift from its first recorded values
    to stderr (the job log when CI made the proposal); read it before copying. An entry that rose carries

@@ -33,6 +33,26 @@ for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
     os.environ.setdefault(f"PRINT_HANDY__NOZZLE_TEMP_OFFSETS__{_steel}", "0")
 
 
+def cpu_model(cpuinfo="/proc/cpuinfo"):
+    """The runner's CPU model name, or "" when the platform does not say.
+
+    #1332: the post-#1165 timing "rise" was runner hardware, not code. The
+    same commit landed in speed bands about 1.6x apart depending on the
+    hosted runner it drew, and nothing in the artifact named the CPU, so a
+    re-record could not tell a slow runner from a slow change. Every run
+    now records it, and the gate prints it.
+    """
+    try:
+        for line in Path(cpuinfo).read_text(encoding="utf-8", errors="replace").splitlines():
+            name, _, value = line.partition(":")
+            if name.strip() == "model name" and value.strip():
+                return value.strip()
+    except OSError:
+        pass
+    import platform
+    return platform.processor() or ""
+
+
 def _phases(run):
     events = run.events
     times = getattr(events, "times", None)
@@ -131,7 +151,8 @@ def main(argv=None):
           f"slowest {max(rows, key=lambda r: r['wall_s'])['case'] if rows else '-'}, failures {len(bad)}")
     if args.json:
         Path(args.json).write_text(json.dumps({"python": sys.version.split()[0], "real_slicer": args.real_slicer,
-                                               "cpu_count": os.cpu_count(), "rows": rows}, indent=1))
+                                               "cpu_count": os.cpu_count(), "cpu_model": cpu_model(),
+                                               "rows": rows}, indent=1))
     return 1 if bad else 0
 
 
