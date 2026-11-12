@@ -57,6 +57,65 @@ reports it too, on its own `zmod version` row, so the diagnostics bundle
 carries it into bug reports. Print Handy never guesses a version and
 never gates printing on it.
 
+## Printer screen view
+
+ZMod publishes the printer's own display as a separate feed from the
+print-bed camera, and Print Handy shows it read-only: the **Printer
+screen** link on a Moonraker printer's card on the Web UI Printers
+page opens `/printers/<id>/screen`, a labeled view that refreshes a
+still of the display while it is open, served by
+`GET /api/printers/<id>/screen/snapshot` behind the Web UI's own
+authorization. It exists so an operator can read a prompt on the
+printer (a filament change, a dialog) without walking to it.
+
+How it works, verified against the ZMod 1.7.6 release payloads and
+the 1.7.6 audit ([#1269](https://github.com/catduckgnaf/print-handy/issues/1269)):
+
+- A ZMod service on the printer (init script `S71screen`) serves the
+  framebuffer over plain HTTP on port 8010, and the printer's web
+  port proxies it under `/screen/`. The service answers without
+  authentication, which is why Print Handy serves the still only
+  through its own authorized route and never exposes the printer's
+  address to the browser.
+- ZMod registers the screen with Moonraker as a webcam named
+  `screen`, beside the bed camera's `video` entry, with snapshot
+  address `/screen/snapshot`. Print Handy discovers the screen
+  through Moonraker's webcam list (`GET /server/webcams/list`): the
+  `screen` entry is the discovery, and the still is fetched from the
+  one registered address on the printer's web port. A registration
+  naming any other snapshot address is refused, never followed.
+- The registration is controlled by the ZMod global parameter
+  `WEB_SCREEN` (`SAVE_ZMOD_DATA WEB_SCREEN=1`, default on). With it
+  off, no screen is registered and the view explains that, in the
+  same shape as an older ZMod that predates the feature.
+- The screen feed is read-only in Print Handy by construction. The
+  printer-side service also accepts touch input on a separate path,
+  and its own page wires clicks to that path; Print Handy never
+  requests that path and never embeds that page, so nothing in the
+  view can press the screen. The service also offers a live MJPEG
+  stream of the display; the view deliberately uses stills only, so
+  the only addresses Print Handy ever requests are Moonraker's
+  webcam list and the one snapshot address. The screen is also never
+  a camera source: the bed camera keeps its own `video` registration
+  and snapshot address, and the two are not interchangeable.
+
+Verified support per model:
+
+| Model | Screen feed | Evidence |
+| --- | --- | --- |
+| AD5X | Yes, ZMod 1.7.4+ | 1.7.6 payload inspected: `S71screen`, the screen service, the Moonraker `screen` registration and the web-port `/screen/` proxy are all present; broadcast added in 1.7.4 per the ZMod changelog |
+| AD5M | Yes, ZMod 1.7.6+ | 1.7.6 payload inspected, same components present; the 1.7.6 changelog and audit record screen streaming arriving on AD5M / AD5M Pro in this release |
+| AD5M Pro | Yes, ZMod 1.7.6+ | Its 1.7.6 payload is byte-identical to the AD5M one (same SHA-256), so the AD5M evidence covers it |
+| Creator 5 Pro | Yes, ZMod 1.7.4+ | The ZMod changelog records "Printer screen broadcast" for C5Pro in 1.7.4; the Creator payloads are encrypted, so this rests on the changelog, not on payload inspection |
+| Creator 5 | Not established | No ZMod changelog entry names the Creator 5 for screen broadcast, and its payload is encrypted, so Print Handy does not claim support. Discovery is registration-driven, so if a Creator 5 ever registers a `screen` webcam the view works unchanged |
+
+Screenless installs have no native screen content to show: depending
+on the install the registration may be absent or the service may not
+answer, and both read as an unavailable screen with the reason named,
+never as a broken page. No live verification of the screen view has
+been performed; the table above is payload and changelog evidence,
+and the behavior is covered by offline tests.
+
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
 Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
