@@ -128,8 +128,8 @@ Matrix prompt.
   choice. The listener's other Discord button posts (plate picker,
   insertion and spool questions) are sent as plain text that names
   the typed command or reply doing the same job.
-- **Alert reactions**: pause and stop alerts carry their actions as
-  reactions instead, the Matrix equivalent of the Discord buttons.
+- **Alert reactions**: on Moonraker (Klipper and ZMod) printers, pause
+  and stop alerts carry their actions as reactions instead, the Matrix equivalent of the Discord buttons.
   The alert names one reaction per action (▶️ Resume print, ⏹️ Cancel
   print; a shutdown alert offers 🔄 for its restart-and-end-job
   action), and the bot seeds those reactions on its own alert, so
