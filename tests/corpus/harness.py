@@ -425,7 +425,9 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
     async def thread_heavy(func, *args, **kwargs):
         # The production _heavy runs steps in a child process with its own settings. Keep them in
         # this process so the fakes below apply to them.
-        if getattr(func, "__module__", "").endswith("model_job") and getattr(func, "__name__", "") == "audit":
+        # The source audit moved to jobs/audit.py (#1323); model_job still re-exports it.
+        if (getattr(func, "__module__", "") in ("print_handy.core.model_job", "print_handy.jobs.audit")
+                and getattr(func, "__name__", "") == "audit"):
             if audit_started is not None:
                 audit_started.append(("audit_start", time.monotonic()))
             events.append(("audit_start", str(args[0]) if args else ""))
