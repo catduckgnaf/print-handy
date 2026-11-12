@@ -235,7 +235,14 @@ class FirmwareAlerter:
         if not _delivered(sent):
             _close(registry, clarify_id)
             return False
-        self._spawn(self._answer(printer_id, entry, offer, chat, clarify_id))
+        waiter = self._spawn(self._answer(printer_id, entry, offer, chat, clarify_id))
+        # The prompt is registered before the waiter starts, and the waiter's
+        # own cleanup (its finally) runs only once the task has started: a
+        # waiter cancelled before its first step would leave the prompt open
+        # in the shared registry for the rest of the process. Close it from
+        # the task's completion too — _close is idempotent, and on every path
+        # where the waiter did run it has already closed the prompt itself.
+        waiter.add_done_callback(lambda _task: _close(registry, clarify_id))
         return True
 
     async def _answer(self, printer_id, entry, offer, chat, clarify_id):

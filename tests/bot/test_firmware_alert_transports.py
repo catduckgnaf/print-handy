@@ -14,6 +14,7 @@ from corpus import fake_discord
 from print_handy import firmware_update as fw
 from print_handy.bot import firmware_alert as fal
 from print_handy.bot import matrix, runtime, telegram
+from print_handy.core import prompts
 
 from .test_matrix import HOMESERVER, ROOM, HomeserverStub
 from .test_matrix import TOKEN as MX_TOKEN
@@ -115,6 +116,29 @@ def test_discord_alert_press_by_a_stranger_changes_nothing(cfg, tmp_path):
     clicked = run(flow())
     assert clicked.replies == [{"content": "Not allowed. Nothing changed.", "ephemeral": True}]
     assert printer.posts == []
+
+
+def test_alert_prompt_closes_when_the_waiter_is_cancelled_before_starting(cfg, tmp_path):
+    """Regression: the alert prompt is registered before its waiter task is
+    spawned, and the waiter's own cleanup runs only once the task has
+    started. A waiter cancelled before its first step (the stranger-press
+    test above ends exactly that way) must not leave the prompt open in the
+    shared registry: a leaked prompt poisons the prompt bookkeeping of
+    unrelated features for the rest of the process."""
+    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(cfg["discord"]["allowed_user_ids"]))
+    core = runtime.BotCore(discord.client, cfg)
+    al = _alerter(core, Printer())
+
+    async def flow():
+        await al.check(_pid(cfg), AD5X)
+        for task in list(al.tasks):
+            task.cancel()
+        await _settle(al)
+
+    run(flow())
+    assert prompts.open_count() == 0
 
 
 def test_telegram_alert_is_an_inline_keyboard(cfg, tmp_path):
