@@ -128,6 +128,14 @@ The file is a JSON object with an `entries` list (a bare list works too); each e
 - Keep the PR in draft while implementation or required checks are incomplete. Respond to review feedback with focused updates.
 - Merging runs on the required checks, not on branch freshness (policy changed 2026-11-07, #1017 batch 2). `main`'s required checks (the exact list is under "What automation enforces" below) do **not** require the branch to be up to date, and the repository has auto-merge on: enable auto-merge on your PR and GitHub merges it once those checks pass on the PR's own head. The up-to-date rule was tried and removed the same day because every merge to `main` forced a fresh full CI run on every open PR. The risk it guarded against is real — #999 was green but had been tested before #988 renamed a function it used — so when your change touches code that has moved on `main` since you branched, update the branch and let CI run on the new head before merging anyway.
 
+### Evidence for a met criterion
+
+A documentation page once asserted completeness that nobody had checked (#1160). So any row, in the docs or in a pull request, that says an acceptance criterion is met cites the test that proves it, by path: `tests/test_x.py::test_y`. That test must exercise the production entry point, meaning the command, route, chat handler, CLI, loader or installer an operator actually reaches, not only a library function underneath it. A test of a helper proves the helper; it does not prove the feature that is supposed to call it.
+
+Where no automated test can prove a criterion (a live printer check, a docs-only item), write `evidence:` and name what does prove it, for example `evidence: live check in #1082` or `evidence: docs/DOCKER.md section Validation`.
+
+What contribution-policy checks: in the PR's `Scope and acceptance criteria` section, every ticked box and every table row with a cell that reads `Met` must name a `tests/...py` file that exists in the PR head, or carry `evidence:`. The same holds for `Met` rows in every changed Markdown file. What it cannot check is whether the cited test reaches the production entry point; that is part of review.
+
 ## Documentation and release notes
 
 Use [the documentation home](docs/README.md) for user guidance. Keep the root README focused on purpose, compatibility and the first setup step; put detailed reference material in `docs/`. Check relative links from the file that contains them. Follow [the release-note guide](docs/RELEASE-NOTES-GUIDE.md): user capabilities first, fixes next, implementation details and PR references last. Keep pending changes separate from shipped releases, and preserve the detailed internal history.
@@ -190,6 +198,10 @@ changes, is reopened or has its description edited, including fork PRs. It check
    why. Running a focused test is verification, recorded above; this section
    is about what the PR leaves in the suite and whether broader regression
    coverage was considered, not only the tests that were touched.
+6. Evidence for every met criterion: a ticked box or a `Met` table row in
+   `Scope and acceptance criteria`, and a `Met` row in a changed Markdown file,
+   names an existing test file or says `evidence:` (see
+   [Evidence for a met criterion](#evidence-for-a-met-criterion)).
 
 Fill the `Documentation impact` fields in the PR template literally. For example:
 

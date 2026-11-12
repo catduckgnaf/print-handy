@@ -457,7 +457,7 @@ def test_visual_check_promotes_unchanged_layers_and_ignores_motion(monkeypatch):
 def test_sensitivity_three_is_the_original_behavior():
     profile = mel.VISUAL_SENSITIVITY[3]
     assert profile == {"diff": 3.0, "stall_layers": 3, "periodic_s": 900, "vision_veto": False}
-    assert mel.VisualPrintWatch().sensitivity == 3  # home.toml default
+    assert mel.VisualPrintWatch().sensitivity == 3  # home.yaml default
 
 
 def test_sensitivity_scales_stall_layers():
