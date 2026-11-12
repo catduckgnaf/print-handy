@@ -2,6 +2,68 @@
 
 # Unreleased
 
+# Version 2.2.10
+
+**Release Date:** Unreleased until tagged. Set when the tag is cut.
+**Range:** 2.2.9..main. The ZMod 1.7.6 release: ZMod 1.7.6 shipped on 2026-11-11 and was audited the same day (#1269, PR #1278).
+**Live checks performed for this release (owner's AD5X, 2026-11-11):** ZMod updated 1.7.5-2 -> 1.7.6-17 and HelixScreen v1.0.7 -> v1.0.8 through `firmware_update.prepare_update` / `send_update` (the path `/print-firmware update` and the alert button run), each verified by re-reading Moonraker's update state; the printer came back ready and its `lane_data` records survived. Read-only on the same printer: the update alert detection (one applicable offer, key `zmod:1.7.6`), the printer screen view (an 800x480 JPEG through the no-redirect fetch), camera selection with the real webcam registry in both orders, and lane-record parsing of the real records. Observed: after the Z-Mod update and reboot, Moonraker reported every git component as `?` until an update-manager refresh; ZMod 1.7.6 or HelixScreen 1.0.8 rewrote slot 3's material from `PLA+` to `PLA` on its own.
+**Not verified live:** Matrix alert reactions, sparse tool maps through a real print, the Web UI alert buttons, the weekly firmware watch on its schedule.
+
+- ZMod 1.7.6 support: audit and baseline (PR #1278), Creator `KLIPPER_C5` wording and the no-USB update guide (PR #1288), the firmware watch beyond ZMod (PR #1289).
+- ZMod update alerts on every chat platform and the Web UI, on by default (`[firmware] update_alerts`, `update_check_hours`), with component aliases and a merge-time Web UI parity guard (PR #1297); review hardening: the USB-only rule is an apply gate, no re-announce on a failed state write, a Skip during a check is kept (PR #1314).
+- Printer screen: a read-only Web UI view of the printer's display (PR #1312), and screen feeds are never picked as the bed camera (PR #1309).
+- Spool and slot state: both lane_data keyings read, self-contradicting and conflicting records named and never converged (PR #1310); explicit tool maps for noncontiguous tools, unused-tool entries refused in operator maps, remaps only of used tools (PR #1313).
+- Alert buttons for listener pause/stop alerts on Telegram (PR #1299) and as reactions on Matrix, offered actions only, no replay after a restart (PR #1311).
+
+Merged PRs in the range, one line each:
+
+- fix(live_stream): never select a printer screen feed as the bed camera (#1306) (PR #1309).
+- #1297 review: USB rule in the apply gate, no re-announce storm on a failed write, Skip survives a running check (PR #1314).
+- Preserve explicit ZMod tool maps for noncontiguous tools (#1305) (PR #1313).
+- Spool state sync (#1304): lane-record slot-disagreement guard, toolhead namespace fix, AFC/Spoolman ownership record (PR #1310).
+- #1291 item 15: Matrix alert buttons as reactions for listener pause/stop alerts (PR #1311).
+- fix(ci): provide writable data root to readonly image probes (PR #1308).
+- feat(webui): dedicated read-only printer screen view (#1303) (PR #1312).
+- ZMod update alerts in chat and the Web UI, component aliases, merge-time Web UI parity guard (PR #1297).
+- #1280 F+G+H: firmware watch for Klipper, Moonraker, OctoPrint, Marlin, Prusa Buddy lines and QIDI models (PR #1289).
+- docs: use Pasta Wrapped as the public feature name (PR #1302).
+- feat(wrapped): rename Print Handy Wrapped to Pasta Wrapped (PR #1301).
+- #1291 item 15: Telegram alert buttons for listener pause/stop alerts (PR #1299).
+- #1282: all four completion-flow bugs (start claim, VAAPI + CPU timelapse default, roast duration, held frames) (PR #1287).
+- fix(fuzzy): shield "skill" and "firmware", add their typo pairs, route named firmware update checks (#1290) (PR #1292).
+- #1295: /print-firmware skips Moonraker placeholders and never offers an invalid component (PR #1296).
+- feat(fuzzy): fuzzy equivalents for every command: coverage guard, missing phrase routes, component update checks (PR #1298).
+- #1279: slice renumber-only per-part jobs through remap_package, verified with real OrcaSlicer (PR #1283).
+- #1280 D+E: Creator Klipper 13 wording for ZMod 1.7.6, ZMod update guide with the no-USB route first (PR #1288).
+- ci: a burst of merges to main keeps only the newest queued CI run (PR #1293).
+- #1198: printer accessories framework, Bondtech INDX first (PR #1268).
+- #1144: an unwritable data folder stops the start with one message naming it and the fix (PR #1281).
+- ZMod 1.7.6 audit (#1269), update-process verification (#1270), weekly firmware watch (#1271) (PR #1278).
+- #1246: painted fit measures each scale step without writing a 3MF (PR #1264).
+- Fuzzy vocabulary: add differnet family and two seperate gaps (operator-mined) (PR #1272).
+- fix(timelapse): VAAPI opens the usable non-NVIDIA render node, not a fixed renderD128 (#1262) (PR #1267).
+- docker(unraid): templates follow :latest and never pin a version or digest (PR #1266).
+- #1155: a PrusaSlicer package remaps palette, settings, roles and matrix completely or refuses (PR #1261).
+- #1245: AI fix split cuts and caps through solid material (PR #1263).
+- #1260: PrusaSlicer modifier, negative and support volumes are split out and never printed as solid (PR #1265).
+- #1241: one heater ceiling for the Web UI, Bambu lease settlement, per-family start and button table (PR #1255).
+- ci: cancel a pull request's superseded runs, never a main run (PR #1248).
+- perf: #1153 remainder: fuzzy scoring, image bytecode, one G-code read per slice check, one inventory per painted fit (PR #1250).
+- #1194: camera watch follow-ups for Moonraker and Bambu Lab (PR #1252).
+- #1155: a PrusaSlicer modifier volume with its own extruder is unknown usage; a range on the object's own extruder stays known (PR #1257).
+- #1243: Web UI remainders: request id on 500s, drained upload refusals, header-path re-hash, docstring (PR #1254).
+- #1155: the generic remapper handles real Bambu/Orca projects: standard members, uniform purge vector, implicit extruder 1 (PR #1253).
+- fix(geometry): finish the #1195 audits: open split pieces, mirrored support paint, real wedge-root cases (PR #1249).
+- fix(fit): every intake fit probe reads the job printer's exclusions (#1195) (PR #1247).
+- docs: US spelling for behavior across the user guides (PR #1259).
+- test(docker): the README quickstart keeps the Web UI's cookies (PR #1258).
+- docs(docker): pin the 2.2.9 index digest, refresh the CA template snapshot (PR #1256).
+- feat(design): hand a multi-part AI design to intake as one project_v1 project (#1204 item 4) (PR #1223).
+- docs(#1242): move the AD5X contract to history, clear the last em dashes (PR #1251).
+- ci: require proven regression tests, and close issues only with a finished checklist (PR #1230).
+- #1204: multi-message project collection and source ZIP intake into the one project builder (PR #1220).
+
+
 # Version 2.2.9
 
 **Release Date:** Unreleased until tagged. Set when the tag is cut.
