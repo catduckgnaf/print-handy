@@ -1185,3 +1185,41 @@ def test_bind_slot_on_a_single_slot_klipper_keeps_the_lane_record(tmp_path, monk
     assert result["screen"] == "unsupported"
     assert result["lane_data"] == "written"
     assert mr.lanes["lane2"]["spool_id"] == 7 and mr.lanes["lane2"]["lane"] == 1
+
+
+# --------------------------------------------------------------------- base-material identity
+
+def _identity_events(tmp_path, lane_material, spool_material):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(21, "Black", spool_material, "161616")])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(21, material=lane_material, scan_time=200, name="Black PLA+")}
+    return [e["kind"] for e in watcher.poll()]
+
+
+def test_a_screen_catalog_dropping_the_plus_is_not_an_identity_conflict(tmp_path):
+    # Live, 2026-11-11: after the HelixScreen 1.0.8 update the AD5X's lane
+    # named spool #21 (Spoolman: PLA+) as plain "PLA" (generic-pla catalog).
+    assert "identity_conflict" not in _identity_events(tmp_path, "PLA", "PLA+")
+
+
+def test_a_speed_or_flow_grade_is_not_an_identity_conflict(tmp_path):
+    assert "identity_conflict" not in _identity_events(tmp_path, "PETG", "PETG-HF")
+
+
+def test_reinforcement_and_a_different_polymer_still_conflict(tmp_path):
+    assert _identity_events(tmp_path, "PLA", "PLA-CF") == ["identity_conflict"]
+
+
+def test_a_different_polymer_still_conflicts(tmp_path):
+    assert _identity_events(tmp_path / "b", "PETG", "PLA+") == ["identity_conflict"]
+
+
+def test_same_base_material_rules():
+    same = lane_data_sync._same_base_material
+    assert same("PLA", "PLA+") and same("pla", "PLA Pro") and same("Silk PLA", "PLA")
+    assert same("PETG", "PETG-HF") and same("PETG HF", "petg") and same("High Speed PLA", "PLA")
+    assert not same("PLA", "PLA-CF") and not same("PETG", "PETG-CF")
+    assert not same("PLA", "PETG") and not same("", "PLA")
+
