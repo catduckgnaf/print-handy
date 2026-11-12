@@ -446,7 +446,7 @@ def format_confirmed_print(*, model, parts=(), plate=None, slot=None, color=None
     if filaments and len(filaments) > 1:
         details.extend(_filament_lines(filaments, position_noun))
     elif slot is not None or color or material:
-        prefix =f"{position_noun} {slot}: " if slot is not None else "Filament: "
+        prefix = f"{position_noun} {slot}: " if slot is not None else "Filament: "
         details.append(prefix + filament_label(safe_label(color, 'color unknown'),
                                                safe_label(material, 'material unknown')))
     if filament_g is not None:
