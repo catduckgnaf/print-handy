@@ -309,11 +309,10 @@ household, exactly as you would for print approvals.
   settings.
 - The printer's own screen is never the camera. Z-Mod lists its screen as a webcam
   entry (the `WEB_SCREEN` redirect), and screen UIs can carry prompts and information
-  meant for whoever is standing at the printer. Camera selection skips screen feeds
-  everywhere it picks from the webcam registry — live view, snapshots, timelapse
-  capture and the camera watchdog share that selection — and a printer whose only
-  listed feed is its screen reports that no camera is available instead of streaming
-  the display.
+  meant for whoever is standing at the printer. Automatic camera selection from the
+  webcam registry skips screen feeds, and every live view that resolves its source
+  there gets that rule. A printer whose only listed feed is its screen reports that
+  no camera is available instead of streaming the display.
 
 ### Support and verification matrix
 

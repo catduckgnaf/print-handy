@@ -62,7 +62,7 @@ never gates printing on it.
 ZMod's `WEB_SCREEN` parameter (on by default) redirects the printer
 screen as a virtual camera named `screen` in Fluidd/Mainsail, so a
 ZMod printer's Moonraker webcam list can hold the screen next to the
-real camera — and screen streaming reaches every supported model in
+real camera, and screen streaming reaches every supported model in
 1.7.6. That feed shows the printer's display, not the build plate.
 Print Handy classifies it as a screen feed
 (`print_handy.live_stream.is_screen_feed_name`, #1306) and automatic
@@ -70,13 +70,21 @@ camera selection never picks it: the live view, snapshot, timelapse
 and monitoring paths that resolve a source from the webcam registry
 all share that selection. A ZMod printer whose only listed feed is
 its screen resolves to a clear "no camera available" refusal, never
-to a stream of the display — the screen can show prompts and
+to a stream of the display. The screen can show prompts and
 information intended for the person standing at the printer, so
 treating it as a bed camera would be a privacy leak as well as a
 wrong picture. Only an explicitly configured camera name can select
 the screen entry, under its real name; the labeled, read-only screen
 view is a separate feature (#1303) and no camera path exposes screen
 controls.
+
+Live registry check, 2026-11-11, on an AD5X running ZMod 1.7.5-2:
+Moonraker's `server/webcams/list` returned two enabled entries,
+`video` (service `mjpegstreamer-adaptive`, snapshot
+`/webcam/?action=snapshot`) followed by `screen` (service `iframe`,
+stream `/screen/stream`, snapshot `/screen/snapshot`). On that
+printer the old first-usable pick happened to land on the camera; a
+printer listing `screen` first would have streamed its display.
 
 ## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
