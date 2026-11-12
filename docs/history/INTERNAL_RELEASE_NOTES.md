@@ -17,6 +17,8 @@
 
 Merged PRs in the range, one line each:
 
+- fix(release): Pasta Wrapped share image name, encoder default docs, alert-action scope (#1316) (PR #1327).
+- test(timing): re-record the 2.2.10 slicing-speed baselines from CI run 43140745657 (#1316) (PR #1324).
 - fix(live_stream): never select a printer screen feed as the bed camera (#1306) (PR #1309).
 - #1297 review: USB rule in the apply gate, no re-announce storm on a failed write, Skip survives a running check (PR #1314).
 - Preserve explicit ZMod tool maps for noncontiguous tools (#1305) (PR #1313).

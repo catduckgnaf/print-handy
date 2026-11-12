@@ -22,7 +22,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.10, also
 - Lane records from the printer are read in both shapes ZMod and HelixScreen write. A record that names a different slot than the one it is stored under, or two records that disagree about one slot, are named once and never rebind a slot. Binding a spool no longer writes an IFS-shaped record into a Creator printer's toolhead namespace. (#1310)
 
 ### Act on print alerts from Telegram and Matrix
-- Pause and stop alerts from the print watch carry buttons on Telegram and reactions on Matrix, like Discord. Only allowed users can act, only the actions the alert offered work, and a reaction made while the bot was down is ignored when it comes back. (#1299) (#1311)
+- On Moonraker (Klipper and ZMod) printers, pause and stop alerts from the print watch carry buttons on Telegram and reactions on Matrix, like Discord. Only allowed users can act, only the actions the alert offered work, and a reaction made while the bot was down is ignored when it comes back. Other families' pause alerts stay plain text there and name the typed command. (#1299) (#1311)
 
 ### Projects, intake and slicing
 - Collect a multi-part project over several messages ("add to project", then **Done adding**), or drop a ZIP of sources, and it goes through the one project builder. A multi-part AI design hands all its parts to intake as one project. (#1220) (#1223)
@@ -34,7 +34,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.10, also
 - Printers can record accessories, starting with the Bondtech INDX toolchanger: the Klipper printer it is fitted to is treated as a multi-tool printer, and no other printer is. (#1268)
 
 ### Pasta Wrapped
-- Print Handy Wrapped is now **Pasta Wrapped**, everywhere you see it. (#1301) (#1302)
+- Print Handy Wrapped is now **Pasta Wrapped**, everywhere you see it, the share image included. (#1301) (#1302) (#1327)
 
 ## Fixes
 - A short print reported the wrong duration in its follow-up and a timelapse that claimed more frames than were captured. Both are fixed, a claimed start that printed is no longer reported as abandoned, and timelapse assembly defaults to the CPU encoder. (#1287)
@@ -62,4 +62,6 @@ Not verified live: Matrix reactions, sparse tool maps through a real print, the 
 ## Under the hood
 - CI: a pull request's superseded runs are cancelled but a main run never is, a burst of merges to main keeps only the newest queued run, and the read-only image probes get a writable data root. (#1248) (#1293) (#1308)
 - Contribution rules enforced by Actions: a bug fix carries a regression test seen failing, and an issue closes only with its checklist finished. (#1230)
+- Slicing-speed baselines re-recorded from the release commit's own CI run. (#1324)
+- The encoder default shown in `.env.example` and the Docker GPU steps matches the real default (`cpu`). (#1327)
 - Docs: US spelling across the user guides, the AD5X contract moved to history, the 2.2.9 index digest pinned and the CA template snapshot refreshed, and the README quickstart test keeps the Web UI's cookies. (#1259) (#1251) (#1256) (#1258)
