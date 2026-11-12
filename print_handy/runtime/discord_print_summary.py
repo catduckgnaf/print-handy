@@ -203,21 +203,95 @@ def _filament(job, keys=None, slot=None):
     return sel.get("slot", slot), sel.get("color"), sel.get("material")
 
 
+def _filaments(job, keys=None):
+    """Every slot the parts in `keys` print with, in slot order, when that is more than one.
+
+    One dict per slot: slot, color, material. A job with one saved selection,
+    or whose parts all use one slot, gives [] so its posts keep their single
+    "Slot N:" line. _filament alone keeps only the first part's choice, so a
+    two-color print used to announce just one of its slots.
+    """
+    dec = job.get("color_decisions") or {}
+    if job.get("filament_selection") or dec.get("selection") or not isinstance(dec.get("choices"), dict):
+        return []
+    by_slot = {}
+    for key, choice in dec["choices"].items():
+        if keys is not None and key not in keys and str(key).removeprefix("part:") not in keys:
+            continue
+        slot = choice.get("slot") if isinstance(choice, dict) else None
+        if slot is not None and slot not in by_slot:
+            by_slot[slot] = {"slot": slot, "color": choice.get("color"), "material": choice.get("material")}
+    if len(by_slot) < 2:
+        return []
+    return [by_slot[slot] for slot in sorted(by_slot, key=lambda value: (str(type(value)), value))]
+
+
+def _slot_grams(gcode, mapping):
+    """{slot: grams} from the slicer's per-tool '; filament used [g] = a, b' line and the
+    tool -> slot mapping; {} when either is missing or they do not line up."""
+    if not gcode or not isinstance(mapping, dict) or not mapping:
+        return {}
+    try:
+        with open(gcode, errors="ignore") as handle:
+            text = handle.read()
+    except OSError:
+        return {}
+    found = re.search(r"^;\s*filament used \[g\]\s*=\s*([0-9.,\s]+)$", text, re.M)
+    if not found:
+        return {}
+    try:
+        grams = [float(value) for value in found.group(1).split(",") if value.strip()]
+        result = {}
+        for tool, slot in mapping.items():
+            index = int(tool)
+            if not 0 <= index < len(grams):
+                return {}
+            result[slot] = round(grams[index], 2)
+    except (TypeError, ValueError):
+        return {}
+    return result
+
+
+def _filament_lines(filaments, position_noun="Slot"):
+    """'Slot 2: bronze PLA+ (~6.8 g)', one per slot of a multi-slot plate; grams only when known."""
+    lines = []
+    for entry in filaments or ():
+        grams = entry.get("filament_g")
+        amount = f" (~{grams:g} g)" if isinstance(grams, (int, float)) and not isinstance(grams, bool) else ""
+        lines.append(f"{position_noun} {entry.get('slot')}: "
+                     + filament_label(safe_label(entry.get("color"), "color unknown"),
+                                      safe_label(entry.get("material"), "material unknown")) + amount)
+    return lines
+
+
 def plates_of(job):
-    """One dict per sliced plate: gcode, parts, slot, color, material, seconds, plate_id."""
+    """One dict per sliced plate: gcode, parts, slot, color, material, seconds, plate_id.
+
+    A plate that prints with more than one slot also carries ``filaments``: one
+    row per slot (slot, color, material, filament_g when the slicer says).
+    """
     rows = []
+    mappings = []
     derived = job.get("derived_plates") or []
     for row in derived:
         slot, color, material = _filament(job, set(row.get("part_keys") or []), row.get("slot"))
         rows.append({"gcode": row.get("gcode"), "plate": row.get("plate_id"),
                      "parts": _part_names(job, set(row.get("part_keys") or [])),
                      "slot": slot, "color": color, "material": material})
+        mappings.append((set(row.get("part_keys") or []), row.get("tool_mapping")))
     if not rows and job.get("gcode"):
         slot, color, material = _filament(job)
         rows.append({"gcode": job["gcode"], "plate": None, "parts": _part_names(job),
                      "slot": slot, "color": color, "material": material})
-    for row in rows:
+        mappings.append((None, job.get("tool_mapping")))
+    for row, (keys, mapping) in zip(rows, mappings):
         row["seconds"], row["filament_g"] = gcode_metadata(row["gcode"]) if row.get("gcode") else (None, None)
+        filaments = _filaments(job, keys)
+        if filaments:
+            # Only a multi-slot plate gets the key: a one-slot plate's row and
+            # every post built from it stay exactly as they were.
+            grams = _slot_grams(row.get("gcode"), mapping)
+            row["filaments"] = [{**entry, "filament_g": grams.get(entry["slot"])} for entry in filaments]
     return rows
 
 
@@ -355,8 +429,12 @@ def announcement_printer_name(job=None):
 
 def format_confirmed_print(*, model, parts=(), plate=None, slot=None, color=None, material=None,
                            filament_g=None, seconds=None, finish=None, kind="started", plates_total=None,
-                           print_number=None, position_noun="Slot", printer_name=None):
-    """Human readable, hash free message for one print event."""
+                           print_number=None, position_noun="Slot", printer_name=None, filaments=None):
+    """Human readable, hash free message for one print event.
+
+    ``filaments`` (a multi-slot plate's per-slot rows from plates_of) replaces
+    the single slot line with one line per slot.
+    """
     details = [f"{VERBS.get(kind, VERBS['started'])}: {safe_label(model)}"]
     if print_number:
         details.append(f"Print #{print_number}")
@@ -365,7 +443,9 @@ def format_confirmed_print(*, model, parts=(), plate=None, slot=None, color=None
         details.append("Parts: " + ", ".join(pieces))
     if plate is not None:
         details.append(f"Plate {plate}" + (f" of {plates_total}" if plates_total and plates_total > 1 else ""))
-    if slot is not None or color or material:
+    if filaments and len(filaments) > 1:
+        details.extend(_filament_lines(filaments, position_noun))
+    elif slot is not None or color or material:
         prefix = f"{position_noun} {slot}: " if slot is not None else "Filament: "
         details.append(prefix + filament_label(safe_label(color, 'color unknown'),
                                                safe_label(material, 'material unknown')))
@@ -407,6 +487,7 @@ def format_preparation(job, plate=None):
     return format_confirmed_print(
         model=_title(job or {}), parts=row.get("parts") or (), plate=row.get("plate"),
         slot=row.get("slot"), color=row.get("color"), material=row.get("material"),
+        filaments=row.get("filaments"),
         filament_g=row.get("filament_g"), seconds=row.get("seconds"), kind="slice",
         plates_total=len((job or {}).get("derived_plates") or []) or None,
         print_number=_print_number(job or {}), position_noun=_position_noun(job),
@@ -420,6 +501,7 @@ def format_started(job, plate=None, now=None):
     return format_confirmed_print(
         model=_title(job or {}), parts=row.get("parts") or (), plate=row.get("plate"),
         slot=row.get("slot"), color=row.get("color"), material=row.get("material"),
+        filaments=row.get("filaments"),
         filament_g=row.get("filament_g"), seconds=seconds,
         finish=finish_text(seconds, now), kind="started",
         plates_total=len((job or {}).get("derived_plates") or []) or None,
@@ -447,6 +529,7 @@ def format_event(kind, filename, now=None, archive=None, context_path=None, extr
             model=_title(job), parts=(plate or {}).get("parts") or (), plate=(plate or {}).get("plate"),
             slot=(plate or {}).get("slot"), color=(plate or {}).get("color"),
             material=(plate or {}).get("material"), filament_g=(plate or {}).get("filament_g"),
+            filaments=(plate or {}).get("filaments"),
             seconds=seconds, finish=finish_text(seconds, now) if kind == "started" else None,
             kind=kind, plates_total=total, print_number=_print_number(job),
             position_noun=_position_noun(job), printer_name=printer_name)
@@ -662,6 +745,10 @@ def format_slice_summary(job, now=None):
         slot = f"{noun} {row['slot']}" if row.get("slot") is not None else f"{noun} unknown"
         fil = (filament_label(safe_label(row['color'], 'color unknown'),
                               safe_label(row['material'], 'material unknown')) + f", {slot}")
+        if row.get("filaments"):
+            fil = "; ".join(filament_label(safe_label(entry.get("color"), "color unknown"),
+                                           safe_label(entry.get("material"), "material unknown"))
+                            + f", {noun} {entry.get('slot')}" for entry in row["filaments"])
         est = human(row["seconds"]) if row.get("seconds") is not None else "estimate unknown"
         grams = row.get("filament_g")
         amount = f" | {grams:g} g" if grams is not None else ""
