@@ -2,7 +2,7 @@
 
 One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.10, also tagged latest.
 
-2.2.10 is the ZMod 1.7.6 release. ZMod 1.7.6 shipped on 2026-11-11 and Print Handy was audited against it the same day: every changelog row has a verdict, and the parts that touch Print Handy (the printer screen, the built-in AFC panel, Orca slot sync, slicer-side spool selection) are handled below. Then we pointed it at a real AD5X and let it update itself. If you upgrade an existing install, read "Upgrade and compatibility" first.
+2.2.10 is the ZMod 1.7.6 release. ZMod 1.7.6 shipped on 2026-11-11 and Print Handy was audited against it the same day: every changelog row has a verdict, and the parts that touch Print Handy (the printer screen, Orca slot sync, slicer-side spool selection) are handled below. Then we pointed it at a real AD5X and let it update itself. If you upgrade an existing install, read "Upgrade and compatibility" first.
 
 ## What you can do
 
@@ -57,7 +57,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.10, also
 ## Verified and not verified
 Live, on an AD5X on 2026-11-11: Print Handy updated ZMod 1.7.5-2 to 1.7.6-17 and then HelixScreen v1.0.7 to v1.0.8 through the same path the Update button runs, verified each by re-reading the printer, and the printer came back ready with its spool records intact. On the same printer, read-only: the update alert detection, the printer screen view, camera selection against the real webcam list, and lane-record parsing of the real records.
 
-Not verified live: Matrix reactions, sparse tool maps through a real print, the Web UI alert buttons, and the weekly firmware watch on its schedule. They are covered by offline tests.
+Not verified live: Matrix reactions, sparse tool maps through a real print, the Web UI alert buttons, and the weekly firmware watch on its schedule. They are covered by offline tests. Not verified at all: spool changes made only in ZMod 1.7.6's built-in AFC panel. They reach Print Handy through the printer's lane records or Spoolman; if you run the AFC panel and a slot does not follow, open an issue.
 
 ## Under the hood
 - CI: a pull request's superseded runs are cancelled but a main run never is, a burst of merges to main keeps only the newest queued run, and the read-only image probes get a writable data root. (#1248) (#1293) (#1308)
