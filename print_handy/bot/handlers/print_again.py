@@ -14,6 +14,7 @@ from .common import (
     intake_plain_start_failure,
 )
 from ...runtime import _config
+from .print_next import _start_with_offers  # the one material/spool offer (#1336); no import cycle
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -200,7 +201,6 @@ async def print_again_dispatch(event, gateway, **kwargs):
             # never move. Bookkeeping only; the approval above is this
             # start's own and is not reused.
             await asyncio.to_thread(pc.arm_reprint_run, target)
-            from .print_next import _start_with_offers  # the one material/spool offer (#1336)
             ok, detail, plain = await _start_with_offers(adapter, source, metadata, print_next, target,
                                                          live_key=live_key)
             if not ok:
