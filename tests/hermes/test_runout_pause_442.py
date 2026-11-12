@@ -498,6 +498,9 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
             await lis.follow_failover((3, 2))
         resume.assert_called_once_with(19)
         self.assertIn("spool #19", posts[0])
+        # #1332: the failover post names each slot with its base.
+        self.assertIn("slot 3 (IFS channel 3) ran out", posts[0])
+        self.assertIn("to slot 2 (IFS channel 2) on its own", posts[0])
 
     def test_watch_retry_reports_the_switch_again(self):
         w = mel.FailoverChannelWatch()

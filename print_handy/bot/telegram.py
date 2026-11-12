@@ -175,6 +175,17 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Telegram delete failed: %r", exc)
             return False
 
+    async def pin_message(self, chat_id, message_id):
+        """Pin a message this adapter sent: the budget-exhausted outage
+        escalation (#1020 B3, beyond Discord in #1332). pinChatMessage with
+        the notification on, so members hear it. A group bot needs the pin
+        right; without it the Bot API refuses and the outage path keeps the
+        unpinned CRITICAL notice."""
+        await asyncio.to_thread(self._call, "pinChatMessage",
+                                {"chat_id": str(chat_id), "message_id": int(message_id),
+                                 "disable_notification": False})
+        return True
+
     async def edit_message(self, chat_id, message_id, content, metadata=None):
         """Replace a posted message's text in place (progress updates, P2-236)."""
         try:
@@ -445,6 +456,9 @@ class TelegramClient:
         me = await asyncio.to_thread(tg.whoami, self.token, opener=self.opener)
         self.user = S(id=(me or {}).get("id"), username=(me or {}).get("username"))
         self.core = BotCore(self, self.cfg)
+        if getattr(self, "warm_worker", False):
+            from .runtime import enable_warm_worker
+            enable_warm_worker()
         try:  # best effort: typed commands work without the menu registration
             await asyncio.to_thread(self._register_commands)
         except Exception as exc:
@@ -545,6 +559,7 @@ def run_bot(cfg):
         print(f"Telegram bot token is empty: put it in the ${name} environment variable.", file=sys.stderr)
         return 3
     client = TelegramClient(cfg, token)
+    client.warm_worker = True  # the production loop keeps a warm heavy worker (#1332)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

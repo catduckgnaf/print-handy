@@ -3283,7 +3283,7 @@ def native_error_key(detail):
 
 def native_error_text(filename, key):
     code, slot = key
-    where = f" (slot {slot})" if slot else ""
+    where = f" on {filament_color.slot_display(slot)}" if slot else ""
     hint = NATIVE_ERROR_HINTS.get(code, "see the printer screen for details")
     link = f"https://wiki.flashforge.com/en/ad5x/error_code_list_ad5x" if code.startswith("E") else ""
     return (f"**Print halted by the printer: {code}{where}.**\n" + print_summary.format_event("error", filename)
@@ -3695,12 +3695,14 @@ class Listener:
                 return
             self.failover_failures_posted.add(change)
             await asyncio.to_thread(post, (
-                f"**Filament failover:** the printer switched from IFS slot {old} to slot {new} "
+                f"**Filament failover:** the printer switched from {filament_color.slot_display(old)} "
+                f"to {filament_color.slot_display(new)} "
                 f"for {clean(self.filename or 'this print')}, but filament usage could not be moved to "
                 f"spool #{target} ({exc}). Spool #{charged} may keep being charged."))
             return
         await asyncio.to_thread(post, (
-            f"**Filament failover:** slot {old} ran out and the printer switched to slot {new} on its own. "
+            f"**Filament failover:** {filament_color.slot_display(old)} ran out and the printer switched "
+            f"to {filament_color.slot_display(new)} on its own. "
             f"Filament usage now goes to spool #{target} (was #{charged})."))
 
     async def classify_runout(self):

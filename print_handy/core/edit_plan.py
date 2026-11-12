@@ -25,8 +25,11 @@ vocabulary) that one validator checks and one confirmation applies:
   hash, so any edit re-requires them.
 
 Authorization for edits is the channel access every handler uses, plus
-the #902 identity layer for the AI lane: a user with no agent identity
-gets the deterministic vocabulary only.
+the AI lane gate (#902 as rescoped in #908): the ``[ai] allowed_users``
+allowlist and the per-user ``edit_requests_per_hour`` limit
+(:func:`ai_lane_allowed`). A refused user gets the deterministic
+vocabulary only. There is no per-user agent identity layer: it read
+Hermes profile configs the container cannot see and was removed.
 """
 from __future__ import annotations
 

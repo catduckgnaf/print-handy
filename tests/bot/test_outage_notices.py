@@ -9,7 +9,11 @@ channel routing (#536): a printer whose channel is shared with another
 printer still gets its notices in that channel, not the home channel.
 """
 import asyncio
+import io
+import json
 import time
+import urllib.error
+import urllib.parse
 
 from corpus import fake_discord
 from print_handy import settings
@@ -151,6 +155,126 @@ def test_exhausted_budget_escalates_to_a_pinned_critical_with_the_bundle(cfg, tm
     assert core.adapter.pinned == [("424242", "77")]
     state = outage_alert.load(settings.state_dir(core.cfg))
     assert "critical_at" in state["p1"]
+
+
+class _Reply(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+class BotApiRecorder:
+    """Telegram Bot API stand-in: records (method, JSON body), answers ok."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, req, timeout=None):
+        method = req.full_url.rsplit("/", 1)[-1]
+        is_json = "json" in (req.headers.get("Content-type") or "")
+        self.calls.append((method, json.loads(req.data or b"{}") if is_json else {}))
+        return _Reply(json.dumps({"ok": True, "result": {"message_id": 88}}).encode())
+
+
+class MatrixStateRecorder:
+    """Matrix Client-Server stand-in for the pinned-events state call."""
+
+    def __init__(self, pinned=None):
+        self.pinned = pinned  # None: the room has no pins yet (404)
+        self.calls = []
+
+    def __call__(self, req, timeout=None):
+        method = req.get_method()
+        path = urllib.parse.unquote(urllib.parse.urlsplit(req.full_url).path)
+        is_json = "json" in (req.headers.get("Content-type") or "")
+        body = json.loads(req.data) if req.data and is_json else None
+        self.calls.append((method, path, body))
+        if "/upload" in path:  # the attached diagnostics bundle
+            return _Reply(b'{"content_uri": "mxc://example.org/bundle"}')
+        if method == "GET":
+            if self.pinned is None:
+                raise urllib.error.HTTPError(req.full_url, 404, "not found", {}, None)
+            return _Reply(json.dumps({"pinned": self.pinned}).encode())
+        if path.endswith("/state/m.room.pinned_events"):
+            self.pinned = list(body["pinned"])
+            return _Reply(b'{"event_id": "$state"}')
+        # The notice text is the first event sent; the bundle file follows it.
+        sends = [c for c in self.calls if "/send/" in c[1]]
+        return _Reply(b'{"event_id": "$sent"}' if len(sends) == 1 else b'{"event_id": "$file"}')
+
+
+def test_1332_telegram_pins_the_critical_outage_notice(cfg, tmp_path):
+    # #1332: before, only Discord had pin_message, so a spent restart budget
+    # on a Telegram install posted the CRITICAL notice unpinned.
+    from print_handy import supervisor_state
+    from print_handy.bot import telegram
+
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="1"), [{"id": "p1", "chat_id": "-100777"}])
+    api = BotApiRecorder()
+    core.adapter = telegram.StandaloneAdapter(None, ["424242"], token="123456789:AA" + "x" * 33, opener=api)
+    supervisor_state.write("p1", restarts=6, budget=5, window_s=600, exhausted=True, data=core.cfg)
+    core._listener_statuses = lambda: DOWN
+    seed_state(core, old_outage())
+    messages = run(core.check_listener_outages())
+    assert [kind for _p, kind, _t in messages] == ["critical"]
+    pins = [body for method, body in api.calls if method == "pinChatMessage"]
+    assert pins == [{"chat_id": "-100777", "message_id": 88, "disable_notification": False}]
+
+
+def test_1332_matrix_pins_the_critical_outage_notice(cfg, tmp_path):
+    from print_handy import supervisor_state
+    from print_handy.bot import matrix
+
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="1"), [{"id": "p1", "chat_id": "!room:example.org"}])
+    hs = MatrixStateRecorder(pinned=["$older"])
+    core.adapter = matrix.StandaloneAdapter(None, ["@op:example.org"], homeserver="https://matrix.example.org",
+                                            token="syt_test", opener=hs)
+    supervisor_state.write("p1", restarts=6, budget=5, window_s=600, exhausted=True, data=core.cfg)
+    core._listener_statuses = lambda: DOWN
+    seed_state(core, old_outage())
+    messages = run(core.check_listener_outages())
+    assert [kind for _p, kind, _t in messages] == ["critical"]
+    # The existing pin is kept and the notice's event is appended.
+    assert hs.pinned == ["$older", "$sent"]
+
+
+def test_1332_matrix_pin_event_handles_a_room_without_pins_and_repeats():
+    from print_handy.bot import matrix_rest
+
+    hs = MatrixStateRecorder(pinned=None)
+    matrix_rest.pin_event("https://matrix.example.org", "syt_test", "!r:example.org", "$e1", opener=hs)
+    assert hs.pinned == ["$e1"]
+    puts = len([c for c in hs.calls if c[0] == "PUT"])
+    matrix_rest.pin_event("https://matrix.example.org", "syt_test", "!r:example.org", "$e1", opener=hs)
+    assert len([c for c in hs.calls if c[0] == "PUT"]) == puts, "an already pinned event was written again"
+
+
+def test_1332_a_refused_pin_keeps_the_delivered_critical(cfg, tmp_path):
+    # A group bot without the pin right: the Bot API refuses; the notice
+    # stays delivered and recorded, and nothing raises into the heartbeat.
+    from print_handy import supervisor_state
+    from print_handy.bot import telegram
+
+    class Refusing(BotApiRecorder):
+        def __call__(self, req, timeout=None):
+            if req.full_url.endswith("/pinChatMessage"):
+                self.calls.append(("pinChatMessage", {}))
+                return _Reply(json.dumps({"ok": False, "description": "not enough rights"}).encode())
+            return super().__call__(req, timeout)
+
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="1"), [{"id": "p1", "chat_id": "-100777"}])
+    api = Refusing()
+    core.adapter = telegram.StandaloneAdapter(None, ["424242"], token="123456789:AA" + "x" * 33, opener=api)
+    supervisor_state.write("p1", restarts=6, budget=5, window_s=600, exhausted=True, data=core.cfg)
+    core._listener_statuses = lambda: DOWN
+    seed_state(core, old_outage())
+    messages = run(core.check_listener_outages())
+    assert [kind for _p, kind, _t in messages] == ["critical"]
+    assert "pinChatMessage" in [m for m, _b in api.calls]
+    assert "critical_at" in outage_alert.load(settings.state_dir(core.cfg))["p1"]
 
 
 def test_degraded_notice_from_a_direct_poll_posts_once(cfg, tmp_path, monkeypatch):

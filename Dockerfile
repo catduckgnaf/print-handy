@@ -318,6 +318,13 @@ COPY docker/healthcheck.py /usr/local/bin/print-handy-healthcheck
 RUN mkdir -p /data/state/state /data/state/logs /data/archive /data/records /data/cache /data/spoolman/config /data/spoolman/logs /data/spoolman/backups && \
     chown -R handy:handy /data && chmod +x /app/docker/entrypoint.sh /usr/local/bin/print-handy-supervise
 USER handy
+# Image identity for the diagnostics bundle (#1332): a process cannot read its
+# own image's OCI labels, so the publish, develop and nightly workflows also pass
+# the tag and commit as build args. Local builds leave them empty, and the bundle
+# then says "not recorded". Declared last so a new commit rebuilds no earlier layer.
+ARG IMAGE_TAG=
+ARG IMAGE_SHA=
+ENV PRINT_HANDY_IMAGE_TAG=$IMAGE_TAG PRINT_HANDY_IMAGE_SHA=$IMAGE_SHA
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/app/docker/entrypoint.sh", "/usr/local/bin/print-handy-supervise"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 CMD ["python3", "/usr/local/bin/print-handy-healthcheck"]
 CMD []

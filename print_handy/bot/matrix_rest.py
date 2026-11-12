@@ -120,6 +120,29 @@ def redact(homeserver, token, room_id, event_id, *, txn_id=None, opener=None, ti
                     {}, timeout=timeout, opener=opener)
 
 
+def pin_event(homeserver, token, room_id, event_id, *, opener=None, timeout=30):
+    """Add one event to the room's pinned list (``m.room.pinned_events``, #1332).
+
+    The pinned list is room state, so the current list is read first and
+    the event appended (a room with no pins yet answers 404). Already
+    pinned is a no-op. A bot without the power level to change room state
+    gets the homeserver's error raised to the caller.
+    """
+    room = urllib.parse.quote(str(room_id), safe="")
+    path = f"{CLIENT}/rooms/{room}/state/m.room.pinned_events"
+    try:
+        current = _request(homeserver, token, "GET", path, timeout=timeout, opener=opener)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        current = {}
+    pinned = [str(e) for e in (current or {}).get("pinned") or [] if e]
+    if str(event_id) in pinned:
+        return {}
+    return _request(homeserver, token, "PUT", path, {"pinned": pinned + [str(event_id)]},
+                    timeout=timeout, opener=opener)
+
+
 def typing(homeserver, token, room_id, user_id, *, typing_ms=10000, opener=None, timeout=10):
     """PUT /rooms/{roomId}/typing/{userId}: show the bot as typing for ``typing_ms``."""
     room = urllib.parse.quote(str(room_id), safe="")
