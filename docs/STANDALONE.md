@@ -79,7 +79,7 @@ the same variable from `.env`. Restart the bot after changing it. This changes i
 not the Discord account username or server nickname; set those in Discord. The default stays `Print Handy`.
 
 The token is only ever read from the environment variable `discord.token_env` names, or from the `.env` file in
-`paths.state_home` (the data folder; the name is historical, it does not need Hermes). With no allow list,
+`paths.state_home` (the data folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x). With no allow list,
 everyone in the print channel can use the bot, the channel is the access boundary, and `check` reports
 `access: channel (everyone)`; set `discord.allowed_user_ids` to restrict the bot to listed users, and
 `discord.denied_user_ids` to exclude specific users in any mode. A refused message is logged at INFO with
@@ -267,7 +267,7 @@ switch if you want no model calls at all.
 | Listener posts | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments; no subprocess poster |
 | "print it" link recall | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json` |
 | /print-design model | The `[design]`/`[llm]` HTTP transport: the configured endpoint answers |
-| Data folder, install script, systemd units | `paths.state_home` is just the data folder (the name is historical); `scripts/install-standalone.sh` and `systemd/*.service.template` |
+| Data folder, install script, systemd units | `paths.state_home` is the data folder (called `paths.hermes_home` before 2.3.0); `scripts/install-standalone.sh` and `systemd/*.service.template` |
 
 There is no agent behind the bot: a message no handler claims simply ends (or gets the
 bounded stray-chat reply, above) instead of falling through to an assistant.

@@ -373,8 +373,8 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `orca` | `templates` | the model's folder under `print_handy/templates/orca` | Orca machine, process, and filament JSON |
 | | `command` | Flathub OrcaSlicer | How to start the Orca CLI |
 | `bambu` | `command` | Flathub Bambu Studio, no network | Fallback slicer |
-| `paths` | `state_home` | `~/.hermes/profiles/3dprinting` | The bot's state folder (the name is historical; any folder works) |
-| | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.hermes/cache` | Job archive, print records, cache |
+| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. Called `paths.hermes_home` before 2.3.0 (still read through 2.3.x); an existing `~/.hermes/profiles/3dprinting` is used as a legacy fallback |
+| | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.cache/print-handy` | Job archive, print records, cache |
 | | `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
 | | `spoolman_url` | empty | Spoolman service |
@@ -587,7 +587,7 @@ bot posting progress notifications.
 * **Emergency stop and recovery.** `emergency_stop()` is the panic ladder (emergency stop, firmware restart, ready wait, REBOOT fallback); `clear_shutdown()` and `force_reboot()` are the confirmed recovery paths.
 * **The Web UI one-command shape.** `send(command, sender=...)` is the door every Web UI control command crosses; the Web UI keeps its immediate HTTP answers.
 
-A recorded family alert goes to that family's own adapter control, a Bambu LAN printer to its LAN client and Moonraker to Moonraker; the decision is made once, in the service. The transport drivers (`hermes/print_stop.py`, `hermes/print_control.py`, `hermes/family_control.py`, `hermes/panic.py` and the Web UI `default_send`) are unchanged and only the service calls them, so a gate added to a driver applies to every surface.
+A recorded family alert goes to that family's own adapter control, a Bambu LAN printer to its LAN client and Moonraker to Moonraker; the decision is made once, in the service. The transport drivers (`runtime/print_stop.py`, `runtime/print_control.py`, `runtime/family_control.py`, `runtime/panic.py` and the Web UI `default_send`) are unchanged and only the service calls them, so a gate added to a driver applies to every surface.
 
 The entry points are listed in `printer_control.ENTRY_POINTS`: the chat commands (`/print-stop`, `/print-resume`, `/print-reboot`, the exclude and spool-question stops, the force-restart offers), the alert buttons (Discord, Telegram and Matrix presses all reach `print_alert_buttons.handle_click`), the Web UI control routes and the CLI (`python -m print_handy.runtime.panic`). `tests/test_printer_control_entry_points.py` checks that each entry point calls the service and scans the package and the handler plugin for any stop, pause, resume, reboot, emergency-stop or family-control command sent around it. A new control surface is added to `ENTRY_POINTS` and calls the service.
 

@@ -59,7 +59,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.0, also 
 - "skill" is no longer corrected to "still", and chat forgives a few more operator-mined typos. (#1292) (#1272)
 - Faster chat dispatch and painted-model handling, with no verdict changes. (#1250)
 - The camera watch's early-layer auto-pause could fail to fire when checks overlapped (a regression in this release cycle's refactor, caught before it shipped). It pauses exactly once again. (#1345)
-- Telegram and Matrix completion posts mention who started the print, like Discord. (#1335)
+- Telegram and Matrix completion and alert posts mention who started the print, like Discord. (#1335)
 
 ## Upgrade and compatibility
 - **`paths.hermes_home` is now `paths.state_home`** (environment `PRINT_HANDY__PATHS__STATE_HOME`). The old name and `PRINT_HANDY__PATHS__HERMES_HOME` keep working for this release with a one-time deprecation warning; the new name wins when both are set. Nothing moves on disk. (#1344)
