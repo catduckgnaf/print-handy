@@ -177,7 +177,7 @@ def _function(tree: ast.AST, name: str):
 
 def test_entry_point_table_covers_every_surface():
     files = {path for path, _ in printer_control.ENTRY_POINTS}
-    assert "plugins/print-feedback/__init__.py" in files      # chat commands
+    assert "print_handy/bot/handlers/print_stop.py" in files  # chat commands (#1323 moved them from plugins/)
     assert "print_handy/hermes/print_alert_buttons.py" in files  # every platform's alert buttons
     assert "print_handy/webui/controls.py" in files            # Web UI control routes
     assert "print_handy/hermes/panic.py" in files              # the CLI

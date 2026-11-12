@@ -404,6 +404,9 @@ class Step:
     label: str
     prompt: str
     validate: object  # callable(value, answers) -> stored value, raising ValueError
+    # callable(answers) -> bool: whether the step belongs to this session given the
+    # answers so far; None means always. The flow reads it from the table (#1323).
+    applies: object = None
 
 
 @dataclass(frozen=True)
@@ -438,6 +441,14 @@ class ProbeStep:
     run: object  # callable(answers) -> ProbeOutcome
 
 
+def _on_matrix(answers):
+    return answers.get("platform") == "matrix"
+
+
+def _password_login(answers):
+    return answers.get("webui_login") == "password"
+
+
 def steps(token_env="DISCORD_BOT_TOKEN"):
     model_list = ", ".join(sorted(printers.MODELS))
     return (
@@ -453,7 +464,7 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
              "Reply with the user IDs allowed to use Print Handy.", _validate_user_ids_platform),
         Step("homeserver_url", "Matrix homeserver",
              "Reply with your Matrix homeserver URL (for example https://matrix.example.org).",
-             _validate_homeserver_url),
+             _validate_homeserver_url, applies=_on_matrix),
         Step("moonraker_url", "Printer URL (optional)",
              "Reply with the printer's URL, or `skip`. The question names the right "
              "kind of address for the model you already picked.", _validate_service_url),
@@ -476,27 +487,27 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
              "to remove a login saved earlier, or `skip` to leave it as it is.",
              _validate_webui_login),
         Step("webui_username", "Web UI username",
-             "Reply with the username for the Web UI login.", _validate_webui_username),
+             "Reply with the username for the Web UI login.", _validate_webui_username,
+             applies=_password_login),
         Step("webui_password", "Web UI password",
              "Reply with the new Web UI password (at least 8 characters; a few unrelated "
              "words work well). It is deleted from chat as soon as it is captured and is "
              "never saved in this checklist or repeated back. Spaces at the very start "
-             "or end are trimmed in chat, so leave them off.", _validate_secret_step),
+             "or end are trimmed in chat, so leave them off.", _validate_secret_step,
+             applies=_password_login),
         Step("webui_confirm", "Confirm Web UI password",
              "Reply with the same password once more to confirm it. It is deleted from "
              "chat as soon as it is captured; the login is saved as soon as it matches.",
-             _validate_secret_step),
+             _validate_secret_step, applies=_password_login),
     )
 
 
 def _step_applies(step_key, answers):
-    """Whether a step belongs to this session, given the answers so far."""
+    """Whether a step belongs to this session, given the answers so far: the step's
+    ``applies`` in the table; a step without one, or a key not in it, always applies."""
     answers = answers or {}
-    if step_key == "homeserver_url":
-        return answers.get("platform") == "matrix"
-    if step_key in ("webui_username", "webui_password", "webui_confirm"):
-        return answers.get("webui_login") == "password"
-    return True
+    step = next((s for s in steps() if s.key == step_key), None)
+    return step is None or step.applies is None or step.applies(answers)
 
 
 def _applicable_steps(answers, token_env="DISCORD_BOT_TOKEN"):

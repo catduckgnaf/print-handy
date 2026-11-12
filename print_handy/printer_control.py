@@ -265,14 +265,15 @@ def for_printer(printer_id: str | None = None, *, adapter=None, view=None) -> Pr
 # each one and fails when it is missing, does not call the service, or reaches
 # a transport driver directly. A new entry point is added here and to the test.
 ENTRY_POINTS = (
-    # chat commands (the print-feedback handler plugin serves Discord, Telegram, Matrix and Web UI chat)
-    ("plugins/print-feedback/__init__.py", "print_stop_dispatch"),
-    ("plugins/print-feedback/__init__.py", "print_resume_dispatch"),
-    ("plugins/print-feedback/__init__.py", "print_reboot_dispatch"),
-    ("plugins/print-feedback/__init__.py", "exclude_dispatch"),
-    ("plugins/print-feedback/__init__.py", "_cancel_spool_question_print"),
-    ("plugins/print-feedback/__init__.py", "_offer_force_restart"),
-    ("plugins/print-feedback/__init__.py", "alert_button_handlers"),
+    # chat commands (the chat handlers serve Discord, Telegram, Matrix and Web UI chat;
+    # they moved from plugins/print-feedback into print_handy/bot/handlers, #1323)
+    ("print_handy/bot/handlers/print_stop.py", "print_stop_dispatch"),
+    ("print_handy/bot/handlers/print_resume.py", "print_resume_dispatch"),
+    ("print_handy/bot/handlers/print_reboot.py", "print_reboot_dispatch"),
+    ("print_handy/bot/handlers/exclude.py", "exclude_dispatch"),
+    ("print_handy/bot/handlers/common.py", "_cancel_spool_question_print"),
+    ("print_handy/bot/handlers/common.py", "_offer_force_restart"),
+    ("print_handy/bot/handlers/common.py", "alert_button_handlers"),
     ("print_handy/core/prepared_intake.py", "_offer_force_restart"),
     # listener alert buttons (Discord, Telegram and Matrix clicks all land here)
     ("print_handy/hermes/print_alert_buttons.py", "handle_click"),
