@@ -18,7 +18,7 @@ from .print_next import _start_with_offers  # the one material/spool offer (#133
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
-logger = logging.getLogger("print_handy_print_feedback")
+logger = logging.getLogger("print_handy.bot.handlers")
 
 
 def _job_owner_pid(job_json):

@@ -11,7 +11,7 @@ from ...runtime import _config
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
-logger = logging.getLogger("print_handy_print_feedback")
+logger = logging.getLogger("print_handy.bot.handlers")
 
 
 _NOZZLE_TYPE_LABELS = {'brass': 'Brass', 'hardened_steel': 'Hardened steel',
