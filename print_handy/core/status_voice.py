@@ -263,10 +263,8 @@ def voiced(text: str, stage: str, *, separator: str = " ", **kwargs: Any) -> str
 
     The factual sentences always come first and are never edited. When the
     text ends with a Stop instruction the quip goes just before it. A
-    multi-line post passes ``separator="
-"`` to keep the quip on its own
-    line after the facts. Any
-    problem, including an empty quip, returns the original text unchanged.
+    multi-line post passes ``separator="\n"`` to keep the quip on its own
+    line after the facts. Any problem, including an empty quip, returns the original text unchanged.
     """
     try:
         if not isinstance(text, str) or not text:
