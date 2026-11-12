@@ -201,6 +201,8 @@ jobs:
             --build-arg "WITH_ORCA=$WITH_ORCA" \
             --build-arg "WITH_GO2RTC=$WITH_GO2RTC" \
             --build-arg "WITH_BAMBU=$WITH_BAMBU" \
+            --build-arg "IMAGE_TAG=$NIGHTLY_VERSION" \
+            --build-arg "IMAGE_SHA=$NIGHTLY_SHA" \
             --label "org.opencontainers.image.source=https://github.com/catduckgnaf/print-handy" \
             --label "org.opencontainers.image.version=$NIGHTLY_VERSION" \
             --label "org.opencontainers.image.revision=$NIGHTLY_SHA" \
@@ -246,6 +248,8 @@ jobs:
             --build-arg "WITH_ORCA=$WITH_ORCA" \
             --build-arg "WITH_GO2RTC=$WITH_GO2RTC" \
             --build-arg "WITH_BAMBU=$WITH_BAMBU" \
+            --build-arg "IMAGE_TAG=$NIGHTLY_VERSION" \
+            --build-arg "IMAGE_SHA=$NIGHTLY_SHA" \
             --label "org.opencontainers.image.source=https://github.com/catduckgnaf/print-handy" \
             --label "org.opencontainers.image.version=$NIGHTLY_VERSION" \
             --label "org.opencontainers.image.revision=$NIGHTLY_SHA" \

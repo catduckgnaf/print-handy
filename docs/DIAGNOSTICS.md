@@ -753,11 +753,14 @@ critical below) attaches the bundle automatically.
 
 What the bundle carries beyond versions and the redacted config summary:
 
-- **Runtime status**: the image tag and commit SHA when the environment
-  records them (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the
-  image digest is always shown when present), each printer's listener
-  heartbeat age and event-loop lag, the camera watch coverage the
-  listener reported (active, or off and why), the supervisor's persisted restart
+- **Runtime status**: the image tag and commit SHA
+  (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the release,
+  develop and nightly images have both stamped in by the workflow that
+  publishes them, a local build says "not recorded", and a value you set
+  on the container wins; the image digest is always shown when present),
+  each printer's listener heartbeat age and event-loop lag, the camera
+  watch coverage the listener reported (active, or off and why), the
+  supervisor's persisted restart
   counts per printer (including a spent budget), and the
   capture-directory names with their lengths, one real hang was a
   capture name that outgrew its limit.
@@ -789,7 +792,10 @@ other local path is removed.
 restart record (`supervisor_listener.json` in the printer's state
 directory). When a listener's restart budget is spent, the bot's next
 outage notice for that printer is a louder **CRITICAL** post naming both
-bundle commands, pinned in Discord where pinning is available; hourly
+bundle commands, pinned on Discord, Telegram and Matrix (a Telegram
+group bot needs the pin right and a Matrix bot the power level to change
+room state; without it the notice still posts, unpinned; Web UI chat
+has no pins); hourly
 reminders afterwards keep naming the exhaustion. **Degraded notices:**
 while a listener is down, the bot also polls Moonraker directly, and a
 pause, error or stop the printer itself reports gets one degraded

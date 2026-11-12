@@ -222,6 +222,15 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Matrix redact failed: %r", exc)
             return False
 
+    async def pin_message(self, chat_id, message_id):
+        """Pin a message this adapter sent: the budget-exhausted outage
+        escalation (#1020 B3, beyond Discord in #1332). Needs the power
+        level to change room state; without it the homeserver refuses and
+        the outage path keeps the unpinned CRITICAL notice."""
+        await asyncio.to_thread(mx.pin_event, self.homeserver, self.token, str(chat_id),
+                                str(message_id), opener=self.opener)
+        return True
+
     async def edit_message(self, chat_id, message_id, content, metadata=None):
         """Replace a posted message's text in place (progress updates, P2-236).
 
@@ -600,6 +609,9 @@ class MatrixClient:
         self.bot_user_id = bot_id
         self.user = S(id=bot_id)
         self.core = BotCore(self, self.cfg, chat_id=self.room_id)
+        if getattr(self, "warm_worker", False):
+            from .runtime import enable_warm_worker
+            enable_warm_worker()
         limit = await asyncio.to_thread(mx.media_config, self.homeserver, self.token, opener=self.opener)
         if limit:  # the server's media cap wins when it is lower (best effort)
             self.core.adapter.upload_max_bytes = min(self.core.adapter.upload_max_bytes or limit, limit)
@@ -715,6 +727,7 @@ def run_bot(cfg):
         print("Matrix homeserver is empty: set [matrix] homeserver_url.", file=sys.stderr)
         return 3
     client = MatrixClient(cfg, homeserver, token)
+    client.warm_worker = True  # the production loop keeps a warm heavy worker (#1332)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

@@ -130,9 +130,10 @@ def _image_identity() -> str:
     """Image tag + commit SHA as the environment records them (#1020 C1).
 
     The published images carry these as OCI labels, which a process
-    inside the container cannot read back; an operator (or a compose
-    file) can pass them in as environment variables. Absent values are
-    stated, never invented.
+    inside the container cannot read back, so the publish, develop and
+    nightly workflows also stamp them into the image environment as
+    build args (#1332); an operator can still override them. Absent
+    values (a local build) are stated, never invented.
     """
     tag = os.environ.get("PRINT_HANDY_IMAGE_TAG", "").strip()
     sha = os.environ.get("PRINT_HANDY_IMAGE_SHA", "").strip()

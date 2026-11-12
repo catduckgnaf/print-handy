@@ -226,5 +226,37 @@ class ClipIndexTests(unittest.TestCase):
             self.assertEqual(built.call_count, 1)
 
 
+class ClipJoinAfterRepairTests(unittest.TestCase):
+    """#1017 / #1332: the Wrapped page joins a clip to its print by record.
+
+    A duplicate-number repair gives the reprint a new number and keeps
+    the old one as ``print_number_was``; its clip, delivered before the
+    repair, still says ``-print-12``. Through the production entry
+    (``wrapped_view``) each clip lands on its own print: the original by
+    its start stamp, the renumbered reprint through ``print_number_was``.
+    """
+
+    def setUp(self):
+        data_module.clear_cache()
+        self.addCleanup(data_module.clear_cache)
+
+    def test_wrapped_view_joins_clips_through_print_number_was_and_start_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write(tmp, 12, "2026-04-01T10:00:00Z")
+            _write(tmp, 90, "2026-04-01T16:00:00Z", print_number_was=12)
+            archive = Path(tmp) / "clips"
+            archive.mkdir()
+            (archive / "20260401-1000-Original-print-12.mp4").write_bytes(b"x")
+            (archive / "20260401-1600-Reprint-print-12.mp4").write_bytes(b"x")
+            data = {"timelapse": {"wrapped_enabled": True, "archive_dir": str(archive)},
+                    "paths": {"records_vault": str(tmp), "cache": ""},
+                    "discord": {"timezone": "UTC"}}
+            code, body = data_module.wrapped_view(data, 2026)
+            self.assertEqual(code, 200)
+            joined = {c["name"]: c["print_number"] for c in body["timelapse_clips_by_print"]}
+            self.assertEqual(joined, {"20260401-1000-Original-print-12.mp4": 12,
+                                      "20260401-1600-Reprint-print-12.mp4": 90})
+
+
 if __name__ == "__main__":
     unittest.main()

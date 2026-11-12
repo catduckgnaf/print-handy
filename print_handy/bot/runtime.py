@@ -83,6 +83,20 @@ def _poll_moonraker_state(entry):
         return None
 
 
+def enable_warm_worker():
+    """Keep one warm heavy intake worker on this bot's loop (#1332). Never raises.
+
+    Called by each platform client once its loop is up, and only when
+    run_bot started it: test loops never get a spare. A failure just leaves
+    every step starting cold, as before.
+    """
+    try:
+        from ..intake import worker as intake_worker
+        intake_worker.enable_warm_worker()
+    except Exception:
+        logger.warning("warm heavy worker not enabled; intake steps start cold", exc_info=True)
+
+
 def unmatched_text(bot_name="Print Handy"):
     """The short plain reply for a message nothing took (#467).
 
