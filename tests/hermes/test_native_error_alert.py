@@ -18,7 +18,7 @@ class NativeErrorKeyTests(unittest.TestCase):
 
     def test_text_names_code_slot_and_retry(self):
         text = mel.native_error_text("Ghost.gcode", ("E0102", 3))
-        self.assertIn("E0102 (slot 3)", text)
+        self.assertIn("E0102 on slot 3 (IFS channel 3)", text)  # #1332: the base is named
         self.assertIn("could not feed", text)
         self.assertIn("retry", text)
 
