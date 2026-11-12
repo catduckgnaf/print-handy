@@ -205,7 +205,12 @@ path, and report what you saw in the support Discord or as a GitHub issue.
   Spoolman should be corrected there, or Print Handy may offer a slot that
   just ran out.
 - After a runout, answer the spool question first. Then start the next
-  print.
+  print. Until it is answered, filament usage stays paused. If the spool
+  that ran out is back in its slot (still assigned to that slot and
+  reading loaded) when the next print starts or the spool sync runs,
+  Print Handy closes the question as a refeed and says so. Otherwise the
+  next print starts anyway with one notice that usage is paused, and
+  reminders slow to every 6 hours once the print that ran out is over.
 
 ## Camera and timelapse
 

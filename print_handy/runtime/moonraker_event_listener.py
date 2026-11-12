@@ -1089,6 +1089,69 @@ def clear_runout_pause(path=None):
         target.unlink()
 
 
+# Once the print a spool question was opened for is over, the question
+# still waits for an answer, but a reminder every SPOOL_NAG_SECONDS for days
+# is noise (one open question was reminded 619 times over four days).
+# Reminders slow to this interval instead; the count keeps going up.
+SPOOL_NAG_ENDED_SECONDS = 6 * 60 * 60
+
+
+def spool_question_print_is_current(record, state, filename, total_duration=None, now=None):
+    """Whether the print an open spool question was asked for is still the printer's job.
+
+    True only while the printer is printing or paused on the question's
+    file and, when the printer reports how long the job has run, that job
+    started before the question opened: a later reprint of the same file is
+    a different print. An unknown run time on the same file counts as the
+    same print, the conservative reading.
+    """
+    if state not in ("printing", "paused") or not record:
+        return False
+    if not filename or not launch_state.same_remote(filename, record.get("filename") or ""):
+        return False
+    recorded = record.get("recorded_at")
+    if isinstance(total_duration, (int, float)) and isinstance(recorded, (int, float)):
+        started = (time.time() if now is None else now) - float(total_duration)
+        return started <= float(recorded) + 60
+    return True
+
+
+def refeed_settles_question(record, bound_spool, present):
+    """The #1063 refeed rule, applied once the question's print is over.
+
+    An open runout question whose slot is still bound to the very spool
+    that ran out, with that slot reading loaded, is the refeed answer: the
+    same spool is back in the slot. A different spool, an unknown binding,
+    or a slot that reads empty or could not be read never settles it.
+    """
+    if not record or record.get("cause") != "runout" or not record.get("usage_suspended"):
+        return False
+    prior = record.get("prior_spool_id")
+    if record.get("slot") not in (1, 2, 3, 4) or not isinstance(prior, int) or isinstance(prior, bool):
+        return False
+    return bound_spool == prior and present is True
+
+
+def refeed_settled_text(record):
+    """The one line posted when the refeed rule closes a question on its own."""
+    slot, prior = record.get("slot"), record.get("prior_spool_id")
+    return (f"**Spool check closed:** spool #{prior}, the spool that ran out, is back in "
+            f"IFS slot {slot}, so the open question is answered as a refeed (same spool, feed "
+            f"fix): no new spool was created, #{prior} was not marked depleted, and filament "
+            f"usage is no longer paused.")
+
+
+def open_question_start_notice(record):
+    """The one notice a new print gets while an older spool question still pauses usage."""
+    slot = record.get("slot")
+    where = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "an IFS slot"
+    about = clean(record.get("filename") or "an earlier print")
+    return (f"**Spool question still open:** the question about {where} from {about} has not "
+            "been answered, so filament usage is paused until it is answered and this print "
+            "may not be charged to any spool. The print was not held; answer the question "
+            "to settle the spool records.")
+
+
 def compatible_offers(spools, material, color, color_hex=None):
     """Offer same color/finish PLA or PLA+ spools. Never pick one."""
     offers = []
@@ -3597,12 +3660,87 @@ class Listener:
         record = load_runout_pause()
         if not record or not record.get("usage_suspended"):
             return
-        if time.time() - float(record.get("last_nag_at") or 0) < SPOOL_NAG_SECONDS:
+        # The paused print itself keeps the short reminder. Once the print the
+        # question was opened for is over, reminders back off (2026-11-12).
+        interval = SPOOL_NAG_SECONDS
+        if record.get("print_over") or not spool_question_print_is_current(
+                record, self.state, self.filename, self.last_stats.get("total_duration")):
+            interval = max(SPOOL_NAG_SECONDS, SPOOL_NAG_ENDED_SECONDS)
+        if time.time() - float(record.get("last_nag_at") or 0) < interval:
             return
         record["nags"] = int(record.get("nags") or 0) + 1
         record["last_nag_at"] = time.time()
         atomic_write_json(RUNOUT_PAUSE_STATE, record)
         await asyncio.to_thread(post_spool_question, record, True)
+
+    async def _slot_present_now(self, slot):
+        """True/False for whether an IFS slot reads loaded now; None when it cannot be read.
+
+        This tick's presence poll answers when it is current; otherwise one
+        slot read is taken (native-screen printers only). Fail-soft.
+        """
+        slots = self.lane_presence()
+        if slots is None:
+            if not printers.current().has_native_screen:
+                return None
+            try:
+                _detail, slots = await self.read_slots()
+            except Exception as exc:
+                log(f"spool question slot read failed: {exc!r}")
+                return None
+            self.note_slot_presence(slots)
+        value = (slots or {}).get(slot) if isinstance(slots, dict) else None
+        return value if isinstance(value, bool) else None
+
+    async def settle_spool_question(self, *, state, filename, total_duration=None,
+                                    new_print=False, printing=False, start_notice=False, mr=None):
+        """Settle an open spool question whose print is over (2026-11-12).
+
+        Runs on a fresh print start and after each spool reconcile. The
+        print the question was opened for is left alone: during it the
+        question behaves exactly as before. Once that print is over:
+
+        * the #1063 refeed rule closes it when the slot is still bound to
+          the very spool that ran out and reads loaded: usage resumes on
+          that spool through the same refeed path a screen load takes and
+          one short line says so. While another print is running, its
+          launch owns Moonraker's usage pointer, so the question is only
+          closed and the pointer is left as the launch set it;
+        * otherwise the question stays open, is marked as outliving its
+          print (reminders back off), and with ``start_notice`` the new
+          print gets one notice that usage is paused. Warn only: nothing
+          here holds or stops a print.
+
+        Returns "settled", "open", or None when there was nothing to do.
+        """
+        record = load_runout_pause()
+        if not record or not record.get("usage_suspended"):
+            return None
+        if not new_print and spool_question_print_is_current(record, state, filename, total_duration):
+            return None
+        slot = record.get("slot")
+        bound = _mapped_spool(slot) if slot in (1, 2, 3, 4) else None
+        if refeed_settles_question(record, bound, True) and refeed_settles_question(
+                record, bound, await self._slot_present_now(slot)):
+            try:
+                if printing:
+                    clear_runout_pause()
+                else:
+                    await asyncio.to_thread(
+                        functools.partial(feed_screen_runout_load, slot, bound, record,
+                                          **({"mr": mr} if mr is not None else {})))
+            except Exception as exc:
+                log(f"spool question refeed settle failed: {exc!r}")
+            else:
+                log(f"spool question closed as a refeed: slot {slot} is back on spool #{bound}")
+                await asyncio.to_thread(post, refeed_settled_text(record))
+                return "settled"
+        if not record.get("print_over"):
+            record["print_over"] = True
+            atomic_write_json(RUNOUT_PAUSE_STATE, record)
+        if start_notice:
+            await asyncio.to_thread(post, open_question_start_notice(record))
+        return "open"
 
     async def poll_native_presence(self):
         """Read authenticated stock detail while idle and send only a one-way prompt."""
@@ -4252,6 +4390,15 @@ class Listener:
                 else:
                     await asyncio.to_thread(post, start_message(self.filename))
                     await asyncio.to_thread(post_exclude_objects, self.filename)
+                if not duplicate_start:
+                    # A new print while an older spool question is open: settle it as a
+                    # refeed when the same spool is back, else one warn-only notice.
+                    try:
+                        await self.settle_spool_question(
+                            state=new_state, filename=self.filename, new_print=True,
+                            printing=True, start_notice=True)
+                    except Exception as exc:
+                        log(f"spool question check at print start failed: {exc!r}")
                 # The live view's auto-start trigger (#311 stage 4):
                 # fail-soft, and a no-op unless auto_start_on_print is on.
                 await asyncio.to_thread(_live_auto_on_print_start)
@@ -4321,6 +4468,16 @@ class Listener:
                     await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         if ended:
+            # The print an open spool question was asked for is over: the
+            # question stays open, but its reminders back off from here.
+            try:
+                record = load_runout_pause()
+                if (record and record.get("usage_suspended") and not record.get("print_over")
+                        and spool_question_print_is_current(record, old, self.filename)):
+                    record["print_over"] = True
+                    atomic_write_json(RUNOUT_PAUSE_STATE, record)
+            except Exception as exc:
+                log(f"spool question print-over mark failed: {exc!r}")
             # Close the capture before the announcer: its timelapse
             # postprocess only finds a capture whose manifest is no longer
             # "capturing", and would otherwise attach the previous job's.
@@ -5173,8 +5330,52 @@ class Listener:
                 log(f"spool reconcile: {line}")
             if result.get("ok"):
                 await self._retry_pending_spool_sync()
+                await self._settle_spool_question_after_reconcile(mr)
         except Exception as exc:
             log(f"spool reconcile skipped: {exc!r}")
+
+    async def _settle_spool_question_after_reconcile(self, mr):
+        """After a reconcile, settle an open spool question whose print is over.
+
+        The printer's job comes from a FRESH print_stats read (the caches
+        are empty or stale here, as for the pending sync retry below); an
+        unreadable printer leaves the question untouched, since it could
+        still be the paused print itself.
+        """
+        try:
+            stats = await self._fresh_print_stats()
+            if stats is None:
+                return
+            state = stats.get("state")
+            await self.settle_spool_question(
+                state=state, filename=stats.get("filename") or "",
+                total_duration=stats.get("total_duration"),
+                printing=state in ("printing", "paused"), mr=mr)
+        except Exception as exc:
+            log(f"spool question check after reconcile skipped: {exc!r}")
+
+    async def _fresh_print_stats(self):
+        """This printer's print_stats read now (never the caches), or None when unreadable."""
+        from .. import listeners as _listeners
+        try:
+            instance_id = _listeners.instance_printer_id()
+        except Exception:
+            instance_id = None
+        if instance_id:
+            # Per-printer Moonraker, resolved at call time like
+            # reconcile_spools' own client (#335), not the base URL
+            # captured when print_control was imported.
+            from . import spool_sync
+            reply = await asyncio.to_thread(
+                spool_sync.moonraker_for(instance_id), "GET",
+                "/printer/objects/query?print_stats")
+        else:
+            reply = await asyncio.to_thread(
+                print_control._call, "/printer/objects/query?print_stats")
+        if not isinstance(reply, dict):
+            return None
+        stats = ((reply.get("result") or {}).get("status") or {}).get("print_stats")
+        return stats if isinstance(stats, dict) else None
 
     async def _retry_pending_spool_sync(self):
         """A Spoolman probe just succeeded: retry the running job's pending
@@ -5199,19 +5400,7 @@ class Listener:
                 instance_id = _listeners.instance_printer_id()
             except Exception:
                 instance_id = None
-            if instance_id:
-                # Per-printer Moonraker, resolved at call time like
-                # reconcile_spools' own client (#335), not the base URL
-                # captured when print_control was imported.
-                from . import spool_sync
-                reply = await asyncio.to_thread(
-                    spool_sync.moonraker_for(instance_id), "GET",
-                    "/printer/objects/query?print_stats")
-            else:
-                reply = await asyncio.to_thread(
-                    print_control._call, "/printer/objects/query?print_stats")
-            stats = (((reply.get("result") or {}).get("status") or {}).get("print_stats")
-                     if isinstance(reply, dict) else None) or {}
+            stats = await self._fresh_print_stats() or {}
             filename = stats.get("filename") or ""
             if stats.get("state") not in ("printing", "paused") or not filename:
                 return
