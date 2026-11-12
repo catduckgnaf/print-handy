@@ -67,8 +67,13 @@ def normalize_mapping(mapping, state):
             if os.environ.get('PRINT_ACCEPT_SPOOL_CHANGE') != '1':
                 raise RuntimeError(f'slot {slot} spool changed since slicing (was {embedded_spool_id}, now {configured.get("spoolman_id")}); reslice or confirm')
         result[str(key)] = slot
-    if set(map(int, result)) != set(range(len(result))):
-        raise RuntimeError('tool mapping must be contiguous from T0')
+    # The mapped tools need not be contiguous from T0 (#1305): a slicer plate
+    # that uses a subset of the project's filaments (filaments 1 and 3, or
+    # filament 3 alone) emits exactly those tools (T0 and T2, or T2), and the
+    # operator's explicit map for them is the selection to preserve. What must
+    # hold is coverage — every tool the file uses is mapped — and that is
+    # enforced by validate_materials and finalize, which see the file's used
+    # tools; this function only validates the map itself.
     return result
 
 
@@ -124,7 +129,12 @@ def validate_materials(text, material, state, mapping=None):
     # Orca writes project-wide filament lists into G-code even when a derived
     # single-color plate remaps every object to T0. These unused entries are
     # slicer metadata, not extra toolheads or physical IFS slots.
-    if len(materials) == len(mapping):
+    # The positional branch (material index == tool index for every mapped
+    # tool) applies only when the list is long enough to index every mapped
+    # tool; a sparse map can share the list's length by coincidence (a map
+    # for T0 and T2 against a two-entry list), and indexing it positionally
+    # would run past the list instead of naming the omission.
+    if len(materials) == len(mapping) and max(map(int, mapping)) < len(materials):
         indexes = sorted(mapping, key=int)
     else:
         indexes = sorted(str(tool) for tool in tools)
