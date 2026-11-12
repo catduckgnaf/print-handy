@@ -477,9 +477,13 @@ class UnclaimedFlowTests(unittest.TestCase):
             self.assertEqual(code, 500)
             self.assertNotIn("secret detail", page)
             ids.append(re.search(r"Request id: ([0-9a-f]{12})", page).group(1))
-            # A broken POST answers the same way.
+            # A broken POST answers the same way. The route policy (#1319)
+            # checks the form token before the handler runs, so the post
+            # carries the page's token to reach the broken handler.
             with mock.patch.object(server._Handler, "_debug_post", broken):
-                code, _, body = self.request(port, "POST", "/debug", body="", headers=FORM)
+                code, _, body = self.request(
+                    port, "POST", "/debug",
+                    body=urlencode({pages.CSRF_FIELD: httpd.form_token}), headers=FORM)
             self.assertEqual(code, 500)
             ids.append(json.loads(body)["request_id"])
         self.assertEqual(len(set(ids)), len(ids))  # one id per failed request
