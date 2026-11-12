@@ -15,7 +15,7 @@ not a contract. The contracts stay in their own pages
 
 | Printer | Page | Written against |
 | --- | --- | --- |
-| Flashforge Adventurer 5X (AD5X) | [AD5X best practices](DEVICE-AD5X.md) | ZMod 1.7.5-2, Klipper 13, screenless with HelixScreen |
+| Flashforge Adventurer 5X (AD5X) | [AD5X best practices](DEVICE-AD5X.md) | ZMod 1.7.6-17, Klipper 13, screenless with HelixScreen |
 
 More devices will follow. A page is added when someone runs Print Handy
 on that printer long enough to say what works, with the hardware
