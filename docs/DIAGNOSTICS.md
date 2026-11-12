@@ -753,9 +753,12 @@ critical below) attaches the bundle automatically.
 
 What the bundle carries beyond versions and the redacted config summary:
 
-- **Runtime status**: the image tag and commit SHA when the environment
-  records them (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the
-  image digest is always shown when present), each printer's listener
+- **Runtime status**: the image tag and commit SHA
+  (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the release,
+  develop and nightly images have both stamped in by the workflow that
+  publishes them, a local build says "not recorded", and a value you set
+  on the container wins; the image digest is always shown when present),
+  each printer's listener
   heartbeat age and event-loop lag, the supervisor's persisted restart
   counts per printer (including a spent budget), and the
   capture-directory names with their lengths, one real hang was a
