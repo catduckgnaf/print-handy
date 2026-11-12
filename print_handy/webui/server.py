@@ -178,6 +178,7 @@ from . import layers as layers_module
 from . import pages
 from . import printers_page
 from . import projects as projects_module
+from . import routes as routes_module
 from . import screen as screen_module
 from . import shell
 from . import sources as sources_module
@@ -380,6 +381,8 @@ def _save_remembered_sessions(server):
 # lands here, and the wording names that case instead of the mechanism.
 STALE_FORM_MESSAGE = ("This page is out of date (Print Handy restarted). "
                       "Reload it and try again.")
+# The answer for a no-login upload link that is unknown, expired or revoked.
+INVALID_LINK_MESSAGE = "This upload link is not valid. Ask for a fresh one."
 
 
 class WebUIServerError(RuntimeError):
@@ -1034,159 +1037,285 @@ class _Handler(BaseHTTPRequestHandler):
             field_values, data=self.server.settings_data,
             form_token=self._form_token(), **kwargs)
 
-    # -- routes -----------------------------------------------------------
+    # -- routes and the policy middleware (#1319) --------------------------
     def do_GET(self):
+        self._dispatch("GET")
+
+    def do_POST(self):
+        self._dispatch("POST")
+
+    def do_PUT(self):
+        self._dispatch("PUT")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
+
+    def do_PATCH(self):
+        self._dispatch("PATCH")
+
+    def do_HEAD(self):
+        self._dispatch("HEAD")
+
+    def do_OPTIONS(self):
+        self._dispatch("OPTIONS")
+
+    def _dispatch(self, method):
+        """The one way into a route handler: find the route in the table
+        (routes.ROUTES), run the screens every request gets, enforce the
+        route's declared policy (_policy), then call its handler.
+
+        A failure anywhere is a 500 with a request id, never a dropped
+        connection or the exception text (log_message is silenced; the
+        log keeps the traceback under the id the response names). A
+        method without its own routes gets the read-only refusal with no
+        screens, as it always has."""
+        path = urlparse(self.path).path
+        route, capture = routes_module.resolve(method, path)
+        if route is None or not route.prechecks:
+            self._read_only()
+            return
         try:
-            path = urlparse(self.path).path
             self._sync_access()
             if self._broken_refused(path):
                 return
-            if path != "/healthz" and self._host_refused():
+            if route.host_check and self._host_refused(post=method == "POST"):
                 return
-            if path == "/healthz":
-                # Unauthenticated by design: the container healthcheck
-                # probes this route (it sends the header when it has the
-                # token, but liveness must not depend on that).
-                code, body = healthz(self.server.settings_data)
-                self._json(code, body)
-                return
-            if path == "/setup":
-                self._redirect("/")
-                return
-            if path == "/login":
-                self._login_page()
-                return
-            if path.startswith("/u/"):
-                # A no-login upload link: the token in the address is
-                # the whole credential, and it opens this form only.
-                self._token_upload_page(unquote(path[len("/u/"):]))
-                return
-            if not self._authorized():
-                if self._browser_navigation(path):
-                    # A browser following the Unraid WebUI link (or any
-                    # bookmark) sends Accept: text/html and cannot send
-                    # the token header: send it to the login form
-                    # instead of raw JSON (#440). API clients keep the
-                    # JSON 401 below.
-                    self._redirect("/login")
+            arg = unquote(capture) if (capture is not None and route.decode) else capture
+            self._route, self._route_arg = route, arg
+            with self._policy(route, arg) as grant:
+                if grant is None:
                     return
-                self._deny_header()
+                args = [] if capture is None else [arg]
+                if route.pass_path:
+                    args.append(path)
+                if route.policy == routes_module.SESSION_CSRF:
+                    args.append(grant.form)
+                getattr(self, route.handler)(*args)
+        except Exception:
+            self._internal_error(method, path,
+                                 html_page=method == "GET" and self._browser_navigation(path))
+
+    class _Grant:
+        """What the policy hands a handler: the parsed form, for a
+        ``session+csrf`` route (None for a multipart upload)."""
+
+        def __init__(self, form=None):
+            self.form = form
+
+    @contextlib.contextmanager
+    def _policy(self, route, arg):
+        """Enforce ``route.policy`` (routes.py says what each one means).
+
+        Yields a _Grant when the request may proceed, or None after the
+        refusal has been sent. A ``claim_lock`` route stays inside the
+        claim lock until its handler returns."""
+        policy = route.policy
+        if policy == routes_module.PUBLIC:
+            yield self._Grant()
+        elif policy == routes_module.SESSION:
+            if self._authorized():
+                yield self._Grant()
                 return
-            if path == "/theme":
-                self._theme_route()
-            elif path == "/walkthrough":
-                self._walkthrough_page()
-            elif path == "/":
-                if (self._browser_navigation(path)
-                        and walkthrough_module.offer_once(self.server.settings_data)):
-                    # First run (#813): a browser landing on the status
-                    # page goes to the walkthrough until it is done —
-                    # the setup gate's discipline, one step later. API
-                    # callers and every other route are unaffected.
-                    self._redirect("/walkthrough")
-                    return
-                snap = self.server.snapshot_func()
-                self._send(200, render_status_html(
-                    snap, form_token=self._form_token(), theme=self._theme(),
-                    walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
-                    unclaimed=self.server.access.unclaimed,
-                    open_reason=getattr(self.server.access, "open_reason", ""),
-                    credential_ignored=getattr(self.server.access, "credential_ignored", False),
-                    loopback=is_loopback(self.server.bind_host),
-                    job=_overall_job(self.server.settings_data),
-                    nav=data_module.nav_for(self.server.settings_data)
-                    if (data_module.data_enabled(self.server.settings_data)
-                        or data_module.wrapped_enabled(self.server.settings_data))
-                    else None),
-                    "text/html; charset=utf-8")
-            elif path == "/api/status":
-                self._json(200, self.server.api_snapshot_func())
-            elif path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
-                self._data_route(path)
-            elif path == "/wrapped/video-file":
-                self._wrapped_video_file_route()
-            elif path == "/api/wrapped/video-status":
-                self._wrapped_video_status_route()
-            elif path == "/readyz":
-                # Readiness per component (Spoolman, slicer, each printer),
-                # behind the same auth as /api/status; /healthz stays the
-                # unauthenticated liveness probe.
-                ready = self.server.readiness_func() or {}
-                self._json(200 if ready.get("ready", False) else 503, ready)
-            elif path.startswith("/api/printers/"):
-                self._printer_status_route(path[len("/api/printers/"):])
-            elif path == "/spools":
-                entries = settings.printers(self.server.settings_data)
-                if len(entries) == 1:
-                    # One printer: no picker step in the way (#875).
-                    self._redirect("/spools/" + quote(str(entries[0]["id"]), safe=""))
-                    return
-                self._send(200, spools_module.render_spools_index(entries, theme=self._theme()),
-                           "text/html; charset=utf-8")
-            elif path == "/printers":
-                self._printers_page()
-            elif path.startswith("/printers/") and path.endswith("/screen"):
-                self._screen_page(unquote(path[len("/printers/"):-len("/screen")]))
-            elif path.startswith("/spools/"):
-                self._spools_page(unquote(path[len("/spools/"):]))
-            elif path == "/config":
-                query = parse_qs(urlparse(self.path).query)
-                section = (query.get("section") or [None])[0]
-                reveal = (query.get("setup") or [None])[0]
-                self._send(200, self._config_html(self._field_values(),
-                                                  theme=self._theme(),
-                                                  section=section,
-                                                  reveal=reveal),
-                           "text/html; charset=utf-8")
-            elif path == "/chat":
-                self._chat_page()
-            elif path == "/chat/state":
-                self._json(200, chat_module.chat_state(
-                    self._chat_view(issue=False) if self._web_chat_enabled() else None))
-            elif path == "/upload":
-                self._send(200, self._upload_page_html(), "text/html; charset=utf-8")
-            elif path == "/sources":
-                self._send(200, sources_module.render_sources_page(
-                    theme=self._theme(),
-                    nav=data_module.nav_for(self.server.settings_data)),
-                    "text/html; charset=utf-8")
-            elif path == "/designs":
-                rows = designs_module.catalog_rows(self.server.settings_data)
-                self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),
-                           "text/html; charset=utf-8")
-            elif path.startswith("/designs/"):
-                self._design_route(path[len("/designs/"):])
-            elif path in ("/projects", "/api/projects"):
-                # The read-only multi-part project readout (#1204 item 5).
-                self._send(*projects_module.respond(
-                    self.server.settings_data, path, theme=self._theme(),
-                    nav=data_module.nav_for(self.server.settings_data)))
-            elif path == "/layers" or path.startswith("/layers/"):
-                archive = layers_module.archive_root(self.server.settings_data)
-                rest = path[len("/layers/"):] if path.startswith("/layers/") else ""
-                layer = (parse_qs(urlparse(self.path).query).get("layer") or ["0"])[0]
-                code, content_type, body = layers_module.respond(
-                    archive, rest, layer, theme=self._theme())
-                if content_type.startswith("text/html"):
-                    self._send(code, body, content_type)
-                else:
-                    self._json(code, body)
-            elif self._browser_navigation(path):
-                # A browser navigation to a path that does not exist
-                # gets the themed refusal, not a JSON dump (#840).
-                self._html_refusal(404, "No page lives at this address.", "/")
+            if self._browser_navigation(urlparse(self.path).path):
+                # A browser following the Unraid WebUI link (or any
+                # bookmark) sends Accept: text/html and cannot send the
+                # token header: send it to the login form instead of raw
+                # JSON (#440). API clients keep the JSON 401.
+                self._redirect("/login")
             else:
-                self._json(404, {"ok": False,
-                                 "reason": "try /, /api/status, /api/printers/<id>/status, "
-                                           "/api/printers/<id>/camera/snapshot, "
-                                           "/api/printers/<id>/spools, "
-                                           "/healthz, /readyz, /config, /designs, /layers, /spools, "
-                                           "/walkthrough or /login"})
-        except Exception:  # a broken snapshot is a 500, never a dropped connection
-            # The response never echoes the exception; the log keeps it
-            # under the request id the response names (log_message is
-            # silenced).
-            self._internal_error("GET", path, html_page=self._browser_navigation(path))
+                self._deny_header()
+            yield None
+        elif policy == routes_module.HEADER:
+            if self._header_authorized():
+                yield self._Grant()
+                return
+            self._deny_header()
+            yield None
+        elif policy == routes_module.LINK_TOKEN:
+            if self._link_valid(arg):
+                yield self._Grant()
+                return
+            if self.command == "POST":
+                self._refuse_body(self._content_length())
+            self._send(404, upload_module.render_token_page(error=INVALID_LINK_MESSAGE),
+                       "text/html; charset=utf-8")
+            yield None
+        elif policy == routes_module.SESSION_CSRF:
+            back = self._route_back(route, arg)
+            content_type = self.headers.get("Content-Type") or ""
+            if route.multipart and content_type.startswith("multipart/form-data"):
+                # Gate before the body is read: an upload body can run to
+                # the shared download budget (~200 MiB), so an
+                # unauthenticated client must not be able to make the
+                # server receive and parse one. The gate is the read rule
+                # (session first, so a browser request does not trip the
+                # header throttle); the form token is checked once the
+                # fields are parsed (_policy_recheck). A session alone
+                # still cannot save a file.
+                if self.server.access.required and not (
+                        self._session_authorized() or self._header_authorized()):
+                    self._refuse_body(self._content_length())
+                    self._html_refusal(403, STALE_FORM_MESSAGE, back)
+                    yield None
+                    return
+                yield self._Grant()
+                return
+            form, error = self._read_form()
+            if error:
+                self._html_refusal(error[0], error[1], back)
+                yield None
+                return
+            lock = _claim_lock(self.server) if route.claim_lock else contextlib.nullcontext()
+            with lock:
+                if route.claim_lock:
+                    # One claim at a time, authorized inside the lock: two
+                    # browsers racing to claim an unclaimed install cannot
+                    # both win. The first claim rotates the form token (and
+                    # makes a session required), so the second is refused
+                    # here instead of silently replacing the first one's
+                    # password.
+                    self._sync_access()
+                if not self._post_authorized(form, process_token=route.process_token):
+                    self._html_refusal(403, STALE_FORM_MESSAGE, back)
+                    yield None
+                    return
+                yield self._Grant(form)
+        else:  # an undeclared policy never answers (the table test catches it)
+            raise ValueError(f"route {route.pattern!r} has unknown policy {policy!r}")
+
+    @staticmethod
+    def _route_back(route, arg):
+        return route.back.format(arg=quote(arg or "", safe=""))
+
+    def _policy_recheck(self, fields):
+        """The second half of the policy for a body received in a stream
+        (_receive_upload), run once its fields are parsed and before the
+        handler sees them. True when the request may proceed; otherwise
+        the refusal has been sent.
+
+        A link token is checked again because reading a large upload can
+        take a while, and a link revoked (or expired) in that window must
+        not still deliver a file (save_upload_for_link makes the final
+        check atomic with the write). A form upload's form token can only
+        be checked now that its fields exist."""
+        route, arg = self._route, self._route_arg
+        if route.policy == routes_module.LINK_TOKEN:
+            if self._link_valid(arg):
+                return True
+            self._send(404, upload_module.render_token_page(error=INVALID_LINK_MESSAGE),
+                       "text/html; charset=utf-8")
+            return False
+        if route.policy == routes_module.SESSION_CSRF:
+            if self._post_authorized(fields, process_token=route.process_token):
+                return True
+            self._html_refusal(403, STALE_FORM_MESSAGE, self._route_back(route, arg))
+            return False
+        return True
+
+    # -- small routes -------------------------------------------------------
+    def _healthz(self):
+        code, body = healthz(self.server.settings_data)
+        self._json(code, body)
+
+    def _setup_redirect(self):
+        self._redirect("/")
+
+    def _status_page(self):
+        if (self._browser_navigation("/")
+                and walkthrough_module.offer_once(self.server.settings_data)):
+            # First run (#813): a browser landing on the status page goes
+            # to the walkthrough until it is done; the setup gate's
+            # discipline, one step later. API callers and every other
+            # route are unaffected.
+            self._redirect("/walkthrough")
+            return
+        snap = self.server.snapshot_func()
+        self._send(200, render_status_html(
+            snap, form_token=self._form_token(), theme=self._theme(),
+            walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
+            unclaimed=self.server.access.unclaimed,
+            open_reason=getattr(self.server.access, "open_reason", ""),
+            credential_ignored=getattr(self.server.access, "credential_ignored", False),
+            loopback=is_loopback(self.server.bind_host),
+            job=_overall_job(self.server.settings_data),
+            nav=data_module.nav_for(self.server.settings_data)
+            if (data_module.data_enabled(self.server.settings_data)
+                or data_module.wrapped_enabled(self.server.settings_data))
+            else None),
+            "text/html; charset=utf-8")
+
+    def _api_status(self):
+        self._json(200, self.server.api_snapshot_func())
+
+    def _readyz(self):
+        # Readiness per component (Spoolman, slicer, each printer), behind
+        # the same auth as /api/status; /healthz stays the
+        # unauthenticated liveness probe.
+        ready = self.server.readiness_func() or {}
+        self._json(200 if ready.get("ready", False) else 503, ready)
+
+    def _spools_index(self):
+        entries = settings.printers(self.server.settings_data)
+        if len(entries) == 1:
+            # One printer: no picker step in the way (#875).
+            self._redirect("/spools/" + quote(str(entries[0]["id"]), safe=""))
+            return
+        self._send(200, spools_module.render_spools_index(entries, theme=self._theme()),
+                   "text/html; charset=utf-8")
+
+    def _config_page(self):
+        query = parse_qs(urlparse(self.path).query)
+        section = (query.get("section") or [None])[0]
+        reveal = (query.get("setup") or [None])[0]
+        self._send(200, self._config_html(self._field_values(), theme=self._theme(),
+                                          section=section, reveal=reveal),
+                   "text/html; charset=utf-8")
+
+    def _chat_state(self):
+        self._json(200, chat_module.chat_state(
+            self._chat_view(issue=False) if self._web_chat_enabled() else None))
+
+    def _upload_page(self):
+        self._send(200, self._upload_page_html(), "text/html; charset=utf-8")
+
+    def _sources_page(self):
+        self._send(200, sources_module.render_sources_page(
+            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _designs_page(self):
+        rows = designs_module.catalog_rows(self.server.settings_data)
+        self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),
+                   "text/html; charset=utf-8")
+
+    def _projects_route(self, path):
+        # The read-only multi-part project readout (#1204 item 5).
+        self._send(*projects_module.respond(
+            self.server.settings_data, path, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)))
+
+    def _layers_route(self, rest=""):
+        archive = layers_module.archive_root(self.server.settings_data)
+        layer = (parse_qs(urlparse(self.path).query).get("layer") or ["0"])[0]
+        code, content_type, body = layers_module.respond(
+            archive, rest, layer, theme=self._theme())
+        if content_type.startswith("text/html"):
+            self._send(code, body, content_type)
+        else:
+            self._json(code, body)
+
+    def _not_found(self, path):
+        if self._browser_navigation(path):
+            # A browser navigation to a path that does not exist gets the
+            # themed refusal, not a JSON dump (#840).
+            self._html_refusal(404, "No page lives at this address.", "/")
+            return
+        self._json(404, {"ok": False,
+                         "reason": "try /, /api/status, /api/printers/<id>/status, "
+                                   "/api/printers/<id>/camera/snapshot, "
+                                   "/api/printers/<id>/spools, "
+                                   "/healthz, /readyz, /config, /designs, /layers, /spools, "
+                                   "/walkthrough or /login"})
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
     def _year_param(self):
@@ -1318,21 +1447,14 @@ class _Handler(BaseHTTPRequestHandler):
         code, payload = data_module.video_status(self.server.settings_data, year)
         self._json(code, payload)
 
-    def _wrapped_video_post(self):
+    def _wrapped_video_post(self, form):
         """POST /wrapped/video (#956): the Wrapped page's video form.
 
-        Authorized exactly like a Spools page form (the access-token
-        header or the page's form token; a login session alone never
-        authorizes it). The compile itself, its two toggles and every
-        named refusal live in data.py / wrapped_video.py.
+        Policy ``session+csrf`` with the process token (routes.py): a
+        login session alone never authorizes it. The compile itself, its
+        two toggles and every named refusal live in data.py /
+        wrapped_video.py.
         """
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/wrapped")
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/wrapped")
-            return
         raw_year = (form.get("year") or [""])[0]
         try:
             year = int(raw_year)
@@ -1352,22 +1474,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._redirect(f"/wrapped?year={year}")
 
-    def _wrapped_share_post(self):
+    def _wrapped_share_post(self, form):
         """POST /wrapped/share (#981): the Wrapped page's share form.
 
-        Authorized exactly like the video form (the page's form
-        token; a login session alone never authorizes it). The
+        Authorized exactly like the video form (routes.py: the page's
+        form token; a login session alone never authorizes it). The
         export itself, its wrapped_enabled gate and every named
         refusal live in data.py / share_export.py. The export is a
         local file write only — nothing is uploaded anywhere.
         """
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/wrapped")
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/wrapped")
-            return
         raw_year = (form.get("year") or [""])[0]
         try:
             year = int(raw_year)
@@ -1434,6 +1549,15 @@ class _Handler(BaseHTTPRequestHandler):
                                    "/api/printers/<id>/camera/snapshot or "
                                    "/api/printers/<id>/screen/snapshot"})
 
+    def _printer_post_route(self, rest):
+        """POST /api/printers/<id>/...: a spool action or a control verb,
+        both behind the ``header`` policy (routes.py)."""
+        segments = rest.split("/")
+        if len(segments) >= 2 and segments[1] == "spools":
+            self._printer_spools_route(rest)
+        else:
+            self._printer_control_route(rest)
+
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
         """POST /api/printers/<id>/pause|resume|cancel|temperature|target.
@@ -1441,17 +1565,14 @@ class _Handler(BaseHTTPRequestHandler):
         Also the ha-print-handy #1 verbs: emergency_stop,
         firmware_restart, server_restart, gcode and exclude.
 
-        Authorization is the access-token header only (or no token
-        configured): a login-session cookie never authorizes a control
-        POST, the same rule as the config POSTs. The body must be JSON,
+        Authorization is the ``header`` policy (routes.py): the
+        access-token header only (or no token configured); a
+        login-session cookie never authorizes a control POST. The body must be JSON,
         so a cross-site HTML form cannot post here. The off-by-default
         switch, cancel's confirm field and the temperature limits live
         in controls.py; a 404 for an unknown printer keeps the status
         route's shape.
         """
-        if not self._header_authorized():
-            self._deny_header()
-            return
         segments = rest.split("/")
         verbs = (*controls_module.ACTIONS, "temperature", "target",
                  *controls_module.POWER_ACTIONS, "gcode", "exclude")
@@ -1493,9 +1614,6 @@ class _Handler(BaseHTTPRequestHandler):
         HTML form cannot post here. The controls_enabled guard, the
         named-printer rule and every refusal live in spools.py.
         """
-        if not self._header_authorized():
-            self._deny_header()
-            return
         segments = rest.split("/")
         actions = (*spools_module.ACTIONS, "purchase/propose", "purchase/create")
         action = None
@@ -1543,15 +1661,8 @@ class _Handler(BaseHTTPRequestHandler):
             notice=notice or done or None, error=error, theme=self._theme()),
             "text/html; charset=utf-8")
 
-    def _printers_post(self):
+    def _printers_post(self, form):
         """POST /printers: append one printer through the roster writer."""
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/printers")
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/printers")
-            return
         ok, message = printers_page.add(
             form, settings.printers(self._walkthrough_data()),
             environ=self.server.webui_environ)
@@ -1612,12 +1723,11 @@ class _Handler(BaseHTTPRequestHandler):
             printers=settings.printers(self.server.settings_data)),
             "text/html; charset=utf-8")
 
-    def _spools_page_post(self, printer_id):
+    def _spools_page_post(self, printer_id, form):
         """POST /spools/<id>: one picker form from the Spools page.
 
-        Same authorization as a config POST (the access-token header or
-        the page's form token; a login session alone never authorizes
-        it). The form converts to the same action the JSON API takes,
+        Same ``session+csrf`` policy as a config POST (routes.py; a
+        login session alone never authorizes it). The form converts to the same action the JSON API takes,
         so the page and the API can never diverge. Success answers
         with Post/Redirect/Get (#840): a 303 to the page with the
         action's detail in ``?done=``, so a reload never repeats the
@@ -1630,13 +1740,6 @@ class _Handler(BaseHTTPRequestHandler):
         if not printer_id or "/" in printer_id:
             self._spools_error_page(printer_id, 404,
                                     "That printer id does not name a spools page.")
-            return
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], back)
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, back)
             return
         action_name = (form.get("spool_action") or [""])[0]
         action = None
@@ -1834,26 +1937,15 @@ class _Handler(BaseHTTPRequestHandler):
             environ=self.server.webui_environ,
             loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
 
-    def _walkthrough_post(self):
+    def _walkthrough_post(self, form):
         """POST /walkthrough: one step's action, authorized exactly like
-        a config POST (access header or the page's form token)."""
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/walkthrough")
+        a config POST. The policy (routes.py, ``claim_lock``) authorizes
+        it inside the claim lock and holds the lock until this returns,
+        so two browsers racing to claim an unclaimed install cannot both
+        win."""
+        if self._login_change_refused(form):
             return
-        # One walkthrough POST at a time, authorized inside the lock: two
-        # browsers racing to claim an unclaimed install cannot both win.
-        # The first claim rotates the form token (and makes a session
-        # required), so the second is refused here instead of silently
-        # replacing the first one's password.
-        with _claim_lock(self.server):
-            self._sync_access()
-            if not self._post_authorized(form):
-                self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
-                return
-            if self._login_change_refused(form):
-                return
-            self._walkthrough_apply(form)
+        self._walkthrough_apply(form)
 
     def _login_change_refused(self, form):
         """True (the step re-rendered with the reason) when a claimed
@@ -2091,13 +2183,7 @@ class _Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
         return parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True), None
 
-    # Pages another module renders with the process form token (the
-    # Wrapped page's forms): on a claimed install their POSTs still need
-    # a live session, but accept the process token beside it until that
-    # page embeds the session-bound one.
-    _PROCESS_TOKEN_POSTS = frozenset({"/wrapped/video", "/wrapped/share"})
-
-    def _post_authorized(self, form):
+    def _post_authorized(self, form, process_token=False):
         """Whether a state-changing form POST may proceed.
 
         While access is open (unclaimed or deliberately left open) the
@@ -2109,7 +2195,12 @@ class _Handler(BaseHTTPRequestHandler):
         access-token header, or a live login session AND the ``_csrf``
         value bound to that session (see _session_form_token). A session
         cookie alone never authorizes a POST, and a page token copied
-        from one browser authorizes nothing for another."""
+        from one browser authorizes nothing for another.
+
+        ``process_token``: a route whose page another module renders with
+        the process form token (the Wrapped page's forms) still needs a
+        live session on a claimed install, but accepts the process token
+        beside it until that page embeds the session-bound one."""
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
         if not self.server.access.required:
             return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
@@ -2120,69 +2211,7 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         if hmac.compare_digest(provided, self._session_form_token(session_id)):
             return True
-        return (urlparse(self.path).path in self._PROCESS_TOKEN_POSTS
-                and hmac.compare_digest(provided, self.server.form_token))
-
-    def _config_form(self):
-        """(form, field_values) for an authorized config POST, else None
-        (the refusal response has already been sent)."""
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/config")
-            return None
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/config")
-            return None
-        return form, self._field_values()
-
-    def do_POST(self):
-        try:
-            path = urlparse(self.path).path
-            self._sync_access()
-            if self._broken_refused(path):
-                return
-            if self._host_refused(post=True):
-                return
-            if path.startswith("/u/"):
-                self._token_upload_submit(unquote(path[len("/u/"):]))
-                return
-            if path == "/login":
-                self._login_submit()
-            elif path == "/chat":
-                self._chat_post()
-            elif path == "/chat/choice":
-                self._chat_choice_post()
-            elif path == "/upload":
-                self._upload_post()
-            elif path == "/logout":
-                self._logout()
-            elif path == "/walkthrough":
-                self._walkthrough_post()
-            elif path == "/wrapped/video":
-                self._wrapped_video_post()
-            elif path == "/wrapped/share":
-                self._wrapped_share_post()
-            elif path == "/config/preview":
-                self._config_preview()
-            elif path == "/config":
-                self._config_save()
-            elif path == "/debug":
-                self._debug_post()
-            elif path == "/printers":
-                self._printers_post()
-            elif path.startswith("/spools/"):
-                self._spools_page_post(unquote(path[len("/spools/"):]))
-            elif path.startswith("/api/printers/"):
-                rest = path[len("/api/printers/"):]
-                segments = rest.split("/")
-                if len(segments) >= 2 and segments[1] == "spools":
-                    self._printer_spools_route(rest)
-                else:
-                    self._printer_control_route(rest)
-            else:
-                self._read_only()
-        except Exception:  # a broken write is a 500, never a dropped connection
-            self._internal_error("POST", path)
+        return process_token and hmac.compare_digest(provided, self.server.form_token)
 
     # -- web chat -------------------------------------------------------------
 
@@ -2260,21 +2289,7 @@ class _Handler(BaseHTTPRequestHandler):
         return [("Set-Cookie", f"{CHAT_COOKIE}={value}; HttpOnly; SameSite=Strict; "
                                f"Path=/; Max-Age={REMEMBER_TTL_S}{flags}")]
 
-    def _chat_form(self):
-        """The parsed, authorized chat form, or None (refusal sent)."""
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/chat")
-            return None
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/chat")
-            return None
-        return form
-
-    def _chat_post(self):
-        form = self._chat_form()
-        if form is None:
-            return
+    def _chat_post(self, form):
         if not self._web_chat_enabled():
             self._chat_page()  # the disabled page, with the explanation
             return
@@ -2288,10 +2303,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._redirect("/chat", headers=self._chat_cookie_headers())
 
-    def _chat_choice_post(self):
-        form = self._chat_form()
-        if form is None:
-            return
+    def _chat_choice_post(self, form):
         if not self._web_chat_enabled():
             self._chat_page()  # the disabled page, with the explanation
             return
@@ -2391,35 +2403,20 @@ class _Handler(BaseHTTPRequestHandler):
                 self._refuse_body(length - body.count)
                 return 500, ("the upload could not be received; nothing was saved "
                              f"(request id {rid})")
-            handle({name: [value] for name, value in fields.items()}, files)
+            fields = {name: [value] for name, value in fields.items()}
+            if self._policy_recheck(fields):
+                handle(fields, files)
             return None
         finally:
             upload_module.discard_spooled(files)
             upload_module.UPLOAD_SLOTS.release()
 
-    def _upload_post(self):
-        content_type = self.headers.get("Content-Type") or ""
-        if content_type.startswith("multipart/form-data"):
-            # Gate before the body is read: an upload body can run to
-            # the shared download budget (~200 MiB), so an
-            # unauthenticated client must not be able to make the
-            # server receive and parse one. The gate is the GET rule
-            # (access open, the header token, or a login session —
-            # session first, so a browser request does not trip the
-            # header throttle); it does not replace the POST rule
-            # below, which still requires the header token or the form
-            # token once the fields are parsed. A session alone still
-            # cannot save a file.
-            if self.server.access.required and not (
-                    self._session_authorized() or self._header_authorized()):
-                self._refuse_body(self._content_length())
-                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
-                return
-
+    def _upload_post(self, form):
+        """POST /upload: a multipart file (``form`` is None; the policy
+        gated it before the body and checks its form token once the
+        fields are parsed) or a link and inbox action form."""
+        if form is None:
             def handle(fields, files):
-                if not self._post_authorized(fields):
-                    self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
-                    return
                 if not files:
                     self._html_refusal(400, "no file was attached", "/upload")
                     return
@@ -2441,13 +2438,6 @@ class _Handler(BaseHTTPRequestHandler):
                              '<p><a href="/upload">Back</a></p>',
                     path="/upload", theme=self._theme()),
                     "text/html; charset=utf-8", headers=headers)
-            return
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/upload")
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
             return
         action = (form.get("action") or [""])[0]
         notice = error_text = None
@@ -2479,35 +2469,20 @@ class _Handler(BaseHTTPRequestHandler):
         return upload_module.link_valid(self.server.settings_data, token,
                                         self._credential_fingerprint())
 
-    def _token_upload_page(self, token):
-        if not self._link_valid(token):
-            self._send(404, upload_module.render_token_page(
-                error="This upload link is not valid. Ask for a fresh one."),
-                "text/html; charset=utf-8")
-            return
+    def _token_upload_page(self, _token):
+        # The link-token policy (routes.py) already checked the token.
         self._send(200, upload_module.render_token_page(),
                    "text/html; charset=utf-8")
 
     def _token_upload_submit(self, token):
-        invalid = "This upload link is not valid. Ask for a fresh one."
-        if not self._link_valid(token):
-            self._refuse_body(self._content_length())
-            self._send(404, upload_module.render_token_page(error=invalid),
-                       "text/html; charset=utf-8")
-            return
+        # The link-token policy (routes.py) checked the token before the
+        # body and checks it again once the body is received; the
+        # guarantee is in save_upload_for_link, which makes the final
+        # validity decision and the write one atomic step against
+        # revocation.
+        invalid = INVALID_LINK_MESSAGE
 
         def handle(fields, files):
-            # Check the token again after the read: reading a large
-            # upload can take a while, and a link revoked (or expired)
-            # in that window must not still deliver a file into the
-            # inbox. This re-check is only the early refusal — the
-            # guarantee is in save_upload_for_link, which makes the
-            # final validity decision and the write one atomic step
-            # against revocation.
-            if not self._link_valid(token):
-                self._send(404, upload_module.render_token_page(error=invalid),
-                           "text/html; charset=utf-8")
-                return
             if not files:
                 self._send(400, upload_module.render_token_page(
                     error="No file was attached."), "text/html; charset=utf-8")
@@ -2537,11 +2512,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(refused[0], upload_module.render_token_page(error=refused[1]),
                        "text/html; charset=utf-8", headers=headers)
 
-    def _config_preview(self):
-        got = self._config_form()
-        if got is None:
-            return
-        form, field_values = got
+    def _config_preview(self, form):
+        field_values = self._field_values()
         changes, submitted, errors = pages.parse_form(form, field_values)
         if not errors and changes:
             field_errors, general = pages.validate_change_set(
@@ -2602,11 +2574,8 @@ class _Handler(BaseHTTPRequestHandler):
                     "HTTPS reverse proxy.")
         return warnings
 
-    def _config_save(self):
-        got = self._config_form()
-        if got is None:
-            return
-        form, field_values = got
+    def _config_save(self, form):
+        field_values = self._field_values()
         if (form.get(pages.CONFIRM_FIELD) or [""])[0] != "yes":
             self._html_refusal(400, "saving needs the preview step: POST to "
                                     "/config/preview first, then confirm", "/config")
@@ -2646,21 +2615,14 @@ class _Handler(BaseHTTPRequestHandler):
             changed, warnings=warnings,
             theme=self._theme()), "text/html; charset=utf-8")
 
-    def _debug_post(self):
+    def _debug_post(self, form):
         """POST /debug (#478): turn debug log mode on or off.
 
-        Same authorization as a config POST (access-token header or the
-        page's form token). The mode is shared state in the state folder,
-        so this one write reaches the bot and every listener process;
-        nothing about printing changes.
+        Same ``session+csrf`` policy as a config POST (routes.py). The
+        mode is shared state in the state folder, so this one write
+        reaches the bot and every listener process; nothing about
+        printing changes.
         """
-        form, error = self._read_form()
-        if error:
-            self._html_refusal(error[0], error[1], "/")
-            return
-        if not self._post_authorized(form):
-            self._html_refusal(403, STALE_FORM_MESSAGE, "/")
-            return
         from .. import debug_mode
         action = (form.get("action") or [""])[0]
         data = self.server.settings_data
@@ -2690,16 +2652,10 @@ class _Handler(BaseHTTPRequestHandler):
             job=_overall_job(self.server.settings_data), error=message),
             "text/html; charset=utf-8")
 
-    def _read_only(self):
+    def _read_only(self, *_ignored):
         self._json(405, {"ok": False,
                          "reason": "the Web UI is read-only here (GET only; "
                                    "configuration posts go to /config)"})
-
-    do_PUT = _read_only
-    do_DELETE = _read_only
-    do_PATCH = _read_only
-    do_HEAD = _read_only
-    do_OPTIONS = _read_only
 
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,

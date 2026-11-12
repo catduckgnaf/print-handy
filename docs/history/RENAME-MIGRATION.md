@@ -25,6 +25,10 @@ systemctl --user restart hermes-3dprinting-moonraker-listener.service
 
 The chat-facing bot name defaults to `Print Handy` now. To keep a different name, set `[discord] bot_name` in your local config (that setting was never renamed).
 
+### Why the script is still shipped (#1322)
+
+`scripts/migrate-names.sh` was reviewed for retirement in 2.3.0 and kept. Print Handy reads no Print Buddy name at runtime, by design, so for an install older than 2.1.7 (the first Print Handy release) the script is the only way across the rename, and there is no record that every such install has migrated. It is retired, with a release note, once the oldest supported upgrade source is 2.1.7 or later. Its Hermes options (`--hermes-home`, the profile default) go with the `hermes_home` key rename (#1323).
+
 ## Later leftovers renamed (#590)
 
 Two `PB_` spellings survived the main rename and were cleaned up later, again as a clean break with no aliases:

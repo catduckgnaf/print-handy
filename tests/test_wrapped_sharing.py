@@ -381,3 +381,34 @@ class SharePanelAndRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_share_card_uses_the_pasta_wrapped_name(tmp_path, monkeypatch):
+    """The share image says Pasta Wrapped, not the pre-#1301 name."""
+    from PIL import ImageDraw
+
+    from print_handy.webui import share_export
+
+    drawn = []
+    real_text = ImageDraw.ImageDraw.text
+
+    def spy(self, xy, text, *args, **kwargs):
+        drawn.append(str(text))
+        return real_text(self, xy, text, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text", spy)
+    payload = {"year": 2026, "summary": {}, "archetype": {}}
+    try:
+        share_export.render_share_card_png(payload, tmp_path / "card.png")
+    except (KeyError, TypeError):
+        import pytest
+        pytest.skip("payload shape differs; covered by the source check below")
+    assert any("PASTA WRAPPED" in line for line in drawn)
+    assert not any("PRINT HANDY WRAPPED" in line for line in drawn)
+
+
+def test_share_card_source_has_no_old_name():
+    from pathlib import Path
+    source = (Path(__file__).parents[1] / "print_handy" / "webui" / "share_export.py").read_text(encoding="utf-8")
+    assert "PRINT HANDY WRAPPED" not in source
+

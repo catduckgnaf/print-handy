@@ -12,6 +12,8 @@ from unittest import mock
 from print_handy import settings
 from print_handy.core import orca_adapter, plate_merge, slice_guard
 
+import toml_twin
+
 
 class HomeSettingsTests(unittest.TestCase):
     def setUp(self):
@@ -230,13 +232,17 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "mode 'hermes' was removed"):
             settings.load(local=path, environ={})
 
+    def legacy_home(self, name="legacy-home.toml", data=None):
+        """A TOML home with home.yaml's values (config/home.toml was retired in #1322)."""
+        return toml_twin.write_home_toml(self.dir / name, data)
+
     def test_yaml_home_preserves_effective_legacy_toml_values(self):
         yaml_data = settings.load(home=settings.HOME, local=False, environ={})
-        toml_data = settings.load(home=settings.LEGACY_HOME, local=False, environ={})
+        toml_data = settings.load(home=self.legacy_home(), local=False, environ={})
         self.assertEqual(yaml_data, toml_data)
 
     def test_legacy_home_toml_is_used_when_yaml_is_absent(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "home.toml")
+        home = self.legacy_home("home.toml")
         yaml_home = self.dir / "home.yaml"
         with mock.patch.object(settings, "HOME", yaml_home), mock.patch.object(settings, "LEGACY_HOME", home):
             data = settings.load(home=None, local=False, environ={})
@@ -252,13 +258,13 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(data["layout"]["multi_copy_edge_mm"], 6.0)
 
     def test_yaml_can_enable_visual_watch_with_legacy_home_toml(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         local = self.toml("visual_watch:\n  enabled: true\n", "local.yaml")
         data = settings.load(home=home, local=local, environ={})
         self.assertIs(data["visual_watch"]["enabled"], True)
 
     def test_env_can_enable_visual_watch_with_legacy_home_toml(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         data = settings.load(home=home, local=False, environ={"PRINT_HANDY__VISUAL_WATCH__ENABLED": "true"})
         self.assertIs(data["visual_watch"]["enabled"], True)
         disabled = settings.load(home=home, local=False, environ={"PRINT_HANDY__VISUAL_WATCH__ENABLED": "false"})
@@ -356,12 +362,14 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(roster[0]["moonraker_url"], inventory["services"]["moonraker_url"])
 
     def test_bambu_start_confirm_window_defaults_and_limits(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text(), "legacy-home.toml")
+        home = self.legacy_home()
         self.assertEqual(settings.load(home=home, local=False, environ={})["bambu"]["start_confirm_s"], 90)
         env = {"PRINT_HANDY__BAMBU__START_CONFIRM_S": "120"}
         self.assertEqual(settings.load(home=home, local=False, environ=env)["bambu"]["start_confirm_s"], 120)
         # An older home file without the key still accepts it from the environment and from YAML.
-        older = self.toml(Path(settings.LEGACY_HOME).read_text().replace("start_confirm_s = 90\n", ""), "older-home.toml")
+        older_data = toml_twin.home_data()
+        del older_data["bambu"]["start_confirm_s"]
+        older = self.legacy_home("older-home.toml", older_data)
         self.assertEqual(settings.load(home=older, local=False, environ={})["bambu"]["start_confirm_s"], 90)
         self.assertEqual(settings.load(home=older, local=False, environ=env)["bambu"]["start_confirm_s"], 120)
         local = self.toml("bambu:\n  start_confirm_s: 60\n", "local.yaml")
@@ -413,7 +421,7 @@ class OverrideTests(unittest.TestCase):
         docker_yaml = settings.ROOT / "config" / "docker.yaml"
         docker_toml = settings.ROOT / "config" / "docker.toml"
         yaml_data = settings.load(home=settings.HOME, local=docker_yaml, environ={})
-        toml_data = settings.load(home=settings.LEGACY_HOME, local=docker_toml, environ={})
+        toml_data = settings.load(home=settings.HOME, local=docker_toml, environ={})
         self.assertEqual(yaml_data, toml_data)
 
     def test_docker_default_selects_yaml_and_explicit_legacy_mount_selects_toml(self):
@@ -620,16 +628,9 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(settings.load(local=local, environ={})["design"]["model"], "from-file")
 
     def test_design_env_works_with_a_legacy_home_without_the_section(self):
-        home = self.toml(Path(settings.LEGACY_HOME).read_text().replace(
-            "[design]\n# AI design with OpenSCAD (#388): /print-design creates a new printable part\n"
-            "# from a description. No enabled line on purpose: unset means AUTO — design\n"
-            "# turns on whenever a design/LLM endpoint is configured, like roasts. Set\n"
-            "# enabled = false to force it off, or enabled = true to force it on. Empty\n"
-            "# chat_url/model/api_key_env inherit the [llm] values. In Hermes mode the\n"
-            "# endpoint fields are unused: the profile's auxiliary.print_design block\n"
-            "# pins the design model instead.\n"
-            "chat_url = \"\"\nmodel = \"\"\napi_key_env = \"\"\ntimeout_s = 180\n"
-            "repair_attempts = 3\n\n", ""), "older-home.toml")
+        older_data = toml_twin.home_data()
+        del older_data["design"]
+        home = self.legacy_home("older-home.toml", older_data)
         data = settings.load(home=home, local=False,
                              environ={"PRINT_HANDY__DESIGN__ENABLED": "true"})
         self.assertIs(data["design"]["enabled"], True)
@@ -1176,24 +1177,28 @@ def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
         settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})
 
 
-@pytest.mark.parametrize("name", ["home", "docker"])
-def test_shipped_yaml_and_toml_configs_hold_the_same_values(name):
-    """The TOML files are kept for existing installs; the YAML files are canonical.
-
-    Both formats must parse to the same data, and loading either one must give the
-    same settings with no unknown-setting warnings, so the two cannot drift apart."""
+def test_shipped_yaml_and_toml_configs_hold_the_same_values():
+    """YAML is canonical (#1322). docker.toml stays because PRINT_HANDY_CONFIG=/app/config/docker.toml
+    is a documented selection that needs no mount; it must parse to the same data as docker.yaml and
+    load to the same settings with no unknown-setting warnings, so the two cannot drift apart."""
     root = settings.ROOT / "config"
-    assert settings._read(root / f"{name}.yaml") == settings._read(root / f"{name}.toml")
-    if name == "home":
-        yaml_data = settings.load(home=root / "home.yaml", local=False, environ={}, user=False)
-        yaml_unknown = settings.unknown_settings()
-        toml_data = settings.load(home=root / "home.toml", local=False, environ={}, user=False)
-    else:
-        yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
-        yaml_unknown = settings.unknown_settings()
-        toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
+    assert settings._read(root / "docker.yaml") == settings._read(root / "docker.toml")
+    yaml_data = settings.load(local=root / "docker.yaml", environ={}, user=False)
+    yaml_unknown = settings.unknown_settings()
+    toml_data = settings.load(local=root / "docker.toml", environ={}, user=False)
     assert yaml_data == toml_data
     assert yaml_unknown == [] and settings.unknown_settings() == []
+
+
+def test_docker_toml_is_the_only_shipped_toml_twin():
+    """#1322: config/home.toml was retired. home.yaml ships in every tree and the loader prefers it,
+    so the TOML twin was never read and only doubled every new key. The loader still takes a TOML
+    home when home.yaml is absent (pinned by OverrideTests with a TOML rendered from home.yaml)."""
+    root = settings.ROOT / "config"
+    assert sorted(p.name for p in root.glob("*.toml")) == ["docker.toml"]
+    assert settings.HOME.is_file() and not settings.LEGACY_HOME.exists()
+    assert settings.load(local=False, environ={}, user=False) == settings.load(
+        home=settings.HOME, local=False, environ={}, user=False)
 
 
 def test_retired_discord_session_reset_settings_are_gone_but_old_files_still_load(tmp_path):

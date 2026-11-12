@@ -206,7 +206,7 @@ class HomeUpdateTests(unittest.TestCase):
 
     def test_local_edits_to_tracked_files_block_the_update(self):
         self.commit_upstream("NOTES.txt", "harmless\n")
-        (self.home / "config" / "home.toml").write_text("# hand edited\n")
+        (self.home / "config" / "home.yaml").write_text("# hand edited\n")
         result = self.update()
         self.assertEqual(result.returncode, 1)
         self.assertIn("local edits", result.stdout)

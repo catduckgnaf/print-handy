@@ -1,68 +1,68 @@
 {
  "cases": {
   "plates-multicolor/direct": {
-   "first_prompt_s": 0.09,
+   "first_prompt_s": 0.06,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.11,
     "fit_check_s": 0.01,
     "wall_s": 1.95
    },
-   "wall_s": 1.6
+   "wall_s": 1.09
   },
   "rotation-fit/direct": {
-   "first_prompt_s": 0.1,
-   "fit_check_s": 3.37,
+   "first_prompt_s": 0.07,
+   "fit_check_s": 2.58,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 3.79,
     "wall_s": 8.3
    },
-   "wall_s": 6.85
+   "wall_s": 4.99
   },
   "single-part/direct": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 4.85,
+   "first_prompt_s": 0.01,
+   "fit_check_s": 3.79,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 5.52,
     "wall_s": 6.18
    },
-   "wall_s": 5.43
+   "wall_s": 4.18
   },
   "stl-large-plate/direct": {
-   "first_prompt_s": 0.06,
-   "fit_check_s": 0.6,
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.46,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.7,
     "wall_s": 32.9
    },
-   "wall_s": 25.64
+   "wall_s": 17.91
   },
   "stl-single-part/direct": {
    "first_prompt_s": 0.01,
-   "fit_check_s": 4.85,
+   "fit_check_s": 3.79,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 5.55,
     "wall_s": 6.19
    },
-   "wall_s": 5.48
+   "wall_s": 4.16
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.39,
-   "fit_check_s": 5.66,
+   "first_prompt_s": 0.27,
+   "fit_check_s": 4.4,
    "original": {
     "first_prompt_s": 0.49,
     "fit_check_s": 6.65,
     "wall_s": 15.9
    },
-   "wall_s": 12.86
+   "wall_s": 9.44
   }
  },
  "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
- "recorded_from": "CI run 42975457360 (f8a3f6ee0bdad2eeb7077a8d97d89994f6d74ff0), artifact slicer-timing-real, median of 3",
+ "recorded_from": "CI run 43140745657 (0b0ebac1501a5ba62e11b6267ba6b5ad0c60c694), artifact slicer-timing-real, median of 3",
  "slack_s": 1.0,
  "tolerance": 0.1
 }

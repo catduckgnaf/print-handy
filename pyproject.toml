@@ -45,6 +45,8 @@ test = [
     "pytest-timeout>=2.3",
     "ruff>=0.8",
     "pip-audit>=2.7",
+    # tests/test_package_data_parity.py builds the sdist and wheels with the real backend (#1322).
+    "setuptools>=68",
 ]
 
 [tool.setuptools.dynamic]
