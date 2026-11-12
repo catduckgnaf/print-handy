@@ -40,6 +40,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.1, also 
 - The Docker image runs the real package from any working directory, and the detached print monitor uses its own printer's chat. (#1360)
 - The test harness no longer recompiles every chat handler each time it loads the plugin, which was the whole 2.3.0 timing regression (#1349); the 2.3.0 timing baselines from an unusually fast runner were reverted. (#1352) (#1350)
 - docs/DOCKER.md pins the 2.3.0 image digest and documents rolling back to 2.2.9. (#1348)
+- Release housekeeping: two reorient tests that looked menus up by position were corrected after the supports menu order changed, and the slicing-speed baselines were re-recorded from the release code's CI run on the usual runner class. (#1370) (#1371)
 
 ## Upgrade and compatibility
 - **Native installs with systemd:** if your listener unit still runs `print_handy.hermes.moonraker_event_listener`, it works again in 2.3.1, but re-run `scripts/install-standalone.sh` to move it to `print_handy.runtime`. The old path goes away after 2.3.x.

@@ -5,7 +5,7 @@
 # Version 2.3.1
 
 **Release Date:** 2026-11-12
-**Range:** 2.3.0..main (19 PRs, #1348 to #1367; checklist #1368). Driven by a live two-color print on the owner's AD5X on 2026-11-12 (print #114) and an audit of a week of the print channel and bot logs, plus a load-path audit of the 2.3.0 module split.
+**Range:** 2.3.0..main (21 PRs, #1348 to #1371; checklist #1368). Driven by a live two-color print on the owner's AD5X on 2026-11-12 (print #114) and an audit of a week of the print channel and bot logs, plus a load-path audit of the 2.3.0 module split.
 **Live checks performed for this release:** none on hardware. The diagnosis came from the live 2.3.0 container's logs, job record and channel history. Owed after publish: the first multicolor print's per-slot Spoolman charge, the stale Nov 8 runout question closing as a refeed, a slow resume/stop readback, a reoriented multicolor plate.
 
 - Listener seams under the runpy launcher (PR #1351): `_SELF = sys.modules[__name__]` was the launcher module in the container; seams now read the listener's own globals.
@@ -14,10 +14,12 @@
 - Spool tracking: stale runout question settles as a refeed and backs off after its print (PR #1357); multi-slot prints charge each slot's spool at print end, idempotent ledger, missed finishes included (PR #1362).
 - Listener robustness: missed finish posts (PR #1359), restart churn, capture reattach and early-layer checks (PR #1361), runout re-pause episodes (PR #1363), layerless notice grace and camera alert wording (PR #1365), resume/stop reply timeouts and stop-a-start-in-flight (PR #1364).
 - Load paths: `-m print_handy.hermes.*` works via the alias, logger names under `print_handy` (PR #1358); Docker PYTHONPATH, monitor worker settings order, duplicate handler removed (PR #1360).
-- Timing: #1349 bisected to the plugin shim recompiling handlers per load (#1343); compiled bodies cached (PR #1352); the fast-runner 2.3.0 baselines reverted (PR #1350); release baselines re-recorded from this release's own CI run.
+- Timing: #1349 bisected to the plugin shim recompiling handlers per load (#1343); compiled bodies cached (PR #1352); the fast-runner 2.3.0 baselines reverted (PR #1350); release baselines re-recorded from CI run 43261865512, the release code on the usual EPYC 7763 runner, not from the green run on adf85824, which landed on a faster EPYC 9V74 (PR #1371). #1366 and #1367 were each green but together broke two tests on main, fixed by PR #1370.
 
 Merged PRs in the range, one line each:
 
+- test(timing): re-record the 2.3.1 slicing-speed baselines from CI run 43261865512 (#1349) (PR #1371).
+- test(intake): find the reorient menus by their options, not by which one leads (PR #1370).
 - fix(spoolman): charge each slot's spool when a multi-slot print ends (PR #1362).
 - fix(intake): chat cards say what is true and lead with the recommended choice (PR #1366).
 - fix(slice): a reoriented or resized multicolor model stays on one plate; lay flat on a flat model records nothing (PR #1367).
