@@ -620,6 +620,26 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertLess(compiled, runtime.index("USER handy"))
         self.assertNotRegex(runtime[compiled + len(step):], r"(?m)^(?:COPY|ADD)\s+(?!docker/|--from)")
 
+    def test_the_working_copy_wins_over_the_site_packages_stub_from_any_directory(self):
+        """The dependency-layer pip install runs against a skeleton (pyproject.toml and
+        print_handy/__init__.py only), so site-packages holds a stub print_handy package.
+        Processes worked only because they start in /app; PYTHONPATH=/app makes the
+        working copy win from any directory, Spoolman's own venv is kept off it, and
+        the image probe proves the import from outside /app."""
+        runtime = (ROOT / "Dockerfile").read_text().split("AS runtime", 1)[1]
+        self.assertIn("COPY print_handy/__init__.py ./print_handy/__init__.py", runtime)
+        env = re.search(r"(?m)^ENV PYTHONPATH=(\S+)$", runtime)
+        self.assertIsNotNone(env, "the runtime stage must put /app on PYTHONPATH")
+        self.assertEqual(env.group(1), "/app")
+        self.assertLess(runtime.index("COPY . ."), env.start())
+        self.assertLess(env.start(), runtime.index("USER handy"))
+        supervisor = (ROOT / "docker" / "supervise.sh").read_text()
+        spoolman = next(line for line in supervisor.splitlines() if "uvicorn spoolman.main:app" in line)
+        self.assertIn("unset PYTHONPATH", spoolman)
+        probe = (ROOT / "tests" / "docker" / "image_probe.py").read_text()
+        self.assertIn('cwd="/"', probe)
+        self.assertIn('imported_from.startswith("/app/print_handy/")', probe)
+
     def test_no_light_variant_and_no_orca_build_still_fails_closed(self):
         """#353: no workflow publishes or validates a -light image any more.
 
