@@ -105,8 +105,10 @@ def run(watch, filename, printer_id=None):
     chat configured to post to) is a quiet success: there is nobody to
     post the completion to.
     """
-    module = importlib.import_module(WATCH_MODULES[watch])
+    # The printer's settings view first: watch modules (through print_records)
+    # read settings at import time, so importing first froze the global chat.
     adapter = _adapter_for(printer_id)
+    module = importlib.import_module(WATCH_MODULES[watch])
     if printer_id:
         thread = module.start_monitor(adapter, filename, printer_id=printer_id)
     else:

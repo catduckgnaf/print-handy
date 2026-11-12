@@ -60,7 +60,7 @@ if [ "${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}" = true ]; then
     # An empty SPOOLMAN_CORS_ORIGIN (Compose and Unraid always pass it) makes Spoolman log a warning on every start; unset it so CORS stays off.
     if [ -z "${SPOOLMAN_CORS_ORIGIN:-}" ]; then unset SPOOLMAN_CORS_ORIGIN; fi
     # Spoolman runs its migrations by spawning `alembic`, so its venv bin must lead PATH.
-    (cd /opt/spoolman && PATH=/opt/spoolman/.venv/bin:$PATH exec .venv/bin/python -m uvicorn spoolman.main:app --host "$SPOOLMAN_HOST" --port "$SPOOLMAN_PORT") &
+    (cd /opt/spoolman && unset PYTHONPATH && PATH=/opt/spoolman/.venv/bin:$PATH exec .venv/bin/python -m uvicorn spoolman.main:app --host "$SPOOLMAN_HOST" --port "$SPOOLMAN_PORT") &
     children+=("$!"); children_names+=("spoolman")
     python3 - <<'PY'
 import os, time, urllib.request

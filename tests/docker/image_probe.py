@@ -57,9 +57,16 @@ def payload():
     mounts = [line.split()[4] for line in Path("/proc/self/mountinfo").read_text().splitlines()]
     source_mounted = any(m == "/app" or m.startswith("/app/") for m in mounts)
     handlers = Router().handler_names()
+    # site-packages holds only the dependency-layer stub of print_handy; a
+    # process started outside /app must still import the working copy.
+    elsewhere = subprocess.run([sys.executable, "-c", "import print_handy.bot.router, print_handy; "
+                                "print(print_handy.__file__)"], capture_output=True, text=True, timeout=120, cwd="/")
+    imported_from = (elsewhere.stdout.strip() or elsewhere.stderr.strip()[-300:])
     ok = (str(root) == "/app" and not missing and all(templates.values()) and not source_mounted
-          and len(handlers) > 0 and not (root / "tests").exists())
+          and len(handlers) > 0 and not (root / "tests").exists()
+          and elsewhere.returncode == 0 and imported_from.startswith("/app/print_handy/"))
     return report("payload", ok, root=root, missing=missing, templates=templates, handlers=len(handlers),
+                  imported_from_elsewhere=imported_from,
                   source_mounted=source_mounted, config=os.environ.get("PRINT_HANDY_CONFIG"),
                   slicer=data["orca"]["command"])
 

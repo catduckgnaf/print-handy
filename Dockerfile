@@ -290,6 +290,12 @@ RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
 # the .pyc files record, so they stay valid; a failed compile fails the
 # build rather than shipping a module that cannot import.
 RUN python -m compileall -q -j 0 /app/print_handy /app/plugins
+# The pip install above ran against the staged skeleton, so site-packages holds
+# only a stub print_handy package; the real one is the /app working copy. Put
+# /app first on every interpreter's path so a process started from any working
+# directory (docker exec -w, the healthcheck, a script elsewhere) imports the
+# real package rather than the stub.
+ENV PYTHONPATH=/app
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \

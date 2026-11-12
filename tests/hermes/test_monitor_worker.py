@@ -118,6 +118,21 @@ def test_run_a_declined_monitor_is_a_quiet_success(monkeypatch):
     assert monitor_worker.run("fake", "remote.gcode") == 0
 
 
+def test_run_installs_the_printer_view_before_importing_the_watch_module(monkeypatch):
+    """A watch module's imports freeze settings at import time (print_records'
+    DEFAULT_CHAT_ID), so a roster printer with its own chat_id got the global
+    chat when the module was imported before the per-printer view was installed."""
+    order = []
+    thread = _FakeThread()
+    _fake_watch(monkeypatch, thread)
+    real_import = monitor_worker.importlib.import_module
+    monkeypatch.setattr(monitor_worker, "_adapter_for", lambda pid: order.append("view") or ("adapter", pid))
+    monkeypatch.setattr(monitor_worker.importlib, "import_module",
+                        lambda name, *a: order.append("import") or real_import(name, *a))
+    assert monitor_worker.run("fake", "remote.gcode", printer_id="elegoo-two") == 0
+    assert order == ["view", "import"]
+
+
 # -- the adapter the worker builds -------------------------------------------------
 
 
