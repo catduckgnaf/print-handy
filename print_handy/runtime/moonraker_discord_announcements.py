@@ -788,7 +788,8 @@ def missed_finishes(previous, now=None):
     printed after it) was never seen. Returns (job_id, status, filename,
     end_time) for every completed or cancelled entry that ended after the
     previous job started, ended while the listener was down, and was not
-    announced before, oldest first.
+    announced before, oldest first. A fifth element carries the history
+    entry itself, for the multi-slot spool charge.
     """
     now = time.time() if now is None else now
     since = previous.get("print_started_at")
@@ -811,7 +812,7 @@ def missed_finishes(previous, now=None):
         job_id = str(job.get("job_id") or f"{job.get('filename')}@{job.get('start_time')}")
         if job_id in announced:
             continue
-        found.append((job_id, job["status"], str(job.get("filename") or ""), ended))
+        found.append((job_id, job["status"], str(job.get("filename") or ""), ended, job))
     found.sort(key=lambda item: item[3])
     return found[-OFFLINE_FINISH_MAX:]
 
@@ -821,6 +822,25 @@ def offline_finish_text(status, filename, ended):
     kind, verb = OFFLINE_FINISH_KINDS[status]
     message = print_summary.format_event(kind, filename or "a print")
     return f"{message}\n{verb} at {_clock_text(ended)} while the bot was offline."
+
+
+def _charge_missed_multislot(history_job, filename):
+    """Charge a multi-slot print that ended while the listener was down; its post line or ''.
+
+    The listener charges a multi-slot print at its live end transition; a
+    print that ended while it was down never had one, so the missed-finish
+    check charges it here from the history entry, through the same ledger
+    (a later live end or retry is a no-op). Never raises.
+    """
+    try:
+        from . import multislot_usage
+        entry = multislot_usage.charge_history_job(
+            history_job, load_context(filename) if filename else {},
+            base_url=_config.service_url("spoolman_url") or None)
+        return multislot_usage.summary_line(entry)
+    except Exception as exc:
+        print(f"Missed multi-slot spool charge unavailable: {exc}", file=sys.stderr)
+        return ""
 
 
 def record_completion(job_key, filename, stats, completed_at=None):
@@ -917,8 +937,10 @@ def main():
         except Exception as exc:
             print(f"Missed finish check unavailable: {exc}", file=sys.stderr)
             offline = []
-        for _job_id, status, name, ended in offline:
-            notices.append(offline_finish_text(status, name, ended))
+        for _job_id, status, name, ended, history_job in offline:
+            text = offline_finish_text(status, name, ended)
+            usage = _charge_missed_multislot(history_job, name)
+            notices.append(f"{text}\n{usage}" if usage else text)
 
     # A new job gets a fresh one-shot announcement state. Pending completions
     # are per-printer (#536) and survive: another printer's undelivered

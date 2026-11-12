@@ -228,7 +228,9 @@ path, and report what you saw in the support Discord or as a GitHub issue.
   not charge again), a charge Spoolman could not take is retried when
   Spoolman answers again, and nothing is charged while an open spool
   question has filament usage paused. The finish post names each slot's
-  charge.
+  charge. A multicolor print that finished while the listener was down is
+  charged the same way when its finish is posted from the printer's job
+  history, and only once.
 
 ## Camera and timelapse
 

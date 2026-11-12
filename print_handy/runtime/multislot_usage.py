@@ -260,6 +260,65 @@ def charge_finished_print(context: dict[str, Any] | None, outcome: str, *, actua
         return json.loads(json.dumps(ledger[key]))
 
 
+def usage_suspended() -> bool:
+    """Whether an open spool question pauses filament usage on this printer.
+
+    Reads the listener's runout question record (the same file and the
+    same rule as the listener's load_runout_pause: a runout or swap
+    question with usage_suspended set, which never expires).
+    """
+    path = _config.state_file("RUNOUT_PAUSE_STATE", "runout_pause.json", per_instance=True)
+    record = _load(path)
+    return record.get("cause") in ("runout", "swap") and bool(record.get("usage_suspended"))
+
+
+def _iso_seconds(value: Any) -> float | None:
+    from datetime import datetime, timezone
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+# The launch records its start a little before Moonraker's job starts
+# (upload, then heating); an hour of slack covers that without reaching a
+# reprint of the same file, which starts after this entry ended.
+_CONTEXT_START_SLACK_S = 3600
+
+
+def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | None, *,
+                       suspended: bool | None = None, request: Callable[..., Any] | None = None,
+                       base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
+    """Charge a multi-slot print that finished while the listener was down.
+
+    ``job`` is the Moonraker history entry the announcer's missed-finish
+    check found; ``context`` is the print context for its file. The
+    context is used only when it is this print's: its start falls between
+    an hour before the entry's start and the entry's end, so a later
+    reprint of the same file is never charged for it. A completed entry
+    charges the sliced grams; a cancelled one is scaled by the entry's
+    ``filament_used``. Same ledger as the live end, so whichever comes
+    first charges and the other is a no-op.
+    """
+    job, context = job or {}, context or {}
+    status = job.get("status")
+    if status not in ("completed", "cancelled"):
+        return None
+    started = _iso_seconds(context.get("started_at"))
+    job_start, job_end = _number(job.get("start_time")), _number(job.get("end_time"))
+    if started is None or job_start is None or job_end is None:
+        return None
+    if not (job_start - _CONTEXT_START_SLACK_S <= started <= job_end):
+        return None
+    planned = ((job.get("metadata") or {}).get("filament_total")
+               if not context.get("planned_filament_mm") else None)
+    return charge_finished_print(
+        context, "complete" if status == "completed" else "stopped",
+        actual_mm=job.get("filament_used"), planned_mm=planned,
+        suspended=usage_suspended() if suspended is None else suspended,
+        request=request, base_url=base_url, path=path)
+
+
 def retry_pending(*, request: Callable[..., Any] | None = None,
                   base_url: str | None = None, path: Path | None = None) -> list[str]:
     """Retry every slot a Spoolman outage left pending. Returns the retried keys."""
