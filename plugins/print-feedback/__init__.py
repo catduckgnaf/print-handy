@@ -48,7 +48,30 @@ def _handler_sources():
     return [(folder / f"{name}.py", (folder / f"{name}.py").read_text(encoding="utf-8")) for name in names]
 
 
+def _code_cache():
+    """Compiled handler bodies, kept on the print_handy package so they outlive this module.
+
+    Loading this file by path makes a fresh module each time (tests and the
+    timing corpus do it per case), and parsing, rewriting and compiling
+    every handler module cost about 0.12 s per load (#1349). A code object
+    is immutable and exec's into each fresh namespace the same way, so
+    reusing it changes nothing about what a load produces.
+    """
+    import print_handy
+    return print_handy.__dict__.setdefault("_print_feedback_shim_code", {})
+
+
 def _module_body(path, source):
+    """The module's own code, compiled once per (path, source); see _compile_module_body."""
+    cache = _code_cache()
+    key = (str(path), source)
+    code = cache.get(key)
+    if code is None:
+        code = cache[key] = _compile_module_body(path, source)
+    return code
+
+
+def _compile_module_body(path, source):
     """The module's own code: no docstring, no imports from inside the handler package
     (those names are already in this namespace), no handler interface, no logger of its own."""
     tree = ast.parse(source, filename=str(path))
