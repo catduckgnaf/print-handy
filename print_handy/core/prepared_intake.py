@@ -77,6 +77,20 @@ def _voice_identity(source):
     return f"{platform}:chat:{getattr(source, 'chat_id', 'unknown')}"
 
 
+def _voiced(text, stage, source, key):
+    """``text`` plus one optional quip for a stage this intake really entered.
+
+    ``key`` is the intake id: a re-render or retry of the same stage shows the
+    same line, and an empty quip leaves ``text`` byte-identical.
+    """
+    return status_voice.voiced(text, stage, identity=_voice_identity(source), event_key=f'{key}:{stage}')
+
+
+def _voice(stage, source, key):
+    """A deferred quip for a FitStatus phase, chosen only if the phase is shown."""
+    return lambda: status_voice.quip(stage, identity=_voice_identity(source), event_key=f'{key}:{stage}')
+
+
 STOP_LABEL = "Stop"
 STOP_CUSTOM_ID = "pbstop:"
 RETRY_CUSTOM_ID = "pbretry:"
@@ -150,6 +164,8 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
             posted.add(stage)
             # A note is progress only: delivery failure never touches the start itself.
             with contextlib.suppress(Exception):
+                if stage in START_PROGRESS_VOICE:
+                    text = _voiced(text, START_PROGRESS_VOICE[stage], source, Path(timing_path).parent.name)
                 await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
 
 
@@ -332,6 +348,8 @@ START_PROGRESS = (
     ('start_submitted', 3.0, 'The printer accepted the start. It may load filament and heat for a '
                              "few minutes before printing; I'll post when the start is confirmed."),
 )
+# The status voice stage each START_PROGRESS note really reports.
+START_PROGRESS_VOICE = {'upload_verified': 'upload', 'start_submitted': 'print_start'}
 
 
 def _elapsed_text(seconds):
@@ -393,14 +411,27 @@ class FitStatus:
         if message_id:
             self.message_id = str(message_id)
 
-    async def run(self, phase, work, first_text=None):
+    async def run(self, phase, work, first_text=None, voice=None):
         """Await ``work`` while the status names ``phase`` and the time spent so far.
 
         ``work`` may be a task started earlier (:func:`_prefetch`); when it has already
         finished, or finishes within FIT_QUIET_S while no status is showing yet, no status
-        line is posted at all.
+        line is posted at all. ``voice`` (see :func:`_voice`) adds one optional quip
+        after this phase's factual line, chosen once and only if the line is shown.
         """
         task = asyncio.ensure_future(work)
+        line = None
+
+        def voiced(text):
+            nonlocal line
+            if voice is None:
+                return text
+            if line is None:
+                try:
+                    line = voice() or ''
+                except Exception:
+                    line = ''
+            return f'{text} {line}' if line else text
         if task.done():
             return task.result()
         try:
@@ -410,12 +441,12 @@ class FitStatus:
                 await asyncio.wait({task}, timeout=FIT_QUIET_S)
                 if task.done():
                     return task.result()
-            await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
+            await self.show(first_text or voiced(f'Checking the fit: {phase} ({self.elapsed()}).'))
             while True:
                 done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
                 if done:
                     return task.result()
-                await self.show(f'Still checking the fit: {phase} ({self.elapsed()}).', heartbeat=True)
+                await self.show(voiced(f'Still checking the fit: {phase} ({self.elapsed()}).'), heartbeat=True)
         finally:
             if not task.done():
                 task.cancel()
@@ -816,10 +847,12 @@ def _filament_note(job, state):
         return None
 
 
-async def send_preview(adapter, source, job, row, metadata, state=None):
+async def send_preview(adapter, source, job, row, metadata, state=None, voice_key=None):
     """Best effort, display only: no printer, Moonraker, Spoolman, HA or persistence I/O."""
     try:
         text = preview_sentence(job, row, _filament_note(job, state) if state is not None else None)
+        if text and voice_key and (job or {}).get('site') != 'upload':
+            text = _voiced(text, 'link_intake', source, voice_key)  # the link lookup really ran
         if text:
             await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
     except Exception:
@@ -2855,7 +2888,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if len(picked) > 1:
                 parts = picked
                 chosen = {'kind': 'parts', 'title': _parts_title(parts)}
-        await send_preview(adapter, source, job, chosen, metadata, state=state)
+        await send_preview(adapter, source, job, chosen, metadata, state=state, voice_key=iid)
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
@@ -2881,7 +2914,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         await asyncio.to_thread(intake_working_copy, path)
         if job['site'] == 'upload' and not job.get('design'):  # a design keeps its own name
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
-        job['audit'] = await _with_stop(adapter, source, key, metadata, large_model_notice(path),
+        job['audit'] = await _with_stop(adapter, source, key, metadata,
+                                        _voiced(large_model_notice(path), 'model_audit', source, iid),
                                         _heavy(mj.audit, path))
         if isinstance(job['audit'], dict) and job['audit'].get('no_printable_volume'):
             # Refuse at intake (#194): asking for colors and copies first only to fail at slicing wastes the operator's time.
@@ -2894,9 +2928,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if not (isinstance(manifest, dict) and manifest.get('source_sha256') == actual_sha):
             manifest = await _with_stop(
                 adapter, source, key, metadata,
-                "Checking the model. Press Stop to cancel. " +
-                status_voice.quip("color_detection", identity=_voice_identity(source),
-                                  event_key=f"{iid}:color_detection"),
+                _voiced("Checking the model. Press Stop to cancel.", "color_detection", source, iid),
                 _heavy(inventory, path))
         # STL has no source palette, but still needs an exact-source color decision.
         if not manifest.get('source_sha256'):
@@ -3154,10 +3186,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         fit_status = FitStatus(adapter, source, metadata)
         try:
             capacity = await fit_status.run('checking the layout as the author laid it out', fit_probe,
-                                            first_text=('Checking fit and calculating plate capacity. ' +
-                                                         status_voice.quip(
-                                                             'plate_capacity', identity=_voice_identity(source),
-                                                             event_key=f'{iid}:plate_capacity')))
+                                            first_text=_voiced('Checking fit and calculating plate capacity.',
+                                                               'plate_capacity', source, iid))
         except Exception as exc:
             logger.exception('fit check failed; intake is resumable')
             receipt['status'] = 'FIT_UNKNOWN'
@@ -3266,7 +3296,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                         latest.get('color_decisions'),
                                                         capacity=mj.position_limit(job_adapter),
                                                         multi_tool=job_adapter.multi_tool,
-                                                        job=latest))
+                                                        job=latest),
+                                                 voice=_voice('plate_arrangement', source, iid))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')
@@ -3290,7 +3321,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 options = await fit_status.run('trying rotations and smaller sizes',
                                                _heavy(orca_adapter.fit_options, path,
                                                       {**fit_state, 'fit_rearrange_checked': True}
-                                                      if rearrange_checked else fit_state))
+                                                      if rearrange_checked else fit_state),
+                                               voice=_voice('bed_fit', source, iid))
             except Exception as exc:
                 receipt['status'] = 'FIT_UNKNOWN'
                 receipt['fit_error'] = str(exc)
@@ -3347,7 +3379,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 split_plan = await fit_status.run('trying a split onto separate plates at 100%',
                                                   _heavy(split_fit.split_plan_100, path,
                                                          int((state.get('bed_mm') or BED)[0]),
-                                                         brim_policy=options.get('brim_policy'), state=fit_state))
+                                                         brim_policy=options.get('brim_policy'), state=fit_state),
+                                                  voice=_voice('split', source, iid))
             except Exception:
                 split_plan = None
             try:
@@ -3359,7 +3392,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                        _heavy(plate_merge.full_size_split_possible, path, manifest,
                                                               int((state.get('bed_mm') or BED)[0]),
                                                               brim_policy=options.get('brim_policy'),
-                                                              state=state))
+                                                              state=state),
+                                                       voice=_voice('split', source, iid))
             except Exception:
                 full_size_split = False
             if split_plan:
@@ -3892,8 +3926,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         clearance = None
                     mj.write_job(folder, latest)
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content='Reoriented: laid the largest face flat. The support question '
-                                               'will be evaluated again for the new orientation.')
+                                       content=_voiced('Reoriented: laid the largest face flat. The support '
+                                                       'question will be evaluated again for the new orientation.',
+                                                       'rotation', source, iid))
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
@@ -3914,8 +3949,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     await early.discard()
                     res = support_clearance.extend_underside(path, gap_mm=f['clearance_mm']['min'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
-                                               f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...")
+                                       content=_voiced(
+                                           f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
+                                           f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...",
+                                           'mesh_repair', source, iid))
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -3946,8 +3983,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     await early.discard()  # see the extend action above
                     res = support_clearance.sink_model(path, dz=f['clearance_mm']['max'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Flattened model to plate by sinking {res['sink_mm']} mm "
-                                               f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...")
+                                       content=_voiced(
+                                           f"Flattened model to plate by sinking {res['sink_mm']} mm "
+                                           f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...",
+                                           'mesh_repair', source, iid))
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -4360,7 +4399,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Slicing with supports. Press Stop to cancel.",
+                                           _voiced("Slicing with supports. Press Stop to cancel.", 'supports', source, iid),
                                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
@@ -4370,7 +4409,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     raise early.error
                 if out is None:
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Slicing. Press Stop to cancel.",
+                                           _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                            _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
@@ -4381,7 +4420,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # the potentially longest wait of the intake no progress and
                     # a Stop button that did nothing.
                     out = await _with_stop(adapter, source, key, metadata,
-                                           "Waiting for the background slice to finish. Press Stop to cancel.",
+                                           _voiced("Waiting for the background slice to finish. Press Stop to cancel.",
+                                                   'slice', source, iid),
                                            _await_background_slice(early, binding),
                                            allow_stop=True)
                 else:
@@ -4390,11 +4430,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     raise early.error
                 if out is None:
                     if chosen_quantity and chosen_quantity > 1:
-                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
                                                allow_stop=True)  # nothing uploaded yet, so Stop is safe
                     else:
-                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Slicing. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
                                                allow_stop=True)
         except mj.FilamentWarningPending as pending:
@@ -4576,10 +4618,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             while True:
                 try:
                     if chosen_quantity and chosen_quantity > 1:
-                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
                     else:
-                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                        out = await _with_stop(adapter, source, key, metadata,
+                                               _voiced("Retrying the slice. Press Stop to cancel.", 'slice', source, iid),
                                                _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
                     break
                 except Exception as retry_error:
@@ -4953,7 +4997,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 copies_kw = {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {}
                 out = await _with_stop(adapter, source, key, metadata,
-                                       'Re-slicing with supports. Press Stop to cancel.',
+                                       _voiced('Re-slicing with supports. Press Stop to cancel.', 'supports', source, iid),
                                        _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
                                        allow_stop=True)  # still entirely pre-upload, so Stop is safe
                 gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
