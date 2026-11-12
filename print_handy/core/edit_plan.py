@@ -704,6 +704,25 @@ def lay_flat_rotation(triangles):
     return matrix, mesh_envelope(matrix, triangles)
 
 
+FLAT_TOLERANCE_DEG = 0.5
+
+
+def lies_flat_already(matrix, tolerance_deg=FLAT_TOLERANCE_DEG):
+    """True when a lay-flat turn leaves the bed-facing direction where it was.
+
+    lay_flat_rotation's matrix sends the chosen face's normal to -Z; that
+    normal is minus the matrix's third row. When it already points within
+    ``tolerance_deg`` of straight down, the model lies flat as authored and
+    the turn is identity (or only a spin on the bed), so there is nothing
+    to reorient.
+    """
+    try:
+        down = float(matrix[8])
+    except (TypeError, ValueError, IndexError):
+        return False
+    return down >= math.cos(math.radians(tolerance_deg))
+
+
 # ---------------------------------------------------------------- applying plans to a job
 
 EDITABLE_FIELDS = ("scale", "copies", "orientation", "fit_brim_policy", "edit_settings",

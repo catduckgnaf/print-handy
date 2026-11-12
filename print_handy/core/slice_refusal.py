@@ -107,7 +107,7 @@ def split_cause(reason: Any) -> str:
         return "materials"
     if "separate printing" in low or "separately was chosen" in low:
         return "separate"
-    if "resized per-part" in low:
+    if "resized per-part" in low or "resized or turned" in low:
         return "resized"
     if "do not fit" in low or "exceed the printer height" in low:
         return "space"

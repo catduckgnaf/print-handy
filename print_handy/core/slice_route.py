@@ -98,7 +98,7 @@ def _slicer_project(source):
 
 
 def plan(source, decisions, *, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
-         identity_tools=False, layer_mode=None, slicer='orca'):
+         identity_tools=False, layer_mode=None, slicer='orca', rotation=None):
     """{'route': 'remap', 'filament_map': {source filament: job filament}} or
     {'route': 'rebuild', 'reason': why the job is not a pure renumbering}.
 
@@ -127,6 +127,8 @@ def plan(source, decisions, *, item_shifts=None, object_ids=None, scale=None, fi
         return rebuild('the job turns objects to fit the bed')
     if scale is not None and float(scale) != 1.0:
         return rebuild('the job prints the model at a different scale')
+    if rotation is not None:
+        return rebuild('the job turns the whole model to a new orientation')
     if object_ids is not None:
         return rebuild('the job prints a subset of the source objects (one plate of several)')
     family = _slicer_project(source)
@@ -306,7 +308,7 @@ def rebuild_loses_filament_references(source):
 
 def export_per_part(source, target, decisions, *, item_shifts=None, object_ids=None, scale=None,
                     fit_by_object=None, identity_tools=False, tower_mm=None, layer_mode=None,
-                    slicer='orca'):
+                    slicer='orca', rotation=None):
     """(tool mapping, geometry report) for a per-part color slice; see the module docstring.
 
     The report is the rebuild's own shape (part records, bounds, translation,
@@ -319,6 +321,8 @@ def export_per_part(source, target, decisions, *, item_shifts=None, object_ids=N
     source, target = Path(source), Path(target)
     kwargs = dict(item_shifts=item_shifts, object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                   identity_tools=identity_tools, tower_mm=tower_mm, layer_mode=layer_mode)
+    if rotation is not None:
+        kwargs['rotation'] = rotation
     chosen = plan(source, decisions, slicer=slicer, **{k: v for k, v in kwargs.items() if k != 'tower_mm'})
 
     def rebuild(route):

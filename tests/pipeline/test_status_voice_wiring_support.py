@@ -23,7 +23,13 @@ def test_reorient_notice_carries_the_rotation_quip(env, monkeypatch, speak):
     monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
-    adapter, _result, _receipt = run_flow(env, [1, 0, 4, 8])
+    # The fixture already lies flat (its lay-flat turn is identity, which
+    # records nothing), so the search is pinned to a real turn. The repeated
+    # question no longer offers Reorient, so cancel is index 7.
+    from print_handy.core import edit_plan
+    on_side = edit_plan.rotation_matrix('x', 90)
+    monkeypatch.setattr(edit_plan, 'lay_flat_rotation', lambda tris: (on_side, edit_plan.mesh_envelope(on_side, tris)))
+    adapter, _result, _receipt = run_flow(env, [1, 0, 4, 7])
     assert (REORIENTED + (' [rotation quip]' if speak else '')) in adapter.sent
 
 

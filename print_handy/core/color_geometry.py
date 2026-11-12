@@ -226,7 +226,8 @@ def _part_feature_filaments(part, filament_tool, notes):
 
 @painted_geometry.decode_scoped
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
-                          identity_tools=False, tower_mm=None, layer_mode=None, *, ranges_carried=False):
+                          identity_tools=False, tower_mm=None, layer_mode=None, *, ranges_carried=False,
+                          rotation=None):
     """object_ids limits export to those build objects (one authored plate);
     scale shrinks the selection uniformly before bed centering.
 
@@ -254,6 +255,15 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     item_shifts, refuses a resized export (the shifts were planned at
     authored size), an unknown or unexported object, a non-authored
     scale, and any rotation that is not a rigid rotation.
+
+    rotation (a rigid 3x3 matrix, row-major) turns the whole exported
+    assembly as one rigid body before bed centering: every part and
+    cutter rotates by the same matrix about the world origin, so the
+    parts keep their positions relative to each other (an inlay stays
+    seated in its plaque). It is the multicolor analogue of the
+    whole-model rotation a single-color slice applies, and it cannot be
+    combined with item_shifts or fit_by_object, which place objects one
+    by one.
 
     ranges_carried (#1279) is for a measure-only call by the remap route
     (slice_route), which slices the source package with its height ranges
@@ -453,6 +463,17 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         read_leaves, source=source))
     if scale != 1.0:
         leaves[:] = [(k, m, [tuple(c * scale for c in pt) for pt in pts]) for k, m, pts in leaves]
+    if rotation is not None:
+        if item_shifts is not None or fit_by_object is not None:
+            raise RuntimeError('a whole-assembly rotation cannot be combined with per-object placement')
+        try:
+            assembly_turn = _check_rotation(rotation)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f'assembly {exc}') from exc
+        if assembly_turn is not None:
+            # One matrix for every leaf (cutters included): the assembly
+            # turns as one rigid body, and the bed centering below places it.
+            leaves[:] = [(k, m, [_rotate(pt, assembly_turn) for pt in pts]) for k, m, pts in leaves]
     rotations = {}
     if fit_by_object is not None:
         if item_shifts is None:

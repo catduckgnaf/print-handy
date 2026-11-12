@@ -417,10 +417,21 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
     # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), print anyway(5),
+    # The fixture already lies flat on its largest face (its lay-flat turn
+    # is identity, which is now answered without recording anything), so
+    # the lay-flat search is pinned to a real turn: on its side.
+    from print_handy.core import edit_plan as _ep
+    on_side = _ep.rotation_matrix('x', 90)
+    monkeypatch.setattr(_ep, 'lay_flat_rotation', lambda tris: (on_side, _ep.mesh_envelope(on_side, tris)))
     # slice only(6), scale(7), cancel(8). Pick reorient, then cancel the
-    # repeated question.
-    adapter, result, receipt = run_flow(env, [1, 0, 4, 8])
+    # repeated question, which no longer offers Reorient: pressing it again
+    # would record the same turn and change nothing (cancel is now 7).
+    adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
+    ready = [q['choices'] for q in adapter.questions
+             if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)']
+    assert 'Reorient (lay flat)' in ready[0]
+    assert all('Reorient (lay flat)' not in choices for choices in ready[1:]) and len(ready) > 1
     job = json.loads(Path(receipt['job_json']).read_text())
     assert (job.get('orientation') or {}).get('rotation') is not None
     # The rotated envelope is recorded with the rotation, so the bed
@@ -433,6 +444,35 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     assert 'supports' not in (job.get('orientation') or {})
     assert 'support_decision' not in job
     assert 'clearance_acknowledgement' not in job
+
+
+def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeypatch):
+    """Reorient on an already flat model says so and stores no orientation (2.3.1).
+
+    Regression: the identity lay-flat turn was recorded as an orientation,
+    the reply claimed a reorientation that changed nothing, the button stayed
+    on offer, and the recorded rotation made a multicolor plaque slice as
+    one single-color plate per slot.
+    """
+    from print_handy.core import edit_plan
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+    # The fixture already lies on its largest face: its real lay-flat turn is identity.
+    tris = [tuple(map(tuple, tri)) for p in support_clearance.leaves(str(V12_FIXTURE)) for tri in p['tris']]
+    assert edit_plan.lay_flat_rotation(tris)[0] == pytest.approx([1, 0, 0, 0, 1, 0, 0, 0, 1])
+    # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), ... Pick
+    # reorient, then cancel the repeated question, which has no Reorient
+    # (sup, nosup, extend, sink, print anyway, slice only, scale, cancel=7).
+    adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
+    assert any('already lies flat' in m for m in adapter.sent)
+    assert not any('Reoriented' in m for m in adapter.sent)
+    ready = [q['choices'] for q in adapter.questions
+             if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)']
+    assert len(ready) == 2
+    assert 'Reorient (lay flat)' in ready[0] and 'Reorient (lay flat)' not in ready[1]
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert not (job.get('orientation') or {}).get('rotation')
 
 
 def test_post_slice_support_prompt_cancel_keeps_the_slice(env, monkeypatch):
