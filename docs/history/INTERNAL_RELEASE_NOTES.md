@@ -2,10 +2,10 @@
 
 # Unreleased
 
-# Version 2.2.10
+# Version 2.3.0
 
 **Release Date:** Unreleased until tagged. Set when the tag is cut.
-**Range:** 2.2.9..main. The ZMod 1.7.6 release: ZMod 1.7.6 shipped on 2026-11-11 and was audited the same day (#1269, PR #1278).
+**Range:** 2.2.9..main. 2.2.10 was prepared (checklist #1316) and folded into 2.3.0 at catduck's call; it was never tagged. The ZMod 1.7.6 release plus the #1160 consolidation (#1317 to #1323, #1332), the status voice (#1326) and material warn-and-accept (#1336): ZMod 1.7.6 shipped on 2026-11-11 and was audited the same day (#1269, PR #1278).
 **Live checks performed for this release (owner's AD5X, 2026-11-11):** ZMod updated 1.7.5-2 -> 1.7.6-17 and HelixScreen v1.0.7 -> v1.0.8 through `firmware_update.prepare_update` / `send_update` (the path `/print-firmware update` and the alert button run), each verified by re-reading Moonraker's update state; the printer came back ready and its `lane_data` records survived. Read-only on the same printer: the update alert detection (one applicable offer, key `zmod:1.7.6`), the printer screen view (an 800x480 JPEG through the no-redirect fetch), camera selection with the real webcam registry in both orders, and lane-record parsing of the real records. Observed: after the Z-Mod update and reboot, Moonraker reported every git component as `?` until an update-manager refresh; ZMod 1.7.6 or HelixScreen 1.0.8 rewrote slot 3's material from `PLA+` to `PLA` on its own.
 **Not verified live:** Matrix alert reactions, sparse tool maps through a real print, the Web UI alert buttons, the weekly firmware watch on its schedule.
 

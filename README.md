@@ -11,7 +11,7 @@
 
 Discord is optional too: the same bot runs on Telegram or Matrix, and the local Web UI covers status, settings and spools on the machine itself. AI extras are add-ons, never the price of entry.
 
-Current release: **2.2.10**
+Current release: **2.3.0**
 
 **Try it:** on a 64-bit Linux machine with Docker, it is two downloads, a few lines in `.env` and `docker compose up -d`, then `/print-help` in your chat. The copy-paste block is in [Get started](#get-started).
 
@@ -72,8 +72,8 @@ Docker is the easy route: one container, everything inside. You need a 64-bit Li
 
 ```bash
 mkdir print-handy && cd print-handy
-curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.10/docker-compose.yml
-curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.2.10/.env.example -o .env
+curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.0/docker-compose.yml
+curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.0/.env.example -o .env
 ```
 
 Edit `.env` and fill in these:
