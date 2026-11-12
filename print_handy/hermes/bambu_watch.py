@@ -862,7 +862,8 @@ class BambuPrintMonitor:
             streak = watch.note_verdict(verdict, layer, printer_id=self._printer_id,
                                         print_identity=self._identity, signature=signature,
                                         frame_age_s=self._wall() - captured_at, now=self._wall())
-            if verdict in _vw.AUTO_PAUSE_VERDICTS and early and not watch.last_counted:
+            frame_counted = watch.last_counted
+            if verdict in _vw.AUTO_PAUSE_VERDICTS and early and not frame_counted:
                 log(f"bambu visual check file={self.filename!r} reason={reason}: suspicious frame not "
                     f"counted toward auto-pause: {watch.last_evidence}")
             if suspicious:
@@ -880,7 +881,8 @@ class BambuPrintMonitor:
                         enabled=self._auto_pause is not None and _vw.watch_settings()["auto_pause_early"],
                         printer_id=self._printer_id, identity=self._identity,
                         state=getattr(self, "_last_state", None), verdict=verdict,
-                        frame_age_s=self._wall() - captured_at, early=early)
+                        frame_age_s=self._wall() - captured_at, early=early,
+                        frame_counted=frame_counted)
                     if streak and not pause_now:
                         log(f"bambu auto-pause not sent file={self.filename!r}: {pause_why}")
                     text = _cw.alert_text(reason, layer, verdict, detail,
