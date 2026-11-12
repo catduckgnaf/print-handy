@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import printers, settings
 from ..core import launch_state, printer_state
 from .common import ARCHIVE
+from .filament import position_limit, validate_filament_selection
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -233,3 +234,88 @@ def resolve_print_target(target, archive=None):
         return raw  # a relative local path, as before: the caller reports it missing
     raise SystemExit(f"REFUSED: {raw} is a printer file name, not a local path, and no archived job uploaded a "
                      "file with that name. Pass the job's JOB.json instead. Nothing uploaded or started.")
+
+
+def safe_slug(s): return re.sub(r'[^a-z0-9]+','-',s.lower()).strip('-')[:70]
+def intake_id_from_message(source, message_id):
+    """Return the canonical intake identity for a Discord message, never its snowflake."""
+    if not message_id:
+        raise ValueError('plain model link requires a stable Discord message ID')
+    identity = [getattr(source, 'profile', ''), str(getattr(source, 'chat_id', '')),
+                str(getattr(source, 'thread_id', '') or ''), str(message_id)]
+    return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
+def intake_folder(archive, slug, intake_id=None):
+    if intake_id is not None and not re.fullmatch(r'[a-f0-9]{64}', intake_id):
+        raise ValueError('intake ID must be a 64 character lowercase SHA256')
+    return Path(archive) / (safe_slug(slug) + ('--' + intake_id if intake_id else ''))
+
+
+def save_filament_selection(job_path, selection):
+    """Persist a confirmed selection only in the explicitly named job file."""
+    path = Path(job_path)
+    job = json.loads(path.read_text())
+    if not isinstance(job, dict) or not job.get("model_id"):
+        raise ValueError("not a model JOB.json")
+    job["filament_selection"] = validate_filament_selection(selection, limit=position_limit(_job_adapter(job)))
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(job, indent=2) + "\n")
+    os.replace(tmp, path)
+    return job["filament_selection"]
+
+
+def set_color_decisions(job, decisions):
+    if decisions_digest(job.get('color_decisions')) != decisions_digest(decisions):
+        if job.get('gcode'):
+            job.setdefault('artifact_history', []).append({key: job[key] for key in
+                ('gcode', 'gcode_verified', 'gcode_full_verified_sha256', 'provenance', 'artifact_binding',
+                 'sliced_at', 'slice_config', 'slice_recipe') if key in job})
+        for key in ('gcode', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config', 'slice_recipe',
+                    'gcode_full_verified_sha256'):
+            job.pop(key, None)
+        job['gcode_verified'] = False
+    job['color_decisions'] = decisions
+    if decisions['mode'] == 'single_color':
+        job['filament_selection'] = decisions['selection']
+    else:
+        job.pop('filament_selection', None)
+
+
+def _recipe_binding(job):
+    """Recipe fields every artifact_binding carries; slice_job records the recipe before slicing."""
+    return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
+
+
+def stamp_job_printer(job, printer_id=None):
+    """Record the creating printer's roster id on a new job (#334, design §2.2).
+
+    A job learns its printer at creation and never re-derives it: every later
+    path (state, lease, approval, adapter) keys off JOB.json's printer_id.
+    Jobs written before the upgrade carry no id and belong to the configured
+    single printer — see _job_printer_id.
+
+    An explicit ``printer_id`` — the printer the intake channel routes to
+    (#335) — wins over the settings default when the job does not name one
+    yet; an unknown explicit id raises, naming it, rather than silently
+    stamping a different printer.
+    """
+    if isinstance(job, dict) and not job.get("printer_id"):
+        if printer_id:
+            job["printer_id"] = settings.by_id(str(printer_id))["id"]
+        else:
+            try:
+                job["printer_id"] = settings.default_printer_id()
+            except Exception:
+                pass
+    return job
+
+
+def record_support_decision(folder, supports, by='operator'):
+    """Record the operator's supports choice on JOB.json (retries and reprints never ask again)."""
+    path = Path(folder) / 'JOB.json'
+    job = json.loads(path.read_text())
+    job['support_decision'] = {'supports': bool(supports), 'by': by,
+                               'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    write_job(folder, job)
+    return job

@@ -29,6 +29,7 @@ HOMES = {
     "print_handy.jobs.filament": "print_handy.core.model_job",
     "print_handy.launch.gates": "print_handy.core.model_job",
     "print_handy.launch.print_now": "print_handy.core.model_job",
+    "print_handy.jobs.slice": "print_handy.core.model_job",
     "print_handy.intake.worker": "print_handy.core.prepared_intake",
     "print_handy.intake.questions": "print_handy.core.prepared_intake",
     "print_handy.intake.support_flow": "print_handy.core.prepared_intake",
@@ -255,3 +256,29 @@ def test_new_modules_never_import_the_modules_they_were_cut_from():
 
 def test_the_cycle_finder_finds_a_cycle():
     assert _cycles({"a": {"b"}, "b": {"a"}, "c": {"a"}}) == [["a", "b"]]
+
+
+def test_moved_slice_steps_still_run_in_the_heavy_worker(monkeypatch, tmp_path):
+    """slice_job moved to jobs/slice.py; the intake still offloads it as ('model_job', 'slice_job')."""
+    import asyncio
+    import json
+    from print_handy.core import heavy_worker, owned_worker, prepared_intake
+    from print_handy.jobs import slice as jobs_slice
+    assert model_job.slice_job is jobs_slice.slice_job
+    seen = {}
+
+    async def fake_run(argv, payload, **kwargs):
+        seen["request"], seen["lane"], seen["record"] = json.loads(payload), kwargs["lane"], kwargs["record"]
+        return ("\n" + json.dumps({"ok": True, "path": False, "result": "done"})).encode(), b""
+
+    async def no_thread(*args, **kwargs):
+        raise AssertionError("slicing must not run in a thread")
+
+    monkeypatch.setattr(prepared_intake.owned_worker, "run", fake_run)
+    monkeypatch.setattr(prepared_intake.owned_worker, "in_thread", no_thread)
+    job = tmp_path / "JOB.json"
+    assert asyncio.run(prepared_intake._heavy(model_job.slice_job, job)) == "done"
+    assert (seen["request"]["module"], seen["request"]["func"]) == ("model_job", "slice_job")
+    assert ("model_job", "slice_job") in heavy_worker.ALLOWED
+    assert seen["lane"] is owned_worker.SLICER
+    assert seen["record"] == tmp_path / owned_worker.RECORD
