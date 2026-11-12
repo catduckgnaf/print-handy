@@ -1,0 +1,1016 @@
+{
+  "_about": "Print Handy local progress voice bank, part 2 of 5.",
+  "_license": "Original to Print Handy; AGPL-3.0-only",
+  "stages": {
+    "mesh_repair": [
+      {
+        "id": "mesh_repair-001",
+        "family": "mesh_repair-01",
+        "text": "Trying to convince these broken triangles to cooperate. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-002",
+        "family": "mesh_repair-01",
+        "text": "Trying to convince these broken triangles to cooperate. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-003",
+        "family": "mesh_repair-01",
+        "text": "Trying to convince these broken triangles to cooperate. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-004",
+        "family": "mesh_repair-01",
+        "text": "Trying to convince these broken triangles to cooperate. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-005",
+        "family": "mesh_repair-02",
+        "text": "Applying digital duct tape where the mesh forgot to be solid. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-006",
+        "family": "mesh_repair-02",
+        "text": "Applying digital duct tape where the mesh forgot to be solid. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-007",
+        "family": "mesh_repair-02",
+        "text": "Applying digital duct tape where the mesh forgot to be solid. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-008",
+        "family": "mesh_repair-02",
+        "text": "Applying digital duct tape where the mesh forgot to be solid. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-009",
+        "family": "mesh_repair-03",
+        "text": "Repairing gaps before they turn into actual gaps. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-010",
+        "family": "mesh_repair-03",
+        "text": "Repairing gaps before they turn into actual gaps. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-011",
+        "family": "mesh_repair-03",
+        "text": "Repairing gaps before they turn into actual gaps. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-012",
+        "family": "mesh_repair-03",
+        "text": "Repairing gaps before they turn into actual gaps. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-013",
+        "family": "mesh_repair-04",
+        "text": "Negotiating a ceasefire between disconnected surfaces. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-014",
+        "family": "mesh_repair-04",
+        "text": "Negotiating a ceasefire between disconnected surfaces. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-015",
+        "family": "mesh_repair-04",
+        "text": "Negotiating a ceasefire between disconnected surfaces. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-016",
+        "family": "mesh_repair-04",
+        "text": "Negotiating a ceasefire between disconnected surfaces. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-017",
+        "family": "mesh_repair-05",
+        "text": "Giving nonmanifold edges an intervention they did not request. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-018",
+        "family": "mesh_repair-05",
+        "text": "Giving nonmanifold edges an intervention they did not request. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-019",
+        "family": "mesh_repair-05",
+        "text": "Giving nonmanifold edges an intervention they did not request. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-020",
+        "family": "mesh_repair-05",
+        "text": "Giving nonmanifold edges an intervention they did not request. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-021",
+        "family": "mesh_repair-06",
+        "text": "Trying to repair this mesh without inventing a new object. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-022",
+        "family": "mesh_repair-06",
+        "text": "Trying to repair this mesh without inventing a new object. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-023",
+        "family": "mesh_repair-06",
+        "text": "Trying to repair this mesh without inventing a new object. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-024",
+        "family": "mesh_repair-06",
+        "text": "Trying to repair this mesh without inventing a new object. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-025",
+        "family": "mesh_repair-07",
+        "text": "Stitching geometry back together with professional skepticism. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-026",
+        "family": "mesh_repair-07",
+        "text": "Stitching geometry back together with professional skepticism. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-027",
+        "family": "mesh_repair-07",
+        "text": "Stitching geometry back together with professional skepticism. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-028",
+        "family": "mesh_repair-07",
+        "text": "Stitching geometry back together with professional skepticism. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-029",
+        "family": "mesh_repair-08",
+        "text": "Checking whether this repair fixes the problem or just renames it. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-030",
+        "family": "mesh_repair-08",
+        "text": "Checking whether this repair fixes the problem or just renames it. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-031",
+        "family": "mesh_repair-08",
+        "text": "Checking whether this repair fixes the problem or just renames it. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-032",
+        "family": "mesh_repair-08",
+        "text": "Checking whether this repair fixes the problem or just renames it. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-033",
+        "family": "mesh_repair-09",
+        "text": "Persuading stray vertices to rejoin civilized society. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-034",
+        "family": "mesh_repair-09",
+        "text": "Persuading stray vertices to rejoin civilized society. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-035",
+        "family": "mesh_repair-09",
+        "text": "Persuading stray vertices to rejoin civilized society. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-036",
+        "family": "mesh_repair-09",
+        "text": "Persuading stray vertices to rejoin civilized society. I have seen better boundaries on reality television."
+      },
+      {
+        "id": "mesh_repair-037",
+        "family": "mesh_repair-10",
+        "text": "Patching the places where topology took a personal day. The repair is not proof of innocence."
+      },
+      {
+        "id": "mesh_repair-038",
+        "family": "mesh_repair-10",
+        "text": "Patching the places where topology took a personal day. Sometimes the bug is shaped like the entire model."
+      },
+      {
+        "id": "mesh_repair-039",
+        "family": "mesh_repair-10",
+        "text": "Patching the places where topology took a personal day. Every closed hole is one fewer future argument."
+      },
+      {
+        "id": "mesh_repair-040",
+        "family": "mesh_repair-10",
+        "text": "Patching the places where topology took a personal day. I have seen better boundaries on reality television."
+      }
+    ],
+    "color_detection": [
+      {
+        "id": "color_detection-001",
+        "family": "color_detection-01",
+        "text": "Reading the model's color intentions through a fog of metadata. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-002",
+        "family": "color_detection-01",
+        "text": "Reading the model's color intentions through a fog of metadata. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-003",
+        "family": "color_detection-01",
+        "text": "Reading the model's color intentions through a fog of metadata. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-004",
+        "family": "color_detection-01",
+        "text": "Reading the model's color intentions through a fog of metadata. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-005",
+        "family": "color_detection-02",
+        "text": "Checking which pieces think they deserve different colors. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-006",
+        "family": "color_detection-02",
+        "text": "Checking which pieces think they deserve different colors. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-007",
+        "family": "color_detection-02",
+        "text": "Checking which pieces think they deserve different colors. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-008",
+        "family": "color_detection-02",
+        "text": "Checking which pieces think they deserve different colors. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-009",
+        "family": "color_detection-03",
+        "text": "Inspecting filament assignments before the rainbow gets expensive. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-010",
+        "family": "color_detection-03",
+        "text": "Inspecting filament assignments before the rainbow gets expensive. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-011",
+        "family": "color_detection-03",
+        "text": "Inspecting filament assignments before the rainbow gets expensive. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-012",
+        "family": "color_detection-03",
+        "text": "Inspecting filament assignments before the rainbow gets expensive. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-013",
+        "family": "color_detection-04",
+        "text": "Sorting color information that may have been written by a raccoon. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-014",
+        "family": "color_detection-04",
+        "text": "Sorting color information that may have been written by a raccoon. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-015",
+        "family": "color_detection-04",
+        "text": "Sorting color information that may have been written by a raccoon. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-016",
+        "family": "color_detection-04",
+        "text": "Sorting color information that may have been written by a raccoon. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-017",
+        "family": "color_detection-05",
+        "text": "Counting color regions without judging their aesthetic decisions. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-018",
+        "family": "color_detection-05",
+        "text": "Counting color regions without judging their aesthetic decisions. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-019",
+        "family": "color_detection-05",
+        "text": "Counting color regions without judging their aesthetic decisions. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-020",
+        "family": "color_detection-05",
+        "text": "Counting color regions without judging their aesthetic decisions. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-021",
+        "family": "color_detection-06",
+        "text": "Looking for hidden paint data like a bored art detective. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-022",
+        "family": "color_detection-06",
+        "text": "Looking for hidden paint data like a bored art detective. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-023",
+        "family": "color_detection-06",
+        "text": "Looking for hidden paint data like a bored art detective. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-024",
+        "family": "color_detection-06",
+        "text": "Looking for hidden paint data like a bored art detective. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-025",
+        "family": "color_detection-07",
+        "text": "Checking whether these colors exist outside the designer's imagination. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-026",
+        "family": "color_detection-07",
+        "text": "Checking whether these colors exist outside the designer's imagination. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-027",
+        "family": "color_detection-07",
+        "text": "Checking whether these colors exist outside the designer's imagination. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-028",
+        "family": "color_detection-07",
+        "text": "Checking whether these colors exist outside the designer's imagination. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-029",
+        "family": "color_detection-08",
+        "text": "Separating actual color assignments from marketing optimism. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-030",
+        "family": "color_detection-08",
+        "text": "Separating actual color assignments from marketing optimism. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-031",
+        "family": "color_detection-08",
+        "text": "Separating actual color assignments from marketing optimism. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-032",
+        "family": "color_detection-08",
+        "text": "Separating actual color assignments from marketing optimism. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-033",
+        "family": "color_detection-09",
+        "text": "Examining the source palette for uninvited surprises. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-034",
+        "family": "color_detection-09",
+        "text": "Examining the source palette for uninvited surprises. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-035",
+        "family": "color_detection-09",
+        "text": "Examining the source palette for uninvited surprises. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-036",
+        "family": "color_detection-09",
+        "text": "Examining the source palette for uninvited surprises. No filament has been assigned a moral value."
+      },
+      {
+        "id": "color_detection-037",
+        "family": "color_detection-10",
+        "text": "Trying to respect artistic vision without trusting the file. Taste remains outside the scope of validation."
+      },
+      {
+        "id": "color_detection-038",
+        "family": "color_detection-10",
+        "text": "Trying to respect artistic vision without trusting the file. The rainbow did not consent to this palette."
+      },
+      {
+        "id": "color_detection-039",
+        "family": "color_detection-10",
+        "text": "Trying to respect artistic vision without trusting the file. Color metadata has a remarkable talent for lying."
+      },
+      {
+        "id": "color_detection-040",
+        "family": "color_detection-10",
+        "text": "Trying to respect artistic vision without trusting the file. No filament has been assigned a moral value."
+      }
+    ],
+    "spool_matching": [
+      {
+        "id": "spool_matching-001",
+        "family": "spool_matching-01",
+        "text": "Checking spool inventory like a tiny plastic accountant. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-002",
+        "family": "spool_matching-01",
+        "text": "Checking spool inventory like a tiny plastic accountant. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-003",
+        "family": "spool_matching-01",
+        "text": "Checking spool inventory like a tiny plastic accountant. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-004",
+        "family": "spool_matching-01",
+        "text": "Checking spool inventory like a tiny plastic accountant. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-005",
+        "family": "spool_matching-02",
+        "text": "Matching the model's wishes to filament that actually exists. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-006",
+        "family": "spool_matching-02",
+        "text": "Matching the model's wishes to filament that actually exists. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-007",
+        "family": "spool_matching-02",
+        "text": "Matching the model's wishes to filament that actually exists. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-008",
+        "family": "spool_matching-02",
+        "text": "Matching the model's wishes to filament that actually exists. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-009",
+        "family": "spool_matching-03",
+        "text": "Asking the spool rack to justify its continued employment. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-010",
+        "family": "spool_matching-03",
+        "text": "Asking the spool rack to justify its continued employment. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-011",
+        "family": "spool_matching-03",
+        "text": "Asking the spool rack to justify its continued employment. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-012",
+        "family": "spool_matching-03",
+        "text": "Asking the spool rack to justify its continued employment. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-013",
+        "family": "spool_matching-04",
+        "text": "Comparing required colors with the chaos on your shelves. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-014",
+        "family": "spool_matching-04",
+        "text": "Comparing required colors with the chaos on your shelves. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-015",
+        "family": "spool_matching-04",
+        "text": "Comparing required colors with the chaos on your shelves. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-016",
+        "family": "spool_matching-04",
+        "text": "Comparing required colors with the chaos on your shelves. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-017",
+        "family": "spool_matching-05",
+        "text": "Looking for the right plastic among the other right plastics. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-018",
+        "family": "spool_matching-05",
+        "text": "Looking for the right plastic among the other right plastics. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-019",
+        "family": "spool_matching-05",
+        "text": "Looking for the right plastic among the other right plastics. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-020",
+        "family": "spool_matching-05",
+        "text": "Looking for the right plastic among the other right plastics. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-021",
+        "family": "spool_matching-06",
+        "text": "Verifying there's enough filament for this particular obsession. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-022",
+        "family": "spool_matching-06",
+        "text": "Verifying there's enough filament for this particular obsession. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-023",
+        "family": "spool_matching-06",
+        "text": "Verifying there's enough filament for this particular obsession. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-024",
+        "family": "spool_matching-06",
+        "text": "Verifying there's enough filament for this particular obsession. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-025",
+        "family": "spool_matching-07",
+        "text": "Matching material types before anyone makes a brittle mistake. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-026",
+        "family": "spool_matching-07",
+        "text": "Matching material types before anyone makes a brittle mistake. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-027",
+        "family": "spool_matching-07",
+        "text": "Matching material types before anyone makes a brittle mistake. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-028",
+        "family": "spool_matching-07",
+        "text": "Matching material types before anyone makes a brittle mistake. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-029",
+        "family": "spool_matching-08",
+        "text": "Checking whether your spools support the director's vision. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-030",
+        "family": "spool_matching-08",
+        "text": "Checking whether your spools support the director's vision. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-031",
+        "family": "spool_matching-08",
+        "text": "Checking whether your spools support the director's vision. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-032",
+        "family": "spool_matching-08",
+        "text": "Checking whether your spools support the director's vision. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-033",
+        "family": "spool_matching-09",
+        "text": "Taking attendance at the filament warehouse of questionable priorities. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-034",
+        "family": "spool_matching-09",
+        "text": "Taking attendance at the filament warehouse of questionable priorities. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-035",
+        "family": "spool_matching-09",
+        "text": "Taking attendance at the filament warehouse of questionable priorities. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-036",
+        "family": "spool_matching-09",
+        "text": "Taking attendance at the filament warehouse of questionable priorities. The accountant in me has started sweating PLA."
+      },
+      {
+        "id": "spool_matching-037",
+        "family": "spool_matching-10",
+        "text": "Finding a filament match without committing color fraud. The shelf is not a reliable database."
+      },
+      {
+        "id": "spool_matching-038",
+        "family": "spool_matching-10",
+        "text": "Finding a filament match without committing color fraud. An empty spool is a very persuasive liar."
+      },
+      {
+        "id": "spool_matching-039",
+        "family": "spool_matching-10",
+        "text": "Finding a filament match without committing color fraud. A similar shade is not automatically the same shade."
+      },
+      {
+        "id": "spool_matching-040",
+        "family": "spool_matching-10",
+        "text": "Finding a filament match without committing color fraud. The accountant in me has started sweating PLA."
+      }
+    ],
+    "bed_fit": [
+      {
+        "id": "bed_fit-001",
+        "family": "bed_fit-01",
+        "text": "Interrogating the build plate about its personal boundaries. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-002",
+        "family": "bed_fit-01",
+        "text": "Interrogating the build plate about its personal boundaries. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-003",
+        "family": "bed_fit-01",
+        "text": "Interrogating the build plate about its personal boundaries. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-004",
+        "family": "bed_fit-01",
+        "text": "Interrogating the build plate about its personal boundaries. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-005",
+        "family": "bed_fit-02",
+        "text": "Measuring whether your model fits without violating geometry. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-006",
+        "family": "bed_fit-02",
+        "text": "Measuring whether your model fits without violating geometry. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-007",
+        "family": "bed_fit-02",
+        "text": "Measuring whether your model fits without violating geometry. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-008",
+        "family": "bed_fit-02",
+        "text": "Measuring whether your model fits without violating geometry. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-009",
+        "family": "bed_fit-03",
+        "text": "Checking if this plastic ambition respects the rectangle. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-010",
+        "family": "bed_fit-03",
+        "text": "Checking if this plastic ambition respects the rectangle. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-011",
+        "family": "bed_fit-03",
+        "text": "Checking if this plastic ambition respects the rectangle. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-012",
+        "family": "bed_fit-03",
+        "text": "Checking if this plastic ambition respects the rectangle. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-013",
+        "family": "bed_fit-04",
+        "text": "Giving your model and the bed a couples compatibility test. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-014",
+        "family": "bed_fit-04",
+        "text": "Giving your model and the bed a couples compatibility test. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-015",
+        "family": "bed_fit-04",
+        "text": "Giving your model and the bed a couples compatibility test. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-016",
+        "family": "bed_fit-04",
+        "text": "Giving your model and the bed a couples compatibility test. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-017",
+        "family": "bed_fit-05",
+        "text": "Asking the plate whether it has room for one more life decision. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-018",
+        "family": "bed_fit-05",
+        "text": "Asking the plate whether it has room for one more life decision. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-019",
+        "family": "bed_fit-05",
+        "text": "Asking the plate whether it has room for one more life decision. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-020",
+        "family": "bed_fit-05",
+        "text": "Asking the plate whether it has room for one more life decision. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-021",
+        "family": "bed_fit-06",
+        "text": "Consulting dimensions because hope is not a unit of measurement. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-022",
+        "family": "bed_fit-06",
+        "text": "Consulting dimensions because hope is not a unit of measurement. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-023",
+        "family": "bed_fit-06",
+        "text": "Consulting dimensions because hope is not a unit of measurement. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-024",
+        "family": "bed_fit-06",
+        "text": "Consulting dimensions because hope is not a unit of measurement. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-025",
+        "family": "bed_fit-07",
+        "text": "Running a bed fit check before optimism becomes scrap. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-026",
+        "family": "bed_fit-07",
+        "text": "Running a bed fit check before optimism becomes scrap. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-027",
+        "family": "bed_fit-07",
+        "text": "Running a bed fit check before optimism becomes scrap. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-028",
+        "family": "bed_fit-07",
+        "text": "Running a bed fit check before optimism becomes scrap. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-029",
+        "family": "bed_fit-08",
+        "text": "Checking whether your model and the build area can coexist. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-030",
+        "family": "bed_fit-08",
+        "text": "Checking whether your model and the build area can coexist. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-031",
+        "family": "bed_fit-08",
+        "text": "Checking whether your model and the build area can coexist. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-032",
+        "family": "bed_fit-08",
+        "text": "Checking whether your model and the build area can coexist. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-033",
+        "family": "bed_fit-09",
+        "text": "Evaluating a potential real estate dispute between nozzle and plate. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-034",
+        "family": "bed_fit-09",
+        "text": "Evaluating a potential real estate dispute between nozzle and plate. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-035",
+        "family": "bed_fit-09",
+        "text": "Evaluating a potential real estate dispute between nozzle and plate. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-036",
+        "family": "bed_fit-09",
+        "text": "Evaluating a potential real estate dispute between nozzle and plate. No print has started; calm your trigger finger."
+      },
+      {
+        "id": "bed_fit-037",
+        "family": "bed_fit-10",
+        "text": "Measuring the object against the finite nature of everything. The answer is being calculated, not guessed."
+      },
+      {
+        "id": "bed_fit-038",
+        "family": "bed_fit-10",
+        "text": "Measuring the object against the finite nature of everything. Tape measures remain undefeated by enthusiasm."
+      },
+      {
+        "id": "bed_fit-039",
+        "family": "bed_fit-10",
+        "text": "Measuring the object against the finite nature of everything. Physics has declined to negotiate."
+      },
+      {
+        "id": "bed_fit-040",
+        "family": "bed_fit-10",
+        "text": "Measuring the object against the finite nature of everything. No print has started; calm your trigger finger."
+      }
+    ],
+    "plate_capacity": [
+      {
+        "id": "plate_capacity-001",
+        "family": "plate_capacity-01",
+        "text": "Counting how many clones fit on one increasingly crowded plate. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-002",
+        "family": "plate_capacity-01",
+        "text": "Counting how many clones fit on one increasingly crowded plate. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-003",
+        "family": "plate_capacity-01",
+        "text": "Counting how many clones fit on one increasingly crowded plate. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-004",
+        "family": "plate_capacity-01",
+        "text": "Counting how many clones fit on one increasingly crowded plate. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-005",
+        "family": "plate_capacity-02",
+        "text": "Calculating the legal occupancy limit of this build area. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-006",
+        "family": "plate_capacity-02",
+        "text": "Calculating the legal occupancy limit of this build area. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-007",
+        "family": "plate_capacity-02",
+        "text": "Calculating the legal occupancy limit of this build area. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-008",
+        "family": "plate_capacity-02",
+        "text": "Calculating the legal occupancy limit of this build area. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-009",
+        "family": "plate_capacity-03",
+        "text": "Packing copies like an airline packs carry on baggage. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-010",
+        "family": "plate_capacity-03",
+        "text": "Packing copies like an airline packs carry on baggage. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-011",
+        "family": "plate_capacity-03",
+        "text": "Packing copies like an airline packs carry on baggage. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-012",
+        "family": "plate_capacity-03",
+        "text": "Packing copies like an airline packs carry on baggage. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-013",
+        "family": "plate_capacity-04",
+        "text": "Solving a tiny plastic housing shortage with actual math. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-014",
+        "family": "plate_capacity-04",
+        "text": "Solving a tiny plastic housing shortage with actual math. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-015",
+        "family": "plate_capacity-04",
+        "text": "Solving a tiny plastic housing shortage with actual math. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-016",
+        "family": "plate_capacity-04",
+        "text": "Solving a tiny plastic housing shortage with actual math. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-017",
+        "family": "plate_capacity-05",
+        "text": "Checking how many identical decisions can share one rectangle. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-018",
+        "family": "plate_capacity-05",
+        "text": "Checking how many identical decisions can share one rectangle. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-019",
+        "family": "plate_capacity-05",
+        "text": "Checking how many identical decisions can share one rectangle. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-020",
+        "family": "plate_capacity-05",
+        "text": "Checking how many identical decisions can share one rectangle. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-021",
+        "family": "plate_capacity-06",
+        "text": "Fitting an army of duplicates without borrowing extra dimensions. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-022",
+        "family": "plate_capacity-06",
+        "text": "Fitting an army of duplicates without borrowing extra dimensions. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-023",
+        "family": "plate_capacity-06",
+        "text": "Fitting an army of duplicates without borrowing extra dimensions. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-024",
+        "family": "plate_capacity-06",
+        "text": "Fitting an army of duplicates without borrowing extra dimensions. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-025",
+        "family": "plate_capacity-07",
+        "text": "Doing capacity math before the plate calls a zoning board. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-026",
+        "family": "plate_capacity-07",
+        "text": "Doing capacity math before the plate calls a zoning board. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-027",
+        "family": "plate_capacity-07",
+        "text": "Doing capacity math before the plate calls a zoning board. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-028",
+        "family": "plate_capacity-07",
+        "text": "Doing capacity math before the plate calls a zoning board. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-029",
+        "family": "plate_capacity-08",
+        "text": "Testing copy arrangements instead of playing guessing games. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-030",
+        "family": "plate_capacity-08",
+        "text": "Testing copy arrangements instead of playing guessing games. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-031",
+        "family": "plate_capacity-08",
+        "text": "Testing copy arrangements instead of playing guessing games. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-032",
+        "family": "plate_capacity-08",
+        "text": "Testing copy arrangements instead of playing guessing games. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-033",
+        "family": "plate_capacity-09",
+        "text": "Calculating maximum plate occupancy for your miniature civilization. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-034",
+        "family": "plate_capacity-09",
+        "text": "Calculating maximum plate occupancy for your miniature civilization. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-035",
+        "family": "plate_capacity-09",
+        "text": "Calculating maximum plate occupancy for your miniature civilization. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-036",
+        "family": "plate_capacity-09",
+        "text": "Calculating maximum plate occupancy for your miniature civilization. This is Tetris with a material cost."
+      },
+      {
+        "id": "plate_capacity-037",
+        "family": "plate_capacity-10",
+        "text": "Determining how much repetition the build area can tolerate. The fire marshal does not inspect slicers, fortunately."
+      },
+      {
+        "id": "plate_capacity-038",
+        "family": "plate_capacity-10",
+        "text": "Determining how much repetition the build area can tolerate. Personal space is a luxury product."
+      },
+      {
+        "id": "plate_capacity-039",
+        "family": "plate_capacity-10",
+        "text": "Determining how much repetition the build area can tolerate. The math has no emotional attachment to round numbers."
+      },
+      {
+        "id": "plate_capacity-040",
+        "family": "plate_capacity-10",
+        "text": "Determining how much repetition the build area can tolerate. This is Tetris with a material cost."
+      }
+    ]
+  }
+}

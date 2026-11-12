@@ -167,6 +167,20 @@ def test_a_template_needing_an_unknown_fact_is_never_drawn():
     assert lines <= _renders_and_framed(texts, ctx("Widget"), "generic")
 
 
+def test_fact_roasts_rotate_across_equally_true_categories(tmp_path):
+    # A long, heavy print used to draw only from long_print every time.
+    # Title and generic lines must still wait while a factual bank can draw.
+    state = tmp_path / "roast.json"
+    facts = ctx("Widget", duration_s=8 * 3600, grams=240, material="PLA")
+    rng = random.Random(7)
+    lines = [roast.roast(facts, state_path=state, rng=rng) for _ in range(20)]
+    history = json.loads(state.read_text())["pool_history"]
+    assert all(lines)
+    assert "long_print" in history and "heavy_filament" in history
+    assert "generic" not in history
+    assert abs(history.count("long_print") - history.count("heavy_filament")) <= 1
+
+
 # ---------------------------------------------------------------- selection
 
 def test_seeded_draws_are_deterministic(tmp_path):

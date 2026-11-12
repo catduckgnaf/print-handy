@@ -1,0 +1,1022 @@
+{
+  "_about": "Print Handy local progress voice bank, part 3 of 5; exactly 3 first-time quantity Easter eggs.",
+  "_license": "Original to Print Handy; AGPL-3.0-only",
+  "stages": {
+    "plate_arrangement": [
+      {
+        "id": "plate_arrangement-001",
+        "family": "plate_arrangement-01",
+        "text": "Rearranging these models like furniture in a studio apartment. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-002",
+        "family": "plate_arrangement-01",
+        "text": "Rearranging these models like furniture in a studio apartment. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-003",
+        "family": "plate_arrangement-01",
+        "text": "Rearranging these models like furniture in a studio apartment. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-004",
+        "family": "plate_arrangement-01",
+        "text": "Rearranging these models like furniture in a studio apartment. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-005",
+        "family": "plate_arrangement-02",
+        "text": "Playing three dimensional Tetris on a two dimensional budget. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-006",
+        "family": "plate_arrangement-02",
+        "text": "Playing three dimensional Tetris on a two dimensional budget. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-007",
+        "family": "plate_arrangement-02",
+        "text": "Playing three dimensional Tetris on a two dimensional budget. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-008",
+        "family": "plate_arrangement-02",
+        "text": "Playing three dimensional Tetris on a two dimensional budget. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-009",
+        "family": "plate_arrangement-03",
+        "text": "Optimizing the layout before the models start charging rent. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-010",
+        "family": "plate_arrangement-03",
+        "text": "Optimizing the layout before the models start charging rent. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-011",
+        "family": "plate_arrangement-03",
+        "text": "Optimizing the layout before the models start charging rent. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-012",
+        "family": "plate_arrangement-03",
+        "text": "Optimizing the layout before the models start charging rent. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-013",
+        "family": "plate_arrangement-04",
+        "text": "Moving virtual objects around with an alarming sense of purpose. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-014",
+        "family": "plate_arrangement-04",
+        "text": "Moving virtual objects around with an alarming sense of purpose. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-015",
+        "family": "plate_arrangement-04",
+        "text": "Moving virtual objects around with an alarming sense of purpose. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-016",
+        "family": "plate_arrangement-04",
+        "text": "Moving virtual objects around with an alarming sense of purpose. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-017",
+        "family": "plate_arrangement-05",
+        "text": "Giving each copy exactly as much personal space as physics requires. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-018",
+        "family": "plate_arrangement-05",
+        "text": "Giving each copy exactly as much personal space as physics requires. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-019",
+        "family": "plate_arrangement-05",
+        "text": "Giving each copy exactly as much personal space as physics requires. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-020",
+        "family": "plate_arrangement-05",
+        "text": "Giving each copy exactly as much personal space as physics requires. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-021",
+        "family": "plate_arrangement-06",
+        "text": "Organizing the plate like an overqualified wedding planner. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-022",
+        "family": "plate_arrangement-06",
+        "text": "Organizing the plate like an overqualified wedding planner. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-023",
+        "family": "plate_arrangement-06",
+        "text": "Organizing the plate like an overqualified wedding planner. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-024",
+        "family": "plate_arrangement-06",
+        "text": "Organizing the plate like an overqualified wedding planner. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-025",
+        "family": "plate_arrangement-07",
+        "text": "Trying another layout without inventing extra bed area. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-026",
+        "family": "plate_arrangement-07",
+        "text": "Trying another layout without inventing extra bed area. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-027",
+        "family": "plate_arrangement-07",
+        "text": "Trying another layout without inventing extra bed area. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-028",
+        "family": "plate_arrangement-07",
+        "text": "Trying another layout without inventing extra bed area. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-029",
+        "family": "plate_arrangement-08",
+        "text": "Packing the models like luggage for a budget airline. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-030",
+        "family": "plate_arrangement-08",
+        "text": "Packing the models like luggage for a budget airline. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-031",
+        "family": "plate_arrangement-08",
+        "text": "Packing the models like luggage for a budget airline. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-032",
+        "family": "plate_arrangement-08",
+        "text": "Packing the models like luggage for a budget airline. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-033",
+        "family": "plate_arrangement-09",
+        "text": "Rearranging the pieces because geometry does not care about your schedule. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-034",
+        "family": "plate_arrangement-09",
+        "text": "Rearranging the pieces because geometry does not care about your schedule. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-035",
+        "family": "plate_arrangement-09",
+        "text": "Rearranging the pieces because geometry does not care about your schedule. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-036",
+        "family": "plate_arrangement-09",
+        "text": "Rearranging the pieces because geometry does not care about your schedule. The slicer refuses to validate good vibes."
+      },
+      {
+        "id": "plate_arrangement-037",
+        "family": "plate_arrangement-10",
+        "text": "Treating this build plate like the world's smallest parking lot. The aisle seats cost extra."
+      },
+      {
+        "id": "plate_arrangement-038",
+        "family": "plate_arrangement-10",
+        "text": "Treating this build plate like the world's smallest parking lot. I cannot legally expand the rectangle by wishing."
+      },
+      {
+        "id": "plate_arrangement-039",
+        "family": "plate_arrangement-10",
+        "text": "Treating this build plate like the world's smallest parking lot. No furniture was harmed during this layout."
+      },
+      {
+        "id": "plate_arrangement-040",
+        "family": "plate_arrangement-10",
+        "text": "Treating this build plate like the world's smallest parking lot. The slicer refuses to validate good vibes."
+      }
+    ],
+    "quantity_selected": [
+      {
+        "id": "quantity-selected-office-space-two",
+        "family": "quantity-selected-office-space-two",
+        "text": "You know what I would do with a million dollars? Two prints at the same time man.",
+        "exact_copies": 2,
+        "first_time": true
+      },
+      {
+        "id": "quantity-selected-binary-ten",
+        "family": "quantity-selected-binary-ten",
+        "text": "There are 10 types of people in this world, those who understand binary and those who don't.",
+        "exact_copies": 10,
+        "first_time": true
+      },
+      {
+        "id": "quantity-selected-spinal-tap-eleven",
+        "family": "quantity-selected-spinal-tap-eleven",
+        "text": "Eleven copies? These go to eleven. Nigel Tufnel would be proud.",
+        "exact_copies": 11,
+        "first_time": true
+      },
+      {
+        "id": "quantity_selected-004",
+        "family": "quantity_selected-01",
+        "text": "Confirming {copies} copies because apparently moderation is a myth. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-005",
+        "family": "quantity_selected-02",
+        "text": "Recording a request for {copies} identical little decisions. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-006",
+        "family": "quantity_selected-02",
+        "text": "Recording a request for {copies} identical little decisions. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-007",
+        "family": "quantity_selected-02",
+        "text": "Recording a request for {copies} identical little decisions. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-008",
+        "family": "quantity_selected-02",
+        "text": "Recording a request for {copies} identical little decisions. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-009",
+        "family": "quantity_selected-03",
+        "text": "Preparing to plan around {copies} copies of the same obsession. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-010",
+        "family": "quantity_selected-03",
+        "text": "Preparing to plan around {copies} copies of the same obsession. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-011",
+        "family": "quantity_selected-03",
+        "text": "Preparing to plan around {copies} copies of the same obsession. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-012",
+        "family": "quantity_selected-03",
+        "text": "Preparing to plan around {copies} copies of the same obsession. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-013",
+        "family": "quantity_selected-04",
+        "text": "Accepting {copies} copies into the plate's crowded guest list. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-014",
+        "family": "quantity_selected-04",
+        "text": "Accepting {copies} copies into the plate's crowded guest list. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-015",
+        "family": "quantity_selected-04",
+        "text": "Accepting {copies} copies into the plate's crowded guest list. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-016",
+        "family": "quantity_selected-04",
+        "text": "Accepting {copies} copies into the plate's crowded guest list. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-017",
+        "family": "quantity_selected-05",
+        "text": "Accounting for {copies} models and zero restraint. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-018",
+        "family": "quantity_selected-05",
+        "text": "Accounting for {copies} models and zero restraint. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-019",
+        "family": "quantity_selected-05",
+        "text": "Accounting for {copies} models and zero restraint. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-020",
+        "family": "quantity_selected-05",
+        "text": "Accounting for {copies} models and zero restraint. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-021",
+        "family": "quantity_selected-06",
+        "text": "Noting that {copies} copies sounded reasonable to somebody. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-022",
+        "family": "quantity_selected-06",
+        "text": "Noting that {copies} copies sounded reasonable to somebody. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-023",
+        "family": "quantity_selected-06",
+        "text": "Noting that {copies} copies sounded reasonable to somebody. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-024",
+        "family": "quantity_selected-06",
+        "text": "Noting that {copies} copies sounded reasonable to somebody. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-025",
+        "family": "quantity_selected-07",
+        "text": "Registering {copies} copies in our plastic census. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-026",
+        "family": "quantity_selected-07",
+        "text": "Registering {copies} copies in our plastic census. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-027",
+        "family": "quantity_selected-07",
+        "text": "Registering {copies} copies in our plastic census. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-028",
+        "family": "quantity_selected-07",
+        "text": "Registering {copies} copies in our plastic census. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-029",
+        "family": "quantity_selected-08",
+        "text": "Taking your request for {copies} copies far too seriously. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-030",
+        "family": "quantity_selected-08",
+        "text": "Taking your request for {copies} copies far too seriously. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-031",
+        "family": "quantity_selected-08",
+        "text": "Taking your request for {copies} copies far too seriously. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-032",
+        "family": "quantity_selected-08",
+        "text": "Taking your request for {copies} copies far too seriously. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-033",
+        "family": "quantity_selected-09",
+        "text": "Logging {copies} copies without consulting a therapist. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-034",
+        "family": "quantity_selected-09",
+        "text": "Logging {copies} copies without consulting a therapist. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-035",
+        "family": "quantity_selected-09",
+        "text": "Logging {copies} copies without consulting a therapist. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-036",
+        "family": "quantity_selected-09",
+        "text": "Logging {copies} copies without consulting a therapist. This is how collections become storage problems."
+      },
+      {
+        "id": "quantity_selected-037",
+        "family": "quantity_selected-10",
+        "text": "Counting {copies} copies so the nozzle doesn't have to. The math is real even if the priorities are questionable."
+      },
+      {
+        "id": "quantity_selected-038",
+        "family": "quantity_selected-10",
+        "text": "Counting {copies} copies so the nozzle doesn't have to. I make no judgments, except several silent ones."
+      },
+      {
+        "id": "quantity_selected-039",
+        "family": "quantity_selected-10",
+        "text": "Counting {copies} copies so the nozzle doesn't have to. The bed geometry gets the final vote."
+      },
+      {
+        "id": "quantity_selected-040",
+        "family": "quantity_selected-10",
+        "text": "Counting {copies} copies so the nozzle doesn't have to. This is how collections become storage problems."
+      }
+    ],
+    "unit_check": [
+      {
+        "id": "unit_check-001",
+        "family": "unit_check-01",
+        "text": "Checking if somebody modeled this in inches and forgot to tell anyone. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-002",
+        "family": "unit_check-01",
+        "text": "Checking if somebody modeled this in inches and forgot to tell anyone. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-003",
+        "family": "unit_check-01",
+        "text": "Checking if somebody modeled this in inches and forgot to tell anyone. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-004",
+        "family": "unit_check-01",
+        "text": "Checking if somebody modeled this in inches and forgot to tell anyone. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-005",
+        "family": "unit_check-02",
+        "text": "Determining whether these numbers mean millimeters or mayhem. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-006",
+        "family": "unit_check-02",
+        "text": "Determining whether these numbers mean millimeters or mayhem. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-007",
+        "family": "unit_check-02",
+        "text": "Determining whether these numbers mean millimeters or mayhem. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-008",
+        "family": "unit_check-02",
+        "text": "Determining whether these numbers mean millimeters or mayhem. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-009",
+        "family": "unit_check-03",
+        "text": "Asking the file what units it was emotionally attached to. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-010",
+        "family": "unit_check-03",
+        "text": "Asking the file what units it was emotionally attached to. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-011",
+        "family": "unit_check-03",
+        "text": "Asking the file what units it was emotionally attached to. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-012",
+        "family": "unit_check-03",
+        "text": "Asking the file what units it was emotionally attached to. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-013",
+        "family": "unit_check-04",
+        "text": "Comparing model dimensions to a world with standardized measurements. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-014",
+        "family": "unit_check-04",
+        "text": "Comparing model dimensions to a world with standardized measurements. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-015",
+        "family": "unit_check-04",
+        "text": "Comparing model dimensions to a world with standardized measurements. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-016",
+        "family": "unit_check-04",
+        "text": "Comparing model dimensions to a world with standardized measurements. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-017",
+        "family": "unit_check-05",
+        "text": "Looking for the metric system beneath a suspicious set of numbers. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-018",
+        "family": "unit_check-05",
+        "text": "Looking for the metric system beneath a suspicious set of numbers. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-019",
+        "family": "unit_check-05",
+        "text": "Looking for the metric system beneath a suspicious set of numbers. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-020",
+        "family": "unit_check-05",
+        "text": "Looking for the metric system beneath a suspicious set of numbers. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-021",
+        "family": "unit_check-06",
+        "text": "Checking units before we print a keychain the size of a refrigerator. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-022",
+        "family": "unit_check-06",
+        "text": "Checking units before we print a keychain the size of a refrigerator. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-023",
+        "family": "unit_check-06",
+        "text": "Checking units before we print a keychain the size of a refrigerator. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-024",
+        "family": "unit_check-06",
+        "text": "Checking units before we print a keychain the size of a refrigerator. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-025",
+        "family": "unit_check-07",
+        "text": "Interpreting dimensions without taking the author's optimism personally. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-026",
+        "family": "unit_check-07",
+        "text": "Interpreting dimensions without taking the author's optimism personally. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-027",
+        "family": "unit_check-07",
+        "text": "Interpreting dimensions without taking the author's optimism personally. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-028",
+        "family": "unit_check-07",
+        "text": "Interpreting dimensions without taking the author's optimism personally. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-029",
+        "family": "unit_check-08",
+        "text": "Making sure scale doesn't depend on national pride. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-030",
+        "family": "unit_check-08",
+        "text": "Making sure scale doesn't depend on national pride. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-031",
+        "family": "unit_check-08",
+        "text": "Making sure scale doesn't depend on national pride. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-032",
+        "family": "unit_check-08",
+        "text": "Making sure scale doesn't depend on national pride. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-033",
+        "family": "unit_check-09",
+        "text": "Examining whether the numbers need a conversion or an exorcism. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-034",
+        "family": "unit_check-09",
+        "text": "Examining whether the numbers need a conversion or an exorcism. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-035",
+        "family": "unit_check-09",
+        "text": "Examining whether the numbers need a conversion or an exorcism. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-036",
+        "family": "unit_check-09",
+        "text": "Examining whether the numbers need a conversion or an exorcism. There is no refund on accidental giants."
+      },
+      {
+        "id": "unit_check-037",
+        "family": "unit_check-10",
+        "text": "Verifying unit assumptions before every dimension becomes regrettable. A unit error is a remarkably expensive joke."
+      },
+      {
+        "id": "unit_check-038",
+        "family": "unit_check-10",
+        "text": "Verifying unit assumptions before every dimension becomes regrettable. Millimeters are not a conspiracy."
+      },
+      {
+        "id": "unit_check-039",
+        "family": "unit_check-10",
+        "text": "Verifying unit assumptions before every dimension becomes regrettable. The tape measure has no political affiliation."
+      },
+      {
+        "id": "unit_check-040",
+        "family": "unit_check-10",
+        "text": "Verifying unit assumptions before every dimension becomes regrettable. There is no refund on accidental giants."
+      }
+    ],
+    "scaling": [
+      {
+        "id": "scaling-001",
+        "family": "scaling-01",
+        "text": "Working out a scale that respects both the model and reality. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-002",
+        "family": "scaling-01",
+        "text": "Working out a scale that respects both the model and reality. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-003",
+        "family": "scaling-01",
+        "text": "Working out a scale that respects both the model and reality. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-004",
+        "family": "scaling-01",
+        "text": "Working out a scale that respects both the model and reality. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-005",
+        "family": "scaling-02",
+        "text": "Resizing the design without resizing its personality. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-006",
+        "family": "scaling-02",
+        "text": "Resizing the design without resizing its personality. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-007",
+        "family": "scaling-02",
+        "text": "Resizing the design without resizing its personality. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-008",
+        "family": "scaling-02",
+        "text": "Resizing the design without resizing its personality. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-009",
+        "family": "scaling-03",
+        "text": "Calculating whether a smaller version is physically sensible. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-010",
+        "family": "scaling-03",
+        "text": "Calculating whether a smaller version is physically sensible. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-011",
+        "family": "scaling-03",
+        "text": "Calculating whether a smaller version is physically sensible. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-012",
+        "family": "scaling-03",
+        "text": "Calculating whether a smaller version is physically sensible. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-013",
+        "family": "scaling-04",
+        "text": "Testing scale factors before committing plastic. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-014",
+        "family": "scaling-04",
+        "text": "Testing scale factors before committing plastic. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-015",
+        "family": "scaling-04",
+        "text": "Testing scale factors before committing plastic. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-016",
+        "family": "scaling-04",
+        "text": "Testing scale factors before committing plastic. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-017",
+        "family": "scaling-05",
+        "text": "Applying mathematics to the surprisingly elastic meaning of size. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-018",
+        "family": "scaling-05",
+        "text": "Applying mathematics to the surprisingly elastic meaning of size. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-019",
+        "family": "scaling-05",
+        "text": "Applying mathematics to the surprisingly elastic meaning of size. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-020",
+        "family": "scaling-05",
+        "text": "Applying mathematics to the surprisingly elastic meaning of size. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-021",
+        "family": "scaling-06",
+        "text": "Shrinking the model's ambitions without shrinking its dignity. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-022",
+        "family": "scaling-06",
+        "text": "Shrinking the model's ambitions without shrinking its dignity. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-023",
+        "family": "scaling-06",
+        "text": "Shrinking the model's ambitions without shrinking its dignity. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-024",
+        "family": "scaling-06",
+        "text": "Shrinking the model's ambitions without shrinking its dignity. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-025",
+        "family": "scaling-07",
+        "text": "Measuring a new scale while dimensions look on nervously. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-026",
+        "family": "scaling-07",
+        "text": "Measuring a new scale while dimensions look on nervously. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-027",
+        "family": "scaling-07",
+        "text": "Measuring a new scale while dimensions look on nervously. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-028",
+        "family": "scaling-07",
+        "text": "Measuring a new scale while dimensions look on nervously. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-029",
+        "family": "scaling-08",
+        "text": "Checking whether the requested size and the bed have met. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-030",
+        "family": "scaling-08",
+        "text": "Checking whether the requested size and the bed have met. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-031",
+        "family": "scaling-08",
+        "text": "Checking whether the requested size and the bed have met. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-032",
+        "family": "scaling-08",
+        "text": "Checking whether the requested size and the bed have met. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-033",
+        "family": "scaling-09",
+        "text": "Evaluating scale choices before the nozzle becomes an accomplice. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-034",
+        "family": "scaling-09",
+        "text": "Evaluating scale choices before the nozzle becomes an accomplice. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-035",
+        "family": "scaling-09",
+        "text": "Evaluating scale choices before the nozzle becomes an accomplice. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-036",
+        "family": "scaling-09",
+        "text": "Evaluating scale choices before the nozzle becomes an accomplice. Math is not the enemy; arithmetic errors are."
+      },
+      {
+        "id": "scaling-037",
+        "family": "scaling-10",
+        "text": "Giving those dimensions an extremely literal reality check. The laws of proportion were not consulted for fun."
+      },
+      {
+        "id": "scaling-038",
+        "family": "scaling-10",
+        "text": "Giving those dimensions an extremely literal reality check. A smaller disappointment is still a geometry problem."
+      },
+      {
+        "id": "scaling-039",
+        "family": "scaling-10",
+        "text": "Giving those dimensions an extremely literal reality check. Scale changes don't grant new printable details."
+      },
+      {
+        "id": "scaling-040",
+        "family": "scaling-10",
+        "text": "Giving those dimensions an extremely literal reality check. Math is not the enemy; arithmetic errors are."
+      }
+    ],
+    "rotation": [
+      {
+        "id": "rotation-001",
+        "family": "rotation-01",
+        "text": "Rotating this model like it owes me a better attitude. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-002",
+        "family": "rotation-01",
+        "text": "Rotating this model like it owes me a better attitude. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-003",
+        "family": "rotation-01",
+        "text": "Rotating this model like it owes me a better attitude. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-004",
+        "family": "rotation-01",
+        "text": "Rotating this model like it owes me a better attitude. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-005",
+        "family": "rotation-02",
+        "text": "Trying another orientation before surrendering to the rectangle. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-006",
+        "family": "rotation-02",
+        "text": "Trying another orientation before surrendering to the rectangle. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-007",
+        "family": "rotation-02",
+        "text": "Trying another orientation before surrendering to the rectangle. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-008",
+        "family": "rotation-02",
+        "text": "Trying another orientation before surrendering to the rectangle. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-009",
+        "family": "rotation-03",
+        "text": "Turning geometry over to examine its life choices. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-010",
+        "family": "rotation-03",
+        "text": "Turning geometry over to examine its life choices. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-011",
+        "family": "rotation-03",
+        "text": "Turning geometry over to examine its life choices. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-012",
+        "family": "rotation-03",
+        "text": "Turning geometry over to examine its life choices. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-013",
+        "family": "rotation-04",
+        "text": "Testing whether ninety degrees solves a very annoying problem. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-014",
+        "family": "rotation-04",
+        "text": "Testing whether ninety degrees solves a very annoying problem. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-015",
+        "family": "rotation-04",
+        "text": "Testing whether ninety degrees solves a very annoying problem. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-016",
+        "family": "rotation-04",
+        "text": "Testing whether ninety degrees solves a very annoying problem. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-017",
+        "family": "rotation-05",
+        "text": "Looking for an orientation that doesn't insult gravity. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-018",
+        "family": "rotation-05",
+        "text": "Looking for an orientation that doesn't insult gravity. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-019",
+        "family": "rotation-05",
+        "text": "Looking for an orientation that doesn't insult gravity. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-020",
+        "family": "rotation-05",
+        "text": "Looking for an orientation that doesn't insult gravity. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-021",
+        "family": "rotation-06",
+        "text": "Rotating the model without turning the printer into modern art. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-022",
+        "family": "rotation-06",
+        "text": "Rotating the model without turning the printer into modern art. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-023",
+        "family": "rotation-06",
+        "text": "Rotating the model without turning the printer into modern art. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-024",
+        "family": "rotation-06",
+        "text": "Rotating the model without turning the printer into modern art. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-025",
+        "family": "rotation-07",
+        "text": "Checking whether the easy direction was hiding in plain sight. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-026",
+        "family": "rotation-07",
+        "text": "Checking whether the easy direction was hiding in plain sight. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-027",
+        "family": "rotation-07",
+        "text": "Checking whether the easy direction was hiding in plain sight. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-028",
+        "family": "rotation-07",
+        "text": "Checking whether the easy direction was hiding in plain sight. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-029",
+        "family": "rotation-08",
+        "text": "Spinning virtual plastic until a sensible position appears. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-030",
+        "family": "rotation-08",
+        "text": "Spinning virtual plastic until a sensible position appears. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-031",
+        "family": "rotation-08",
+        "text": "Spinning virtual plastic until a sensible position appears. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-032",
+        "family": "rotation-08",
+        "text": "Spinning virtual plastic until a sensible position appears. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-033",
+        "family": "rotation-09",
+        "text": "Evaluating orientation with a healthy distrust of unsupported overhangs. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-034",
+        "family": "rotation-09",
+        "text": "Evaluating orientation with a healthy distrust of unsupported overhangs. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-035",
+        "family": "rotation-09",
+        "text": "Evaluating orientation with a healthy distrust of unsupported overhangs. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-036",
+        "family": "rotation-09",
+        "text": "Evaluating orientation with a healthy distrust of unsupported overhangs. Rotating the world would be easier but less supported."
+      },
+      {
+        "id": "rotation-037",
+        "family": "rotation-10",
+        "text": "Finding the least ridiculous way to place this object. Gravity has not agreed to take the day off."
+      },
+      {
+        "id": "rotation-038",
+        "family": "rotation-10",
+        "text": "Finding the least ridiculous way to place this object. A new angle can expose old problems."
+      },
+      {
+        "id": "rotation-039",
+        "family": "rotation-10",
+        "text": "Finding the least ridiculous way to place this object. The plate only cares about what fits."
+      },
+      {
+        "id": "rotation-040",
+        "family": "rotation-10",
+        "text": "Finding the least ridiculous way to place this object. Rotating the world would be easier but less supported."
+      }
+    ]
+  }
+}
