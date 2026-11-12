@@ -29,9 +29,14 @@ HOMES = {
     "print_handy.jobs.filament": "print_handy.core.model_job",
     "print_handy.launch.gates": "print_handy.core.model_job",
     "print_handy.launch.print_now": "print_handy.core.model_job",
+    "print_handy.intake.worker": "print_handy.core.prepared_intake",
+    "print_handy.intake.questions": "print_handy.core.prepared_intake",
+    "print_handy.intake.support_flow": "print_handy.core.prepared_intake",
+    "print_handy.intake.fit_flow": "print_handy.core.prepared_intake",
 }
 # Packages and modules the decomposition adds: none may sit in an import cycle.
-NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy._relocated")
+NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake",
+               "print_handy._relocated")
 
 
 def _moved_names(old, home):
@@ -117,6 +122,18 @@ def test_patching_a_start_gate_on_the_old_path_steers_print_now(monkeypatch):
     monkeypatch.setattr(model_job, "verify_gcode", mock.Mock())
     from print_handy.gcode import verify
     assert verify.verify_gcode is model_job.verify_gcode
+
+
+def test_patching_prepared_intake_reaches_the_moved_intake_flows(monkeypatch):
+    from print_handy.core import prepared_intake
+    from print_handy.intake import fit_flow, questions, worker
+    fake_ask = mock.AsyncMock()
+    monkeypatch.setattr(prepared_intake, "ask", fake_ask)
+    assert questions.ask is fake_ask
+    monkeypatch.setattr(prepared_intake, "settings", mock.Mock())
+    assert fit_flow.settings is prepared_intake.settings and worker.settings is prepared_intake.settings
+    assert prepared_intake.supports_decision.__module__ == "print_handy.intake.support_flow"
+    assert worker.logger is prepared_intake.logger
 
 
 def test_moved_code_keeps_the_model_job_logger():
