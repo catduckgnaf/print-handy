@@ -1,68 +1,110 @@
 {
  "cases": {
   "plates-multicolor/direct": {
-   "first_prompt_s": 0.06,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.11,
     "fit_check_s": 0.01,
     "wall_s": 1.95
    },
-   "wall_s": 1.09
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.01,
+    "wall_s": 1.09
+   },
+   "reason": "2.3.0 re-record of plates-multicolor/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 1.09s -> 2.05s, first_prompt_s 0.06s -> 0.29s. The largest rise is 0.96 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 2.05
   },
   "rotation-fit/direct": {
-   "first_prompt_s": 0.07,
-   "fit_check_s": 2.58,
+   "first_prompt_s": 0.3,
+   "fit_check_s": 3.83,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 3.79,
     "wall_s": 8.3
    },
-   "wall_s": 4.99
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.07,
+    "fit_check_s": 2.58,
+    "wall_s": 4.99
+   },
+   "reason": "2.3.0 re-record of rotation-fit/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 4.99s -> 8.27s, first_prompt_s 0.07s -> 0.3s, fit_check_s 2.58s -> 3.83s. The largest rise is 3.28 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 8.27
   },
   "single-part/direct": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 3.79,
+   "first_prompt_s": 0.18,
+   "fit_check_s": 5.59,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 5.52,
     "wall_s": 6.18
    },
-   "wall_s": 4.18
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 3.79,
+    "wall_s": 4.18
+   },
+   "reason": "2.3.0 re-record of single-part/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 4.18s -> 6.4s, first_prompt_s 0.01s -> 0.18s, fit_check_s 3.79s -> 5.59s. The largest rise is 2.22 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 6.4
   },
   "stl-large-plate/direct": {
-   "first_prompt_s": 0.04,
-   "fit_check_s": 0.46,
+   "first_prompt_s": 0.24,
+   "fit_check_s": 0.68,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.7,
     "wall_s": 32.9
    },
-   "wall_s": 17.91
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.04,
+    "fit_check_s": 0.46,
+    "wall_s": 17.91
+   },
+   "reason": "2.3.0 re-record of stl-large-plate/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 17.91s -> 31.31s, first_prompt_s 0.04s -> 0.24s, fit_check_s 0.46s -> 0.68s. The largest rise is 13.40 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 31.31
   },
   "stl-single-part/direct": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 3.79,
+   "first_prompt_s": 0.19,
+   "fit_check_s": 5.59,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 5.55,
     "wall_s": 6.19
    },
-   "wall_s": 4.16
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 3.79,
+    "wall_s": 4.16
+   },
+   "reason": "2.3.0 re-record of stl-single-part/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 4.16s -> 6.39s, first_prompt_s 0.01s -> 0.19s, fit_check_s 3.79s -> 5.59s. The largest rise is 2.23 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 6.39
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.27,
-   "fit_check_s": 4.4,
+   "first_prompt_s": 0.66,
+   "fit_check_s": 6.68,
    "original": {
     "first_prompt_s": 0.49,
     "fit_check_s": 6.65,
     "wall_s": 15.9
    },
-   "wall_s": 9.44
+   "previous_reason": "",
+   "raised_from": {
+    "first_prompt_s": 0.27,
+    "fit_check_s": 4.4,
+    "wall_s": 9.44
+   },
+   "reason": "2.3.0 re-record of witch-ghost-cults3d/direct from CI run 43194364519 (d94e7577), the release code commit's green run on main: wall_s 9.44s -> 15.76s, first_prompt_s 0.27s -> 0.66s, fit_check_s 4.4s -> 6.68s. The largest rise is 6.32 s; the cause was not isolated per case. The 2.2.10..2.3.0 work adds the status-voice quips on intake progress lines, the warm heavy worker, the material warn-and-accept rounds and the module split (launch, intake and jobs modules) (#1326, #1335, #1340, #1323).",
+   "wall_s": 15.76
   }
  },
  "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
- "recorded_from": "CI run 43140745657 (0b0ebac1501a5ba62e11b6267ba6b5ad0c60c694), artifact slicer-timing-real, median of 3",
+ "recorded_from": "CI run 43194364519 (d94e7577d3edb4e0a5fd98b81c7925dd1f69f004), artifact slicer-timing-real, median of 3, runner CPU AMD EPYC 7763 64-Core Processor",
  "slack_s": 1.0,
  "tolerance": 0.1
 }
