@@ -62,7 +62,33 @@ except ImportError:
 _LISTENER = _config.cfg()["listener"]
 WS_URL = str(_config.cfg()["services"]["moonraker_ws_url"])
 DISCORD_TARGET = _listener_common.DISCORD_TARGET
-_SELF = sys.modules[__name__]  # the lookup namespace listener_common resolves this listener's seams through
+
+
+class _ModuleSeams:
+    """This listener's own globals, read live, as the namespace listener_common resolves seams through.
+
+    ``sys.modules[__name__]`` is not this module when the launcher runs it
+    with ``runpy.run_module(..., run_name="__main__")`` (listeners.py):
+    runpy executes the code in a fresh namespace and leaves
+    ``sys.modules["__main__"]`` as the launcher, so every seam lookup
+    failed with "module '__main__' has no attribute ..." in the 2.3.0
+    container. Reading ``globals()`` works under both an import and
+    runpy, and still sees a test's monkeypatch of a module attribute.
+    """
+
+    __slots__ = ("_globals",)
+
+    def __init__(self, namespace):
+        self._globals = namespace
+
+    def __getattr__(self, name):
+        try:
+            return self._globals[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+_SELF = _ModuleSeams(globals())  # the lookup namespace listener_common resolves this listener's seams through
 TICK_SECONDS = float(_LISTENER["tick_s"])
 LOG = announcer.PROFILE_HOME / "logs" / "moonraker_event_listener.log"
 TERMINAL = {"cancelled": "Print cancelled", "error": "Print stopped with an error"}
