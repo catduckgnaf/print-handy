@@ -100,6 +100,8 @@ def _raw_preupload_refusal(tail):
 _CONFIRM_COLOR = re.compile(r'printer slot (\d+) color is (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
 PRINT_ANYWAY_LABEL = 'Print anyway'
 SET_SCREEN_LABEL = 'Set screen to Spoolman color, then print'
+USE_LOADED_SPOOL_LABEL = 'Use the loaded spool · bed is clear'
+SPOOL_CHANGED = 'spool changed since slicing'  # the multicolor contract's refusal (#1336 asks instead)
 COLOR_CONFIRM_ROUNDS = 3  # the screen may change again between answers; the last round surfaces a Retry refusal
 _COLOR_NAMES = {
     'red': 'E53935', 'orange': 'FB8C00', 'yellow': 'FDD835', 'green': '43A047', 'teal': '00897B',

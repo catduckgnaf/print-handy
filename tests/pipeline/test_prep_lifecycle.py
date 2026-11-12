@@ -460,3 +460,63 @@ def test_set_screen_that_pushes_every_slot_posts_no_note(env, monkeypatch):
     adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
     assert not any('screen color unchanged' in m for m in adapter.log)
     assert receipt['color_mismatch']['screen'] == {'1': 'pushed'}
+
+
+MATERIAL_REFUSAL = ("REFUSED: material warning, your answer is needed: G-code filament_type 'PETG' != loaded "
+                    "'PLA': the G-code was sliced for PETG and PLA is loaded [accept material|PETG|PLA]. "
+                    "Nothing uploaded or started.")
+
+
+def _material_mismatch_start(monkeypatch):
+    """First start stops on the material warning; later starts record the answer they carried."""
+    seen = []
+
+    async def start(target):
+        seen.append(list(target.get('accept_material') or []))
+        if len(seen) == 1:
+            return False, MATERIAL_REFUSAL
+        return True, 'started'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    return seen
+
+
+def test_material_mismatch_asks_reslice_first_and_print_as_sliced_starts_once_1336(env, monkeypatch):
+    """#1336 (fails on base 1d452a58, which showed a Retry-only refusal): the intake asks
+    Reslice / Print as sliced / Cancel; Print as sliced restarts with this answer only."""
+    seen = _material_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # one color, slot 1, print now, Print as sliced
+    question = adapter.questions[-1]
+    assert question['choices'] == ['Reslice for PLA', 'Print as sliced', 'Cancel']
+    assert 'PETG' in question['question'] and 'own temperatures' in question['question']
+    assert seen == [[], ['material|PETG|PLA']]
+    assert receipt['material_warnings']['choice'] == 1
+    # The answer is this start's only: the saved Retry target does not carry it.
+    assert 'accept_material' not in (receipt.get('retry_target') or {})
+    assert not any(m.startswith("Didn't start:") for m in adapter.log)
+
+
+def test_material_mismatch_reslice_is_the_default_and_starts_nothing_1336(env, monkeypatch):
+    seen = _material_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... Reslice for PLA
+    assert len(seen) == 1
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert any('To reslice for PLA' in m for m in adapter.log)
+
+
+def test_swapped_spool_asks_use_the_loaded_spool_in_the_intake_1336(env, monkeypatch):
+    """#1336: the intake start answers --accept-spool-change in chat (base 1d452a58 had no path)."""
+    seen = []
+
+    async def start(target):
+        seen.append(bool(target.get('accept_spool_change')))
+        if len(seen) == 1:
+            return False, ("REFUSED: slot 1 spool changed since slicing (was 11, now 22); reslice or confirm. "
+                           "Nothing uploaded or started.")
+        return True, 'started'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... Use the loaded spool
+    assert adapter.questions[-1]['choices'][0] == prepared_intake.USE_LOADED_SPOOL_LABEL
+    assert seen == [False, True]
+    assert 'accept_spool_change' not in (receipt.get('retry_target') or {})

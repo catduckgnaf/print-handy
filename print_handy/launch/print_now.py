@@ -12,12 +12,13 @@ from typing import NamedTuple
 
 from .. import firmware_update, printers, settings
 from ..core import (
-    _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client,
+    _external, filament_color, gcode_3mf, launch_state, material_accept, printer_state, purge,
+    spoolman_client,
     start_recorder, start_truth,
 )
 from ..gcode.artifact import _text_like_read_text, file_sha256
 from ..gcode.verify import (
-    _gcode_tools, _refuse_multicolor, _verify_routed, _with_gcode_temperatures,
+    _gcode_tools, _refuse_multicolor, _verify_lines, _verify_routed, _with_gcode_temperatures,
     verify_gcode_offline,
 )
 from ..jobs.common import FILAMENT_SLOTS, MOONRAKERCTL, TIMEZONE, _moonrakerctl_env, _mr, request_json
@@ -73,9 +74,10 @@ def _sync_active_spool(st, slot, printer_id=None):
     carries `spoolman_pending` so the caller records the usage as pending
     in the job record for later reconciliation — it is never retried in a
     way that blocks the job. A live Spoolman answer that the spool is
-    archived or a different material than the slot record still refuses:
-    that is Spoolman data contradicting the operator's record, not an
-    outage, and the refusal protects the physical gate (#235).
+    archived or a different material than the slot record is a plain
+    warning (#1336): Spoolman is usage accounting, the slot record is what
+    the operator loaded and the slice used, so the record is kept and the
+    print goes ahead (#235).
     """
     configured = st.get('filament_slots', {}).get(str(slot), {})
     sid = configured.get('spoolman_id')
@@ -95,7 +97,15 @@ def _sync_active_spool(st, slot, printer_id=None):
     else:
         filament = spool.get('filament') or {}
         if spool.get('archived') or not printer_state.same_material(filament.get('material'), configured.get('material')):
-            raise RuntimeError(f'Spoolman spool #{sid} is archived or its material differs from slot {slot}; nothing uploaded or started')
+            # Usage accounting only (#235, #1336): a plain warning, never a block. The slot
+            # record (what the operator loaded and the slice used) is kept as the spool.
+            print(f"WARNING: Spoolman spool #{sid} is "
+                  + ('archived' if spool.get('archived') else
+                     f"{filament.get('material') or 'an unknown material'}, but slot {slot} records "
+                     f"{configured.get('material')}")
+                  + f"; printing with the slot record, and usage may be charged to the wrong spool "
+                    "until Spoolman is corrected.", flush=True)
+            filament = {}
     try:
         _mr(st, '/server/spoolman/spool_id', data={'spool_id': sid})
         back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
@@ -1554,6 +1564,53 @@ class ToolRemapRefused(RuntimeError):
     """A slot remap names a tool the file does not use, or cannot tell which tool is meant."""
 
 
+def _remap_material_check(gcode_path, tool, slot_int, selection, used, job, job_path):
+    """A remap to a slot holding another material: a warning, and accepting it reslices (#1336).
+
+    Re-finalizing alone would keep the sliced material's temperatures and
+    profile, so the accepted answer reslices the job for the remapped slot
+    instead (the job's selection moves to that slot first). Returns None when
+    the slot holds the sliced material; raises ToolRemapRefused carrying the
+    acceptable warning when it does not and this run has not accepted it, or
+    a plain refusal when there is no job to reslice from.
+    """
+    if not gcode_path.is_file():
+        return None
+    from ..core.orca_config import split_config_list
+    raw = _verify_lines(gcode_path.read_text(errors="ignore")).config_value("filament_type")
+    try:
+        materials = [m.strip() for m in split_config_list(raw)] if raw else []
+    except ValueError:
+        materials = []
+    if not materials:
+        return None
+    sliced = materials[int(tool)] if int(tool) < len(materials) else materials[0]
+    holds = selection.get("material")
+    if not sliced or not holds or printer_state.same_material(sliced, holds):
+        return None
+    found = material_accept.problem(
+        "remap", f"T{tool} was sliced for {sliced} and slot {slot_int} holds {holds}; accepting reslices it "
+                 f"for slot {slot_int}", tool, slot_int, sliced, holds)
+    if found:
+        raise ToolRemapRefused(material_accept.message(found, ""))
+    if job is None or job_path is None or len(used) > 1 or job.get("derived_plates"):
+        raise ToolRemapRefused(
+            f"T{tool} was sliced for {sliced} and slot {slot_int} holds {holds}; this file has no single-plate "
+            "job to reslice it from, so reslice the model for that slot")
+    job["filament_selection"] = selection
+    decisions = job.get("color_decisions")
+    if isinstance(decisions, dict) and decisions.get("mode") == "single_color":
+        job["color_decisions"] = {**decisions, "selection": selection}
+    write_job(job_path.parent, job)
+    print(f"RESLICING for slot {slot_int} ({holds}): the remapped slot holds another material than "
+          f"T{tool} was sliced for ({sliced}).", flush=True)
+    from ..jobs.slice import slice_job  # jobs.slice does not import launch: no cycle
+    out = slice_job(str(job_path))
+    gcode = out[0] if isinstance(out, list) else out
+    return {"ok": True, "slot": slot_int, "tool": str(tool), "mapping": {str(tool): slot_int},
+            "selection": selection, "gcode": str(gcode), "resliced": True}
+
+
 def remap_slot(target, new_slot, tool=None, state=None):
     """Remap one logical tool of a job or G-code to a different physical IFS slot.
 
@@ -1657,6 +1714,9 @@ def remap_slot(target, new_slot, tool=None, state=None):
         # same rule the slice path applies (#1305).
         mapping = {t: s for t, s in mapping.items() if int(t) in used}
     mapping[tool] = slot_int
+    resliced = _remap_material_check(gcode_path, tool, slot_int, selection, used, job, job_path)
+    if resliced is not None:
+        return resliced
     normalize_mapping = routed_adapter.native.normalize_mapping
     mapping = normalize_mapping(mapping, st)
 
@@ -1878,7 +1938,13 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
                 Path(gcode).read_text(errors="ignore"), live_snapshot,
                 job_mapping=(job.get("ams_mapping") if isinstance(job, dict) else None),
                 dual=adapter.extruder_count() > 1)
-        except _ams.MappingError as exc:
+            for accepted_key in material_accept.used():
+                if accepted_key.startswith("tray|"):
+                    # The accepted tray's material against the nozzle, shown (#1336).
+                    material_accept.recheck_loaded_nozzle(printer_state.recorded_nozzle_type(state),
+                                                          accepted_key.split("|")[-1])
+                    require_mechanical_limits(gcode, state, adapter)
+        except RuntimeError as exc:
             raise refuse(exc) from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
@@ -2470,8 +2536,20 @@ def _record_intake_receipt_started(job, job_path, gcode, sha, out):
     return path
 
 
+def _print_target_sha256(target):
+    """The SHA-256 of the G-code a print-now target names (a G-code path or its JOB.json), or None."""
+    try:
+        g = Path(resolve_print_target(target)).expanduser().resolve()
+        if g.name == "JOB.json":
+            g = Path(json.loads(g.read_text()).get("gcode") or "").expanduser().resolve()
+        return file_sha256(g) if g.is_file() else None
+    except (OSError, ValueError, RuntimeError, SystemExit):
+        return None
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
-              yolo=False, bed_clear=None):
+              yolo=False, bed_clear=None, accept_material=(), accept_material_mismatch=False,
+              accept_material_sha256=None):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
     The whole start holds the printer's interprocess control lock (P1-33):
@@ -2488,7 +2566,27 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     transport before anything is uploaded (#1147): True for an explicit
     confirmation of this run, or the SHA-256 of the exact G-code confirmed.
     Without it the start refuses, yolo included.
+
+    ``accept_material`` (warning keys) or ``accept_material_mismatch`` (every
+    material warning of this run) is the operator's Print as sliced answer to
+    material warnings (#1336). It holds for this run only, and only for the
+    G-code whose SHA-256 is ``accept_material_sha256`` when one is given (the
+    chat passes the SHA its question was asked for). It never waives the
+    mechanical limits, and an accepted start re-checks the loaded material
+    against the nozzle.
     """
+    accept_sha = (_print_target_sha256(target)
+                  if (accept_material or accept_material_mismatch) and accept_material_sha256 else None)
+    with material_accept.accepting(accept_material, accept_all=accept_material_mismatch,
+                                   gcode_sha256=accept_sha, expected_sha256=accept_material_sha256):
+        return _print_now_accepting(target, wait_s=wait_s, accept_default_z_offset=accept_default_z_offset,
+                                    reprint=reprint, remap_slot_num=remap_slot_num, yolo=yolo,
+                                    bed_clear=bed_clear)
+
+
+def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
+                         yolo=False, bed_clear=None):
+    """print_now inside the run's material acceptance (if any)."""
     lock = _print_now_control_lock(target)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "

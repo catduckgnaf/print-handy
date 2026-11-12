@@ -81,19 +81,22 @@ def material_problems(text, state):
     spool = (state.get("spool") or {}).get("material")
     if not spool:
         return []
+    from ..core import material_accept
     from ..core.printer_state import same_material
     materials = embedded_materials(text)
     if not materials:
         return [f"G-code must name a filament_type, got {_config(text, 'filament_type')!r}"]
     if len(materials) == 1:
-        return [] if same_material(materials[0], spool) else [
-            f"G-code filament_type {materials[0]!r} != loaded {spool!r}"]
+        # A warning the operator may accept with Print as sliced, never a hard block (#1336).
+        return [] if same_material(materials[0], spool) else material_accept.material_problem(materials[0], spool)
     # A multi-filament file is checked against every spool the record holds; which tray feeds which
     # tool is the print path's live decision.
     loaded = [spool] + [rec.get("material") for rec in (state.get("filament_slots") or {}).values()
                         if isinstance(rec, dict)]
-    return [f"G-code filament_type {m!r} is not a loaded material ({', '.join(sorted({str(x) for x in loaded if x}))})"
-            for m in dict.fromkeys(materials) if not any(same_material(m, x) for x in loaded if x)]
+    names = ', '.join(sorted({str(x) for x in loaded if x}))
+    return [p for m in dict.fromkeys(materials) if not any(same_material(m, x) for x in loaded if x)
+            for p in material_accept.problem(
+                "material", f"G-code filament_type {m!r} is not a loaded material ({names})", m, names)]
 
 
 def temperature_problems(text, state, materials=None):

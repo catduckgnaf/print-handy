@@ -354,3 +354,56 @@ class DiscordFallbackRoundTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MaterialRoundTests_1336(SliceJobFallbackTests):
+    """#1336: a saved selection the slot no longer matches, and abrasive filament on a brass
+    nozzle, join the #1190 round instead of refusing (both refused on base 1d452a58)."""
+
+    def test_saved_selection_drift_warns_and_slices_for_what_the_slot_holds_now(self):
+        source = write_source(self.work / "one.3mf", [("Base", 1, None)], [[0]])
+        swapped = {**STATE, 'filament_slots': {**STATE['filament_slots'],
+                                               '2': {'color': 'green', 'material': 'PETG', 'spoolman_id': 99,
+                                                     'physical_color_verified': True}}}
+        manifest = sc.inventory(source)
+        decisions = {'source_sha256': manifest['source_sha256'], 'mode': 'single_color', 'selection': _sel(2)}
+        job_path, captured, patches = self._run({'downloaded_file': str(source), 'filament_selection': _sel(2),
+                                                 'color_decisions': decisions,
+                                                 'audit': {'plates': 1, 'size_x': '10', 'size_y': '10',
+                                                           'size_z': '10'}}, state=swapped)
+        drift = ('slot 2 now holds green PETG (spool #99); the job chose black PLA (spool #11). '
+                 'Accepting slices it for what slot 2 holds now')
+        with patches[0], patches[1], patches[2], patches[3],                 mock.patch("print_handy.core.orca_adapter.slice_model", side_effect=AssertionError("must not slice")):
+            with self.assertRaises(mj.FilamentWarningPending) as caught:
+                mj.slice_job(job_path)
+            self.assertIn(drift, caught.exception.warnings)
+            mj.record_filament_warning_acknowledgement(job_path)
+            try:
+                mj.slice_job(job_path)
+            except AssertionError as reached:  # the accepted run got as far as slicing
+                self.assertEqual(str(reached), "must not slice")
+        saved = json.loads(job_path.read_text())
+        self.assertEqual((saved['filament_selection']['spoolman_id'], saved['filament_selection']['material']),
+                         (99, 'PETG'))
+
+    def test_abrasive_on_brass_warns_bluntly_and_the_accepted_slice_runs(self):
+        from print_handy.core import material_accept
+        source = two_plate_source(self.work / "two.3mf")
+        wood = {**STATE, 'nozzle': {'diameter_mm': 0.4, 'type': 'brass'},
+                'filament_slots': {**STATE['filament_slots'],
+                                   '1': {**_slot(1, 'white', 10), 'material': 'Wood PLA'}}}
+        job_path, captured, patches = self._run({'downloaded_file': str(source),
+                                                 'filament_selection': {**_sel(1), 'material': 'Wood PLA'}},
+                                                state=wood)
+        granted = []
+        real = patches[3]
+        patches = patches[:3] + (mock.patch.object(
+            mj, "slice_multi_plate",
+            side_effect=lambda *a: (granted.append(material_accept.accepted('abrasive|Wood PLA|brass')),
+                                    real.kwargs['side_effect'](*a))[1]),)
+        pending = self._round(job_path, captured, patches)
+        self.assertIn('Wood PLA is abrasive and the fitted nozzle is brass: this filament will wear out the '
+                      'brass nozzle', pending.warnings)
+        # The pre-slice guard (inside the slicer) is told the acceptance for exactly this run.
+        self.assertEqual(granted, [True])
+        self.assertFalse(material_accept.accepted('abrasive|Wood PLA|brass'))

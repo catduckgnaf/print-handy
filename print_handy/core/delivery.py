@@ -374,7 +374,8 @@ def bambu_handoff(job, gcodes, config=None):
         text = gcode.read_text(errors="replace")
         problems = start_code_problems(text, model.vendor) + adapter.gcode_problems(text)
         if problems:
-            raise DeliveryRefused("; ".join(problems) + "; no Bambu package was made")
+            from .material_accept import TOKEN
+            raise DeliveryRefused("; ".join(TOKEN.sub('', p) for p in problems) + "; no Bambu package was made")
         packages.append(bambu_package(gcode, package_target(gcode), index, nozzle,
                                       _thumbnails(gcode, job, config, text)))
     return packages

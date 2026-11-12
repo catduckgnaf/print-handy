@@ -2496,7 +2496,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             post_gate.block(problem)
     # Printer-specific refusals: the A1's vendor blocks, modal toolpath bounds, limits and hardware record.
     for problem in printer.gcode_problems(final_text, state):
-        post_gate.block(problem)
+        # A start-time accept token means nothing to a slice refusal (#1336): plain text here.
+        from .material_accept import TOKEN
+        post_gate.block(TOKEN.sub('', problem))
     # Each model approves its own protected settings; a model without a baseline file keeps the shared one.
     baseline_kw = {} if printer.baseline_path is None else {'path': printer.baseline_path}
     baseline_gate = (sg.enforce_approved_baseline(output, **baseline_kw)

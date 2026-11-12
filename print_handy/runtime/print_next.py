@@ -554,6 +554,10 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
     argv = [*runner, "print-now", str(gcode), "--bed-clear-sha256", str(target["gcode_sha256"])]
     if target.get("accept_spool_change"):
         argv.append("--accept-spool-change")
+    if target.get("accept_material"):
+        # The operator's Print as sliced answer, bound to this exact G-code (#1336).
+        from ..core import material_accept
+        argv += material_accept.argv(target["accept_material"], target["gcode_sha256"])
     if target.get("reprint"):
         argv.append("--reprint")
     if target.get("yolo"):

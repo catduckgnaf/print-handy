@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job  # noqa: E402
+from print_handy.jobs import slice as jobs_slice  # noqa: E402
 from print_handy.core import plate_merge  # noqa: E402
 from print_handy.core import prepared_intake  # noqa: E402
 from .helpers import external  # noqa: E402
@@ -48,7 +49,7 @@ def test_grouped_prompts_cover_every_canonical_key_exactly_once():
 
 def test_single_plate_3mf_per_part_routes_to_merge_planner():
     import inspect
-    body = inspect.getsource(model_job.slice_job)
+    body = inspect.getsource(jobs_slice._slice_job)  # slice_job wraps it (#1336)
     route = body.index("if src.suffix.lower() == '.3mf':")
     assert 'return slice_multi_plate(' in body[route:route + 400]
     assert 'except ImplicitPlateSplit' in body[route:route + 600]
