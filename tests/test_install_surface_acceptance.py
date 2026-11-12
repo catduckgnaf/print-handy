@@ -203,6 +203,28 @@ class StandaloneSandboxRunTests(unittest.TestCase):
             # The last lines name the check entry the docs promise.
             self.assertIn("-m print_handy.bot check", result.stdout)
 
+    def test_the_installer_is_hermes_unaware(self):
+        """#1322: the Hermes install method was removed in 2.2.9, so the installer
+        neither names nor probes for Hermes units. Its only Hermes word is the
+        data folder's settings key, which #1323 renames with an alias."""
+        import tempfile
+
+        leftover = [line for line in read(STANDALONE).splitlines()
+                    if "hermes" in line.casefold() and "paths.hermes_home" not in line]
+        self.assertEqual([], leftover)
+        with tempfile.TemporaryDirectory() as tmp:
+            units = Path(tmp) / "units"
+            units.mkdir()
+            for leftover_unit in ("hermes-gateway.service", "hermes-3dprinting-moonraker-listener.service"):
+                (units / leftover_unit).write_text("[Service]\n")
+            result, _, _ = self.run_installer(tmp)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("hermes", (result.stdout + result.stderr).casefold())
+            help_run = subprocess.run(["bash", str(STANDALONE), "--help"], capture_output=True, text=True)
+            self.assertEqual(help_run.returncode, 0, help_run.stderr)
+            self.assertNotIn("hermes", help_run.stdout.casefold())
+            self.assertNotIn("set -eu", help_run.stdout)
+
     def test_sandboxed_dry_run_changes_nothing(self):
         import tempfile
 
