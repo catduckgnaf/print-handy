@@ -1464,4 +1464,3 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     assert len(alerts) == 3
     assert pauses == ["race.gcode"]
     assert listener.visual_watch.auto_paused is True
-
