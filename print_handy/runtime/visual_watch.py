@@ -263,6 +263,12 @@ EARLY_SECONDS_PER_LAYER = 120
 # An empty-bed verdict while print_stats says printing is suspicious, not
 # healthy: it is re-checked this many seconds later (#913).
 EMPTY_IDLE_RECHECK_S = 60
+# The chat notice that a print "reports no layer numbers" waits until the
+# layer has stayed unknown this long while printing, after the timed checks
+# began. Start G-code (heating, mesh, purge) can run minutes before the
+# slicer's first layer marker: one notice said "sliced without layer info"
+# 14 seconds before layer 2 arrived.
+LAYERLESS_NOTICE_GRACE_S = 300
 # Verdicts that count toward the opt-in early-layer auto-pause (#913).
 AUTO_PAUSE_VERDICTS = frozenset({"spaghetti", "detached", "air"})
 AUTO_PAUSE_STREAK = 2
@@ -1053,6 +1059,10 @@ class VisualPrintWatch:
         self.layerless_noticed = False
         self.layerless_since = None
         self.last_elapsed_s = None
+        # When a timer beat first found the layer unknown after the timed
+        # checks began (None again once a layer shows up): the layerless
+        # notice waits LAYERLESS_NOTICE_GRACE_S of that before it says so.
+        self.layer_unknown_since = None
 
     def due(self, layer, now, *, snapshot_changed=None):
         if not isinstance(layer, int) or layer < 1:

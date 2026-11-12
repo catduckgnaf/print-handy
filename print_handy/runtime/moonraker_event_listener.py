@@ -3095,7 +3095,7 @@ def _with_printer_name(text):
     return f"{text}\nPrinter: {name}" if name else text
 
 
-def _visual_alert(filename, image, reason, identity=None):
+def _visual_alert(filename, image, reason, identity=None, ping=True):
     # #317: a watchdog alert is blooper material; record() never raises.
     print_markers.record(filename, print_markers.WATCHDOG_ALERT, detail=reason)
     try:
@@ -3109,7 +3109,10 @@ def _visual_alert(filename, image, reason, identity=None):
     # A watchdog alert asking for a decision pings the starter (#1095),
     # once per episode: the decision is made once here and threaded to
     # whichever transport delivers, button post or plain fallback.
-    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
+    # ``ping`` False (a weak, below-threshold detection) posts for a look
+    # without asking the classifier, so it never spends the episode's ping.
+    mention = (starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
+               if ping else None)
     if _buttonless_standalone():
         delivered = post(text + f"\n{path}\nMEDIA:{path}",
                          **({"mention_user_id": mention} if mention else {}))
@@ -4304,7 +4307,9 @@ class Listener:
                         text = _with_status_roast(text, filename, "spaghetti",
                                                   f"spaghetti:{identity or filename}")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
-                                            identity=identity)
+                                            identity=identity,
+                                            **({"ping": False} if _camera_watch.below_threshold(
+                                                verdict, detail) else {}))
                     if pause_now and (stale() or self.state != "printing"):
                         # The alert took time; the printer must still be
                         # printing this print when the PAUSE goes out.
@@ -5116,11 +5121,16 @@ class Listener:
             # the early-layer schedule instead of staying on normal cadence.
             self._apply_watch_mode()
         layer = _visual_layer(self.last_stats)
-        reason = self.visual_watch.tick(layer, time.time() if now is None else now,
-                                        elapsed_s=_print_elapsed(self.last_stats))
-        if reason and self._watch_ready():
-            if layer is None:
-                self._note_layerless_watch()
+        now = time.time() if now is None else now
+        reason = self.visual_watch.tick(layer, now, elapsed_s=_print_elapsed(self.last_stats))
+        ready = None
+        if layer is None:
+            ready = self._watch_ready()
+            if ready:
+                self._note_layerless_watch(now)
+        else:
+            self.visual_watch.layer_unknown_since = None
+        if reason and (self._watch_ready() if ready is None else ready):
             self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
             return reason
         return None
@@ -5191,10 +5201,26 @@ class Listener:
             log(f"camera watch status notice failed: {exc!r}")
             return None
 
-    def _note_layerless_watch(self):
-        """Post, once per print, that the watch runs on a timer: the print reports no layers."""
+    def _note_layerless_watch(self, now=None):
+        """Post, once per print, that the watch runs on a timer: the print reports no layers.
+
+        Only once printing has really started (the timed checks began,
+        which waits for printing time) and the layer has stayed unknown for
+        LAYERLESS_NOTICE_GRACE_S since, and never for a print that reports
+        its total layer count: that print has layer info, its first layer
+        marker is just late (start G-code, purge).
+        """
         watch = self.visual_watch
-        if watch.layerless_noticed:
+        if watch.layerless_noticed or not watch.layerless:
+            return
+        now = time.time() if now is None else now
+        if watch.layer_unknown_since is None:
+            watch.layer_unknown_since = now
+        if now - watch.layer_unknown_since < _visual_watch.LAYERLESS_NOTICE_GRACE_S:
+            return
+        info = (self.last_stats or {}).get("info")
+        total = info.get("total_layer") if isinstance(info, dict) else None
+        if isinstance(total, int) and not isinstance(total, bool) and total > 0:
             return
         watch.layerless_noticed = True
         text = _layerless_notice_text(self.filename, watch.profile["periodic_s"],

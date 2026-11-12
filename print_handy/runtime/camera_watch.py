@@ -134,13 +134,66 @@ def watch_failed(verdict, detail):
     return verdict == "uncertain" and detail == _vw.VISION_FAILED_DETAIL
 
 
+# Plain words for the watch's internal check reasons and verdicts: an alert
+# reads "Routine check at layer 211: the bed looks empty ...", never the
+# internal codes ("empty_idle_recheck at layer 1: empty_idle;").
+CHECK_LABELS = {
+    "layer2": "First-layer check",
+    "layer5": "Early check (layer 5)",
+    "early_layer": "Early-layer check",
+    "early_periodic": "Early-layer check",
+    "periodic": "Routine check",
+    "layer_progress": "Layer progress check",
+    "stalled_layers": "Stall check",
+    "empty_idle_recheck": "Second look at an empty-looking bed",
+    "layerless_start": "First timed check",
+}
+VERDICT_TEXT = {
+    "ok": "the print looks fine",
+    "safe": "the print looks fine",
+    "air": "no plastic where the print should be",
+    "spaghetti": "possible spaghetti (loose, tangled filament)",
+    "detached": "the part may have come loose from the bed",
+    "empty_idle": "the bed looks empty although the printer reports printing",
+    "uncertain": "the check could not tell from this frame",
+    "no": "the check says something looks wrong",
+    "unsafe": "the check says something looks unsafe",
+    "dark": "the camera image is dark",
+}
+
+
+def check_label(reason):
+    """The plain name of a check reason ("Routine check")."""
+    return CHECK_LABELS.get(str(reason or ""), "Camera check")
+
+
+def _where(layer):
+    return f"at layer {layer}" if layer else "(no layer number reported)"
+
+
+def _verdict_text(verdict):
+    return VERDICT_TEXT.get(str(verdict or ""), f"the check answered {verdict!r}")
+
+
+def below_threshold(verdict, detail):
+    """True for the local detector's weak "possible failure" (below its failure threshold).
+
+    Still posted for a look, but it does not ping anyone: it is not a
+    failure verdict until later checks keep seeing it.
+    """
+    from .local_vision import BELOW_THRESHOLD
+
+    return verdict == "uncertain" and BELOW_THRESHOLD in str(detail or "")
+
+
 def alert_text(reason, layer, verdict, detail, *, pause_why=""):
     """The camera alert's text; with ``pause_why`` the auto-pause line is appended."""
     if reason == "stalled_layers":
         text = _vw.stall_alert_text(layer, verdict, detail)
     else:
-        text = (f"{reason} at layer {layer or 'unknown'}: {verdict}; "
-                f"{detail or 'visual check needs operator review'}")
+        text = f"{check_label(reason)} {_where(layer)}: {_verdict_text(verdict)}."
+        detail = str(detail or "").strip().rstrip(".")
+        text += f" Detail: {detail}." if detail else " Please take a look at the print."
     if pause_why:
         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {pause_why}, "
                  "so I am pausing the print. It is not cancelled.")
@@ -149,13 +202,13 @@ def alert_text(reason, layer, verdict, detail, *, pause_why=""):
 
 def vision_failed_text(reason, layer):
     """The alert when a frame was captured but the verdict call failed."""
-    return (f"{reason} at layer {layer or 'unknown'}: {_vw.VISION_FAILED_DETAIL}, "
+    return (f"{check_label(reason)} {_where(layer)}: {_vw.VISION_FAILED_DETAIL}, "
             "so treat this as unreviewed and check the print on the printer screen")
 
 
 def camera_failed_text(reason, layer):
     """The alert when the snapshot itself failed: a dead camera must not leave a print silently unwatched."""
-    return (f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
+    return (f"{check_label(reason)} {_where(layer)}: the camera snapshot could not be captured, "
             "so this print is unmonitored until the camera answers again; check the camera")
 
 
