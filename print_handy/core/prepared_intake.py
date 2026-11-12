@@ -4359,15 +4359,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 material_warnings = [] if ok or not start_context['color_prompt'] else material_accept.pending(tail)
                 if material_warnings:
                     # A material warning never blocks on its own (#1336): Reslice for the
-                    # loaded material (the default), Print as sliced, or Cancel.
+                    # loaded material (the default), Print as sliced, or Cancel. A filament
+                    # shortage alone has nothing to reslice: Print anyway or Cancel.
+                    material_choices = material_accept.choices(material_warnings)
                     pick = await _ask(adapter, source, key, material_accept.question(material_warnings),
-                                      material_accept.choices(material_warnings), timeout, approval=True)
+                                      material_choices, timeout, approval=True)
                     receipt['material_warnings'] = {'warnings': material_warnings, 'choice': pick}
-                    if pick != 1:
+                    chosen = (material_choices[pick] if isinstance(pick, int) and not isinstance(pick, bool)
+                              and 0 <= pick < len(material_choices) else None)
+                    if chosen != material_accept.print_label(material_warnings):
                         receipt['status'] = 'SLICED_NOT_STARTED'
                         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                           content=(material_accept.reslice_message(material_warnings) if pick == 0
+                                           content=(material_accept.reslice_message(material_warnings)
+                                                    if pick == 0 and chosen != material_accept.CANCEL_LABEL
                                                     else 'Cancelled. Nothing uploaded or started.'))
                         return {'action': 'skip', 'reason': 'operator did not print as sliced on a material warning'}
                     target['accept_material'] = sorted(set(target.get('accept_material') or ())
