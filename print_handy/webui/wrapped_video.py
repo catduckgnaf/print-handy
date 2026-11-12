@@ -430,7 +430,7 @@ def build_slides(wrapped):
     headline = wrapped.get("headline") or {}
     highlights = wrapped.get("highlights") or {}
     year = wrapped.get("year")
-    slides = [_slide("hook", "WRAPPED", f"Print Handy Wrapped {year}",
+    slides = [_slide("hook", "WRAPPED", f"Pasta Wrapped {year}",
                      "Your year in plastic, counted honestly.", HOOK_SECONDS)]
     if headline.get("total_prints"):
         slides.append(_slide("volume", "VOLUME", print_stats.plural(headline['total_prints'], "print"),

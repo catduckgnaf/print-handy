@@ -23,6 +23,7 @@ from print_handy.bot import runtime, telegram, telegram_rest
 from print_handy.bot.router import Router
 from print_handy.core import link_intake, prompts
 from print_handy.hermes import _config
+from print_handy.hermes import print_alert_buttons as pab
 
 TOKEN = "123456789:AA" + "x" * 33  # the shape logs.py redacts; never a real token
 CHAT = "-1001234567890"
@@ -493,3 +494,93 @@ def test_delivery_upload_limit_follows_the_platform(cfg):
     assert delivery.upload_limit(cfg) == 50_000_000
     cfg["bot"]["platform"] = "discord"
     assert delivery.upload_limit(cfg) == cfg["discord"]["upload_max_bytes"]
+
+
+# ------------------------------------------------- listener alert buttons (#1291 item 15)
+
+
+def _alert_callback(action, aid, user=USER, query_id="q9", chat=CHAT):
+    return {"id": query_id, "from": {"id": int(user), "first_name": "Cat"},
+            "data": f"pbalert:{action}:{aid}",
+            "message": {"message_id": 9, "chat": {"id": int(chat)}}}
+
+
+def _alert_adapter(monkeypatch, stub, *, alert, take_result="same", click_text="Resumed. The printer now reports printing."):
+    """An adapter whose alert store serves ``alert``; returns the click log."""
+    clicks = []
+    monkeypatch.setattr(pab, "peek", lambda aid: alert)
+    monkeypatch.setattr(pab, "take", lambda aid: alert if take_result == "same" else take_result)
+    monkeypatch.setattr(pab, "handle_click",
+                        lambda action, a: clicks.append((action, a)) or click_text)
+    return telegram.StandaloneAdapter(None, [USER], token=TOKEN, opener=stub), clicks
+
+
+def test_alert_callback_runs_the_action_strips_the_keyboard_and_posts_the_outcome(monkeypatch):
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": CHAT}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    assert run(adapter.handle_callback_query(_alert_callback("resume", "ab12cd34"))) is True
+    assert clicks == [("resume", alert)]
+    markups = stub.payloads("editMessageReplyMarkup")
+    assert markups and markups[0]["reply_markup"] == {"inline_keyboard": []}
+    sent = [p["text"] for p in stub.payloads("sendMessage")]
+    assert any("Resumed. The printer now reports printing." in text for text in sent)
+
+
+def test_alert_callback_stranger_is_refused_before_any_claim(monkeypatch):
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": CHAT}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    assert run(adapter.handle_callback_query(_alert_callback("cancel", "ab12cd34", user="999"))) is True
+    assert clicks == [] and taken == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert answers[0]["text"] == "Not allowed. Nothing changed."
+
+
+def test_alert_callback_from_another_chat_is_refused(monkeypatch):
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": "-1009999999999"}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    assert run(adapter.handle_callback_query(_alert_callback("cancel", "ab12cd34"))) is True
+    assert clicks == [] and taken == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert answers[0]["text"] == "Not allowed. Nothing changed."
+
+
+def test_alert_callback_without_its_message_is_refused(monkeypatch):
+    # Telegram can omit `message` from a callback query; such a press cannot
+    # show it came from the alert's chat, so it must not act.
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": CHAT}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert)
+    taken = []
+    monkeypatch.setattr(pab, "take", lambda aid: taken.append(aid) or alert)
+    query = _alert_callback("cancel", "ab12cd34")
+    del query["message"]
+    assert run(adapter.handle_callback_query(query)) is True
+    assert clicks == [] and taken == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert answers[0]["text"] == "Not allowed. Nothing changed."
+
+
+def test_alert_callback_stale_alert_answers_old_and_acts_on_nothing(monkeypatch):
+    stub = BotApiStub()
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=None)
+    assert run(adapter.handle_callback_query(_alert_callback("resume", "ab12cd34"))) is True
+    assert clicks == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert "old or was already answered" in answers[0]["text"]
+
+
+def test_alert_callback_second_press_loses_the_claim_race(monkeypatch):
+    stub = BotApiStub()
+    alert = {"kind": "paused", "filename": "f.gcode", "telegram_chat_id": CHAT}
+    adapter, clicks = _alert_adapter(monkeypatch, stub, alert=alert, take_result=None)
+    assert run(adapter.handle_callback_query(_alert_callback("resume", "ab12cd34"))) is True
+    assert clicks == []
+    answers = stub.payloads("answerCallbackQuery")
+    assert "old or was already answered" in answers[0]["text"]

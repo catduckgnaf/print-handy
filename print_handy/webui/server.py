@@ -34,7 +34,7 @@ step) serving:
   page (#789): the same view as HTML, with picker forms that post back
   to ``POST /spools/<id>`` under the config posts' form-token rule;
 - ``GET /data``, ``GET /wrapped``, ``GET /api/data`` and
-  ``GET /api/wrapped`` — the Data tab and Print Handy Wrapped (#956,
+  ``GET /api/wrapped`` — the Data tab and Pasta Wrapped (#956,
   :mod:`print_handy.webui.data`), behind ``[timelapse]
   wrapped_enabled``; ``POST /wrapped/video`` compiles the Wrapped
   video from the Wrapped page's form under the same form-token rule,

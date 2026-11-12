@@ -276,9 +276,9 @@ def render_share_page(payload, *, visibility="public", video_name=None):
               if visibility == "link-only" else "")
     sections = [
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
-        f"<title>Print Handy Wrapped {year}</title>\n{robots}"
+        f"<title>Pasta Wrapped {year}</title>\n{robots}"
         f"<style>{_PAGE_CSS}</style>\n</head>\n<body>",
-        f'<section class="wrapped-hero"><p class="eyebrow">Print Handy Wrapped</p>'
+        f'<section class="wrapped-hero"><p class="eyebrow">Pasta Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
         f"<p>{plural(headline.get('total_prints', 0), 'print')}. Scroll the year.</p></section>",
     ]
@@ -357,7 +357,7 @@ def render_share_page(payload, *, visibility="public", video_name=None):
     if archetype.get("name"):
         sections.append(
             '<section class="card share-card"><p class="eyebrow">'
-            f"Print Handy Wrapped {year}</p>"
+            f"Pasta Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
             f"<p>{plural(headline.get('total_prints', 0), 'print')} · "
             f"{hours_text(headline.get('total_hours', 0))} · "

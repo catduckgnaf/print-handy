@@ -1,4 +1,4 @@
-"""Web UI Data tab and Print Handy Wrapped pages (#956).
+"""Web UI Data tab and Pasta Wrapped pages (#956).
 
 ``GET /data`` and ``GET /wrapped`` are the pages; ``GET /api/data``
 and ``GET /api/wrapped`` are the same payloads as JSON;
@@ -46,7 +46,7 @@ from . import wrapped_video as video_module
 
 DATA_OFF_REASON = ("the Data tab is off: set "
                    "[timelapse] data_enabled = true to allow it. Nothing shown.")
-WRAPPED_OFF_REASON = ("Print Handy Wrapped is off: set "
+WRAPPED_OFF_REASON = ("Pasta Wrapped is off: set "
                       "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
 VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
@@ -977,7 +977,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     # The tappable story is not the lead presentation and no story
     # player is built here; the video is a section of the page.
     parts = [
-        f'<section class="wrapped-hero"><p class="eyebrow">Print Handy Wrapped</p>'
+        f'<section class="wrapped-hero"><p class="eyebrow">Pasta Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
         f"<p>{print_stats.plural(headline['total_prints'], 'print')}. Scroll the year.</p></section>",
         f'<form method="get" action="/wrapped"><label>Year '
@@ -1145,7 +1145,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         share_top = _esc(highlights.get("top_color") or "unknown")
         parts.append(
             '<section class="card share-card"><p class="eyebrow">'
-            f"Print Handy Wrapped {year}</p>"
+            f"Pasta Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
             f"<p>{print_stats.plural(headline['total_prints'], 'print')} · "
             f"{print_stats.hours_text(headline['total_hours'])} · "

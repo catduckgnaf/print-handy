@@ -127,8 +127,10 @@ def _buttonless_standalone():
     """The platform name when the bot's posts have no Discord buttons, else None.
 
     Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
-    button posts: alerts go out as plain text and the operator answers
-    with the typed commands the text names.
+    button posts: the interactive offers go out as plain text and the
+    operator answers with the typed commands the text names. The one
+    exception is ``post_alert`` on Telegram, which carries the alert's
+    own buttons as an inline keyboard (#1291).
     """
     if _telegram_standalone():
         return "telegram"
@@ -220,9 +222,12 @@ def _post_rest_discord(message, mention_user_id=None):
 def post_alert(message, kind, filename, episode=None):
     """Post with Resume/Cancel buttons; fall back to plain text if Discord refuses.
 
-    On Telegram and Matrix (#164 stages 2-3) the Discord-shaped button
-    posts do not apply: the alert goes out as plain text and the operator
-    answers with the typed commands the text names.
+    On Telegram the alert carries its buttons as an inline keyboard
+    (#1291): the same recorded alert, and the press returns through the
+    Telegram adapter's callback polling. On Matrix (#164 stage 3) the
+    Discord-shaped button posts do not apply: the alert goes out as
+    plain text and the operator answers with the typed commands the
+    text names.
     """
     # An alert that needs a person pings the print's starter (#1095): the
     # classifier decides from the alert kind and the job behind the
@@ -240,7 +245,23 @@ def post_alert(message, kind, filename, episode=None):
         episode = f"paused:{classify_pause(message)}" if kind == "paused" else kind
     mention = starter_pings.ping_for(kind, job_key=filename, episode=episode) or None
     delivered = None
-    if _buttonless_standalone():
+    if _telegram_standalone():
+        try:
+            from . import print_alert_buttons as pab
+            kwargs = {}
+            from .. import listeners as _listeners
+            # The alert's buttons act on this listener's printer, as on Discord.
+            if _listeners.instance_printer_id():
+                kwargs["printer_id"] = _listeners.instance_printer_id()
+            if pab.post_telegram_with_buttons(_telegram_token(), _telegram_chat_id(),
+                                              message, kind, filename, **kwargs):
+                log(f"post telegram buttons kind={kind} {message.splitlines()[0][:120]!r}")
+                return True
+            log("telegram button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"telegram button post error: {exc!r}")
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    elif _buttonless_standalone():
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     else:
         try:
