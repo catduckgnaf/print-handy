@@ -141,9 +141,13 @@ def normalize_lane(slot: int, record: dict[str, Any]) -> dict[str, Any]:
     color = record.get("color")
     if color is None:
         color = record.get("color_hex") or record.get("hex") or ""
-    material = record.get("material")
+    # HelixScreen writes two strings: ``material`` is reduced so OrcaSlicer
+    # can match a preset (PLA+ and Silk become PLA), ``filament_type`` is the
+    # precise type (its FILAMENT_SLOT_METADATA.md, "Two-string material
+    # identity"). Read the precise one when it is there.
+    material = record.get("filament_type") or record.get("material")
     if material is None:
-        material = record.get("type") or ""
+        material = record.get("type") or record.get("helix_material") or ""
     scan_time = record.get("scan_time")
     if scan_time is None:
         scan_time = record.get("scanned_at") or record.get("timestamp") or ""
@@ -226,7 +230,7 @@ _KEYING_ORDER = {"screen": 0, "keyed": 1, "orca": 2, "disagreement": 3}
 
 
 def _says(lane: dict[str, Any]) -> tuple[Any, str, str]:
-    return (lane.get("spool_id"), _norm_text(lane.get("material")), _norm_color(lane.get("color")))
+    return (lane.get("spool_id"), _material_key(lane.get("material")), _norm_color(lane.get("color")))
 
 
 def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
@@ -377,7 +381,9 @@ def _action_key(fingerprint: dict[str, Any] | None) -> str:
     consistent, so an upgrade re-announces nothing.
     """
     fp = fingerprint or {}
-    key = (f"{fp.get('spool_id')}|{fp.get('material')}|{fp.get('color')}"
+    # Material by family, computed here so stored fingerprints (raw text)
+    # compare the same way: a screen flipping PLA+ <-> PLA is a rescan.
+    key = (f"{fp.get('spool_id')}|{_material_key(fp.get('material'))}|{fp.get('color')}"
            f"|{fp.get('locked_color')}|{fp.get('locked_material')}")
     issue = fp.get("slot_issue") or ""
     return f"{key}|{issue}" if issue else key
@@ -405,31 +411,44 @@ def _color_agrees(lane_color: str, spool: dict[str, Any]) -> bool:
 
 
 
-# Speed and flow grades a screen catalog may add or drop ("PETG HF", "High
-# Speed PLA", "Hyper PLA"). They matter for slicing (material_family keeps
-# them distinct), but not for whether a lane and a spool name the same
-# filament, so the identity check ignores them.
+# Speed and flow grades. HelixScreen's reduced ``material`` drops them (a
+# PETG HF spool reads "PETG"), so a lane may lack a grade its Spoolman spool
+# carries. The reverse is not excused: a lane that names a grade the spool
+# lacks may be the screen being right, and slicing would use the spool's
+# material, so that stays a conflict.
 _SPEED_GRADE = re.compile(r"\b(?:HF|HS|HIGH\s*FLOW|HIGH\s*SPEED|HYPER|RAPID)\b", re.I)
 
 
-def _same_base_material(a: Any, b: Any) -> bool:
-    """Whether a lane's material and a spool's material are the same base filament.
+def _without_grade(material: Any) -> str:
+    return _SPEED_GRADE.sub(" ", re.sub(r"[-_]", " ", str(material or ""))).strip()
 
-    HelixScreen's generic catalog writes "PLA" for a PLA+ spool (seen live on
-    an AD5X after the HelixScreen 1.0.8 update), so a raw text comparison
-    called the same spool a different filament. The family rules of
-    ``printer_state.material_family`` apply (PLA+, PLA Pro, Matte and Silk
-    PLA are PLA), plus speed and flow grades are ignored (PETG vs PETG-HF).
-    Reinforcement stays a real difference: PLA and PLA-CF never match.
-    """
+
+def _material_key(material: Any) -> str:
+    """A lane material as compared between lane records and across rescans:
+    its slicing family (PLA+, PLA Pro, Silk PLA -> PLA), so a screen that
+    rewrites PLA+ as PLA is the same lane, not a change or a conflict."""
     from ..core.printer_state import material_family
+    text = str(material or "").strip()
+    return material_family(text) if text else ""
 
-    def base(material: Any) -> str:
-        text = _SPEED_GRADE.sub(" ", re.sub(r"[-_]", " ", str(material or "")))
-        return material_family(text)
 
-    fa, fb = base(a), base(b)
-    return bool(fa) and fa == fb
+def lane_matches_spool_material(lane_material: Any, spool_material: Any) -> bool:
+    """Whether a lane's material and its spool's Spoolman material name one filament.
+
+    Same slicing family (``printer_state.same_material``: PLA+, PLA Pro,
+    Matte and Silk PLA are PLA), or the spool carries a speed or flow grade
+    the lane does not (Spoolman PETG-HF, lane PETG). Reinforcement and a
+    different polymer are real differences: PLA vs PLA-CF, PLA vs PETG.
+    """
+    from ..core.printer_state import same_material
+    if same_material(lane_material, spool_material):
+        return True
+    lane_text = str(lane_material or "")
+    spool_ungraded = _without_grade(spool_material)
+    if (_SPEED_GRADE.search(lane_text) is None and spool_ungraded
+            and spool_ungraded.upper() != re.sub(r"[-_]", " ", str(spool_material or "")).strip().upper()):
+        return same_material(lane_text, spool_ungraded)
+    return False
 
 
 def _lock_conflicts(lane: dict[str, Any], spool: dict[str, Any]) -> list[str]:
@@ -438,7 +457,7 @@ def _lock_conflicts(lane: dict[str, Any], spool: dict[str, Any]) -> list[str]:
     conflicts = []
     if lane.get("locked_material") and lane.get("material"):
         spool_material = str(filament.get("material") or "").strip()
-        if spool_material and not _same_base_material(lane["material"], spool_material):
+        if spool_material and not lane_matches_spool_material(lane["material"], spool_material):
             conflicts.append(
                 f"the material is locked on the screen to {lane['material']}, "
                 f"but spool #{spool.get('id')} is {spool_material} in Spoolman")
@@ -852,7 +871,7 @@ class LaneDataWatcher:
         filament = spool.get("filament") or {}
         lane_material = _norm_text(lane["material"])
         spool_material = _norm_text(filament.get("material"))
-        if lane_material and spool_material and not _same_base_material(lane_material, spool_material):
+        if lane_material and spool_material and not lane_matches_spool_material(lane_material, spool_material):
             self._queue(pending, noted, slot, "identity_conflict",
                         f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen names "
                         f"spool #{spool_id} as {lane['material']}, but Spoolman records that "
