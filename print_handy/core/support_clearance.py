@@ -383,6 +383,18 @@ def profile_first_layer_mm(printer_id=None):
         return None
 
 
+def job_first_layer_mm(job, printer_id=None):
+    """The first layer height this job slices with: its own ``initial_layer_height``
+    profile edit (edit_plan.PROFILE_SETTINGS) when it has one, else the profile's."""
+    edited = (((job or {}).get('edit_settings') or {}).get('profile') or {}).get('initial_layer_height')
+    try:
+        if edited is not None and float(edited) > 0:
+            return float(edited)
+    except (TypeError, ValueError):
+        pass
+    return profile_first_layer_mm(printer_id)
+
+
 def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE,
             first_layer_mm=None):
     """The structured support clearance report for a 3MF (see the module docstring).

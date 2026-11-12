@@ -330,7 +330,8 @@ def require_current_artifact(job, gcode):
     from ..core import support_clearance
     clearance = job.get('support_clearance')
     if clearance is None and job.get('downloaded_file'):
-        clearance = support_clearance.safe_analyze(job.get('downloaded_file'))
+        clearance = support_clearance.safe_analyze(job.get('downloaded_file'),
+                                                   first_layer_mm=support_clearance.job_first_layer_mm(job))
     if support_clearance.risky(clearance):
         ack = job.get('clearance_acknowledgement') or {}
         src_path = job.get('downloaded_file')

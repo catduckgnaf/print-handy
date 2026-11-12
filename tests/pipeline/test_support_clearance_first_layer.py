@@ -96,3 +96,11 @@ def test_rotated_report_uses_the_profile_first_layer(tmp_path, monkeypatch):
     # underside relative to a foot that is already on it.
     rep = support_clearance.rotated_report(str(slab_file(tmp_path, 0.07, 'thin.3mf')), identity)
     assert rep['risky'] is False
+
+
+def test_a_job_edit_of_the_first_layer_height_wins_over_the_profile(monkeypatch):
+    monkeypatch.setattr(support_clearance, "profile_first_layer_mm", lambda printer_id=None: 0.24)
+    job = {"edit_settings": {"profile": {"initial_layer_height": 0.1}}}
+    assert support_clearance.job_first_layer_mm(job) == 0.1
+    assert support_clearance.job_first_layer_mm({}) == 0.24
+    assert support_clearance.job_first_layer_mm({"edit_settings": {"profile": {"initial_layer_height": "x"}}}) == 0.24
