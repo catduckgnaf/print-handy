@@ -541,6 +541,104 @@ The filament system is where they part:
   Creator 5; the print geometry and tool model are identical, and its template
   records the chamber and filtration support.
 
+## Slicer spool selections: who owns the tool-to-slot mapping
+
+A multicolor print needs one decision (which physical slot each slicer
+tool, `T0`–`T3`, prints from), and several flows can supply it. Which one
+is authoritative depends on how the print was launched
+([#1305](https://github.com/catduckgnaf/print-handy/issues/1305)); no flow
+silently overrides another's explicit selection.
+
+- **Print Handy slices the model** (a model link, `.stl` or `.3mf` sent to
+  Discord, the Web UI or the API). The operator's per-color slot picks in
+  the confirm flow are the authority. The source file's own filament
+  assignment decides which parts print in which color; it never names a
+  physical slot (a downloaded project's "filament 3" is a color, not IFS
+  slot 3). Print Handy renumbers the picked colors to contiguous logical
+  tools in pick order, slices, and embeds the resulting tool-to-slot map
+  in the G-code (`; hermes_tool_slots`), checksum-bound, with one
+  `zmod_color_data` line per tool. Launch re-reads that embedded map and
+  sends exactly one `SET_ZCOLOR` carrying its pairs with `AUTO_ASSIGN=0`:
+  ZMod neither auto-assigns nor asks again.
+- **An already-sliced file the operator maps explicitly**
+  (`finalize-gcode --tool-map`, then `print-now`). The operator's JSON
+  tool-to-slot map is the authority; finalization embeds it exactly as
+  above, and launch proceeds as for Print Handy's own slices. The map
+  does not have to be contiguous: a plate that uses a subset of a
+  project's filaments (filaments 1 and 3, or filament 3 alone) emits
+  exactly those tools (`T0` and `T2`, or `T2`), and a map naming just
+  them is valid. What is enforced is coverage and validity, with named
+  refusals: every tool the file uses must be mapped; no tool the file
+  never uses may be mapped (an explicit entry for an unused tool would
+  reach `zmod_color_data` and `SET_ZCOLOR` and make launch require that
+  slot loaded, so it is refused rather than dropped); a mapped slot must
+  be a configured slot with a verified material and color; each used
+  tool's sliced material must match its slot's material; an embedded map
+  whose slot has since changed spools is refused until the operator
+  reslices or explicitly accepts the swap. A multicolor file with no map
+  at all is refused as ambiguous: Print Handy never guesses which slot
+  a tool means. Two tools may name one slot (a shared spool): each is
+  still material-checked against that slot, and it does not enable
+  infinite spool. Print Handy's own slices never produce one, since two
+  picks of one slot merge into one tool.
+  Print Handy's own slice map is the one exception to the unused-tool
+  refusal: it can name a tool Orca's output never selects (a support
+  filament's tool when no support was generated), and that entry is
+  dropped at finalization instead.
+  The unused-tool rule applies to a map being set, not to one already
+  embedded: a file finalized before this rule (an unused support tool,
+  an extra `T0`) launches exactly as it did, with its embedded map.
+- **A reprint or slot remap** (`/print-again`, `remap-slot`). The
+  embedded map, amended by the operator's remap, is the authority; the
+  file is re-finalized (new map, new checksum) before it is packaged
+  or uploaded. The remapped tool must be one the file uses:
+  `remap-slot --tool N` refuses an unused tool, and without `--tool`
+  (and `print-now --slot S`) the file's single used tool is remapped
+  (`T2` for a plate that prints only filament 3). A file that uses more
+  than one tool is refused there by name; remap each tool with
+  `remap-slot --tool N --slot S`. Stale map entries for unused tools in
+  an older file are dropped by the remap.
+- **A dropped pre-sliced file printed as-is (yolo).** The file alone is
+  the authority; Print Handy adds no map and runs no mapping checks,
+  because the operator explicitly chose "as sent". ZMod's own file scan
+  (`SCAN_FILE_COLORS`; instant for `.gcode.3mf` via `slice_info.config`)
+  and its `AUTO_ASSIGN_COLORS` setting then decide on the printer, which
+  on a screen-equipped install can mean ZMod's own color menu. That is
+  the documented yolo trade, not a Print Handy prompt.
+- **Slicer-direct over `ORCA_FF`.** The slicer's send dialog is the
+  authority and the flow is entirely outside Print Handy (document-only,
+  per the evaluation above); Print Handy only observes the resulting
+  print through the Moonraker listener.
+
+**The Moonraker `tools` state is not used, by assessment.** ZMod keeps
+its current tool-to-slot assignment in the `_IFS_VARS` object Print
+Handy could read through Moonraker (its `tools` array), and could write
+per tool through `_IFS_COLORS_ASSIGN` via the gcode script endpoint.
+Print Handy's launches do neither, for three reasons. It is the wrong
+scope: that assignment is global printer state, not per-file state, so
+writing it for one job would silently re-map the next file started from
+the screen or Fluidd. It is not sufficient: ZMod's start flow reads the
+file's own color data (the `zmod_color_data` lines, or `slice_info.config`
+in a package) for its scan and MD5 contract, so the file must carry the
+mapping anyway. And it is not necessary: the embedded map travels with
+the file, is verified against live slot state at launch, and is pinned
+by the launch's own `SET_ZCOLOR`. Slot state Print Handy does read at
+launch comes from `zmod_color` (screenless) or the native `/detail`,
+never from `_IFS_VARS`.
+
+Supported configurations for the mapped route: the AD5X IFS (the
+contract above, screen on or `DISPLAY_OFF`, including HelixScreen
+installs; `orca_lanes` publishing being skipped under HelixScreen does
+not affect launches, because `lane_data` is assignment sync, not a
+launch input). The Creator 5 / 5 Pro use the identity toolhead contract
+instead (slicer tool *i* prints with toolhead *i*; a non-identity map is
+refused, never approximated), as does a Klipper printer fitted with the
+Bondtech INDX accessory over its tools. The single-extruder ZMod models
+(AD5M, AD5M Pro) refuse multicolor maps by name. None of the mapping
+behavior in this section is live-hardware verified yet; it is pinned by
+offline tests and ZMod's published documentation, and live verification
+requires its own authorization.
+
 ## Print file format: `.gcode` or `.gcode.3mf`
 
 What reaches the printer is Print Handy's own sliced output either way; a

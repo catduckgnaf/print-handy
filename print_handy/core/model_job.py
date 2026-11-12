@@ -8844,12 +8844,21 @@ def _rerecord_selected_slot(job, selection):
         binding['recipe_sha256'] = job['slice_recipe']['sha256']
 
 
-def remap_slot(target, new_slot, tool="0", state=None):
-    """Remap a single-color job or G-code to a different physical IFS slot.
+class ToolRemapRefused(RuntimeError):
+    """A slot remap names a tool the file does not use, or cannot tell which tool is meant."""
+
+
+def remap_slot(target, new_slot, tool=None, state=None):
+    """Remap one logical tool of a job or G-code to a different physical IFS slot.
 
     Rewrites tool mapping metadata and checksum, updating job filament_selection
     when given a JOB.json, allowing printing with a different physical spool
     without physical changes or screen interaction.
+
+    The tool must be one the file uses (#1305): a plate that prints only T2
+    remaps T2, never an unused T0. With tool=None the file's single used tool
+    is remapped; a file that uses more than one tool is refused
+    (ToolRemapRefused), since one slot cannot name which tool is meant.
     """
     st = state or printer_state.load()
     resolved = resolve_print_target(target)
@@ -8908,8 +8917,11 @@ def remap_slot(target, new_slot, tool="0", state=None):
     selection = resolve_filament_selection(st, {"slot": slot_int})
 
     raw_tools = {}
+    used = set()
     if gcode_path.is_file():
-        for line in gcode_path.read_text().splitlines():
+        gcode_text = gcode_path.read_text()
+        used = routed_adapter.native.used_tools(gcode_text)
+        for line in gcode_text.splitlines():
             if line.startswith(MAP_PREFIX):
                 try:
                     data = json.loads(line[len(MAP_PREFIX):])
@@ -8918,8 +8930,27 @@ def remap_slot(target, new_slot, tool="0", state=None):
                 except Exception:
                     pass
                 break
+    used_names = ", ".join(f"T{t}" for t in sorted(used))
+    if tool is None:
+        if len(used) > 1:
+            raise ToolRemapRefused(
+                f"{gcode_path.name} uses {len(used)} tools ({used_names}); one slot cannot say which "
+                "tool to move. Remap one tool with remap-slot --tool N --slot S")
+        tool = str(next(iter(used))) if used else "0"
+    tool = str(tool)
+    if not re.fullmatch(r"\d+", tool):
+        raise ToolRemapRefused(f"malformed logical tool {tool!r}")
+    if used and int(tool) not in used:
+        raise ToolRemapRefused(
+            f"{gcode_path.name} never uses T{tool} (it uses {used_names}); "
+            "remapping it would change nothing the file prints")
     mapping = dict(raw_tools) if raw_tools else {}
-    mapping[str(tool)] = slot_int
+    if used:
+        # Entries an older finalize kept for tools the file never selects
+        # (a support tool with no support generated) are dropped by the
+        # same rule the slice path applies (#1305).
+        mapping = {t: s for t, s in mapping.items() if int(t) in used}
+    mapping[tool] = slot_int
     normalize_mapping = routed_adapter.native.normalize_mapping
     mapping = normalize_mapping(mapping, st)
 
@@ -9999,8 +10030,11 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
 def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
     """print_now's body, run under the printer's interprocess control lock."""
     if remap_slot_num is not None:
-        remap_res = remap_slot(target, remap_slot_num, tool="0")
-        print(f"SLOT REMAPPED: T0 -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
+        try:
+            remap_res = remap_slot(target, remap_slot_num)
+        except ToolRemapRefused as exc:
+            raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
+        print(f"SLOT REMAPPED: T{remap_res['tool']} -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
     g=Path(resolve_print_target(target)).expanduser().resolve()
     job, job_path = _owning_job(g)
     if g.name=="JOB.json":
@@ -10367,12 +10401,12 @@ def _main():
     remap=sub.add_parser("remap-slot", help="remap single-color job or G-code tool to another physical IFS slot")
     remap.add_argument("target", help="JOB.json or plate.gcode")
     remap.add_argument("--slot", type=int, required=True, help="physical IFS slot (1-4)")
-    remap.add_argument("--tool", type=str, default="0", help="logical tool index (default: 0)")
+    remap.add_argument("--tool", type=str, default=None, help="logical tool index the file uses (default: the file's only used tool)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
     pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no single-use approval record (the bed-clear confirmation, mechanics, axis limits and heater maximums are never waived)")
     pn.add_argument("--bed-clear-sha256",default=None,help="the operator confirmed the bed is clear for the G-code with this SHA-256 (what the chat's Start button passes)")
-    pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap T0 to another physical IFS slot (1-4) without physical spool changes")
+    pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap the file's one used tool to another physical IFS slot (1-4) without physical spool changes; a file using several tools is refused (use remap-slot --tool)")
     for x in (pn,f,s):
         x.add_argument("--accept-default-z-offset",action="store_true",help="the operator accepted the printer default Z offset for this start")
         x.add_argument("--reprint",action="store_true",help="the operator gave a NEW bed-clear approval to reprint the same G-code")
@@ -10520,7 +10554,10 @@ def _main():
     if getattr(a,"bed_clear_sha256",None): pn_kw["bed_clear"]=a.bed_clear_sha256
     elif getattr(a,"bed_clear_confirmed",False): pn_kw["bed_clear"]=True
     if a.cmd=="remap-slot":
-        res = remap_slot(a.target, a.slot, a.tool)
+        try:
+            res = remap_slot(a.target, a.slot, a.tool)
+        except ToolRemapRefused as exc:
+            raise SystemExit(f"REFUSED: {exc}. Nothing changed.") from exc
         print("SLOT REMAPPED " + json.dumps(res, indent=2))
         return
     if a.cmd=="print-now":

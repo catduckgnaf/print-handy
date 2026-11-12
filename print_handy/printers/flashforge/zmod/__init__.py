@@ -24,6 +24,7 @@ embedded_mapping = _forward(multicolor_contract, "embedded_mapping")
 normalize_mapping = _forward(multicolor_contract, "normalize_mapping")
 describe_mapping = _forward(multicolor_contract, "describe_mapping")
 validate_materials = _forward(multicolor_contract, "validate_materials")
+used_tools = _forward(multicolor_contract, "used_tools")
 require_idle_settled = _forward(native_idle, "require_idle_settled")
 require_idle_screenless = _forward(native_idle, "require_idle_screenless")
 read_zmod_color_slots = _forward(stock, "read_zmod_color_slots")
@@ -39,4 +40,4 @@ __all__ = ["apply_stock_presence", "describe_mapping", "embedded_mapping", "fina
            "native_idle", "native_startup", "native_startup_valid", "normalize_mapping", "read_stock_detail",
            "read_stock_filament_slots", "read_stock_filament_slots_from_detail", "read_zmod_color_slots",
            "require_idle_screenless", "require_idle_settled", "screen", "screen_label_matches",
-           "stock", "validate_materials", "validate_native_start"]
+           "stock", "used_tools", "validate_materials", "validate_native_start"]
