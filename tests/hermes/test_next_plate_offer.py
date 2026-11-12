@@ -31,8 +31,8 @@ def test_offer_button_is_the_existing_confirm_and_dismiss_does_not_start():
 
 
 def test_dismiss_handler_does_not_start_and_go_still_uses_print_next():
-    from pathlib import Path
-    text = (Path(__file__).resolve().parents[2] / "plugins/print-feedback/__init__.py").read_text(encoding="utf-8")
+    from handler_source import handler_source  # the handlers moved into print_handy/bot/handlers (#1323)
+    text = handler_source()
     drop = text[text.index("async def handle_plate_drop"):text.index("async def handle_plate_go")]
     go = text[text.index("async def handle_plate_go"):text.index("async def run_plate_start")]
     assert "print_next.start" not in drop
@@ -54,8 +54,8 @@ def test_each_plate_of_the_same_plan_gets_its_own_offer(tmp_path, monkeypatch):
 
 
 def test_dismiss_clears_the_offer_state():
-    from pathlib import Path
-    text = (Path(__file__).resolve().parents[2] / "plugins/print-feedback/__init__.py").read_text(encoding="utf-8")
+    from handler_source import handler_source  # the handlers moved into print_handy/bot/handlers (#1323)
+    text = handler_source()
     drop = text[text.index("async def handle_plate_drop"):text.index("async def handle_plate_go")]
     assert "next_plate_offer" in drop and "clear" in drop
 

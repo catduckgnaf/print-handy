@@ -836,7 +836,9 @@ class StrictAdapter:
 def test_every_plugin_and_intake_send_uses_content_keyword():
     """Static guard on the real sources: no adapter.send(text=...) anywhere in the call paths."""
     core = HERE.parents[1] / "print_handy/core"
-    for path in (PLUGIN, core / "link_intake.py", core / "prepared_intake.py"):
+    from handler_source import handler_paths  # the handlers moved into print_handy/bot/handlers (#1323)
+    intake = sorted((HERE.parents[1] / "print_handy/intake").glob("*.py"))  # split out of prepared_intake (#1323)
+    for path in (*handler_paths(), core / "link_intake.py", core / "prepared_intake.py", *intake):
         source = path.read_text()
         for call in re.findall(r"adapter\.send\((?:[^()]|\([^()]*\))*\)", source):
             assert "text=" not in call, f"{path.name}: {call[:80]}"

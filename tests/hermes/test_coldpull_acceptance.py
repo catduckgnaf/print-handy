@@ -58,9 +58,8 @@ def test_result_policy_repeat_retry_and_two_dirty_nozzle_swap():
 
 
 def test_maintenance_and_standalone_use_same_workflow_source_tags():
-    from pathlib import Path
-    plugin = Path(__file__).resolve().parents[2] / "plugins/print-feedback/__init__.py"
-    text = plugin.read_text()
+    from handler_source import handler_source  # the handlers moved into print_handy/bot/handlers (#1323)
+    text = handler_source()
     assert "_coldpull_workflow(adapter, source, metadata, source_tag='coldpull'," in text
     assert "live_key=gateway._session_key_for_source(source)" in text
     assert "source_tag='maintenance', initial_cold=cold" in text
