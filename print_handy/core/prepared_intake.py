@@ -187,7 +187,10 @@ def _color_prompt_follows(refusal_context, tail):
 
     Only then is the Retry refusal text held back; when no question follows (the last round), the
     refusal keeps its guidance plus Retry like any other pre-upload refusal."""
-    return bool(refusal_context.get('color_prompt') and (color_confirm(tail) or label_confirm(tail)))
+    from . import material_accept
+    return bool(refusal_context.get('color_prompt') and (color_confirm(tail) or label_confirm(tail)
+                                                         or material_accept.pending(tail)
+                                                         or SPOOL_CHANGED in str(tail)))
 
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
@@ -517,6 +520,7 @@ from ..intake.questions import (  # moved in 2.3.0 (#1323); old path kept for on
     _raw_preupload_refusal, _retry_choice_reply, _typo_words, accept_color_mismatch,
     accept_label_mismatch, clear_color_acceptance, clear_label_acceptance, color_confirm,
     color_confirm_question, label_confirm, label_confirm_question, screen_unpushed_note,
+    SPOOL_CHANGED, USE_LOADED_SPOOL_LABEL,
 )
 
 
@@ -4351,6 +4355,43 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                             allow_stop=True, refusal_context=start_context)
                 confirms = [] if ok or not start_context['color_prompt'] else color_confirm(tail)
                 label_confirms = [] if ok or not start_context['color_prompt'] else label_confirm(tail)
+                from . import material_accept
+                material_warnings = [] if ok or not start_context['color_prompt'] else material_accept.pending(tail)
+                if material_warnings:
+                    # A material warning never blocks on its own (#1336): Reslice for the
+                    # loaded material (the default), Print as sliced, or Cancel.
+                    pick = await _ask(adapter, source, key, material_accept.question(material_warnings),
+                                      material_accept.choices(material_warnings), timeout, approval=True)
+                    receipt['material_warnings'] = {'warnings': material_warnings, 'choice': pick}
+                    if pick != 1:
+                        receipt['status'] = 'SLICED_NOT_STARTED'
+                        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content=(material_accept.reslice_message(material_warnings) if pick == 0
+                                                    else 'Cancelled. Nothing uploaded or started.'))
+                        return {'action': 'skip', 'reason': 'operator did not print as sliced on a material warning'}
+                    target['accept_material'] = sorted(set(target.get('accept_material') or ())
+                                                       | {w['key'] for w in material_warnings})
+                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    continue
+                if (not ok and start_context['color_prompt'] and SPOOL_CHANGED in str(tail)
+                        and not target.get('accept_spool_change')):
+                    # A slot spool swapped since slicing (same material family): ask, never
+                    # a Retry-only refusal; yes passes --accept-spool-change (#1336).
+                    pick = await _ask(adapter, source, key,
+                                      'A slot holds another spool than when this was sliced (the same material '
+                                      'family is still required). Print with the spool that is loaded now?',
+                                      [USE_LOADED_SPOOL_LABEL, print_next.CANCEL_LABEL], timeout, approval=True)
+                    receipt['spool_change'] = {'choice': pick}
+                    if pick != 0:
+                        receipt['status'] = 'SLICED_NOT_STARTED'
+                        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='Cancelled. Nothing uploaded or started.')
+                        return {'action': 'skip', 'reason': 'operator cancelled on a swapped spool'}
+                    target['accept_spool_change'] = True
+                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    continue
                 if not confirms and not label_confirms:
                     await _post_yolo_waivers(adapter, source, metadata, tail, receipt, receipt_path)
                     break
@@ -4410,6 +4451,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 clear_color_acceptance(jp)
             with contextlib.suppress(Exception):
                 clear_label_acceptance(jp)
+            # A Print as sliced answer is this start's only: a later Retry asks again (#1336).
+            target.pop('accept_material', None)
+            target.pop('accept_spool_change', None)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending

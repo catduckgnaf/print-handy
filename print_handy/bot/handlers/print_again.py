@@ -14,6 +14,7 @@ from .common import (
     intake_plain_start_failure,
 )
 from ...runtime import _config
+from .print_next import _start_with_offers  # the one material/spool offer (#1336); no import cycle
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
@@ -200,9 +201,13 @@ async def print_again_dispatch(event, gateway, **kwargs):
             # never move. Bookkeeping only; the approval above is this
             # start's own and is not reused.
             await asyncio.to_thread(pc.arm_reprint_run, target)
-            ok, detail = await print_next.start(target)
+            ok, detail, plain = await _start_with_offers(adapter, source, metadata, print_next, target,
+                                                         live_key=live_key)
             if not ok:
                 await asyncio.to_thread(pc.disarm_reprint_run, target)
+            if plain:
+                await adapter.send(chat_id=source.chat_id, content=detail, metadata=metadata)
+                return {'action': 'skip', 'reason': 'print again not started on a material warning'}
             if ok:
                 # Queue bookkeeping lands in the job owner's own queue file,
                 # never another printer's (P2-135).

@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from .. import printers
-from ..core import launch_state
+from ..core import launch_state, material_accept
 from ..core.heater_ceiling import MACRO_BED_ARGS as _MACRO_BED_ARGS, MACRO_NOZZLE_ARGS as _MACRO_HOTEND_ARGS
 from ..gcode.artifact import file_sha256
 from ..gcode.bounds import NUMBER, cached_motion_bounds
@@ -112,6 +112,15 @@ def check_filament_readiness(state, status, selection=None, *, observed_at=None,
         observed = actual.get(actual_key)
         if not isinstance(wanted, str) or not wanted.strip():
             problems.append(f"job selection is missing {key}")
+        elif key == "material" and isinstance(observed, str) and observed.strip():
+            # The screen label is coarser than the job's material (PLA for PLA+,
+            # SILK for Silk PLA): family matching, and a real difference is a
+            # warning the operator may accept, never a hard block (#1336).
+            from ..printers.flashforge.zmod import screen_label_matches
+            if not screen_label_matches(observed, wanted):
+                problems += material_accept.problem(
+                    "label", f"selected IFS slot {slot_id} is labeled {observed} on the printer screen but "
+                             f"the job selected {wanted}", slot_id, observed, wanted)
         elif not isinstance(observed, str) or observed.casefold() != wanted.casefold():
             problems.append(f"selected IFS slot {slot_id} {key} does not match the job selection")
     return problems
@@ -174,8 +183,10 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
             observed_at = native_at
         problems = check_filament_readiness(state, status, selection, observed_at=observed_at)
         if problems:
-            raise RuntimeError("; ".join(problems))
+            raise RuntimeError(material_accept.message(problems, ""))
     except Exception as exc:
+        if str(exc).startswith(material_accept.PREFIX):
+            raise  # only acceptable material warnings: the operator is asked (#1336)
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 

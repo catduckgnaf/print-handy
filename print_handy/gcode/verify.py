@@ -6,7 +6,7 @@ are still importable from there for one release.
 import hashlib, json, math, re, sys
 
 from .. import printers, settings
-from ..core import printer_state
+from ..core import material_accept, printer_state
 from ..jobs.common import BED_MM, MAX_HEIGHT_MM, _mr
 from .artifact import GcodeArtifact
 from .bounds import BOUNDS_PARSER_VERSION, cached_motion_bounds
@@ -115,6 +115,9 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
         materials = split_config_list(listed) if listed is not None else []
     except ValueError:
         materials = []
+    own = _mismatch_own_temperatures(state, text, materials)
+    if own is not None:
+        return {**state, 'temps_c': own}
 
     def fetch(spool_id):
         record = spoolman_client.get_spool(spool_id, base_url=printer_state.spoolman_url(state))
@@ -127,6 +130,39 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
 
 
 @GcodeArtifact.read_once
+def _mismatch_own_temperatures(state, text, materials):
+    """The G-code's own temperatures, when it was sliced for another material than the loaded one (#1336).
+
+    A sliced-versus-loaded mismatch is a warning the operator may accept with
+    Print as sliced; the accepted run heats to the temperatures the G-code
+    itself carries (for the material it was sliced for), never the loaded
+    spool's. So the temperature checks hold the file to its own targets, and
+    the mismatch is the one warning the refusal names. The heater targets are
+    still held to the printer's mechanical maxima on every accepted start
+    (require_mechanical_limits). None when the file is not a single-material
+    mismatch or carries no readable targets: the normal resolution applies.
+    """
+    loaded = (state.get('spool') or {}).get('material')
+    named = [' '.join(str(m).split()) for m in materials if str(m).strip()]
+    if not loaded or len(set(named)) != 1 or printer_state.same_material(named[0], loaded):
+        return None
+    from ..printers import job_checks
+    from ..core.nozzle import NozzleError, get_nozzle_type_adjustments
+    nozzle = (job_checks._config_numbers(text, 'nozzle_temperature_initial_layer')
+              or job_checks._config_numbers(text, 'nozzle_temperature')
+              or [v for v in job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104') if v > 0])
+    bed = ([v for v in job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140') if v > 0]
+           or [v for key in job_checks._PLATE_KEYS for v in job_checks._config_numbers(text, key) if v > 0])
+    if not nozzle or not bed:
+        return None
+    try:
+        offset = get_nozzle_type_adjustments(printer_state.recorded_nozzle_type(state))['temp_offset_c']
+    except NozzleError:
+        return None
+    # The file carries the effective target (base plus the nozzle-type offset); temps_c holds the base.
+    return {'nozzle': float(nozzle[0]) - offset, 'bed': float(bed[0])}
+
+
 def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """Check startup, checksum, and bed bounds without contacting the printer.
 
@@ -191,7 +227,7 @@ def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     text = GcodeArtifact.of(gcode_path).read_text(errors='ignore')
     problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text, recorded_temps))
     if problems:
-        raise RuntimeError('offline G-code verification failed: ' + '; '.join(problems))
+        raise RuntimeError(material_accept.message(problems, 'offline G-code verification failed: '))
     return {'offline': True, 'connection': adapter.connection}
 
 
@@ -300,7 +336,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if len(listed) == 1:
             material = listed[0]
         if not printer_state.same_material(material, st["spool"]["material"]):
-            errors.append(f"G-code filament_type {material!r} != loaded {st['spool']['material']!r}")
+            # A warning the operator may accept at start, never a hard block (#1336).
+            errors += material_accept.material_problem(material, st["spool"]["material"])
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
     def numeric_macro_match(macro_name, bed_key, hotend_key):
         match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)
@@ -418,7 +455,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 continue
             med=sorted(ws)[len(ws)//2]
             if med<floor: errors.append(f"{name} line width {med:.2f} mm < {floor:.2f} mm (90% of {nozzle} nozzle): starved extrusion, reslice")
-    if errors: raise RuntimeError("the G-code did not pass its safety checks: " + "; ".join(errors))
+    if errors: raise RuntimeError(material_accept.message(errors, "the G-code did not pass its safety checks: "))
     print(f"G-CODE OK: {p.name} | {printer_state.summary(st)}")
     return True
 
@@ -589,12 +626,30 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
     else:
         result = verify_gcode(gcode_path, **kw)
-    if isinstance(job, dict) and isinstance(facts_state, dict):
+    if isinstance(job, dict) and isinstance(facts_state, dict) and not material_accept.used():
+        # An accepted material warning is this run's answer, not a property of the
+        # artifact: the full-verification marker is recorded only for a clean pass.
         try:
             job['gcode_full_verified_sha256'] = _full_verified_marker(GcodeArtifact.of(gcode_path).sha256, facts_state)
         except OSError:
             pass
+    if material_accept.used():
+        _after_material_accept(gcode_path, adapter, state)
     return result
+
+
+def _after_material_accept(gcode_path, adapter, state):
+    """An accepted material warning waives nothing else (#1336).
+
+    The printer's mechanical limits (axis bounds, heater maxima) hold as on a
+    yolo start, and the loaded material is checked against the fitted nozzle
+    and the result shown: abrasive filament on a brass nozzle is its own
+    warning, accepted on its own.
+    """
+    from ..launch.gates import require_mechanical_limits  # launch imports gcode, not the reverse
+    require_mechanical_limits(gcode_path, state, adapter)
+    material_accept.recheck_loaded_nozzle(printer_state.recorded_nozzle_type(state or {}),
+                                          ((state or {}).get('spool') or {}).get('material'))
 
 
 def sovol_style_start_matches(text, bed, hotend, lines=None):

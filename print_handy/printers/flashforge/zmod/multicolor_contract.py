@@ -142,9 +142,13 @@ def validate_materials(text, material, state, mapping=None):
     if mapping is None:
         if len(materials) != 1 or tools - {0}:
             raise RuntimeError('unknown tool mapping for multicolor material validation')
+        from ....core import material_accept
         from ....core.printer_state import same_material
         if not same_material(materials[0], state['spool']['material']):
-            raise RuntimeError(f"G-code filament_type {material!r} != loaded {state['spool']['material']!r}")
+            # A warning the operator may accept with Print as sliced (#1336).
+            found = material_accept.material_problem(materials[0], state['spool']['material'])
+            if found:
+                raise RuntimeError(material_accept.message(found, ''))
         return None
     mapping = normalize_mapping(mapping, state)
     if not tools or tools - set(map(int, mapping)):

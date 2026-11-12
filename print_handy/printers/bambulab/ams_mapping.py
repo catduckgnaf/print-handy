@@ -168,6 +168,30 @@ def validate_supplied(mapping, slot_count):
     return list(mapping)
 
 
+def _other_material_tray(req, trays, used, *, dual=False, fts=False):
+    """The first free loaded tray (on the slot's extruder) when none holds the slot's material, or None."""
+    candidates = [t for t in trays if t["tray"] not in used and t.get("material")]
+    if dual and not fts and req.get("extruder") is not None:
+        candidates = [t for t in candidates if t["extruder"] == req["extruder"]]
+    return candidates[0] if candidates else None
+
+
+def _accept_other_tray(index, req, tray, where):
+    """A tray holding another material: a warning the operator may accept, never a hard block (#1336).
+
+    Raises MappingError carrying the acceptable warning (naming the tray that
+    would be used) unless this start accepted it; returns the tray when it did.
+    """
+    from ...core import material_accept
+    found = material_accept.problem(
+        "tray", f"filament slot {index + 1} needs {req['material']!r}{where}, but no tray reports it; "
+                f"tray {tray['tray']} holds {tray['material']} and would be used",
+        index + 1, req["material"], tray["tray"], tray["material"])
+    if found:
+        raise MappingError(material_accept.message(found, ""))
+    return tray
+
+
 def resolve(requirements, trays, *, dual=False, fts=False):
     """Match every filament slot to a distinct tray; raise MappingError naming the slot that failed.
 
@@ -190,10 +214,13 @@ def resolve(requirements, trays, *, dual=False, fts=False):
         if not candidates:
             where = (f" for extruder {req['extruder']}" if dual and req.get("extruder") is not None
                      and not fts else "")
-            raise MappingError(
-                f"filament slot {index + 1} needs {req['material']!r}{where}, but no loaded AMS "
-                "tray or external spool on the printer reports it; load that filament (or fix "
-                "the job's ams_mapping) — the job will not be started from the wrong tray")
+            fallback = _other_material_tray(req, trays, used, dual=dual, fts=fts)
+            if fallback is None:
+                raise MappingError(
+                    f"filament slot {index + 1} needs {req['material']!r}{where}, but no loaded AMS "
+                    "tray or external spool on the printer reports it; load that filament (or fix "
+                    "the job's ams_mapping) — the job will not be started from the wrong tray")
+            candidates = [_accept_other_tray(index, req, fallback, where)]
         chosen = candidates[0]
         used.add(chosen["tray"])
         mapping.append(chosen["tray"])
@@ -223,6 +250,12 @@ def complete_supplied(supplied, requirements, trays, *, dual=False, fts=False):
         if not candidates:
             where = (f" for extruder {req['extruder']}" if dual and req.get("extruder") is not None
                      and not fts else "")
+            fallback = _other_material_tray(req, trays, used, dual=dual, fts=fts)
+            if fallback is not None:
+                chosen = _accept_other_tray(index, req, fallback, where)
+                completed[index] = chosen["tray"]
+                used.add(chosen["tray"])
+                continue
             raise MappingError(
                 f"filament slot {index + 1} needs {req['material']!r}{where}, but the job's "
                 "ams_mapping leaves it unmapped and no loaded AMS tray or external spool on "

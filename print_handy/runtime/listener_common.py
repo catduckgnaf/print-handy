@@ -138,7 +138,8 @@ def _post_rest(message, mention_user_id=None, ns=None):
         if not chat:
             ns.log("post skipped: telegram.chat_id is not configured")
             return False
-        ok, detail = telegram_rest.send(ns._telegram_token(), chat, message)
+        ok, detail = telegram_rest.send(ns._telegram_token(), chat, message,
+                                        **({"mention_user_id": mention_user_id} if mention_user_id else {}))
         ns.log(f"post rest target=telegram:{chat} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
                f"{'' if ok else ' ' + str(detail)[:200]}")
         return ok
@@ -148,7 +149,8 @@ def _post_rest(message, mention_user_id=None, ns=None):
         if not room:
             ns.log("post skipped: matrix.room_id is not configured")
             return False
-        ok, detail = matrix_rest.send(ns._matrix_homeserver(), ns._matrix_token(), room, message)
+        ok, detail = matrix_rest.send(ns._matrix_homeserver(), ns._matrix_token(), room, message,
+                                      **({"mention_user_id": mention_user_id} if mention_user_id else {}))
         ns.log(f"post rest target=matrix:{room} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
                f"{'' if ok else ' ' + str(detail)[:200]}")
         return ok

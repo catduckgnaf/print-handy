@@ -105,23 +105,50 @@ def _file_call(token, chat_id, path, *, thread_id=None, opener=None, timeout=60)
     return call(token, method, payload, files=[(field, path)], timeout=timeout, opener=opener)
 
 
+STARTER_LABEL = "Starter:"
+
+
+def starter_mention(text, mention_user_id):
+    """(text, entities) for a post that may ping one Telegram user (#1332).
+
+    A Bot API ``text_mention`` entity notifies a user by ID, with no
+    username needed. It must cover visible text, so the post leads with
+    ``Starter:`` and the entity spans the word. Anything but a plain ASCII
+    digit string names nobody and the text is unchanged. The label is
+    ASCII, so its UTF-16 offsets equal its character positions.
+    """
+    user_id = "" if mention_user_id is None else str(mention_user_id)
+    if not (user_id.isascii() and user_id.isdigit()):
+        return text, None
+    entity = {"type": "text_mention", "offset": 0, "length": len(STARTER_LABEL) - 1,
+              "user": {"id": int(user_id), "is_bot": False, "first_name": "Starter"}}
+    return f"{STARTER_LABEL} {text}", [entity]
+
+
 def send(token, chat_id, text, *, thread_id=None, opener=None, timeout=60, files=None,
-         reply_markup=None):
+         reply_markup=None, mention_user_id=None):
     """Post text (and ``files``, plus any attachable MEDIA line) to a chat.
 
     ``reply_markup`` (an inline keyboard) rides the last text piece, the
-    same place the adapter's prompt keyboards sit. Returns (ok, first
-    message id or error text)."""
+    same place the adapter's prompt keyboards sit. ``mention_user_id``
+    pings that one user from the front of the first piece
+    (:func:`starter_mention`); every other post pings nobody. Returns
+    (ok, first message id or error text)."""
     if not token:
         return False, "no Telegram bot token"
     if not chat_id:
         return False, "telegram.chat_id is not configured"
     body, files = outgoing(text, files)
+    entities = None
+    if body:
+        body, entities = starter_mention(body, mention_user_id)
     pieces = [piece for piece in chunks(body, LIMIT) if piece]
     first = None
     try:
         for index, piece in enumerate(pieces):
             payload = {"chat_id": str(chat_id), "text": piece}
+            if index == 0 and entities:
+                payload["entities"] = entities
             if thread_id:
                 payload["message_thread_id"] = str(thread_id)
             if reply_markup is not None and index == len(pieces) - 1:

@@ -313,6 +313,15 @@ def record_filament_warning_acknowledgement(folder_or_job, warnings=None, source
         source_sha256 = pending.get('source_sha256')
     if selected_plates is None:
         selected_plates = pending.get('selected_plates')
+    prior = job.get('filament_warning_acknowledgement') or {}
+    if (prior.get('acknowledged') is True and prior.get('source_sha256') == source_sha256
+            and {str(p) for p in prior.get('selected_plates') or []}
+            == {str(p) for p in selected_plates or []}):
+        # A later gate of the same slicing attempt asked about further warnings
+        # (#1336: the saved-selection round, then a usage round): the operator's
+        # earlier answers for this source and these plates stand with the new ones,
+        # so the resumed slice is not asked the first question again.
+        warnings = list(dict.fromkeys(list(prior.get('warnings') or []) + warnings))
     job['filament_warning_acknowledgement'] = {
         'code': 'FILAMENT_WARNINGS_ACCEPTED',
         'acknowledged': True,

@@ -8,7 +8,7 @@ import argparse, json, os, shutil, sys, time
 from pathlib import Path
 
 from .. import printers
-from ..core import launch_state, printer_state
+from ..core import launch_state, material_accept, printer_state
 from ..core.filament_warnings import FilamentWarningPending
 from ..core.threemf_canonical import intake_working_copy
 from ..gcode.verify import _print_check_warnings, verify_gcode
@@ -138,8 +138,12 @@ def _main():
     remap.add_argument("target", help="JOB.json or plate.gcode")
     remap.add_argument("--slot", type=int, required=True, help="physical IFS slot (1-4)")
     remap.add_argument("--tool", type=str, default=None, help="logical tool index the file uses (default: the file's only used tool)")
+    remap.add_argument("--accept-material-mismatch", action="store_true", help="the slot holds another material than the file was sliced for: reslice the job for that slot (#1336)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
+    pn.add_argument("--accept-material-mismatch",action="store_true",help="print as sliced: accept this run's material warnings (sliced vs loaded material, abrasive filament on a soft nozzle, a material the maker does not recommend, an AMS tray or slot holding another material); this G-code and this run only, heater and axis limits are never waived")
+    pn.add_argument("--accept-material",action="append",default=[],metavar="KEY",help="accept one named material warning (the [accept KEY] a refusal printed); this run only")
+    pn.add_argument("--accept-material-sha256",default=None,help="the SHA-256 of the G-code the material acceptance was given for; any other G-code asks again")
     pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no single-use approval record (the bed-clear confirmation, mechanics, axis limits and heater maximums are never waived)")
     pn.add_argument("--bed-clear-sha256",default=None,help="the operator confirmed the bed is clear for the G-code with this SHA-256 (what the chat's Start button passes)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap the file's one used tool to another physical IFS slot (1-4) without physical spool changes; a file using several tools is refused (use remap-slot --tool)")
@@ -287,11 +291,16 @@ def _main():
         print(routine_phase(printer_state.load())); return
     pn_kw=dict(accept_default_z_offset=getattr(a,"accept_default_z_offset",False),reprint=getattr(a,"reprint",False),remap_slot_num=getattr(a,"remap_slot",None))
     if a.cmd=="print-now" and getattr(a,"yolo",False): pn_kw["yolo"]=True
+    if a.cmd=="print-now":
+        if getattr(a,"accept_material_mismatch",False): pn_kw["accept_material_mismatch"]=True
+        if getattr(a,"accept_material",None): pn_kw["accept_material"]=tuple(a.accept_material)
+        if getattr(a,"accept_material_sha256",None): pn_kw["accept_material_sha256"]=a.accept_material_sha256
     if getattr(a,"bed_clear_sha256",None): pn_kw["bed_clear"]=a.bed_clear_sha256
     elif getattr(a,"bed_clear_confirmed",False): pn_kw["bed_clear"]=True
     if a.cmd=="remap-slot":
         try:
-            res = remap_slot(a.target, a.slot, a.tool)
+            with material_accept.accepting(accept_all=getattr(a, "accept_material_mismatch", False)):
+                res = remap_slot(a.target, a.slot, a.tool)
         except ToolRemapRefused as exc:
             raise SystemExit(f"REFUSED: {exc}. Nothing changed.") from exc
         print("SLOT REMAPPED " + json.dumps(res, indent=2))

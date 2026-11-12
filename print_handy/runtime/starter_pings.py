@@ -86,19 +86,25 @@ _PRUNE_S = 24 * 3600
 _LOCK = threading.Lock()
 
 
+def _platform(cfg=None):
+    """The configured chat platform ([bot] platform, Discord by default)."""
+    cfg = _config.cfg() if cfg is None else cfg
+    return str((cfg.get("bot") or {}).get("platform") or "discord")
+
+
 def mentions_on():
     """Whether starter pings are on (settings + platform gate).
 
     On unless ``discord.mention_starter`` is set false (the old
     ``mention_starter_on_complete`` spelling is folded onto it by the
     settings loader's KEY_ALIASES, so an install that set the old key
-    false stays silent). Discord only: on a Telegram or Matrix install
-    nobody is pinged. Any settings failure means off — a ping is a
+    false stays silent). Every chat platform since #1332 (it was Discord
+    only); the key keeps its historical section. Any settings failure means off — a ping is a
     notification, never something to guess at.
     """
     try:
         cfg = _config.cfg()
-        if str((cfg.get("bot") or {}).get("platform") or "discord") != "discord":
+        if _platform(cfg) not in ("discord", "telegram", "matrix"):
             return False
         return bool((cfg.get("discord") or {}).get("mention_starter", True))
     except Exception:
@@ -201,7 +207,7 @@ def _resolve_job(job, job_key):
 
 
 def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
-    """The Discord user ID this post may ping, or "" when it pings nobody.
+    """The user ID this post may ping on the configured platform, or "" for nobody.
 
     ``kind`` is the post kind the send path declares; ``job`` the job
     dict (or None, with ``job_key`` naming the print so the job can be
@@ -220,7 +226,7 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
     if not mentions_on():
         return ""
     job = _resolve_job(job, job_key)
-    user_id = print_summary.starter_user_id(job)
+    user_id = print_summary.starter_user_id(job, _platform())
     if not user_id:
         return ""
     if kind in TERMINAL_KINDS:

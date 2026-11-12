@@ -105,7 +105,9 @@ def run_bot(cfg):
     token = _config.discord_token()
     for attempt in range(1, STARTUP_ATTEMPTS + 1):
         try:
-            PrintHandyBot(cfg).run(token, log_handler=None)
+            bot = PrintHandyBot(cfg)
+            bot.warm_worker = True  # the production loop keeps a warm heavy worker (#1332)
+            bot.run(token, log_handler=None)
         except discord.LoginFailure as exc:
             from .. import diagnostics
             print(f"Discord refused the bot token: {exc}. Check that the token in the environment "
@@ -192,6 +194,9 @@ class PrintHandyBot(ext_commands.Bot):
         from ..core import resources
         resources.cap_default_executor(asyncio.get_running_loop())  # asyncio.to_thread pool follows the CPU quota
         self.core = BotCore(self, self.cfg)
+        if getattr(self, "warm_worker", False):
+            from .runtime import enable_warm_worker
+            enable_warm_worker()
         for name, command in commands.registrations():
             self.tree.add_command(_slash(lambda: self.core, command, name))
         if self.cfg["bot"].get("sync_commands", True):

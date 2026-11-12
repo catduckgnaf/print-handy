@@ -33,11 +33,24 @@ def _plain(value):
     return value
 
 
-def main():
+def preload():
+    """Import every offloadable step's module (#1332, the warm spare).
+
+    A warm spare runs this before it blocks on its request, so the 0.6 to
+    1.1 s import cost is paid while nobody waits. A cold worker skips it
+    and imports only the module its step needs.
+    """
+    for module in sorted({module for module, _func in ALLOWED}):
+        importlib.import_module(f'print_handy.core.{module}')
+
+
+def main(argv=None):
     # Works as `python3 -m print_handy.core.heavy_worker` or as a plain script path.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from print_handy.core import resources
     resources.apply_to_environment()  # before numpy loads: BLAS/OpenMP pools follow the CPU quota
+    if '--warm' in (sys.argv[1:] if argv is None else argv):
+        preload()  # then wait for the one request this spare serves
     request = json.loads(sys.stdin.read())
     # The worker is a Print Handy process too: configure the shared logging
     # (stderr only — stdout stays the JSON reply channel) and bind the

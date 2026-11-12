@@ -39,8 +39,11 @@ VERBS = {"started": "Print started", "slice": "Print preparing", "complete": "Pr
 TERMINAL_KINDS = ("complete", "cancelled", "error")
 
 
-def starter_user_id(job):
-    """The Discord user ID of the person who started this job's print, or "".
+def starter_user_id(job, platform="discord"):
+    """The ``platform`` user ID of the person who started this job's print, or "".
+
+    #1332: Telegram and Matrix terminal posts mention the starter too.
+    Discord and Telegram IDs are digits; a Matrix ID is ``@user:server``.
 
     The starter is the intake-stamped ``started_by`` record on JOB.json (or
     the start-context sidecar). Anything else — no stamp, a starter from
@@ -52,10 +55,14 @@ def starter_user_id(job):
     starter = job.get("started_by")
     if not isinstance(starter, dict):
         return ""
-    if str(starter.get("platform") or "discord") != "discord":
+    platform = str(platform or "discord")
+    if str(starter.get("platform") or "discord") != platform:
         return ""
     user_id = str(starter.get("user_id") or "")
-    return user_id if user_id.isdigit() else ""
+    if platform == "matrix":
+        from print_handy.bot.matrix_rest import _MATRIX_USER
+        return user_id if _MATRIX_USER.fullmatch(user_id) else ""
+    return user_id if user_id.isascii() and user_id.isdigit() else ""
 
 
 def _inert(text):

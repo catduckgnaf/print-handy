@@ -54,6 +54,48 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     return await print_next.start({**target, 'accept_spool_change': True})
 
 
+async def _start_with_offers(adapter, source, metadata, print_next, target, live_key=None):
+    """One chat start that asks instead of hard-blocking on material warnings or a swapped spool (#1336).
+
+    A refusal that names only acceptable material warnings (sliced vs loaded
+    material, abrasive filament on a soft nozzle, a material the maker does not
+    recommend, an AMS tray or slot holding another material) asks Reslice for
+    the loaded material (the default) / Print as sliced / Cancel; Print as
+    sliced restarts with that answer bound to this exact G-code. A slot spool
+    swapped since slicing asks Use the loaded spool, as before. Returns
+    (ok, detail, plain): plain is True when detail is already chat wording.
+    """
+    from print_handy.core import material_accept
+    timeout = globals().get('_config').question_timeout_s() if globals().get('_config') else 1800
+    target = dict(target)
+    ok, detail = await print_next.start(target)
+    for _round in range(3):
+        if ok:
+            break
+        warnings = material_accept.pending(detail)
+        if warnings:
+            choices = material_accept.choices(warnings)
+            answer = await _confirm(adapter, source, metadata, 'print-material', material_accept.question(warnings),
+                                    choices, timeout, live_key=live_key, approval=True)
+            if answer != material_accept.PRINT_AS_SLICED_LABEL:
+                return False, (material_accept.reslice_message(warnings) if answer == choices[0]
+                               else 'Cancelled. Nothing uploaded or started.'), True
+            # A new dict per start: an earlier start's target is never changed after the fact.
+            target = {**target, 'accept_material': sorted(set(target.get('accept_material') or ())
+                                                          | {w['key'] for w in warnings})}
+            ok, detail = await print_next.start(target)
+            continue
+        if SPOOL_CHANGED in str(detail) and not target.get('accept_spool_change'):
+            ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
+                                                    live_key=live_key)
+            if detail == 'Cancelled. Nothing uploaded or started.':
+                return False, detail, True
+            target = {**target, 'accept_spool_change': True}
+            continue
+        break
+    return ok, detail, False
+
+
 async def print_next_dispatch(event, gateway, **kwargs):
     """/print-next <plan_id> [part_id]: one bed-clear button for the exact next (or named) plate. One start per tap."""
     source = getattr(event, 'source', None)
@@ -167,10 +209,11 @@ async def print_next_dispatch(event, gateway, **kwargs):
         else:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f"Preparing to start {target['label']}. {target.get('estimate_text', 'Estimated print time unknown')}.")
-            ok, detail = await print_next.start(target)
-            if not ok and SPOOL_CHANGED in str(detail):
-                ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
-                                                        live_key=live_key)
+            ok, detail, plain = await _start_with_offers(adapter, source, metadata, print_next, target,
+                                                         live_key=live_key)
+            if plain:
+                await adapter.send(chat_id=source.chat_id, content=detail, metadata=metadata)
+                return {'action': 'skip', 'reason': 'deterministic next plate handled'}
             if ok:
                 await _announce_command_start(
                     lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),

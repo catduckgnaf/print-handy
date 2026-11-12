@@ -282,7 +282,7 @@ CATALOG = (
            "watchdog keep their own vision switches either way.",
            validator="settings discord check"),
     _field("discord", "mention_starter", "Mention who started the print", "toggle",
-           "On by default: when a print needs its starter on Discord, the post @mentions "
+           "On by default: when a print needs its starter (Discord, Telegram or Matrix), the post @mentions "
            "only the user who started that print — the post that ends it (complete, "
            "cancelled or stopped with an error) and the alerts that need a person (the "
            "camera watchdog, a pause or stop from an error or runout), once per problem. "

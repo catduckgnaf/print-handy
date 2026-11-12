@@ -511,7 +511,11 @@ def test_prusalink_and_sdcp_verification_goes_through_the_record_checks(tmp_path
             model_job._verify_offline(bad, state)
         assert "G-code filament_type 'PETG' != loaded 'PLA'" in str(refused.value)
         assert "G-code nozzle 0.6 mm != installed 0.4 mm" in str(refused.value)
-        assert "nozzle temperature 235 C != recorded 210 C" in str(refused.value)  # no slot holds PETG: the active spool's
+        # #1336: a mismatched file is held to its OWN temperatures (what Print as sliced
+        # would heat to), so the loaded PLA's 210 C is no longer charged against it; the
+        # material is the acceptable warning, the nozzle is a real fault.
+        assert "nozzle temperature 235 C" not in str(refused.value)
+        assert "[accept material|PETG|PLA]" in str(refused.value)
 
 
 @pytest.mark.parametrize("model", GUARD_MODELS)

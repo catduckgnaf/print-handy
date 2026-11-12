@@ -235,6 +235,40 @@ def apply_stock_presence(status, stock):
     return printers.current().native.apply_stock_presence(status, stock)
 
 
+def _saved_selection_drift(state, selection):
+    """(warning, current selection) when a job's saved slot selection no longer matches the slot (#1336).
+
+    The slot's record now names another spool or another material than the
+    job chose (a spool swapped since the job was set up). That is a filament
+    warning the operator may accept in the #1190 round, never a refusal:
+    accepting re-resolves the selection from the slot's current record, so
+    the slice is made for the spool that is loaded there now. (None, None)
+    when the record agrees, names no spool or material, or the slot is not
+    color-verified (an integrity check the existing refusal keeps).
+    """
+    if not isinstance(selection, dict):
+        return None, None
+    slot = selection.get('slot')
+    record = (state.get('filament_slots') or {}).get(str(slot)) or {}
+    material, spool = record.get('material'), record.get('spoolman_id')
+    if not material or not spool or not record.get('physical_color_verified'):
+        return None, None
+    same = (spool == selection.get('spoolman_id')
+            and ' '.join(str(material).casefold().split())
+            == ' '.join(str(selection.get('material') or '').casefold().split()))
+    if same:
+        return None, None
+    try:
+        current = resolve_filament_selection(state, {'slot': slot})
+    except (ValueError, RuntimeError):
+        return None, None
+    def describe(item):
+        name = ' '.join(str(item.get(k) or '').strip() for k in ('color', 'material')).strip() or 'a spool'
+        return f"{name} (spool #{item.get('spoolman_id')})" if item.get('spoolman_id') else name
+    return (f"slot {slot} now holds {describe(current)}; the job chose {describe(selection)}. "
+            f"Accepting slices it for what slot {slot} holds now"), current
+
+
 def _validate_slot_selection(state, selection):
     """The selected IFS slot, not the globally active spool, owns a single-color job."""
     slot = state.get('filament_slots', {}).get(str(selection['slot']), {})
