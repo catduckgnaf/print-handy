@@ -1,0 +1,1016 @@
+{
+  "_about": "Print Handy local progress voice bank, part 5 of 5.",
+  "_license": "Original to Print Handy; AGPL-3.0-only",
+  "stages": {
+    "upload": [
+      {
+        "id": "upload-001",
+        "family": "upload-01",
+        "text": "Sending the verified print file toward the actual printer. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-002",
+        "family": "upload-01",
+        "text": "Sending the verified print file toward the actual printer. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-003",
+        "family": "upload-01",
+        "text": "Sending the verified print file toward the actual printer. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-004",
+        "family": "upload-01",
+        "text": "Sending the verified print file toward the actual printer. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-005",
+        "family": "upload-02",
+        "text": "Transferring the toolpath with all appropriate suspicion. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-006",
+        "family": "upload-02",
+        "text": "Transferring the toolpath with all appropriate suspicion. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-007",
+        "family": "upload-02",
+        "text": "Transferring the toolpath with all appropriate suspicion. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-008",
+        "family": "upload-02",
+        "text": "Transferring the toolpath with all appropriate suspicion. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-009",
+        "family": "upload-03",
+        "text": "Moving the prepared job out of the planning department. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-010",
+        "family": "upload-03",
+        "text": "Moving the prepared job out of the planning department. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-011",
+        "family": "upload-03",
+        "text": "Moving the prepared job out of the planning department. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-012",
+        "family": "upload-03",
+        "text": "Moving the prepared job out of the planning department. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-013",
+        "family": "upload-04",
+        "text": "Uploading instructions for the nozzle's next assignment. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-014",
+        "family": "upload-04",
+        "text": "Uploading instructions for the nozzle's next assignment. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-015",
+        "family": "upload-04",
+        "text": "Uploading instructions for the nozzle's next assignment. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-016",
+        "family": "upload-04",
+        "text": "Uploading instructions for the nozzle's next assignment. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-017",
+        "family": "upload-05",
+        "text": "Delivering G-code to its future executor. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-018",
+        "family": "upload-05",
+        "text": "Delivering G-code to its future executor. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-019",
+        "family": "upload-05",
+        "text": "Delivering G-code to its future executor. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-020",
+        "family": "upload-05",
+        "text": "Delivering G-code to its future executor. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-021",
+        "family": "upload-06",
+        "text": "Making sure the printer receives the complete job. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-022",
+        "family": "upload-06",
+        "text": "Making sure the printer receives the complete job. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-023",
+        "family": "upload-06",
+        "text": "Making sure the printer receives the complete job. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-024",
+        "family": "upload-06",
+        "text": "Making sure the printer receives the complete job. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-025",
+        "family": "upload-07",
+        "text": "Sending a plastic construction plan across the network. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-026",
+        "family": "upload-07",
+        "text": "Sending a plastic construction plan across the network. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-027",
+        "family": "upload-07",
+        "text": "Sending a plastic construction plan across the network. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-028",
+        "family": "upload-07",
+        "text": "Sending a plastic construction plan across the network. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-029",
+        "family": "upload-08",
+        "text": "Handing over the toolpath without pressing start prematurely. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-030",
+        "family": "upload-08",
+        "text": "Handing over the toolpath without pressing start prematurely. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-031",
+        "family": "upload-08",
+        "text": "Handing over the toolpath without pressing start prematurely. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-032",
+        "family": "upload-08",
+        "text": "Handing over the toolpath without pressing start prematurely. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-033",
+        "family": "upload-09",
+        "text": "Transferring the file like a courier with trust issues. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-034",
+        "family": "upload-09",
+        "text": "Transferring the file like a courier with trust issues. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-035",
+        "family": "upload-09",
+        "text": "Transferring the file like a courier with trust issues. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-036",
+        "family": "upload-09",
+        "text": "Transferring the file like a courier with trust issues. A successful upload does not make the bed clear."
+      },
+      {
+        "id": "upload-037",
+        "family": "upload-10",
+        "text": "Checking that the print job gets to the right machine. This is a transfer, not a launch."
+      },
+      {
+        "id": "upload-038",
+        "family": "upload-10",
+        "text": "Checking that the print job gets to the right machine. The hot end still needs separate permission."
+      },
+      {
+        "id": "upload-039",
+        "family": "upload-10",
+        "text": "Checking that the print job gets to the right machine. Network cables are the real unsung heroes."
+      },
+      {
+        "id": "upload-040",
+        "family": "upload-10",
+        "text": "Checking that the print job gets to the right machine. A successful upload does not make the bed clear."
+      }
+    ],
+    "print_start": [
+      {
+        "id": "print_start-001",
+        "family": "print_start-01",
+        "text": "Starting the approved job and hoping gravity behaves. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-002",
+        "family": "print_start-01",
+        "text": "Starting the approved job and hoping gravity behaves. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-003",
+        "family": "print_start-01",
+        "text": "Starting the approved job and hoping gravity behaves. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-004",
+        "family": "print_start-01",
+        "text": "Starting the approved job and hoping gravity behaves. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-005",
+        "family": "print_start-02",
+        "text": "Handing this design over to a nozzle with a work ethic. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-006",
+        "family": "print_start-02",
+        "text": "Handing this design over to a nozzle with a work ethic. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-007",
+        "family": "print_start-02",
+        "text": "Handing this design over to a nozzle with a work ethic. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-008",
+        "family": "print_start-02",
+        "text": "Handing this design over to a nozzle with a work ethic. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-009",
+        "family": "print_start-03",
+        "text": "Kicking off the print with an entirely reasonable amount of dread. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-010",
+        "family": "print_start-03",
+        "text": "Kicking off the print with an entirely reasonable amount of dread. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-011",
+        "family": "print_start-03",
+        "text": "Kicking off the print with an entirely reasonable amount of dread. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-012",
+        "family": "print_start-03",
+        "text": "Kicking off the print with an entirely reasonable amount of dread. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-013",
+        "family": "print_start-04",
+        "text": "Beginning another carefully authorized plastic adventure. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-014",
+        "family": "print_start-04",
+        "text": "Beginning another carefully authorized plastic adventure. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-015",
+        "family": "print_start-04",
+        "text": "Beginning another carefully authorized plastic adventure. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-016",
+        "family": "print_start-04",
+        "text": "Beginning another carefully authorized plastic adventure. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-017",
+        "family": "print_start-05",
+        "text": "Setting the approved toolpath loose on the build plate. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-018",
+        "family": "print_start-05",
+        "text": "Setting the approved toolpath loose on the build plate. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-019",
+        "family": "print_start-05",
+        "text": "Setting the approved toolpath loose on the build plate. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-020",
+        "family": "print_start-05",
+        "text": "Setting the approved toolpath loose on the build plate. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-021",
+        "family": "print_start-06",
+        "text": "Watching the printer accept its latest questionable assignment. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-022",
+        "family": "print_start-06",
+        "text": "Watching the printer accept its latest questionable assignment. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-023",
+        "family": "print_start-06",
+        "text": "Watching the printer accept its latest questionable assignment. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-024",
+        "family": "print_start-06",
+        "text": "Watching the printer accept its latest questionable assignment. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-025",
+        "family": "print_start-07",
+        "text": "Starting the manufacturing phase of your personal side quest. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-026",
+        "family": "print_start-07",
+        "text": "Starting the manufacturing phase of your personal side quest. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-027",
+        "family": "print_start-07",
+        "text": "Starting the manufacturing phase of your personal side quest. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-028",
+        "family": "print_start-07",
+        "text": "Starting the manufacturing phase of your personal side quest. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-029",
+        "family": "print_start-08",
+        "text": "Giving the motors permission to become involved. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-030",
+        "family": "print_start-08",
+        "text": "Giving the motors permission to become involved. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-031",
+        "family": "print_start-08",
+        "text": "Giving the motors permission to become involved. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-032",
+        "family": "print_start-08",
+        "text": "Giving the motors permission to become involved. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-033",
+        "family": "print_start-09",
+        "text": "Letting the printer handle a problem made entirely of polygons. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-034",
+        "family": "print_start-09",
+        "text": "Letting the printer handle a problem made entirely of polygons. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-035",
+        "family": "print_start-09",
+        "text": "Letting the printer handle a problem made entirely of polygons. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-036",
+        "family": "print_start-09",
+        "text": "Letting the printer handle a problem made entirely of polygons. Plastic has officially joined the conversation."
+      },
+      {
+        "id": "print_start-037",
+        "family": "print_start-10",
+        "text": "Launching the print now that the formalities are satisfied. The printer has entered its employed era."
+      },
+      {
+        "id": "print_start-038",
+        "family": "print_start-10",
+        "text": "Launching the print now that the formalities are satisfied. The real-time suspense is included free."
+      },
+      {
+        "id": "print_start-039",
+        "family": "print_start-10",
+        "text": "Launching the print now that the formalities are satisfied. You are now invested in how well layer one behaves."
+      },
+      {
+        "id": "print_start-040",
+        "family": "print_start-10",
+        "text": "Launching the print now that the formalities are satisfied. Plastic has officially joined the conversation."
+      }
+    ],
+    "print_monitor": [
+      {
+        "id": "print_monitor-001",
+        "family": "print_monitor-01",
+        "text": "Watching progress like a nervous parent at a school recital. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-002",
+        "family": "print_monitor-01",
+        "text": "Watching progress like a nervous parent at a school recital. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-003",
+        "family": "print_monitor-01",
+        "text": "Watching progress like a nervous parent at a school recital. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-004",
+        "family": "print_monitor-01",
+        "text": "Watching progress like a nervous parent at a school recital. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-005",
+        "family": "print_monitor-02",
+        "text": "Keeping an eye on the print while the layers develop character. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-006",
+        "family": "print_monitor-02",
+        "text": "Keeping an eye on the print while the layers develop character. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-007",
+        "family": "print_monitor-02",
+        "text": "Keeping an eye on the print while the layers develop character. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-008",
+        "family": "print_monitor-02",
+        "text": "Keeping an eye on the print while the layers develop character. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-009",
+        "family": "print_monitor-03",
+        "text": "Monitoring another round of controlled plastic accumulation. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-010",
+        "family": "print_monitor-03",
+        "text": "Monitoring another round of controlled plastic accumulation. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-011",
+        "family": "print_monitor-03",
+        "text": "Monitoring another round of controlled plastic accumulation. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-012",
+        "family": "print_monitor-03",
+        "text": "Monitoring another round of controlled plastic accumulation. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-013",
+        "family": "print_monitor-04",
+        "text": "Checking the machine's progress without pretending it's fast. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-014",
+        "family": "print_monitor-04",
+        "text": "Checking the machine's progress without pretending it's fast. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-015",
+        "family": "print_monitor-04",
+        "text": "Checking the machine's progress without pretending it's fast. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-016",
+        "family": "print_monitor-04",
+        "text": "Checking the machine's progress without pretending it's fast. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-017",
+        "family": "print_monitor-05",
+        "text": "Observing the tiny factory from the comfort of software. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-018",
+        "family": "print_monitor-05",
+        "text": "Observing the tiny factory from the comfort of software. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-019",
+        "family": "print_monitor-05",
+        "text": "Observing the tiny factory from the comfort of software. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-020",
+        "family": "print_monitor-05",
+        "text": "Observing the tiny factory from the comfort of software. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-021",
+        "family": "print_monitor-06",
+        "text": "Following the print's long march from nothing to object. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-022",
+        "family": "print_monitor-06",
+        "text": "Following the print's long march from nothing to object. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-023",
+        "family": "print_monitor-06",
+        "text": "Following the print's long march from nothing to object. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-024",
+        "family": "print_monitor-06",
+        "text": "Following the print's long march from nothing to object. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-025",
+        "family": "print_monitor-07",
+        "text": "Watching the printer turn electricity into a shelf problem. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-026",
+        "family": "print_monitor-07",
+        "text": "Watching the printer turn electricity into a shelf problem. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-027",
+        "family": "print_monitor-07",
+        "text": "Watching the printer turn electricity into a shelf problem. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-028",
+        "family": "print_monitor-07",
+        "text": "Watching the printer turn electricity into a shelf problem. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-029",
+        "family": "print_monitor-08",
+        "text": "Keeping tabs on the job without touching any controls. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-030",
+        "family": "print_monitor-08",
+        "text": "Keeping tabs on the job without touching any controls. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-031",
+        "family": "print_monitor-08",
+        "text": "Keeping tabs on the job without touching any controls. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-032",
+        "family": "print_monitor-08",
+        "text": "Keeping tabs on the job without touching any controls. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-033",
+        "family": "print_monitor-09",
+        "text": "Tracking layers while you find other ways to be impatient. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-034",
+        "family": "print_monitor-09",
+        "text": "Tracking layers while you find other ways to be impatient. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-035",
+        "family": "print_monitor-09",
+        "text": "Tracking layers while you find other ways to be impatient. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-036",
+        "family": "print_monitor-09",
+        "text": "Tracking layers while you find other ways to be impatient. Progress is not a legally binding promise."
+      },
+      {
+        "id": "print_monitor-037",
+        "family": "print_monitor-10",
+        "text": "Making sure the ongoing job keeps looking like a job. I refuse to describe a percentage as a personality."
+      },
+      {
+        "id": "print_monitor-038",
+        "family": "print_monitor-10",
+        "text": "Making sure the ongoing job keeps looking like a job. A watched printer still takes the same amount of time."
+      },
+      {
+        "id": "print_monitor-039",
+        "family": "print_monitor-10",
+        "text": "Making sure the ongoing job keeps looking like a job. The camera is not a fortune teller."
+      },
+      {
+        "id": "print_monitor-040",
+        "family": "print_monitor-10",
+        "text": "Making sure the ongoing job keeps looking like a job. Progress is not a legally binding promise."
+      }
+    ],
+    "print_complete": [
+      {
+        "id": "print_complete-001",
+        "family": "print_complete-01",
+        "text": "The printer finished and your shelf just lost another inch. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-002",
+        "family": "print_complete-01",
+        "text": "The printer finished and your shelf just lost another inch. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-003",
+        "family": "print_complete-01",
+        "text": "The printer finished and your shelf just lost another inch. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-004",
+        "family": "print_complete-01",
+        "text": "The printer finished and your shelf just lost another inch. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-005",
+        "family": "print_complete-02",
+        "text": "Another completed object has escaped the digital dimension. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-006",
+        "family": "print_complete-02",
+        "text": "Another completed object has escaped the digital dimension. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-007",
+        "family": "print_complete-02",
+        "text": "Another completed object has escaped the digital dimension. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-008",
+        "family": "print_complete-02",
+        "text": "Another completed object has escaped the digital dimension. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-009",
+        "family": "print_complete-03",
+        "text": "The job is done and the filament has filed an expense report. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-010",
+        "family": "print_complete-03",
+        "text": "The job is done and the filament has filed an expense report. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-011",
+        "family": "print_complete-03",
+        "text": "The job is done and the filament has filed an expense report. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-012",
+        "family": "print_complete-03",
+        "text": "The job is done and the filament has filed an expense report. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-013",
+        "family": "print_complete-04",
+        "text": "The printer successfully fulfilled another deeply specific request. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-014",
+        "family": "print_complete-04",
+        "text": "The printer successfully fulfilled another deeply specific request. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-015",
+        "family": "print_complete-04",
+        "text": "The printer successfully fulfilled another deeply specific request. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-016",
+        "family": "print_complete-04",
+        "text": "The printer successfully fulfilled another deeply specific request. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-017",
+        "family": "print_complete-05",
+        "text": "Your model is now an object with real world consequences. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-018",
+        "family": "print_complete-05",
+        "text": "Your model is now an object with real world consequences. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-019",
+        "family": "print_complete-05",
+        "text": "Your model is now an object with real world consequences. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-020",
+        "family": "print_complete-05",
+        "text": "Your model is now an object with real world consequences. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-021",
+        "family": "print_complete-06",
+        "text": "The build plate has delivered its latest miniature responsibility. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-022",
+        "family": "print_complete-06",
+        "text": "The build plate has delivered its latest miniature responsibility. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-023",
+        "family": "print_complete-06",
+        "text": "The build plate has delivered its latest miniature responsibility. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-024",
+        "family": "print_complete-06",
+        "text": "The build plate has delivered its latest miniature responsibility. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-025",
+        "family": "print_complete-07",
+        "text": "The machine completed its assignment without asking why. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-026",
+        "family": "print_complete-07",
+        "text": "The machine completed its assignment without asking why. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-027",
+        "family": "print_complete-07",
+        "text": "The machine completed its assignment without asking why. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-028",
+        "family": "print_complete-07",
+        "text": "The machine completed its assignment without asking why. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-029",
+        "family": "print_complete-08",
+        "text": "Another pile of coordinates has become a physical thing. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-030",
+        "family": "print_complete-08",
+        "text": "Another pile of coordinates has become a physical thing. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-031",
+        "family": "print_complete-08",
+        "text": "Another pile of coordinates has become a physical thing. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-032",
+        "family": "print_complete-08",
+        "text": "Another pile of coordinates has become a physical thing. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-033",
+        "family": "print_complete-09",
+        "text": "The print is complete and the collection grows more suspicious. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-034",
+        "family": "print_complete-09",
+        "text": "The print is complete and the collection grows more suspicious. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-035",
+        "family": "print_complete-09",
+        "text": "The print is complete and the collection grows more suspicious. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-036",
+        "family": "print_complete-09",
+        "text": "The print is complete and the collection grows more suspicious. The printer will be expecting employee benefits."
+      },
+      {
+        "id": "print_complete-037",
+        "family": "print_complete-10",
+        "text": "The nozzle clocked out after a remarkably personal errand. Please allow the plastic its moment of dignity."
+      },
+      {
+        "id": "print_complete-038",
+        "family": "print_complete-10",
+        "text": "The nozzle clocked out after a remarkably personal errand. I hope the object was worth the electricity."
+      },
+      {
+        "id": "print_complete-039",
+        "family": "print_complete-10",
+        "text": "The nozzle clocked out after a remarkably personal errand. Your storage problem is not in my contract."
+      },
+      {
+        "id": "print_complete-040",
+        "family": "print_complete-10",
+        "text": "The nozzle clocked out after a remarkably personal errand. The printer will be expecting employee benefits."
+      }
+    ],
+    "print_failure": [
+      {
+        "id": "print_failure-001",
+        "family": "print_failure-01",
+        "text": "The print failed and gravity is acting awfully smug. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-002",
+        "family": "print_failure-01",
+        "text": "The print failed and gravity is acting awfully smug. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-003",
+        "family": "print_failure-01",
+        "text": "The print failed and gravity is acting awfully smug. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-004",
+        "family": "print_failure-01",
+        "text": "The print failed and gravity is acting awfully smug. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-005",
+        "family": "print_failure-02",
+        "text": "This job stopped with an error instead of a finished object. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-006",
+        "family": "print_failure-02",
+        "text": "This job stopped with an error instead of a finished object. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-007",
+        "family": "print_failure-02",
+        "text": "This job stopped with an error instead of a finished object. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-008",
+        "family": "print_failure-02",
+        "text": "This job stopped with an error instead of a finished object. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-009",
+        "family": "print_failure-03",
+        "text": "The printer has filed a complaint against the current situation. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-010",
+        "family": "print_failure-03",
+        "text": "The printer has filed a complaint against the current situation. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-011",
+        "family": "print_failure-03",
+        "text": "The printer has filed a complaint against the current situation. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-012",
+        "family": "print_failure-03",
+        "text": "The printer has filed a complaint against the current situation. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-013",
+        "family": "print_failure-04",
+        "text": "The attempted object is now an incident report. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-014",
+        "family": "print_failure-04",
+        "text": "The attempted object is now an incident report. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-015",
+        "family": "print_failure-04",
+        "text": "The attempted object is now an incident report. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-016",
+        "family": "print_failure-04",
+        "text": "The attempted object is now an incident report. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-017",
+        "family": "print_failure-05",
+        "text": "This run failed; the triangles are declining comment. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-018",
+        "family": "print_failure-05",
+        "text": "This run failed; the triangles are declining comment. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-019",
+        "family": "print_failure-05",
+        "text": "This run failed; the triangles are declining comment. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-020",
+        "family": "print_failure-05",
+        "text": "This run failed; the triangles are declining comment. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-021",
+        "family": "print_failure-06",
+        "text": "The job ended in failure and the nozzle wants a lawyer. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-022",
+        "family": "print_failure-06",
+        "text": "The job ended in failure and the nozzle wants a lawyer. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-023",
+        "family": "print_failure-06",
+        "text": "The job ended in failure and the nozzle wants a lawyer. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-024",
+        "family": "print_failure-06",
+        "text": "The job ended in failure and the nozzle wants a lawyer. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-025",
+        "family": "print_failure-07",
+        "text": "The print did not finish as intended, despite everyone's optimism. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-026",
+        "family": "print_failure-07",
+        "text": "The print did not finish as intended, despite everyone's optimism. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-027",
+        "family": "print_failure-07",
+        "text": "The print did not finish as intended, despite everyone's optimism. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-028",
+        "family": "print_failure-07",
+        "text": "The print did not finish as intended, despite everyone's optimism. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-029",
+        "family": "print_failure-08",
+        "text": "The machine reported trouble and the plastic looks concerned. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-030",
+        "family": "print_failure-08",
+        "text": "The machine reported trouble and the plastic looks concerned. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-031",
+        "family": "print_failure-08",
+        "text": "The machine reported trouble and the plastic looks concerned. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-032",
+        "family": "print_failure-08",
+        "text": "The machine reported trouble and the plastic looks concerned. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-033",
+        "family": "print_failure-09",
+        "text": "The promised object has become a troubleshooting opportunity. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-034",
+        "family": "print_failure-09",
+        "text": "The promised object has become a troubleshooting opportunity. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-035",
+        "family": "print_failure-09",
+        "text": "The promised object has become a troubleshooting opportunity. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-036",
+        "family": "print_failure-09",
+        "text": "The promised object has become a troubleshooting opportunity. The next step is evidence, not optimism."
+      },
+      {
+        "id": "print_failure-037",
+        "family": "print_failure-10",
+        "text": "This print attempt failed to become the planned object. The failure reason deserves analysis, not fan fiction."
+      },
+      {
+        "id": "print_failure-038",
+        "family": "print_failure-10",
+        "text": "This print attempt failed to become the planned object. Nothing says hobby like a fresh diagnostic report."
+      },
+      {
+        "id": "print_failure-039",
+        "family": "print_failure-10",
+        "text": "This print attempt failed to become the planned object. I will not call this a successful surprise."
+      },
+      {
+        "id": "print_failure-040",
+        "family": "print_failure-10",
+        "text": "This print attempt failed to become the planned object. The next step is evidence, not optimism."
+      }
+    ]
+  }
+}
