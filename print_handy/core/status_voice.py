@@ -249,4 +249,38 @@ def quip(
         return ""
 
 
-__all__ = ("EXPECTED_COUNT", "STATE_NAME", "load_bank", "quip")
+# A trailing action instruction stays the last sentence, so a quip never
+# separates the button the reader needs from the end of the message.
+ACTION_TAILS = (
+    " Press Stop to cancel before it starts.",
+    " Press Stop to request cancellation.",
+    " Press Stop to cancel.",
+)
+
+
+def voiced(text: str, stage: str, *, separator: str = " ", **kwargs: Any) -> str:
+    """``text`` with one quip as a trailing sentence, or ``text`` byte-identical.
+
+    The factual sentences always come first and are never edited. When the
+    text ends with a Stop instruction the quip goes just before it. A
+    multi-line post passes ``separator="
+"`` to keep the quip on its own
+    line after the facts. Any
+    problem, including an empty quip, returns the original text unchanged.
+    """
+    try:
+        if not isinstance(text, str) or not text:
+            return text
+        line = quip(stage, **kwargs)
+        if not line:
+            return text
+        for tail in ACTION_TAILS:
+            if text.endswith(tail):
+                return f"{text[:-len(tail)]}{separator}{line}{tail}"
+        return f"{text}{separator}{line}"
+    except Exception:
+        logger.exception("status voice could not decorate stage %s", stage)
+        return text
+
+
+__all__ = ("ACTION_TAILS", "EXPECTED_COUNT", "STATE_NAME", "load_bank", "quip", "voiced")

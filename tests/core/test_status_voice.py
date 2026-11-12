@@ -10,6 +10,8 @@ import pytest
 from print_handy.core import status_voice
 from print_handy.core.quantity_selection import parse_quantity
 
+STATUS_VOICE_LIVE = True  # tests/conftest.py: this module tests the real selector
+
 
 def test_shipped_corpus_is_exactly_one_thousand_unique_lines_in_25_stages():
     stages = status_voice.load_bank()
@@ -130,3 +132,29 @@ def test_authoritative_progress_remains_outside_corpus():
     assert "press stop to cancel" not in all_text
     assert "click to print now" not in all_text
     assert "click approve to start the print" not in all_text
+
+
+def test_voiced_appends_after_the_facts_and_keeps_the_stop_instruction_last(tmp_path):
+    path = tmp_path / "voice.json"
+    line = status_voice.voiced("Slicing.", "slice", event_key="a", state_path=path, rng=random.Random(1))
+    assert line.startswith("Slicing. ") and len(line) > len("Slicing. ")
+    joke = line[len("Slicing. "):]
+    assert joke in {row["text"] for row in status_voice.load_bank()["slice"]}
+    # Replay: the same key gives the same line, and a Stop tail stays last.
+    stop = status_voice.voiced("Slicing. Press Stop to cancel.", "slice", event_key="a", state_path=path)
+    assert stop == f"Slicing. {joke} Press Stop to cancel."
+    multi = status_voice.voiced("Print complete.\nPrinter: A1", "slice", separator="\n",
+                                event_key="a", state_path=path)
+    assert multi == f"Print complete.\nPrinter: A1\n{joke}"
+
+
+@pytest.mark.parametrize("text", ["Slicing. Press Stop to cancel.", "Checking the model.", "", None])
+def test_voiced_failure_leaves_text_byte_identical(tmp_path, monkeypatch, text):
+    assert status_voice.voiced(text, "no_such_stage", state_path=tmp_path / "v.json") == text
+    monkeypatch.setattr(status_voice, "quip", lambda *a, **k: "")
+    assert status_voice.voiced(text, "slice") == text
+
+    def broken(*a, **k):
+        raise RuntimeError("selector down")
+    monkeypatch.setattr(status_voice, "quip", broken)
+    assert status_voice.voiced(text, "slice") == text
