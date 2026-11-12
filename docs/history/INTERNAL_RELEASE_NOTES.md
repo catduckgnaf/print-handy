@@ -2,9 +2,47 @@
 
 # Unreleased
 
+# Version 2.3.1
+
+**Release Date:** 2026-11-12
+**Range:** 2.3.0..main (21 PRs, #1348 to #1371; checklist #1368). Driven by a live two-color print on the owner's AD5X on 2026-11-12 (print #114) and an audit of a week of the print channel and bot logs, plus a load-path audit of the 2.3.0 module split.
+**Live checks performed for this release:** none on hardware. The diagnosis came from the live 2.3.0 container's logs, job record and channel history. Owed after publish: the first multicolor print's per-slot Spoolman charge, the stale Nov 8 runout question closing as a refeed, a slow resume/stop readback, a reoriented multicolor plate.
+
+- Listener seams under the runpy launcher (PR #1351): `_SELF = sys.modules[__name__]` was the launcher module in the container; seams now read the listener's own globals.
+- Start and summary truth: every slot in multi-slot posts (PR #1353); filament shortage warn-and-accept before upload on the Moonraker routes (PR #1354); intake card wording, option order, per-part grams, grouped clearance lines, enclosure-only thermal lines, upload preview text, start note grace (PR #1366).
+- Geometry: sub-first-layer gaps are contact, job first layer edits honored (PR #1355); AI extend on sloped undersides and no re-offer after a failed fix (PR #1356); identity lay-flat records nothing and resized or turned multicolor assemblies slice as one merged plate (PR #1367).
+- Spool tracking: stale runout question settles as a refeed and backs off after its print (PR #1357); multi-slot prints charge each slot's spool at print end, idempotent ledger, missed finishes included (PR #1362).
+- Listener robustness: missed finish posts (PR #1359), restart churn, capture reattach and early-layer checks (PR #1361), runout re-pause episodes (PR #1363), layerless notice grace and camera alert wording (PR #1365), resume/stop reply timeouts and stop-a-start-in-flight (PR #1364).
+- Load paths: `-m print_handy.hermes.*` works via the alias, logger names under `print_handy` (PR #1358); Docker PYTHONPATH, monitor worker settings order, duplicate handler removed (PR #1360).
+- Timing: #1349 bisected to the plugin shim recompiling handlers per load (#1343); compiled bodies cached (PR #1352); the fast-runner 2.3.0 baselines reverted (PR #1350); release baselines re-recorded from CI run 43261865512, the release code on the usual EPYC 7763 runner, not from the green run on adf85824, which landed on a faster EPYC 9V74 (PR #1371). #1366 and #1367 were each green but together broke two tests on main, fixed by PR #1370.
+
+Merged PRs in the range, one line each:
+
+- test(timing): re-record the 2.3.1 slicing-speed baselines from CI run 43261865512 (#1349) (PR #1371).
+- test(intake): find the reorient menus by their options, not by which one leads (PR #1370).
+- fix(spoolman): charge each slot's spool when a multi-slot print ends (PR #1362).
+- fix(intake): chat cards say what is true and lead with the recommended choice (PR #1366).
+- fix(slice): a reoriented or resized multicolor model stays on one plate; lay flat on a flat model records nothing (PR #1367).
+- fix(camera-watch): no false layerless notice; plain alert wording; no ping below threshold (PR #1365).
+- fix(print-control): read back a resume or stop whose reply timed out; offer to stop a start in flight (PR #1364).
+- fix(listener): a runout that pauses again right after its resume is the same runout (PR #1363).
+- fix(listener): survive restart churn without repeat notices or a lost timelapse (PR #1361).
+- fix(listener): post a print's finish once when the listener missed it (PR #1359).
+- fix(docker,monitor): working copy wins from any directory; monitor installs the printer view before importing its watch; drop duplicate color handler (PR #1360).
+- fix(runtime): old -m print_handy.hermes paths run again; listener and handler loggers sit under print_handy (PR #1358).
+- fix(listener): close a runout spool question that outlives its print (PR #1357).
+- fix(clearance): a gap under the first layer height is contact, not a low-clearance underside (PR #1355).
+- fix(ai-fix): extend a sloped underside; a failed AI fix is not offered again (PR #1356).
+- Filament shortage on any used slot warns and can be accepted before upload (PR #1354).
+- perf(plugin): reuse the shim's compiled handler bodies across loads (PR #1352).
+- fix(summary): list every slot a multi-color print uses in its posts (PR #1353).
+- fix(listener): resolve seams through the listener's own globals under runpy (PR #1351).
+- test(timing): revert the 2.3.0 baselines; they came from an unusually fast runner (PR #1350).
+- docs(docker): pin the 2.3.0 index digest, roll back to 2.2.9 (PR #1348).
+
 # Version 2.3.0
 
-**Release Date:** Unreleased until tagged. Set when the tag is cut.
+**Release Date:** 2026-11-12
 **Range:** 2.2.9..main. 2.2.10 was prepared (checklist #1316) and folded into 2.3.0 at catduck's call; it was never tagged. The ZMod 1.7.6 release plus the #1160 consolidation (#1317 to #1323, #1332), the status voice (#1326) and material warn-and-accept (#1336): ZMod 1.7.6 shipped on 2026-11-11 and was audited the same day (#1269, PR #1278).
 **Live checks performed for this release (owner's AD5X, 2026-11-11):** ZMod updated 1.7.5-2 -> 1.7.6-17 and HelixScreen v1.0.7 -> v1.0.8 through `firmware_update.prepare_update` / `send_update` (the path `/print-firmware update` and the alert button run), each verified by re-reading Moonraker's update state; the printer came back ready and its `lane_data` records survived. Read-only on the same printer: the update alert detection (one applicable offer, key `zmod:1.7.6`), the printer screen view (an 800x480 JPEG through the no-redirect fetch), camera selection with the real webcam registry in both orders, and lane-record parsing of the real records. Observed: after the Z-Mod update and reboot, Moonraker reported every git component as `?` until an update-manager refresh; ZMod 1.7.6 or HelixScreen 1.0.8 rewrote slot 3's material from `PLA+` to `PLA` on its own.
 **Not verified live:** the module decomposition and runtime rename (#1323), the printer-control service, start-truth, the material warn-and-accept paths, the status voice in a real chat, Matrix alert reactions, sparse tool maps through a real print, the Web UI alert buttons, the weekly firmware watch on its schedule. All are covered by offline tests, including enumeration tests for control entry points, start verdicts and Web UI routes.
