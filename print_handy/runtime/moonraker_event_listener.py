@@ -4576,6 +4576,10 @@ class Listener:
                     atomic_write_json(RUNOUT_PAUSE_STATE, record)
             except Exception as exc:
                 log(f"spool question print-over mark failed: {exc!r}")
+            # A multi-slot print charged no spool while it ran: charge each
+            # slot's spool now, before the announcer builds the finish post
+            # that names the charge.
+            await self._charge_multislot_usage(new_state)
             # Close the capture before the announcer: its timelapse
             # postprocess only finds a capture whose manifest is no longer
             # "capturing", and would otherwise attach the previous job's.
@@ -4583,6 +4587,49 @@ class Listener:
         await asyncio.to_thread(run_announcer, f"{old}->{new_state}")
         if ended:
             await self._print_ended(new_state)
+
+    async def _charge_multislot_usage(self, new_state):
+        """Charge a finished multi-slot print's usage to each slot's spool. Fail-soft.
+
+        Moonraker charged nothing during the print (the launch cleared its
+        active spool), so the per-tool grams go to the spool each slot held
+        at launch. A stopped print is scaled by the filament it used. An
+        open spool question that pauses usage charges nothing. The ledger
+        in multislot_usage makes a second end event or a restart a no-op.
+        """
+        from . import multislot_usage
+        filename = self.filename
+        try:
+            context = print_records.load_context(filename) if filename else {}
+            if multislot_usage.slot_plan(context) is None:
+                return
+            outcome = "complete" if new_state == "complete" else "stopped"
+            actual = planned = None
+            if outcome != "complete":
+                actual = (self.last_stats or {}).get("filament_used")
+                if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
+                    # A job that dropped to standby resets print_stats: ask history.
+                    history = await asyncio.to_thread(announcer._finished_history_job, filename)
+                    actual = (history or {}).get("filament_used")
+                if not context.get("planned_filament_mm"):
+                    try:
+                        metadata = await asyncio.to_thread(announcer.get_file_metadata, filename)
+                        planned = (metadata or {}).get("filament_total")
+                    except Exception:
+                        planned = None
+            record = load_runout_pause()
+            suspended = bool(record and record.get("usage_suspended"))
+            entry = await asyncio.to_thread(
+                multislot_usage.charge_finished_print, context, outcome,
+                actual_mm=actual, planned_mm=planned, suspended=suspended,
+                base_url=_config.service_url("spoolman_url") or None)
+        except Exception as exc:
+            log(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
+            return
+        if entry:
+            log(f"multi-slot usage file={filename!r} status={entry.get('status')} "
+                + " ".join(f"slot{row.get('slot')}:#{row.get('spool_id')}={row.get('grams')}g/{row.get('status')}"
+                           for row in entry.get("slots") or []))
 
     async def _print_ended(self, new_state):
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
@@ -5556,6 +5603,15 @@ class Listener:
         Only a fresh state of printing/paused with a filename is acted
         on, and this listener's printer identity rides along so the
         retry loads that printer's record (#847)."""
+        try:
+            # Multi-slot charges a Spoolman outage left pending at print end.
+            from . import multislot_usage
+            retried = await asyncio.to_thread(
+                multislot_usage.retry_pending, base_url=_config.service_url("spoolman_url") or None)
+            if retried:
+                log(f"multi-slot usage retried for {retried}")
+        except Exception as exc:
+            log(f"multi-slot usage retry failed: {exc!r}")
         try:
             from ..core import model_job
             from .. import listeners as _listeners

@@ -237,8 +237,9 @@ def check_filament_amount(st, need):
 def _clear_active_spool(st):
     """Clear Moonraker's active spool before a multi-slot launch (P1-24).
 
-    A multi-slot job's usage cannot be apportioned to one spool, so no spool
-    may be charged — but a pointer left over from a single-slot job or a
+    A multi-slot job's usage cannot be apportioned to one spool, so Moonraker
+    may charge no spool during the print (the listener charges each slot's
+    spool its share when the print ends, runtime/multislot_usage.py) — but a pointer left over from a single-slot job or a
     manual selection would keep Moonraker deducting ALL extrusion from that
     stale spool while the launch claims deduction is disabled. Clear it with
     verified readback before upload, with _sync_active_spool's posture:
@@ -263,7 +264,7 @@ def _clear_active_spool(st):
         return {'spool_id': current, 'previous': current, 'changed': False, 'spoolman_pending': True}
     if back is not None:
         raise RuntimeError(f'Moonraker active spool readback {back!r} after clear; nothing uploaded or started')
-    print(f'ACTIVE SPOOL CLEARED: #{current} -> none (multi-slot job charges no spool)', flush=True)
+    print(f'ACTIVE SPOOL CLEARED: #{current} -> none (multi-slot job: each slot is charged when the print ends)', flush=True)
     return {'spool_id': None, 'previous': current, 'changed': True}
 
 
@@ -386,6 +387,15 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
         ctx['slicer_settings']['mapped_materials'] = {
             tool: st['filament_slots'][str(slot)] for tool, slot in mapped.items()}
         ctx['printer_profile'] = 'Reviewed Orca AD5X native multicolor'
+        # A multi-slot job charges no spool during the print (see
+        # _clear_active_spool); the listener apportions it when the print
+        # ends (runtime/multislot_usage.py) from mapped_materials (each
+        # slot's spool at launch), the per-tool grams, and this planned
+        # length, which scales a stopped print's charge.
+        from ..runtime import multislot_usage
+        planned_mm = multislot_usage.planned_filament_mm(text)
+        if planned_mm is not None:
+            ctx['planned_filament_mm'] = planned_mm
     if (job or {}).get('delivery_format'):
         ctx['delivery_format'] = job['delivery_format']
     starter = (job or {}).get('started_by')
@@ -1441,7 +1451,8 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                              "so this start was not sent; a preheat or other work is heating the printer. "
                              "Check the printer or HelixScreen, then try again. Nothing started.")
         if len(slots_used) > 1:
-            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
+            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled during the print; '
+                  "each slot's spool is charged its share of the sliced grams when the print ends.", flush=True)
             cleared = _clear_active_spool(st)
             if cleared.get('spoolman_pending') and job_path is not None:
                 # The clear could not be written: Moonraker may keep charging

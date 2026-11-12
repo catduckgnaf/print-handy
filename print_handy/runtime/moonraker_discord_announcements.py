@@ -980,6 +980,15 @@ def main():
         # the roast generator itself.
         message = print_summary.format_event("complete", filename)
         try:
+            # A multi-slot print's per-slot spool charge (the listener
+            # charged it at the end transition, before this pass).
+            from . import multislot_usage
+            usage = multislot_usage.summary_line(multislot_usage.entry_for(load_context(job_key)))
+            if usage:
+                message += "\n" + usage
+        except Exception as exc:
+            print(f"Multi-slot usage line unavailable: {exc}", file=sys.stderr)
+        try:
             roast_job, roast_plate = print_summary.find_job(filename)
             set_pending_roast_subject(
                 previous, (roast_job or {}).get("title") or Path(str(filename or "")).stem,
