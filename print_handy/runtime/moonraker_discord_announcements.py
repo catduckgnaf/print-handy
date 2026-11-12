@@ -765,6 +765,64 @@ def _finished_history_job(filename, completed_at=None):
     return None
 
 
+# A finish the listener never saw live (it was down or hung when the print
+# ended) is posted once from Moonraker history. An end this many seconds
+# old, or older than this process, was not seen live: a live stop runs the
+# announcer within seconds of the end, and the listener owns those posts.
+OFFLINE_FINISH_GRACE_S = 120
+OFFLINE_FINISH_KINDS = {"completed": ("complete", "Finished"), "cancelled": ("cancelled", "Cancelled")}
+OFFLINE_FINISH_MAX = 10
+_PROCESS_STARTED_AT = time.time()
+
+
+def _clock_text(timestamp):
+    """HH:MM in the bot's local time."""
+    return time.strftime("%H:%M", time.localtime(float(timestamp)))
+
+
+def missed_finishes(previous, now=None):
+    """History entries for prints that ended while nobody was watching.
+
+    Called when the live job changed while the announcer still thought the
+    previous job was printing, so the end of that job (and of anything
+    printed after it) was never seen. Returns (job_id, status, filename,
+    end_time) for every completed or cancelled entry that ended after the
+    previous job started, ended while the listener was down, and was not
+    announced before, oldest first.
+    """
+    now = time.time() if now is None else now
+    since = previous.get("print_started_at")
+    if not isinstance(since, (int, float)) or isinstance(since, bool):
+        return []
+    jobs = (get_json("/server/history/list?limit=20&order=desc").get("result") or {}).get("jobs") or []
+    announced = set(previous.get("offline_finishes_announced") or [])
+    found = []
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("status") not in OFFLINE_FINISH_KINDS:
+            continue
+        try:
+            ended = float(job.get("end_time"))
+        except (TypeError, ValueError):
+            continue
+        if ended < float(since) - 60:
+            continue
+        if ended >= now - OFFLINE_FINISH_GRACE_S and ended >= _PROCESS_STARTED_AT:
+            continue  # seen live: the listener posts its own notice
+        job_id = str(job.get("job_id") or f"{job.get('filename')}@{job.get('start_time')}")
+        if job_id in announced:
+            continue
+        found.append((job_id, job["status"], str(job.get("filename") or ""), ended))
+    found.sort(key=lambda item: item[3])
+    return found[-OFFLINE_FINISH_MAX:]
+
+
+def offline_finish_text(status, filename, ended):
+    """The one post for a print that ended while the bot was offline."""
+    kind, verb = OFFLINE_FINISH_KINDS[status]
+    message = print_summary.format_event(kind, filename or "a print")
+    return f"{message}\n{verb} at {_clock_text(ended)} while the bot was offline."
+
+
 def record_completion(job_key, filename, stats, completed_at=None):
     """Persist confirmed completion data; unavailable optional reads stay absent."""
     context = load_context(job_key)
@@ -839,15 +897,28 @@ def main():
     job_key = str((job.get("file") or {}).get("path") or filename)
     previous_key = previous.get("job_key")
 
+    notices = []
+    offline = []
     if job_key != previous_key and previous.get("printing") and previous_key and not previous.get("record_written"):
         try:
             stopped = finalize_from_history(previous_key)
             if stopped and stopped.get("state") in ("cancelled", "error"):
                 notice = partial_timelapse_notice(stopped.get("plan_id"), previous_key)
                 if notice:
-                    print(notice)
+                    notices.append(notice)
         except Exception as exc:
             print(f"Stopped print record unavailable: {exc}", file=sys.stderr)
+    if job_key != previous_key and previous.get("printing") and previous_key:
+        # The previous job's end was never seen: the listener was down or
+        # hung when it (and maybe later prints) finished. Post each missed
+        # finish once from history instead of losing it.
+        try:
+            offline = missed_finishes(previous)
+        except Exception as exc:
+            print(f"Missed finish check unavailable: {exc}", file=sys.stderr)
+            offline = []
+        for _job_id, status, name, ended in offline:
+            notices.append(offline_finish_text(status, name, ended))
 
     # A new job gets a fresh one-shot announcement state. Pending completions
     # are per-printer (#536) and survive: another printer's undelivered
@@ -865,8 +936,21 @@ def main():
                             "pending_timelapse_routings", "pending_roast_subjects"):
             if isinstance(previous.get(pending_key), dict) and previous[pending_key]:
                 fresh[pending_key] = previous[pending_key]
+        announced = [str(item) for item in previous.get("offline_finishes_announced") or []]
+        announced += [job_id for job_id, *_rest in offline]
+        if announced:
+            fresh["offline_finishes_announced"] = announced[-50:]
+        message = "\n".join(notices)
+        if offline:
+            # Kept retryable like any completion until the listener confirms
+            # delivery; an older undelivered completion goes out with it.
+            earlier = pending_completion_message(fresh)
+            message = f"{earlier}\n{message}" if earlier else message
+            set_pending_completion_message(fresh, message)
         previous = fresh
         save_state(previous)
+        if message:
+            print(message)
         return 0
 
     printing = state in ACTIVE_STATES
