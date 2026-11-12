@@ -556,6 +556,8 @@ bot posting progress notifications.
 * `print_handy/settings.py`: loads and validates settings.
 * `print_handy/doctor.py`: checks that a machine can run Print Handy.
 * `print_handy/core/`: offline 3MF and STL pipeline. No printer connection.
+* `print_handy/gcode/`: the G-code checks on the print path, split out of `core/model_job.py` (#1323): `bounds.py` (motion bounds: the Python parser, the native accelerator and the bounds cache), `artifact.py` (`GcodeArtifact`, one file read once per verification, so every check and the verified-artifact marker describe the same bytes) and `verify.py` (offline and live verification of a sliced artifact).
+* `print_handy/jobs/`: job helpers split out of `core/model_job.py` (#1323); `common.py` holds the settings-derived paths and limits and the HTTP helpers the job, G-code and launch code share.
 * `print_handy/hermes/`: Moonraker listener, Discord posts, spool sync, print control, and records.
 * `print_handy/printer_control.py`: the one printer-control service, keyed by printer id. Every stop, pause, resume, reboot, emergency stop and heater-ceiling question from chat, the alert buttons, the Web UI and the CLI goes through it; see [Printer control service](#printer-control-service).
 * `print_handy/printers/`: one package per brand, one file per printer model; see `base.py` for what each one owns.
@@ -566,6 +568,10 @@ bot posting progress notifications.
 * `print-handy.cfg`, `install.sh`, `uninstall.sh`, `update.sh`: ZMod plugin macro and lifecycle scripts. The cfg file name must match the plugin name (`print-handy`) or ZMod refuses to enable the plugin, and the three script names are the lifecycle hooks the plugin host looks for, so they stay at the repository root under those names. They are not Print Handy install scripts (those are `scripts/install-standalone.sh` and `scripts/home-update.sh`).
 * `tests/`: offline suite, real slicer checks, the Discord flow corpus (`tests/corpus/`), and the Klipper macro tests.
 * `docs/`: install guide and AD5X integration specs.
+
+## Moved modules and old import paths
+
+`core/model_job.py` and `core/prepared_intake.py` are being split into the packages above (#1323, proposal 4 of #1160). Code moves verbatim; nothing about a gate or a message changes. For one release (until 2.4.0) every moved name is still importable from its old module, and the old module forwards assignments to the new one (`print_handy/_relocated.py`), so `mock.patch.object(model_job, "BOUNDS_CACHE", ...)` still changes what the moved code sees. New code imports from the new module. `tests/test_module_decomposition.py` checks that each moved name is the same object on both paths, that patching the old path reaches the moved code, and that no new module sits in an import cycle or imports the module it was cut from.
 
 ## Printer control service
 
