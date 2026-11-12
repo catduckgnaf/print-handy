@@ -1237,6 +1237,44 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
     return changes
 
 
+def set_remaining(spool_id: int, grams: float, *, client: Client = spoolman) -> dict[str, Any]:
+    """Correct a spool's grams left in Spoolman (#1374); returns the before and after.
+
+    Spoolman keeps the used weight as initial minus remaining, so the fix
+    sticks: later prints subtract from the corrected value. A grams-left
+    figure above the spool's starting weight is refused rather than
+    silently making the spool heavier than it ever was.
+    """
+    if isinstance(grams, bool) or not isinstance(grams, (int, float)) or grams != grams or grams < 0:
+        raise SpoolError("grams left must be a number of grams, 0 or more. Nothing changed")
+    spool = client("GET", f"/api/v1/spool/{int(spool_id)}", None)
+    if not isinstance(spool, dict) or spool.get("id") is None:
+        raise SpoolError(f"Spoolman has no spool #{spool_id}. Check the id with /spool list. Nothing changed")
+    initial = spool.get("initial_weight")
+    if isinstance(initial, (int, float)) and not isinstance(initial, bool) and grams > initial:
+        raise SpoolError(f"spool #{spool_id} started at {initial:g} g, so it cannot have "
+                         f"{grams:g} g left. Nothing changed")
+    before = spool.get("remaining_weight")
+    client("PATCH", f"/api/v1/spool/{int(spool_id)}", {"remaining_weight": round(float(grams), 2)})
+    filament = spool.get("filament") or {}
+    return {"spool_id": int(spool_id), "before": before, "after": round(float(grams), 2),
+            "archived": bool(spool.get("archived")),
+            "label": " ".join(str(filament.get(k) or "").strip() for k in ("name", "material")).strip()}
+
+
+def set_remaining_text(spool_id: int, grams: float, *, client: Client = spoolman) -> str:
+    """The chat reply for /spool weight: what changed, or the named refusal."""
+    try:
+        result = set_remaining(spool_id, grams, client=client)
+    except SpoolError as exc:
+        return f"{exc}."
+    label = f" ({result['label']})" if result["label"] else ""
+    before = result["before"]
+    was = f" (was {before:g} g)" if isinstance(before, (int, float)) and not isinstance(before, bool) else ""
+    note = " It is archived; unarchive it in the Web UI if it is back in use." if result["archived"] else ""
+    return f"Spool #{result['spool_id']}{label} now has {result['after']:g} g left{was}.{note}"
+
+
 def bind_text(result: dict[str, Any]) -> str:
     r = result["record"]
     grams = f", {r['remaining_grams']:g} g left" if r.get("remaining_grams") is not None else ""

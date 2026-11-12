@@ -231,6 +231,23 @@ path, and report what you saw in the support Discord or as a GitHub issue.
   charge. A multicolor print that finished while the listener was down is
   charged the same way when its finish is posted from the printer's job
   history, and only once.
+- A single-color print is charged by Moonraker while it runs, and Print
+  Handy checks that charge when the print ends. Moonraker has a known
+  failure: after Moonraker restarts while Klipper keeps running, the first
+  print on a newly selected spool can be charged everything the printer has
+  extruded since Klipper last started (one 0.6 g print was charged 987 g).
+  The launch records the spool's used weight just before the start; at the
+  end, if Spoolman grew by more than the filament the print actually used
+  plus 15 g or 25% (whichever is larger), Print Handy writes the used weight
+  back to that baseline plus the print's own grams and the finish post says
+  so. A cancelled print keeps only what it extruded. The check runs once per
+  print, also for a print that finished while the listener was down, and is
+  skipped while an open spool question has usage paused. A spool that ends
+  up showing more used than it started with gets a warning in the finish
+  post.
+- To correct a spool's weight by hand, use `/spool weight <spool#> <grams
+  left>` in chat or the **Set** button next to the spool on the Web UI
+  Spools page. Spoolman keeps the correction: later prints subtract from it.
 
 ## Camera and timelapse
 

@@ -256,6 +256,9 @@ _TASK_INTENT_SUGGESTIONS = (
     # Spools: change / add / what is loaded
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
     (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
+    # Spool weight wrong (#1374): correcting the grams left is /spool weight.
+    (re.compile(rf"^{_LEAD}(?:fix|correct|set|update|change)\s+(?:the\s+|a\s+|my\s+)?(?:spool|filament|roll)(?:'s)?\s+(?:weight|grams(?:\s+left)?|remaining(?:\s+weight)?){_END}", re.I), "/spool weight"),
+    (re.compile(rf"^(?:the\s+|my\s+)?(?:spool|filament|roll)\s+(?:weight|grams|remaining\s+weight)\s+(?:is\s+)?(?:wrong|off|incorrect){_END}", re.I), "/spool weight"),
     (re.compile(rf"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color|colour)s?\s+(?:is|are)\s+loaded{_END}", re.I), "/print-spools"),
     (re.compile(rf"^(?:please\s+)?what(?:'s|\s+is)\s+in\s+the\s+(?:ams|ifs){_END}", re.I), "/print-spools"),
     (re.compile(rf"^(?:please\s+)?(?:which\s+spools\s+are\s+loaded|show\s+loaded\s+spools|check\s+filament\s+slots|how\s+much\s+filament\s+is\s+left){_END}", re.I), "/print-spools"),

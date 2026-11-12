@@ -27,6 +27,19 @@ call, so a listener restart or a duplicate end event never charges twice.
 A slot whose charge failed because Spoolman did not answer stays pending
 and is retried when Spoolman is reachable again (``retry_pending``).
 
+A single-slot print is charged by Moonraker's own Spoolman tracker while it
+runs, and this module only checks that charge when the print ends (#1374).
+Moonraker's ``set_active_spool`` resets its extrusion high-water mark to the
+last toolhead E position it saw, which is 0 after a Moonraker restart until
+the extruder next moves. The first extrusion after such a spool change then
+charges every millimetre Klipper has extruded since it last started to the
+new spool (a 0.6 g print charged 987 g). The launch records the spool's used
+weight just before the start (``launch_baseline``); at the end
+``guard_single_slot`` compares Spoolman's growth with what the print
+actually extruded and, when Moonraker charged far more, writes the used
+weight back to baseline plus the print's own grams. Same ledger, so a
+duplicate end event never corrects twice.
+
 Spoolman is bookkeeping: nothing here raises into the print lifecycle.
 """
 from __future__ import annotations
@@ -286,6 +299,140 @@ def _iso_seconds(value: Any) -> float | None:
 _CONTEXT_START_SLACK_S = 3600
 
 
+# Moonraker legitimately charges a little the print's own filament_used does
+# not count (an IFS load, a manual purge): a charge is a runaway only past
+# the print's grams plus the larger of these.
+GUARD_SLACK_G = 15.0
+GUARD_SLACK_RATIO = 0.25
+# A baseline older than this before the print's start belongs to another launch.
+_BASELINE_MAX_AGE_S = 6 * 3600
+
+
+def launch_baseline(spool_id: Any, *, request: Callable[..., Any] | None = None,
+                    base_url: str | None = None) -> dict[str, Any] | None:
+    """The spool's used weight just before a single-slot print starts, or None.
+
+    Read after the launch points Moonraker at the spool and before the
+    start, so nothing this print extrudes is in it. None when Spoolman does
+    not answer: the end check is then skipped, never guessed.
+    """
+    sid = _spool_id(spool_id)
+    if sid is None:
+        return None
+    request = request or spoolman_client.request
+    try:
+        spool = request("GET", f"/api/v1/spool/{sid}", base_url=base_url, timeout=8)
+    except Exception:
+        return None
+    used = _number((spool or {}).get("used_weight")) if isinstance(spool, dict) else None
+    if used is None:
+        return None
+    return {"spool_id": sid, "used_weight": round(used, 4), "recorded_at": time.time()}
+
+
+def grams_from_mm(mm: Any, context: dict[str, Any] | None) -> float | None:
+    """Filament length in mm as grams, from the print's own density and diameter."""
+    length = _number(mm)
+    if length is None or length < 0:
+        return None
+    context = context or {}
+    density = _number(context.get("filament_density")) or 1.24
+    diameter = _number(context.get("filament_diameter_mm")) or 1.75
+    return length * 3.141592653589793 * (diameter / 2) ** 2 * density / 1000.0
+
+
+def _baseline_for(context: dict[str, Any]) -> dict[str, Any] | None:
+    baseline = context.get("spool_usage_baseline")
+    if not isinstance(baseline, dict) or _spool_id(baseline.get("spool_id")) is None:
+        return None
+    if _number(baseline.get("used_weight")) is None:
+        return None
+    started = _iso_seconds(context.get("started_at"))
+    recorded = _number(baseline.get("recorded_at"))
+    if started is not None and recorded is not None and not (
+            started - _BASELINE_MAX_AGE_S <= recorded <= started + _BASELINE_MAX_AGE_S):
+        return None
+    return baseline
+
+
+def _expected_grams(context: dict[str, Any], outcome: str, actual_mm: Any) -> float | None:
+    grams = grams_from_mm(actual_mm, context) if _number(actual_mm) else None
+    if grams is not None or outcome != "complete":
+        return grams
+    listed = [_number(g) for g in (context.get("slicer_settings") or {}).get("filament_used_g_list") or []]
+    if listed and all(g is not None for g in listed):
+        return float(sum(listed))
+    return _number(context.get("estimated_filament_g"))
+
+
+def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm: Any = None,
+                      suspended: bool = False, request: Callable[..., Any] | None = None,
+                      base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
+    """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
+
+    ``actual_mm`` is the filament the print extruded (print_stats or the
+    history entry's ``filament_used``); a completed print without it falls
+    back to the sliced grams. When the spool's used weight grew by more
+    than those grams plus the slack, the used weight is written back to the
+    launch baseline plus the print's grams. Returns the ledger entry, or
+    None for a print this does not apply to (multi-slot, no baseline).
+    Idempotent per print.
+    """
+    context = context or {}
+    key = charge_key(context)
+    baseline = _baseline_for(context)
+    if key is None or baseline is None or slot_plan(context) is not None:
+        return None
+    path = path or ledger_path()
+    request = request or spoolman_client.request
+    sid = int(baseline["spool_id"])
+    before = float(baseline["used_weight"])
+    with _lock:
+        ledger = _load(path)
+        if key in ledger:
+            return json.loads(json.dumps(ledger[key]))
+        entry: dict[str, Any] = {"kind": "single_slot", "job_key": context.get("job_key"),
+                                 "outcome": outcome, "recorded_at": time.time(), "spool_id": sid,
+                                 "baseline_used_g": round(before, 2)}
+        expected = _expected_grams(context, outcome, actual_mm)
+        if suspended:
+            entry.update(status="skipped", reason=SUSPENDED_REASON)
+        elif expected is None:
+            entry.update(status="skipped", reason="actual filament use unknown")
+        else:
+            entry["expected_g"] = round(expected, 2)
+            try:
+                spool = request("GET", f"/api/v1/spool/{sid}", base_url=base_url, timeout=8)
+                now = _number((spool or {}).get("used_weight"))
+            except Exception as exc:
+                spool, now = None, None
+                entry["error"] = str(exc)[:200]
+            if now is None:
+                entry.update(status="skipped", reason="Spoolman did not answer at the end of the print")
+            else:
+                observed = now - before
+                entry["observed_g"] = round(observed, 2)
+                final = now
+                if observed > expected + max(GUARD_SLACK_G, expected * GUARD_SLACK_RATIO):
+                    target = round(before + expected, 2)
+                    try:
+                        request("PATCH", f"/api/v1/spool/{sid}", {"used_weight": target},
+                                base_url=base_url, timeout=8)
+                    except Exception as exc:
+                        entry.update(status="overcharged", error=str(exc)[:200])
+                    else:
+                        entry.update(status="corrected", corrected_used_g=target)
+                        final = target
+                else:
+                    entry["status"] = "ok"
+                initial = _number((spool or {}).get("initial_weight"))
+                if initial and final > initial:
+                    entry["over_initial"] = True
+        ledger[key] = entry
+        _save(path, ledger)
+        return json.loads(json.dumps(entry))
+
+
 def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | None, *,
                        suspended: bool | None = None, request: Callable[..., Any] | None = None,
                        base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
@@ -310,6 +457,12 @@ def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | Non
         return None
     if not (job_start - _CONTEXT_START_SLACK_S <= started <= job_end):
         return None
+    if slot_plan(context) is None:
+        return guard_single_slot(
+            context, "complete" if status == "completed" else "stopped",
+            actual_mm=job.get("filament_used"),
+            suspended=usage_suspended() if suspended is None else suspended,
+            request=request, base_url=base_url, path=path)
     planned = ((job.get("metadata") or {}).get("filament_total")
                if not context.get("planned_filament_mm") else None)
     return charge_finished_print(
@@ -346,10 +499,33 @@ def _grams_text(value: Any) -> str:
     return f"{float(value):.2f}".rstrip("0").rstrip(".") + " g"
 
 
+def _single_slot_line(entry: dict[str, Any]) -> str:
+    """The finish-post line for a single-slot check: silent unless something is wrong."""
+    sid = entry.get("spool_id")
+    status = entry.get("status")
+    if status == "corrected":
+        line = (f"Spool usage: Moonraker charged spool #{sid} {_grams_text(entry['observed_g'])} "
+                f"for a print that used {_grams_text(entry['expected_g'])}; corrected to "
+                f"{_grams_text(entry['expected_g'])}.")
+    elif status == "overcharged":
+        line = (f"Spool usage: Moonraker charged spool #{sid} {_grams_text(entry['observed_g'])} "
+                f"for a print that used {_grams_text(entry['expected_g'])}, and the correction "
+                f"failed ({entry.get('error') or 'Spoolman refused'}); fix the spool's weight.")
+    else:
+        line = ""
+    if entry.get("over_initial"):
+        warn = (f"Spool #{sid} now shows more filament used than it started with; "
+                "correct its weight if it is not empty.")
+        line = f"{line} {warn}".strip() if line else f"Spool usage: {warn}"
+    return line
+
+
 def summary_line(entry: dict[str, Any] | None) -> str:
     """One finish-post line naming what each slot's spool was charged, or ''."""
     if not entry:
         return ""
+    if entry.get("kind") == "single_slot":
+        return _single_slot_line(entry)
     if entry.get("reason") == SUSPENDED_REASON:
         return f"Spool usage: not charged, {SUSPENDED_REASON}."
     if entry.get("status") == "skipped" and entry.get("reason"):
