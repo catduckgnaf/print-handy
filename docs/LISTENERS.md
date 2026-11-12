@@ -217,6 +217,11 @@ instance per roster printer** whose domain has an implementation:
   never restart the container or disturb the bot, Spoolman, or another
   printer's listener. The bot and bundled Spoolman remain the required
   children whose exit ends the container.
+- A Moonraker print that finished or was cancelled while its listener was
+  down or stuck is not lost: when the listener comes back and sees the
+  printer idle or on a different job, it reads Moonraker's job history and posts
+  each missed finish once, with the time it ended ("Finished at 14:05
+  while the bot was offline."). Such a post has no timelapse or roast.
 - The container healthcheck prints one listener row per roster printer.
   A single-printer (or legacy) configuration keeps exactly the
   historical process tree and the single health row.
