@@ -77,7 +77,7 @@ FAKE_SNAPSHOT = {
 def make_data(tmp, extra="", environ=None):
     """A settings load rooted at a temp home, LAN bind, Web UI on."""
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/home\n"
+    local.write_text(f"paths:\n  state_home: {tmp}/home\n"
                      "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8088\n" + extra)
     environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
     return settings.load(local=local, environ=environ), local, environ

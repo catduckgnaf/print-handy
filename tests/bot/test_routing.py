@@ -20,7 +20,7 @@ from print_handy import settings
 from print_handy.bot import matrix, routing, runtime, telegram
 from print_handy.bot.router import Router
 from print_handy.core import prompts
-from print_handy.hermes import _config, print_next, print_stop
+from print_handy.runtime import _config, print_next, print_stop
 
 OPERATOR = "200000000000000002"
 CHAT_B = "100000000000000777"
@@ -438,7 +438,7 @@ def test_plugin_stop_in_a_routed_channel_acts_on_that_printer(plugin_cfg):
 
     with mock.patch.object(print_stop, "status", fake_status), \
             mock.patch.object(print_stop, "cancel", fake_cancel), \
-            mock.patch("print_handy.hermes.discord_print_summary.format_event",
+            mock.patch("print_handy.runtime.discord_print_summary.format_event",
                        return_value="Print started: a.gcode"):
         out = run(plugin.print_stop_dispatch(plugin_event("/print-stop", "222", "workshop-ad5x"), gateway))
     assert out == {"action": "skip", "reason": "deterministic print stop handled"}
@@ -492,7 +492,7 @@ def test_print_next_start_checks_the_target_jobs_printer(tmp_path):
     """print_next.start's idle check reads the printer the JOB belongs to, not the configured one."""
     gcode = tmp_path / "a.gcode"
     gcode.write_text("G1 X1\n")
-    from print_handy.hermes import print_next as pn
+    from print_handy.runtime import print_next as pn
     job_json = tmp_path / "JOB.json"
     job_json.write_text(json.dumps({"printer_id": "workshop-ad5x"}))
     target = {"plan_id": "p", "part_id": "plate1", "copy": 1, "gcode": str(gcode),

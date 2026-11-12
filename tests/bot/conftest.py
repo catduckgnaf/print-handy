@@ -8,7 +8,7 @@ import copy
 import pytest
 
 from print_handy.core import prepared_intake
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 
 @pytest.fixture(autouse=True)

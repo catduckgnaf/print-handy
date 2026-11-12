@@ -1,5 +1,5 @@
 """Offline delivery regression coverage. Never contacts Discord or a printer."""
-from print_handy.hermes import moonraker_event_listener as listener
+from print_handy.runtime import moonraker_event_listener as listener
 
 
 def test_failed_completion_retries_and_success_survives_restart(monkeypatch, tmp_path):

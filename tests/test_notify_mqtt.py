@@ -68,20 +68,20 @@ def test_password_is_env_only_and_absent_from_settings_and_diagnostics(monkeypat
         "notify": notify,
         "logging": {},
         "printers": [],
-        "paths": {"hermes_home": tmp_path},
+        "paths": {"state_home": tmp_path},
     }, include_doctor=False)
     assert secret not in bundle
     leaky = build_bundle({
         "notify": {**notify, "mqtt_password": secret},
         "logging": {},
         "printers": [],
-        "paths": {"hermes_home": tmp_path},
+        "paths": {"state_home": tmp_path},
     }, include_doctor=False)
     assert secret not in leaky
 
 
 def test_recorded_pause_notifies_once_and_the_chat_post_still_returns(monkeypatch):
-    import print_handy.hermes.discord_print_summary as summary
+    import print_handy.runtime.discord_print_summary as summary
     monkeypatch.setattr(summary, "find_job", lambda *args, **kwargs: (None, None))
     calls = []
 
@@ -106,7 +106,7 @@ def test_recorded_pause_notifies_once_and_the_chat_post_still_returns(monkeypatc
 
 def test_name_lookup_never_publishes_and_a_publish_never_blocks_the_caller(monkeypatch):
     import threading
-    import print_handy.hermes.discord_print_summary as summary
+    import print_handy.runtime.discord_print_summary as summary
     monkeypatch.setattr(summary, "find_job", lambda *args, **kwargs: (None, None))
     gate = threading.Event()
     calls = []

@@ -38,6 +38,10 @@ SANCTIONED = {
     "mention_starter_on_complete": {
         "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
     },
+    "hermes_home": {
+        "print_handy/settings.py": "KEY_ALIASES table and WARNED_KEY_ALIASES (config and environment "
+                                   "alias, warned once; #1323)",
+    },
     "wrapped_ai_video": {
         "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
     },

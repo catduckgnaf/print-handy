@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from print_handy.core import filament_color  # noqa: E402
-from print_handy.hermes import lane_data_sync, spool_sync  # noqa: E402
-from print_handy.hermes import moonraker_event_listener as listener  # noqa: E402
+from print_handy.runtime import lane_data_sync, spool_sync  # noqa: E402
+from print_handy.runtime import moonraker_event_listener as listener  # noqa: E402
 
 
 class ConversionTableTests(unittest.TestCase):

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from print_handy import settings
-from print_handy.hermes import _config, panic, slot_load
+from print_handy.runtime import _config, panic, slot_load
 
 REPO = Path(__file__).resolve().parents[2]
 

@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ..hermes import _config
+from ..runtime import _config
 
 TTL_S = 7 * 24 * 3600
 MAX_FILES = 30

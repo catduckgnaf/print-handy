@@ -7,8 +7,8 @@ from unittest import mock
 
 import pytest
 
-from print_handy.hermes import print_control as pc
-from print_handy.hermes import slot_load
+from print_handy.runtime import print_control as pc
+from print_handy.runtime import slot_load
 
 
 def test_slot_load_refuses_invalid_slot():

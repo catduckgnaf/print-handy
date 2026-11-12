@@ -282,7 +282,7 @@ Source: [ZMod wiki, Global
   unclaimed start (printer screen, other tools) gets exactly one
   canonical start post, a capture session, light-on, the visual
   watchdog, runout classification, and the completion announcer
-  (`print_handy/hermes/moonraker_event_listener.py`, `on_status`).
+  (`print_handy/runtime/moonraker_event_listener.py`, `on_status`).
   An `ORCA_FF` print is, to the listener, a print started by another
   tool; it gets monitored and reported like a screen-started print.
 
@@ -807,7 +807,7 @@ preparing, so the recording is then continued by a small detached process until
 the printer prints this file, abandons the start, reports error or cancelled, or
 15 minutes pass.
 
-Files: `<hermes_home>/state/start-recordings/<UTC stamp>-<file stem>.jsonl`
+Files: `<state_home>/state/start-recordings/<UTC stamp>-<file stem>.jsonl`
 (Docker: `/data/state/state/start-recordings/`), and `<same>.summary.json`
 with the outcome, the time of the first heater target and of `printing`, any
 `!!` lines and the lease phases. The JSONL holds the printer's address and real

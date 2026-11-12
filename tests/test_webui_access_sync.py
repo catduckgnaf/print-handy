@@ -6,7 +6,7 @@ from print_handy.webui import access, server as server_module
 
 
 def _handler(tmp_path):
-    data = {"paths": {"hermes_home": tmp_path},
+    data = {"paths": {"state_home": tmp_path},
             "webui": {"require_auth": True, "access_token_env": "WEBUI_ACCESS_TOKEN"}}
     server = SimpleNamespace(
         settings_data=data, bind_host="0.0.0.0", webui_environ={},

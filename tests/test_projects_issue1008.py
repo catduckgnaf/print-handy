@@ -8,7 +8,7 @@ import json
 import pytest
 
 from print_handy.core import projects
-from print_handy.hermes import print_records
+from print_handy.runtime import print_records
 
 
 @pytest.mark.parametrize("index,expected", [

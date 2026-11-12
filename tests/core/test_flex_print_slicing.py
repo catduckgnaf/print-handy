@@ -55,16 +55,16 @@ class FailureLogTests(unittest.TestCase):
             (folder / 'orca.log').write_text('boom')
             (folder / 'result.json').write_text('{"return_code": -100}')
             state = Path(tmp, 'state')
-            from print_handy.hermes import _config
-            with mock.patch.object(_config, 'hermes_home', return_value=Path(tmp)):
+            from print_handy.runtime import _config
+            with mock.patch.object(_config, 'state_home', return_value=Path(tmp)):
                 kept = orca_adapter._keep_failure_logs(folder)
             self.assertEqual(kept, state / 'slice-failures' / 'abc123')
             self.assertEqual((kept / 'orca.log').read_text(), 'boom')
             self.assertTrue((kept / 'result.json').is_file())
 
     def test_a_logging_error_never_masks_the_slice_error(self):
-        from print_handy.hermes import _config
-        with mock.patch.object(_config, 'hermes_home', side_effect=OSError('ro')):
+        from print_handy.runtime import _config
+        with mock.patch.object(_config, 'state_home', side_effect=OSError('ro')):
             self.assertEqual(orca_adapter._keep_failure_logs('/nope/x'), Path('/nope/x'))
 
 

@@ -11,9 +11,9 @@ from print_handy.core import model_job as job
 
 def test_failed_two_copy_slice_keeps_both_engine_logs_and_structured_cause(tmp_path, monkeypatch):
     from print_handy.core import slice_failure, worker_errors
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     _allow_post(monkeypatch)
-    monkeypatch.setattr(_config, 'hermes_home', lambda: str(tmp_path / 'profile'))
+    monkeypatch.setattr(_config, 'state_home', lambda: str(tmp_path / 'profile'))
     calls = []
 
     def fail(command, **kwargs):

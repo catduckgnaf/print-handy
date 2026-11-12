@@ -342,13 +342,13 @@ def plain(report: Report) -> str:
     return f"{lead(report, '').strip()}" + chr(10) + f"{state_line(report)} {report.recovery}"
 
 
-def failure_folders(hermes_home, limit: int = 5) -> list[dict]:
+def failure_folders(state_home, limit: int = 5) -> list[dict]:
     """The newest archived slice-failure folders, newest first.
 
     ``[{"name", "path", "modified"}]`` for the Web UI status page. Nothing here
     reads the files: the folders hold the raw slicer logs and stay on disk.
     """
-    root = Path(hermes_home) / "state" / "slice-failures"
+    root = Path(state_home) / "state" / "slice-failures"
     try:
         rows = [(p.stat().st_mtime, p) for p in root.iterdir() if p.is_dir()]
     except OSError:

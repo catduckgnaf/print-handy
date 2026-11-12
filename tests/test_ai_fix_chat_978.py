@@ -78,7 +78,7 @@ def fix_env(tmp_path, monkeypatch, request):
     (root / "r1.json").write_text(json.dumps(
         {"chat_id": "c", "thread_id": None, "job_json": str(job_path), "status": "SLICED"}))
     monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     cfg = {"agent": {}, "design": {}, "llm": {}, "discord": {"question_timeout_s": 5},
            "paths": {"cache": tmp_path / "cache"},
            "ai": {"heavy": {"chat_url": "http://127.0.0.1:11434/v1/chat/completions",
@@ -137,7 +137,7 @@ def test_uploaded_nonmanifold_stl_fix_this_is_repaired_and_previewed(fix_env):
 
 
 def test_fix_this_with_ai_not_configured_notes_and_changes_nothing(fix_env, monkeypatch):
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     cfg = dict(fix_env.cfg)
     cfg["ai"] = {"heavy": {}}
     _config.set_override(cfg)

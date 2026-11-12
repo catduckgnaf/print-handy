@@ -14,7 +14,7 @@ import pytest
 
 from print_handy import settings
 from print_handy.bot import __main__ as bot_main
-from print_handy.hermes import local_empty as le
+from print_handy.runtime import local_empty as le
 
 ROOT = Path(__file__).parents[1]
 
@@ -88,7 +88,7 @@ def cfg(tmp_path):
     data = _settings.load(
         home=None, local=None,
         environ={"PRINT_HANDY__PRINTER__MODEL": "klipper.generic"})
-    data["paths"]["hermes_home"] = str(tmp_path / "hermes")
+    data["paths"]["state_home"] = str(tmp_path / "hermes")
     return data
 
 
@@ -105,7 +105,7 @@ def test_bot_check_row_off_by_default(cfg, monkeypatch):
 
 def test_bot_check_row_on_without_reference_names_calibration(cfg, monkeypatch, tmp_path):
     cfg["vision"]["local_empty_enabled"] = True
-    cfg["paths"]["hermes_home"] = str(tmp_path)
+    cfg["paths"]["state_home"] = str(tmp_path)
     ok, detail = _rows(cfg, monkeypatch)["plate reference"]
     assert ok is True
     assert "no reference" in detail
@@ -114,7 +114,7 @@ def test_bot_check_row_on_without_reference_names_calibration(cfg, monkeypatch, 
 
 def test_bot_check_row_ready_shows_the_reference_age(cfg, monkeypatch, tmp_path):
     cfg["vision"]["local_empty_enabled"] = True
-    cfg["paths"]["hermes_home"] = str(tmp_path)
+    cfg["paths"]["state_home"] = str(tmp_path)
     le.begin_calibration(cfg, _frame())
     assert le.confirm_calibration(cfg, _frame())
     ok, detail = _rows(cfg, monkeypatch)["plate reference"]
@@ -127,7 +127,7 @@ def test_auto_light_row_names_the_local_reference_route(cfg, monkeypatch, tmp_pa
     no longer claims an endpoint is required."""
     cfg["vision"].update(auto_light_off_minutes=30, light_object="led chamber_led",
                          local_empty_enabled=True)
-    cfg["paths"]["hermes_home"] = str(tmp_path)
+    cfg["paths"]["state_home"] = str(tmp_path)
     cfg["services"]["vision_chat_url"] = ""
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     le.begin_calibration(cfg, _frame())

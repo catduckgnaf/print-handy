@@ -1,14 +1,14 @@
 """Runtime modules that live in the listener package rather than in the offline core.
 
 print_records, print_control, maintenance, print_next and discord_print_summary are found as
-print_handy.hermes.<name> when packaged, otherwise as a top level module on the Hermes path.
+print_handy.runtime.<name> when packaged, otherwise as a top level module on the Hermes path.
 """
 import importlib
 
 
 def load(name):
     last = None
-    for qualified in (f"print_handy.hermes.{name}", name):
+    for qualified in (f"print_handy.runtime.{name}", name):
         try:
             return importlib.import_module(qualified)
         except ModuleNotFoundError as exc:

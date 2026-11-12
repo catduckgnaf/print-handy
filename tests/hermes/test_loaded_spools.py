@@ -19,7 +19,7 @@ SPEC = importlib.util.spec_from_file_location("pf_loaded_spools", HERE.parents[1
 plugin = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(plugin)
 
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 
 SPOOLS = [

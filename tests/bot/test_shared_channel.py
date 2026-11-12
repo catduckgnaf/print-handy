@@ -21,7 +21,7 @@ from corpus import fake_discord
 from print_handy.bot import routing, runtime
 from print_handy.bot.router import Router
 from print_handy.core import link_intake, prompts
-from print_handy.hermes import _config, print_next, print_stop
+from print_handy.runtime import _config, print_next, print_stop
 
 OPERATOR = "200000000000000002"
 HOME = "100000000000000001"
@@ -146,7 +146,7 @@ def _intake_stubs(monkeypatch, calls):
 
     monkeypatch.setattr(printer_state, "load", fake_load)
     monkeypatch.setattr(prepared_intake, "prepare_link", fake_prepare)
-    monkeypatch.setattr("print_handy.hermes.print_control.status",
+    monkeypatch.setattr("print_handy.runtime.print_control.status",
                         lambda **kwargs: {"state": "standby"})
 
 
@@ -264,7 +264,7 @@ def _stop_stubs(monkeypatch, states, calls):
 
     monkeypatch.setattr(print_stop, "status", fake_status)
     monkeypatch.setattr(print_stop, "cancel", fake_cancel)
-    monkeypatch.setattr("print_handy.hermes.discord_print_summary.format_event",
+    monkeypatch.setattr("print_handy.runtime.discord_print_summary.format_event",
                         lambda kind, filename, **kw: f"Print started: {filename}")
 
 
@@ -322,7 +322,7 @@ def test_stop_with_nothing_printing_refuses_naming_both_printers(plugin_cfg, mon
 
 def test_print_again_in_a_shared_channel_uses_the_jobs_printer(plugin_cfg, monkeypatch, tmp_path):
     plugin = _plugin()
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
 
     job_json = tmp_path / "JOB.json"
     job_json.write_text(json.dumps({"printer_id": WORKSHOP, "title": "Workshop job"}))
@@ -333,9 +333,9 @@ def test_print_again_in_a_shared_channel_uses_the_jobs_printer(plugin_cfg, monke
     monkeypatch.setattr(pc, "again_question", lambda target: "Print it again?")
     monkeypatch.setattr(pc, "queue_copies", lambda target, **kw: None)
     monkeypatch.setattr(print_next, "start", lambda target: started.append(target) or (True, ""))
-    monkeypatch.setattr("print_handy.hermes.discord_print_summary.gcode_metadata",
+    monkeypatch.setattr("print_handy.runtime.discord_print_summary.gcode_metadata",
                         lambda gcode: (60, 10))
-    monkeypatch.setattr("print_handy.hermes.discord_print_summary._print_number",
+    monkeypatch.setattr("print_handy.runtime.discord_print_summary._print_number",
                         lambda job: None)
     adapter = PickingAdapter(pick=lambda q, choices: pc.AGAIN_LABEL)
     gateway = SharedGateway(adapter, shared={HOME: [GARAGE, WORKSHOP]})
@@ -349,7 +349,7 @@ def test_print_again_next_and_stop_in_a_shared_channel_read_the_owners_queue(plu
     # 2.2.5 review: copies are queued under the job owner's printer, but a
     # shared channel decides no printer, so next/stop read the default file.
     plugin = _plugin()
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
 
     queued = {WORKSHOP: {"job_json": "j", "gcode": "g"}}
     seen = []
@@ -371,7 +371,7 @@ def test_print_again_next_and_stop_in_a_shared_channel_read_the_owners_queue(plu
 
 def test_print_again_stop_in_a_shared_channel_refuses_ambiguous_queues(plugin_cfg, monkeypatch):
     plugin = _plugin()
-    from print_handy.hermes import print_control as pc
+    from print_handy.runtime import print_control as pc
 
     monkeypatch.setattr(pc, "pending_copy", lambda path=None, printer_id=None: {"job_json": "j", "gcode": "g"})
     cancelled = []
@@ -390,7 +390,7 @@ def test_print_again_stop_in_a_shared_channel_refuses_ambiguous_queues(plugin_cf
 
 def test_spool_bind_in_a_shared_channel_asks_first(plugin_cfg, monkeypatch):
     plugin = _plugin()
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
 
     bound = []
     monkeypatch.setattr(spool_sync, "moonraker_for", lambda pid=None: f"mr:{pid}")
@@ -407,7 +407,7 @@ def test_spool_bind_in_a_shared_channel_asks_first(plugin_cfg, monkeypatch):
 
 def test_spool_list_in_a_shared_channel_names_each_printer(plugin_cfg, monkeypatch):
     plugin = _plugin()
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
 
     listed = []
     monkeypatch.setattr(spool_sync, "list_text",
@@ -544,7 +544,7 @@ def test_typed_reply_counts_an_open_button_only_prompt_for_another_printer(monke
 
 
 def test_format_event_names_the_printers_on_a_multi_printer_roster(plugin_cfg, monkeypatch):
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
 
     job = {"printer_id": WORKSHOP, "title": "Bench", "derived_plates": []}
     monkeypatch.setattr(summary, "find_job", lambda *a, **k: (job, {"seconds": 60}))
@@ -554,7 +554,7 @@ def test_format_event_names_the_printers_on_a_multi_printer_roster(plugin_cfg, m
 
 
 def test_format_event_is_unchanged_on_a_single_printer_roster(monkeypatch):
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
 
     data = copy.deepcopy(_config.cfg())
     data["printers"] = data["printers"][:1]
@@ -570,7 +570,7 @@ def test_format_event_is_unchanged_on_a_single_printer_roster(monkeypatch):
 
 def test_pending_completion_is_keyed_by_serving_printer(monkeypatch, tmp_path):
     from print_handy import listeners
-    from print_handy.hermes import moonraker_discord_announcements as announcer
+    from print_handy.runtime import moonraker_discord_announcements as announcer
 
     serving = {"pid": WORKSHOP}
     monkeypatch.setattr(listeners, "instance_printer_id", lambda: serving["pid"])
@@ -591,7 +591,7 @@ def test_pending_completion_is_keyed_by_serving_printer(monkeypatch, tmp_path):
 
 def test_pending_completion_adopts_the_legacy_single_slot(monkeypatch):
     from print_handy import listeners
-    from print_handy.hermes import moonraker_discord_announcements as announcer
+    from print_handy.runtime import moonraker_discord_announcements as announcer
 
     monkeypatch.setattr(listeners, "instance_printer_id", lambda: WORKSHOP)
     state = {"pending_completion_message": "Print complete: Stand"}

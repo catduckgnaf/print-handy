@@ -43,7 +43,7 @@ class StubAdapter:
 
 def make_core(cfg, tmp_path, result, printers):
     cfg["printers"] = printers
-    cfg["paths"]["hermes_home"] = tmp_path / "hermes-home"
+    cfg["paths"]["state_home"] = tmp_path / "hermes-home"
     discord = fake_discord.FakeDiscord(auto=True, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(cfg["discord"]["allowed_user_ids"]))
     core = runtime.BotCore(discord.client, cfg)

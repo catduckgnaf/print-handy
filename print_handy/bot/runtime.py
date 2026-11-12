@@ -28,7 +28,7 @@ from types import SimpleNamespace
 
 from .. import settings
 from ..core import fuzzy, prompts
-from ..hermes import _config
+from ..runtime import _config
 from . import agent, commands, llm, platform, rest, routing
 from .router import Router
 
@@ -91,8 +91,8 @@ def enable_warm_worker():
     every step starting cold, as before.
     """
     try:
-        from ..core import prepared_intake
-        prepared_intake.enable_warm_worker()
+        from ..intake import worker as intake_worker
+        intake_worker.enable_warm_worker()
     except Exception:
         logger.warning("warm heavy worker not enabled; intake steps start cold", exc_info=True)
 

@@ -12,7 +12,7 @@ import pytest
 
 from print_handy import debug_mode
 from print_handy.bot import guided, runtime
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 from corpus import fake_discord
 
@@ -27,7 +27,7 @@ def _clean_guided_store():
 
 @pytest.fixture
 def core(cfg, monkeypatch, tmp_path):
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
     monkeypatch.setattr(_config, "discord_token", lambda: "")
     discord = fake_discord.FakeDiscord(chat_id=int(cfg["discord"]["chat_id"]),

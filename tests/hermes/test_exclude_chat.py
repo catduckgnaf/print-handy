@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from print_handy.core.exclude_object import exclude_plan
-from print_handy.hermes.exclude_chat import (
+from print_handy.runtime.exclude_chat import (
     components, confirm_send, parse_custom_id, prepare, surface_text,
 )
 
@@ -102,7 +102,7 @@ def test_klipper_uppercased_excluded_names_still_count():
 
 
 def test_read_live_fails_closed_without_excluded_list(monkeypatch):
-    from print_handy.hermes import exclude_chat, print_stop
+    from print_handy.runtime import exclude_chat, print_stop
     monkeypatch.setattr(print_stop, "status", lambda pid=None: {"state": "printing", "filename": "p.gcode"})
     monkeypatch.setattr(print_stop, "_send", lambda *a, **k: {"result": {"status": {"exclude_object": {
         "excluded_objects": ["A"]}}}})
@@ -114,7 +114,7 @@ def test_read_live_fails_closed_without_excluded_list(monkeypatch):
 
 
 def test_watchdog_check_does_not_exclude_or_stop():
-    path = Path(__file__).resolve().parents[2] / "print_handy/hermes/moonraker_event_listener.py"
+    path = Path(__file__).resolve().parents[2] / "print_handy/runtime/moonraker_event_listener.py"
     text = path.read_text(encoding="utf-8")
     start = text.index("    async def visual_check")
     end = text.index("    async def on_status", start)
@@ -128,7 +128,7 @@ def test_watchdog_check_does_not_exclude_or_stop():
 def _exclude_click(monkeypatch, tmp_path, custom_id, values=None):
     """The real plugin button handler with a fake Discord that records call order."""
     import asyncio
-    from print_handy.hermes import exclude_chat, print_alert_buttons as pab
+    from print_handy.runtime import exclude_chat, print_alert_buttons as pab
     from tests.hermes.test_print_next import Interaction
     from tests.hermes.test_stop_button_view import _install
     monkeypatch.setattr(pab, 'STATE', tmp_path / 'alerts.json')

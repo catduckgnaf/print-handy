@@ -122,7 +122,25 @@ KEY_ALIASES = {
     # AI commentary was removed with #1003), so the key drops the "ai"
     # it never should have promised; the old spelling stays readable.
     ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
+    # #1323 (from #1157): the state directory was named after the Hermes install
+    # method, which no longer exists. The old spelling is read, with a warning,
+    # through 2.3.x.
+    ("paths", "hermes_home"): ("paths", "state_home"),
 }
+# Aliases that log a deprecation warning when an install still uses the old spelling.
+WARNED_KEY_ALIASES = {("paths", "hermes_home")}
+_warned_aliases = set()
+
+
+def _warn_key_alias(old, new):
+    """Log once per process that a deprecated key spelling was read."""
+    if old in WARNED_KEY_ALIASES and old not in _warned_aliases:
+        _warned_aliases.add(old)
+        import logging
+        logging.getLogger(__name__).warning(
+            "[%s] %s is deprecated and will stop working after 2.3.x; rename it to [%s] %s "
+            "(environment: PRINT_HANDY__%s__%s)", old[0], old[1], new[0], new[1],
+            new[0].upper(), new[1].upper())
 
 
 def _apply_key_aliases(layer):
@@ -131,6 +149,7 @@ def _apply_key_aliases(layer):
         values = layer.get(old_section)
         if not isinstance(values, dict) or old_key not in values:
             continue
+        _warn_key_alias((old_section, old_key), (new_section, new_key))
         target = layer.setdefault(new_section, {})
         if new_key in target:
             del values[old_key]  # both spellings in one layer: the current name wins
@@ -521,6 +540,8 @@ def _from_env(home, environ, declared=None):
             if len(parts) != 2:
                 raise SettingsError(f"${name} must look like PRINT_HANDY__SECTION__KEY")
             section, key = parts
+            if (section, key) in KEY_ALIASES:
+                _warn_key_alias((section, key), KEY_ALIASES[(section, key)])
             section, key = KEY_ALIASES.get((section, key), (section, key))
             if section == "printers":
                 # The roster is reached only through the indexed
@@ -613,7 +634,7 @@ SPACING_LABELS = {"minimum": "Minimum", "low": "Low", "medium": "Medium (Standar
 # The shipped defaults for these [paths] keys used to live under ~/.hermes. If an install has data
 # in the old directory and never explicitly set a path, keep using that directory after upgrade.
 LEGACY_PATH_DEFAULTS = {
-    "hermes_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
+    "state_home": ("~/.local/share/print-handy", "~/.hermes/profiles/3dprinting"),
     "cache": ("~/.cache/print-handy", "~/.hermes/cache"),
 }
 
@@ -2469,8 +2490,8 @@ def by_id(printer_id, data=None):
 
 
 def state_dir(data=None):
-    """Where runtime state files live: <hermes_home>/state."""
-    return (data or current())["paths"]["hermes_home"] / "state"
+    """Where runtime state files live: <state_home>/state."""
+    return (data or current())["paths"]["state_home"] / "state"
 
 
 def default_printer_id(data=None):

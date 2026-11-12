@@ -39,7 +39,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from print_handy.hermes import local_vision, visual_watch
+from print_handy.runtime import local_vision, visual_watch
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "vision_eval"
 

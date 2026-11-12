@@ -43,7 +43,8 @@ def test_failure_post_is_redacted():
 
 
 def test_every_generic_handler_post_uses_the_helper():
-    source = PLUGIN_PATH.read_text()
+    from handler_source import handler_source  # the handlers moved into print_handy/bot/handlers (#1323)
+    source = handler_source()
     # The eight audited generic posts (color selection, next plate x2,
     # stop, resume, print again, restart, alert buttons) all route
     # through _failure_post; no bare f-string failure post remains.

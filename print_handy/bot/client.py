@@ -101,7 +101,7 @@ def run_bot(cfg):
     exception is re-raised exactly as before, leaving the process supervisor
     and container restart policy as the outer backstop.
     """
-    from ..hermes import _config
+    from ..runtime import _config
     token = _config.discord_token()
     for attempt in range(1, STARTUP_ATTEMPTS + 1):
         try:
@@ -267,7 +267,7 @@ class PrintHandyBot(ext_commands.Bot):
             self._interrupted_checked = True  # once per process; READY can arrive again on a reconnect
             try:
                 from ..core import prepared_intake
-                from ..hermes import _config
+                from ..runtime import _config
                 await prepared_intake.announce_interrupted(_config.state_dir() / "model-link-intakes",
                                                            self.core.adapter)
             except Exception:

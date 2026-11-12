@@ -27,7 +27,7 @@ MODELS = {
 
 
 def config_for(key, hermes=fixture.HERMES, environ=None):
-    env = {"PRINT_HANDY__PRINTER__MODEL": key, "PRINT_HANDY__PATHS__HERMES_HOME": str(hermes),
+    env = {"PRINT_HANDY__PRINTER__MODEL": key, "PRINT_HANDY__PATHS__STATE_HOME": str(hermes),
            **(environ or {})}
     return settings.load(local=False, environ=env)
 

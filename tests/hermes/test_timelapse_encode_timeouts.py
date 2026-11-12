@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from print_handy import live_stream  # noqa: E402
-from print_handy.hermes import timelapse_encode  # noqa: E402
+from print_handy.runtime import timelapse_encode  # noqa: E402
 
 
 def test_hardware_gets_a_short_limit_and_software_scales_with_frames():

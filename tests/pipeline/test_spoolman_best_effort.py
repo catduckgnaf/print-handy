@@ -32,8 +32,8 @@ import pytest
 
 from print_handy import settings
 from print_handy.core import model_job, orca_adapter, spoolman_client
-from print_handy.hermes import moonraker_discord_announcements as watcher
-from print_handy.hermes import print_records
+from print_handy.runtime import moonraker_discord_announcements as watcher
+from print_handy.runtime import print_records
 
 DEAD = "http://127.0.0.1:9"  # nothing ever connects: urlopen is faked below
 

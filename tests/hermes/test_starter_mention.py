@@ -18,11 +18,11 @@ import pytest
 
 from print_handy import settings
 from print_handy.bot import rest
-from print_handy.hermes import _config
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_records
-from print_handy.hermes import starter_pings
+from print_handy.runtime import _config
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_records
+from print_handy.runtime import starter_pings
 
 STARTER = "111222333444555666"
 
@@ -321,7 +321,7 @@ def test_old_setting_spelling_migrates(tmp_path):
 # ------------------------------------------------- button posts (alerts)
 
 def _fake_button_post(monkeypatch):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     calls = []
 
     def fake_buttons(token, channel_id, content, kind, filename, **kwargs):
@@ -393,7 +393,7 @@ def test_watchdog_visual_alert_releases_a_fully_failed_ping(archive, monkeypatch
     the button post and the plain fallback both fail, the recorded
     ping is released, so the next watchdog alert for the print can
     ping instead of arriving silently."""
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "post_visual_alert",
                         lambda *args, **kwargs: False)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
@@ -413,7 +413,7 @@ def test_a_fully_failed_alert_delivery_can_ping_on_resend(archive, monkeypatch):
     alert was never delivered, so its ping decision is released: a
     re-send of the same alert pings the starter instead of arriving
     silently because the failed attempt recorded the episode."""
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "post_with_buttons",
                         lambda token, channel_id, content, kind, filename, **kw: False)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
@@ -431,7 +431,7 @@ def test_a_fully_failed_alert_delivery_can_ping_on_resend(archive, monkeypatch):
 
 
 def test_button_post_allows_only_the_named_user_to_ping(monkeypatch, tmp_path):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seen = []
 
     class Response:

@@ -67,7 +67,7 @@ paths:
   # State, logs and the .env. The key name is historical; Hermes is not required. A native install
   # that still has data in the old default (~/.hermes/profiles/3dprinting) keeps using it until
   # you set this key or move the folder.
-  hermes_home: ~/.local/share/print-handy
+  state_home: ~/.local/share/print-handy
   archive: ~/3d-prints
   records_vault: ~/Documents/3D Printing Records
   cache: ~/.cache/print-handy

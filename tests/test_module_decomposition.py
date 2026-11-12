@@ -25,9 +25,23 @@ HOMES = {
     "print_handy.gcode.verify": "print_handy.core.model_job",
     "print_handy.gcode.artifact": "print_handy.core.model_job",
     "print_handy.jobs.common": "print_handy.core.model_job",
+    "print_handy.jobs.store": "print_handy.core.model_job",
+    "print_handy.jobs.filament": "print_handy.core.model_job",
+    "print_handy.launch.gates": "print_handy.core.model_job",
+    "print_handy.launch.print_now": "print_handy.core.model_job",
+    "print_handy.jobs.slice": "print_handy.core.model_job",
+    "print_handy.jobs.sources": "print_handy.core.model_job",
+    "print_handy.jobs.audit": "print_handy.core.model_job",
+    "print_handy.jobs.prompts": "print_handy.core.model_job",
+    "print_handy.jobs.cli": "print_handy.core.model_job",
+    "print_handy.intake.worker": "print_handy.core.prepared_intake",
+    "print_handy.intake.questions": "print_handy.core.prepared_intake",
+    "print_handy.intake.support_flow": "print_handy.core.prepared_intake",
+    "print_handy.intake.fit_flow": "print_handy.core.prepared_intake",
 }
 # Packages and modules the decomposition adds: none may sit in an import cycle.
-NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy._relocated")
+NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy.intake", "print_handy.bot.handlers",
+               "print_handy._relocated")
 
 
 def _moved_names(old, home):
@@ -104,9 +118,34 @@ def test_an_unrelated_name_with_another_value_is_not_forwarded():
         del sys.modules["old_x"]
 
 
+def test_patching_a_start_gate_on_the_old_path_steers_print_now(monkeypatch):
+    """The gate seams tests and callers patch on model_job still reach the moved start path."""
+    from print_handy.launch import gates, print_now
+    refuse = mock.Mock(side_effect=RuntimeError("bed clear refused"))
+    monkeypatch.setattr(model_job, "_claim_bed_clear", refuse)
+    assert gates._claim_bed_clear is refuse and print_now._claim_bed_clear is refuse
+    monkeypatch.setattr(model_job, "verify_gcode", mock.Mock())
+    from print_handy.gcode import verify
+    assert verify.verify_gcode is model_job.verify_gcode
+
+
+def test_patching_prepared_intake_reaches_the_moved_intake_flows(monkeypatch):
+    from print_handy.core import prepared_intake
+    from print_handy.intake import fit_flow, questions, worker
+    fake_ask = mock.AsyncMock()
+    monkeypatch.setattr(prepared_intake, "ask", fake_ask)
+    assert questions.ask is fake_ask
+    monkeypatch.setattr(prepared_intake, "settings", mock.Mock())
+    assert fit_flow.settings is prepared_intake.settings and worker.settings is prepared_intake.settings
+    assert prepared_intake.supports_decision.__module__ == "print_handy.intake.support_flow"
+    assert worker.logger is prepared_intake.logger
+
+
 def test_moved_code_keeps_the_model_job_logger():
     from print_handy.gcode import bounds
-    assert bounds.logger is model_job.logger
+    from print_handy.jobs import store
+    from print_handy.launch import print_now
+    assert bounds.logger is store.logger is print_now.logger is model_job.logger
 
 
 # --------------------------------------------------------------- import cycles
@@ -221,3 +260,74 @@ def test_new_modules_never_import_the_modules_they_were_cut_from():
 
 def test_the_cycle_finder_finds_a_cycle():
     assert _cycles({"a": {"b"}, "b": {"a"}, "c": {"a"}}) == [["a", "b"]]
+
+
+def test_moved_slice_steps_still_run_in_the_heavy_worker(monkeypatch, tmp_path):
+    """slice_job moved to jobs/slice.py; the intake still offloads it as ('model_job', 'slice_job')."""
+    import asyncio
+    import json
+    from print_handy.core import heavy_worker, owned_worker, prepared_intake
+    from print_handy.jobs import slice as jobs_slice
+    assert model_job.slice_job is jobs_slice.slice_job
+    seen = {}
+
+    async def fake_run(argv, payload, **kwargs):
+        seen["request"], seen["lane"], seen["record"] = json.loads(payload), kwargs["lane"], kwargs["record"]
+        return ("\n" + json.dumps({"ok": True, "path": False, "result": "done"})).encode(), b""
+
+    async def no_thread(*args, **kwargs):
+        raise AssertionError("slicing must not run in a thread")
+
+    monkeypatch.setattr(prepared_intake.owned_worker, "run", fake_run)
+    monkeypatch.setattr(prepared_intake.owned_worker, "in_thread", no_thread)
+    job = tmp_path / "JOB.json"
+    assert asyncio.run(prepared_intake._heavy(model_job.slice_job, job)) == "done"
+    assert (seen["request"]["module"], seen["request"]["func"]) == ("model_job", "slice_job")
+    assert ("model_job", "slice_job") in heavy_worker.ALLOWED
+    assert seen["lane"] is owned_worker.SLICER
+    assert seen["record"] == tmp_path / owned_worker.RECORD
+
+
+def test_the_old_module_still_runs_the_cli():
+    """``python3 -m print_handy.core.model_job`` is the documented command line (#1323 moved it to jobs/cli.py)."""
+    import subprocess
+    import sys
+    from print_handy.jobs import cli
+    assert model_job.main is cli.main
+    out = subprocess.run([sys.executable, "-m", "print_handy.core.model_job", "--help"],
+                         cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert "print-now" in out.stdout and "fetch" in out.stdout
+
+
+def test_site_dispatch_by_name_finds_a_function_patched_on_the_old_path(monkeypatch):
+    """inventory_for_url looks its site function up by name; patching model_job still steers it."""
+    from print_handy.jobs import sources
+    fake = mock.Mock(return_value="inventory")
+    monkeypatch.setattr(model_job, "maker_inventory", fake)
+    assert sources.maker_inventory is fake
+    assert model_job.inventory_for_url("https://makerworld.com/en/models/1") == "inventory"
+    fake.assert_called_once_with("https://makerworld.com/en/models/1")
+
+
+def test_every_moved_offload_step_keeps_its_offload_name():
+    """Each ('model_job', step) the intake offloads resolves to a function whose home maps back to model_job."""
+    from print_handy.core import heavy_worker, prepared_intake
+    from print_handy.intake import worker
+    for module, name in sorted(prepared_intake._OFFLOAD):
+        if module != "model_job":
+            continue
+        func = getattr(model_job, name)
+        short = worker._OFFLOAD_HOMES.get(func.__module__, func.__module__.rsplit(".", 1)[-1])
+        assert short == "model_job", f"{name} moved to {func.__module__} without an _OFFLOAD_HOMES entry"
+        assert (module, name) in heavy_worker.ALLOWED
+
+
+def test_patching_the_handler_package_reaches_the_handler_that_uses_the_name(monkeypatch):
+    from print_handy.bot import handlers
+    from print_handy.bot.handlers import common, print_stop
+    fake = mock.Mock()
+    monkeypatch.setattr(handlers, "_routed_printer_id", fake)
+    assert common._routed_printer_id is fake and print_stop._routed_printer_id is fake
+    assert "_LIVE_SESSION" not in vars(handlers)
+    assert handlers._LIVE_SESSION is common._LIVE_SESSION

@@ -3,8 +3,8 @@ import threading
 
 import pytest
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_markers as pm
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_markers as pm
 
 
 def test_record_each_event_kind(tmp_path):

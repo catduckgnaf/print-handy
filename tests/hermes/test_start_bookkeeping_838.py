@@ -10,8 +10,8 @@ from types import SimpleNamespace as S
 from unittest import mock
 
 from print_handy.core import model_job
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
 
 
 # ---------------------------------------------------------------- item 7: attribution
@@ -105,7 +105,7 @@ class RetryPendingSpoolSyncTests(unittest.IsolatedAsyncioTestCase):
             return True
 
         import print_handy.listeners as listeners_mod
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         with mock.patch.object(mel.print_control, "_call", side_effect=fake_call), \
                 mock.patch.object(spool_sync, "moonraker_for",
                                   return_value=lambda method, path: fake_call(path)), \
@@ -153,10 +153,10 @@ def test_cancel_during_shutdown_refuses_and_never_restarts():
     """Alert Cancel while Klipper is in shutdown must not run FIRMWARE_RESTART
     as a side effect; it names /print-reboot instead (#838 item 9)."""
     st = {"klippy": "shutdown", "state": "paused", "filename": "f.gcode"}
-    with mock.patch("print_handy.hermes.print_control.status", return_value=st), \
-            mock.patch("print_handy.hermes.print_control._call") as call, \
+    with mock.patch("print_handy.runtime.print_control.status", return_value=st), \
+            mock.patch("print_handy.runtime.print_control._call") as call, \
             mock.patch.object(pab, "clear_shutdown") as clear, \
-            mock.patch("print_handy.hermes.print_stop.cancel") as cancel:
+            mock.patch("print_handy.runtime.print_stop.cancel") as cancel:
         out = pab.handle_click("cancel", {"filename": "f.gcode"})
     clear.assert_not_called()
     call.assert_not_called()  # no /printer/firmware_restart, no print cancel
@@ -167,9 +167,9 @@ def test_cancel_during_shutdown_refuses_and_never_restarts():
 
 def test_cancel_when_ready_still_cancels_normally():
     st = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
-    with mock.patch("print_handy.hermes.print_control.status", return_value=st), \
+    with mock.patch("print_handy.runtime.print_control.status", return_value=st), \
             mock.patch.object(pab, "clear_shutdown") as clear, \
-            mock.patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
+            mock.patch("print_handy.runtime.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         out = pab.handle_click("cancel", {"filename": "f.gcode"})
     clear.assert_not_called()
     cancel.assert_called_once_with("f.gcode")

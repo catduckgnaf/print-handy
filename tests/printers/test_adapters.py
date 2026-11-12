@@ -38,7 +38,7 @@ BAMBU_P1S = "bambulab.p1s"
 
 def config_for(family):
     return settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": family,
-                                               "PRINT_HANDY__PATHS__HERMES_HOME": str(a1_fixture.HERMES)})
+                                               "PRINT_HANDY__PATHS__STATE_HOME": str(a1_fixture.HERMES)})
 
 
 def adapter_for(family):
@@ -563,7 +563,7 @@ class GenericKlipperTests(unittest.TestCase):
         code = (f"import sys\nsys.path.insert(0, {str(settings.ROOT)!r})\nfrom print_handy import printers\n"
                 "printers.get('klipper.generic'); printers.get('sovol.sv06')\n"
                 "bad=[m for m in sys.modules if m.startswith(('print_handy.printers.flashforge.zmod',"
-                "'print_handy.hermes.spool_sync'))]\n"
+                "'print_handy.runtime.spool_sync'))]\n"
                 "print(bad)\n")
         root = Path(settings.ROOT)
         out = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True,

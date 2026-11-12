@@ -91,12 +91,12 @@ def _watch_coverage_reporter():
     import-time dependency of the printer package. Never raises.
     """
     def compute():
-        from ...hermes import _config, camera_watch, listener_common
+        from ...runtime import _config, camera_watch, listener_common
         return camera_watch.listener_coverage(
             "bambulab_lan", _config.cfg(),
             lambda: listener_common._profile_env_value("CLIPROXY_API_KEY"))
     try:
-        from ...hermes import camera_watch
+        from ...runtime import camera_watch
         return camera_watch.CoverageReporter(compute)
     except Exception:
         class _Off:
@@ -469,9 +469,9 @@ def main():
     # monitor's). The same sink settles an uncertain launch lease from
     # this telemetry (#1241, family_control.LaunchLeaseSettler), as the
     # polled families' listener does. Imported here, not at module scope: the sink lives in
-    # the bot core (print_handy.hermes), which must not become an
+    # the bot core (print_handy.runtime), which must not become an
     # import-time dependency of the printer package.
-    from ...hermes import family_control
+    from ...runtime import family_control
     emit = family_control.bambu_event_sink(printer_id)
     try:
         listener = BambuListener(adapter, emit=emit, printer_id=printer_id)

@@ -15,8 +15,8 @@ import pytest
 
 from print_handy import knowledge
 from print_handy.bot import runtime
-from print_handy.hermes import bed_separate as bs
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import bed_separate as bs
+from print_handy.runtime import print_control as pc
 
 SPEC = importlib.util.spec_from_file_location(
     "print_feedback_bed_down", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")

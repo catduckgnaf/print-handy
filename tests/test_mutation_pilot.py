@@ -4,7 +4,7 @@ the surviving mutants listed in ``tests/MUTATION-PILOT.md``.
 The pilot hand-builds one-line behavior flips for two safety-relevant
 modules -- the bounds dispatcher in ``print_handy/core/model_job.py``
 (``gcode_motion_bounds`` and its native-load helpers) and the slot-naming
-conversion in ``print_handy/hermes/spool_sync.py``
+conversion in ``print_handy/runtime/spool_sync.py``
 (``lane_index0`` / ``slot_from_lane_index0``) plus
 ``print_handy/core/filament_color.py``'s ``slot_display``.
 
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from print_handy.core import filament_color, model_job  # noqa: E402
-from print_handy.hermes import spool_sync  # noqa: E402
+from print_handy.runtime import spool_sync  # noqa: E402
 
 TEXT = "G90\nG1 X10 Y20 Z0.2\nG1 X-5 Y30\nG0 Z5\n"
 EXPECTED_TEXT = {"x": (-5.0, 10.0), "y": (20.0, 30.0), "z": (0.2, 5.0)}

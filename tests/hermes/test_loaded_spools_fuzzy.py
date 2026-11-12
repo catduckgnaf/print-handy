@@ -20,7 +20,7 @@ plugin = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(plugin)
 
 from print_handy.core import fuzzy
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 
 
 # ---------------------------------------------------------------- canonical spellings

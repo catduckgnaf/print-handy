@@ -33,8 +33,8 @@ from unittest import mock
 import pytest
 
 from print_handy import printer_control
-from print_handy.hermes import panic
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import panic
+from print_handy.runtime import print_alert_buttons as pab
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = (ROOT / "print_handy", ROOT / "plugins")
@@ -59,15 +59,15 @@ ADAPTER_VERBS = {"stop", "pause", "resume"}
 # functions living in modules that also hold entry points.
 ALLOWED_FILES = {
     "print_handy/printer_control.py",
-    "print_handy/hermes/print_stop.py",
-    "print_handy/hermes/print_control.py",
-    "print_handy/hermes/family_control.py",
+    "print_handy/runtime/print_stop.py",
+    "print_handy/runtime/print_control.py",
+    "print_handy/runtime/family_control.py",
 }
 ALLOWED_PREFIXES = ("print_handy/printers/",)
 ALLOWED_FUNCTIONS = {
-    ("print_handy/hermes/panic.py", "force_restart"),
-    ("print_handy/hermes/panic.py", "purge"),
-    ("print_handy/hermes/print_alert_buttons.py", "clear_shutdown"),
+    ("print_handy/runtime/panic.py", "force_restart"),
+    ("print_handy/runtime/panic.py", "purge"),
+    ("print_handy/runtime/print_alert_buttons.py", "clear_shutdown"),
     ("print_handy/webui/controls.py", "default_send"),
     # The Web UI driver's endpoint table (module level, read by default_send).
     ("print_handy/webui/controls.py", "<module>"),
@@ -177,10 +177,10 @@ def _function(tree: ast.AST, name: str):
 
 def test_entry_point_table_covers_every_surface():
     files = {path for path, _ in printer_control.ENTRY_POINTS}
-    assert "plugins/print-feedback/__init__.py" in files      # chat commands
-    assert "print_handy/hermes/print_alert_buttons.py" in files  # every platform's alert buttons
+    assert "print_handy/bot/handlers/print_stop.py" in files  # chat commands (#1323 moved them from plugins/)
+    assert "print_handy/runtime/print_alert_buttons.py" in files  # every platform's alert buttons
     assert "print_handy/webui/controls.py" in files            # Web UI control routes
-    assert "print_handy/hermes/panic.py" in files              # the CLI
+    assert "print_handy/runtime/panic.py" in files              # the CLI
     assert len(set(printer_control.ENTRY_POINTS)) == len(printer_control.ENTRY_POINTS)
 
 
@@ -202,8 +202,8 @@ def test_no_entry_point_bypasses_the_service():
 def test_the_scan_catches_a_bypass():
     """The scan is not vacuous: each kind of bypass it guards is reported."""
     source = (
-        "from print_handy.hermes import print_stop, family_control\n"
-        "from print_handy.hermes import print_control as pc\n"
+        "from print_handy.runtime import print_stop, family_control\n"
+        "from print_handy.runtime import print_control as pc\n"
         "def stop(adapter):\n"
         "    print_stop.cancel('a.gcode')\n"
         "    pc.resume('a.gcode')\n"
@@ -234,7 +234,7 @@ def test_alert_cancel_and_resume_land_in_the_service():
     calls, methods = _spy(cancel=(True, "Stopped."), resume=(True, "Resumed."))
     ready = {"klippy": "ready", "state": "paused", "filename": "f.gcode"}
     with mock.patch.multiple(printer_control.PrinterControl, **methods), \
-            mock.patch("print_handy.hermes.print_control.status", return_value=ready):
+            mock.patch("print_handy.runtime.print_control.status", return_value=ready):
         assert pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode"}) == "Stopped."
         assert pab.handle_click("resume", {"kind": "paused", "filename": "f.gcode"}) == "Resumed."
     assert [(name, pid, args) for name, pid, args, _ in calls] == [
@@ -251,7 +251,7 @@ def test_family_alert_press_lands_in_the_service_with_its_connection():
 
 def test_family_alert_for_a_changed_printer_sends_nothing():
     adapter = S(connection="moonraker", transport="moonraker")
-    with mock.patch("print_handy.hermes.family_control.adapter_for", return_value=adapter):
+    with mock.patch("print_handy.runtime.family_control.adapter_for", return_value=adapter):
         out = pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode",
                                           "connection": "octoprint"})
     assert out == printer_control.FOREIGN_ALERT_TEXT
@@ -262,8 +262,8 @@ def test_visual_pause_on_moonraker_sends_through_the_service():
     reads = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
                   {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
     with mock.patch.multiple(printer_control.PrinterControl, **methods), \
-            mock.patch("print_handy.hermes.print_control.status", side_effect=lambda **k: next(reads)), \
-            mock.patch("print_handy.hermes.print_alert_buttons.time.sleep"):
+            mock.patch("print_handy.runtime.print_control.status", side_effect=lambda **k: next(reads)), \
+            mock.patch("print_handy.runtime.print_alert_buttons.time.sleep"):
         out = pab.handle_click("pause", {"kind": "visual", "filename": "f.gcode"},
                                pause_wait_s=5, pause_poll_s=0)
     assert out == "Paused. Printer now reports paused."
@@ -300,8 +300,8 @@ def test_cli_force_restart_is_the_service_emergency_stop(capsys):
 
 def test_service_forwards_the_driver_call_shape():
     """None stays the drivers' own default printer: no printer_id keyword is added."""
-    with mock.patch("print_handy.hermes.print_stop.cancel", return_value=(True, "x")) as cancel, \
-            mock.patch("print_handy.hermes.print_control.resume", return_value=(True, "y")) as resume:
+    with mock.patch("print_handy.runtime.print_stop.cancel", return_value=(True, "x")) as cancel, \
+            mock.patch("print_handy.runtime.print_control.resume", return_value=(True, "y")) as resume:
         printer_control.for_printer().cancel("a.gcode")
         printer_control.for_printer("p2").resume("b.gcode", wait_s=1)
     cancel.assert_called_once_with("a.gcode")

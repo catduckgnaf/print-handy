@@ -4,7 +4,7 @@ The main state volume was ``/data/hermes`` until 2.2.5; its neutral name is
 ``/data/state``. Nothing is renamed in place: the container entrypoint
 keeps a legacy install working by linking ``/data/state`` to the legacy
 folder when only the legacy volume holds data, and an explicit
-``paths.hermes_home`` pointing at the old path is honored unchanged. So
+``paths.state_home`` pointing at the old path is honored unchanged. So
 which volume is in use is a fact about the filesystem, not just about
 configuration — this module reads that fact, for the doctor row and the
 container healthcheck. The legacy name stays accepted for at least two

@@ -386,7 +386,7 @@ DUAL_MODELS = {"bambulab.h2d": "H2D", "bambulab.h2dpro": "H2DPRO", "bambulab.x2d
 def test_dual_model_registration(key, monkeypatch):
     f = getattr(facts, DUAL_MODELS[key])
     cfg = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": key,
-                                              "PRINT_HANDY__PATHS__HERMES_HOME": str(fixture.HERMES)})
+                                              "PRINT_HANDY__PATHS__STATE_HOME": str(fixture.HERMES)})
     a = printers.get(key, cfg)
     assert a.extruder_count() == 2 and (a.slot_count, a.multi_slot) == (1, False)
     # #671's treatment is load-bearing, not just a label: the model stays
@@ -395,7 +395,7 @@ def test_dual_model_registration(key, monkeypatch):
     with pytest.raises(settings.SettingsError, match="filament_slots must be 1"):
         settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": key,
                                             "PRINT_HANDY__PRINTER__FILAMENT_SLOTS": "4",
-                                            "PRINT_HANDY__PATHS__HERMES_HOME": str(fixture.HERMES)})
+                                            "PRINT_HANDY__PATHS__STATE_HOME": str(fixture.HERMES)})
     assert a.build_volume().bed_mm == tuple(float(v) for v in f["bed_mm"].value)
     fixture.trust(type(a), f, monkeypatch.setattr)
     folder = fixture.install(a, f)
@@ -468,7 +468,7 @@ def _dual_gcode(adapter, f, second_type="PETG", tools=("T1",)):
 def test_dual_guard_accepts_a_fully_declared_two_filament_file(monkeypatch):
     f = facts.H2D
     cfg = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": "bambulab.h2d",
-                                              "PRINT_HANDY__PATHS__HERMES_HOME": str(fixture.HERMES)})
+                                              "PRINT_HANDY__PATHS__STATE_HOME": str(fixture.HERMES)})
     a = printers.get("bambulab.h2d", cfg)
     _install_dual(a, f, monkeypatch)
     assert a.gcode_problems(_dual_gcode(a, f)) == []

@@ -32,7 +32,7 @@ def _apply(plan, tmp_path):
     plan["data_home"] = str(home)
     # The services resolve the data home from the written config, so the
     # plan's config must name the temp home for a test apply.
-    plan["config"]["paths"]["hermes_home"] = str(home)
+    plan["config"]["paths"]["state_home"] = str(home)
 
     class W:
         def __init__(self):
@@ -75,7 +75,7 @@ def test_apply_with_password_writes_a_login_and_the_completion_record(tmp_path):
                "webui_password_confirm": PASSWORD}
     plan = build_plan(_wizard(answers))
     _w, home = _apply(plan, tmp_path)
-    data = {"paths": {"hermes_home": home},
+    data = {"paths": {"state_home": home},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN", "require_auth": True}}
     resolved = access.resolve(data, "0.0.0.0", environ={})
     assert resolved.mode == access.PASSWORD
@@ -88,7 +88,7 @@ def test_apply_with_open_records_the_saved_choice(tmp_path):
     answers = {**ONE_PRINTER, "webui_access": "open"}
     plan = build_plan(_wizard(answers))
     _w, home = _apply(plan, tmp_path)
-    data = {"paths": {"hermes_home": home},
+    data = {"paths": {"state_home": home},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN", "require_auth": True}}
     saved = access.access_path(data)
     assert saved.exists()
@@ -98,7 +98,7 @@ def test_apply_with_open_records_the_saved_choice(tmp_path):
 def test_apply_with_keep_writes_no_access_file_but_explains_the_token(tmp_path):
     plan = build_plan(_wizard(ONE_PRINTER))
     w, home = _apply(plan, tmp_path)
-    data = {"paths": {"hermes_home": home},
+    data = {"paths": {"state_home": home},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN", "require_auth": True}}
     assert not access.access_path(data).exists()
     assert any("WEBUI_ACCESS_TOKEN" in line for line in w.lines)
@@ -110,7 +110,7 @@ def test_a_refused_password_does_not_fail_the_install(tmp_path):
                "webui_password_confirm": "password"}
     plan = build_plan(_wizard(answers))
     w, home = _apply(plan, tmp_path)
-    data = {"paths": {"hermes_home": home},
+    data = {"paths": {"state_home": home},
             "webui": {"access_token_env": "WEBUI_ACCESS_TOKEN", "require_auth": True}}
     assert not access.access_path(data).exists()
     assert any("was not saved" in line or "not saved" in line for line in w.lines)

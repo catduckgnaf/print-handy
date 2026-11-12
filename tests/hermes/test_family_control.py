@@ -8,7 +8,7 @@ nothing at all.
 """
 import pytest
 
-from print_handy.hermes import family_control as fc
+from print_handy.runtime import family_control as fc
 
 REMOTE = "benchy.gcode"
 
@@ -225,7 +225,7 @@ def test_pause_alerts_resume_clears_the_pause_ping_episodes(monkeypatch, tmp_pat
     Other kinds' episodes (the watchdog's) are not the pause's to clear."""
     import json
 
-    from print_handy.hermes import starter_pings
+    from print_handy.runtime import starter_pings
     state = tmp_path / "starter_pings.json"
     monkeypatch.setattr(starter_pings, "STATE", state)
     state.write_text(json.dumps({REMOTE: {
@@ -338,7 +338,7 @@ def test_default_printer_pause_alerts_post_and_retire_under_its_real_id(monkeypa
     """2.2.5 review (P2-176): printer_id None (the default printer) must not
     reach the retirer as "every printer" or be stored without an id."""
     from print_handy import settings
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(settings, "default_printer_id", lambda data=None: "printer-a")
     mel = fc._mel()
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)

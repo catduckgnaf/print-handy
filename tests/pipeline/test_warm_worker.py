@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.core import heavy_worker, owned_worker, prepared_intake, source_colors
+from print_handy.core import heavy_worker, owned_worker, source_colors
+from print_handy.intake import worker as intake_worker
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="worker process groups are POSIX")
 
@@ -79,13 +80,13 @@ def box(tmp_path, monkeypatch):
 
 
 def _step():
-    return prepared_intake._heavy(source_colors.inventory, 'model.3mf')
+    return intake_worker._heavy(source_colors.inventory, 'model.3mf')
 
 
 @posix_only
 def test_a_step_is_served_by_the_spare_started_before_it(box):
     async def run():
-        prepared_intake.enable_warm_worker()
+        intake_worker.enable_warm_worker()
         await box.wait_born(1)  # the first spare starts when the runtime enables it
         spare_pid, warm, born_at = box.born()[0]
         assert warm
@@ -110,8 +111,8 @@ def test_a_spare_from_older_settings_is_stopped_not_used(box, monkeypatch):
     stamps = iter(['before', 'after', 'after', 'after'])
 
     async def run():
-        owned_worker.enable_warm_spare(lambda: next(stamps), prepared_intake._worker_argv(warm=True),
-                                       str(prepared_intake.settings.ROOT))
+        owned_worker.enable_warm_spare(lambda: next(stamps), intake_worker._worker_argv(warm=True),
+                                       str(intake_worker.settings.ROOT))
         await box.wait_born(1)
         stale = box.born()[0][0]
         served_by = await asyncio.wait_for(_step(), 10)
@@ -134,7 +135,7 @@ def test_shutdown_stops_and_unregisters_an_idle_spare(box):
     # it in _LIVE (only run()'s finally unregisters a worker), so the next
     # test's `assert not owned_worker._LIVE` saw a dead spare.
     async def run():
-        prepared_intake.enable_warm_worker()
+        intake_worker.enable_warm_worker()
         await box.wait_born(1)
         await owned_worker.shutdown()
         return box.born()[0][0]

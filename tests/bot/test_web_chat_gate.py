@@ -117,7 +117,7 @@ def test_no_login_install_reaches_the_confirm_prompt(cfg, monkeypatch):
 
     from print_handy.bot import runtime
     from print_handy.core import link_intake, prepared_intake, printer_state
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
 
     monkeypatch.setattr(_config, "_override", cfg)
     monkeypatch.delenv("WEBUI_ACCESS_TOKEN", raising=False)

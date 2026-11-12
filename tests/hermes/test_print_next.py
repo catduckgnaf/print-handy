@@ -10,8 +10,8 @@ from unittest import mock
 import pytest
 
 HERE = Path(__file__).resolve().parent
-from print_handy.hermes import print_next
-from print_handy.hermes import print_records
+from print_handy.runtime import print_next
+from print_handy.runtime import print_records
 
 
 def make_job(tmp_path, plates=2):
@@ -321,7 +321,7 @@ def test_plate_choice_label_uses_plan_facts_and_says_unknown(tmp_path):
     plans, rows = three_plate_plan(tmp_path)
     part = print_next.load_plan('trio', plans)['parts'][1]
     Path(rows[1]['gcode']).write_text('; estimated printing time (normal mode) = 2h 5m 0s\n')
-    with mock.patch('print_handy.hermes.discord_print_summary.find_job', return_value=(None, None)):
+    with mock.patch('print_handy.runtime.discord_print_summary.find_job', return_value=(None, None)):
         assert print_next.plate_choice_label(part) == 'Plate 2: Part 2 · colors unknown · ~2h 5m'
         Path(rows[1]['gcode']).write_text('G1 X1\n')
         assert print_next.plate_choice_label(part) == 'Plate 2: Part 2 · colors unknown · time unknown'
@@ -366,7 +366,7 @@ def test_hook_accepts_explicit_part_id(tmp_path):
 
 
 def run_announcer(monkeypatch, lines):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     sent, pickers = [], []
     monkeypatch.setattr(mel, 'log', lambda _: None)
     monkeypatch.setattr(mel, 'post', lambda text: sent.append(text) or True)
@@ -385,7 +385,7 @@ def test_completion_posts_picker_not_command_text(monkeypatch):
 
 
 def test_picker_follows_timelapse_post(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
     order = []
     monkeypatch.setattr(mel, 'log', lambda _: None)
     monkeypatch.setattr(mel, 'post', lambda text: order.append('post') or True)
@@ -407,8 +407,8 @@ def test_picker_follows_timelapse_post(monkeypatch):
 
 
 def test_post_plate_picker_posts_select_then_falls_back_to_command_text(tmp_path, monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as mel
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
     plans, _rows = three_plate_plan(tmp_path)
     real_load = print_next.load_plan
     monkeypatch.setattr(print_next, 'load_plan', lambda pid: real_load(pid, plans))
@@ -472,7 +472,7 @@ class Interaction:
 
 
 def plate_clicks(tmp_path, monkeypatch, starts, start_result=(True, 'START ACCEPTED')):
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     plans, rows = three_plate_plan(tmp_path)
     real_load, real_resolve = print_next.load_plan, print_next.resolve_next
     monkeypatch.setattr(print_next, 'load_plan', lambda pid: real_load(pid, plans))

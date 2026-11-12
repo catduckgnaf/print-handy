@@ -13,7 +13,7 @@ import pytest
 
 from print_handy import logs, settings
 from print_handy.core import orca_adapter
-from print_handy.hermes import moonraker_event_listener as listener
+from print_handy.runtime import moonraker_event_listener as listener
 
 # Built from parts so no token shaped string sits in the source (GitHub push protection flags those).
 DISCORD_TOKEN = ".".join(["MTIzNDU2Nzg5MDEyMzQ1Njc4OQ", "GabcDE", "abcdefghijklmnopqrstuvwxyz0123456789"])

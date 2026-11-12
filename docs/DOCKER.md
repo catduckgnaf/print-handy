@@ -133,7 +133,7 @@ Which printers have the in-print watch:
 | Elegoo SDCP | No | No in-print verdicts; no SDCP camera source is verified yet |
 | stock Flashforge | No | Idle plate checks only, no in-print verdicts |
 
-Both watched families follow one shared rule set: the same sensitivity profiles, the early-layer schedule for risky prints, the 150-second check deadline with a notice when a check times out, one throttled alert per camera or vision failure episode with one notice when checks work again, and the same opt-in `visual_watch.auto_pause_early`. When on, auto-pause sends one pause after two independent suspicious early-layer views (at least 60 seconds apart, with a camera frame that changed between them) while the printer still reports printing this print; it never cancels, and setting it back to `false` turns it off. `bot check` shows a **camera watch** row per printer with its family's coverage and, when the watch cannot run, why. Each running listener also reports its printer's coverage in its heartbeat (active, or off and why: no camera configured, no vision route, `visual_watch.enabled` false, or a family without the in-print watch); the row adds it as `listener reports: ...`, and the diagnostics bundle shows it beside each printer's heartbeat age. One shared core (`print_handy/hermes/camera_watch.py`) holds these rules for every family.
+Both watched families follow one shared rule set: the same sensitivity profiles, the early-layer schedule for risky prints, the 150-second check deadline with a notice when a check times out, one throttled alert per camera or vision failure episode with one notice when checks work again, and the same opt-in `visual_watch.auto_pause_early`. When on, auto-pause sends one pause after two independent suspicious early-layer views (at least 60 seconds apart, with a camera frame that changed between them) while the printer still reports printing this print; it never cancels, and setting it back to `false` turns it off. `bot check` shows a **camera watch** row per printer with its family's coverage and, when the watch cannot run, why. Each running listener also reports its printer's coverage in its heartbeat (active, or off and why: no camera configured, no vision route, `visual_watch.enabled` false, or a family without the in-print watch); the row adds it as `listener reports: ...`, and the diagnostics bundle shows it beside each printer's heartbeat age. One shared core (`print_handy/runtime/camera_watch.py`) holds these rules for every family.
 
 A completely dark frame is treated as a camera problem, not a print verdict: it is never sent to the vision model and never posts as a print alert. When the watchdog reads its stills from the go2rtc fan-out and the fan-out frame is completely dark, it falls back to the direct camera snapshot once. If the frame is still dark, the check is logged and, at most once per print, a plain camera notice (with only the **Stop asking for this print** button) says the camera image is completely dark and monitoring continues. Timelapse capture applies the same rule: dark frames are skipped and counted rather than recorded, and a print whose every captured frame was dark ends with no video and a completion post that names the dark camera as the reason.
 
@@ -444,7 +444,7 @@ Rollback limits:
 - Take a copy of `./data` before an upgrade across 2.2.5 if the data matters.
 
 The container healthcheck and `python3 -m print_handy.doctor` report which
-path is in use. An explicit `PRINT_HANDY__PATHS__HERMES_HOME=/data/hermes`
+path is in use. An explicit `PRINT_HANDY__PATHS__STATE_HOME=/data/hermes`
 setting is honored unchanged. The `/data/hermes` fallback stays for at
 least two minor releases; a later release will remove it with a
 release-note warning.
@@ -466,7 +466,7 @@ To adopt the new name (optional, any time before that removal):
    template instead points its **State** path at `/data/state` with host
    folder `/mnt/user/appdata/print-handy/state` and drops the legacy
    **State (legacy /data/hermes)** path if it is still mapped.
-4. If you set `PRINT_HANDY__PATHS__HERMES_HOME` or `logging.file`
+4. If you set `PRINT_HANDY__PATHS__STATE_HOME` or `logging.file`
    explicitly, change `/data/hermes` in those values to `/data/state`.
 5. Start the container and check the startup log: the deprecation line is
    gone, and the healthcheck's state volume row names `/data/state`.

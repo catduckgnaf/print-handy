@@ -5,8 +5,8 @@ import pytest
 import sys
 from pathlib import Path
 
-from print_handy.hermes import print_records as records
-from print_handy.hermes import moonraker_discord_announcements as watcher
+from print_handy.runtime import print_records as records
+from print_handy.runtime import moonraker_discord_announcements as watcher
 
 
 def test_batch_copy_and_multipart_guards(monkeypatch, tmp_path):
@@ -255,7 +255,7 @@ def test_second_print_gets_its_own_numbered_file(tmp_path, monkeypatch):
 def test_print_number_resolved_from_launch_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
     monkeypatch.setattr(records, "PLANS_DIR", tmp_path / "Plans")
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
     job_dir = tmp_path / "archive" / "bag-clip"
     job_dir.mkdir(parents=True)
     job_json = job_dir / "JOB.json"

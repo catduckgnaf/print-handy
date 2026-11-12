@@ -60,7 +60,7 @@ def _output_roots():
     try:
         from print_handy import settings
         paths = settings.current().get("paths") or {}
-        roots += [paths.get(key) for key in ("hermes_home", "archive", "cache", "records_vault")]
+        roots += [paths.get(key) for key in ("state_home", "archive", "cache", "records_vault")]
     except Exception:
         pass
     out = []

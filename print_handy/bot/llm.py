@@ -15,7 +15,7 @@ import threading
 import time
 
 from .. import ai_routes
-from ..hermes import _config
+from ..runtime import _config
 
 # Conversation is intentionally short-lived and process-local.  It makes a
 # normal back-and-forth useful without turning the chat lane into another

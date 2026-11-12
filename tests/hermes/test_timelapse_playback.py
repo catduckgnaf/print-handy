@@ -14,9 +14,9 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from print_handy.hermes import _config, bambu_watch, elegoo_watch, prusa_watch, stock_watch  # noqa: E402
-from print_handy.hermes import moonraker_event_listener as mel  # noqa: E402
-from print_handy.hermes import print_records, timelapse_capture, timelapse_encode  # noqa: E402
+from print_handy.runtime import _config, bambu_watch, elegoo_watch, prusa_watch, stock_watch  # noqa: E402
+from print_handy.runtime import moonraker_event_listener as mel  # noqa: E402
+from print_handy.runtime import print_records, timelapse_capture, timelapse_encode  # noqa: E402
 
 DEFAULTS = dict(timelapse_encode.PLAYBACK_DEFAULTS)
 JPEG = b"\xff\xd8" + b"fake" + b"\xff\xd9"

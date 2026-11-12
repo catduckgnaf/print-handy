@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy.core import model_job
-from print_handy.hermes import print_next
+from print_handy.runtime import print_next
 
 IID = "a" * 64
 

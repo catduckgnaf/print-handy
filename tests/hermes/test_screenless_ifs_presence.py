@@ -12,9 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import print_control
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import print_control
 
 
 def zmod_status(display_off=1, present=(True, True, True, True)):
@@ -124,7 +124,7 @@ class ScreenlessReadTests(ListenerCase):
     async def test_screenless_cancel_does_not_force_restart(self):
         lis = self.listener()
         lis.display_off = 1
-        with mock.patch("print_handy.hermes.klipper_report.cancelled_by_bot", return_value=False), \
+        with mock.patch("print_handy.runtime.klipper_report.cancelled_by_bot", return_value=False), \
                 mock.patch.object(mel, "screen_cancel_reboot") as reboot, mock.patch.object(mel, "log"):
             self.assertFalse(lis.start_screen_cancel_reboot("moonraker cancelled"))
         reboot.assert_not_called()
@@ -141,7 +141,7 @@ class RunoutQuestionTests(ListenerCase):
         lis = self.listener("paused")
         with mock.patch.object(mel, "log"), mock.patch.object(mel, "post_spool_question"), \
                 mock.patch.object(mel, "post_alert"), \
-                mock.patch("print_handy.hermes.spool_sync.suspend_usage", return_value=10) as suspend:
+                mock.patch("print_handy.runtime.spool_sync.suspend_usage", return_value=10) as suspend:
             for slots in ({1: True}, {1: True}, {1: False}, {1: False}):
                 await self.poll(lis, slots)  # slot 1 empties while paused: the runout question opens
             self.assertEqual(mel.load_runout_pause()["slot"], 1)

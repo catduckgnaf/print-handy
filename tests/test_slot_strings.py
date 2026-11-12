@@ -88,6 +88,6 @@ def test_the_guard_catches_a_zero_based_lane():
 
 
 def test_the_listener_posts_name_the_slot_base():
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
 
     assert "on slot 3 (IFS channel 3)" in mel.native_error_text("Ghost.gcode", ("E0102", 3))

@@ -86,7 +86,7 @@ class ListenerDomain:
 DOMAINS = {
     "moonraker": ListenerDomain(
         name="moonraker", connection="moonraker", availability=IMPLEMENTED,
-        module="print_handy.hermes.moonraker_event_listener",
+        module="print_handy.runtime.moonraker_event_listener",
         runtime="moonraker_event_listener", transport="Moonraker websocket"),
     "bambulab_lan": ListenerDomain(
         name="bambulab_lan", connection="bambulab_lan", availability=IMPLEMENTED,
@@ -94,22 +94,22 @@ DOMAINS = {
         runtime="bambu_event_listener", transport="Bambu LAN MQTT (long-lived)"),
     "prusalink": ListenerDomain(
         name="prusalink", connection="prusalink", availability=IMPLEMENTED,
-        module="print_handy.hermes.family_event_listener",
+        module="print_handy.runtime.family_event_listener",
         runtime="prusalink_event_listener",
         transport="PrusaLink HTTP status polling (#460)"),
     "elegoo_sdcp": ListenerDomain(
         name="elegoo_sdcp", connection="elegoo_sdcp", availability=IMPLEMENTED,
-        module="print_handy.hermes.family_event_listener",
+        module="print_handy.runtime.family_event_listener",
         runtime="elegoo_sdcp_event_listener",
         transport="Elegoo SDCP status polling (#460)"),
     "octoprint": ListenerDomain(
         name="octoprint", connection="octoprint", availability=IMPLEMENTED,
-        module="print_handy.hermes.family_event_listener",
+        module="print_handy.runtime.family_event_listener",
         runtime="octoprint_event_listener",
         transport="OctoPrint HTTP status polling (#460)"),
     "flashforge_stock": ListenerDomain(
         name="flashforge_stock", connection="flashforge_stock", availability=IMPLEMENTED,
-        module="print_handy.hermes.family_event_listener",
+        module="print_handy.runtime.family_event_listener",
         runtime="flashforge_stock_event_listener",
         transport="Stock Flashforge LAN HTTP status polling (#460)"),
     "offline": ListenerDomain(

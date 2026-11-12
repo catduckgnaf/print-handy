@@ -22,7 +22,7 @@ from unittest import mock
 import pytest
 
 from print_handy.core import launch_state, model_job, prepared_intake
-from print_handy.hermes import print_next
+from print_handy.runtime import print_next
 
 from .test_launch_state import dead_pid, leases, make_job, uploads
 from .test_launch_state import mapped, printer  # noqa: F401  (fixtures shared with the lease tests)
@@ -177,7 +177,7 @@ KINDS = {"octoprint": "_print_octoprint", "prusa": "_print_prusa", "sdcp": "_pri
 
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
-    from print_handy.hermes import bambu_watch, elegoo_watch, octo_watch, prusa_watch, stock_watch
+    from print_handy.runtime import bambu_watch, elegoo_watch, octo_watch, prusa_watch, stock_watch
     from print_handy.printers.bambulab import ams_mapping
 
     gcode = tmp_path / "plate_1.gcode"
@@ -198,7 +198,7 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(ams_mapping, "resolve_for_print", lambda *a, **k: ([0], "job"))
     # Launched-print monitors run in the detached monitor worker
     # (P1-85/P1-98); the start path only has to ask for one.
-    from print_handy.hermes import monitor_worker
+    from print_handy.runtime import monitor_worker
     spawned = []
 
     def spawn(watch_module_name, filename, printer_id=None, *, popen=None):  # monitor_worker's real signature
@@ -304,13 +304,13 @@ def test_item1_a_start_confirmed_after_a_few_polls_is_not_called_unconfirmed(kin
     # The start asked for exactly one monitor, from this family's watch module (2.2.5 review).
     watch = {"octoprint": "octo_watch", "prusa": "prusa_watch", "sdcp": "elegoo_watch",
              "stock": "stock_watch", "bambu": "bambu_watch"}[kind]
-    assert [(name, printer) for name, _remote, printer in rig.spawned] == [(f"print_handy.hermes.{watch}", None)]
+    assert [(name, printer) for name, _remote, printer in rig.spawned] == [(f"print_handy.runtime.{watch}", None)]
 
 
 def test_start_family_monitor_passes_the_jobs_printer_id_to_the_worker(rig):
-    from print_handy.hermes import octo_watch
+    from print_handy.runtime import octo_watch
     model_job._start_family_monitor(octo_watch, None, "part.gcode", {"printer_id": "voron"})
-    assert rig.spawned == [("print_handy.hermes.octo_watch", "part.gcode", "voron")]
+    assert rig.spawned == [("print_handy.runtime.octo_watch", "part.gcode", "voron")]
 
 
 @pytest.mark.parametrize("kind", ["octoprint", "prusa", "sdcp", "stock"])

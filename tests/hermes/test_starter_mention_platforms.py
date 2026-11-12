@@ -14,9 +14,9 @@ import json
 import pytest
 
 from print_handy.bot import matrix_rest, rest, telegram_rest
-from print_handy.hermes import _config, starter_pings
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import _config, starter_pings
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import moonraker_event_listener as mel
 
 FILE = "widget.gcode"
 
@@ -100,7 +100,7 @@ def test_1332_the_discord_mention_leads_the_cancel_post_even_with_its_roast(monk
 
 def test_1332_no_terminal_post_carries_both_a_roast_and_a_status_quip(monkeypatch):
     from print_handy.core import status_voice
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
 
     quips, roasts = [], []
     monkeypatch.setattr(status_voice, "voiced", lambda text, *a, **k: quips.append(text) or text + "\nQUIP")

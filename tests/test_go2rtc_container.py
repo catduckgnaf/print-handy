@@ -456,7 +456,7 @@ class FanoutFrameUrlTests(unittest.TestCase):
         self.assertIsNone(self.fanout(data))
 
     def test_frame_url_is_the_one_timelapse_capture_uses(self):
-        from print_handy.hermes import timelapse_capture
+        from print_handy.runtime import timelapse_capture
         self.assertEqual(timelapse_capture.GO2RTC_FRAME_URL, go2rtc.FRAME_URL)
 
 

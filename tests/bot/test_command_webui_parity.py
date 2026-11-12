@@ -33,7 +33,7 @@ import pytest
 
 from corpus import fake_discord
 from print_handy.bot import client, commands, matrix, platform, runtime, telegram, web
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 # Commands whose web chat outcome legitimately differs from chat's. Each
 # entry names why; an entry is still driven through web chat and must get
@@ -175,7 +175,7 @@ class _WebDriver:
 
 @pytest.fixture
 def parity_cfg(cfg, tmp_path, monkeypatch):
-    cfg["paths"]["hermes_home"] = tmp_path / "home"
+    cfg["paths"]["state_home"] = tmp_path / "home"
     cfg.setdefault("firmware", {})["update_alerts"] = False
     monkeypatch.setattr(_config, "_override", cfg)
     return cfg

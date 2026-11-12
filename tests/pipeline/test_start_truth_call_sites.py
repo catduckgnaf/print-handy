@@ -1,7 +1,10 @@
 """Every start call site takes its verdict from start_truth (#1318, #1160 proposal 2).
 
-A start call site is a model_job print path that sends a start request (calls
-``lease.submitting()``). This suite enumerates them from the source and fails when:
+A start call site is a print path that sends a start request (calls
+``lease.submitting()``). The print paths live in ``launch/print_now.py`` and
+``launch/gates.py`` since #1323 split them out of ``core/model_job.py``; this
+suite reads all three as one module, so a path moved back or forth is still
+seen. It enumerates them from the source and fails when:
 
 - a print path sends a start without an entry in ``start_truth.START_CALL_SITES``;
 - a registered path's verdict never reaches its transport's start-truth function;
@@ -17,9 +20,12 @@ from print_handy.core import start_truth
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_JOB = ROOT / "print_handy" / "core" / "model_job.py"
+# The modules holding the print paths (#1323 moved them out of model_job).
+PRINT_PATH_MODULES = (MODEL_JOB, ROOT / "print_handy" / "launch" / "print_now.py",
+                      ROOT / "print_handy" / "launch" / "gates.py")
 # Modules that build or relay print-now's outcome dicts; none may spell a verdict itself.
-START_MODULES = (MODEL_JOB, ROOT / "print_handy" / "core" / "prepared_intake.py",
-                 ROOT / "print_handy" / "hermes" / "print_next.py")
+START_MODULES = (*PRINT_PATH_MODULES, ROOT / "print_handy" / "core" / "prepared_intake.py",
+                 ROOT / "print_handy" / "runtime" / "print_next.py")
 
 PHASES = {start_truth.PHASE_EXECUTING, start_truth.PHASE_PREPARING, start_truth.PHASE_AWAITING,
           start_truth.PHASE_UNRESOLVED, start_truth.PHASE_SUBMITTED}
@@ -30,6 +36,14 @@ VERDICT_KEYS = {"phase": PHASES, "outcome": OUTCOMES}
 
 def _tree(path):
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _print_paths():
+    """The print-path modules as one module body, so a name resolves wherever it moved."""
+    body = []
+    for path in PRINT_PATH_MODULES:
+        body.extend(_tree(path).body)
+    return ast.Module(body=body, type_ignores=[])
 
 
 def _top_functions(tree):
@@ -103,7 +117,7 @@ def verdict_literals(tree, *, comparisons=True):
 
 
 def test_every_print_path_that_sends_a_start_is_registered():
-    functions = _top_functions(_tree(MODEL_JOB))
+    functions = _top_functions(_print_paths())
     senders = {name for name, fn in functions.items() if _sends_start(fn)}
     assert senders == set(start_truth.START_CALL_SITES), (
         "a print path sends a start without a START_CALL_SITES entry, or an entry names a path that no "
@@ -111,7 +125,7 @@ def test_every_print_path_that_sends_a_start_is_registered():
 
 
 def test_every_registered_call_site_reaches_its_start_truth_function():
-    functions = _top_functions(_tree(MODEL_JOB))
+    functions = _top_functions(_print_paths())
     for site, truth in start_truth.START_CALL_SITES.items():
         assert callable(getattr(start_truth, truth, None)), (site, truth)
         refs = set().union(*(_truth_refs(functions[f]) for f in _closure(site, functions)))
@@ -119,7 +133,7 @@ def test_every_registered_call_site_reaches_its_start_truth_function():
 
 
 def test_every_polled_confirmation_uses_a_baselined_start_truth_function():
-    tree = _tree(MODEL_JOB)
+    tree = _print_paths()
     functions = _top_functions(tree)
     polls = [(name, call) for name, fn in functions.items() if name != "_poll_start_confirmation"
              for call in ast.walk(fn)
@@ -137,14 +151,14 @@ def test_every_polled_confirmation_uses_a_baselined_start_truth_function():
 
 def test_no_start_module_spells_a_verdict_itself():
     for path in START_MODULES:
-        found = verdict_literals(_tree(path), comparisons=path == MODEL_JOB)
+        found = verdict_literals(_tree(path), comparisons=path in PRINT_PATH_MODULES)
         assert not found, f"{path.name} decides start verdicts without start_truth: {found}"
 
 
 def test_the_classifier_is_called_only_through_start_truth():
-    calls = [n.lineno for n in ast.walk(_tree(MODEL_JOB))
+    calls = [n.lineno for n in ast.walk(_print_paths())
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "classify_start_readback"]
-    assert not calls, f"model_job classifies a readback outside start_truth.moonraker_readback at lines {calls}"
+    assert not calls, f"a print path classifies a readback outside start_truth.moonraker_readback at lines {calls}"
 
 
 def test_the_scanner_catches_a_call_site_that_bypasses_start_truth():

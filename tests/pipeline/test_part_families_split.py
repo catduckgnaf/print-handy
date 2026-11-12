@@ -111,7 +111,9 @@ def test_print_context_carries_multipart_plan_for_split_plate(tmp_path):
     plan = job['multipart_plan']
     second = [p for p in plan['parts'] if Path(p['gcode_path']) == gcodes[1].resolve()][0]
     assert second['id'] == 'plate2' and second['label'].endswith('(slot 2)')
-    src = Path(model_job.__file__).read_text()
+    from print_handy.launch import print_now
+    # record_start moved to launch/print_now.py (#1323); read both.
+    src = Path(model_job.__file__).read_text() + Path(print_now.__file__).read_text()
     assert "ctx.update(multipart_plan_id=plan['plan_id'], part_id=part['id'], required_parts=plan['parts'])" in src
 
 

@@ -8,8 +8,8 @@ from types import SimpleNamespace as S
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
-from print_handy.hermes import print_stop
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import print_stop
+from print_handy.runtime import moonraker_event_listener as mel
 
 SPEC = importlib.util.spec_from_file_location("pf_stop", HERE.parents[1] / "plugins/print-feedback/__init__.py")
 plugin = importlib.util.module_from_spec(SPEC)
@@ -120,7 +120,7 @@ def test_1147_ad5x_zmod_cancel_sequence_is_unchanged():
     The heater read-back adds GETs only; the write sequence the AD5X sees is exactly the
     one cancel it always got, with the bot-cancel marker set first.
     """
-    from print_handy.hermes import klipper_report
+    from print_handy.runtime import klipper_report
     seq = [st("printing", "plate_1.gcode.3mf"), st("printing", "plate_1.gcode.3mf"), st("cancelled", "plate_1.gcode.3mf")]
     fake, calls = moonraker_calls(heaters())
     order = []
@@ -350,7 +350,7 @@ FAMILY_STATUS_READS = {"octoprint": "status", "prusalink": "snapshot", "elegoo_s
 
 def _family_adapter(monkeypatch, connection, states):
     """A fake roster adapter of one family: its client read returns `states` in order, control records."""
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     reads = iter(states)
     client = mock.Mock()
     setattr(client, FAMILY_STATUS_READS[connection], lambda: next(reads))
@@ -392,7 +392,7 @@ def test_family_cancel_refuses_a_different_file_without_sending(monkeypatch, con
 
 
 def test_a_printer_with_no_control_connection_says_so_plainly(monkeypatch):
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     adapter = mock.Mock(connection="offline", transport="offline", label="Shelf printer")
     monkeypatch.setattr(print_stop, "_lan_adapter", lambda printer_id=None: None)
     monkeypatch.setattr(family_control, "adapter_for", lambda printer_id=None: adapter)
@@ -405,7 +405,7 @@ def test_a_printer_with_no_control_connection_says_so_plainly(monkeypatch):
 
 
 def test_a_moonraker_roster_printer_keeps_the_moonraker_cancel(monkeypatch):
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     monkeypatch.setattr(print_stop, "_lan_adapter", lambda printer_id=None: None)
     monkeypatch.setattr(family_control, "adapter_for",
                         lambda printer_id=None: mock.Mock(connection="moonraker", transport="moonraker"))
@@ -426,7 +426,7 @@ def test_1147_family_cancel_reports_a_heater_its_status_still_shows_on(monkeypat
     hot = {**st("cancelled", "part.gcode"), "hotend_target_c": 0, "bed_target_c": 90}
     adapter = _family_adapter(monkeypatch, connection, [st("printing", "part.gcode")] + [hot] * 50)
     clock = iter(range(0, 1000))
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     monkeypatch.setattr(family_control.time, "monotonic", lambda: float(next(clock)))
     monkeypatch.setattr(print_stop.time, "monotonic", lambda: float(next(clock)))
     sent, text = print_stop.cancel("part.gcode", wait_s=5, printer_id="shelf")
