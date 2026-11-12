@@ -1,0 +1,1016 @@
+{
+  "_about": "Print Handy local progress voice bank, part 1 of 5. Each entry records an explicit real processing stage; no LLM.",
+  "_license": "Original to Print Handy; AGPL-3.0-only",
+  "stages": {
+    "link_intake": [
+      {
+        "id": "link_intake-001",
+        "family": "link_intake-01",
+        "text": "Inspecting this URL like a raccoon inspecting an unattended cooler. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-002",
+        "family": "link_intake-01",
+        "text": "Inspecting this URL like a raccoon inspecting an unattended cooler. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-003",
+        "family": "link_intake-01",
+        "text": "Inspecting this URL like a raccoon inspecting an unattended cooler. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-004",
+        "family": "link_intake-01",
+        "text": "Inspecting this URL like a raccoon inspecting an unattended cooler. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-005",
+        "family": "link_intake-02",
+        "text": "Giving the pasted link a suspiciously thorough background check. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-006",
+        "family": "link_intake-02",
+        "text": "Giving the pasted link a suspiciously thorough background check. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-007",
+        "family": "link_intake-02",
+        "text": "Giving the pasted link a suspiciously thorough background check. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-008",
+        "family": "link_intake-02",
+        "text": "Giving the pasted link a suspiciously thorough background check. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-009",
+        "family": "link_intake-03",
+        "text": "Opening the model link without trusting its life choices. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-010",
+        "family": "link_intake-03",
+        "text": "Opening the model link without trusting its life choices. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-011",
+        "family": "link_intake-03",
+        "text": "Opening the model link without trusting its life choices. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-012",
+        "family": "link_intake-03",
+        "text": "Opening the model link without trusting its life choices. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-013",
+        "family": "link_intake-04",
+        "text": "Checking whether the internet sent a model or a practical joke. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-014",
+        "family": "link_intake-04",
+        "text": "Checking whether the internet sent a model or a practical joke. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-015",
+        "family": "link_intake-04",
+        "text": "Checking whether the internet sent a model or a practical joke. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-016",
+        "family": "link_intake-04",
+        "text": "Checking whether the internet sent a model or a practical joke. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-017",
+        "family": "link_intake-05",
+        "text": "Following this URL into the plastic wilderness. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-018",
+        "family": "link_intake-05",
+        "text": "Following this URL into the plastic wilderness. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-019",
+        "family": "link_intake-05",
+        "text": "Following this URL into the plastic wilderness. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-020",
+        "family": "link_intake-05",
+        "text": "Following this URL into the plastic wilderness. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-021",
+        "family": "link_intake-06",
+        "text": "Reading the link like an insurance adjuster reads a claim. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-022",
+        "family": "link_intake-06",
+        "text": "Reading the link like an insurance adjuster reads a claim. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-023",
+        "family": "link_intake-06",
+        "text": "Reading the link like an insurance adjuster reads a claim. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-024",
+        "family": "link_intake-06",
+        "text": "Reading the link like an insurance adjuster reads a claim. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-025",
+        "family": "link_intake-07",
+        "text": "Walking into another website wearing my skeptical face. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-026",
+        "family": "link_intake-07",
+        "text": "Walking into another website wearing my skeptical face. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-027",
+        "family": "link_intake-07",
+        "text": "Walking into another website wearing my skeptical face. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-028",
+        "family": "link_intake-07",
+        "text": "Walking into another website wearing my skeptical face. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-029",
+        "family": "link_intake-08",
+        "text": "Trying to discover what mystery plastic you've summoned. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-030",
+        "family": "link_intake-08",
+        "text": "Trying to discover what mystery plastic you've summoned. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-031",
+        "family": "link_intake-08",
+        "text": "Trying to discover what mystery plastic you've summoned. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-032",
+        "family": "link_intake-08",
+        "text": "Trying to discover what mystery plastic you've summoned. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-033",
+        "family": "link_intake-09",
+        "text": "Handling this URL with the confidence of a nervous intern. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-034",
+        "family": "link_intake-09",
+        "text": "Handling this URL with the confidence of a nervous intern. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-035",
+        "family": "link_intake-09",
+        "text": "Handling this URL with the confidence of a nervous intern. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-036",
+        "family": "link_intake-09",
+        "text": "Handling this URL with the confidence of a nervous intern. I'm already regretting how much bandwidth has opinions."
+      },
+      {
+        "id": "link_intake-037",
+        "family": "link_intake-10",
+        "text": "Checking whether that link leads somewhere printable. The internet remains innocent until proven otherwise."
+      },
+      {
+        "id": "link_intake-038",
+        "family": "link_intake-10",
+        "text": "Checking whether that link leads somewhere printable. This is what passes for adventure in a server rack."
+      },
+      {
+        "id": "link_intake-039",
+        "family": "link_intake-10",
+        "text": "Checking whether that link leads somewhere printable. Please keep your browser crimes to a minimum."
+      },
+      {
+        "id": "link_intake-040",
+        "family": "link_intake-10",
+        "text": "Checking whether that link leads somewhere printable. I'm already regretting how much bandwidth has opinions."
+      }
+    ],
+    "file_download": [
+      {
+        "id": "file_download-001",
+        "family": "file_download-01",
+        "text": "Fetching your model while the servers pretend to cooperate. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-002",
+        "family": "file_download-01",
+        "text": "Fetching your model while the servers pretend to cooperate. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-003",
+        "family": "file_download-01",
+        "text": "Fetching your model while the servers pretend to cooperate. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-004",
+        "family": "file_download-01",
+        "text": "Fetching your model while the servers pretend to cooperate. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-005",
+        "family": "file_download-02",
+        "text": "Transferring another digital object into a future physical inconvenience. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-006",
+        "family": "file_download-02",
+        "text": "Transferring another digital object into a future physical inconvenience. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-007",
+        "family": "file_download-02",
+        "text": "Transferring another digital object into a future physical inconvenience. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-008",
+        "family": "file_download-02",
+        "text": "Transferring another digital object into a future physical inconvenience. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-009",
+        "family": "file_download-03",
+        "text": "Downloading those triangles one tiny decision at a time. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-010",
+        "family": "file_download-03",
+        "text": "Downloading those triangles one tiny decision at a time. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-011",
+        "family": "file_download-03",
+        "text": "Downloading those triangles one tiny decision at a time. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-012",
+        "family": "file_download-03",
+        "text": "Downloading those triangles one tiny decision at a time. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-013",
+        "family": "file_download-04",
+        "text": "Waiting for the model server to remember it has a job. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-014",
+        "family": "file_download-04",
+        "text": "Waiting for the model server to remember it has a job. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-015",
+        "family": "file_download-04",
+        "text": "Waiting for the model server to remember it has a job. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-016",
+        "family": "file_download-04",
+        "text": "Waiting for the model server to remember it has a job. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-017",
+        "family": "file_download-05",
+        "text": "Collecting bytes for the world's least urgent manufacturing order. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-018",
+        "family": "file_download-05",
+        "text": "Collecting bytes for the world's least urgent manufacturing order. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-019",
+        "family": "file_download-05",
+        "text": "Collecting bytes for the world's least urgent manufacturing order. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-020",
+        "family": "file_download-05",
+        "text": "Collecting bytes for the world's least urgent manufacturing order. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-021",
+        "family": "file_download-06",
+        "text": "Moving an imaginary object across the internet for real. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-022",
+        "family": "file_download-06",
+        "text": "Moving an imaginary object across the internet for real. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-023",
+        "family": "file_download-06",
+        "text": "Moving an imaginary object across the internet for real. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-024",
+        "family": "file_download-06",
+        "text": "Moving an imaginary object across the internet for real. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-025",
+        "family": "file_download-07",
+        "text": "Making sure the file arrives with all its questionable decisions. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-026",
+        "family": "file_download-07",
+        "text": "Making sure the file arrives with all its questionable decisions. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-027",
+        "family": "file_download-07",
+        "text": "Making sure the file arrives with all its questionable decisions. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-028",
+        "family": "file_download-07",
+        "text": "Making sure the file arrives with all its questionable decisions. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-029",
+        "family": "file_download-08",
+        "text": "Gathering the ingredients for another plastic monument. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-030",
+        "family": "file_download-08",
+        "text": "Gathering the ingredients for another plastic monument. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-031",
+        "family": "file_download-08",
+        "text": "Gathering the ingredients for another plastic monument. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-032",
+        "family": "file_download-08",
+        "text": "Gathering the ingredients for another plastic monument. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-033",
+        "family": "file_download-09",
+        "text": "Retrieving the geometry from its remote hiding place. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-034",
+        "family": "file_download-09",
+        "text": "Retrieving the geometry from its remote hiding place. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-035",
+        "family": "file_download-09",
+        "text": "Retrieving the geometry from its remote hiding place. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-036",
+        "family": "file_download-09",
+        "text": "Retrieving the geometry from its remote hiding place. The electrons are doing all the cardio."
+      },
+      {
+        "id": "file_download-037",
+        "family": "file_download-10",
+        "text": "Politely requesting a file from a website with commitment issues. No plastic has been harmed yet."
+      },
+      {
+        "id": "file_download-038",
+        "family": "file_download-10",
+        "text": "Politely requesting a file from a website with commitment issues. Please don't unplug the internet out of impatience."
+      },
+      {
+        "id": "file_download-039",
+        "family": "file_download-10",
+        "text": "Politely requesting a file from a website with commitment issues. A progress bar is still cheaper than therapy."
+      },
+      {
+        "id": "file_download-040",
+        "family": "file_download-10",
+        "text": "Politely requesting a file from a website with commitment issues. The electrons are doing all the cardio."
+      }
+    ],
+    "file_validation": [
+      {
+        "id": "file_validation-001",
+        "family": "file_validation-01",
+        "text": "Checking whether this file is actually a 3D model. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-002",
+        "family": "file_validation-01",
+        "text": "Checking whether this file is actually a 3D model. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-003",
+        "family": "file_validation-01",
+        "text": "Checking whether this file is actually a 3D model. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-004",
+        "family": "file_validation-01",
+        "text": "Checking whether this file is actually a 3D model. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-005",
+        "family": "file_validation-02",
+        "text": "Asking the file to prove it has a structural identity. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-006",
+        "family": "file_validation-02",
+        "text": "Asking the file to prove it has a structural identity. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-007",
+        "family": "file_validation-02",
+        "text": "Asking the file to prove it has a structural identity. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-008",
+        "family": "file_validation-02",
+        "text": "Asking the file to prove it has a structural identity. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-009",
+        "family": "file_validation-03",
+        "text": "Looking for malformed geometry before it finds us. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-010",
+        "family": "file_validation-03",
+        "text": "Looking for malformed geometry before it finds us. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-011",
+        "family": "file_validation-03",
+        "text": "Looking for malformed geometry before it finds us. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-012",
+        "family": "file_validation-03",
+        "text": "Looking for malformed geometry before it finds us. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-013",
+        "family": "file_validation-04",
+        "text": "Inspecting the archive for surprises nobody ordered. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-014",
+        "family": "file_validation-04",
+        "text": "Inspecting the archive for surprises nobody ordered. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-015",
+        "family": "file_validation-04",
+        "text": "Inspecting the archive for surprises nobody ordered. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-016",
+        "family": "file_validation-04",
+        "text": "Inspecting the archive for surprises nobody ordered. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-017",
+        "family": "file_validation-05",
+        "text": "Making sure the file has more than a convincing filename. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-018",
+        "family": "file_validation-05",
+        "text": "Making sure the file has more than a convincing filename. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-019",
+        "family": "file_validation-05",
+        "text": "Making sure the file has more than a convincing filename. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-020",
+        "family": "file_validation-05",
+        "text": "Making sure the file has more than a convincing filename. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-021",
+        "family": "file_validation-06",
+        "text": "Verifying the model wasn't assembled during a power outage. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-022",
+        "family": "file_validation-06",
+        "text": "Verifying the model wasn't assembled during a power outage. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-023",
+        "family": "file_validation-06",
+        "text": "Verifying the model wasn't assembled during a power outage. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-024",
+        "family": "file_validation-06",
+        "text": "Verifying the model wasn't assembled during a power outage. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-025",
+        "family": "file_validation-07",
+        "text": "Trying to separate printable data from digital confetti. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-026",
+        "family": "file_validation-07",
+        "text": "Trying to separate printable data from digital confetti. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-027",
+        "family": "file_validation-07",
+        "text": "Trying to separate printable data from digital confetti. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-028",
+        "family": "file_validation-07",
+        "text": "Trying to separate printable data from digital confetti. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-029",
+        "family": "file_validation-08",
+        "text": "Checking the file's paperwork at the border. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-030",
+        "family": "file_validation-08",
+        "text": "Checking the file's paperwork at the border. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-031",
+        "family": "file_validation-08",
+        "text": "Checking the file's paperwork at the border. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-032",
+        "family": "file_validation-08",
+        "text": "Checking the file's paperwork at the border. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-033",
+        "family": "file_validation-09",
+        "text": "Giving the file a routine inspection for suspicious nonsense. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-034",
+        "family": "file_validation-09",
+        "text": "Giving the file a routine inspection for suspicious nonsense. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-035",
+        "family": "file_validation-09",
+        "text": "Giving the file a routine inspection for suspicious nonsense. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-036",
+        "family": "file_validation-09",
+        "text": "Giving the file a routine inspection for suspicious nonsense. Nothing has earned the right to melt yet."
+      },
+      {
+        "id": "file_validation-037",
+        "family": "file_validation-10",
+        "text": "Reviewing the bytes before any printer sees them. The filename is not a sworn affidavit."
+      },
+      {
+        "id": "file_validation-038",
+        "family": "file_validation-10",
+        "text": "Reviewing the bytes before any printer sees them. Being an STL is not a personality."
+      },
+      {
+        "id": "file_validation-039",
+        "family": "file_validation-10",
+        "text": "Reviewing the bytes before any printer sees them. My trust issues are an engineering feature."
+      },
+      {
+        "id": "file_validation-040",
+        "family": "file_validation-10",
+        "text": "Reviewing the bytes before any printer sees them. Nothing has earned the right to melt yet."
+      }
+    ],
+    "model_audit": [
+      {
+        "id": "model_audit-001",
+        "family": "model_audit-01",
+        "text": "Auditing this model like the geometry owes back taxes. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-002",
+        "family": "model_audit-01",
+        "text": "Auditing this model like the geometry owes back taxes. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-003",
+        "family": "model_audit-01",
+        "text": "Auditing this model like the geometry owes back taxes. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-004",
+        "family": "model_audit-01",
+        "text": "Auditing this model like the geometry owes back taxes. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-005",
+        "family": "model_audit-02",
+        "text": "Counting mesh problems before they multiply. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-006",
+        "family": "model_audit-02",
+        "text": "Counting mesh problems before they multiply. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-007",
+        "family": "model_audit-02",
+        "text": "Counting mesh problems before they multiply. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-008",
+        "family": "model_audit-02",
+        "text": "Counting mesh problems before they multiply. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-009",
+        "family": "model_audit-03",
+        "text": "Inspecting those triangles for crimes against manufacturing. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-010",
+        "family": "model_audit-03",
+        "text": "Inspecting those triangles for crimes against manufacturing. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-011",
+        "family": "model_audit-03",
+        "text": "Inspecting those triangles for crimes against manufacturing. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-012",
+        "family": "model_audit-03",
+        "text": "Inspecting those triangles for crimes against manufacturing. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-013",
+        "family": "model_audit-04",
+        "text": "Giving your model an unsolicited structural performance review. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-014",
+        "family": "model_audit-04",
+        "text": "Giving your model an unsolicited structural performance review. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-015",
+        "family": "model_audit-04",
+        "text": "Giving your model an unsolicited structural performance review. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-016",
+        "family": "model_audit-04",
+        "text": "Giving your model an unsolicited structural performance review. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-017",
+        "family": "model_audit-05",
+        "text": "Asking whether the design and reality have formally met. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-018",
+        "family": "model_audit-05",
+        "text": "Asking whether the design and reality have formally met. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-019",
+        "family": "model_audit-05",
+        "text": "Asking whether the design and reality have formally met. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-020",
+        "family": "model_audit-05",
+        "text": "Asking whether the design and reality have formally met. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-021",
+        "family": "model_audit-06",
+        "text": "Examining every edge like a very judgmental surveyor. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-022",
+        "family": "model_audit-06",
+        "text": "Examining every edge like a very judgmental surveyor. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-023",
+        "family": "model_audit-06",
+        "text": "Examining every edge like a very judgmental surveyor. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-024",
+        "family": "model_audit-06",
+        "text": "Examining every edge like a very judgmental surveyor. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-025",
+        "family": "model_audit-07",
+        "text": "Checking for holes before the print develops expensive ones. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-026",
+        "family": "model_audit-07",
+        "text": "Checking for holes before the print develops expensive ones. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-027",
+        "family": "model_audit-07",
+        "text": "Checking for holes before the print develops expensive ones. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-028",
+        "family": "model_audit-07",
+        "text": "Checking for holes before the print develops expensive ones. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-029",
+        "family": "model_audit-08",
+        "text": "Looking over this design with a magnifying glass and suspicion. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-030",
+        "family": "model_audit-08",
+        "text": "Looking over this design with a magnifying glass and suspicion. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-031",
+        "family": "model_audit-08",
+        "text": "Looking over this design with a magnifying glass and suspicion. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-032",
+        "family": "model_audit-08",
+        "text": "Looking over this design with a magnifying glass and suspicion. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-033",
+        "family": "model_audit-09",
+        "text": "Screening the mesh for creative interpretations of solid. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-034",
+        "family": "model_audit-09",
+        "text": "Screening the mesh for creative interpretations of solid. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-035",
+        "family": "model_audit-09",
+        "text": "Screening the mesh for creative interpretations of solid. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-036",
+        "family": "model_audit-09",
+        "text": "Screening the mesh for creative interpretations of solid. This is the closest plastic gets to a background check."
+      },
+      {
+        "id": "model_audit-037",
+        "family": "model_audit-10",
+        "text": "Investigating whether this object could survive becoming real. The triangles have requested legal counsel."
+      },
+      {
+        "id": "model_audit-038",
+        "family": "model_audit-10",
+        "text": "Investigating whether this object could survive becoming real. No verdict until the measurements testify."
+      },
+      {
+        "id": "model_audit-039",
+        "family": "model_audit-10",
+        "text": "Investigating whether this object could survive becoming real. A confidence interval is not a support structure."
+      },
+      {
+        "id": "model_audit-040",
+        "family": "model_audit-10",
+        "text": "Investigating whether this object could survive becoming real. This is the closest plastic gets to a background check."
+      }
+    ],
+    "geometry_inspection": [
+      {
+        "id": "geometry_inspection-001",
+        "family": "geometry_inspection-01",
+        "text": "Examining the mesh for triangles living outside reality. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-002",
+        "family": "geometry_inspection-01",
+        "text": "Examining the mesh for triangles living outside reality. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-003",
+        "family": "geometry_inspection-01",
+        "text": "Examining the mesh for triangles living outside reality. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-004",
+        "family": "geometry_inspection-01",
+        "text": "Examining the mesh for triangles living outside reality. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-005",
+        "family": "geometry_inspection-02",
+        "text": "Checking whether these surfaces agree on which way is out. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-006",
+        "family": "geometry_inspection-02",
+        "text": "Checking whether these surfaces agree on which way is out. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-007",
+        "family": "geometry_inspection-02",
+        "text": "Checking whether these surfaces agree on which way is out. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-008",
+        "family": "geometry_inspection-02",
+        "text": "Checking whether these surfaces agree on which way is out. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-009",
+        "family": "geometry_inspection-03",
+        "text": "Walking the model's edges in search of bad decisions. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-010",
+        "family": "geometry_inspection-03",
+        "text": "Walking the model's edges in search of bad decisions. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-011",
+        "family": "geometry_inspection-03",
+        "text": "Walking the model's edges in search of bad decisions. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-012",
+        "family": "geometry_inspection-03",
+        "text": "Walking the model's edges in search of bad decisions. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-013",
+        "family": "geometry_inspection-04",
+        "text": "Looking for self intersections with the patience of a tax auditor. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-014",
+        "family": "geometry_inspection-04",
+        "text": "Looking for self intersections with the patience of a tax auditor. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-015",
+        "family": "geometry_inspection-04",
+        "text": "Looking for self intersections with the patience of a tax auditor. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-016",
+        "family": "geometry_inspection-04",
+        "text": "Looking for self intersections with the patience of a tax auditor. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-017",
+        "family": "geometry_inspection-05",
+        "text": "Inspecting the underside where bad geometry hides. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-018",
+        "family": "geometry_inspection-05",
+        "text": "Inspecting the underside where bad geometry hides. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-019",
+        "family": "geometry_inspection-05",
+        "text": "Inspecting the underside where bad geometry hides. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-020",
+        "family": "geometry_inspection-05",
+        "text": "Inspecting the underside where bad geometry hides. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-021",
+        "family": "geometry_inspection-06",
+        "text": "Checking whether a shell is genuinely a shell. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-022",
+        "family": "geometry_inspection-06",
+        "text": "Checking whether a shell is genuinely a shell. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-023",
+        "family": "geometry_inspection-06",
+        "text": "Checking whether a shell is genuinely a shell. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-024",
+        "family": "geometry_inspection-06",
+        "text": "Checking whether a shell is genuinely a shell. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-025",
+        "family": "geometry_inspection-07",
+        "text": "Hunting down microscopic gaps with deeply unreasonable dedication. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-026",
+        "family": "geometry_inspection-07",
+        "text": "Hunting down microscopic gaps with deeply unreasonable dedication. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-027",
+        "family": "geometry_inspection-07",
+        "text": "Hunting down microscopic gaps with deeply unreasonable dedication. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-028",
+        "family": "geometry_inspection-07",
+        "text": "Hunting down microscopic gaps with deeply unreasonable dedication. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-029",
+        "family": "geometry_inspection-08",
+        "text": "Reading the topology like a crime scene diagram. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-030",
+        "family": "geometry_inspection-08",
+        "text": "Reading the topology like a crime scene diagram. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-031",
+        "family": "geometry_inspection-08",
+        "text": "Reading the topology like a crime scene diagram. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-032",
+        "family": "geometry_inspection-08",
+        "text": "Reading the topology like a crime scene diagram. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-033",
+        "family": "geometry_inspection-09",
+        "text": "Examining the model before the nozzle has to learn about it. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-034",
+        "family": "geometry_inspection-09",
+        "text": "Examining the model before the nozzle has to learn about it. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-035",
+        "family": "geometry_inspection-09",
+        "text": "Examining the model before the nozzle has to learn about it. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-036",
+        "family": "geometry_inspection-09",
+        "text": "Examining the model before the nozzle has to learn about it. Nobody gets a free pass for being decorative."
+      },
+      {
+        "id": "geometry_inspection-037",
+        "family": "geometry_inspection-10",
+        "text": "Giving manifold geometry another chance to disappoint me. The laws of geometry do not accept apologies."
+      },
+      {
+        "id": "geometry_inspection-038",
+        "family": "geometry_inspection-10",
+        "text": "Giving manifold geometry another chance to disappoint me. An invisible hole is still a hole."
+      },
+      {
+        "id": "geometry_inspection-039",
+        "family": "geometry_inspection-10",
+        "text": "Giving manifold geometry another chance to disappoint me. I would ask the vertices to explain, but they all point elsewhere."
+      },
+      {
+        "id": "geometry_inspection-040",
+        "family": "geometry_inspection-10",
+        "text": "Giving manifold geometry another chance to disappoint me. Nobody gets a free pass for being decorative."
+      }
+    ]
+  }
+}
