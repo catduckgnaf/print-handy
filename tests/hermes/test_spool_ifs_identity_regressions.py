@@ -42,6 +42,8 @@ def test_multicolor_spool_records_its_first_color_as_a_representative_swatch():
 
 def test_multislot_accounting_does_not_set_global_spool():
     import inspect
-    source = inspect.getsource(model_job)
+    from print_handy.launch import print_now
+    # The start path's spool accounting moved to launch/print_now.py (#1323); read both.
+    source = inspect.getsource(model_job) + inspect.getsource(print_now)
     assert "automatic Spoolman usage deduction disabled" in source
     assert "ACTIVE SPOOL UNCHANGED: multi-slot" not in source
