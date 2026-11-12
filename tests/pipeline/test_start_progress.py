@@ -9,6 +9,7 @@ import pytest
 from print_handy.core import prepared_intake
 
 UPLOADED, ACCEPTED = (text for _stage, _grace, text in prepared_intake.START_PROGRESS)
+SHIPPED_PROGRESS = prepared_intake.START_PROGRESS  # before the autouse fixture shortens the graces
 
 
 class Adapter:
@@ -135,4 +136,28 @@ def test_scripted_adapters_get_no_notes(tmp_path):
         await asyncio.sleep(0.2)
         return True, 'preparing'
     run(tmp_path, adapter, script)
+    assert adapter.sent == []
+
+
+def test_start_confirmed_seconds_after_submit_posts_no_interim_note(tmp_path, monkeypatch):
+    """The accepted-start note posted in the same second as "Print started"
+    (Nov 2026 channel: 0 to 3 s apart): with the shipped graces, a start that
+    confirms about 5 s after it was submitted posts no interim note."""
+    monkeypatch.setattr(prepared_intake, 'START_PROGRESS', SHIPPED_PROGRESS)
+    now = [0.0]
+    adapter = Adapter()
+
+    async def script():
+        log(tmp_path, 'upload_verified')
+        log(tmp_path, 'start_submitted')
+        await asyncio.sleep(0.05)
+        now[0] = 5.0  # the readback confirms five seconds later
+        await asyncio.sleep(0.1)
+        return True, 'PRINT STARTED'
+
+    async def work():
+        return await script()
+    result = asyncio.run(prepared_intake._with_start_progress(
+        adapter, S(chat_id='c1'), {}, tmp_path / 'JOB.json', work(), clock=lambda: now[0]))
+    assert result == (True, 'PRINT STARTED')
     assert adapter.sent == []

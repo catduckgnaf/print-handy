@@ -15,6 +15,8 @@ Print Handy performs speculative background slicing and geometry clearance analy
 - **Reorient (lay flat)**: records a rotation that puts the largest face on the plate, with no supports value attached, and clears the recorded support decision, so the post-rotation slice evaluates the support question freshly. When the model already lies on its largest face (the turn would be within half a degree of no turn), the reply says so, nothing is recorded, and the button is not offered again for that upload; after a real reorientation the button is not offered again either, since pressing it twice gives the same pose. A multicolor model turns as one piece: every part rotates together and keeps its place on the others (letters stay on their plaque), and it still prints on one multicolor plate.
 - **Print anyway (accept the risk)**: the explicit waiver for a low-clearance finding.
 
+When the only evidence is a low-clearance underside (no slicer floating-region finding), supports cannot reach the gap, so the with-supports option is labeled "not recommended" and the without-supports option is listed first instead.
+
 Both slice variants run speculatively in the background when flagged. Because the operator makes the choice before confirming the bed is clear, the print starts immediately with the chosen slice and no second question interrupts the start. The post-slice dialog remains only as a fallback for un-prechecked cache misses and never asks twice for the same recipe.
 
 ## Phase 2 hardening

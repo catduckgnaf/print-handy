@@ -171,3 +171,54 @@ def test_cloned_copies_show_the_gcodes_own_totals_everywhere(tmp_path):
     assert "Approx. finish:" in started
     breakdown = summary.format_estimate_breakdown(job)
     assert "Total: ~3h 0m printing (+~5 min warmup), ~36 g filament for 3 copies" in breakdown
+
+
+def test_two_slot_plate_splits_grams_by_the_slicer_per_tool_figures(tmp_path):
+    """Nov 2026 channel: "BLACK BODY (~25.3 g); BRONZE DETAILS (~25.3 g)" on a
+    plate whose G-code said 43.7 g black and 6.8 g bronze. With no part
+    volumes the equal split hid the slicer's own per-tool grams."""
+    gcode = tmp_path / 'plate.gcode'
+    gcode.write_text("; estimated printing time (normal mode) = 2h 48m\n"
+                     "; filament used [g] = 6.80, 43.72\n; total filament used [g] = 50.52\nG1 X1\n")
+    job = {'title': 'Panel', 'gcode': str(gcode), 'tool_mapping': {'0': 2, '1': 3},
+           'color_manifest': {'parts': [{'key': 'body', 'name': 'BLACK BODY'},
+                                        {'key': 'trim', 'name': 'BRONZE DETAILS'}]},
+           'color_decisions': {'mode': 'per_part', 'choices': {
+               'part:body': {'slot': 3, 'color': 'Black', 'material': 'PLA+'},
+               'part:trim': {'slot': 2, 'color': 'Bronze', 'material': 'PLA+'}}}}
+    rows = {p['name']: p['filament_g'] for p in summary.plate_estimates(job)[0]['parts']}
+    assert rows == {'BLACK BODY': 43.7, 'BRONZE DETAILS': 6.8}
+
+
+def _object_block(name, extrude_mm):
+    return (f"; printing object {name} id:0 copy 0\nG1 X1 Y1 E{extrude_mm}\nG1 X2 Y2 E-0.8\n"
+            f"G1 X3 Y3 E0.8\n; stop printing object {name} id:0 copy 0\n")
+
+
+def test_one_slot_parts_split_grams_by_their_own_extrusion(tmp_path):
+    """Nov 2026 channel: a plaque and three small feet on one slot were each
+    "~8.6 g". Each part's share now follows its own extrusion in the G-code
+    (retractions and the purge outside object blocks are nobody's)."""
+    gcode = tmp_path / 'plate.gcode'
+    gcode.write_text("; estimated printing time (normal mode) = 59m\n; total filament used [g] = 34.4\n"
+                     "M83\nG1 X0 Y0 E20 ; purge line\n"
+                     + _object_block('01_PLAQUE_BLACK.stl', 280)
+                     + _object_block('03_FOOT_LEFT_BLACK.stl', 30)
+                     + _object_block('04_FOOT_RIGHT_BLACK.stl', 30)
+                     + _object_block('05_CHARM_PEG_BLACK.stl', 4)
+                     + _object_block('01_PLAQUE_BLACK.stl', 0))
+    names = ['01_PLAQUE_BLACK', '03_FOOT_LEFT_BLACK', '04_FOOT_RIGHT_BLACK', '05_CHARM_PEG_BLACK']
+    job = {'title': 'Plaque', 'gcode': str(gcode),
+           'filament_selection': {'slot': 3, 'color': 'Black', 'material': 'PLA+'},
+           'color_manifest': {'parts': [{'key': str(i), 'name': n + '.stl'} for i, n in enumerate(names)]}}
+    rows = {p['name']: p['filament_g'] for p in summary.plate_estimates(job)[0]['parts']}
+    assert rows == {'01 PLAQUE BLACK': 28.0, '03 FOOT LEFT BLACK': 3.0,
+                    '04 FOOT RIGHT BLACK': 3.0, '05 CHARM PEG BLACK': 0.4}
+
+
+def test_parts_the_gcode_cannot_tell_apart_still_split_equally(tmp_path):
+    gcode = _gcode(tmp_path / 'plain.gcode', '1h', 12.0)
+    job = {'title': 'Pair', 'gcode': gcode, 'filament_selection': {'slot': 1, 'color': 'Black', 'material': 'PLA'},
+           'color_manifest': {'parts': [{'key': 'a', 'name': 'Left.stl'}, {'key': 'b', 'name': 'Right.stl'}]}}
+    rows = {p['name']: p['filament_g'] for p in summary.plate_estimates(job)[0]['parts']}
+    assert rows == {'Left': 6.0, 'Right': 6.0}

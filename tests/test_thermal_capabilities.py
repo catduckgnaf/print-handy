@@ -142,13 +142,37 @@ def test_slice_summary_includes_thermal_lines_for_registered_model(tmp_path):
     gcode.write_text("; estimated printing time (normal mode) = 1h 0m 0s\n"
                      "; total filament used [g] = 5\nG1 X1\n")
     job = {"printer_model": "flashforge.creator5_pro", "title": "Widget",
-           "gcode": str(gcode)}
+           "gcode": str(gcode), "filament_selection": {"slot": 1, "material": "ABS"}}
     text = summary.format_slice_summary(job)
     assert "Thermal: enclosure enclosed" in text
     assert "active control supported" in text
     # A job naming no model keeps the summary it had (no thermal lines).
-    job_without_model = {"title": "Widget", "gcode": str(gcode)}
+    job_without_model = {"title": "Widget", "gcode": str(gcode), "filament_selection": {"material": "ABS"}}
     assert "Thermal:" not in summary.format_slice_summary(job_without_model)
+
+
+def test_slice_summary_has_no_thermal_lines_for_materials_without_enclosure_needs(tmp_path):
+    """Nov 2026 channel: the fan mapping and provenance lines rode on every
+    PLA post. They show only when a material needs an enclosure."""
+    from print_handy.runtime import discord_print_summary as summary
+    gcode = tmp_path / "plate_1.gcode"
+    gcode.write_text("; estimated printing time (normal mode) = 1h 0m 0s\n"
+                     "; total filament used [g] = 5\nG1 X1\n")
+    for material in ("PLA+", "PETG", "PCTG", "TPU", None):
+        job = {"printer_model": "flashforge.creator5_pro", "title": "Widget", "gcode": str(gcode),
+               "filament_selection": {"slot": 1, "material": material}}
+        assert "Thermal:" not in summary.format_slice_summary(job), material
+    mixed = {"printer_model": "flashforge.creator5_pro", "title": "Widget", "gcode": str(gcode),
+             "color_decisions": {"choices": {"a": {"slot": 1, "material": "PLA"},
+                                             "b": {"slot": 2, "material": "PA-CF"}}}}
+    assert "Thermal: enclosure enclosed" in summary.format_slice_summary(mixed)
+
+
+@pytest.mark.parametrize("material, want", [("ABS", True), ("asa", True), ("PC", True), ("PA12-CF", True),
+                                            ("Nylon", True), ("PLA", False), ("PCTG", False), ("PETG", False),
+                                            ("", False), (None, False)])
+def test_needs_enclosure(material, want):
+    assert thermal_surface.needs_enclosure(material) is want
 
 
 def test_setup_questions_only_for_unknown_facts(registry):

@@ -1143,6 +1143,16 @@ def test_preview_omits_estimate_when_incomplete_but_keeps_description(env, monke
     assert log[0] == ('send', 'That looks like Ghost Stand, A sturdy stand. I will use the selected file: ghost. ' + tail)
 
 
+def test_preview_of_an_uploaded_file_mentions_no_model_page():
+    """Nov 2026 channel: an uploaded file said "The model page gives no time or
+    filament estimate"; an upload has no model page."""
+    job = {'site': 'upload', 'title': 'Pixel_Patina_V10_Two_Color_One_File'}
+    row = {'name': 'Pixel_Patina_V10_Two_Color_One_File.3mf', 'title': 'Pixel_Patina_V10_Two_Color_One_File'}
+    text = prepared_intake.preview_sentence(job, row)
+    assert 'model page' not in text
+    assert text.endswith('I will report time and filament after slicing.')
+
+
 def test_preview_names_a_selected_profile_without_a_description(env, monkeypatch):
     row = {'name': 'ghost.3mf', 'title': 'Fine 0.16 mm profile', 'instance_id': 1}
     log, _ = run_preview(env, monkeypatch, '', row)
@@ -2342,25 +2352,43 @@ def test_a_file_already_downloaded_for_an_earlier_parts_job_is_reused(tmp_path, 
     assert model_job._cached_source('printables', 'id', 6, 7) is None
 
 
-def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, monkeypatch):
-    # #720: the live intake shows the registry thermal facts with the estimate on the
-    # start question; a job that names no registered model shows none.
+def _slice_for_creator5_pro(monkeypatch, material=None):
     inner = model_job.slice_job
 
     def slice_for_creator5_pro(job_path, recipe_sha256=None):
         out = inner(job_path, recipe_sha256=recipe_sha256)
         data = json.loads(Path(job_path).read_text())
         data['printer_model'] = 'flashforge.creator5_pro'
+        if material:
+            for pick in (data.get('color_decisions') or {}).get('choices', {}).values():
+                pick['material'] = material
+            if data.get('filament_selection'):
+                data['filament_selection']['material'] = material
         model_job.write_job(Path(job_path).parent, data)
         return out
 
     monkeypatch.setattr(model_job, 'slice_job', slice_for_creator5_pro)
+
+
+def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, monkeypatch):
+    # #720: the live intake shows the registry thermal facts with the estimate on the
+    # start question when the material needs an enclosure; a job that names no
+    # registered model shows none.
+    _slice_for_creator5_pro(monkeypatch, material='ABS')
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1])  # slice only, then cancel
     start_question = adapter.questions[-1]['question']
     assert 'Thermal: enclosure enclosed' in start_question
     # #740: chamber control is verified for the Creator 5 Pro ZMod record.
     assert 'active control supported' in start_question
     assert env.starts == []
+
+
+def test_start_question_has_no_thermal_lines_for_a_material_without_enclosure_needs(env, monkeypatch):
+    # Nov 2026 channel: "Thermal: ... provenance ... mapping fan_generic fanM106"
+    # on every PLA start question was debug output, not a decision.
+    _slice_for_creator5_pro(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+    assert 'Thermal:' not in adapter.questions[-1]['question']
 
 
 def test_start_question_has_no_thermal_lines_without_a_registered_model(env):

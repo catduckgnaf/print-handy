@@ -104,3 +104,26 @@ def test_a_job_edit_of_the_first_layer_height_wins_over_the_profile(monkeypatch)
     assert support_clearance.job_first_layer_mm(job) == 0.1
     assert support_clearance.job_first_layer_mm({}) == 0.24
     assert support_clearance.job_first_layer_mm({"edit_settings": {"profile": {"initial_layer_height": "x"}}}) == 0.24
+
+
+def _clearance_finding(z, gap):
+    return {'code': support_clearance.CODE_CLEARANCE, 'part': 'KEYS', 'over': 'plate', 'trigger': 'span',
+            'span_mm': 40.0, 'area_mm2': 20.0, 'sloped': False,
+            'z_mm': {'min': z, 'max': z}, 'clearance_mm': {'min': gap, 'max': gap}}
+
+
+def test_describe_groups_identical_lines_and_shows_at_most_three():
+    """Nov 2026 channel: the same low-clearance line was posted up to 10
+    times, one per copy of the part. Identical lines collapse to one with
+    "(xN)", and at most three distinct lines are shown."""
+    report = {'findings': [_clearance_finding(0.48, 0.48), _clearance_finding(0.34, 0.34)] * 5}
+    lines = support_clearance.describe(report)
+    assert len(lines) == 2
+    assert lines[0].endswith('supports cannot reach it. (x5)') and '0.48 mm gap' in lines[0]
+    assert lines[1].endswith('(x5)') and '0.34 mm gap' in lines[1]
+
+    report = {'findings': [_clearance_finding(z, z) for z in (0.3, 0.4, 0.5, 0.6, 0.7)] + [_clearance_finding(0.7, 0.7)]}
+    lines = support_clearance.describe(report)
+    assert len(lines) == 4
+    assert lines[-1] == '+3 more findings.'
+    assert support_clearance.describe({'findings': [_clearance_finding(0.3, 0.3)]})[0].endswith('reach it.')

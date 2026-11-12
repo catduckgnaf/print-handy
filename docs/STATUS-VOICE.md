@@ -39,8 +39,8 @@ which is sent only when there is a quip to send.
 | `slice` | wired | `prepared_intake._prepare_link`: "Slicing.", "Waiting for the background slice to finish." and "Retrying the slice." (never the re-slice after accepting filament warnings or an AI fix) |
 | `gcode_validation` | unwired | the G-code checks run inside print-now and only speak when they refuse |
 | `approval` | unwired | the lines sent before the start question are slicer findings, refused-plate notices and the estimate with thermal facts, which the operator reads to decide; nothing informational follows the answer except the Stop prompt |
-| `upload` | wired | `prepared_intake._watch_start_progress`: "Uploaded to the printer. Sending the start now; ..." |
-| `print_start` | wired | `prepared_intake._watch_start_progress`: "The printer accepted the start. ..." |
+| `upload` | unwired | the upload posts nothing while it runs; the "Uploaded to the printer" note is sent after it is over, while the start is sent, so it carries a `print_start` line |
+| `print_start` | wired | `prepared_intake._watch_start_progress`: "Uploaded to the printer. Sending the start now; ...". The later "The printer accepted the start. ..." note carries no quip, so one start shows one line |
 | `print_monitor` | wired | `moonraker_event_listener.announce_warmup_done`: the "Warmup complete, now printing." edit of the one start card, keyed per print and milestone |
 | `print_complete` | wired, narrow | `family_control.post_family_event`: the plain completion post for prints started outside Print Handy on a family printer. Moonraker completion posts already carry the completion roast, so they get no second joke; the Bambu launched-print completion post is left alone because its caption and media assembly is shared with the camera watch |
 | `print_failure` | wired, narrow | `family_control.post_family_event`: the plain "stopped with an error" post on a family printer. Moonraker cancel and error posts already carry a status roast; pause and stop alerts that offer actions never get a quip; a cancel is not a failure |

@@ -158,3 +158,17 @@ def test_voiced_failure_leaves_text_byte_identical(tmp_path, monkeypatch, text):
         raise RuntimeError("selector down")
     monkeypatch.setattr(status_voice, "quip", broken)
     assert status_voice.voiced(text, "slice") == text
+
+
+def test_start_banks_claim_no_printer_state_their_stage_can_contradict():
+    """The upload quips said "This is a transfer, not a launch" on a note
+    that says the start is being sent; print_start quips claimed plastic was
+    already flowing while the start could still be refused."""
+    bank = status_voice.load_bank()
+    claims = ("not a launch", "separate permission", "does not make the bed clear",
+              "without pressing start", "has officially joined", "has entered its employed era",
+              "Watching the printer accept")
+    for stage in ("upload", "print_start"):
+        for row in bank[stage]:
+            text = row["text"]
+            assert not any(claim in text for claim in claims), text

@@ -431,6 +431,21 @@ class RunoutAlertPromisesOnlyWhatItDelivers(unittest.TestCase):
         self.assertIn("2. Answer the spool question", text)
         self.assertIn("3. Tap Resume print", text)
 
+    def test_step_two_names_the_buttons_the_spool_question_shows(self):
+        """Nov 2026: step 2 said "Existing spool or New spool" while a runout
+        on a known spool shows five buttons. The text names the answers the
+        question really offers."""
+        def answers(spool_id):
+            rows = pab.spool_question_components("a1", prior_spool_id=spool_id, cause="runout")
+            return [b["label"].replace(" — ", ", ") for b in rows[0]["components"] if b["label"] != "Cancel print"]
+
+        known = mel.paused_message("a.gcode", runout=True, slot=3, spool_id=12)
+        for label in answers(12):
+            self.assertIn(label, known)
+        unknown = mel.paused_message("a.gcode", runout=True, slot=3, spool_id=None)
+        self.assertIn("(Existing spool or New spool)", unknown)
+        self.assertEqual(answers(None), ["Existing spool", "New spool"])
+
 
 class ScreenlessChannelNamesTheSlot(ListenerRunoutCase):
     """2026-11-04: screenless AD5X, no launch record, no saved active slot, every slot still

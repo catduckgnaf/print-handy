@@ -1328,8 +1328,28 @@ def _fmt(v):
     return f'{v:.2f}'.rstrip('0').rstrip('.')
 
 
+DESCRIBE_MAX_LINES = 3
+
+
 def describe(report):
-    """Plain-text lines for the pre-slice summary, or [] when there is nothing to say."""
+    """Plain-text lines for the pre-slice summary, or [] when there is nothing to say.
+
+    Identical lines (one underside found on every copy or layer of a part)
+    are shown once with "(xN)", and at most DESCRIBE_MAX_LINES distinct
+    lines are shown; a last line counts the findings left out.
+    """
+    counts = {}
+    for line in _finding_lines(report):
+        counts[line] = counts.get(line, 0) + 1
+    lines = [line if n == 1 else f'{line} (x{n})' for line, n in counts.items()]
+    if len(lines) > DESCRIBE_MAX_LINES:
+        hidden = sum(list(counts.values())[DESCRIBE_MAX_LINES:])
+        lines = lines[:DESCRIBE_MAX_LINES] + [f'+{hidden} more finding{"s" if hidden != 1 else ""}.']
+    return lines
+
+
+def _finding_lines(report):
+    """One plain-text line per finding, in report order."""
     lines = []
     for f in (report or {}).get('findings') or []:
         if f['code'] == CODE_CLEARANCE:

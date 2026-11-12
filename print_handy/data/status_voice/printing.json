@@ -6,12 +6,12 @@
       {
         "id": "upload-001",
         "family": "upload-01",
-        "text": "Sending the verified print file toward the actual printer. This is a transfer, not a launch."
+        "text": "Sending the verified print file toward the actual printer. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-002",
         "family": "upload-01",
-        "text": "Sending the verified print file toward the actual printer. The hot end still needs separate permission."
+        "text": "Sending the verified print file toward the actual printer. Every byte gets checked at the other end."
       },
       {
         "id": "upload-003",
@@ -21,17 +21,17 @@
       {
         "id": "upload-004",
         "family": "upload-01",
-        "text": "Sending the verified print file toward the actual printer. A successful upload does not make the bed clear."
+        "text": "Sending the verified print file toward the actual printer. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-005",
         "family": "upload-02",
-        "text": "Transferring the toolpath with all appropriate suspicion. This is a transfer, not a launch."
+        "text": "Transferring the toolpath with all appropriate suspicion. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-006",
         "family": "upload-02",
-        "text": "Transferring the toolpath with all appropriate suspicion. The hot end still needs separate permission."
+        "text": "Transferring the toolpath with all appropriate suspicion. Every byte gets checked at the other end."
       },
       {
         "id": "upload-007",
@@ -41,17 +41,17 @@
       {
         "id": "upload-008",
         "family": "upload-02",
-        "text": "Transferring the toolpath with all appropriate suspicion. A successful upload does not make the bed clear."
+        "text": "Transferring the toolpath with all appropriate suspicion. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-009",
         "family": "upload-03",
-        "text": "Moving the prepared job out of the planning department. This is a transfer, not a launch."
+        "text": "Moving the prepared job out of the planning department. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-010",
         "family": "upload-03",
-        "text": "Moving the prepared job out of the planning department. The hot end still needs separate permission."
+        "text": "Moving the prepared job out of the planning department. Every byte gets checked at the other end."
       },
       {
         "id": "upload-011",
@@ -61,17 +61,17 @@
       {
         "id": "upload-012",
         "family": "upload-03",
-        "text": "Moving the prepared job out of the planning department. A successful upload does not make the bed clear."
+        "text": "Moving the prepared job out of the planning department. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-013",
         "family": "upload-04",
-        "text": "Uploading instructions for the nozzle's next assignment. This is a transfer, not a launch."
+        "text": "Uploading instructions for the nozzle's next assignment. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-014",
         "family": "upload-04",
-        "text": "Uploading instructions for the nozzle's next assignment. The hot end still needs separate permission."
+        "text": "Uploading instructions for the nozzle's next assignment. Every byte gets checked at the other end."
       },
       {
         "id": "upload-015",
@@ -81,17 +81,17 @@
       {
         "id": "upload-016",
         "family": "upload-04",
-        "text": "Uploading instructions for the nozzle's next assignment. A successful upload does not make the bed clear."
+        "text": "Uploading instructions for the nozzle's next assignment. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-017",
         "family": "upload-05",
-        "text": "Delivering G-code to its future executor. This is a transfer, not a launch."
+        "text": "Delivering G-code to its future executor. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-018",
         "family": "upload-05",
-        "text": "Delivering G-code to its future executor. The hot end still needs separate permission."
+        "text": "Delivering G-code to its future executor. Every byte gets checked at the other end."
       },
       {
         "id": "upload-019",
@@ -101,17 +101,17 @@
       {
         "id": "upload-020",
         "family": "upload-05",
-        "text": "Delivering G-code to its future executor. A successful upload does not make the bed clear."
+        "text": "Delivering G-code to its future executor. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-021",
         "family": "upload-06",
-        "text": "Making sure the printer receives the complete job. This is a transfer, not a launch."
+        "text": "Making sure the printer receives the complete job. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-022",
         "family": "upload-06",
-        "text": "Making sure the printer receives the complete job. The hot end still needs separate permission."
+        "text": "Making sure the printer receives the complete job. Every byte gets checked at the other end."
       },
       {
         "id": "upload-023",
@@ -121,17 +121,17 @@
       {
         "id": "upload-024",
         "family": "upload-06",
-        "text": "Making sure the printer receives the complete job. A successful upload does not make the bed clear."
+        "text": "Making sure the printer receives the complete job. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-025",
         "family": "upload-07",
-        "text": "Sending a plastic construction plan across the network. This is a transfer, not a launch."
+        "text": "Sending a plastic construction plan across the network. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-026",
         "family": "upload-07",
-        "text": "Sending a plastic construction plan across the network. The hot end still needs separate permission."
+        "text": "Sending a plastic construction plan across the network. Every byte gets checked at the other end."
       },
       {
         "id": "upload-027",
@@ -141,37 +141,37 @@
       {
         "id": "upload-028",
         "family": "upload-07",
-        "text": "Sending a plastic construction plan across the network. A successful upload does not make the bed clear."
+        "text": "Sending a plastic construction plan across the network. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-029",
         "family": "upload-08",
-        "text": "Handing over the toolpath without pressing start prematurely. This is a transfer, not a launch."
+        "text": "Handing over the toolpath one verified byte at a time. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-030",
         "family": "upload-08",
-        "text": "Handing over the toolpath without pressing start prematurely. The hot end still needs separate permission."
+        "text": "Handing over the toolpath one verified byte at a time. Every byte gets checked at the other end."
       },
       {
         "id": "upload-031",
         "family": "upload-08",
-        "text": "Handing over the toolpath without pressing start prematurely. Network cables are the real unsung heroes."
+        "text": "Handing over the toolpath one verified byte at a time. Network cables are the real unsung heroes."
       },
       {
         "id": "upload-032",
         "family": "upload-08",
-        "text": "Handing over the toolpath without pressing start prematurely. A successful upload does not make the bed clear."
+        "text": "Handing over the toolpath one verified byte at a time. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-033",
         "family": "upload-09",
-        "text": "Transferring the file like a courier with trust issues. This is a transfer, not a launch."
+        "text": "Transferring the file like a courier with trust issues. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-034",
         "family": "upload-09",
-        "text": "Transferring the file like a courier with trust issues. The hot end still needs separate permission."
+        "text": "Transferring the file like a courier with trust issues. Every byte gets checked at the other end."
       },
       {
         "id": "upload-035",
@@ -181,17 +181,17 @@
       {
         "id": "upload-036",
         "family": "upload-09",
-        "text": "Transferring the file like a courier with trust issues. A successful upload does not make the bed clear."
+        "text": "Transferring the file like a courier with trust issues. The bytes travel first; the plastic waits its turn."
       },
       {
         "id": "upload-037",
         "family": "upload-10",
-        "text": "Checking that the print job gets to the right machine. This is a transfer, not a launch."
+        "text": "Checking that the print job gets to the right machine. The file has to arrive whole before anything else happens."
       },
       {
         "id": "upload-038",
         "family": "upload-10",
-        "text": "Checking that the print job gets to the right machine. The hot end still needs separate permission."
+        "text": "Checking that the print job gets to the right machine. Every byte gets checked at the other end."
       },
       {
         "id": "upload-039",
@@ -201,14 +201,14 @@
       {
         "id": "upload-040",
         "family": "upload-10",
-        "text": "Checking that the print job gets to the right machine. A successful upload does not make the bed clear."
+        "text": "Checking that the print job gets to the right machine. The bytes travel first; the plastic waits its turn."
       }
     ],
     "print_start": [
       {
         "id": "print_start-001",
         "family": "print_start-01",
-        "text": "Starting the approved job and hoping gravity behaves. The printer has entered its employed era."
+        "text": "Starting the approved job and hoping gravity behaves. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-002",
@@ -223,12 +223,12 @@
       {
         "id": "print_start-004",
         "family": "print_start-01",
-        "text": "Starting the approved job and hoping gravity behaves. Plastic has officially joined the conversation."
+        "text": "Starting the approved job and hoping gravity behaves. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-005",
         "family": "print_start-02",
-        "text": "Handing this design over to a nozzle with a work ethic. The printer has entered its employed era."
+        "text": "Handing this design over to a nozzle with a work ethic. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-006",
@@ -243,12 +243,12 @@
       {
         "id": "print_start-008",
         "family": "print_start-02",
-        "text": "Handing this design over to a nozzle with a work ethic. Plastic has officially joined the conversation."
+        "text": "Handing this design over to a nozzle with a work ethic. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-009",
         "family": "print_start-03",
-        "text": "Kicking off the print with an entirely reasonable amount of dread. The printer has entered its employed era."
+        "text": "Kicking off the print with an entirely reasonable amount of dread. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-010",
@@ -263,12 +263,12 @@
       {
         "id": "print_start-012",
         "family": "print_start-03",
-        "text": "Kicking off the print with an entirely reasonable amount of dread. Plastic has officially joined the conversation."
+        "text": "Kicking off the print with an entirely reasonable amount of dread. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-013",
         "family": "print_start-04",
-        "text": "Beginning another carefully authorized plastic adventure. The printer has entered its employed era."
+        "text": "Beginning another carefully authorized plastic adventure. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-014",
@@ -283,12 +283,12 @@
       {
         "id": "print_start-016",
         "family": "print_start-04",
-        "text": "Beginning another carefully authorized plastic adventure. Plastic has officially joined the conversation."
+        "text": "Beginning another carefully authorized plastic adventure. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-017",
         "family": "print_start-05",
-        "text": "Setting the approved toolpath loose on the build plate. The printer has entered its employed era."
+        "text": "Setting the approved toolpath loose on the build plate. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-018",
@@ -303,32 +303,32 @@
       {
         "id": "print_start-020",
         "family": "print_start-05",
-        "text": "Setting the approved toolpath loose on the build plate. Plastic has officially joined the conversation."
+        "text": "Setting the approved toolpath loose on the build plate. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-021",
         "family": "print_start-06",
-        "text": "Watching the printer accept its latest questionable assignment. The printer has entered its employed era."
+        "text": "Asking the printer to accept its latest questionable assignment. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-022",
         "family": "print_start-06",
-        "text": "Watching the printer accept its latest questionable assignment. The real-time suspense is included free."
+        "text": "Asking the printer to accept its latest questionable assignment. The real-time suspense is included free."
       },
       {
         "id": "print_start-023",
         "family": "print_start-06",
-        "text": "Watching the printer accept its latest questionable assignment. You are now invested in how well layer one behaves."
+        "text": "Asking the printer to accept its latest questionable assignment. You are now invested in how well layer one behaves."
       },
       {
         "id": "print_start-024",
         "family": "print_start-06",
-        "text": "Watching the printer accept its latest questionable assignment. Plastic has officially joined the conversation."
+        "text": "Asking the printer to accept its latest questionable assignment. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-025",
         "family": "print_start-07",
-        "text": "Starting the manufacturing phase of your personal side quest. The printer has entered its employed era."
+        "text": "Starting the manufacturing phase of your personal side quest. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-026",
@@ -343,12 +343,12 @@
       {
         "id": "print_start-028",
         "family": "print_start-07",
-        "text": "Starting the manufacturing phase of your personal side quest. Plastic has officially joined the conversation."
+        "text": "Starting the manufacturing phase of your personal side quest. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-029",
         "family": "print_start-08",
-        "text": "Giving the motors permission to become involved. The printer has entered its employed era."
+        "text": "Giving the motors permission to become involved. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-030",
@@ -363,12 +363,12 @@
       {
         "id": "print_start-032",
         "family": "print_start-08",
-        "text": "Giving the motors permission to become involved. Plastic has officially joined the conversation."
+        "text": "Giving the motors permission to become involved. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-033",
         "family": "print_start-09",
-        "text": "Letting the printer handle a problem made entirely of polygons. The printer has entered its employed era."
+        "text": "Letting the printer handle a problem made entirely of polygons. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-034",
@@ -383,12 +383,12 @@
       {
         "id": "print_start-036",
         "family": "print_start-09",
-        "text": "Letting the printer handle a problem made entirely of polygons. Plastic has officially joined the conversation."
+        "text": "Letting the printer handle a problem made entirely of polygons. Plastic is about to join the conversation."
       },
       {
         "id": "print_start-037",
         "family": "print_start-10",
-        "text": "Launching the print now that the formalities are satisfied. The printer has entered its employed era."
+        "text": "Launching the print now that the formalities are satisfied. The printer is about to enter its employed era."
       },
       {
         "id": "print_start-038",
@@ -403,7 +403,7 @@
       {
         "id": "print_start-040",
         "family": "print_start-10",
-        "text": "Launching the print now that the formalities are satisfied. Plastic has officially joined the conversation."
+        "text": "Launching the print now that the formalities are satisfied. Plastic is about to join the conversation."
       }
     ],
     "print_monitor": [

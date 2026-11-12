@@ -226,6 +226,15 @@ def _filaments(job, keys=None):
     return [by_slot[slot] for slot in sorted(by_slot, key=lambda value: (str(type(value)), value))]
 
 
+def job_materials(job):
+    """Every material the job's saved filament choices name, as given."""
+    dec = job.get("color_decisions") or {}
+    picks = [job.get("filament_selection"), dec.get("selection")]
+    if isinstance(dec.get("choices"), dict):
+        picks.extend(dec["choices"].values())
+    return [str(pick["material"]) for pick in picks if isinstance(pick, dict) and pick.get("material")]
+
+
 def _slot_grams(gcode, mapping):
     """{slot: grams} from the slicer's per-tool '; filament used [g] = a, b' line and the
     tool -> slot mapping; {} when either is missing or they do not line up."""
@@ -587,32 +596,129 @@ def _site_plate(job, plate):
     return num(row.get("prediction_s")), num(row.get("weight_g"))
 
 
-def _part_rows(job, keys, plate_g):
-    """Parts on one plate with their own share of the plate's grams (volume split, else equal).
+_OBJECT_START = re.compile(r"^\s*(?:; printing object (.+?)|EXCLUDE_OBJECT_START NAME=(\S+))\s*$")
+_OBJECT_END = re.compile(r"^\s*(?:; stop printing object\b|EXCLUDE_OBJECT_END\b)")
+_E_WORD = re.compile(r"\bE\s*(-?\d+(?:\.\d+)?|-?\.\d+)", re.I)
 
-    Never the extruder or plate total repeated on every part: shares always sum to `plate_g`.
+
+def _object_key(name):
+    """A slicer object label or a part name reduced to comparable form:
+    no file extension, no Orca ' id:N copy N' suffix, letters and digits only."""
+    name = re.sub(r"\s+id\s*:\s*\S+\s+copy\s+\d+\s*$", "", str(name or ""), flags=re.I)
+    name = re.sub(r"\.(stl|3mf|obj|step|stp)$", "", name.strip(), flags=re.I)
+    return re.sub(r"[^0-9a-z]", "", name.casefold())
+
+
+def _object_extrusion(gcode):
+    """{object key: mm of filament extruded inside that object's blocks}; {} when unknown.
+
+    Copies of one object (Orca's 'copy N') add up under one key. Only E moves
+    inside '; printing object' / EXCLUDE_OBJECT_START blocks count, net of
+    retractions, so the purge, skirt and wipe moves are nobody's.
+    """
+    try:
+        handle = open(gcode, errors="ignore")
+    except (OSError, TypeError):
+        return {}
+    absolute_e, last_e, current, out = True, 0.0, None, {}
+    with handle:
+        for raw in handle:
+            line = raw.strip()
+            if not line:
+                continue
+            if line[0] == ";" or line[0] == "E":
+                start = _OBJECT_START.match(line)
+                if start:
+                    current = _object_key(start.group(1) or start.group(2))
+                elif _OBJECT_END.match(line):
+                    current = None
+                continue
+            head = line[:3].upper()
+            if head == "M82":
+                absolute_e = True
+            elif head == "M83":
+                absolute_e = False
+            elif head == "G92":
+                found = _E_WORD.search(line.split(";")[0])
+                if found:
+                    last_e = float(found.group(1))
+            elif head[:2] in ("G1", "G0") and (len(line) < 3 or not line[2].isdigit()):
+                found = _E_WORD.search(line.split(";")[0])
+                if not found:
+                    continue
+                value = float(found.group(1))
+                delta = value - last_e if absolute_e else value
+                if absolute_e:
+                    last_e = value
+                if current:  # net: a retraction and its unretraction cancel out
+                    out[current] = out.get(current, 0.0) + delta
+    return {key: mm for key, mm in out.items() if mm > 0}
+
+
+def _shares(group, plate_gcode, extrusion):
+    """Relative weights for the parts in one slot group: their own extrusion in
+    the G-code first, else their model volume, else equal."""
+    if len(group) > 1 and plate_gcode:
+        if extrusion.get("data") is None:
+            extrusion["data"] = _object_extrusion(plate_gcode)
+        by_object = extrusion["data"]
+        names = [_object_key(part.get("name")) for part, _vol in group]
+        if by_object and all(by_object.get(name) for name in names):
+            same = {name: names.count(name) for name in names}
+            return [by_object[name] / same[name] for name in names]
+    vols = [vol for _part, vol in group]
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in vols):
+        return [float(v) for v in vols]
+    return [1.0] * len(group)
+
+
+def _part_rows(job, keys, plate_g, slot_grams=None, gcode=None):
+    """Parts on one plate with their own share of the plate's grams.
+
+    Each slot's grams come from the slicer's per-tool figures when known
+    (``slot_grams``), else the plate total is shared. Within a slot, a part's
+    share follows its own extrusion in the G-code, else its volume, and only
+    then an equal split. Never the extruder or plate total repeated on every
+    part: shares always sum to the grams they divide.
     """
     parts = [p for p in (job.get("color_manifest") or {}).get("parts") or []
              if keys is None or p.get("key") in keys]
     dec = job.get("color_decisions") or {}
     choices = dec.get("choices") if isinstance(dec.get("choices"), dict) else {}
-    vols = [p.get("volume_mm3") for p in parts]
-    by_volume = bool(parts) and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in vols)
-    rows = {}
-    for part, vol in zip(parts, vols):
-        name = re.sub(r"\.(stl|3mf|obj|step|stp)$", "", safe_label(part.get("name"), ""), flags=re.I) or "Part"
+    picked = []
+    for part in parts:
         sel = (choices.get(part.get("key")) or choices.get("part:" + str(part.get("key")))
                or job.get("filament_selection") or dec.get("selection") or {})
+        picked.append((part, sel))
+    slot_grams = {slot: g for slot, g in (slot_grams or {}).items()
+                  if isinstance(g, (int, float)) and not isinstance(g, bool)}
+    by_slot = bool(parts) and bool(slot_grams) and all(sel.get("slot") in slot_grams for _p, sel in picked)
+    groups = {}
+    for index, (part, sel) in enumerate(picked):
+        groups.setdefault(sel.get("slot") if by_slot else None, []).append(index)
+    grams = [None] * len(parts)
+    extrusion = {}
+    for slot, members in groups.items():
+        total = slot_grams[slot] if by_slot else plate_g
+        if total is None:
+            continue
+        weights = _shares([(parts[i], parts[i].get("volume_mm3")) for i in members], gcode, extrusion)
+        whole = sum(weights)
+        for i, weight in zip(members, weights):
+            grams[i] = total * weight / whole if whole else None
+    rows = {}
+    for (part, sel), share in zip(picked, grams):
+        name = re.sub(r"\.(stl|3mf|obj|step|stp)$", "", safe_label(part.get("name"), ""), flags=re.I) or "Part"
         color = safe_label(part.get("author_color") or sel.get("color"), "") or None
         material = safe_label(sel.get("material"), "") or None
         # Same name in different colors or materials stays separate rows.
-        row = rows.setdefault((name, color, material), {"name": name, "qty": 0, "weight": 0.0,
+        row = rows.setdefault((name, color, material), {"name": name, "qty": 0, "filament_g": 0.0,
                                                         "color": color, "material": material})
         row["qty"] += 1
-        row["weight"] += float(vol) if by_volume else 1.0
-    total = sum(r["weight"] for r in rows.values())
+        row["filament_g"] = None if share is None or row["filament_g"] is None else row["filament_g"] + share
     for row in rows.values():
-        row["filament_g"] = round(plate_g * row.pop("weight") / total, 1) if plate_g is not None and total else None
+        if row["filament_g"] is not None:
+            row["filament_g"] = round(row["filament_g"], 1)
     return list(rows.values())
 
 
@@ -634,7 +740,10 @@ def plate_estimates(job):
             seconds, basis = site_s * copies, "model page"
         if grams is None and site_g is not None:
             grams = site_g * copies
-        parts = _part_rows(job, keys, grams)
+        sliced_g = row.get("filament_g") is not None  # model page grams are per plate only
+        slot_grams = {entry.get("slot"): entry.get("filament_g") for entry in row.get("filaments") or ()}
+        parts = _part_rows(job, keys, grams, slot_grams if sliced_g else None,
+                           row.get("gcode") if sliced_g else None)
         for part in parts:
             part["qty"] *= copies
         result.append({"plate": row.get("plate") or number, "seconds": seconds, "filament_g": grams,
@@ -783,12 +892,14 @@ def format_slice_summary(job, now=None):
                 original_text = ' x '.join(f'{float(value):g}' for value in original)
                 lines.append(f'Units: millimeters confirmed, printed at authored size {original_text} mm')
     # Thermal assumptions (issue #720): registry facts for the job's model,
-    # unknown shown as unknown. Only when the job names a registered model;
-    # jobs without one keep the summary they had. This reports facts only —
-    # it sends no fan, temperature or chamber command.
+    # unknown shown as unknown. Only when the job names a registered model
+    # and prints a material that needs an enclosure; other jobs keep the
+    # summary they had. This reports facts only — it sends no fan,
+    # temperature or chamber command.
     try:
-        from ..knowledge.thermal import thermal_lines_for_model
-        lines.extend(thermal_lines_for_model(job.get("printer_model"), printer_id=job.get("printer_id")))
+        from ..knowledge.thermal import thermal_lines_for_job
+        lines.extend(thermal_lines_for_job(job.get("printer_model"), job_materials(job),
+                                           printer_id=job.get("printer_id")))
     except Exception:
         pass
     return scrub("\n".join(lines))
