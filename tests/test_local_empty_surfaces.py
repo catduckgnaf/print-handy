@@ -58,7 +58,7 @@ def test_compose_carries_the_key():
 
 
 def test_config_examples_carry_the_key():
-    for name in ("config/home.yaml", "config/home.toml"):
+    for name in ("config/home.yaml",):
         assert "local_empty_enabled" in (ROOT / name).read_text(encoding="utf-8"), name
 
 
