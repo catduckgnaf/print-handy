@@ -498,6 +498,35 @@ def zmod_version_from_system_info(payload):
     return _version_str(distribution.get("version"))
 
 
+def zmod_base_from_system_info(payload):
+    """The USB-installed ZMod base from /machine/system_info, or None.
+
+    ZMod's start.sh writes the distribution name as ``"zmod <usb> ->
+    <current>"``; the first version is the base. A plain ``"zmod 1.7.5"``
+    is its own base; otherwise the distribution version is used.
+    """
+    try:
+        distribution = payload["result"]["system_info"]["distribution"]
+    except (TypeError, KeyError):
+        return None
+    if not isinstance(distribution, dict):
+        return None
+    name = str(distribution.get("name") or "")
+    if name.casefold().startswith("zmod"):
+        found = re.findall(r"v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.]+)?", name)
+        if found:
+            return found[0].lstrip("v")
+    return os_version_from_system_info(payload)
+
+
+def fetch_zmod_base(transport):
+    """Best-effort USB-installed ZMod base; None when unreadable (never raises)."""
+    try:
+        return zmod_base_from_system_info(transport("GET", SYSTEM_INFO_PATH))
+    except Exception:
+        return None
+
+
 def fetch_os_version(transport):
     """Best-effort OS distribution version; None when unreadable (never raises)."""
     try:
@@ -774,6 +803,20 @@ def prepare_update(transport, entry, component_token) -> PreparedUpdate:
                                   "ZMod component updates fail in that state. Update the "
                                   "ZMod base from USB first — `/print-firmware guide zmod` "
                                   "walks through it. Nothing was sent.")
+        if _component_key(component.name) == "zmod" and component.remote:
+            # ZMod's own rule (zversion.sh): a target on another major.minor
+            # than the USB-installed base needs a USB / ZFLASH install, not a
+            # Software Update. Enforced here, not only in the alert text, so
+            # no entry point can apply it (#1297 review).
+            base = fetch_zmod_base(transport)
+            target_parts, base_parts = version_parts(component.remote), version_parts(base)
+            if len(target_parts) >= 2 and len(base_parts) >= 2 \
+                    and target_parts[:2] != base_parts[:2]:
+                raise FirmwareRefusal(f"**{component.name}** {component.remote} is a new ZMod "
+                                      f"base (the printer was installed from USB as {base}), "
+                                      "and ZMod installs a new base from USB or `ZFLASH`, not "
+                                      "through Software Update. `/print-firmware guide zmod` "
+                                      "walks through it. Nothing was sent.")
     try:
         state = print_state(transport)
     except FirmwareError:

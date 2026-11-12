@@ -144,24 +144,8 @@ class Observation:
 
 
 def zmod_base_from_system_info(payload):
-    """The USB-installed ZMod base from /machine/system_info, or None.
-
-    ZMod's start.sh writes the distribution name as ``"zmod <usb> ->
-    <current>"``; the first version is the base. A plain ``"zmod 1.7.5"``
-    is its own base; otherwise the distribution version is used.
-    """
-    try:
-        distribution = payload["result"]["system_info"]["distribution"]
-    except (TypeError, KeyError):
-        return None
-    if not isinstance(distribution, dict):
-        return None
-    name = str(distribution.get("name") or "")
-    if name.casefold().startswith("zmod"):
-        found = re.findall(r"v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.]+)?", name)
-        if found:
-            return found[0].lstrip("v")
-    return fw.os_version_from_system_info(payload)
+    """The USB-installed ZMod base (firmware_update.zmod_base_from_system_info)."""
+    return fw.zmod_base_from_system_info(payload)
 
 
 def _raw_component(payload, name):

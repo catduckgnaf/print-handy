@@ -528,3 +528,52 @@ def test_settings_refuse_bad_values(bad):
     data = {"firmware": dict(bad)}
     with pytest.raises(settings.SettingsError):
         settings._validate_firmware(data)
+
+
+# ------------------------------------------------------------------ review hardening
+
+def test_the_apply_gate_refuses_a_new_base_from_any_entry_point():
+    """The USB-only rule is enforced in prepare_update, not only in the alert
+    text: a typed /print-firmware update on a 1.8 remote is refused."""
+    printer = Printer(status(remote="1.8.0-1"))
+    with pytest.raises(fw.FirmwareRefusal) as excinfo:
+        fw.prepare_update(printer, AD5X, "zmod")
+    assert "new ZMod base" in str(excinfo.value)
+    assert printer.posts == []
+
+
+def test_the_apply_gate_allows_an_update_on_the_installed_base():
+    prepared = fw.prepare_update(Printer(), AD5X, "zmod")
+    assert prepared.component.remote == "1.7.6-17"
+
+
+def test_a_failing_state_write_does_not_re_announce_every_heartbeat(cfg, monkeypatch):
+    clock = Clock()
+    al = alerter(cfg, Printer(), clock=clock)
+
+    def broken_save(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fa, "save", broken_save)
+    check_now(al)  # posts the alert, then the state write fails
+    assert len(al.core.adapter.questions) == 1
+    clock.now += 20  # the next heartbeat
+    assert al.tick() == []
+    assert check_now(al) == []
+    assert len(al.core.adapter.questions) == 1
+
+
+def test_a_skip_pressed_during_a_check_is_kept(cfg, monkeypatch):
+    state_dir = settings.printer_state_dir(PID, cfg)
+    al = alerter(cfg, Printer())
+    real_offers = fa.offers
+
+    def offers_then_skip(observation):
+        # The operator presses Skip (on any surface) while this check runs.
+        fa.save(state_dir, fa.record_skipped(fa.load(state_dir), "zmod:1.7.5", 1.0))
+        return real_offers(observation)
+
+    monkeypatch.setattr(fa, "offers", offers_then_skip)
+    check_now(al)
+    assert "zmod:1.7.5" in fa.load(state_dir).get("skipped", {})
+    assert "zmod:1.7.6" in fa.load(state_dir).get("announced", {})

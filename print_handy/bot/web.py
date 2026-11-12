@@ -351,7 +351,10 @@ class WebChatService:
 
     async def _run_heartbeat(self):
         while True:
-            await self.heartbeat_once()
+            try:
+                await self.heartbeat_once()
+            except Exception:  # the loop must outlive any one bad pass
+                logger.exception("web chat heartbeat pass failed")
             await asyncio.sleep(HEARTBEAT_S)
 
     async def _in_scope(self, scope, coro_fn):
