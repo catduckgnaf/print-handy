@@ -2,8 +2,90 @@
 
 # Unreleased
 
+# Version 2.3.0
+
+**Release Date:** Unreleased until tagged. Set when the tag is cut.
+**Range:** 2.2.9..main. 2.2.10 was prepared (checklist #1316) and folded into 2.3.0 at catduck's call; it was never tagged. The ZMod 1.7.6 release plus the #1160 consolidation (#1317 to #1323, #1332), the status voice (#1326) and material warn-and-accept (#1336): ZMod 1.7.6 shipped on 2026-11-11 and was audited the same day (#1269, PR #1278).
+**Live checks performed for this release (owner's AD5X, 2026-11-11):** ZMod updated 1.7.5-2 -> 1.7.6-17 and HelixScreen v1.0.7 -> v1.0.8 through `firmware_update.prepare_update` / `send_update` (the path `/print-firmware update` and the alert button run), each verified by re-reading Moonraker's update state; the printer came back ready and its `lane_data` records survived. Read-only on the same printer: the update alert detection (one applicable offer, key `zmod:1.7.6`), the printer screen view (an 800x480 JPEG through the no-redirect fetch), camera selection with the real webcam registry in both orders, and lane-record parsing of the real records. Observed: after the Z-Mod update and reboot, Moonraker reported every git component as `?` until an update-manager refresh; ZMod 1.7.6 or HelixScreen 1.0.8 rewrote slot 3's material from `PLA+` to `PLA` on its own.
+**Not verified live:** the module decomposition and runtime rename (#1323), the printer-control service, start-truth, the material warn-and-accept paths, the status voice in a real chat, Matrix alert reactions, sparse tool maps through a real print, the Web UI alert buttons, the weekly firmware watch on its schedule. All are covered by offline tests, including enumeration tests for control entry points, start verdicts and Web UI routes.
+
 - Material warnings at print start (#1336). Owner ruling, restated 2026-11-11 (first recorded with #1190 and #1213): no filament or material condition hard-blocks a print. At print start a sliced-versus-loaded material mismatch, abrasive filament on a soft nozzle, a Bambu not-recommended material, a Bambu AMS with no tray of the required material and an AD5X slot label of another family now warn and ask Reslice for the loaded material (the default) / Print as sliced / Cancel on every chat transport, `/print-next`, `/print-again` and the Discord plate and Retry buttons; the CLI takes `print-now --accept-material-mismatch`. An accepted start heats to the G-code's own temperatures, keeps every mechanical limit, re-checks the loaded material against the nozzle and binds to the exact G-code for one start. A Spoolman spool that disagrees with the slot record at launch is a plain warning. In slicing, a saved slot selection the slot no longer matches and abrasive filament on a soft nozzle join the #1190 filament round (accepting slices for what is loaded); a remap to a slot of another material warns and, accepted, reslices for that slot (`remap-slot --accept-material-mismatch`); a swapped spool is asked as Use the loaded spool in every chat start.
 - #1160 folded-in debt (#1332): the bot runtimes keep one warm single-use heavy intake worker, started ahead of time with its imports done, so a heavy step no longer waits 0.6 to 1.1 s for Python to start (one process per step as before; a spare from older settings or past 15 minutes is stopped, not used). The release, develop and nightly images stamp `PRINT_HANDY_IMAGE_TAG` and `PRINT_HANDY_IMAGE_SHA`, so the diagnostics bundle names the image. The budget-exhausted CRITICAL outage notice is pinned on Telegram and Matrix as well as Discord. The native-error and filament-failover posts name the slot base like the other listener alerts, and a guard keeps zero-based indexes out of slot text. Timing runs record the runner CPU: the post-#1165 Discord-flow timing rise was runner hardware (the same commits land in speed bands about 1.6x apart), not code. Recorded decisions: the #908 identity layer stays removed (owner rescope), the timelapse clip join through `print_number_was` is verified end to end, and per-frame camera work needs no further change (about 40 ms per check against a 120 s minimum interval). Terminal posts now mention the print's starter on Telegram (a leading `Starter:` mention) and Matrix (the user ID, as an intentional mention) as well as Discord, under the existing `discord.mention_starter` switch; the Discord mention already led the post since #1095. The failed, cancelled and spaghetti roast banks stay on the Moonraker listener's posts (#1023), and the family listeners' plain terminal posts keep #1326's single status quip, so no post carries both.
+- ZMod 1.7.6 support: audit and baseline (PR #1278), Creator `KLIPPER_C5` wording and the no-USB update guide (PR #1288), the firmware watch beyond ZMod (PR #1289).
+- ZMod update alerts on every chat platform and the Web UI, on by default (`[firmware] update_alerts`, `update_check_hours`), with component aliases and a merge-time Web UI parity guard (PR #1297); review hardening: the USB-only rule is an apply gate, no re-announce on a failed state write, a Skip during a check is kept (PR #1314).
+- Printer screen: a read-only Web UI view of the printer's display (PR #1312), and screen feeds are never picked as the bed camera (PR #1309).
+- Spool and slot state: both lane_data keyings read, self-contradicting and conflicting records named and never converged (PR #1310); explicit tool maps for noncontiguous tools, unused-tool entries refused in operator maps, remaps only of used tools (PR #1313).
+- Alert buttons for listener pause/stop alerts on Telegram (PR #1299) and as reactions on Matrix, offered actions only, no replay after a restart (PR #1311).
+
+Merged PRs in the range, one line each:
+
+- test(timing): re-record the 2.3.0 slicing-speed baselines from CI run 43194364519 (#1346) (PR #1347).
+- Material mismatches warn and can be accepted at print start, never hard-block (#1336) (PR #1340).
+- #1160 H: warm heavy worker, timing bisect, outage pins, image stamp, starter mentions, slot strings (#1332) (PR #1335).
+- #1323 (7/7): print_handy.hermes becomes print_handy.runtime; paths.hermes_home becomes paths.state_home (PR #1344).
+- #1323 (6/7): chat handlers in print_handy/bot/handlers, each with match and handle (PR #1343).
+- #1323 (5/7): jobs/sources, jobs/audit, jobs/prompts and the CLI in jobs/cli.py (PR #1342).
+- #1323 (4/7): jobs/store.py and jobs/slice.py (PR #1341).
+- #1323 (3/7): intake/{questions,support_flow,fit_flow,worker}.py (PR #1339).
+- fix(camera-watch): overlapping checks always pause once (regression from #1330) (PR #1345).
+- #1323 (2/7): launch/gates.py and launch/print_now.py (PR #1338).
+- #1323 (1/7): gcode/bounds.py and gcode/verify.py with a read-once GcodeArtifact (PR #1337).
+- fix(materials): HelixScreen PLA vs PLA+, dropped speed grades and vendor names are not a material conflict (PR #1334).
+- feat: 1,000 sarcastic status quips, copy-count Easter eggs, and fairer roasts (PR #1326).
+- One printer-control service keyed by printer id (#1317) (PR #1333).
+- Pasta Wrapped share cards redacted by default, 9:16 and 1:1 (#1321) (PR #1325).
+- #1160 B: one start-truth function per transport (#1318) (PR #1331).
+- #1320: shared camera-watch core; listeners stop importing the Moonraker listener (PR #1330).
+- #1160 G: evidence rule for met criteria, YAML-only home config, #1157 debt items (#1322) (PR #1329).
+- Web UI route table with one declared policy per route (#1319) (PR #1328).
+- fix(release): Pasta Wrapped share image name, encoder default docs, alert-action scope (#1316) (PR #1327).
+- test(timing): re-record the 2.2.10 slicing-speed baselines from CI run 43140745657 (#1316) (PR #1324).
+- fix(live_stream): never select a printer screen feed as the bed camera (#1306) (PR #1309).
+- #1297 review: USB rule in the apply gate, no re-announce storm on a failed write, Skip survives a running check (PR #1314).
+- Preserve explicit ZMod tool maps for noncontiguous tools (#1305) (PR #1313).
+- Spool state sync (#1304): lane-record slot-disagreement guard, toolhead namespace fix, AFC/Spoolman ownership record (PR #1310).
+- #1291 item 15: Matrix alert buttons as reactions for listener pause/stop alerts (PR #1311).
+- fix(ci): provide writable data root to readonly image probes (PR #1308).
+- feat(webui): dedicated read-only printer screen view (#1303) (PR #1312).
+- ZMod update alerts in chat and the Web UI, component aliases, merge-time Web UI parity guard (PR #1297).
+- #1280 F+G+H: firmware watch for Klipper, Moonraker, OctoPrint, Marlin, Prusa Buddy lines and QIDI models (PR #1289).
+- docs: use Pasta Wrapped as the public feature name (PR #1302).
+- feat(wrapped): rename Print Handy Wrapped to Pasta Wrapped (PR #1301).
+- #1291 item 15: Telegram alert buttons for listener pause/stop alerts (PR #1299).
+- #1282: all four completion-flow bugs (start claim, VAAPI + CPU timelapse default, roast duration, held frames) (PR #1287).
+- fix(fuzzy): shield "skill" and "firmware", add their typo pairs, route named firmware update checks (#1290) (PR #1292).
+- #1295: /print-firmware skips Moonraker placeholders and never offers an invalid component (PR #1296).
+- feat(fuzzy): fuzzy equivalents for every command: coverage guard, missing phrase routes, component update checks (PR #1298).
+- #1279: slice renumber-only per-part jobs through remap_package, verified with real OrcaSlicer (PR #1283).
+- #1280 D+E: Creator Klipper 13 wording for ZMod 1.7.6, ZMod update guide with the no-USB route first (PR #1288).
+- ci: a burst of merges to main keeps only the newest queued CI run (PR #1293).
+- #1198: printer accessories framework, Bondtech INDX first (PR #1268).
+- #1144: an unwritable data folder stops the start with one message naming it and the fix (PR #1281).
+- ZMod 1.7.6 audit (#1269), update-process verification (#1270), weekly firmware watch (#1271) (PR #1278).
+- #1246: painted fit measures each scale step without writing a 3MF (PR #1264).
+- Fuzzy vocabulary: add differnet family and two seperate gaps (operator-mined) (PR #1272).
+- fix(timelapse): VAAPI opens the usable non-NVIDIA render node, not a fixed renderD128 (#1262) (PR #1267).
+- docker(unraid): templates follow :latest and never pin a version or digest (PR #1266).
+- #1155: a PrusaSlicer package remaps palette, settings, roles and matrix completely or refuses (PR #1261).
+- #1245: AI fix split cuts and caps through solid material (PR #1263).
+- #1260: PrusaSlicer modifier, negative and support volumes are split out and never printed as solid (PR #1265).
+- #1241: one heater ceiling for the Web UI, Bambu lease settlement, per-family start and button table (PR #1255).
+- ci: cancel a pull request's superseded runs, never a main run (PR #1248).
+- perf: #1153 remainder: fuzzy scoring, image bytecode, one G-code read per slice check, one inventory per painted fit (PR #1250).
+- #1194: camera watch follow-ups for Moonraker and Bambu Lab (PR #1252).
+- #1155: a PrusaSlicer modifier volume with its own extruder is unknown usage; a range on the object's own extruder stays known (PR #1257).
+- #1243: Web UI remainders: request id on 500s, drained upload refusals, header-path re-hash, docstring (PR #1254).
+- #1155: the generic remapper handles real Bambu/Orca projects: standard members, uniform purge vector, implicit extruder 1 (PR #1253).
+- fix(geometry): finish the #1195 audits: open split pieces, mirrored support paint, real wedge-root cases (PR #1249).
+- fix(fit): every intake fit probe reads the job printer's exclusions (#1195) (PR #1247).
+- docs: US spelling for behavior across the user guides (PR #1259).
+- test(docker): the README quickstart keeps the Web UI's cookies (PR #1258).
+- docs(docker): pin the 2.2.9 index digest, refresh the CA template snapshot (PR #1256).
+- feat(design): hand a multi-part AI design to intake as one project_v1 project (#1204 item 4) (PR #1223).
+- docs(#1242): move the AD5X contract to history, clear the last em dashes (PR #1251).
+- ci: require proven regression tests, and close issues only with a finished checklist (PR #1230).
+- #1204: multi-message project collection and source ZIP intake into the one project builder (PR #1220).
+
 
 # Version 2.2.9
 
