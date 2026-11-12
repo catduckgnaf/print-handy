@@ -346,3 +346,36 @@ def _model_for(connection):
         if getattr(getattr(model, "vendor", None), "connection", None) == connection:
             return key
     pytest.skip(f"no model with connection {connection}")
+
+
+def test_decide_auto_pause_uses_this_checks_frame_counted_not_the_shared_field():
+    """Overlapping checks share watch.last_counted. A check whose own frame
+    counted must still pause after a later check recorded a not-independent
+    frame and flipped the shared field (the race #1330 introduced)."""
+    from types import SimpleNamespace
+    from print_handy.runtime import camera_watch as cw
+    from print_handy.runtime import visual_watch as vw
+    seen = {}
+
+    def decision(members, **kwargs):
+        seen.update(kwargs)
+        return (kwargs["frame_counted"], "reason")
+
+    watch = SimpleNamespace(pause_members=[], auto_paused=False, last_counted=False,
+                            mode=vw.WATCH_MODE_EARLY)
+    import unittest.mock as mock
+    with mock.patch.object(vw, "auto_pause_decision", decision):
+        pause_now, _why = cw.decide_auto_pause(
+            watch, enabled=True, printer_id="p", identity="i", state="printing",
+            verdict="spaghetti", frame_age_s=1.0, early=True, frame_counted=True)
+    assert pause_now is True and seen["frame_counted"] is True
+    assert watch.auto_paused is True
+
+
+def test_listeners_pass_their_own_frame_counted():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "print_handy" / "runtime"
+    for name in ("moonraker_event_listener.py", "bambu_watch.py"):
+        source = (root / name).read_text(encoding="utf-8")
+        assert "frame_counted=frame_counted" in source, name
+

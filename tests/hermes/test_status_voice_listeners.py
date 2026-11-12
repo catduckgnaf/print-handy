@@ -44,7 +44,12 @@ def test_warmup_done_edit_without_a_quip_is_byte_identical(job, tmp_path, monkey
     voiced, _ = _warmup_edit(monkeypatch, tmp_path, job, True)
     plain, _ = _warmup_edit(monkeypatch, tmp_path / "again", job, False)
     assert plain.endswith("\nWarmup complete, now printing.")
-    assert voiced == plain + " [print_monitor quip]"
+    # The two runs compute "Approx. finish" from the real clock and can land on
+    # either side of a minute; that line is not what this test compares.
+    def facts(text):
+        return [line for line in text.split("\n") if not line.startswith("Approx. finish")]
+    assert voiced.endswith(" [print_monitor quip]")
+    assert facts(voiced[:-len(" [print_monitor quip]")]) == facts(plain)
 
 
 @pytest.mark.parametrize("kind,stage", [("complete", "print_complete"), ("error", "print_failure"),
