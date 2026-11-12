@@ -1185,3 +1185,120 @@ def test_bind_slot_on_a_single_slot_klipper_keeps_the_lane_record(tmp_path, monk
     assert result["screen"] == "unsupported"
     assert result["lane_data"] == "written"
     assert mr.lanes["lane2"]["spool_id"] == 7 and mr.lanes["lane2"]["lane"] == 1
+
+
+# --------------------------------------------------------------------- base-material identity
+
+def _identity_events(tmp_path, lane_material, spool_material, **lane_kw):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(21, "Black", spool_material, "161616")])
+    watcher, _applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": {**lane(21, material=lane_material, scan_time=200, name="Black PLA+"),
+                          **lane_kw}}
+    return [e["kind"] for e in watcher.poll()]
+
+
+def test_a_screen_catalog_dropping_the_plus_is_not_an_identity_conflict(tmp_path):
+    # Live, 2026-11-11: after the HelixScreen 1.0.8 update the AD5X's lane
+    # named spool #21 (Spoolman: PLA+) as plain "PLA" (generic-pla catalog).
+    assert "identity_conflict" not in _identity_events(tmp_path, "PLA", "PLA+")
+
+
+def test_family_variants_in_either_direction_are_not_identity_conflicts(tmp_path):
+    for i, (lane_m, spool_m) in enumerate([("PLA+", "PLA"), ("pla+", "PLA"), ("PLA Plus", "PLA+"),
+                                           ("PLA Pro", "PLA"), ("Silk PLA", "PLA"), ("PLA", "Matte PLA")]):
+        assert "identity_conflict" not in _identity_events(tmp_path / str(i), lane_m, spool_m), (lane_m, spool_m)
+
+
+def test_a_lane_without_the_spools_speed_grade_is_not_an_identity_conflict(tmp_path):
+    # HelixScreen's reduced material drops a speed or flow grade: PETG HF reads PETG.
+    for i, spool_m in enumerate(["PETG-HF", "PETG HF", "PETG High Flow", "PLA HS", "High Speed PLA", "Hyper PLA"]):
+        lane_m = "PETG" if "PETG" in spool_m else "PLA"
+        assert "identity_conflict" not in _identity_events(tmp_path / str(i), lane_m, spool_m), spool_m
+
+
+def test_a_lane_naming_a_grade_the_spool_lacks_still_conflicts(tmp_path):
+    # The screen may be right that it is the high-flow spool; slicing would use
+    # the spool's plain PETG, so the conflict stays.
+    assert _identity_events(tmp_path, "PETG-HF", "PETG") == ["identity_conflict"]
+
+
+def test_reinforcement_and_a_different_polymer_still_conflict(tmp_path):
+    assert _identity_events(tmp_path / "a", "PLA", "PLA-CF") == ["identity_conflict"]
+    assert _identity_events(tmp_path / "b", "PETG", "PLA+") == ["identity_conflict"]
+    assert _identity_events(tmp_path / "c", "PLA", "PETG-CF") == ["identity_conflict"]
+
+
+def test_helixscreen_precise_filament_type_is_read_before_the_reduced_material(tmp_path):
+    # HelixScreen writes material (reduced for OrcaSlicer) and filament_type (precise).
+    assert lane_data_sync.normalize_lane(1, {"material": "PLA", "filament_type": "PLA-CF"})["material"] == "PLA-CF"
+    assert lane_data_sync.normalize_lane(1, {"material": "PLA"})["material"] == "PLA"
+    assert lane_data_sync.normalize_lane(1, {"helix_material": "PETG"})["material"] == "PETG"
+    assert _identity_events(tmp_path, "PLA", "PLA", filament_type="PLA-CF") == ["identity_conflict"]
+
+
+def test_a_locked_material_differing_only_by_family_variant_is_not_a_lock_conflict(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA+", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(11, slot=2)})
+    mr.lanes = {"lane2": lane(19, slot=2, material="PLA", color="FFFFFF", scan_time=200,
+                              locked_material=True, name="White PLA+")}
+    assert [e["kind"] for e in watcher.poll()] == ["loaded"]
+    assert applied == [(2, 19)]
+
+
+def test_a_locked_material_of_another_polymer_is_still_a_lock_conflict(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(11, slot=2)})
+    mr.lanes = {"lane2": lane(19, slot=2, material="PETG", color="FFFFFF", scan_time=200,
+                              locked_material=True, name="White PETG")}
+    assert [e["kind"] for e in watcher.poll()] == ["locked"]
+    assert applied == []
+
+
+def test_two_records_for_one_slot_differing_only_by_family_variant_collapse(tmp_path):
+    k0, r0 = orca(21, 1, material="PLA+", name="Black PLA+")
+    screen_record = lane(21, slot=1, material="PLA", name="Black PLA+")
+    lanes = lane_data_sync.parse_lane_data({k0: r0, "lane1": screen_record})
+    assert lanes[1]["slot_issue"] is None
+    assert lanes[1]["spool_id"] == 21
+
+
+def test_a_screen_flipping_plus_and_plain_is_a_rescan_not_a_change(tmp_path):
+    fp = lane_data_sync.lane_fingerprint
+    plus = fp(lane_data_sync.normalize_lane(1, lane(21, material="PLA+")))
+    plain = fp(lane_data_sync.normalize_lane(1, lane(21, material="PLA")))
+    petg = fp(lane_data_sync.normalize_lane(1, lane(21, material="PETG")))
+    assert lane_data_sync._action_key(plus) == lane_data_sync._action_key(plain)
+    assert lane_data_sync._action_key(plus) != lane_data_sync._action_key(petg)
+    # A stored pre-change fingerprint (raw text) compares the same way.
+    assert lane_data_sync._action_key({**plain, "material": "pla+"}) == lane_data_sync._action_key(plain)
+
+
+def test_lane_matches_spool_material_rules():
+    same = lane_data_sync.lane_matches_spool_material
+    assert same("PLA", "PLA+") and same("PLA+", "PLA") and same("Silk PLA", "PLA")
+    assert same("PETG", "PETG-HF") and same("petg", "PETG HF") and same("PLA", "High Speed PLA")
+    assert not same("PETG-HF", "PETG")
+    assert not same("PLA", "PLA-CF") and not same("PETG", "PETG-CF")
+    assert not same("PLA", "PETG") and not same("", "PLA") and not same("PLA", "")
+
+
+def test_a_vendor_name_in_a_material_label_is_tracking_not_identity(tmp_path):
+    from print_handy.core.printer_state import material_family, same_material
+    assert material_family("eSUN PLA+") == "PLA"
+    assert material_family("Prusament PETG") == "PETG"
+    assert material_family("Atomic PETG CF") == "PETG-CF"
+    assert same_material("Polymaker PLA Pro", "PLA")
+    # Speed lines are not vendor names: they keep their own family.
+    assert material_family("Elegoo Rapid PLA") != "PLA"
+    assert material_family("Creality Hyper PLA") != "PLA"
+    # The spool's own Spoolman vendor is stripped too, for vendors the list lacks.
+    same = lane_data_sync.lane_matches_spool_material
+    assert same("PLA", "Acme PLA+", "Acme") and not same("PLA", "Acme PLA+")
+    assert "identity_conflict" not in _identity_events(tmp_path, "PLA", "eSUN PLA+")
+
