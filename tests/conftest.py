@@ -60,6 +60,21 @@ _config.set_override(TEST_SETTINGS)
 
 
 
+@pytest.fixture
+def vision_ai_on(monkeypatch):
+    """Turn AI camera checks on for a test of the vision endpoint routes.
+
+    ``vision.ai_enabled`` is off by default (#1376), and while it is off
+    no endpoint route counts. Tests that exercise those routes (the
+    verdict and extract calls, PRINT_VISION_URL, [ai.small], label and
+    purchase reads) opt in with ``pytestmark = pytest.mark.usefixtures(
+    "vision_ai_on")``. The switch itself is pinned in
+    tests/bot/test_ai_design_only_defaults.py.
+    """
+    from print_handy.runtime import visual_watch
+    monkeypatch.setattr(visual_watch, "vision_ai_enabled", lambda cfg=None: True)
+
+
 @pytest.fixture(autouse=True)
 def _quiet_status_voice(request, monkeypatch):
     """Status quips are random by design, so suites that assert exact progress text see none.

@@ -74,9 +74,12 @@ services:
       PRINT_HANDY__BAMBU__LAN_SERIAL: ${PRINT_HANDY__BAMBU__LAN_SERIAL:-}
       PRINT_HANDY__DISCORD__APPROVAL_USER_ID: ${PRINT_HANDY__DISCORD__APPROVAL_USER_ID:-}
       PRINT_HANDY__DISCORD__TIMEZONE: ${PRINT_HANDY__DISCORD__TIMEZONE:-America/New_York}
-      # Discord chat LLM (#466): true by default; false runs Discord as a
-      # pure bot while the LLM below stays configured for /print-design.
-      PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED: ${PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED:-true}
+      # Discord chat LLM (#466) and AI camera checks (vision.ai_enabled),
+      # both off by default since #1376 (AI is for designing models), are
+      # deliberately NOT listed here (the P2-88 rule below): a ${...:-x}
+      # entry would be applied after the mounted config and silently undo
+      # the operator's own setting there. Set PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED
+      # or PRINT_HANDY__VISION__AI_ENABLED in .env (env_file above) to override.
       # Mention the starter when a print needs them (PRINT_HANDY__DISCORD__MENTION_STARTER,
       # true by default) is deliberately NOT listed here: a ${...:-true}
       # entry would be applied after the .env env_file and silently undo
@@ -110,8 +113,8 @@ services:
       # NOT listed here (P2-88): a ${...:-true} entry would be applied after
       # the mounted config and silently undo a web chat toggle the operator
       # set false there. Set them in .env (env_file above) to override;
-      # unset, the mounted config's values — the shipped defaults are both
-      # true — stand.
+      # unset, the mounted config's values stand (the shipped defaults:
+      # chat_enabled true, chat_llm_enabled false since #1376).
       # PRINT_HANDY__WEBUI__REQUIRE_AUTH / __CONTROLS_ENABLED / __COOKIE_SECURE
       # are deliberately NOT listed here (P2-88): a ${...:-default} entry would
       # be applied after the mounted config and lock the matching Web UI

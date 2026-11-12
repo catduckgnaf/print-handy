@@ -43,7 +43,8 @@ class StandaloneAdapter(BasePlatformAdapter):
 
     Discord keeps ``uses_llm = True`` (it is the one platform whose chat
     may use the LLM); the operator's per-install choice is the
-    ``[discord] chat_llm_enabled`` setting BotCore applies (#466).
+    ``[discord] chat_llm_enabled`` setting BotCore applies (#466), off by
+    default since #1376.
     """
 
     name = "discord"

@@ -619,15 +619,15 @@ def denied_users(cfg, section="discord"):
 def discord_chat_llm_enabled(cfg):
     """Discord's operator-facing chat-LLM switch (#466): [discord] chat_llm_enabled.
 
-    On by default: a configured [llm] words Discord free-text replies, as
-    before. False runs Discord as a pure bot (unmatched text gets the
-    short not-understood reply, #467) while [llm] stays configured for the features that
-    inherit it — /print-design resolves its endpoint from [design]/[llm]
-    independently, and the roast and the camera watchdog keep their own
-    vision gates — so turning chat off changes none of them.
+    Off by default since #1376 (AI is for designing models): Discord runs
+    as a pure bot (unmatched text gets the short not-understood reply,
+    #467) while [llm] stays configured for the features that inherit it —
+    /print-design resolves its endpoint from [design]/[llm] independently,
+    and the camera checks keep their own vision.ai_enabled gate — so the
+    chat switch changes none of them. True brings the stray-chat lanes back.
     """
     discord = (cfg or {}).get("discord") or {}
-    return bool(discord.get("chat_llm_enabled", True))
+    return bool(discord.get("chat_llm_enabled", False))
 
 
 def platform_name_of(source):
@@ -794,12 +794,14 @@ class BotCore:
         if client is not None and hasattr(client, "add_listener") and hasattr(self.adapter, "handle_click"):
             client.add_listener(self.on_interaction, "on_interaction")
         self.upload_dir = Path(self.cfg["paths"]["cache"]) / f"{self.platform_name}-uploads"
-        # Pure-bot platforms (the adapter reports uses_llm=False, Telegram in
-        # #164 stage 2) never reach the LLM fallback, even when [llm] is
-        # configured: their unmatched text gets the short unmatched reply only (#73, #467).
-        # Discord has the operator-facing version of the same choice (#466):
-        # [discord] chat_llm_enabled=false makes Discord a pure bot too,
-        # without unconfiguring [llm] for design or the vision features.
+        # Pure-bot platforms (the adapter reports uses_llm=False: Telegram
+        # and Matrix, #164 stages 2-3) never reach the LLM fallback, even
+        # when [llm] is configured: their unmatched text gets the short
+        # unmatched reply only (#73, #467). Discord has the operator-facing
+        # version of the same choice (#466): [discord] chat_llm_enabled,
+        # off by default since #1376, keeps Discord a pure bot too without
+        # unconfiguring [llm] for design. Web chat passes its own
+        # [webui] chat_llm_enabled in as use_llm.
         # The switch gates every stray-chat model call (#524 stage 3): the
         # bounded [llm] call and the [agent] lane alike — use_llm is the one
         # gate the fallback checks for both.

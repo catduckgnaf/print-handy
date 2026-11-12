@@ -53,6 +53,13 @@ class FakeLLM:
         return io.BytesIO(json.dumps({"choices": [{"message": {"content": self.content}}]}).encode())
 
 
+@pytest.fixture(autouse=True)
+def _chat_ai_on(cfg):
+    """These tests exercise the stray-chat lanes, which run only with
+    discord.chat_llm_enabled on (off by default since #1376)."""
+    cfg["discord"]["chat_llm_enabled"] = True
+
+
 @pytest.fixture
 def agent_cfg(cfg):
     cfg["agent"].update(chat_url=AGENT_URL)

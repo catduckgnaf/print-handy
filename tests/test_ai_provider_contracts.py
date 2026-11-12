@@ -37,6 +37,11 @@ from print_handy.bot import llm, runtime
 from print_handy.core import ai_fix
 from print_handy.runtime import visual_watch as vw
 
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "provider_responses"
 URL = "http://models.test/v1/chat/completions"
 LOCAL_URL = "http://127.0.0.1:11434/v1/chat/completions"

@@ -239,8 +239,9 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 
 ## Running Discord with no chat LLM
 
-Discord can run as a pure bot too, the way Telegram and Matrix always do. Set
-`discord.chat_llm_enabled` to `false` (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=false`) and restart:
+Discord runs as a pure bot by default, the way Telegram and Matrix always do: AI is for designing
+models, so `discord.chat_llm_enabled` is `false` unless you set it. To bring chat AI back, set it to
+`true` (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=true`) and restart. With it off,
 unmatched text gets the short “didn't understand” reply, and no chat message is ever sent to a model, while everything
 deterministic (commands, links, files, typed answers, buttons, `print 57`) works exactly as before.
 The switch gates every stray-chat model call: the `[llm]` call and the `[agent]` lane alike.
@@ -250,10 +251,11 @@ You do not have to remove `[llm]` to do this, and you should not if you use `/pr
 inherits the `[llm]` endpoint when `[design]` is unset, and that inheritance keeps working with chat
 off, design has its own switch (`design.enabled`). Two other features use a model through the
 separate vision endpoint or need none, and keep their own gates: the **roast** (local, no LLM;
-`vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`, on
-`services.vision_chat_url`, or, with no endpoint at all, on the built-in local failure detector,
-`vision.local_detector_enabled`, #455). Turning the chat LLM off changes none of them; turn each off at its own
-switch if you want no model calls at all.
+`vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`; its
+model route, `services.vision_chat_url` or `PRINT_VISION_URL`, is used only with `vision.ai_enabled`
+set to `true`, which is off by default; the built-in local failure detector,
+`vision.local_detector_enabled`, #455, needs no model endpoint). The chat switch changes none of them.
+A stock install makes no model call outside `/print-design`.
 
 ## How the bot is put together
 

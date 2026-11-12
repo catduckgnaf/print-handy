@@ -78,6 +78,7 @@ def without_added(data):
     data.get("timelapse", {}).pop("encoder", None)  # added by #314, after capture
     data.get("discord", {}).pop("denied_user_ids", None)  # added by #386, after capture
     data.get("discord", {}).pop("chat_llm_enabled", None)  # added by #466, after capture
+    data.get("vision", {}).pop("ai_enabled", None)  # added by #1376, after capture
     if data.get("slicer") == {}:
         data.pop("slicer", None)
     for key in ADDED_PRINTER_KEYS:

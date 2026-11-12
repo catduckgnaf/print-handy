@@ -31,8 +31,8 @@ to the transcript of the scope it was made for. Two sessions never see
 or answer each other's messages and questions; a post that belongs to
 no session (a startup notice) is shown to all of them.
 
-``[webui] chat_llm_enabled`` mirrors ``[discord] chat_llm_enabled``:
-with it off, web chat is a pure bot — commands, design's deterministic
+``[webui] chat_llm_enabled`` mirrors ``[discord] chat_llm_enabled``
+and like it is off by default (#1376): with it off, web chat is a pure bot — commands, design's deterministic
 parts and every handler still run, but no stray-chat model lane
 (``[llm]`` or ``[agent]``) is ever called for web chat text.
 
@@ -251,7 +251,7 @@ class WebChatService:
         self.core = runtime.BotCore(
             None, cfg, platform_name="webui", adapter=self.adapter,
             chat_id=CHAT_ID,
-            use_llm=bool(webui.get("chat_llm_enabled", True)))
+            use_llm=bool(webui.get("chat_llm_enabled", False)))
         self.source = self._source("")
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
@@ -524,7 +524,7 @@ class ScopedChat:
 
 def chat_llm_enabled(cfg):
     """Web chat's stray-chat LLM gate ([webui] chat_llm_enabled)."""
-    return bool((cfg.get("webui") or {}).get("chat_llm_enabled", True))
+    return bool((cfg.get("webui") or {}).get("chat_llm_enabled", False))
 
 
 def chat_enabled(cfg):

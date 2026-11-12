@@ -18,6 +18,11 @@ import pytest
 from print_handy.runtime import purchase_intake as pi
 from print_handy.runtime import spool_label, spool_sync
 
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
 SPEC = importlib.util.spec_from_file_location(
     "pf_purchase_801", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
 plugin = importlib.util.module_from_spec(SPEC)

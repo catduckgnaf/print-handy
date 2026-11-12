@@ -8,6 +8,11 @@ from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import print_alert_buttons as pab
 
 
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
+
 def test_strip_json_fence_and_profile_adapter(monkeypatch):
     import json
     assert mel._strip_json_fence('```json\n{"verdict":"empty_idle","reason":"bed clear"}\n```') == '{"verdict":"empty_idle","reason":"bed clear"}'

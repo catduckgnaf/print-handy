@@ -36,6 +36,13 @@ def isolated_llm_history():
     llm.clear_history()
 
 
+@pytest.fixture(autouse=True)
+def _chat_ai_on(cfg):
+    """These tests exercise the stray-chat lanes, which run only with
+    discord.chat_llm_enabled on (off by default since #1376)."""
+    cfg["discord"]["chat_llm_enabled"] = True
+
+
 @pytest.fixture
 def llm_cfg(cfg):
     cfg["llm"].update(chat_url=LLM_URL, model="small-model")

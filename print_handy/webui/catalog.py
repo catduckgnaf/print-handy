@@ -135,6 +135,7 @@ GROUP_OF = {
     "timelapse.capture_source_url": "camera",
     "services.vision_chat_url": "ai",
     "vision.model": "ai",
+    "vision.ai_enabled": "camera",
     "vision.roast_enabled": "camera",
     "vision.roast_custom_bank": "camera",
     "vision.local_detector_enabled": "camera",
@@ -276,10 +277,10 @@ CATALOG = (
            choices_source=SOURCE_TIMEZONES),
     _field("discord", "chat_llm_enabled", "Discord chat LLM", "toggle",
            "Free-text chat replies from the [llm] model (or the [agent] lane, when "
-           "configured) on Discord. On by default; "
-           "off runs Discord as a pure bot (unmatched text gets the short not-understood reply) "
-           "while [llm] stays configured for /print-design. The roast and camera "
-           "watchdog keep their own vision switches either way.",
+           "configured) on Discord. Off by default: Discord runs as a pure bot "
+           "(unmatched text gets the short not-understood reply) while [llm] stays "
+           "configured for /print-design. On brings the chat AI back. Camera checks "
+           "keep their own switch (AI camera checks) either way.",
            validator="settings discord check"),
     _field("discord", "mention_starter", "Mention who started the print", "toggle",
            "On by default: when a print needs its starter (Discord, Telegram or Matrix), the post @mentions "
@@ -448,9 +449,9 @@ CATALOG = (
            "hour; 20 by default. 0 disables the limit.",
            validator="settings ai check", minimum=0),
     _field("services", "vision_chat_url", "Vision chat URL", "url",
-           "OpenAI-compatible chat endpoint used for camera checks; it is "
-           "also the default route for the small AI tier. Empty disables "
-           "endpoint camera checks. Its API key stays in the environment, "
+           "OpenAI-compatible chat endpoint used for camera checks when AI "
+           "camera checks are on; it is also the default route for the small "
+           "AI tier. Empty disables endpoint camera checks. Its API key stays in the environment, "
            "never here.",
            validator="settings services check"),
     _field("vision", "model", "Vision model", "text",
@@ -478,6 +479,15 @@ CATALOG = (
            "the one camera connection and fans the stream out for timelapse and live view. "
            "A go2rtc ffmpeg: source is also accepted. Empty keeps the snapshot URL.",
            validator="settings timelapse check"),
+    _field("vision", "ai_enabled", "AI camera checks", "toggle",
+           "Send camera frames and photos to the vision model endpoint "
+           "(PRINT_VISION_URL, the vision chat URL or [ai.small]). Off by "
+           "default: the camera watchdog, the idle plate checks, label reads "
+           "and purchase reads make no model call, and treat the endpoint as "
+           "not configured. The local failure detector and the local "
+           "empty-plate reference still work under their own switches. On "
+           "restores the endpoint camera checks.",
+           validator="settings vision check"),
     _field("vision", "roast_enabled", "Roast", "toggle",
            "The one-line roast: one per print on the completion post, and on "
            "request in chat (\"roast my last print\"), on every platform. "
@@ -716,7 +726,7 @@ CATALOG = (
            "the Web UI is exposed through an HTTPS reverse proxy.",
            validator="settings webui check"),
     _field("webui", "chat_llm_enabled", "Web chat AI replies", "toggle",
-           "On by default: text in the Web UI chat page that no command or handler "
+           "Off by default. On: text in the Web UI chat page that no command or handler "
            "takes may be answered by the configured [llm] or [agent] lane, like "
            "Discord chat. Off: web chat is a pure bot — commands, design and the "
            "print flow still work, but no model call is made for web chat text "

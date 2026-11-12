@@ -277,6 +277,8 @@ def test_llm_fallback_is_a_discord_only_capability(cfg, monkeypatch):
     """With [llm] fully configured, only the Discord-shaped core may use
     it; Telegram and Matrix cores report use_llm False (#73 posture)."""
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="m")
+    # Chat AI is off by default (#1376); on, it still reaches Discord only.
+    cfg["discord"]["chat_llm_enabled"] = True
     discord_core = runtime.BotCore(_FakeClient(), cfg, adapter=_FakeAdapter(["1"]),
                                    router=Router())
     assert discord_core.use_llm is True

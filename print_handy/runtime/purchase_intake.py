@@ -136,7 +136,12 @@ def ai_route_configured() -> bool:
     """True when a vision/AI route is configured: PRINT_VISION_URL, or
     services.vision_chat_url. The local failure detector is not a route —
     it cannot read a page or a screenshot — so it never opens this gate.
-    No route, no offer, and nothing about the channel changes."""
+    No route, no offer, and nothing about the channel changes. With AI
+    camera checks off (vision.ai_enabled, the default since #1376) no
+    endpoint counts as a route."""
+    from . import visual_watch
+    if not visual_watch.vision_ai_enabled():
+        return False
     if os.environ.get("PRINT_VISION_URL"):
         return True
     try:

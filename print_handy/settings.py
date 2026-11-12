@@ -168,6 +168,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("printer", "zmod_delivery_format"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
+                 ("vision", "ai_enabled"): bool,
                  ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
@@ -1413,8 +1414,9 @@ def _validate_webui(data):
     # chat_llm_enabled: the web chat page's stray-chat model switch, the
     # [discord] switch's twin. Off runs web chat as a pure bot — commands
     # and handlers still run, no [llm]/[agent] lane is called for web
-    # chat text. On by default; a missing key means true.
-    chat_llm = webui.setdefault("chat_llm_enabled", True)
+    # chat text. Off by default (#1376: AI is for designing models); a
+    # missing key means false.
+    chat_llm = webui.setdefault("chat_llm_enabled", False)
     if not isinstance(chat_llm, bool):
         raise SettingsError(f"[webui] chat_llm_enabled must be true or false, got {chat_llm!r}")
     # chat_enabled: the web chat page's own switch (PR #1106 review).
@@ -1661,6 +1663,16 @@ def _validate_vision(data):
     Absent in an older config means the default (on).
     """
     vision = data.setdefault("vision", {})
+    # AI image checks (#1376): off by default, because AI is for designing
+    # models. While false, no frame or image is sent to a vision model
+    # endpoint (PRINT_VISION_URL, services.vision_chat_url, [ai.small]):
+    # the camera watchdog, the idle plate checks, label reads and purchase
+    # reads treat the endpoint as not configured. The local detector and
+    # plate reference below keep their own switches. True restores the
+    # endpoint routes exactly as before.
+    ai_enabled = vision.setdefault("ai_enabled", False)
+    if not isinstance(ai_enabled, bool):
+        raise SettingsError(f"[vision] ai_enabled must be true or false, got {ai_enabled!r}")
     enabled = vision.setdefault("roast_enabled", True)
     if not isinstance(enabled, bool):
         raise SettingsError(f"[vision] roast_enabled must be true or false, got {enabled!r}")
@@ -2023,12 +2035,12 @@ def _validate_bot(data):
     approval_all = discord.setdefault("approval_all_users", False)
     if not isinstance(approval_all, bool):
         raise SettingsError(f"[discord] approval_all_users must be true or false, got {approval_all!r}")
-    # Discord's chat-LLM switch (#466): on by default, so a configured [llm]
-    # words free-text replies on Discord exactly as before. False runs
-    # Discord as a pure bot — unmatched text gets the short reply — while
-    # [llm] stays configured for the features that inherit it (/print-design)
-    # and the separately gated roast/vision features keep their own switches.
-    chat_llm_enabled = discord.setdefault("chat_llm_enabled", True)
+    # Discord's chat-LLM switch (#466): off by default since #1376 (AI is
+    # for designing models), so Discord runs as a pure bot — unmatched
+    # text gets the short reply — while [llm] stays configured for the
+    # features that inherit it (/print-design). True brings back the
+    # [agent]/[llm] stray-chat lanes; vision keeps its own switch.
+    chat_llm_enabled = discord.setdefault("chat_llm_enabled", False)
     if not isinstance(chat_llm_enabled, bool):
         raise SettingsError(f"[discord] chat_llm_enabled must be true or false, got {chat_llm_enabled!r}")
     # Mention the starter when a print needs them: on by default, so a
