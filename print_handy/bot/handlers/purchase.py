@@ -11,7 +11,7 @@ from .common import _confirm, _control_gate, _seen, _spool_timeout
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
-logger = logging.getLogger("print_handy_print_feedback")
+logger = logging.getLogger("print_handy.bot.handlers")
 
 
 def _purchase_ai_call():

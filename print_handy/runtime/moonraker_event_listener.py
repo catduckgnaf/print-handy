@@ -94,7 +94,7 @@ LOG = announcer.PROFILE_HOME / "logs" / "moonraker_event_listener.log"
 TERMINAL = {"cancelled": "Print cancelled", "error": "Print stopped with an error"}
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("print_handy.runtime.moonraker_event_listener")  # fixed: runpy runs this as __main__
 _PROBLEM = re.compile(r"\b(failed|failure|error|lost|refused|could not|cannot|unreachable|timed out)\b", re.I)
 
 

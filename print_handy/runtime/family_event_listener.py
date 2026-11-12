@@ -62,7 +62,7 @@ from pathlib import Path
 from .. import __version__, debug_mode, healthcheck, listeners, logs
 from . import _config, camera_watch, family_control
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("print_handy.runtime.family_event_listener")  # fixed: runpy runs this as __main__
 
 POLL_S = 15.0
 

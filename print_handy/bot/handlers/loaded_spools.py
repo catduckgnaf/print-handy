@@ -10,7 +10,7 @@ from .common import _confirm, _control_gate, _pkw, _printer_label, _routed_print
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
-logger = logging.getLogger("print_handy_print_feedback")
+logger = logging.getLogger("print_handy.bot.handlers")
 
 
 _LOADED_NL_RES = (

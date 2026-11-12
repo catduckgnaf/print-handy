@@ -14,7 +14,7 @@ from .common import (
 
 # The logger name stays the one the code had before the move, so log
 # routing and filters see the same records.
-logger = logging.getLogger("print_handy_print_feedback")
+logger = logging.getLogger("print_handy.bot.handlers")
 
 
 _SPOOL_CANCELLED = 'Cancelled. Nothing changed.'
