@@ -1444,10 +1444,12 @@ class BotCore:
             changed = False
             for printer_id, info in sorted((statuses or {}).items()):
                 if info.get("ok") is True and printer_id in state:
-                    state.pop(printer_id, None)
-                    changed = True
+                    # Remembered for a while after recovery, so a listener
+                    # that keeps restarting does not re-post the notice.
+                    changed = outage_alert.degraded_recovered(state, printer_id) or changed
                 if not info.get("required") or info.get("ok") is not False:
                     continue
+                changed = outage_alert.degraded_down(state, printer_id) or changed
                 polled = await asyncio.to_thread(_poll_moonraker_state,
                                                  entries.get(printer_id) or {})
                 if polled is None:

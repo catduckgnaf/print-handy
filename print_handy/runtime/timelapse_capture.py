@@ -377,6 +377,40 @@ class CaptureSession:
                   f"(trigger={getattr(self.trigger, 'name', '?')}, dir={self.directory})")
         return True
 
+    def reopen(self, manifest) -> bool:
+        """Continue a capture an earlier listener process left open.
+
+        A listener restart mid-print loses the in-memory session while its
+        frames and its "capturing" manifest stay on disk. Reopening picks
+        the frames, counts and halvings back up, so the print keeps one
+        capture (and one timelapse) instead of a fresh directory per
+        restart. False when the directory cannot be used.
+        """
+        if self.state != "new" or not isinstance(manifest, dict):
+            return False
+        try:
+            frames = sorted(self.frames_dir.glob("frame-*.jpg"))
+            self._sizes = [frame.stat().st_size for frame in frames]
+            self._frames = len(frames)
+            self._bytes = sum(self._sizes)
+            self._started_at = manifest.get("started_at") or self._now()
+            self.decimations = max(0, int(manifest.get("decimations") or 0))
+            self.dark_frames = max(0, int(manifest.get("dark_frames") or 0))
+            self.failures = max(0, int(manifest.get("failures") or 0))
+            self.capped = bool(manifest.get("capped"))
+            scale = getattr(self.trigger, "scale_interval", None)
+            if scale is not None and self.decimations:
+                scale(2 ** self.decimations)
+            self.state = "capturing"
+            self._write_manifest()
+        except Exception as exc:  # capture must never break the print flow
+            self.state = "failed"
+            self._say(f"timelapse capture could not resume for {self.filename!r}: {exc!r}")
+            return False
+        self._say(f"timelapse capture resumed for {self.filename!r} after a listener restart "
+                  f"({self._frames} frame(s) kept, dir={self.directory})")
+        return True
+
     def stop(self, state="complete") -> dict | None:
         """End the session and stamp the manifest. Frames stay for the Stage 3 encode."""
         if self.state == "capturing":
@@ -630,6 +664,93 @@ def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None
         if log is not None:
             try:
                 log(f"timelapse capture unavailable for {filename!r}: {exc!r}")
+            except Exception:
+                pass
+        return None
+
+
+#: How far a left-open capture's start may sit before the printer's own
+#: job start and still be this print's (clock and reporting slack).
+RESUME_START_SLACK_S = 300
+#: With no job run time to compare, a left-open capture is this print's only
+#: when its manifest was written this recently.
+RESUME_FRESH_S = 1800
+
+
+def open_capture(filename, *, data=None, job_started_at=None, now=None) -> Path | None:
+    """The capture an earlier listener process left open for this print, or None.
+
+    Found by file: a "capturing" manifest for ``filename`` on this printer.
+    When the printer reports when the job started (``job_started_at``), the
+    capture must have started with it, so a capture left open by an earlier
+    print of the same file is never continued; without it, only a capture
+    written in the last RESUME_FRESH_S counts. The newest match wins.
+    """
+    try:
+        data = _config.cfg() if data is None else data
+        root = capture_root(data)
+        if not filename or not root.is_dir():
+            return None
+        now = time.time() if now is None else now
+        printer = printer_identity(data)
+        best, best_start = None, None
+        for directory in root.iterdir():
+            manifest = read_manifest(directory) if directory.is_dir() else None
+            if not manifest or manifest.get("state") != "capturing":
+                continue
+            if manifest.get("filename") != filename:
+                continue
+            if printer and manifest.get("printer_id") not in (None, "", printer):
+                continue
+            try:
+                started = float(manifest.get("started_at") or 0)
+                written = (directory / "capture.json").stat().st_mtime
+            except (OSError, TypeError, ValueError):
+                continue
+            if job_started_at is not None:
+                if started < float(job_started_at) - RESUME_START_SLACK_S:
+                    continue
+            elif written < now - RESUME_FRESH_S:
+                continue
+            if best is None or started >= best_start:
+                best, best_start = directory, started
+        return best
+    except Exception:
+        return None
+
+
+def resume(directory, *, data=None, fetch=None, log=None, environ=None,
+           url=None) -> CaptureSession | None:
+    """Reopen a left-open capture directory as a live session, or None.
+
+    The same gate as :func:`begin`: capture off, or no camera source,
+    means no session. Never raises.
+    """
+    data = _config.cfg() if data is None else data
+    try:
+        if not go2rtc.capture_active(data) or go2rtc.camera_source(data) == "none":
+            return None
+        url = url or frame_url(data, environ)
+        if not url:
+            return None
+        manifest = read_manifest(directory)
+        if not manifest:
+            return None
+        root = capture_root(data)
+        key = str(manifest.get("job_key") or "")
+        if job_dir(root, key or manifest.get("filename") or "") != Path(directory):
+            return None
+        knobs = capture_settings(data)
+        session = CaptureSession(
+            root, key, manifest.get("filename") or "",
+            trigger=make_trigger(knobs["capture_trigger"], knobs["capture_interval_s"]),
+            max_frames=knobs["capture_max_frames"], max_bytes=knobs["capture_max_bytes"],
+            url=url, fetch=fetch, log=log, printer_id=printer_identity(data))
+        return session if session.reopen(manifest) else None
+    except Exception as exc:  # the listener's print flow must never see this
+        if log is not None:
+            try:
+                log(f"timelapse capture resume unavailable for {directory}: {exc!r}")
             except Exception:
                 pass
         return None

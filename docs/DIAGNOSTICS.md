@@ -799,7 +799,10 @@ has no pins); hourly
 reminders afterwards keep naming the exhaustion. **Degraded notices:**
 while a listener is down, the bot also polls Moonraker directly, and a
 pause, error or stop the printer itself reports gets one degraded
-notice per reported state, labeled as coming from a direct check.
+notice per reported state, labeled as coming from a direct check and
+naming the print by its display name. The bot remembers the notices it
+sent for 10 minutes after the listener recovers, so a listener that keeps
+restarting does not repeat the same notice.
 
 ## IFS jam: telling a real drag from a false trigger
 

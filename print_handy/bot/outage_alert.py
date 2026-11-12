@@ -203,6 +203,51 @@ def tick(statuses, state_dir, send, *, now=None, channel_for=None, exhausted=Non
 #: down (#1020 B4). "Stop" is Moonraker's cancelled state.
 DEGRADED_STATES = frozenset({"paused", "error", "cancelled"})
 DEGRADED_STATE_NAME = "listener_degraded_notices.json"
+#: Seconds a printer's degraded notices stay remembered after its listener
+#: recovers. A listener that keeps restarting is healthy for a minute or two
+#: between failures; forgetting at once re-posted the same notice on every
+#: restart (five times in one evening).
+DEGRADED_RECOVERY_HOLD_S = 600
+
+
+def degraded_recovered(state, printer_id, now=None, *, hold=DEGRADED_RECOVERY_HOLD_S):
+    """Note that a printer's listener is healthy again; True when ``state`` changed.
+
+    The printer's entry is kept for ``hold`` seconds after the first healthy
+    check, so a listener that goes down again soon does not repeat the
+    notice for the state it already reported. A later down clears the mark.
+    """
+    entry = (state or {}).get(printer_id)
+    if not isinstance(entry, dict):
+        return False
+    now = time.time() if now is None else now
+    since = entry.get("recovered_at")
+    if not isinstance(since, (int, float)):
+        entry["recovered_at"] = now
+        return True
+    if now - since >= hold:
+        state.pop(printer_id, None)
+        return True
+    return False
+
+
+def degraded_down(state, printer_id):
+    """The listener is down again: a pending recovery mark no longer applies."""
+    entry = (state or {}).get(printer_id)
+    if isinstance(entry, dict) and "recovered_at" in entry:
+        entry.pop("recovered_at", None)
+        return True
+    return False
+
+
+def _job_label(filename):
+    """The print's display name, never the raw remote path with its hash."""
+    try:
+        from ..runtime.discord_print_summary import safe_label
+
+        return safe_label(filename, "")
+    except Exception:
+        return Path(str(filename or "")).name
 
 
 def degraded_path(state_dir):
@@ -241,7 +286,8 @@ def degraded_notice(state, printer_id, printer_state, *, filename="", now=None):
         return None
     state[printer_id] = {"state": printer_state, "filename": filename,
                          "at": time.time() if now is None else now}
-    where = f" on {filename}" if filename else ""
+    label = _job_label(filename) if filename else ""
+    where = f" on {label}" if label else ""
     return (f"**Degraded alert for {printer_id}:** its listener is down, so this notice comes "
             f"from a direct check of the printer, not the usual alert path. The printer reports "
             f"it is **{printer_state}**{where}. Times and details may be incomplete until the "

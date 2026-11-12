@@ -253,6 +253,12 @@ EARLY_INTERVAL_S = 120
 # caution for a risky print then lasts EARLY_SECONDS_PER_LAYER per configured
 # early layer of printing time (20 minutes at the default 10 layers).
 LAYERLESS_FIRST_CHECK_S = 180
+# The first-layer checks (layer 2: did it stick; layer 5: still on the bed)
+# only make sense near those layers. A watch that first sees a print past
+# them (a listener restart mid-print) skips them instead of judging layer
+# 211 as a first layer; the periodic schedule carries on as usual.
+LAYER2_CHECK_LAST = 4
+LAYER5_CHECK_LAST = 10
 EARLY_SECONDS_PER_LAYER = 120
 # An empty-bed verdict while print_stats says printing is suspicious, not
 # healthy: it is re-checked this many seconds later (#913).
@@ -1060,12 +1066,14 @@ class VisualPrintWatch:
             return "early_layer"
         if layer >= 2 and not self.layer2_checked:
             self.layer2_checked = True
-            self.last_check_at = now
-            return "layer2"
+            if layer <= LAYER2_CHECK_LAST:
+                self.last_check_at = now
+                return "layer2"
         if layer >= 5 and not self.layer5_checked:
             self.layer5_checked = True
-            self.last_check_at = now
-            return "layer5"
+            if layer <= LAYER5_CHECK_LAST:
+                self.last_check_at = now
+                return "layer5"
         stall_layers = self.profile["stall_layers"]
         if now - self.last_check_at >= self.profile["periodic_s"]:
             self.last_check_at = now

@@ -837,6 +837,91 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped, ["superseded"])
 
 
+    async def subscribe(self, listener, state, **stats):
+        """One status as a (re)connecting listener sees it."""
+        listener.visual_watch.due = lambda *a, **k: None
+        with mock.patch.object(mel, "post"), mock.patch.object(mel, "run_announcer"),                 mock.patch.object(mel, "start_claimed", return_value=True),                 mock.patch.object(mel, "announce_warmup_done"),                 mock.patch.object(mel, "_claim_notification", return_value=True),                 mock.patch.object(listener, "after_print", new=mock.AsyncMock()):
+            await listener.on_status({"state": state, "filename": "benchy.gcode", **stats}, "subscribe")
+
+    def capture_dirs(self):
+        return [d for d in (self.cache / "timelapse").iterdir() if d.is_dir()]
+
+    async def test_a_restart_into_a_paused_print_continues_the_same_capture(self):
+        # Seen live: a listener restarting every few minutes came back to a
+        # paused print (None -> paused, then a resume, never a fresh start),
+        # so no capture ran for the rest of the print and it got no timelapse.
+        self.install_config(capture_enabled=True, capture_trigger="interval",
+                            capture_interval_s=5.0)
+        first = mel.Listener()
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(first)
+            await first._capture_due(1)
+            directory = first.capture_session.directory
+            # The process dies here: no end, the manifest stays "capturing".
+            second = mel.Listener()
+            await self.subscribe(second, "paused", total_duration=600.0)
+            session = second.capture_session
+            self.assertIsNotNone(session, "the restarted listener runs no capture")
+            self.assertEqual(session.directory, directory)
+            self.assertEqual(session.frame_count, 1)
+            await self.subscribe(second, "printing")  # the resume
+            self.assertIs(second.capture_session, session)
+            self.assertTrue(session.capture_once())
+            await self.subscribe(second, "complete")
+        manifest = json.loads((directory / "capture.json").read_text())
+        self.assertEqual(manifest["state"], "complete")
+        self.assertEqual(manifest["frames"], 2)
+        self.assertEqual(self.capture_dirs(), [directory])
+
+    async def test_a_restart_into_a_printing_print_continues_the_same_capture(self):
+        self.install_config(capture_enabled=True, capture_trigger="interval",
+                            capture_interval_s=5.0)
+        first = mel.Listener()
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(first)
+            await first._capture_due(1)
+            directory = first.capture_session.directory
+            second = mel.Listener()
+            await self.subscribe(second, "printing", total_duration=600.0)
+            self.assertEqual(second.capture_session.directory, directory)
+            self.assertEqual(second.capture_session.frame_count, 1)
+            second._capture_end("complete")
+        self.assertEqual(self.capture_dirs(), [directory])
+
+    async def test_a_print_that_ended_while_the_listener_was_down_closes_its_capture(self):
+        # The left-open capture is stamped with the end state, so the
+        # completion's timelapse lookup (which skips "capturing") finds it.
+        self.install_config(capture_enabled=True, capture_trigger="interval",
+                            capture_interval_s=5.0)
+        first = mel.Listener()
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(first)
+            await first._capture_due(1)
+            directory = first.capture_session.directory
+            second = mel.Listener()
+            await self.subscribe(second, "complete", total_duration=600.0)
+        manifest = json.loads((directory / "capture.json").read_text())
+        self.assertEqual(manifest["state"], "complete")
+        self.assertEqual(manifest["frames"], 1)
+
+    async def test_an_earlier_print_of_the_same_file_is_never_continued(self):
+        self.install_config(capture_enabled=True)
+        first = mel.Listener()
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(first)
+            await first._capture_due(1)
+            directory = first.capture_session.directory
+            second = mel.Listener()
+            # The printer's job started an hour after that capture did.
+            with mock.patch.object(mel.time, "time", return_value=time.time() + 7200):
+                found = second._left_open_capture.__func__(
+                    type("S", (), {"last_stats": {"total_duration": 3600.0},
+                                   "filename": "benchy.gcode"})())
+            self.assertIsNone(found)
+            first._capture_end("complete")
+        self.assertTrue(directory.is_dir())
+
+
 def _mjpeg_stream(*frames):
     """A recorded multipart MJPEG body: one part per frame, then the closing boundary."""
     parts = []

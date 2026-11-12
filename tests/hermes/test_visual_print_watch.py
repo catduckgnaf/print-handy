@@ -1441,3 +1441,19 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     assert len(alerts) == 3
     assert pauses == ["race.gcode"]
     assert listener.visual_watch.auto_paused is True
+
+
+def test_first_layer_checks_are_skipped_when_the_print_is_already_past_them():
+    """Seen live: a listener restart re-ran "layer2" on layer 211 and "layer5" on 212.
+
+    The watch is per process, so a watch that first sees a print far past
+    the first layers skips those checks; the periodic schedule goes on.
+    """
+    watch = mel.VisualPrintWatch()
+    assert watch.due(211, 1000.0) not in ("layer2", "layer5")
+    assert watch.due(212, 1001.0) not in ("layer2", "layer5")
+    assert watch.layer2_checked and watch.layer5_checked
+    # Near the first layers they still run (a late first status included).
+    fresh = mel.VisualPrintWatch()
+    assert fresh.due(3, 10.0) == "layer2"
+    assert fresh.due(6, 20.0) == "layer5"

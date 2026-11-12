@@ -4349,7 +4349,7 @@ class Listener:
             # Off the event loop with a deadline (#1020): this touches disk
             # and the camera, and a stall here once froze the heartbeat and
             # every alert. A capture that cannot start in time is skipped.
-            await self._begin_capture(identity)
+            await self._begin_capture(identity, resume=old is None)
             # #913: pick this print's watch schedule before the first check.
             self.visual_watch.reset()
             self.local_streak.reset()
@@ -4361,6 +4361,15 @@ class Listener:
             # #1020 D3: the print-start slot self-check — one warning
             # post, only when the slot sources disagree after conversion.
             await self._slot_self_check()
+        if old is None and new_state == "paused":
+            # The listener (re)connected to a paused print: continue the
+            # capture the earlier process left open, so the resume that
+            # follows (not a fresh start) still has frames to add to.
+            await self._begin_capture(self.print_identity or identity, resume=True)
+        elif old is None and new_state in ("complete", "cancelled", "error"):
+            # The print ended while the listener was down: close its
+            # left-open capture before the announcer looks for it.
+            await asyncio.to_thread(self._close_left_open_capture, new_state)
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
@@ -4809,23 +4818,48 @@ class Listener:
     # timelapse.capture_enabled off (the default), begin() returns None
     # and nothing here changes any existing behaviour.
 
-    def _capture_begin(self, job_key):
+    def _left_open_capture(self):
+        """The capture an earlier listener process left open for this print, or None.
+
+        The printer's own run time for the job (total_duration) dates the
+        job's start, so a capture left open by an earlier print of the same
+        file is never continued. Never raises.
+        """
+        started = None
+        try:
+            total = float((self.last_stats or {}).get("total_duration"))
+            if total >= 0:
+                started = time.time() - total
+        except (TypeError, ValueError):
+            started = None
+        return timelapse_capture.open_capture(
+            self.filename, data=_config.cfg(), job_started_at=started)
+
+    def _capture_begin(self, job_key, resume=False):
         """Open a capture session for the job that just started; return it. Never raises.
 
         Runs in a worker thread (#1020): it touches no listener state, so a
         thread that outlives its deadline cannot install anything. The
         caller (:meth:`_begin_capture`) installs the returned session on
         the event loop only if the start is still the current one, and
-        closes it otherwise.
+        closes it otherwise. With ``resume`` (the listener just connected
+        to a print already running), the capture an earlier process left
+        open for this print is continued instead of starting a second one.
         """
         try:
+            if resume:
+                directory = self._left_open_capture()
+                if directory is not None:
+                    session = timelapse_capture.resume(directory, data=_config.cfg(), log=log)
+                    if session is not None:
+                        return session
             return timelapse_capture.begin(
                 job_key, self.filename, data=_config.cfg(), log=log)
         except Exception as exc:  # begin() already fails soft; belt and braces
             log(f"timelapse capture begin failed file={self.filename!r}: {exc!r}")
             return None
 
-    async def _begin_capture(self, job_key):
+    async def _begin_capture(self, job_key, resume=False):
         """Install the capture session for a fresh start, with a deadline (#1020).
 
         Cancelling the awaited thread call does not stop the thread, so a
@@ -4837,7 +4871,7 @@ class Listener:
         self._capture_end("superseded")  # a session a missed end left open
         self._capture_generation += 1
         generation = self._capture_generation
-        worker = asyncio.ensure_future(asyncio.to_thread(self._capture_begin, job_key))
+        worker = asyncio.ensure_future(asyncio.to_thread(self._capture_begin, job_key, resume))
         try:
             session = await asyncio.wait_for(asyncio.shield(worker), CAPTURE_BEGIN_TIMEOUT_S)
         except asyncio.TimeoutError:
@@ -4847,10 +4881,28 @@ class Listener:
         except asyncio.CancelledError:
             worker.add_done_callback(self._dispose_late_capture)
             raise
-        if generation != self._capture_generation or self.state != "printing":
+        if generation != self._capture_generation or self.state not in ("printing", "paused"):
             self._close_capture_session(session)
             return
         self.capture_session = session
+
+    def _close_left_open_capture(self, state):
+        """Finish the capture a dead listener left open for a print that ended meanwhile.
+
+        Its manifest still says "capturing", which the completion's
+        timelapse lookup never uses; stamping it with the end state lets
+        the completion post carry the frames taken before the restart.
+        Runs in a worker thread. Never raises.
+        """
+        try:
+            directory = self._left_open_capture()
+            if directory is None:
+                return
+            session = timelapse_capture.resume(directory, data=_config.cfg(), log=log)
+            if session is not None:
+                session.stop(state)
+        except Exception as exc:
+            log(f"timelapse capture close after restart failed file={self.filename!r}: {exc!r}")
 
     def _close_capture_session(self, session):
         """Close a session that was opened but never installed. Never raises."""
