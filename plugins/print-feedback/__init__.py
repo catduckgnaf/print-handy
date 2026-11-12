@@ -3418,7 +3418,11 @@ async def firmware_dispatch(event, gateway, **kwargs):
                            content=firmware_update.guide_text(args[1].casefold(), entry))
         return {'action': 'skip', 'reason': 'print firmware guide shown'}
     if args and args[0].casefold() == 'update':
-        if len(args) != 2:
+        # One component, whose name may be typed in words ("helix screen",
+        # "guppy screen"): the words after "update" are the one name, and
+        # firmware_update resolves it (aliases included) against the live
+        # status only.
+        if len(args) < 2:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=('Use `/print-firmware update <component>` with one '
                                         'component name from the `/print-firmware` report '
@@ -3439,29 +3443,16 @@ async def firmware_dispatch(event, gateway, **kwargs):
             return {'action': 'skip', 'reason': 'firmware update prompt already active'}
         _seen[key] = time.monotonic()
         live_key = _live_key_for(source, gateway, chosen)
+        async def ask(question, choices):
+            return await _confirm(adapter, source, metadata, 'print-firmware', question, choices,
+                                  (globals().get('_config').safety_confirm_timeout_s()
+                                   if globals().get('_config') else 600),
+                                  live_key=live_key)
+
         try:
-            try:
-                prepared = await asyncio.to_thread(firmware_update.prepare_update, mr,
-                                                   entry, args[1])
-            except (firmware_update.FirmwareRefusal, firmware_update.FirmwareError) as exc:
-                message = str(exc)
-            else:
-                answer = await _confirm(adapter, source, metadata, 'print-firmware',
-                                        firmware_update.update_prompt_text(prepared),
-                                        [firmware_update.UPDATE_LABEL,
-                                         firmware_update.CANCEL_LABEL],
-                                        (globals().get('_config').safety_confirm_timeout_s()
-                                         if globals().get('_config') else 600),
-                                        live_key=live_key)
-                if answer != firmware_update.UPDATE_LABEL:
-                    message = 'Update not applied. Nothing sent.'
-                else:
-                    try:
-                        message = await asyncio.to_thread(firmware_update.send_update, mr,
-                                                          prepared)
-                    except (firmware_update.FirmwareRefusal,
-                            firmware_update.FirmwareError) as exc:
-                        message = str(exc)
+            # The one confirmed apply flow, shared with the update alert's
+            # Update button (print_handy.firmware_alerts).
+            message = await firmware_update.confirmed_update(mr, entry, ' '.join(args[1:]), ask)
         except Exception:
             logger.exception('/print-firmware update failed')
             message = ('The firmware update stopped on an error. No confirmation was '

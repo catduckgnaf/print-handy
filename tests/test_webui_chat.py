@@ -306,3 +306,41 @@ def test_two_browsers_get_separate_transcripts(running):
     assert json.loads(call(port, "GET", "/chat/state", headers=bob)[1])["seq"] == 0
     # No cookie at all is a third, empty conversation, not a shared one.
     assert "help from alice" not in call(port, "GET", "/chat")[1]
+
+
+# ------------------------------------------------------------------ alerts at start
+
+def _start_with(tmp_path, monkeypatch, extra=""):
+    built = []
+    monkeypatch.setattr("print_handy.bot.web.WebChatService",
+                        lambda data: built.append(data) or object())
+    srv = webui_server.make_server(load_settings(tmp_path, extra), environ={}, port=0)
+    try:
+        assert srv.chat_service is None  # make_server alone never builds it
+        service = webui_server.start_web_alerts(srv)
+        return srv, service, built
+    finally:
+        srv.server_close()
+
+
+def test_the_server_starts_web_chat_when_it_has_alerts_to_deliver(tmp_path, monkeypatch):
+    """A ZMod update alert must not wait for someone to open /chat: serve()
+    builds the one chat service up front when web chat and alerts are on
+    and the roster has a ZMod printer (the default AD5X)."""
+    srv, service, built = _start_with(tmp_path, monkeypatch)
+    assert len(built) == 1 and service is srv.chat_service is not None
+
+
+@pytest.mark.parametrize("extra", [
+    "  chat_enabled: false\n",
+    "firmware:\n  update_alerts: false\n",
+])
+def test_the_server_keeps_web_chat_lazy_without_alerts(tmp_path, monkeypatch, extra):
+    srv, service, built = _start_with(tmp_path, monkeypatch, extra)
+    assert service is None and built == [] and srv.chat_service is None
+
+
+def test_serve_starts_web_alerts_before_serving():
+    import inspect
+    source = inspect.getsource(webui_server.serve)
+    assert source.index("start_web_alerts(server)") < source.index("serve_forever()")

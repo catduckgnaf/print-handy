@@ -426,7 +426,10 @@ def _recording_router(seen):
     ("check for fluidd updates", "/print-firmware"),
     ("check for mainsail updates", "/print-firmware"),
     ("check zmod", "/print-firmware"),
-    ("update zmod", "/print-firmware"),
+    # #1297 supersedes the bare-report route for the instruction form:
+    # "update <name>" suggests that component's update form, which asks
+    # its own confirmation before anything is sent.
+    ("update zmod", "/print-firmware update zmod"),
     ("is there a zmod update?", "/print-firmware"),
     ("is there a helixscreen update", "/print-firmware"),
     ("can you check for zmmod updates", "/print-firmware"),

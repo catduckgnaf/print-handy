@@ -183,11 +183,27 @@ class UpdateStatus:
     github_reset: float | None = None
 
     def component(self, name):
-        # ZMod's Moonraker names the component "Z-Mod"; callers ask for "zmod".
+        """The live component a typed name means, or None.
+
+        ZMod's Moonraker names the component "Z-Mod"; callers ask for
+        "zmod". An exact name (case and punctuation ignored, so "helix
+        screen" is ``helixscreen``) wins; otherwise the name's alias
+        group (COMPONENT_ALIASES: "helix", "klipper" for ZMod's
+        ``klippy``, ...) picks the live component carrying one of the
+        group's names. Resolution only ever returns a component the
+        printer listed: an alias never invents one.
+        """
         wanted = _component_key(name)
+        if not wanted:
+            return None
         for component in self.components:
             if _component_key(component.name) == wanted:
                 return component
+        group = component_alias_group(wanted)
+        for alias in group:
+            for component in self.components:
+                if _component_key(component.name) == alias:
+                    return component
         return None
 
     @property
@@ -201,6 +217,65 @@ class UpdateStatus:
 
 def _component_key(name):
     return re.sub(r"[^0-9a-z]", "", str(name or "").casefold())
+
+
+# The one alias table for component names (owner, 2026-11-11: "update
+# helix == helixscreen and helix screen, same with guppy"). Each group is
+# every name a person types for one component, canonical token first, as
+# _component_key keys (so "helix screen", "Helix-Screen" and "z-mod" need
+# no entry of their own). Moonraker names differ per host: ZMod's
+# Moonraker lists Klipper as ``klippy`` and Moonraker itself as ``moon``,
+# a vanilla Klipper host lists ``klipper`` and ``moonraker``. Resolution
+# (UpdateStatus.component) is always against the live status just read;
+# an alias is never sent on trust.
+COMPONENT_ALIASES = (
+    ("zmod",),
+    ("helixscreen", "helix"),
+    ("guppyscreen", "guppy"),
+    ("klipper", "klippy"),
+    ("moonraker", "moon"),
+)
+GUPPY_GROUP = COMPONENT_ALIASES[2]
+
+
+def component_alias_group(name) -> tuple:
+    """Every key one typed component name may match, itself first."""
+    key = _component_key(name)
+    for group in COMPONENT_ALIASES:
+        if key in group:
+            return (key, *(alias for alias in group if alias != key))
+    return (key,) if key else ()
+
+
+def canonical_component(name) -> str:
+    """The canonical token for a typed component name ("helix" -> "helixscreen").
+
+    A name outside COMPONENT_ALIASES comes back as its key. Used to word
+    suggestions and commands; the live status still decides what exists.
+    """
+    key = _component_key(name)
+    for group in COMPONENT_ALIASES:
+        if key in group:
+            return group[0]
+    return key
+
+
+GUPPY_IN_ZMOD_TEXT = ("GuppyScreen ships inside ZMod on this printer and updates with ZMod "
+                      "itself, so it has no update of its own. `/print-firmware update zmod` "
+                      "updates ZMod, GuppyScreen included. Nothing was sent.")
+
+
+def is_guppy_on_zmod(entry, status, name) -> bool:
+    """True when a ZMod printer is asked about GuppyScreen it does not list.
+
+    ZMod bundles GuppyScreen (its own init script and binary, configured
+    from ZMod's data folder) rather than registering it with Moonraker's
+    Update Manager, so there is no component to update. A host that does
+    list a ``guppyscreen`` component resolves normally and never gets here.
+    """
+    return (entry is not None and entry.firmware_family == "zmod"
+            and _component_key(name) in GUPPY_GROUP
+            and (status is None or status.component(name) is None))
 
 
 def _version_str(value):
@@ -665,6 +740,8 @@ def prepare_update(transport, entry, component_token) -> PreparedUpdate:
     except FirmwareError:
         raise FirmwareError(UPDATE_COULD_NOT_READ_TEXT) from None
     component = status.component(component_token)
+    if component is None and is_guppy_on_zmod(entry, status, component_token):
+        raise FirmwareRefusal(GUPPY_IN_ZMOD_TEXT)
     if component is None:
         raise FirmwareRefusal(f"The printer's update status does not list a component named "
                               f"{component_token!r}. Run `/print-firmware` to see the "
@@ -837,6 +914,36 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
     return ("The printer did not answer after the update request, so Print Handy cannot "
             f"verify what happened to **{name}**. It may still be restarting — give it a "
             "few minutes, then run `/print-firmware` to see the state it reports.") + uncertain
+
+
+NOT_APPLIED_TEXT = "Update not applied. Nothing sent."
+
+
+async def confirmed_update(transport, entry, component_token, ask) -> str:
+    """Stage 2 end to end: prepare, ask, then send. The one apply flow.
+
+    Every surface that applies an update goes through here:
+    ``/print-firmware update <component>`` and the Update button on an
+    update alert (print_handy.firmware_alerts). ``ask(question,
+    choices)`` is the surface's confirmation prompt and returns the
+    chosen label (or None). Only an explicit UPDATE_LABEL sends; any
+    other answer, a timeout included, sends nothing. prepare_update and
+    send_update keep every gate (profile eligibility, the live
+    component, both idle checks, the verified re-read). Returns the
+    chat-ready outcome.
+    """
+    import asyncio
+    try:
+        prepared = await asyncio.to_thread(prepare_update, transport, entry, component_token)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
+    answer = await ask(update_prompt_text(prepared), [UPDATE_LABEL, CANCEL_LABEL])
+    if answer != UPDATE_LABEL:
+        return NOT_APPLIED_TEXT
+    try:
+        return await asyncio.to_thread(send_update, transport, prepared)
+    except (FirmwareRefusal, FirmwareError) as exc:
+        return str(exc)
 
 
 # --------------------------------------------------------------------- stage 3: guides

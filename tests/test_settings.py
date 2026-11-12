@@ -328,6 +328,7 @@ class OverrideTests(unittest.TestCase):
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
                        "ntfy_enabled", "ntfy_url", "ntfy_topic"},
+            "firmware": {"update_alerts", "update_check_hours"},
             "maintenance": {"quick_hours", "full_hours", "full_days", "bed_separate_mm"},
             "public_text": {"denylist"},
             "delivery": {"methods"},

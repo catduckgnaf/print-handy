@@ -52,7 +52,19 @@ COMMAND_PHRASES = {
     "print-firmware": [("update the firmware", "/print-firmware"),
                        ("can you check for firmware updates", "/print-firmware"),
                        ("can you check for zmod updates?", "/print-firmware"),
-                       ("check for helixscreen updates", "/print-firmware")],
+                       ("check for helixscreen updates", "/print-firmware"),
+                       ("check for guppy updates", "/print-firmware"),
+                       ("is there a helix update", "/print-firmware"),
+                       ("helix update", "/print-firmware"),
+                       ("update zmod", "/print-firmware update zmod"),
+                       ("update z-mod", "/print-firmware update zmod"),
+                       ("update helix", "/print-firmware update helixscreen"),
+                       ("update helix screen", "/print-firmware update helixscreen"),
+                       ("update helixscreen", "/print-firmware update helixscreen"),
+                       ("update guppy", "/print-firmware update guppyscreen"),
+                       ("update guppy screen", "/print-firmware update guppyscreen"),
+                       ("update klipper", "/print-firmware update klipper"),
+                       ("upgrade moonraker", "/print-firmware update moonraker")],
     "print-calibration": [("bed leveling", "/print-calibrate"),
                           ("calibrate the bed", "/print-calibrate")],
     "print-live": [("start the live camera", "/print-live"),
@@ -112,3 +124,13 @@ def test_command_phrases_survive_corpus_typos(name, phrase, base):
     found = runtime.command_suggestion(phrase)
     assert found is not None and found.startswith(base), (
         f"typo phrase {phrase!r} suggested {found!r}, expected {base!r} for {name}")
+
+
+# The firmware phrases pick a form, not just the command: a question
+# ("check for", "is there", "X update") gets the read-only report, an
+# instruction ("update X") the update form for that component, its name
+# through firmware_update's alias table. Either way the phrase only
+# offers the did-you-mean prompt and the command asks before it sends.
+@pytest.mark.parametrize("phrase,expected", COMMAND_PHRASES["print-firmware"])
+def test_firmware_phrases_pick_the_report_or_the_update_form(phrase, expected):
+    assert runtime.command_suggestion(phrase) == expected
