@@ -13,7 +13,9 @@ Structured findings (``analyze(source)['findings']``):
   ``area_mm2`` (default 500 mm2, trigger ``area``), or as a long narrow
   region whose span reaches ``span_mm`` (trigger ``span``). Slicer supports
   cannot fit in such a gap and a raft does not change it. Sloped undersides
-  are measured per ray, not only horizontal facets.
+  are measured per ray, not only horizontal facets. A gap smaller than the
+  first layer height (``first_layer_mm``) is contact, not a gap: the first
+  layer's squish closes it, so it is never a low-clearance finding.
 - ``INEFFECTIVE_MODELED_SUPPORT``: a modeled support object (named support
   or 3MF type support) sits under an overhang but touches less than
   ``min_coverage`` of it, or intersects a printed part.
@@ -75,6 +77,7 @@ GAP_MM = 1.0             # an underside closer than this to what is below cannot
 AREA_MM2 = 500.0         # connected low-clearance area that triggers the finding
 SPAN_MM = 15.0           # a smaller low-clearance region this long still triggers it
 CONTACT_MM = 0.05        # clearance at or below this is contact, not a gap
+#                          (and so is any gap under the first layer height, see first_layer_mm)
 OVERHANG_NZ = 0.5        # downward faces within 60 degrees of horizontal
 MIN_COVERAGE = 0.10      # modeled supports must touch at least this share of the overhang
 CONTACT_WINDOW_MM = 0.6  # a support top this far below an overhang still counts as touching
@@ -358,20 +361,60 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE):
-    """The structured support clearance report for a 3MF (see the module docstring)."""
+def profile_first_layer_mm(printer_id=None):
+    """The first layer height the printer's tuned profile slices with, or None.
+
+    Every slice sets ``initial_layer_print_height`` from the tuned profile of
+    the printer's recorded nozzle (orca_adapter.slice_model), so that is the
+    height whose squish closes a smaller gap. None when the printer record or
+    its nozzle profile cannot be read; the analysis then keeps CONTACT_MM only.
+    """
+    try:
+        from . import printer_state
+        from .nozzle import get_tuned_nozzle_profile
+        try:
+            diameter = printer_state.load(printer_id)['nozzle']['diameter_mm']
+        except FileNotFoundError:
+            from .. import settings
+            diameter = settings.current()['printer']['nozzle_diameter_mm']
+        profile = get_tuned_nozzle_profile(float(diameter))
+        return float(profile.default_initial_layer_height) if profile is not None else None
+    except Exception:  # noqa: BLE001 - an unreadable record keeps the plain contact threshold
+        return None
+
+
+def job_first_layer_mm(job, printer_id=None):
+    """The first layer height this job slices with: its own ``initial_layer_height``
+    profile edit (edit_plan.PROFILE_SETTINGS) when it has one, else the profile's."""
+    edited = (((job or {}).get('edit_settings') or {}).get('profile') or {}).get('initial_layer_height')
+    try:
+        if edited is not None and float(edited) > 0:
+            return float(edited)
+    except (TypeError, ValueError):
+        pass
+    return profile_first_layer_mm(printer_id)
+
+
+def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE,
+            first_layer_mm=None):
+    """The structured support clearance report for a 3MF (see the module docstring).
+
+    ``first_layer_mm`` is the first layer height the job slices with: a gap
+    smaller than it is read as contact. None keeps CONTACT_MM alone.
+    """
     return _analyze_parts(leaves(source), _sha256(source), gap_mm=gap_mm, area_mm2=area_mm2,
-                          span_mm=span_mm, min_coverage=min_coverage)
+                          span_mm=span_mm, min_coverage=min_coverage, first_layer_mm=first_layer_mm)
 
 
-def rotated_report(source, matrix):
+def rotated_report(source, matrix, first_layer_mm=None):
     """The clearance report for ``source`` after a rotation (#922 gap 7).
 
     ``matrix`` is the 9-value row-major rotation edit_plan records in the
     job's orientation. The rotated geometry is shifted so its lowest point
     sits on the plate, which is how the slicer will place it; the report is
     marked ``orientation_applied`` so callers know it describes the rotated
-    pose, not the file as authored.
+    pose, not the file as authored. ``first_layer_mm`` defaults to the
+    printer profile's first layer height, as in safe_analyze.
     """
     parts = []
     rot = np.asarray(matrix, dtype=float).reshape(3, 3)
@@ -382,16 +425,20 @@ def rotated_report(source, matrix):
         low = min(float(p['tris'][:, :, 2].min()) for p in parts)
         for p in parts:
             p['tris'][:, :, 2] -= low
-    report = _analyze_parts(parts, _sha256(source))
+    if first_layer_mm is None:
+        first_layer_mm = profile_first_layer_mm()
+    report = _analyze_parts(parts, _sha256(source), first_layer_mm=first_layer_mm)
     report['orientation_applied'] = True
     return report
 
 
 def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM,
-                   min_coverage=MIN_COVERAGE):
+                   min_coverage=MIN_COVERAGE, first_layer_mm=None):
+    first_layer_mm = float(first_layer_mm) if first_layer_mm else None
     report = {'version': VERSION, 'source_sha256': source_sha256,
               'thresholds': {'gap_mm': gap_mm, 'area_mm2': area_mm2, 'span_mm': span_mm,
-                             'contact_mm': CONTACT_MM, 'min_coverage': min_coverage},
+                             'contact_mm': CONTACT_MM, 'min_coverage': min_coverage,
+                             'first_layer_mm': first_layer_mm},
               'objects': [{'object': p['object'], 'name': p['name'], 'support': p['support'],
                            'material': p['material'], 'triangles': int(len(p['tris']))} for p in parts],
               'regions': [], 'findings': [], 'limitations': list(LIMITATIONS)}
@@ -445,8 +492,14 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
     # Zero-clearance anchor cells (#922 gap 1): underside rays that already
     # touch what is below them. A narrow sloped strip whose edge touches one
     # of these cells roots into the part below instead of floating over it.
-    anchor_cells = {int(c) for c in cel[di[clear <= CONTACT_MM]]}
-    keep = clear > CONTACT_MM
+    # A gap smaller than the first layer height touches too: the first
+    # layer is squished into it, so the underside prints as resting on what
+    # is below it and is never a low-clearance gap.
+    touching = clear <= CONTACT_MM
+    if first_layer_mm:
+        touching |= clear < first_layer_mm
+    anchor_cells = {int(c) for c in cel[di[touching]]}
+    keep = ~touching
     di, clear, over_part = di[keep], clear[keep], over_part[keep]
 
     def sink_loss(item, dz):
@@ -635,10 +688,18 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
     return report
 
 
-def safe_analyze(source):
-    """analyze(source), or None for a missing or unreadable file (intake never fails on it)."""
+def safe_analyze(source, first_layer_mm=None):
+    """analyze(source), or None for a missing or unreadable file (intake never fails on it).
+
+    ``first_layer_mm`` defaults to the printer profile's first layer height
+    (profile_first_layer_mm), so a gap the first layer closes is not flagged.
+    """
     try:
-        return analyze(source) if source and Path(source).is_file() else None
+        if not (source and Path(source).is_file()):
+            return None
+        if first_layer_mm is None:
+            first_layer_mm = profile_first_layer_mm()
+        return analyze(source, first_layer_mm=first_layer_mm)
     except Exception:
         return None
 

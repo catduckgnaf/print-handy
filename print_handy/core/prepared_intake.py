@@ -3105,7 +3105,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
                     latest['color_manifest'] = manifest
-                    clearance_rep = support_clearance.safe_analyze(path)
+                    clearance_rep = support_clearance.safe_analyze(
+                        path, first_layer_mm=support_clearance.job_first_layer_mm(latest))
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
                     # The repair changed the source bytes: rebind the saved
@@ -3139,7 +3140,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
                     latest['color_manifest'] = manifest
-                    clearance_rep = support_clearance.safe_analyze(path)
+                    clearance_rep = support_clearance.safe_analyze(
+                        path, first_layer_mm=support_clearance.job_first_layer_mm(latest))
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
                     # The repair changed the source bytes: rebind the saved

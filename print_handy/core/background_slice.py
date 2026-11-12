@@ -128,7 +128,8 @@ class BackgroundSlice:
         finding = slice_warnings.support_finding(job_data)
         clearance = job_data.get('support_clearance')
         if clearance is None and job_data.get('downloaded_file'):
-            clearance = support_clearance.safe_analyze(job_data.get('downloaded_file'))
+            clearance = support_clearance.safe_analyze(job_data.get('downloaded_file'),
+                                                       first_layer_mm=support_clearance.job_first_layer_mm(job_data))
 
         is_flagged = bool(finding) or support_clearance.risky(clearance)
         self.flagged = is_flagged
