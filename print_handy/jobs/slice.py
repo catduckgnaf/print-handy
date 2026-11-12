@@ -842,9 +842,12 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         # job does not use them. A one-plate source turns and scales as one
         # rigid assembly on one multicolor bed instead: its parts keep their
         # places relative to each other (letters stay on their plaque). It is
-        # never split per slot without the reason being stated.
+        # never split per slot without the reason being stated. A job whose
+        # parts all print from one slot has nothing to split: its one fitted
+        # plate is the plate the per-slot path makes.
         verdict['reason'] = FITTED_SPLIT_REASON
-        if mode == 'merge' and (implicit or len(plates) == 1) and not manifest.get('painted'):
+        if mode == 'merge' and (implicit or len(plates) == 1) and not manifest.get('painted') \
+                and len(set(slots.values())) > 1:
             try:
                 return _slice_fitted_assembly(job, job_path, src, manifest, decisions, view, fit, len(plates),
                                               st, brim_override, work)
@@ -888,8 +891,7 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
 # Plain split reasons for a resized or turned multicolor job. The operator
 # sees them in "These print as N separate plates because <reason>." and the
 # assembly refusal classifies them as resized (slice_refusal.split_cause).
-FITTED_SPLIT_REASON = ('the model was resized or turned, and a file with several plates '
-                       'cannot keep all of its colors on one bed that way')
+FITTED_SPLIT_REASON = 'the model was resized or turned, so each color prints on its own fitted plate'
 
 
 def fitted_fallback_reason(why):

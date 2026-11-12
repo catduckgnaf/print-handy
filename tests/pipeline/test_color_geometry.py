@@ -468,31 +468,38 @@ def test_resized_layout_that_lifts_a_part_is_refused(tmp_path):
     export_single_color_plate(source, tmp_path / 'one.3mf', decisions, ['1:1'], fit={'scale': 1.0, 'rotation': tip})
 
 
-def test_slice_job_applies_chosen_fit_to_every_slot_plate(tmp_path, monkeypatch):
+def test_slice_job_applies_chosen_fit_to_the_whole_multicolor_plate(tmp_path, monkeypatch):
+    # A chosen fit (scale and turn) on a one-plate multicolor job applies to
+    # the whole assembly on one multicolor plate, with the supports and brim
+    # it was offered with. It no longer splits one fitted plate per slot,
+    # which printed parts of one color apart from the parts they sit on.
+    from print_handy.core.color_geometry import export_color_geometry
     from print_handy.core.orca_adapter import _yaw
     rotation = _yaw(90)
     _, _, _, job_path = _two_slot_job(tmp_path, scale=0.6, orientation={'rotation': rotation, 'supports': True, 'brim': True})
     calls = []
 
-    def fake_slice(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, supports=None, **kwargs):
-        assert not kwargs, 'derived plates are pre-fitted; Orca must not rescale them again'
-        calls.append({'slot': filament_slot, 'supports': supports, 'brim': brim})
+    def fake_slice(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False,
+                   filament_slot=None, supports=None, scale=None, rotation=None, **kwargs):
+        assert not kwargs and filament_slot is None and not preserve_layout
+        calls.append({'scale': scale, 'rotation': rotation, 'supports': supports, 'brim': brim})
         folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
-        slot = state['filament_slots'][str(filament_slot)]
-        out = folder / f'slot{filament_slot}.gcode'
+        _mapping, geometry = export_color_geometry(source, folder / 'geometry.3mf', color_decisions,
+                                                   scale=scale, rotation=rotation)
+        slot = state['filament_slots']['1']
+        out = folder / 'plate_1.gcode'
         out.write_text(f'; filament_colour = {slot["hex"]}\n; nozzle_diameter = 0.4\nM190 S{state["temps_c"]["bed"]}\nM104 S{state["temps_c"]["nozzle"]} T0\nSTART_PRINT BED_TEMP={state["temps_c"]["bed"]} EXTRUDER_TEMP={state["temps_c"]["nozzle"]}\nG1 X10 Y10 Z0.2\nEND_PRINT\n')
-        return out, {'slot': filament_slot}, []
+        return out, {'geometry': geometry}, []
 
     monkeypatch.setattr(model_job.printer_state, 'check', lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
     monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
-    paths = model_job.slice_job(job_path)
+    out = model_job.slice_job(job_path)
     saved = json.loads(job_path.read_text())
-    assert len(paths) == 2
-    assert [c['slot'] for c in calls] == [1, 4]
-    assert all(c['supports'] is True and c['brim'] == 5 for c in calls)
-    for row in saved['derived_plates']:
-        assert row['plate_report']['fit']['scale'] == 0.6
-        assert row['plate_report']['fit']['rotation'] == rotation
+    assert isinstance(out, (str, Path))
+    assert calls == [{'scale': 0.6, 'rotation': rotation, 'supports': True, 'brim': 5}]
+    assert 'derived_plates' not in saved
+    assert saved['plate_merge']['mode'] == 'merge' and saved['plate_merge']['slots'] == [1, 4]
+    assert saved['plate_merge']['whole_assembly_fit'] == {'scale': 0.6, 'rotated': True}
 
 
 def test_per_part_fit_options_drops_choices_a_slot_plate_cannot_honor(tmp_path):

@@ -2915,7 +2915,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     flag_lines.append(
                                         f"- Flatten (sink) to plate removes about "
                                         f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
-                            elif fix.get('fix') == 'reorient' and offer_reorient                                     and not any(a['kind'] == 'reorient' for a in fix_actions):
+                            elif fix.get('fix') == 'reorient' and offer_reorient \
+                                    and not any(a['kind'] == 'reorient' for a in fix_actions):
                                 fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
                     summary_extra = '\n' + '\n'.join(flag_lines)
 
