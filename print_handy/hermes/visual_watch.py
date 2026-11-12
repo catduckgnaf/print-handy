@@ -140,73 +140,27 @@ def write_frame(filename, image):
     return path
 
 
-# Which printer families have the in-print camera watch, by adapter
-# connection. Everything else gets idle plate checks only (auto light-off,
-# the next-plate offer), never in-print verdicts. Auto-pause is the same
-# opt-in decision (auto_pause_decision) on every watched family.
-IN_PRINT_WATCH = {
-    "moonraker": "every print on the printer, from the listener",
-    "bambulab_lan": "prints Print Handy launched, from the launched-print monitor",
-}
-FAMILY_NAMES = {
-    "moonraker": "Moonraker (Klipper)",
-    "bambulab_lan": "Bambu Lab",
-    "prusalink": "PrusaLink",
-    "octoprint": "OctoPrint",
-    "elegoo_sdcp": "Elegoo SDCP",
-    "flashforge_stock": "stock Flashforge",
-    "offline": "offline (no printer connection)",
-}
-
-
+# The watch coverage (which families have the in-print watch, and per
+# printer whether it runs) lives in the camera-watch core (#1320); these
+# names stay for existing callers. camera_watch imports this module, so the
+# delegation is lazy.
 def coverage_report(cfg, api_key):
-    """``[(ok, detail)]``: the camera watch per configured printer, for ``bot check``.
-
-    Each printer's family coverage (:func:`watch_coverage`) and whether the
-    watch can run at all (a vision route, :func:`watch_unavailable_reason`).
-    Offline: no camera, endpoint or download is touched. A route pinned with
-    ``vision.watch_source`` that cannot work is a failed row; an install with
-    no route at all keeps the watch off by design, so it only says so.
-    """
-    section = (cfg or {}).get("visual_watch") or {}
-    if section.get("enabled") is False:
-        return [(True, "off (visual_watch.enabled is false)")]
-    try:
-        reason = watch_unavailable_reason(api_key, prefetch=False)
-    except Exception as exc:
-        reason = f"the vision route could not be checked ({exc})"
-    pinned = local_vision.watch_source(cfg) in ("endpoint", "local")
-    entries = [e for e in (cfg or {}).get("printers") or [] if isinstance(e, dict)]
-    if not entries:
-        entries = [{"id": "", "model": ((cfg or {}).get("printer") or {}).get("model")}]
-    rows = []
-    for entry in entries:
-        connection = None
-        try:
-            from .. import printers as _printers
-            model = _printers.MODELS.get(str(entry.get("model") or ""))
-            connection = getattr(getattr(model, "vendor", None), "connection", None)
-        except Exception:
-            connection = None
-        watched, text = watch_coverage(connection)
-        label = f"{entry['id']}: " if entry.get("id") and len(entries) > 1 else ""
-        if watched and reason:
-            rows.append((not pinned, f"{label}{text}; not running: {reason}"))
-        elif watched:
-            mode = "auto-pause on" if watch_settings(cfg)["auto_pause_early"] else "alert-only"
-            rows.append((True, f"{label}{text} ({mode})"))
-        else:
-            rows.append((True, f"{label}{text}"))
-    return rows
+    """``[(ok, detail)]``: the camera watch per configured printer (camera_watch.coverage_report)."""
+    from . import camera_watch
+    return camera_watch.coverage_report(cfg, api_key)
 
 
 def watch_coverage(connection):
-    """``(watched, text)``: whether a printer family has the in-print watch, in plain words."""
-    name = FAMILY_NAMES.get(connection, connection or "this printer family")
-    scope = IN_PRINT_WATCH.get(connection)
-    if scope:
-        return True, f"{name}: in-print watch for {scope}"
-    return False, f"{name}: no in-print watch (idle plate checks only)"
+    """``(watched, text)``: whether a printer family has the in-print watch (camera_watch.watch_coverage)."""
+    from . import camera_watch
+    return camera_watch.watch_coverage(connection)
+
+
+def __getattr__(name):
+    if name in ("IN_PRINT_WATCH", "FAMILY_NAMES"):
+        from . import camera_watch
+        return getattr(camera_watch, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Stage 2 stall wording (#455 item 4): a stall alert names its differential
 # instead of implying one cause. The stall signal itself — layers advanced

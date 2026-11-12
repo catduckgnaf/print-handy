@@ -38,13 +38,16 @@ from ..core import delivery, filament_color, launch_state, printer_clock, spool_
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
+from . import listener_common as _listener_common
 from . import starter_pings
+from . import start_claims
 from . import plan_timelapse
 from . import timelapse_capture
 from . import timelapse_encode
 from . import print_control
 from . import light_control
 from . import visual_watch as _visual_watch
+from . import camera_watch as _camera_watch
 from . import local_vision as _local_vision
 from . import lane_data_sync
 from . import print_markers
@@ -58,7 +61,8 @@ except ImportError:
 
 _LISTENER = _config.cfg()["listener"]
 WS_URL = str(_config.cfg()["services"]["moonraker_ws_url"])
-DISCORD_TARGET = f"discord:{announcer.DISCORD_CHAT_ID}"
+DISCORD_TARGET = _listener_common.DISCORD_TARGET
+_SELF = sys.modules[__name__]  # the lookup namespace listener_common resolves this listener's seams through
 TICK_SECONDS = float(_LISTENER["tick_s"])
 LOG = announcer.PROFILE_HOME / "logs" / "moonraker_event_listener.log"
 TERMINAL = {"cancelled": "Print cancelled", "error": "Print stopped with an error"}
@@ -103,121 +107,58 @@ def log(line):
 
 def _platform_name():
     """The standalone bot's chat platform ([bot] platform, #164); 'discord' unless configured."""
-    return str(_config.cfg()["bot"].get("platform") or "discord")
+    return _listener_common._platform_name()
 
 
 def _telegram_standalone():
-    return _platform_name() == "telegram"
+    return _listener_common._telegram_standalone(ns=_SELF)
 
 
 def _telegram_token():
     """The Telegram bot token, from the variable [telegram] token_env names."""
-    return _profile_env_value(str(_config.cfg()["telegram"].get("token_env") or "TELEGRAM_BOT_TOKEN"))
+    return _listener_common._telegram_token(ns=_SELF)
 
 
 def _telegram_chat_id():
-    return str(_config.cfg()["telegram"].get("chat_id") or "")
+    return _listener_common._telegram_chat_id()
 
 
 def _matrix_standalone():
-    return _platform_name() == "matrix"
+    return _listener_common._matrix_standalone(ns=_SELF)
 
 
 def _buttonless_standalone():
-    """The platform name when the bot's posts have no Discord buttons, else None.
-
-    Telegram (#164 stage 2) and Matrix (stage 3) have no Discord-shaped
-    button posts: the interactive offers go out as plain text and the
-    operator answers with the typed commands the text names. The
-    exceptions are ``post_alert`` itself: on Telegram it carries the
-    alert's own buttons as an inline keyboard, and on Matrix as
-    reactions (#1291).
-    """
-    if _telegram_standalone():
-        return "telegram"
-    if _matrix_standalone():
-        return "matrix"
-    return None
+    """The platform name when the bot's posts have no Discord buttons, else None (listener_common)."""
+    return _listener_common._buttonless_standalone(ns=_SELF)
 
 
 def _matrix_token():
     """The Matrix access token, from the variable [matrix] access_token_env names."""
-    return _profile_env_value(str(_config.cfg()["matrix"].get("access_token_env") or "MATRIX_ACCESS_TOKEN"))
+    return _listener_common._matrix_token(ns=_SELF)
 
 
 def _matrix_homeserver():
-    return str(_config.cfg()["matrix"].get("homeserver_url") or "")
+    return _listener_common._matrix_homeserver()
 
 
 def _matrix_room_id():
-    return str(_config.cfg()["matrix"].get("room_id") or "")
+    return _listener_common._matrix_room_id()
 
 
 def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, ping_episode=None):
-    """Deliver physical print lifecycle text to the print chat only, with no agent.
-
-    A ping for the print's starter is a send-path decision (#1095): pass
-    ``ping_kind`` (and ``ping_job_key`` naming the print) and the starter
-    pings classifier decides whether this post may ping, or pass a
-    ``mention_user_id`` a caller already decided. With neither, the post
-    pings nobody — the rendered text itself never carries a mention.
-    """
-    if mention_user_id is None and ping_kind:
-        mention_user_id = starter_pings.ping_for(
-            ping_kind, job_key=ping_job_key, episode=ping_episode) or None
-    return _post_rest(message, mention_user_id=mention_user_id)
+    """Deliver physical print lifecycle text to the print chat only, with no agent (listener_common.post)."""
+    return _listener_common.post(message, mention_user_id=mention_user_id, ping_kind=ping_kind,
+                                 ping_job_key=ping_job_key, ping_episode=ping_episode, ns=_SELF)
 
 
 def _post_rest(message, mention_user_id=None):
-    """The configured platform's REST sender with its bot token.
-
-    Works with no gateway connected. Discord is the original path; Telegram
-    (#164 stage 2) posts text and MEDIA files through telegram_rest, Matrix
-    (stage 3) through matrix_rest.
-    """
-    if _platform_name() == "telegram":
-        from print_handy.bot import telegram_rest
-        chat = _telegram_chat_id()
-        if not chat:
-            log("post skipped: telegram.chat_id is not configured")
-            return False
-        ok, detail = telegram_rest.send(_telegram_token(), chat, message)
-        log(f"post rest target=telegram:{chat} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
-            f"{'' if ok else ' ' + str(detail)[:200]}")
-        return ok
-    if _platform_name() == "matrix":
-        from print_handy.bot import matrix_rest
-        room = _matrix_room_id()
-        if not room:
-            log("post skipped: matrix.room_id is not configured")
-            return False
-        ok, detail = matrix_rest.send(_matrix_homeserver(), _matrix_token(), room, message)
-        log(f"post rest target=matrix:{room} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
-            f"{'' if ok else ' ' + str(detail)[:200]}")
-        return ok
-    return _post_rest_discord(message, mention_user_id=mention_user_id)
+    """The configured platform's REST sender with its bot token (listener_common._post_rest)."""
+    return _listener_common._post_rest(message, mention_user_id=mention_user_id, ns=_SELF)
 
 
 def _post_rest_discord(message, mention_user_id=None):
-    """Discord delivery through the bot's own REST sender with its bot token (#524).
-
-    The one Discord post path: delivery through the bot's own REST sender,
-    never a host CLI (#524). The token and chat id resolve from
-    ([discord] token_env / chat_id, via
-    the profile env). rest.send refuses honestly when either is missing —
-    the failure is logged with its detail and False is returned; there is
-    no silent fallback to another transport.
-    """
-    from print_handy.bot import rest
-    # The one ping Discord is allowed to deliver is the starter ping the
-    # caller decided through starter_pings (#1095); every other post
-    # mentions nobody. The kwarg is passed only when a mention exists, so
-    # the plain send call keeps its long-standing three-argument shape.
-    kwargs = {"mention_user_id": mention_user_id} if mention_user_id else {}
-    ok, detail = rest.send(_bot_token(), announcer.DISCORD_CHAT_ID, message, **kwargs)
-    log(f"post rest target={DISCORD_TARGET} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
-        f"{'' if ok else ' ' + str(detail)[:200]}")
-    return ok
+    """Discord delivery through the bot's own REST sender (listener_common._post_rest_discord)."""
+    return _listener_common._post_rest_discord(message, mention_user_id=mention_user_id, ns=_SELF)
 
 
 def post_alert(message, kind, filename, episode=None):
@@ -492,12 +433,12 @@ def post_shutdown_alert(filename):
 
 def _profile_env_value(name):
     """Read one profile env value. The listener unit loads no EnvironmentFile."""
-    return _config.profile_env_value(name)
+    return _listener_common._profile_env_value(name)
 
 
 def _bot_token():
     """The Discord bot token, from the variable [discord] token_env names (DISCORD_BOT_TOKEN by default)."""
-    return _profile_env_value(str(_config.cfg()["discord"].get("token_env") or "DISCORD_BOT_TOKEN"))
+    return _listener_common._bot_token(ns=_SELF)
 
 
 def roast_enabled(cfg=None):
@@ -835,25 +776,12 @@ def spool_matches_recovery(existing_material, candidate_material, existing_color
                                              candidate_material, candidate_color, candidate_hex)
 
 
-def classify_pause(message, where=""):
-    """A pause is a filament runout only when the alert text says so.
-
-    Moonraker's print_stats payload has no pause cause. Ordinary pauses stay ordinary.
-    A jam (#1020 E1) is its own class: the printer's own pause text
-    ("Filament jam detected (IFS)") names it, and it is checked first so
-    a jam is never folded into the runout flow.
-    """
-    text = f"{message or ''} {where or ''}".casefold()
-    # A whole word ("jam", "jammed", "jams"), never part of another word
-    # or of a file name in the text ("pajama", "jam_jar.gcode").
-    if re.search(r"(?<![a-z0-9_])jam(?:med|s)?(?![a-z0-9_])", text):
-        return "jam"
-    return "runout" if "runout" in text or "filament sensor" in text else "other"
 
 
-def pause_is_jam(message, where=""):
-    """True when the printer's own pause text reports an IFS jam (#1020 E1)."""
-    return classify_pause(message, where) == "jam"
+
+
+classify_pause = _listener_common.classify_pause
+pause_is_jam = _listener_common.pause_is_jam
 
 
 def _span_hms(seconds):
@@ -2161,8 +2089,8 @@ def clean(filename):
 # Start claims stay shared on purpose: print-now writes them and every
 # listener reads them, keyed by the content-hashed remote file name —
 # a cross-process channel, not one listener's operational state (P1-82).
-START_CLAIMS = _config.state_file("PRINT_HANDY_START_CLAIMS", "print_handy_start_claims.json")
-START_CLAIM_TTL_S = float(_LISTENER["start_claim_ttl_s"])
+START_CLAIMS = start_claims.START_CLAIMS
+START_CLAIM_TTL_S = start_claims.START_CLAIM_TTL_S
 NATIVE_POLL_SECONDS = float(_LISTENER["ifs_presence_poll_s"])
 # After a failed clock set (no DATE_SET macro, refused, still off) the poll waits this long
 # before trying again, so a printer without the macro is not sent it every minute.
@@ -2554,26 +2482,12 @@ class FilamentInsertionMonitor:
             atomic_write_json(self.pending_path, kept)
 
 
+# Start claims and the abandoned-start rule live in start_claims (#1320), shared with
+# the family listeners; these wrappers read this module's START_CLAIMS and
+# START_CLAIM_TTL_S, so the listener's long-standing names keep working.
 def start_claim_time(filename, now=None):
     """When print-now claimed this job's start announcement, or None when unclaimed/expired."""
-    now = time.time() if now is None else now
-    try:
-        claims = json.loads(START_CLAIMS.read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(claims, dict):
-        return None
-    # print-now claims the uploaded name (X.gcode.3mf); the printer reports the path it runs, which
-    # for a ZMod 3MF is 3mf_print/X.gcode. Matching only the basename missed that and posted a
-    # second "Print started" beside the intake's (2026-10-31, Print #64).
-    from ..core.launch_state import same_remote
-    name = str(filename or "")
-    for key in (Path(name).name, *claims):
-        ts = claims.get(key)
-        if (isinstance(ts, (int, float)) and 0 <= now - ts < START_CLAIM_TTL_S
-                and (key == Path(name).name or same_remote(name, key) or same_remote(Path(name).name, key))):
-            return ts
-    return None
+    return start_claims.start_claim_time(filename, now, path=START_CLAIMS, ttl_s=START_CLAIM_TTL_S)
 
 
 def start_claimed(filename, now=None):
@@ -2583,113 +2497,18 @@ def start_claimed(filename, now=None):
 
 def claimed_start_filenames(now=None):
     """The unexpired claimed start files, as print-now recorded them (the uploaded names)."""
-    now = time.time() if now is None else now
-    try:
-        claims = json.loads(START_CLAIMS.read_text())
-    except (OSError, ValueError):
-        return []
-    if not isinstance(claims, dict):
-        return []
-    return [name for name, ts in claims.items()
-            if isinstance(ts, (int, float)) and 0 <= now - ts < START_CLAIM_TTL_S]
+    return start_claims.claimed_start_filenames(now, path=START_CLAIMS, ttl_s=START_CLAIM_TTL_S)
 
 
 def release_start_claim(filename):
-    """Drop this file's start claim (the listener's counterpart of model_job's release).
-
-    Matching follows start_claim_time: print-now claims the uploaded name, the printer
-    reports its own path for the same file."""
-    try:
-        claims = json.loads(START_CLAIMS.read_text())
-    except (OSError, ValueError):
-        return
-    if not isinstance(claims, dict):
-        return
-    from ..core.launch_state import same_remote
-    name = str(filename or "")
-    kept = {key: ts for key, ts in claims.items()
-            if not (key == Path(name).name or same_remote(name, key) or same_remote(Path(name).name, key))}
-    if len(kept) != len(claims):
-        try:
-            tmp = START_CLAIMS.with_suffix(".tmp")
-            tmp.write_text(json.dumps(kept))
-            os.replace(tmp, START_CLAIMS)
-        except OSError:
-            pass
+    """Drop this file's start claim (the listener's counterpart of model_job's release)."""
+    return start_claims.release_start_claim(filename, path=START_CLAIMS)
 
 
-# A claimed start that never became a print: print_stats reads standby/error with both heater
-# targets at 0, sustained this long, before the listener calls it abandoned (#836). Shorter
-# cold reads are just the gap between the start card and warmup.
-ABANDONED_START_COLD_S = 60.0
+ABANDONED_START_COLD_S = start_claims.ABANDONED_START_COLD_S
 ABANDONED_START_MESSAGE = ("The printer stopped preparing this job without printing. "
                            "Check the IFS slot / HelixScreen.")
-
-
-class AbandonedStartWatch:
-    """Tracks claimed starts that have not become prints, one cold window per claimed file.
-
-    Pure observation in, one decision out: `observe` returns True exactly once per claim for
-    a claimed file whose printer reads standby/error with both heater targets at 0 for
-    ABANDONED_START_COLD_S. Each outstanding claim keeps its own window: the poll feeds every
-    claim the same printer read (an empty reported filename matches them all), and one claim's
-    reads must never reset another claim's window (#848 — with a single shared window, two
-    outstanding claims alternately reset each other and neither was ever reported). Any
-    heater target or an unreadable target restarts that claim's window only — neither is
-    evidence a start was abandoned. A printing/paused read settles the claim for good: that
-    start took, so its later idle reads (complete, then standby with cold heaters once the
-    printer resets) are a finished print's story, not an abandoned start's (#1282: the old
-    code dropped the window on the printing read, so the next cold read opened a fresh one
-    and a print that ran to completion was reported as "never became a print"). `claimed_at`
-    is the claim's own timestamp: a re-claim of the same file (a reprint) carries a new one
-    and starts a fresh window. `retire` drops a claim the poll has released, and `retain`
-    drops windows for claims that are no longer outstanding, so a later claim of the same
-    file always starts a fresh window.
-    """
-
-    def __init__(self):
-        # filename -> {"cold_since": float | None, "announced": bool, "took": bool,
-        #              "claimed_at": float | None}
-        self._claims = {}
-
-    def observe(self, filename, state, extruder_target, bed_target, now=None, claimed_at=None):
-        if not filename:
-            return False
-        now = time.time() if now is None else now
-        claim = self._claims.get(filename)
-        if claim is None or (claimed_at is not None and claim["claimed_at"] != claimed_at):
-            claim = self._claims[filename] = {"cold_since": None, "announced": False,
-                                              "took": False, "claimed_at": claimed_at}
-        if state in ("printing", "paused"):
-            claim["took"] = True  # this claim's start took: nothing later is an abandoned start
-            claim["cold_since"] = None
-            return False
-        if claim["took"]:
-            return False
-        cold = (state in ("standby", "error")
-                and extruder_target is not None and bed_target is not None
-                and float(extruder_target) == 0.0 and float(bed_target) == 0.0)
-        if not cold:
-            claim["cold_since"] = None
-            return False
-        if claim["cold_since"] is None:
-            claim["cold_since"] = now
-            return False
-        if not claim["announced"] and now - claim["cold_since"] >= ABANDONED_START_COLD_S:
-            claim["announced"] = True
-            return True
-        return False
-
-    def retire(self, filename):
-        """Drop one claim's window (it fired, or its claim was released another way)."""
-        self._claims.pop(filename, None)
-
-    def retain(self, filenames):
-        """Drop the windows of files that are no longer outstanding claims."""
-        outstanding = set(filenames)
-        for filename in list(self._claims):
-            if filename not in outstanding:
-                del self._claims[filename]
+AbandonedStartWatch = start_claims.AbandonedStartWatch
 
 
 def announce_start_abandoned(filename):
@@ -2799,7 +2618,7 @@ def _camera_url():
 
 
 def _vision_chat_url():
-    return _config.require(_config.service_url("vision_chat_url"), "services.vision_chat_url")
+    return _listener_common._vision_chat_url()
 
 
 # The visual-watch implementation is shared with the Bambu camera watch (#294):
@@ -2814,7 +2633,7 @@ _frame_changed = _visual_watch._frame_changed
 _strip_json_fence = _visual_watch._strip_json_fence
 VisualPrintWatch = _visual_watch.VisualPrintWatch
 _VISION_BASE = _config.service_url("vision_chat_url")
-_VISION_MODEL = str(_config.cfg()["vision"]["model"])
+_VISION_MODEL = _listener_common._VISION_MODEL
 
 
 def _vision_context() -> str:
@@ -2947,7 +2766,7 @@ VISUAL_TIMER_S = 15
 # deadline; a check that overruns is abandoned, logged and counted, so the
 # single-flight timer is free for the next beat.
 WATCH_IO_WORKERS = 4
-VISUAL_CHECK_DEADLINE_S = 150.0
+VISUAL_CHECK_DEADLINE_S = _camera_watch.CHECK_DEADLINE_S
 _WATCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=WATCH_IO_WORKERS, thread_name_prefix="camera-watch")
 
@@ -3058,9 +2877,21 @@ def _watch_printer_id():
         return None
 
 
+def _watch_coverage_now():
+    """This printer's camera-watch coverage for the heartbeat (camera_watch.listener_coverage)."""
+    return _camera_watch.listener_coverage(
+        "moonraker", _config.cfg(), lambda: _profile_env_value("CLIPROXY_API_KEY"),
+        camera_reason=_camera_missing_reason())
+
+
+# One listener per process: its coverage, refreshed at most every
+# camera_watch.COVERAGE_REFRESH_S from the heartbeat writer thread.
+_WATCH_COVERAGE = _camera_watch.CoverageReporter(_watch_coverage_now)
+
+
 def _vision_ready():
     """Whether the camera watch has a vision endpoint to judge frames with (visual_watch.vision_ready)."""
-    return _visual_watch.vision_ready(lambda: _profile_env_value("CLIPROXY_API_KEY"), log)
+    return _listener_common._vision_ready(ns=_SELF)
 
 
 # -- #516: auto light-off ---------------------------------------------------
@@ -4119,32 +3950,16 @@ class Listener:
                 return
             prior = self.visual_frames.get(filename)
             changed = None if prior is None else await _watch_io(_frame_changed, prior, image)
-            snapshot_before = self.visual_watch.last_snapshot_layer
-            stall = (reason in {"layer_progress", "periodic"} and changed is False
-                     and isinstance(layer, int) and layer >= 5
-                     and snapshot_before and layer - snapshot_before >= self.visual_watch.profile["stall_layers"]
-                     and self.visual_watch.alerted_stall_layer is None)
-            if stall:
-                reason = "stalled_layers"
-                self.visual_watch.alerted_stall_layer = layer
-            # A layer-progress probe that is not a stall must not move the
-            # periodic clock or replace the baseline frame.
-            if reason != "layer_progress":
-                self.visual_frames[filename] = image
-                self.visual_watch.record(layer, time.time(), image)
-            # A layer-progress probe that is not a stall adopts the new frame
-            # as the baseline without moving the periodic clock.
-            if reason == "layer_progress":
-                self.visual_frames[filename] = image
-                self.visual_watch.last_snapshot = image
-                if isinstance(layer, int):
-                    self.visual_watch.last_snapshot_layer = max(self.visual_watch.last_snapshot_layer, layer)
-                    self.visual_watch.progress_seen_layer = layer
-                self.visual_watch.last_snapshot_layer = max(self.visual_watch.last_snapshot_layer, layer or 0)
-                self.visual_watch.progress_seen_layer = layer or 0
+            # The shared per-check rules (camera_watch, #1320): stall
+            # promotion, then the baseline frame; a layer-progress probe
+            # that is not a stall adopts the frame without moving the
+            # periodic clock and asks no verdict.
+            reason, stall = _camera_watch.promote_stall(self.visual_watch, reason, changed, layer)
+            self.visual_frames[filename] = image
+            if _camera_watch.keep_frame(self.visual_watch, reason, layer, image, time.time()):
                 log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict=skipped")
                 return
-            prompt = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
+            prompt = _camera_watch.WATCH_PROMPT
             early = self.visual_watch.in_early_window(layer)
             try:
                 verdict, detail = await _watch_io(
@@ -4156,13 +3971,11 @@ class Listener:
                 log(f"visual check discarded file={filename!r} reason={reason} verdict={verdict}: "
                     "the print changed while the verdict was in flight")
                 return
-            suspicious = verdict in {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
             if verdict == "empty_idle" and self.state == "printing":
                 # #913: print_stats says printing, so an empty bed is not a
                 # healthy answer. Re-check within 60 s; a second empty-bed
-                # verdict on that re-check alerts.
+                # verdict on that re-check alerts (camera_watch.is_suspicious).
                 if reason == "empty_idle_recheck":
-                    suspicious = True
                     detail = (detail or "") + " (empty bed again while the printer reports printing)"
                 else:
                     self.visual_watch.note_empty_idle(time.time())
@@ -4178,11 +3991,13 @@ class Listener:
             if verdict in _visual_watch.AUTO_PAUSE_VERDICTS and early and not frame_counted:
                 log(f"visual check file={filename!r} reason={reason}: suspicious frame not counted "
                     f"toward auto-pause: {self.visual_watch.last_evidence}")
-            if reason == "stalled_layers" and changed is False:
-                # A healthy vision verdict outranks the pixel diff.
-                suspicious = verdict not in VISUAL_HEALTHY_VERDICTS
-            if verdict == "uncertain":
-                suspicious = True
+            # Moonraker's recorded rules (camera_watch.FAMILY_RULES): a
+            # healthy vision verdict outranks the pixel diff at every
+            # sensitivity, and an empty bed while printing alerts on its
+            # re-check.
+            suspicious = _camera_watch.is_suspicious(
+                verdict, reason=reason, changed=changed, profile=self.visual_watch.profile,
+                rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing")
             log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
@@ -4199,7 +4014,7 @@ class Listener:
             # A verdict call that could not judge the frame is a watch
             # failure (one episode with failed snapshots and timeouts, one
             # throttle); any real judgement ends the episode.
-            watch_failed = verdict == "uncertain" and detail == _visual_watch.VISION_FAILED_DETAIL
+            watch_failed = _camera_watch.watch_failed(verdict, detail)
             if not watch_failed:
                 await self._note_watch_working(filename, identity)
             # #981: what the watch did with this verdict, for the
@@ -4220,28 +4035,19 @@ class Listener:
                     log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
                     event_discarded = True
                 else:
-                    pause_now, pause_why = _visual_watch.auto_pause_decision(
-                        self.visual_watch.pause_members,
+                    # decide_auto_pause reserves the once-per-print pause
+                    # before yielding (Codex, #920): overlapping checks must
+                    # not both observe auto_paused == False while an alert
+                    # is in flight and each send their own PAUSE.
+                    pause_now, pause_why = _camera_watch.decide_auto_pause(
+                        self.visual_watch,
                         enabled=_visual_watch.watch_settings(_config.cfg())["auto_pause_early"],
-                        already_paused=self.visual_watch.auto_paused,
-                        printer_id=printer_id, print_identity=identity, state=self.state,
-                        verdict=verdict, frame_counted=frame_counted,
-                        frame_age_s=_watch_now() - captured_at,
-                        mode=self.visual_watch.mode, in_early_window=early)
+                        printer_id=printer_id, identity=identity, state=self.state,
+                        verdict=verdict, frame_age_s=_watch_now() - captured_at, early=early)
                     if streak and not pause_now:
                         log(f"auto-pause not sent file={filename!r}: {pause_why}")
-                    if pause_now:
-                        # Reserve the once-per-print pause before yielding
-                        # (Codex, #920): overlapping checks must not both
-                        # observe auto_paused == False while an alert is in
-                        # flight and each send their own PAUSE.
-                        self.visual_watch.auto_paused = True
-                    text = (_visual_watch.stall_alert_text(layer, verdict, detail)
-                            if reason == "stalled_layers" else
-                            f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}")
-                    if pause_now:
-                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {pause_why}, "
-                                 "so I am pausing the print. It is not cancelled.")
+                    text = _camera_watch.alert_text(reason, layer, verdict, detail,
+                                                    pause_why=pause_why if pause_now else "")
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -4284,8 +4090,7 @@ class Listener:
                     if await self._note_watch_failure(filename, identity):
                         await asyncio.to_thread(
                             _visual_alert, filename, image,
-                            f"{reason} at layer {layer or 'unknown'}: the vision check could not be completed, "
-                            "so treat this as unreviewed and check the print on the printer screen",
+                            _camera_watch.vision_failed_text(reason, layer),
                             identity=identity)
                 except Exception as alert_exc:
                     log(f"visual alert failed file={filename!r}: {alert_exc!r}")
@@ -4302,8 +4107,7 @@ class Listener:
                     if await self._note_watch_failure(filename, identity):
                         await asyncio.to_thread(
                             _visual_alert_text, filename,
-                            f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
-                            "so this print is unmonitored until the camera answers again; check the camera",
+                            _camera_watch.camera_failed_text(reason, layer),
                             identity=identity)
                 except Exception as alert_exc:
                     log(f"visual alert failed file={filename!r}: {alert_exc!r}")
@@ -5250,8 +5054,12 @@ class Listener:
         """One heartbeat write, from the writer thread (#1020 A3)."""
         tick = getattr(self, "_loop_tick", None)
         lag_ms = int(max(0.0, time.time() - tick) * 1000) if tick else 0
+        details = {}
+        coverage = _WATCH_COVERAGE.current()
+        if coverage is not None:
+            details["camera_watch"] = coverage  # #1320: active, or off and why
         healthcheck.beat(moonraker_connected=self.moonraker_connected,
-                         state=self.state, loop_lag_ms=lag_ms)
+                         state=self.state, loop_lag_ms=lag_ms, **details)
 
     def _heartbeat_writer(self):
         """The dedicated heartbeat thread: beats even while the loop is blocked."""

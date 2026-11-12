@@ -60,7 +60,7 @@ import time
 from pathlib import Path
 
 from .. import __version__, debug_mode, healthcheck, listeners, logs
-from . import _config, family_control
+from . import _config, camera_watch, family_control
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +159,8 @@ class FamilyListener:
     def _claimed(self, filename) -> bool:
         if self._claim_fn is not None:
             return bool(self._claim_fn(filename))
-        from . import moonraker_event_listener as mel
-        return bool(mel.start_claimed(filename))
+        from . import start_claims
+        return bool(start_claims.start_claimed(filename))
 
     def _begin(self, filename, *, witnessed: bool):
         """Classify a newly observed active print. Returns the record."""
@@ -320,7 +320,9 @@ class FamilyListener:
             return
         self._last_beat_at = now
         try:
-            details = {"printer_connected": bool(connected), "state": state}
+            details = {"printer_connected": bool(connected), "state": state,
+                       # #1320: these families have no in-print watch; say so.
+                       "camera_watch": camera_watch.coverage(self.connection)}
             if self._printer_id:
                 details["printer_id"] = self._printer_id
             self._beat_fn(**details)
