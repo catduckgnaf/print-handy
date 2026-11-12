@@ -2838,6 +2838,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         scale_note = ''
         supports_choice = None
         clearance_ack_pending = False
+        # "Reorient (lay flat)" is offered until it has nothing left to do:
+        # the model already lies flat, or the lay-flat turn was applied (the
+        # turn is worked out from the authored pose, so pressing it again
+        # would record the same turn and change nothing).
+        offer_reorient = True
         # The Ready question is composed from the finished first slice: the
         # with-supports offer (and the reason shown for it) depends on that
         # slice's warnings, so a free-running slice is waited out in full.
@@ -2910,7 +2915,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                     flag_lines.append(
                                         f"- Flatten (sink) to plate removes about "
                                         f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
-                            elif fix.get('fix') == 'reorient' and not any(a['kind'] == 'reorient' for a in fix_actions):
+                            elif fix.get('fix') == 'reorient' and offer_reorient                                     and not any(a['kind'] == 'reorient' for a in fix_actions):
                                 fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
                     summary_extra = '\n' + '\n'.join(flag_lines)
 
@@ -3038,10 +3043,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     except Exception:
                         tris = []
                     found = edit_plan.lay_flat_rotation(tris) if tris else None
-                    if found is None:
+                    already_flat = found is not None and edit_plan.lies_flat_already(found[0])
+                    if found is None or already_flat:
+                        # Nothing to turn: no orientation is recorded. A
+                        # recorded identity turn changed nothing on the bed
+                        # but made a multicolor job slice as a resized one.
+                        offer_reorient = False
                         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                           content='I could not work out a flat reorientation for this model, '
-                                                   'so nothing was rotated. The support question is unchanged.')
+                                           content=('This model already lies flat on its largest face, so '
+                                                    'nothing was rotated. The support question is unchanged.'
+                                                    if already_flat else
+                                                    'I could not work out a flat reorientation for this model, '
+                                                    'so nothing was rotated. The support question is unchanged.'))
                         binding = slice_binding(latest, decisions['source_sha256'])
                         recipe_sha = binding_sha256(binding)
                         await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
@@ -3073,6 +3086,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         latest.pop('support_clearance', None)
                         clearance = None
                     mj.write_job(folder, latest)
+                    offer_reorient = False
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=_voiced('Reoriented: laid the largest face flat. The support '
                                                        'question will be evaluated again for the new orientation.',

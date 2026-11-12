@@ -1502,8 +1502,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         raise ValueError('rotation is not supported when a single-color pick slices a 3MF on a multi-tool '
                          "printer's toolhead")
     if rotation is not None and (preserve_layout or item_shifts or identity_single or pause_single or
-                                 (color_decisions and color_decisions.get('mode') == 'per_part')):
-        raise ValueError('rotation is only supported for whole-model single-color slicing')
+                                 fit_by_object is not None):
+        # A per-part (multicolor) job may turn as one whole assembly: the
+        # rebuilt export rotates every part together and keeps their
+        # relative positions. Per-object placements cannot also turn it.
+        raise ValueError('rotation is only supported for whole-model slicing')
     if mirror is not None and (preserve_layout or item_shifts or identity_single or pause_single or
                                (color_decisions and color_decisions.get('mode') == 'per_part')):
         # The per-part export has no mirror channel; mirroring there would
@@ -1578,7 +1581,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                         else slicer_choice(printer))
         mapping, geometry = export_per_part(source, input_path, color_decisions, item_shifts=item_shifts,
                                             object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
-                                            identity_tools=multi_tool, tower_mm=tower_mm, slicer=route_slicer)
+                                            identity_tools=multi_tool, tower_mm=tower_mm, slicer=route_slicer,
+                                            **({'rotation': rotation} if rotation is not None else {}))
         author = project['author']
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted

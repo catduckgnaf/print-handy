@@ -838,9 +838,18 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
                'objects_in': sorted({p['object_id'] for p in manifest['parts']}, key=str)}
     fit, _, _ = _job_fit(job, brim_override)
     if fit is not None:
-        # Merge shifts are planned at authored size. A resized or rotated job
-        # slices one fitted plate per slot; the whole model was verified to fit.
-        verdict['reason'] = 'Resized per-part job: one fitted plate per slot'
+        # Merge shifts are planned at authored size, so a resized or turned
+        # job does not use them. A one-plate source turns and scales as one
+        # rigid assembly on one multicolor bed instead: its parts keep their
+        # places relative to each other (letters stay on their plaque). It is
+        # never split per slot without the reason being stated.
+        verdict['reason'] = FITTED_SPLIT_REASON
+        if mode == 'merge' and (implicit or len(plates) == 1) and not manifest.get('painted'):
+            try:
+                return _slice_fitted_assembly(job, job_path, src, manifest, decisions, view, fit, len(plates),
+                                              st, brim_override, work)
+            except plate_merge.SplitNeeded as exc:
+                verdict['reason'] = fitted_fallback_reason(exc)
     elif mode == 'merge':
         _, _, plan_brim = _job_fit(job, brim_override)
         adapter = _job_adapter(job)
@@ -874,6 +883,117 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         raise ImplicitPlateSplit(job['plate_merge'])
     print('SPLIT multi-plate 3MF into per-plate G-code: ' + str(verdict['reason']))
     return _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, brim_override, work)
+
+
+# Plain split reasons for a resized or turned multicolor job. The operator
+# sees them in "These print as N separate plates because <reason>." and the
+# assembly refusal classifies them as resized (slice_refusal.split_cause).
+FITTED_SPLIT_REASON = ('the model was resized or turned, and a file with several plates '
+                       'cannot keep all of its colors on one bed that way')
+
+
+def fitted_fallback_reason(why):
+    """The split reason when a resized or turned one-plate model could not stay one multicolor plate."""
+    return ('the model was resized or turned and could not stay on one multicolor plate '
+            f'({why}); each color prints on its own plate, so parts that sit on another '
+            'color print apart from it')
+
+
+def _slice_fitted_assembly(job, job_path, src, manifest, decisions, view, fit, plates_in, st, brim_override, work):
+    """One multicolor G-code for a resized or turned one-plate job.
+
+    The operator's verified scale and rotation (job['scale'],
+    job['orientation']) apply to the whole assembly at once: the rebuilt
+    multicolor export scales and turns every part and cutter by the same
+    transform and centers the result on the bed, so parts keep their
+    positions relative to each other. Raises plate_merge.SplitNeeded when the
+    turned model does not fit one bed or one merged job; the caller then
+    splits with that reason stated. Disk only, never the printer.
+    """
+    import uuid
+    from ..core import plate_merge
+    from ..core import edit_plan as _edit_plan_fa
+    from ..core.orca_adapter import slice_model
+    _, supports, brim = _job_fit(job, brim_override)
+    override = _edit_plan_fa.supports_override(job)
+    supports = override if override is not None else supports
+    adapter = _job_adapter(job)
+    source_sha = file_sha256(src)
+    decision_sha = decisions_digest(decisions)
+    slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
+    slots = sorted(set(_part_slots(view, manifest).values()))
+    scale = float(fit.get('scale') or 1.0)
+    rotation = fit.get('rotation') or None
+    # Measure first, without writing (#1246): the turned or resized assembly
+    # and its prime tower must fit one bed, or the split is stated, never
+    # silent and never an Orca failure.
+    from ..core.color_geometry import export_color_geometry
+    bed = [float(v) for v in (st.get('bed_mm') or [BED_MM, BED_MM])[:2]]
+    try:
+        _, measured = export_color_geometry(src, None, view, scale=scale if scale != 1.0 else None,
+                                            rotation=rotation, identity_tools=adapter.tool_based,
+                                            tower_mm=_painted_tower_mm(st))
+    except RuntimeError as exc:
+        raise plate_merge.SplitNeeded(f'it does not fit one plate that way: {exc}') from exc
+    placed = [row['bounds_mm'] for row in measured.get('parts', []) if row.get('bounds_mm')]
+    if placed:
+        box = [(min(b[a][0] for b in placed), max(b[a][1] for b in placed)) for a in range(3)]
+        if any(box[a][0] < -1e-6 or box[a][1] > bed[a] + 1e-6 for a in (0, 1)):
+            raise plate_merge.SplitNeeded(
+                f"the model is {box[0][1] - box[0][0]:.0f} x {box[1][1] - box[1][0]:.0f} mm that way, "
+                f"larger than the {bed[0]:.0f} x {bed[1]:.0f} mm bed")
+    out, provenance, configs = slice_model(src, slice_dir, st, brim, color_decisions=decisions,
+                                           **({'scale': scale} if scale != 1.0 else {}),
+                                           **({'rotation': rotation} if rotation else {}),
+                                           **_support_kw(job, supports), **_edit_kw(job))
+    mapping = None
+    if adapter.tool_based:
+        # Identity contract on a toolhead printer, exactly as the merged
+        # multi-tool path records it (#346).
+        mapping = {str(tool): int(slot) for tool, slot in (provenance.get('tool_mapping') or {}).items()}
+        adapter.normalize_tool_mapping(mapping, st)
+    geometry = provenance.get('geometry') or {}
+    placed_keys = sorted(row['part_key'] for row in geometry.get('parts', []))
+    if placed_keys != sorted(p['key'] for p in manifest['parts']):
+        raise RuntimeError('turned or resized geometry dropped or duplicated a source part')
+    placed = [row['bounds_mm'] for row in geometry.get('parts', []) if row.get('bounds_mm')]
+    box = ([(min(b[a][0] for b in placed), max(b[a][1] for b in placed)) for a in range(3)]
+           if placed else None)
+    text = Path(out).read_text(errors='ignore')
+    estimate = gcode_estimate_s(text)
+    if estimate is not None and estimate > plate_merge.MAX_MERGED_S:
+        raise plate_merge.SplitNeeded(f'merged estimate {human_dur(estimate)} exceeds the '
+                                      f'{plate_merge.MAX_MERGED_S / 3600:g} h limit')
+    labelled = _gcode_object_count(text)
+    if labelled and labelled != len(manifest['parts']):
+        raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
+    check = verify_gcode_offline(out, st, adapter)
+    latest = json.loads(Path(job_path).read_text())
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha \
+            or _recipe_changed(job, latest, _recorded_printer_id(job)):
+        raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
+    objects = sorted({p['object_id'] for p in manifest['parts']}, key=str)
+    summary = {'mode': 'merge', 'reason': None, 'plates_in': plates_in, 'objects_in': len(objects),
+               'objects_out': len(objects), 'parts_in': len(manifest['parts']), 'bed_mm': int(bed[0]),
+               'fits_bed': True, 'slots': slots,
+               'placed_bounds_mm': [list(axis) for axis in box] if box else None,
+               'estimate_s': estimate, 'estimate': human_dur(estimate) if estimate else None,
+               'gcode_objects_labelled': labelled or None,
+               'whole_assembly_fit': {'scale': scale, 'rotated': bool(rotation)}}
+    job.pop('derived_plates', None)
+    job.pop('refused_plates', None)
+    job.pop('multipart_plan', None)
+    job['plate_merge'] = summary
+    if mapping is not None:
+        job['tool_mapping'] = mapping
+    job['artifact_binding'] = {**_recipe_binding(job), 'source_sha256': source_sha, 'decisions_sha256': decision_sha,
+                               'gcode_sha256': file_sha256(out)}
+    job.update({'slice_config': [str(p) for p in configs], 'gcode': str(out), 'provenance': provenance,
+                'gcode_verified': True, 'offline_check': check, 'merged': {'geometry_report': geometry},
+                'sliced_at': time.strftime('%Y-%m-%dT%H:%M:%S%z')})
+    write_job(work, job)
+    print(f"SLICED resized or turned multicolor assembly of {len(objects)} objects onto one bed (not uploaded): {out}")
+    return out
 
 
 PAINTED_SCALE_STEPS = (1.0, 0.95, 0.9, 0.87, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5)
