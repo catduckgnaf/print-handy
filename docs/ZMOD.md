@@ -290,32 +290,55 @@ different shapes, and telling them apart is most of the safety
 story:
 
 - **Screen shape** (HelixScreen, and Print Handy writing on its
-  behalf): keys `lane1`..`lane4` are 1-based slots, the inner
-  `lane` field is 0-based, and records carry `spool_id`,
-  `scan_time` or `helix_*` fields. This is the only shape the
-  inbound watcher converges, through `ph_slot` and the reconciler.
-- **ZMod `orca_lanes` shape** (#851): keys `lane0`..`lane3` are
-  0-based, records carry only `lane`/`material`/`color`/`name` —
-  assignment data for OrcaSlicer's Sync button, naming no spool.
-  The parser skips these records; because the two keyings collide
-  at `lane1`–`lane3`, a vanished spool-bearing record converges to
-  "unloaded" only when the printer's own presence read agrees the
-  slot is empty (#852).
+  behalf): keys `lane1`..`lane4` are 1-based slots and the inner
+  `lane` field is 0-based, one below the key (`lane1` ->
+  `"lane": "0"` = slot 1). Records carry `spool_id`, `scan_time` or
+  `helix_*` fields.
+- **ZMod `orca_lanes` shape** (#851, ZMod 1.7.6): keys
+  `lane0`..`lane3` are 0-based and the inner `lane` field equals the
+  key (`lane0` -> `"lane": "0"` = slot 1). Records carry only
+  `lane`/`material`/`color`/`name` — assignment data for
+  OrcaSlicer's Sync button, naming no spool — and the parser skips
+  them. Because the two keyings collide at `lane1`–`lane3`, a
+  vanished spool-bearing record converges to "unloaded" only when
+  the printer's own presence read agrees the slot is empty (#852).
 - **Enriched shape** (zmod_nfc after a tag or QR assignment): the
   spool's details — material, color, `spool_id`, vendor,
-  temperatures — added to the slot's entry, keeping other writers'
-  keys; the entry is found by its `lane` field. On the AD5X the
-  keys are `lane1`..`lane4`; on the Creator 5 they are `T0`..`T3`.
+  temperatures — added to the slot's existing entry, keeping other
+  writers' keys; the entry is found by its inner `lane` field. So
+  the enriched record carries whichever keying the entry already
+  had: screen keying when HelixScreen wrote it, `orca_lanes` keying
+  (`lane0`..`lane3`) when HelixScreen is absent. On the Creator 5
+  the keys are `T0`..`T3` (below).
 
-New in #1304: a record whose inner `lane` field names a different
-slot than the key it sits under is self-contradicting — a writer
-that keeps entries by their lane field can strand one under
-another slot's key in the collision zone. The watcher now names it
-once as a slot disagreement and converges neither slot from it;
-before, it trusted the key, the same disagreement the print-start
-self-check already flags (#1020 D3). And a Print Handy bind no
-longer writes an IFS-shaped `laneN` record into a namespace whose
-family declares no screen lane sync (below).
+New in #1304: the inbound watcher reads spool-bearing records in
+**both** keyings. The record's own inner `lane` field is the slot
+authority whenever it is consistent with either keying (key = inner
++ 1, screen; key = inner, ZMod, `lane0` included), and the record
+converges into slot inner + 1. The inner `lane` may be a string or
+an integer and `scan_time` an ISO string or an epoch number; both
+are accepted, and non-lane top-level keys (such as `seated`) are
+ignored. A record whose inner `lane` fits neither keying is
+self-contradicting: it is named once as a slot disagreement and
+converges no slot — an unload-shaped record included, deliberately
+(fail closed: unloading from it could empty the wrong slot) — and
+any pending mid-print note for that slot is withdrawn. Correcting
+only the inner `lane` is a change the watcher acts on, not a
+rescan. Two spool-bearing records that resolve to the same slot
+(one under each keying) collapse to one when they name the same
+spool, material and color; otherwise they are named once as a slot
+conflict and converge nothing until one is removed. A Print Handy
+bind no longer writes an IFS-shaped `laneN` record into the Creator
+toolhead namespace (below); every other family, single-slot Klipper
+printers running HelixScreen included, keeps the #791 record.
+
+Live evidence (2026-11-11, AD5X, ZMod 1.7.5-2 with HelixScreen
+installed): the namespace held `lane2` (inner `"lane": "1"`, a
+string; `scan_time` ISO; spool 19) and `lane3` (inner `"lane": 2`,
+an integer; `scan_time` epoch; spool 21) beside a non-lane
+`"seated": 1` key — screen keying. Both records are a verbatim
+regression fixture that must converge `lane2` -> slot 2 and
+`lane3` -> slot 3 with no disagreement.
 
 ### Creator 5 / Creator 5 Pro toolheads
 

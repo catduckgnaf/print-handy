@@ -192,6 +192,10 @@ def test_bind_slot_writes_the_lane_record_beside_one_change_zcolor(tmp_path):
     # CHANGE_ZCOLOR comes from push_screen alone: exactly one gcode post.
     assert len(mr.gcode_scripts()) == 1
     assert "CHANGE_ZCOLOR" in mr.gcode_scripts()[0]
+    # Write order as on main: the lane record lands before CHANGE_ZCOLOR.
+    writes = [path for method, path, _body in mr.calls if method == "POST" and (
+        path == "/server/database/item" or path.startswith("/printer/gcode/script"))]
+    assert writes[0] == "/server/database/item"
 
 
 def test_bind_slot_without_a_screen_update_writes_no_lane_record(tmp_path):
@@ -893,13 +897,11 @@ def test_a_failed_presence_read_this_tick_is_unknown_not_last_ticks_answer(monke
 
 # ------------------------------------------- slot disagreement (#1304)
 
-# Writers that locate lane entries by the inner ``lane`` field (the
-# published zmod_nfc behavior) can leave a spool-bearing record under a
-# key whose screen meaning is a different slot than the record's own
-# lane field names — the #852 key-overlap zone is exactly where that
-# happens. The watcher must never converge either slot from such a
-# record: the print-start self-check (#1020 D3) already distrusts the
-# disagreement, and the converge path now applies the same distrust.
+# Two keyings share lane_data: the screen shape (lane1..lane4, inner
+# lane = key - 1) and ZMod 1.7.6 orca_lanes (lane0..lane3, inner lane =
+# key), which zmod_nfc enriches with spool_id when HelixScreen is absent.
+# The inner lane field is the slot authority when it fits either keying;
+# a record fitting neither is a slot disagreement and converges nothing.
 
 def test_inner_lane_disagreement_is_named_and_never_converged(tmp_path):
     mr = FakeMoonraker()
@@ -989,24 +991,197 @@ def test_creator_toolhead_lane_keys_are_not_screen_lanes(tmp_path):
     assert applied == []
 
 
+# --------------------------------------------- both keyings converge (#1304)
+
+# Live AD5X lane_data (2026-11-11, ZMod 1.7.5-2 with HelixScreen), verbatim:
+# screen keying, inner lane a string in one record and an int in the
+# other, scan_time ISO in one and epoch in the other, and a non-lane
+# top-level key (``seated``).
+LIVE_AD5X_HELIX_LANE_DATA = {
+    "lane2": {"bed_temp": 60, "color": "#CD7F32", "color_name": "Bronze",
+              "helix_locked_color": False, "helix_locked_material": False,
+              "helix_material": "PLA", "lane": "1", "material": "PLA", "name": "Bronze",
+              "nozzle_temp": 215, "remaining_weight_g": 934.03,
+              "scan_time": "2026-11-03T00:13:02Z", "spool_id": 19, "spool_name": "Bronze",
+              "spoolman_vendor_id": 2, "total_weight_g": 1000.0, "vendor": "Unknown",
+              "vendor_name": "Unknown"},
+    "lane3": {"helix_catalog_id": "generic-pla", "helix_material": "PLA",
+              "helix_product_name": "PLA", "spool_id": 21, "spoolman_vendor_id": 4,
+              "lane": 2, "material": "PLA+", "color": "161616", "name": "Black PLA+",
+              "scan_time": 1794113621, "helix_locked_color": False,
+              "helix_locked_material": False},
+    "seated": 1,
+}
+
+
+def test_live_ad5x_helix_records_converge_with_no_disagreement(tmp_path):
+    lanes = lane_data_sync.parse_lane_data(copy.deepcopy(LIVE_AD5X_HELIX_LANE_DATA))
+    assert sorted(lanes) == [2, 3]
+    assert (lanes[2]["spool_id"], lanes[2]["keying"], lanes[2]["slot_issue"]) == (19, "screen", None)
+    assert (lanes[3]["spool_id"], lanes[3]["keying"], lanes[3]["slot_issue"]) == (21, "screen", None)
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA", "CD7F32"),
+                           spool(21, "Black PLA+", "PLA+", "161616")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = copy.deepcopy(LIVE_AD5X_HELIX_LANE_DATA)
+    events = watcher.poll()
+    assert sorted((e["kind"], e["slot"], e["spool_id"]) for e in events) == [
+        ("loaded", 2, 19), ("loaded", 3, 21)]
+    assert sorted(applied) == [(2, 19), (3, 21)]
+
+
+def orca(spool_id, slot, **kw):
+    """A zmod_nfc-enriched ZMod orca_lanes record: key lane{slot-1}, inner lane = slot-1 (a string)."""
+    record = lane(spool_id, slot=slot, **kw)
+    record["lane"] = str(slot - 1)
+    return f"lane{slot - 1}", record
+
+
+def test_orca_keyed_enriched_records_converge_into_the_inner_lane_slot(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    k0, r0 = orca(11, 1)
+    k1, r1 = orca(19, 2, color="FFFFFF", name="White PLA")
+    assert (k0, k1) == ("lane0", "lane1")
+    mr.lanes = {k0: r0, k1: r1}
+    events = watcher.poll()
+    assert sorted((e["kind"], e["slot"], e["spool_id"]) for e in events) == [
+        ("loaded", 1, 11), ("loaded", 2, 19)]
+    assert sorted(applied) == [(1, 11), (2, 19)]
+
+
+def test_two_differing_records_for_one_slot_are_a_named_conflict(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    k0, r0 = orca(11, 1)
+    screen_record = lane(19, slot=1, color="FFFFFF", name="White PLA")
+    raw = {k0: r0, "lane1": screen_record}
+    # Deterministic whatever the namespace's key order.
+    assert lane_data_sync.parse_lane_data(raw) == lane_data_sync.parse_lane_data(
+        dict(reversed(list(raw.items()))))
+    mr.lanes = raw
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("slot_conflict", 1)]
+    assert "#11" in events[0]["text"] and "#19" in events[0]["text"]
+    assert applied == []
+    assert watcher.poll() == []  # named once
+    # The stale record is removed: the survivor converges.
+    mr.lanes = {"lane1": screen_record}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"], e["spool_id"]) for e in events] == [("loaded", 1, 19)]
+    assert applied == [(1, 19)]
+
+
+def test_identical_records_under_both_keyings_collapse_to_one_converge(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11)])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    k0, r0 = orca(11, 1)
+    mr.lanes = {k0: r0, "lane1": lane(11, slot=1)}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"], e["spool_id"]) for e in events] == [("loaded", 1, 11)]
+    assert applied == [(1, 11)]
+
+
+def test_disagreement_corrected_in_the_inner_lane_only_converges(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = {"lane2": lane(19, slot=1, color="FFFFFF", name="White PLA")}
+    assert [e["kind"] for e in watcher.poll()] == ["slot_disagreement"]
+    # Only the inner lane changes: a correction, not a rescan.
+    mr.lanes = {"lane2": lane(19, slot=2, color="FFFFFF", name="White PLA")}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"], e["spool_id"]) for e in events] == [("loaded", 2, 19)]
+    assert applied == [(2, 19)]
+
+
+def test_converged_lane_turning_self_contradicting_is_named(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = {"lane2": lane(19, slot=2, color="FFFFFF", name="White PLA")}
+    assert [e["kind"] for e in watcher.poll()] == ["loaded"]
+    mr.lanes = {"lane2": lane(19, slot=4, color="FFFFFF", name="White PLA")}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("slot_disagreement", 2)]
+    assert applied == [(2, 19)]
+
+
+def test_disagreement_withdraws_a_pending_mid_print_note(tmp_path):
+    mr = FakeMoonraker(state="printing")
+    client = FakeSpoolman([spool(11)])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = {"lane1": lane(11, slot=1)}
+    assert [e["kind"] for e in watcher.poll()] == ["noted_mid_print"]
+    mr.lanes = {"lane1": lane(11, slot=3)}
+    assert [e["kind"] for e in watcher.poll()] == ["slot_disagreement"]
+    state = json.loads((tmp_path / "lane_watch.json").read_text())
+    assert "1" not in state["noted"]
+    assert [entry["event"]["kind"] for entry in state["pending"].values()] == [
+        "slot_disagreement"]
+    assert applied == []
+
+
+def test_clear_shaped_record_with_mismatched_inner_lane_fails_closed(tmp_path):
+    # An unload-shaped record whose inner lane fits neither keying is
+    # caught by the disagreement guard before the cleared-lane branch: no
+    # slot is unloaded from it.
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = {"lane2": lane(19, slot=2, color="FFFFFF", name="White PLA")}
+    assert [e["kind"] for e in watcher.poll()] == ["loaded"]
+    mr.lanes = {"lane2": {"lane": 0, "spool_id": None, "scan_time": 300,
+                          "material": "", "color": "", "name": ""}}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("slot_disagreement", 2)]
+    assert applied == [(2, 19)]
+
+
 # --------------------------------- bind writes follow the family (#1304)
 
-def test_bind_slot_writes_no_lane_record_without_screen_sync(tmp_path, monkeypatch):
-    # A printer family with no screen lane sync (the multi-tool adapter
-    # declares none) must not get an IFS-shaped laneN record written
-    # into its Moonraker lane_data namespace, whose keys are T0..T3.
-    # The Spoolman side of the bind is unaffected.
-    monkeypatch.setattr(spool_sync._config, "cfg",
-                        lambda: {"printers": [{"id": "ad5x"}]})
-    monkeypatch.setattr(spool_sync.printers, "current",
-                        lambda: mock.Mock(multi_slot=False))
+def _bind(tmp_path):
     fake = FakeSpoolman([spool(7, "Coffee", "PLA+", "6F4E37")])
     mr = FakeMoonraker(lanes={})
     state = tmp_path / "printer_hardware.json"
     state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
-    result = spool_sync.bind_slot(2, 7, client=fake, mr=mr, state_path=state)
-    assert result["screen"] == "unsupported"
+    return fake, mr, spool_sync.bind_slot(2, 7, client=fake, mr=mr, state_path=state)
+
+
+def test_bind_slot_on_a_creator_writes_no_lane_record(tmp_path, monkeypatch):
+    # The real Creator 5 adapter: its lane_data namespace is keyed T0..T3,
+    # so no IFS-shaped laneN record is written. Spoolman is unaffected.
+    from print_handy import printers, settings
+
+    cfg = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": "flashforge.creator5"})
+    creator = printers.get("flashforge.creator5", cfg)
+    assert creator.multi_tool is True
+    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": "c5"}]})
+    monkeypatch.setattr(spool_sync.printers, "current", lambda: creator)
+    fake, mr, result = _bind(tmp_path)
     assert result["lane_data"] == "unsupported"
     assert mr.lanes == {}
     assert not [c for c in mr.calls if c[0] == "POST" and c[1] == "/server/database/item"]
-    assert spool_sync.spool_ph_slot(fake.spools[7]) == ("ad5x", 2)
+    assert spool_sync.spool_ph_slot(fake.spools[7]) == ("c5", 2)
+
+
+def test_bind_slot_on_a_single_slot_klipper_keeps_the_lane_record(tmp_path, monkeypatch):
+    # A single-slot Klipper printer has no CHANGE_ZCOLOR screen push
+    # ("unsupported") but may run HelixScreen: the #791 record stays.
+    monkeypatch.setattr(spool_sync.printers, "current",
+                        lambda: mock.Mock(multi_slot=False, multi_tool=False))
+    _fake, mr, result = _bind(tmp_path)
+    assert result["screen"] == "unsupported"
+    assert result["lane_data"] == "written"
+    assert mr.lanes["lane2"]["spool_id"] == 7 and mr.lanes["lane2"]["lane"] == 1
