@@ -239,7 +239,7 @@ def quip(
             return ""
         if state_path is None:
             from .. import settings
-            state_path = settings.state_dir() / STATE_NAME
+            state_path = settings.state_dir() / "status_voice_state.json"
         return _choose(
             stage, copies=copies, identity=identity, event_key=event_key,
             path=Path(state_path), rng=rng or random.Random()

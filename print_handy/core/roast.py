@@ -1025,8 +1025,14 @@ def _balance_fact_pools(pools, state, status):
             fallback.append((name, entries))
         else:
             facts.append((name, entries))
-    recent = state.get("pool_history", [])[-12:]
-    facts = sorted(enumerate(facts), key=lambda pair: (recent.count(pair[1][0]), pair[0]))
+    history = state.get("pool_history", [])
+    recent = history[-12:]
+    last_used = {name: index for index, name in enumerate(history)}
+    # Fewest recent draws first; a tie goes to the bank drawn least recently,
+    # so two equally true banks alternate instead of the first one repeating
+    # whenever the window's counts come out even.
+    facts = sorted(enumerate(facts), key=lambda pair: (
+        recent.count(pair[1][0]), last_used.get(pair[1][0], -1), pair[0]))
     return fixed + [pool for _idx, pool in facts] + fallback
 
 
