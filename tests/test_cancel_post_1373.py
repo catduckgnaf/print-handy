@@ -33,7 +33,7 @@ def test_operator_cancel_post_is_title_plus_roast(monkeypatch):
                         lambda title, **kw: f"Cancelling {roast.scrub_title(title)} spared the plate.")
     monkeypatch.setattr(listener.starter_pings, "ping_for", lambda *a, **k: None)
     monkeypatch.setattr(listener, "post", lambda text, **kw: sent.update(text=text, **kw) or True)
-    listener.post_cancel_report("Pinecone-Cottage-Lantern-Hanging-or-Tabl_plate_1.gcode")
+    listener.post_cancel_report("Pinecone-Cottage-Lantern-Hanging-or-Tabl_plate_1.gcode", operator_cancel=True)
     assert sent["text"] == (f"Print cancelled: {LANTERN}\n\n"
                             "Cancelling Pinecone Cottage Lantern spared the plate.")
 
@@ -46,5 +46,5 @@ def test_a_cancel_nobody_asked_for_keeps_the_full_report(monkeypatch):
     monkeypatch.setattr(listener, "_with_status_roast", lambda text, *a, **k: text)
     monkeypatch.setattr(listener.starter_pings, "ping_for", lambda *a, **k: None)
     monkeypatch.setattr(listener, "post", lambda text, **kw: sent.update(text=text) or True)
-    listener.post_cancel_report("a.gcode")
+    listener.post_cancel_report("a.gcode", operator_cancel=True)
     assert "Nozzle 204°C (off)" in sent["text"]

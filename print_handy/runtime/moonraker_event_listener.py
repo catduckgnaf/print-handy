@@ -400,8 +400,13 @@ def capture_stop(filename, trigger):
         return ""
 
 
-def post_cancel_report(filename, reason=None):
-    """Full Klipper report on any cancel; falls back to the short summary if the report fails."""
+def post_cancel_report(filename, reason=None, *, operator_cancel=False):
+    """Full Klipper report on a cancel nobody asked for; title plus roast for the bot's own.
+
+    ``operator_cancel`` is True only for a Moonraker "cancelled" transition (not a
+    print that dropped to standby at the printer); with the bot's own cancel
+    marker fresh, the operator asked for it and the short post is enough (#1373).
+    """
     if reason is None:
         reason = capture_stop(filename, "cancel")
     mention = starter_pings.ping_for("cancelled", job_key=filename) or None
@@ -410,7 +415,7 @@ def post_cancel_report(filename, reason=None):
         by_bot = klipper_report.cancelled_by_bot()
     except Exception:
         by_bot = False
-    if by_bot:
+    if by_bot and operator_cancel:
         # The operator asked for this cancel and just confirmed it (#1373): the
         # title and the roast say it; temperatures, Z height and console
         # lines are for a stop nobody asked for.
@@ -4569,7 +4574,9 @@ class Listener:
                 # Finish stop capture before starting the screen-cancel reboot so Moonraker
                 # state and log tails are read before Klipper restarts.
                 reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
-                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename, reason))
+                task = asyncio.create_task(asyncio.to_thread(
+                    post_cancel_report, self.filename, reason,
+                    operator_cancel=(new_state == "cancelled" and not gone)))
                 self.background_tasks.add(task)
                 task.add_done_callback(self.background_tasks.discard)
                 from . import klipper_report

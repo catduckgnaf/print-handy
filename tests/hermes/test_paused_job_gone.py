@@ -88,7 +88,9 @@ def test_paused_then_cancelled_behaves_as_before_and_retires_prompt(monkeypatch)
     terminal = _terminal_posts(posted)
     assert len(terminal) == 1
     assert terminal[0].startswith("Print cancelled: charm")
-    assert "Klipper report stub" in terminal[0]
+    # The bot's own cancel (the marker is stubbed fresh) posts the title and
+    # the roast only, no printer report (#1373).
+    assert "Klipper report stub" not in terminal[0]
     assert retired == [(FILE, ("paused",), "Print cancelled.")]
 
 
