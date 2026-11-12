@@ -3663,8 +3663,10 @@ class Listener:
         # The paused print itself keeps the short reminder. Once the print the
         # question was opened for is over, reminders back off (2026-11-12).
         interval = SPOOL_NAG_SECONDS
+        stats = getattr(self, "last_stats", None) or {}
         if record.get("print_over") or not spool_question_print_is_current(
-                record, self.state, self.filename, self.last_stats.get("total_duration")):
+                record, getattr(self, "state", None), getattr(self, "filename", ""),
+                stats.get("total_duration")):
             interval = max(SPOOL_NAG_SECONDS, SPOOL_NAG_ENDED_SECONDS)
         if time.time() - float(record.get("last_nag_at") or 0) < interval:
             return
