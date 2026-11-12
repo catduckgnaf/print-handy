@@ -325,8 +325,10 @@ def test_accepted_proposal_is_stored_operator_confirmed_and_shows_in_the_slice_s
     from print_handy.runtime import discord_print_summary as summary
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text("; estimated printing time (normal mode) = 1h 0m 0s\n; total filament used [g] = 5\nG1 X1\n")
+    # ABS: thermal lines ride only on a material that needs an enclosure.
     text = summary.format_slice_summary({"printer_model": "sovol.zero", "printer_id": "zero",
-                                         "title": "Widget", "gcode": str(gcode)})
+                                         "title": "Widget", "gcode": str(gcode),
+                                         "filament_selection": {"slot": 1, "material": "ABS"}})
     assert "this printer: operator-confirmed" in text
 
 

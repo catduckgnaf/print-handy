@@ -301,18 +301,20 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), pick choice 0 (Slice and print with
-    # supports), then Cancel (1) at the post-slice support override question
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    # picks: one color (1), slot 1 (0), pick choice 1 (Slice and print with
+    # supports; the only evidence is a low clearance supports cannot reach,
+    # so supports are "not recommended" and come second), then Cancel (1)
+    # at the post-slice support override question
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
     # The Ready question is not the last question in the #922 flow (the
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
     last_q = next(q for q in adapter.questions
-                  if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)')
+                  if q['choices'] and 'Slice and print with supports (bed is clear)' in q['choices'])
     choices = last_q['choices']
 
-    assert choices[0] == 'Slice and print with supports (bed is clear)'
-    assert choices[1] == 'Slice and print without supports (bed is clear)'
+    assert choices[0] == 'Slice and print without supports (bed is clear)'
+    assert choices[1] == 'Slice and print with supports (bed is clear)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
     assert 'Reorient (lay flat)' in choices
@@ -320,6 +322,10 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
 
     # Disclosure in question text, including the measured volume deltas (#922 gap 5)
     q_text = last_q['question']
+    # Supports are "not recommended" here (the only evidence is a gap they
+    # cannot reach), so the without-supports line leads the question too.
+    assert '(not recommended:' in q_text
+    assert q_text.index('- Slice and print without supports:') < q_text.index('- Slice and print with supports')
     assert 'bridges a 0.4 mm gap to the build plate across 9493 mm2' in q_text
     assert 'modeled supports touch only 1.8%' in q_text
     assert 'Extend underside to plate adds about' in q_text
@@ -347,8 +353,9 @@ def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # one color (1), slot 1 (0), with supports (0), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])
+    # one color (1), slot 1 (0), with supports (1: not recommended, so
+    # second), Print anyway (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
     assert receipt['status'] == 'STARTED'
     override = receipt['support_override']
     assert override['via'] == 'print_anyway'

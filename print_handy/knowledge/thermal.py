@@ -15,6 +15,7 @@ value for that printer only, and every line they touch names them as
 from __future__ import annotations
 
 import dataclasses
+import re
 
 # (thermal attribute, question for guided setup) in the order setup asks
 # about them. A question is only returned while its fact is unknown.
@@ -161,3 +162,22 @@ def thermal_lines_for_model(model_key, registry=None, printer_id=None):
         from ..core.thermal_probe import install_facts
         install = install_facts(printer_id, model_key)
     return thermal_assumptions_lines(entry, install)
+
+
+# Materials that warp or crack without an enclosure: the only prints whose
+# operator posts carry the thermal facts (Nov 2026: the raw fan mapping and
+# provenance lines on every PLA post were debug output, not a decision).
+_ENCLOSURE_MATERIAL = re.compile(r"(?<![A-Z0-9])(ABS|ASA|PC|PA\d*|NYLON|PPA|PPS|PEEK|PEI|PEKK|HIPS)(?![A-Z0-9])")
+
+
+def needs_enclosure(material):
+    """True for a material that wants an enclosed printer (ABS, ASA, PC, nylon, ...)."""
+    return bool(material) and bool(_ENCLOSURE_MATERIAL.search(str(material).upper()))
+
+
+def thermal_lines_for_job(model_key, materials, registry=None, printer_id=None):
+    """The thermal lines an operator post carries: the model's thermal facts
+    only when a material in ``materials`` needs an enclosure, else []."""
+    if not any(needs_enclosure(material) for material in materials or ()):
+        return []
+    return thermal_lines_for_model(model_key, registry=registry, printer_id=printer_id)

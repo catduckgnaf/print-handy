@@ -250,9 +250,12 @@ Two surfaces use the record, and neither changes any behavior:
   are not asked about again.
 - **Slice summary** (`format_slice_summary`) appends the thermal
   assumption lines from `thermal_assumptions_lines` when a job names a
-  registered model: enclosure, chamber capability, and fan facts, with
-  unknown shown as unknown, so the operator sees what was assumed before
-  confirming.
+  registered model and prints a material that needs an enclosure (ABS,
+  ASA, PC, nylon and similar): enclosure, chamber capability, and fan
+  facts, with unknown shown as unknown, so the operator sees what was
+  assumed before confirming. Jobs in PLA, PETG, TPU and other materials
+  that print fine on an open frame show no thermal lines. The start
+  question after slicing follows the same rule.
 
 ### Per-printer facts from the connected printer
 

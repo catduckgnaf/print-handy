@@ -44,7 +44,8 @@ from . import slice_warnings  # noqa: E402
 from . import status_voice  # noqa: E402
 
 from ..intake.support_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
-    PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, with_supports_line,
+    PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL, supports_decision, supports_recommended,
+    with_supports_line,
 )
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
@@ -314,11 +315,16 @@ START_PROGRESS_POLL_S = 1.0
 START_PROGRESS = (
     ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
                              'some printers take up to a minute to answer.'),
-    ('start_submitted', 3.0, 'The printer accepted the start. It may load filament and heat for a '
-                             "few minutes before printing; I'll post when the start is confirmed."),
+    # The readback after an accepted start usually confirms within a few
+    # seconds; a shorter grace posted this note just before "Print started".
+    ('start_submitted', 10.0, 'The printer accepted the start. It may load filament and heat for a '
+                              "few minutes before printing; I'll post when the start is confirmed."),
 )
-# The status voice stage each START_PROGRESS note really reports.
-START_PROGRESS_VOICE = {'upload_verified': 'upload', 'start_submitted': 'print_start'}
+# The status voice stage each START_PROGRESS note really reports. The upload
+# is over when the first note posts and the start is being sent, so it
+# carries a print_start line, never an upload one; the second note carries
+# none (one quip per start).
+START_PROGRESS_VOICE = {'upload_verified': 'print_start'}
 
 
 
@@ -471,6 +477,9 @@ def preview_sentence(job, row, filament_note=None):
             text += (f" Model page estimate: about {mj.human_dur(site[0])}"
                      f" and {round(site[1])} g of filament{f' over {plates} plates' if plates > 1 else ''}."
                      f' The {_printer_name(job)} figure after slicing will differ somewhat.')
+        elif (job or {}).get('site') == 'upload':
+            # An uploaded file has no model page to quote.
+            text += ' I will report time and filament after slicing.'
         else:
             text += ' The model page gives no time or filament estimate; I will report both after slicing.'
     return text
@@ -2878,6 +2887,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     with_supports_line(sup_reason, sup_est, early.finding, clearance),
                     f"- Slice and print without supports: {nosup_est}",
                 ]
+                # Supports labeled "not recommended" are never the first
+                # option: the without-supports line and button lead.
+                sup_recommended = supports_recommended(early.finding, clearance)
+                if not sup_recommended:
+                    flag_lines.reverse()
                 modeled = modeled_supports.safe_describe(path)
                 if modeled:
                     flag_lines.extend(modeled)
@@ -2918,6 +2932,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     {'kind': 'sup', 'label': sup_label},
                     {'kind': 'nosup', 'label': nosup_label},
                 ]
+                if not sup_recommended:
+                    menu_options.reverse()
                 for act in fix_actions:
                     menu_options.append(act)
                 if clearance and support_clearance.risky(clearance):
@@ -4231,10 +4247,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             await adapter.send(chat_id=source.chat_id, metadata=metadata, content=info_line)
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
-        # the estimate everywhere it is shown (duration answer, split notice, start question).
+        # the estimate everywhere it is shown (duration answer, split notice, start question),
+        # but only when a material needs an enclosure; otherwise they are noise.
         try:
-            from ..knowledge.thermal import thermal_lines_for_model
-            thermal = thermal_lines_for_model(sliced.get('printer_model'), printer_id=sliced.get('printer_id'))
+            from ..knowledge.thermal import thermal_lines_for_job
+            thermal = thermal_lines_for_job(sliced.get('printer_model'), print_summary.job_materials(sliced),
+                                            printer_id=sliced.get('printer_id'))
         except Exception:
             thermal = []
         if thermal:

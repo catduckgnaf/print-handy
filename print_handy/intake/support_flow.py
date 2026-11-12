@@ -9,6 +9,19 @@ RESLICE_SUPPORTS_LABEL = 'Re-slice with supports'
 PRINT_NO_SUPPORTS_LABEL = 'Print without supports'
 
 
+def supports_recommended(finding, clearance):
+    """True unless the only evidence is a low clearance supports cannot reach.
+
+    A slicer floating-region finding is something supports fix; a risky
+    clearance report with no such finding is a gap too low for supports,
+    so the with-supports option is labeled not recommended and is not
+    offered first.
+    """
+    from ..core import support_clearance
+
+    return bool(finding) or not support_clearance.risky(clearance)
+
+
 def with_supports_line(reason, estimate, finding, clearance):
     """The with-supports line of the Ready question.
 
@@ -16,9 +29,7 @@ def with_supports_line(reason, estimate, finding, clearance):
     no slicer finding means the only evidence is a gap supports cannot reach,
     so recommending them would contradict the reason given.
     """
-    from ..core import support_clearance
-
-    if not finding and support_clearance.risky(clearance):
+    if not supports_recommended(finding, clearance):
         return f"- Slice and print with supports (not recommended: {reason}): {estimate}"
     return f"- Slice and print with supports (recommended: {reason or 'floating regions found'}): {estimate}"
 

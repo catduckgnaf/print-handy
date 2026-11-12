@@ -704,10 +704,14 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
         # The spool question is only opened when a slot is known (open_question), so
         # promise it only then; otherwise this alert and the follow-up notice contradict.
         asked = slot in (1, 2, 3, 4)
+        # Name the answers the question's buttons offer (spool_question_components):
+        # with a known spool, a runout also offers the new-roll and fix-feed choices.
+        choices = ("New roll, same filament; Same spool, fix feed or jam; Existing spool; or New spool"
+                   if spool_id else "Existing spool or New spool")
         extra = (f"Filament runout: {which}{spool} ran out of filament.\n"
                  "To finish this print:\n"
                  f"1. Load the replacement filament into {into} at the printer.\n"
-                 + ("2. Answer the spool question below (Existing spool or New spool) so the replacement "
+                 + (f"2. Answer the spool question below ({choices}) so the replacement "
                     "spool is the one registered for that slot — filament usage stays paused for every "
                     "spool until you answer.\n3. " if asked else "2. ")
                  + "Tap Resume print below (or type /print-resume) once the filament is loaded. "

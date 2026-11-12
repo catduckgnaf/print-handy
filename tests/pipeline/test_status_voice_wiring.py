@@ -180,7 +180,10 @@ def test_slice_and_support_progress_call_sites_name_their_stage():
     assert not any('filament warnings' in t or 'AI fix' in t for t in voiced)
 
 
-# upload and print_start: the two START_PROGRESS notes while print-now runs.
+# print_start: the first START_PROGRESS note ("Uploaded to the printer. Sending
+# the start now") reports the start being sent, not the upload, which is over.
+# Upload lines ("This is a transfer, not a launch") contradicted it. The second
+# note carries no quip, so one start never repeats its line.
 
 @pytest.fixture
 def fast_start(monkeypatch):
@@ -199,7 +202,7 @@ class _Sent:
 
 
 @pytest.mark.parametrize('speak', [True, False])
-def test_start_notes_carry_upload_and_print_start_quips(tmp_path, monkeypatch, fast_start, speak):
+def test_start_notes_carry_one_print_start_quip(tmp_path, monkeypatch, fast_start, speak):
     calls = seed(monkeypatch, speak)
     adapter = _Sent()
 
@@ -211,8 +214,8 @@ def test_start_notes_carry_upload_and_print_start_quips(tmp_path, monkeypatch, f
         return True, 'preparing'
     run_start(tmp_path, adapter, script)
     if speak:
-        assert adapter.sent == [UPLOADED + ' [upload quip]', ACCEPTED + ' [print_start quip]']
+        assert adapter.sent == [UPLOADED + ' [print_start quip]', ACCEPTED]
     else:
         assert adapter.sent == [UPLOADED, ACCEPTED]
-    assert [kwargs['event_key'] for _stage, kwargs in calls] == [
-        f'{tmp_path.name}:upload', f'{tmp_path.name}:print_start']
+    assert [stage for stage, _kwargs in calls] == ['print_start']
+    assert [kwargs['event_key'] for _stage, kwargs in calls] == [f'{tmp_path.name}:print_start']
