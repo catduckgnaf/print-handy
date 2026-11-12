@@ -84,8 +84,7 @@ record identity ok "$image_id $(docker image inspect --format '{{.Os}}/{{.Archit
 probe_args=(--rm --network none --cap-drop ALL --security-opt no-new-privileges:true
     -e "DISCORD_BOT_TOKEN=$dummy_token" -e PRINT_HANDY__BOT__MODE=standalone
     -e PRINT_HANDY__DISCORD__CHAT_ID=100000000000000001 -e PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002
-    -v "$data/state:/data/state" -v "$data/hermes:/data/hermes" -v "$data/archive:/data/archive" -v "$data/records:/data/records"
-    -v "$data/cache:/data/cache" -v "$work/fixture:/probe:ro")
+    -v "$data:/data" -v "$work/fixture:/probe:ro")
 probe() {  # probe LABEL [docker run options...] -- CHECK
     local label=$1; shift
     local opts=()
