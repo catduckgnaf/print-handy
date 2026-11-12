@@ -73,7 +73,8 @@ class ExporterTests(unittest.TestCase):
             names = set(_bundle_bytes(folder))
             self.assertIn("index.html", names)
             self.assertIn("share-card.png", names)
-            self.assertIn("share-card-vertical.png", names)
+            self.assertIn("share-card-story.png", names)
+            self.assertIn("share-card-square.png", names)
             self.assertIn("manifest.json", names)
             self.assertNotIn("robots.txt", names)
             page = (folder / "index.html").read_text(encoding="utf-8")
@@ -99,9 +100,12 @@ class ExporterTests(unittest.TestCase):
             with Image.open(folder / "share-card.png") as image:
                 self.assertEqual(image.format, "PNG")
                 self.assertEqual(image.size, share_export.CARD_LANDSCAPE_SIZE)
-            with Image.open(folder / "share-card-vertical.png") as image:
+            with Image.open(folder / "share-card-story.png") as image:
                 self.assertEqual(image.format, "PNG")
-                self.assertEqual(image.size, share_export.CARD_VERTICAL_SIZE)
+                self.assertEqual(image.size, share_export.CARD_STORY_SIZE)
+            with Image.open(folder / "share-card-square.png") as image:
+                self.assertEqual(image.format, "PNG")
+                self.assertEqual(image.size, share_export.CARD_SQUARE_SIZE)
 
     def test_manifest_contents_public_no_video(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,7 +131,8 @@ class ExporterTests(unittest.TestCase):
             out.mkdir(parents=True)
             (out / "wrapped-2025.mp4").write_bytes(b"fake-mp4-bytes")
             result = share_export.export_bundle(_payload(), out, visibility="public",
-                                                include_video=True)
+                                                include_video=True, include_titles=True,
+                                                include_printers=True)
             folder = Path(result["path"])
             self.assertTrue(result["video_included"])
             self.assertEqual((folder / "wrapped-2025.mp4").read_bytes(), b"fake-mp4-bytes")
@@ -288,7 +293,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
                    "share_registry_note": None}
         data = {"timelapse": {"wrapped_enabled": True}}
         page = data_module.render_wrapped_page(data, payload, form_token="tok")
-        self.assertIn("Share this Wrapped", page)
+        self.assertIn("Share this Pasta Wrapped", page)
         self.assertIn('action="/wrapped/share"', page)
         self.assertIn("GitHub Pages", page)
         self.assertIn("Cloudflare Pages", page)

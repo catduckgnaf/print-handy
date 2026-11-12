@@ -16,7 +16,8 @@ Web UI server), rendered from the same
 :func:`print_handy.core.print_stats.build_wrapped` payload as the Web
 UI page. Beside it ride the summary share card as PNGs (Pillow, a
 runtime dependency, renders them — the step-1 share card fields:
-prints, hours, kg, success rate, top color, archetype), a
+prints, hours, kg, success rate, top color, archetype) in three shapes:
+9:16 for stories, 1:1 for feeds and the 1200x630 link preview, a
 ``manifest.json`` describing the export, and — when the year's
 compiled ``wrapped-<year>.mp4`` already exists in the wrapped
 outputs — the video file itself, embedded in the page with a
@@ -27,11 +28,17 @@ Share panel: the year's numbers (prints, hours, kilograms, success rate,
 top color and material, busiest month and hour, outcome counts, the
 personality), the commentary lines, and, each one optional, the print
 titles that appear on the page and in the commentary, the printer name,
-and the compiled video. The video is camera footage (frames from the
-printer's camera), so it is off unless asked for. A title is never a file
-path: a title that is one is reduced to the file's base name. Leaving
-titles or printer names out also drops every commentary line that
-mentions them.
+and the compiled video. Redacted by default (#1321): people post these,
+so print titles and printer names are left out of the page, the
+commentary and every share card unless the export explicitly opts in,
+and the choice is recorded per share in the bundle's ``manifest.json``
+and in the exports registry. With the opt-in, the cards also name the
+busiest printer and the most-reprinted print. The video is camera footage
+(frames from the printer's camera), so it is off unless asked for, and it
+is never attached while titles or printer names are left out (its slides
+and narration may name them). A title is never a file path: a title that
+is one is reduced to the file's base name. Leaving titles or printer
+names out also drops every commentary line that mentions them.
 
 Hygiene: the renderers read only the known wrapped payload fields
 (``year``, ``headline``, ``highlights``, ``stats``, ``script``,
@@ -85,7 +92,16 @@ VIDEO_FOOTAGE_NOTE = ("The video contains camera footage: frames from your "
                       "printer's camera, which can show the room, the desk "
                       "and anyone in view. Watch it before you share it.")
 CARD_LANDSCAPE_SIZE = (1200, 630)
-CARD_VERTICAL_SIZE = (1080, 1350)
+CARD_STORY_SIZE = (1080, 1920)   # 9:16
+CARD_SQUARE_SIZE = (1080, 1080)  # 1:1
+# shape -> (pixel size, bundle file name). Every card is drawn from the
+# same redacted payload through share_card_lines, so no shape can carry a
+# name the others leave out.
+CARD_SHAPES = {
+    "story": (CARD_STORY_SIZE, "share-card-story.png"),
+    "square": (CARD_SQUARE_SIZE, "share-card-square.png"),
+    "landscape": (CARD_LANDSCAPE_SIZE, "share-card.png"),
+}
 REGISTRY_NAME = "exports.json"
 GENERATOR_NOTE = ("Produced locally by Print Handy: this bundle was "
                   "generated on the operator's own machine and uploaded "
@@ -172,7 +188,15 @@ def preview(payload):
             "printers": sorted(_printer_strings(payload))}
 
 
-def redact_payload(payload, *, include_titles=True, include_printers=True):
+def withheld_names(payload, *, include_titles=False, include_printers=False):
+    """The exact titles and printer names an export with these choices
+    must not carry anywhere (page, commentary, cards, manifest)."""
+    payload = payload or {}
+    return ((set() if include_titles else _title_strings(payload))
+            | (set() if include_printers else _printer_strings(payload)))
+
+
+def redact_payload(payload, *, include_titles=False, include_printers=False):
     """A copy of the wrapped payload with the chosen parts removed.
 
     Commentary lines that mention a removed title or printer are dropped
@@ -379,42 +403,81 @@ def _font(size, bold=False):
     return ImageFont.load_default(size=size)
 
 
-def render_share_card_png(payload, path, *, vertical=False):
-    """One summary share card PNG, rendered with Pillow.
+def share_card_lines(payload, *, withheld=()):
+    """The text lines one share card draws, as ``(role, text)`` pairs.
 
-    The step-1 share card fields: prints, hours, kg, success rate,
-    top color, and the archetype. Landscape 1200x630 by default;
-    ``vertical`` renders the 1080x1350 cut.
+    The only text source for every card shape. ``payload`` is the
+    already redacted payload, so titles and printer names appear only
+    when the export opted in: then the card names the busiest printer
+    and the most-reprinted print. ``withheld`` is a second guard: any
+    line that still mentions a withheld name is dropped.
     """
-    from PIL import Image, ImageDraw
     parts = _payload_parts(payload)
     headline, highlights, archetype = (parts["headline"], parts["highlights"],
                                        parts["archetype"])
-    width, height = CARD_VERTICAL_SIZE if vertical else CARD_LANDSCAPE_SIZE
+    lines = [("eyebrow", f"PASTA WRAPPED {parts['year']}")]
+    if archetype.get("name"):
+        lines.append(("title", str(archetype["name"])))
+    lines += [
+        ("stat", plural(headline.get("total_prints", 0), "print")),
+        ("stat", f"{hours_text(headline.get('total_hours', 0))} printing"),
+        ("stat", f"{headline.get('total_filament_used_kg', 0):g} kg of filament"),
+        ("stat", f"Success rate {_rate(headline.get('success_rate'))}"),
+        ("stat", f"Top color {highlights.get('top_color') or 'unknown'}"),
+    ]
+    if highlights.get("top_printer"):
+        lines.append(("named", f"Busiest printer {highlights['top_printer']}"))
+    most = highlights.get("most_reprinted") or {}
+    if isinstance(most, dict) and most.get("title"):
+        lines.append(("named", f"Most reprinted {most['title']}"))
+    names = [str(name) for name in withheld if str(name).strip()]
+    return [(role, text) for role, text in lines
+            if not (names and _mentions(text, names))]
+
+
+# role -> (font size, bold, line advance) at the 1080 px design width.
+_CARD_TYPE = {"eyebrow": (34, True, 84), "title": (84, True, 116),
+              "stat": (46, False, 76), "named": (40, False, 68)}
+_CARD_COLORS = {"eyebrow": (201, 168, 106), "title": (242, 239, 233),
+                "stat": (242, 239, 233), "named": (184, 196, 186)}
+
+
+def _fit(draw, text, font, width):
+    """``text`` cut with an ellipsis so it fits ``width`` pixels."""
+    if draw.textlength(text, font=font) <= width:
+        return text
+    while text and draw.textlength(text + "...", font=font) > width:
+        text = text[:-1]
+    return text.rstrip() + "..."
+
+
+def render_share_card_png(payload, path, *, shape="story", withheld=()):
+    """One summary share card PNG, rendered with Pillow.
+
+    ``shape`` is a :data:`CARD_SHAPES` key: ``story`` (9:16),
+    ``square`` (1:1) or ``landscape`` (the 1200x630 link preview). The
+    text drawn is exactly :func:`share_card_lines`, and the PNG carries
+    no text metadata chunks.
+    """
+    from PIL import Image, ImageDraw
+    (width, height), _name = CARD_SHAPES[shape]
+    lines = share_card_lines(payload, withheld=withheld)
     image = Image.new("RGB", (width, height), (18, 17, 15))
     draw = ImageDraw.Draw(image)
     draw.rectangle([0, 0, width, 14], fill=(201, 168, 106))
     margin = 72
-    y = 64
-    draw.text((margin, y), f"PRINT HANDY WRAPPED {parts['year']}",
-              font=_font(34, bold=True), fill=(201, 168, 106))
-    y += 84
-    if archetype.get("name"):
-        draw.text((margin, y), str(archetype["name"]),
-                  font=_font(76 if not vertical else 84, bold=True),
-                  fill=(242, 239, 233))
-        y += 110
-    stats_lines = [
-        plural(headline.get('total_prints', 0), 'print'),
-        f"{hours_text(headline.get('total_hours', 0))} printing",
-        f"{headline.get('total_filament_used_kg', 0):g} kg of filament",
-        f"Success rate {_rate(headline.get('success_rate'))}",
-        f"Top color {highlights.get('top_color') or 'unknown'}",
-    ]
-    step = 64 if not vertical else 84
-    for line in stats_lines:
-        draw.text((margin, y), line, font=_font(44), fill=(242, 239, 233))
-        y += step
+    # Scale the type so the block fits the card's height: never larger
+    # than the 1080 px design, never smaller than half of it.
+    natural = sum(_CARD_TYPE[role][2] for role, _text in lines)
+    scale = max(0.5, min(1.0, (height - 2 * margin) / natural)) if natural else 1.0
+    # Tall cards center the block; the link preview sits at the top.
+    y = margin if shape == "landscape" else max(margin, (height - natural * scale) / 2)
+    for role, text in lines:
+        size, bold, advance = _CARD_TYPE[role]
+        font = _font(max(12, round(size * scale)), bold=bold)
+        draw.text((margin, y), _fit(draw, text, font, width - 2 * margin),
+                  font=font, fill=_CARD_COLORS[role])
+        y += advance * scale
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path, format="PNG")
@@ -492,7 +555,7 @@ def _place_video(source, target):
 
 def export_bundle(payload, outputs_dir, *, visibility="link-only",
                   destination_note="", passphrase=None, now=None,
-                  include_titles=True, include_printers=True, include_video=False):
+                  include_titles=False, include_printers=False, include_video=False):
     """Write one share bundle. Returns a result dict.
 
     ``outputs_dir`` is the wrapped outputs folder (the video for the
@@ -500,8 +563,8 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
     ``outputs_dir / "exports" / <folder>`` and the registry in
     ``outputs_dir / exports.json``. ``include_titles``,
     ``include_printers`` and ``include_video`` choose what rides along
-    (see the module docstring); the video is camera footage and is left
-    out unless asked for. Files from an earlier export of the same
+    (see the module docstring); all three are off unless the caller opts
+    in, and the choice is recorded in the manifest and the registry. Files from an earlier export of the same
     folder that this one no longer references are removed. ``passphrase``
     is accepted for the private mode's future shape and is unused while
     private exports are unavailable: it is never stored anywhere.
@@ -512,6 +575,8 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
                                        "Nothing was exported."}
     if visibility == "private":
         return {"ok": False, "reason": PRIVATE_UNAVAILABLE_REASON}
+    withheld = withheld_names(payload, include_titles=include_titles,
+                              include_printers=include_printers)
     payload = redact_payload(payload, include_titles=include_titles,
                              include_printers=include_printers)
     parts = _payload_parts(payload)
@@ -544,12 +609,16 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
                      "want one in the bundle.")
     else:
         notes.append("the video (camera footage) was left out of this export.")
-    if not include_titles:
-        notes.append("print titles were left out, with every commentary line "
-                     "that named one.")
-    if not include_printers:
-        notes.append("printer names were left out, with every commentary line "
-                     "that named one.")
+    if include_titles:
+        notes.append("print titles are included: you opted in for this export.")
+    else:
+        notes.append("print titles were left out (the default), with every "
+                     "commentary line that named one.")
+    if include_printers:
+        notes.append("printer names are included: you opted in for this export.")
+    else:
+        notes.append("printer names were left out (the default), with every "
+                     "commentary line that named one.")
     if visibility == "link-only":
         notes.append("link-only is obscurity, not privacy: anyone with the "
                      "link can open this page. The folder name is unguessable "
@@ -558,11 +627,11 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
     page = render_share_page(payload, visibility=visibility,
                              video_name=video_name if video_included else None)
     (folder / "index.html").write_text(page, encoding="utf-8")
-    render_share_card_png(payload, folder / "share-card.png")
-    render_share_card_png(payload, folder / "share-card-vertical.png", vertical=True)
-    files = [{"name": "index.html", "kind": "page"},
-             {"name": "share-card.png", "kind": "share-card"},
-             {"name": "share-card-vertical.png", "kind": "share-card"}]
+    files = [{"name": "index.html", "kind": "page"}]
+    for shape, ((width, height), name) in CARD_SHAPES.items():
+        render_share_card_png(payload, folder / name, shape=shape, withheld=withheld)
+        files.append({"name": name, "kind": "share-card", "shape": shape,
+                      "size": [width, height]})
     if visibility == "link-only":
         (folder / "robots.txt").write_text("User-agent: *\nDisallow: /\n",
                                            encoding="utf-8")
@@ -593,8 +662,10 @@ def export_bundle(payload, outputs_dir, *, visibility="link-only",
             "registry_note": registry_note}
 
 
-__all__ = ["CARD_LANDSCAPE_SIZE", "CARD_VERTICAL_SIZE", "GENERATOR_NOTE",
+__all__ = ["CARD_LANDSCAPE_SIZE", "CARD_SHAPES", "CARD_SQUARE_SIZE",
+           "CARD_STORY_SIZE", "GENERATOR_NOTE",
            "MAX_LINK_ONLY_EXPORTS", "PRIVATE_UNAVAILABLE_REASON", "REGISTRY_NAME",
            "VIDEO_FOOTAGE_NOTE", "VISIBILITIES",
            "export_bundle", "load_exports", "make_slug", "preview", "private_available",
-           "redact_payload", "render_share_card_png", "render_share_page"]
+           "redact_payload", "render_share_card_png", "render_share_page",
+           "share_card_lines", "withheld_names"]

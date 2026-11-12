@@ -1377,7 +1377,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # The share form posts what to include as checkboxes (an unticked
         # box is simply absent); a post without the options marker keeps
-        # the safe defaults: titles and printer names in, footage out.
+        # the safe defaults (#1321): titles, printer names and footage out.
+        # Only a ticked box on the explicit form opts one back in.
         explicit = (form.get("options") or [""])[0] == "explicit"
 
         def ticked(name, default):
@@ -1388,8 +1389,8 @@ class _Handler(BaseHTTPRequestHandler):
             (form.get("visibility") or ["link-only"])[0],
             destination_note=(form.get("destination") or [""])[0],
             passphrase=(form.get("passphrase") or [None])[0],
-            include_titles=ticked("include_titles", True),
-            include_printers=ticked("include_printers", True),
+            include_titles=ticked("include_titles", False),
+            include_printers=ticked("include_printers", False),
             include_video=ticked("include_video", False))
         if code != 200:
             self._html_refusal(code, payload.get("reason", "the export failed"),
