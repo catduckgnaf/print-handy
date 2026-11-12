@@ -32,8 +32,8 @@ from print_handy import settings
 from print_handy.bot import recent_links, runtime
 from print_handy.bot.router import load_plugin
 from print_handy.core import model_job, prepared_intake, printer_state
-from print_handy.hermes import _config
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import _config
+from print_handy.runtime import print_control as pc
 
 plugin = load_plugin()
 
@@ -49,7 +49,7 @@ OTHER = "100000000000000099"     # the workshop printer's own channel
 @pytest.fixture()
 def cfg(tmp_path, monkeypatch):
     data = copy.deepcopy(_config.cfg())
-    data.setdefault("paths", {})["hermes_home"] = tmp_path
+    data.setdefault("paths", {})["state_home"] = tmp_path
     monkeypatch.setattr(_config, "_override", data)
     return data
 
@@ -57,7 +57,7 @@ def cfg(tmp_path, monkeypatch):
 @pytest.fixture()
 def two_printer_cfg(tmp_path, monkeypatch):
     data = copy.deepcopy(_config.cfg())
-    data.setdefault("paths", {})["hermes_home"] = tmp_path
+    data.setdefault("paths", {})["state_home"] = tmp_path
     base = copy.deepcopy(data["printers"][0])
     data["printers"] = [
         {**base, "id": GARAGE, "name": "Garage AD5X", "chat_id": HOME},

@@ -8,10 +8,10 @@ light_control.AutoLightPolicy the Moonraker listener feeds.
 """
 import pytest
 
-from print_handy.hermes import family_control as fc
-from print_handy.hermes import family_event_listener as fel
-from print_handy.hermes import light_control as lc
-from print_handy.hermes import visual_watch
+from print_handy.runtime import family_control as fc
+from print_handy.runtime import family_event_listener as fel
+from print_handy.runtime import light_control as lc
+from print_handy.runtime import visual_watch
 
 T0 = 1_000_000.0
 MIN = 60.0
@@ -380,7 +380,7 @@ class StubBambuAdapter:
 
 
 def enabled_config(monkeypatch):
-    from print_handy.hermes import _config
+    from print_handy.runtime import _config
     monkeypatch.setattr(_config, "cfg",
                         lambda: {"vision": {"auto_light_off_minutes": 30}})
 

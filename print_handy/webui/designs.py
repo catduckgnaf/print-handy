@@ -45,10 +45,10 @@ def designs_root(data) -> Path:
     """The design session store's root for these settings.
 
     Resolves the cache directory exactly as the design engine's callers
-    do: ``paths.cache``, falling back to ``<hermes_home>/cache``.
+    do: ``paths.cache``, falling back to ``<state_home>/cache``.
     """
     paths = (data or {}).get("paths") or {}
-    cache = paths.get("cache") or (Path(paths.get("hermes_home") or ".") / "cache")
+    cache = paths.get("cache") or (Path(paths.get("state_home") or ".") / "cache")
     return design.sessions_root(cache)
 
 

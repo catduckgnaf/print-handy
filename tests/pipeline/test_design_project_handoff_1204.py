@@ -16,7 +16,7 @@ from types import SimpleNamespace as S
 from unittest import mock
 
 from print_handy.core import design, prepared_intake, printer_state
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 from .helpers import external
 from .test_prepared_intake import Adapter, env, state  # noqa: F401  (env is the fixture)
 

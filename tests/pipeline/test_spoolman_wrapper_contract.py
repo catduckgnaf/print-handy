@@ -117,7 +117,7 @@ def test_no_spoolman_base_resolution_with_raw_transport_outside_wrapper():
 
 # #798: the /spool command layer (hermes/spool_sync.py) is covered whole-module, not only by the
 # per-function rules above. Its one remaining private transport, _http, is Moonraker's.
-SPOOL_SYNC = ROOT / "hermes" / "spool_sync.py"
+SPOOL_SYNC = ROOT / "runtime" / "spool_sync.py"
 MOONRAKER_BASES = {"MOONRAKER", "base"}  # the module setting and moonraker_for's per-printer base
 
 
@@ -144,7 +144,7 @@ def test_spool_sync_spoolman_transport_is_the_client_with_the_same_contract(monk
     import urllib.request
 
     from print_handy.core import spoolman_client
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
 
     def no_direct_http(*args, **kwargs):
         pytest.fail("spool_sync.spoolman opened its own connection")

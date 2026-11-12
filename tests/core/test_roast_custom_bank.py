@@ -256,7 +256,7 @@ def test_the_listener_draws_from_the_configured_custom_bank(tmp_path, monkeypatc
     """generate_roast reads vision.roast_custom_bank from the live config:
     a configured bank's lines can be drawn, and a bank that vanishes is a
     named no-op — a roast still comes out of the shipped corpus."""
-    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.runtime import moonraker_event_listener as mel
 
     path = write_bank(tmp_path, {"entries": [VALID]})
     state = tmp_path / "roast-state.json"

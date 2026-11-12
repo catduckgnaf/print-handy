@@ -54,7 +54,7 @@ def _state_dir(data):
         return Path(data).expanduser()
     paths = data.get("paths") if isinstance(data, dict) else None
     if isinstance(paths, dict):
-        home = paths.get("hermes_home") or paths.get("data_home")
+        home = paths.get("state_home") or paths.get("data_home")
         if isinstance(home, str) and home.strip():
             return Path(home).expanduser() / "state"
         if isinstance(home, Path):

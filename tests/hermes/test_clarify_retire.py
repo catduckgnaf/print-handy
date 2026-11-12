@@ -14,7 +14,7 @@ from types import SimpleNamespace as S
 
 from print_handy.bot.platform import SendResult
 from print_handy.core import prepared_intake
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import print_alert_buttons as pab
 
 
 class ClarifyAdapter:

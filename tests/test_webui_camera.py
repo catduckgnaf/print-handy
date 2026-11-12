@@ -18,7 +18,7 @@ SECRET_URL = "http://viewer:camera-secret-42@192.0.2.10/snapshot.jpg"
 def load(extra=""):
     tmp = tempfile.mkdtemp()
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n{extra}")
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n{extra}")
     return settings.load(local=local, environ={})
 
 

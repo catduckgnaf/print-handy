@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import print_control as pc
-from print_handy.hermes import print_records as records
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import print_control as pc
+from print_handy.runtime import print_records as records
 
 
 def _ts(iso):

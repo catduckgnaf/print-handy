@@ -28,7 +28,7 @@ def test_payload_setup_outside_checkout_without_source_masking(tmp_path):
                PRINT_HANDY__BOT__MODE="standalone", DISCORD_BOT_TOKEN="offline-dummy",
                PRINT_HANDY__DISCORD__CHAT_ID="100000000000000001",
                PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="200000000000000002",
-               PRINT_HANDY__PATHS__HERMES_HOME=str(tmp_path / "state"))
+               PRINT_HANDY__PATHS__STATE_HOME=str(tmp_path / "state"))
     code = """
 import importlib.abc, json, sys
 class Offline(importlib.abc.MetaPathFinder):

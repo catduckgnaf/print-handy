@@ -13,7 +13,7 @@ conflicts in the response instead of silently picking a winner.
 makes the changes, always through the operations Discord uses — never
 a second state store:
 
-- assign goes through :func:`print_handy.hermes.spool_sync.bind_slot`
+- assign goes through :func:`print_handy.runtime.spool_sync.bind_slot`
   (a replaced spool goes back on the shelf, bind_slot's default);
 - swap goes through ``spool_sync.swap_slots`` and unassign through
   ``spool_sync.unbind_slot``, the primitives beside ``bind_slot``;
@@ -64,7 +64,7 @@ import logging
 from urllib.parse import quote
 
 from .. import credential_binding, settings
-from ..hermes import purchase_intake, spool_sync
+from ..runtime import purchase_intake, spool_sync
 from . import controls as controls_module
 from . import shell
 
@@ -187,7 +187,7 @@ def spool_summary(row, cache_rec=None):
     vendor = filament.get("vendor") or {}
     color = str(filament.get("name") or cache_rec.get("color") or "").strip()
     material = str(filament.get("material") or cache_rec.get("material") or "").strip()
-    from ..hermes.discord_print_summary import filament_label
+    from ..runtime.discord_print_summary import filament_label
     name = filament_label(color, material) or str(cache_rec.get("name") or "").strip()
     spool_id = (row or {}).get("id", cache_rec.get("spoolman_id"))
     return {
@@ -530,8 +530,8 @@ def _default_ai_call():
     """
     import urllib.request
 
-    from ..hermes import moonraker_event_listener as listener
-    from ..hermes import visual_watch
+    from ..runtime import moonraker_event_listener as listener
+    from ..runtime import visual_watch
 
     def call(*, prompt, image=None, text=None):
         if image is not None:
@@ -714,7 +714,7 @@ def _amount_text(spool):
 
 
 def _picker_label(spool):
-    from ..hermes.discord_print_summary import spool_picker_label
+    from ..runtime.discord_print_summary import spool_picker_label
     return spool_picker_label(spool.get("color"), spool.get("material"),
                               spool.get("id"), spool.get("remaining_weight"))
 

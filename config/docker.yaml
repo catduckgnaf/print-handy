@@ -39,7 +39,7 @@ paths:
   # historical name. /data/hermes (the pre-2.2.5 path) stays accepted: the
   # entrypoint links /data/state to it when only the legacy volume holds
   # data, and pointing this at /data/hermes explicitly still works.
-  hermes_home: /data/state
+  state_home: /data/state
   archive: /data/archive
   records_vault: /data/records
   cache: /data/cache

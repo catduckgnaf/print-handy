@@ -5,8 +5,8 @@ endpoint and light sender faked. Offline throughout.
 import asyncio
 import time
 
-from print_handy.hermes import light_control
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import light_control
+from print_handy.runtime import moonraker_event_listener as mel
 
 ON_SCRIPT, OFF_SCRIPT = light_control.light_scripts("led chamber_led")
 

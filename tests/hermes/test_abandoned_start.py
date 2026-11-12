@@ -10,7 +10,7 @@ import asyncio
 import json
 import time
 
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import moonraker_event_listener as mel
 
 FILE = "Replay-Part_plate_1_" + "ab" * 32 + ".gcode"
 
@@ -122,8 +122,8 @@ def test_a_new_claimed_file_gets_its_own_window():
 def _claimed_card(monkeypatch, tmp_path, message_id="777"):
     """A recorded start message for FILE, with the Discord edit captured."""
     edits = []
-    from print_handy.hermes import print_alert_buttons as pab
-    from print_handy.hermes import print_next
+    from print_handy.runtime import print_alert_buttons as pab
+    from print_handy.runtime import print_next
     monkeypatch.setattr(print_next, "take_start_message_target",
                         lambda filename, now=None: (message_id, "chan-1") if message_id else (None, None))
     monkeypatch.setattr(pab, "edit_message",

@@ -13,7 +13,7 @@ from types import SimpleNamespace as S
 import pytest
 
 from print_handy.bot import recent_links
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -29,7 +29,7 @@ DB_URL = "https://makerworld.com/en/models/222222-state-db-widget"
 @pytest.fixture()
 def home(tmp_path):
     previous = _config.cfg()
-    _config.set_override({"paths": {"hermes_home": tmp_path}})
+    _config.set_override({"paths": {"state_home": tmp_path}})
     yield tmp_path
     _config.set_override(previous)
 

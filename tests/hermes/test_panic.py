@@ -1,12 +1,12 @@
-"""Tests for print_handy.hermes.panic: force-restart, purge, and status."""
+"""Tests for print_handy.runtime.panic: force-restart, purge, and status."""
 import json
 import threading
 from unittest import mock
 
 import pytest
 
-from print_handy.hermes import panic
-from print_handy.hermes import print_control as pc
+from print_handy.runtime import panic
+from print_handy.runtime import print_control as pc
 
 
 # ============================================================================

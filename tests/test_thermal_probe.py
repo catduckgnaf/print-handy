@@ -322,7 +322,7 @@ def test_accepted_proposal_is_stored_operator_confirmed_and_shows_in_the_slice_s
         entry, thermal_probe.install_facts("zero", "sovol.zero"))}
     assert "fan_exhaust_mapping" not in asked
 
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
     gcode = tmp_path / "plate_1.gcode"
     gcode.write_text("; estimated printing time (normal mode) = 1h 0m 0s\n; total filament used [g] = 5\nG1 X1\n")
     text = summary.format_slice_summary({"printer_model": "sovol.zero", "printer_id": "zero",

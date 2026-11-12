@@ -13,9 +13,9 @@ import json
 
 import pytest
 
-from print_handy.hermes import _config
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import starter_pings
+from print_handy.runtime import _config
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import starter_pings
 
 STARTER = "111222333444555666"
 JOB = {"title": "Widget", "gcode": "/archive/widget/plate.gcode",
@@ -248,7 +248,7 @@ def test_alert_without_any_job_identity_still_pings():
 def test_visual_alert_send_allows_only_the_starter(monkeypatch, tmp_path):
     """The watchdog's button post (print_alert_buttons.post_visual_alert)
     carries the classifier's decision as its one allowed mention."""
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     seen = []
 
     class Response:
@@ -290,7 +290,7 @@ def test_visual_alert_send_allows_only_the_starter(monkeypatch, tmp_path):
 _PING_CHILD = r"""
 import os, sys, time
 sys.path.insert(0, os.environ["PH_REPO_ROOT"])
-from print_handy.hermes import starter_pings
+from print_handy.runtime import starter_pings
 starter_pings.mentions_on = lambda: True
 who = os.environ["PH_WHO"]
 # Barrier: both processes start their bursts together, so the

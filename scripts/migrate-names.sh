@@ -44,7 +44,7 @@ done
 setting() {  # setting SECTION.KEY
     (cd "$REPO" && python3 -m print_handy.settings get "$1" 2>/dev/null) || true
 }
-HERMES_HOME=${HERMES_HOME:-$(setting paths.hermes_home)}
+HERMES_HOME=${HERMES_HOME:-$(setting paths.state_home)}
 HERMES_HOME=${HERMES_HOME:-$HOME/.hermes/profiles/3dprinting}
 ARCHIVE=${ARCHIVE:-$(setting paths.archive)}
 SYSTEMD_USER_DIR=${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}

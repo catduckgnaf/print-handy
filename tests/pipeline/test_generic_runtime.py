@@ -349,7 +349,7 @@ def test_orca_adapter_skips_zmod_md5_for_generic(monkeypatch):
 
 
 def test_listener_skips_screen_machinery_for_generic(monkeypatch):
-    from print_handy.hermes import moonraker_event_listener as listener
+    from print_handy.runtime import moonraker_event_listener as listener
     use_model(monkeypatch, "klipper.generic")
     boom = mock.AsyncMock(side_effect=AssertionError("stock detail read"))
     obj = listener.Listener()

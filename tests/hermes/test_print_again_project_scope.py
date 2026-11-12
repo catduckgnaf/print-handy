@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-from print_handy.hermes import print_control
-from print_handy.hermes.print_next import NextPlateError
+from print_handy.runtime import print_control
+from print_handy.runtime.print_next import NextPlateError
 
 PLAN_ID = "plan-rack"
 LABELS = ["Center tray", "Right arm", "Left arm"]
@@ -112,7 +112,7 @@ def test_resolve_plate_ref_targets_exact_plate(tmp_path):
 
 
 def test_resolve_print_accepts_alias_but_keeps_legacy_integer(tmp_path, monkeypatch):
-    from print_handy.hermes import print_records
+    from print_handy.runtime import print_records
 
     archive, _, gcodes, plans = _project(tmp_path)
     monkeypatch.setattr(print_records, "PLANS_DIR", plans)

@@ -19,7 +19,8 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import material_accept, model_job, printer_state, spoolman_client
-from print_handy.hermes import print_next
+from print_handy.gcode import verify as gcode_verify
+from print_handy.runtime import print_next
 
 PRUSA = "prusa.mk4s"
 
@@ -155,11 +156,11 @@ def test_accepted_mismatch_rechecks_the_loaded_material_against_a_brass_nozzle(p
 
 def test_own_temperatures_are_the_gcodes_not_the_loaded_spools():
     state = _state("PLA")
-    temps = model_job._mismatch_own_temperatures(state, _gcode("PETG", hotend=245, bed=85), ["PETG"])
+    temps = gcode_verify._mismatch_own_temperatures(state, _gcode("PETG", hotend=245, bed=85), ["PETG"])
     from print_handy.core.nozzle import get_nozzle_type_adjustments
     offset = get_nozzle_type_adjustments("hardened_steel")["temp_offset_c"]
     assert temps == {"nozzle": 245 - offset, "bed": 85.0}
-    assert model_job._mismatch_own_temperatures(state, _gcode("PLA"), ["PLA"]) is None
+    assert gcode_verify._mismatch_own_temperatures(state, _gcode("PLA"), ["PLA"]) is None
 
 
 # ---- Bambu: abrasive on a soft nozzle and the not-recommended list ---------------------------

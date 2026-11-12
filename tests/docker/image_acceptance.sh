@@ -122,7 +122,7 @@ if params:
 # The template ships only --shm-size in ExtraParams, so this runs with that flag:
 # every supervised module must import under the image's own defaults.
 if output=$(timeout 300 docker run --name "$project-unraid" "${probe_args[@]}" "${extra[@]}" "$image" \
-        python3 -c 'import importlib; [importlib.import_module(m) for m in ("print_handy.bot", "print_handy.hermes.moonraker_event_listener")]; print("imported bot and listener")' 2>&1); then
+        python3 -c 'import importlib; [importlib.import_module(m) for m in ("print_handy.bot", "print_handy.runtime.moonraker_event_listener")]; print("imported bot and listener")' 2>&1); then
     record unraid:params ok "docker run accepted ${#extra[@]} template arguments; $(tail -n 1 <<< "$output")"
 else
     echo "$output" > "$out/unraid.txt"

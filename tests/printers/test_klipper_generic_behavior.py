@@ -147,7 +147,7 @@ def test_exclude_object_defaults_are_present_and_empty_when_unreported():
 
 
 def test_print_control_status_parses_the_fake_moonraker_query_shape(monkeypatch):
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
     payload = {"result": {"status": {
         "print_stats": {"state": "printing", "filename": "a.gcode", "print_duration": 90.0,
                         "info": {"current_layer": 3, "total_layer": 40}},
@@ -159,7 +159,7 @@ def test_print_control_status_parses_the_fake_moonraker_query_shape(monkeypatch)
 
 
 def test_print_control_status_falls_back_to_server_info_when_the_query_fails(monkeypatch):
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
 
     def send(path, **kw):
         if path.startswith("/server/info"):
@@ -295,7 +295,7 @@ class _Response(io.BytesIO):
 
 
 def _fetch_with(monkeypatch, payload_or_error):
-    from print_handy.hermes import moonraker_event_listener as listener
+    from print_handy.runtime import moonraker_event_listener as listener
 
     def opener(request, timeout=None):
         if isinstance(payload_or_error, Exception):

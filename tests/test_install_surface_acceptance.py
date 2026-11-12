@@ -7,7 +7,7 @@ Two install surfaces ship in this repo:
 * the standalone (no-Hermes) installer ``scripts/install-standalone.sh``,
   which renders the systemd user units from ``systemd/*.service.template``
   into ``SYSTEMD_USER_DIR`` and provisions the data folder that
-  ``[paths] hermes_home`` names.
+  ``[paths] state_home`` names.
 
 ``tests/test_home_update.py`` (the git update/rollback script) already
 covers its surface by executing it; nothing here duplicates those
@@ -42,7 +42,7 @@ UNIT_TEMPLATES = {
 }
 EXPECTED_EXECSTART = {
     "print-handy-bot": "-m print_handy.bot run",
-    "print-handy-listener": "-m print_handy.hermes.moonraker_event_listener",
+    "print-handy-listener": "-m print_handy.runtime.moonraker_event_listener",
 }
 
 
@@ -165,7 +165,7 @@ class StandaloneUnitContractTests(unittest.TestCase):
         self.assertIn('"$SYSTEMD_USER_DIR/$name.service"', installer)
         # The data home comes from the settings layer, not a hard-coded
         # path that could drift from what the bot actually reads.
-        self.assertIn("print_handy.settings get paths.hermes_home", installer)
+        self.assertIn("print_handy.settings get paths.state_home", installer)
 
 
 class StandaloneSandboxRunTests(unittest.TestCase):
@@ -176,7 +176,7 @@ class StandaloneSandboxRunTests(unittest.TestCase):
         units = Path(tmp) / "units"
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("PRINT_HANDY__") and k != "PRINT_HANDY_CONFIG"}
-        env.update({"PRINT_HANDY__PATHS__HERMES_HOME": str(data),
+        env.update({"PRINT_HANDY__PATHS__STATE_HOME": str(data),
                     "SYSTEMD_USER_DIR": str(units), "NO_SYSTEMCTL": "1",
                     "PYTHON": sys.executable, "HOME": str(tmp)})
         result = subprocess.run(["bash", str(STANDALONE), *args],
@@ -210,7 +210,7 @@ class StandaloneSandboxRunTests(unittest.TestCase):
         import tempfile
 
         leftover = [line for line in read(STANDALONE).splitlines()
-                    if "hermes" in line.casefold() and "paths.hermes_home" not in line]
+                    if "hermes" in line.casefold() and "paths.state_home" not in line]
         self.assertEqual([], leftover)
         with tempfile.TemporaryDirectory() as tmp:
             units = Path(tmp) / "units"

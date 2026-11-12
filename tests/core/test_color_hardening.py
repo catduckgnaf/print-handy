@@ -12,7 +12,7 @@ import pytest
 from print_handy.core import filament_color as fc
 from print_handy.core import model_job
 from print_handy.core import spool_lifecycle as sl
-from print_handy.hermes import spool_sync
+from print_handy.runtime import spool_sync
 from print_handy.printers.bambulab import ams
 from print_handy.printers.flashforge.zmod import multicolor_contract as contract
 from print_handy.printers.flashforge.zmod import screen

@@ -16,9 +16,9 @@ import pytest
 from print_handy import doctor, settings
 from print_handy.bot import __main__ as bot_main
 from print_handy.bot import health
-from print_handy.hermes import _config
-from print_handy.hermes import moonraker_discord_announcements as announcer
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import _config
+from print_handy.runtime import moonraker_discord_announcements as announcer
+from print_handy.runtime import moonraker_event_listener as mel
 
 
 def beat(**extra):
@@ -123,7 +123,7 @@ def test_bot_settings_defaults_and_validation(tmp_path):
 def test_check_command_names_every_problem(monkeypatch, capsys, tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["bot"]["mode"] = "hermes"  # this check run is the Hermes-mode one (#524: no longer the default)
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
@@ -140,7 +140,7 @@ def test_check_design_row_states_off_on_and_missing_openscad(monkeypatch, capsys
     """#388: the design row — the tri-state mode is named (off / auto-off /
     on); on names the model source; enabled without openscad is a FAIL."""
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     cfg["bot"]["mode"] = "standalone"
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setattr(_config, "cfg", lambda: cfg)
@@ -190,7 +190,7 @@ def test_doctor_reports_mode_and_users(monkeypatch, tmp_path):
     cfg = settings.load(local=Path(os.devnull), environ={})
     cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id="1", allowed_user_ids="5, 6")
-    cfg["paths"]["hermes_home"] = tmp_path / "data"
+    cfg["paths"]["state_home"] = tmp_path / "data"
     assert doctor.check_bot(cfg) == "standalone, print channel 1, access: whitelist (2 users)"
 
 
@@ -249,7 +249,7 @@ def test_a_clean_process_with_hermes_blocked_runs_the_whole_intake():
 def test_install_standalone_renders_units_and_data_folder(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("PRINT_HANDY", "HERMES_"))}
     env.update(SYSTEMD_USER_DIR=str(tmp_path / "units"), NO_SYSTEMCTL="1",
-               PRINT_HANDY__PATHS__HERMES_HOME=str(tmp_path / "data"), PYTHON=sys.executable,
+               PRINT_HANDY__PATHS__STATE_HOME=str(tmp_path / "data"), PYTHON=sys.executable,
                PRINT_HANDY_CONFIG=str(tmp_path / "empty.yaml"))
     (tmp_path / "empty.yaml").write_text("")
     script = settings.ROOT / "scripts" / "install-standalone.sh"

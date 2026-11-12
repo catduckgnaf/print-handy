@@ -9,7 +9,7 @@ with an expectation the roast never had. Offline: no printer, no Discord.
 import re
 
 from print_handy.core import roast
-from print_handy.hermes import moonraker_discord_announcements as announcer
+from print_handy.runtime import moonraker_discord_announcements as announcer
 
 # print_stats at completion on the reported job: open 8m 14s, extruding for about 5 minutes.
 ISSUE_STATS = {"state": "complete", "filename": "3mf_print/Tiny_plate_1.gcode",

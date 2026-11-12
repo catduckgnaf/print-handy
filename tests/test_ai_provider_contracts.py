@@ -9,7 +9,7 @@ parsers in this repo actually consume:
   chat-completions body, and treats an empty answer as a failure.
 * ``print_handy.bot.llm._parse`` extracts ``{"reply": ..., "command": ...}``
   JSON from that content and allowlists the command.
-* ``print_handy.hermes.visual_watch`` parses the vision content as JSON
+* ``print_handy.runtime.visual_watch`` parses the vision content as JSON
   with ``verdict`` / ``reason`` fields, fails closed to
   ``("uncertain", ...)`` for anything else, and never raises.
 * ``print_handy.core.ai_fix._parse_reply`` pulls the first JSON object out
@@ -35,7 +35,7 @@ import pytest
 from print_handy import ai_routes
 from print_handy.bot import llm, runtime
 from print_handy.core import ai_fix
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import visual_watch as vw
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "provider_responses"
 URL = "http://models.test/v1/chat/completions"

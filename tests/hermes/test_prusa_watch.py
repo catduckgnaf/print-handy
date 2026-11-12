@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import prusa_watch, timelapse_capture
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import prusa_watch, timelapse_capture
 from print_handy.printers.prusa import camera as prusa_camera
 
 REMOTE = "benchy.gcode"

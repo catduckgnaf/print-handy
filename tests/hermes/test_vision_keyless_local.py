@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from print_handy.hermes import visual_watch as vw
+from print_handy.runtime import visual_watch as vw
 
 
 @pytest.mark.parametrize("url", [

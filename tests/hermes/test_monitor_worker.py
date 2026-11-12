@@ -6,7 +6,7 @@ print-now. But print-now is a short-lived subprocess — print_next spawns
 it per launch, and a direct CLI run is no longer-lived — so the thread
 died with the submission and the print never got its completion post or
 timelapse. The monitor now runs in a detached worker process
-(print_handy.hermes.monitor_worker) that rebuilds the job printer's
+(print_handy.runtime.monitor_worker) that rebuilds the job printer's
 adapter, starts the family's watch monitor there, and stays alive until
 the monitor's poll loop ends.
 """
@@ -18,7 +18,7 @@ from unittest import mock
 import pytest
 
 from print_handy import listeners, logs, settings
-from print_handy.hermes import monitor_worker
+from print_handy.runtime import monitor_worker
 
 
 # -- spawn: the detached worker -------------------------------------------------
@@ -36,11 +36,11 @@ class _FakePopen:
 def test_spawn_builds_a_detached_worker_command(monkeypatch):
     monkeypatch.setattr(monitor_worker, "_log_sink", lambda: None)
     popen = _FakePopen()
-    proc = monitor_worker.spawn("print_handy.hermes.stock_watch", "plate.gcode",
+    proc = monitor_worker.spawn("print_handy.runtime.stock_watch", "plate.gcode",
                                 popen=popen)
     assert proc.pid == 4242
     (argv, kwargs), = popen.calls
-    assert argv == [sys.executable, "-m", "print_handy.hermes.monitor_worker",
+    assert argv == [sys.executable, "-m", "print_handy.runtime.monitor_worker",
                     "--watch", "stock", "--filename", "plate.gcode"]
     # Detached: its own session, and no inherited stdio — above all not
     # print-now's stdout pipe, which print_next reads to EOF.
@@ -55,7 +55,7 @@ def test_spawn_passes_the_job_printer_and_redirects_to_the_monitor_log(
     sink = (tmp_path / "monitor.log").open("ab")
     monkeypatch.setattr(monitor_worker, "_log_sink", lambda: sink)
     popen = _FakePopen()
-    monitor_worker.spawn("print_handy.hermes.elegoo_watch", "benchy.gcode",
+    monitor_worker.spawn("print_handy.runtime.elegoo_watch", "benchy.gcode",
                          printer_id="elegoo-two", popen=popen)
     (argv, kwargs), = popen.calls
     assert argv[-4:] == ["--filename", "benchy.gcode", "--printer", "elegoo-two"]
@@ -65,9 +65,9 @@ def test_spawn_passes_the_job_printer_and_redirects_to_the_monitor_log(
 
 
 def test_watch_key_derives_from_the_watch_module_name():
-    assert monitor_worker.watch_key("print_handy.hermes.stock_watch") == "stock"
-    assert monitor_worker.watch_key("print_handy.hermes.bambu_watch") == "bambu"
-    assert monitor_worker.watch_key("print_handy.hermes.octo_watch") == "octo"
+    assert monitor_worker.watch_key("print_handy.runtime.stock_watch") == "stock"
+    assert monitor_worker.watch_key("print_handy.runtime.bambu_watch") == "bambu"
+    assert monitor_worker.watch_key("print_handy.runtime.octo_watch") == "octo"
 
 
 # -- run: the worker side ---------------------------------------------------------
@@ -160,7 +160,7 @@ def test_adapter_for_a_roster_printer_installs_its_view_and_identity(tmp_path):
 
 def test_model_job_starts_family_monitors_through_the_worker(monkeypatch):
     from print_handy.core import model_job
-    from print_handy.hermes import stock_watch
+    from print_handy.runtime import stock_watch
 
     spawned = []
     monkeypatch.setattr(
@@ -169,5 +169,5 @@ def test_model_job_starts_family_monitors_through_the_worker(monkeypatch):
     model_job._start_family_monitor(stock_watch, object(), "plate.gcode",
                                     {"printer_id": "stock-two"})
     model_job._start_family_monitor(stock_watch, object(), "plate.gcode", {})
-    assert spawned == [("print_handy.hermes.stock_watch", "plate.gcode", "stock-two"),
-                       ("print_handy.hermes.stock_watch", "plate.gcode", None)]
+    assert spawned == [("print_handy.runtime.stock_watch", "plate.gcode", "stock-two"),
+                       ("print_handy.runtime.stock_watch", "plate.gcode", None)]

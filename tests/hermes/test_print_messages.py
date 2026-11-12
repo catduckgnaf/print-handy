@@ -18,8 +18,8 @@ from types import SimpleNamespace as S
 import pytest
 
 HERE = Path(__file__).resolve().parent
-from print_handy.hermes import discord_print_summary as summary
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import discord_print_summary as summary
+from print_handy.runtime import moonraker_event_listener as mel
 
 HEX = re.compile(r"[0-9a-f]{32,}", re.I)
 TITLE = "Stand for iPad with thick case"
@@ -32,8 +32,8 @@ def _load(name, path):
     return module
 
 
-from print_handy.hermes import print_records as records  # noqa: E402
-from print_handy.hermes import moonraker_discord_announcements as watcher  # noqa: E402
+from print_handy.runtime import print_records as records  # noqa: E402
+from print_handy.runtime import moonraker_discord_announcements as watcher  # noqa: E402
 PLUGIN = HERE.parents[1] / "plugins/print-feedback/__init__.py"
 
 @pytest.fixture(autouse=True)
@@ -86,7 +86,7 @@ def _drive_listener(monkeypatch, filename, transitions, *, claimed=False):
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: claimed)
     monkeypatch.setattr(mel, "log", lambda line: None)
-    from print_handy.hermes import klipper_report
+    from print_handy.runtime import klipper_report
     monkeypatch.setattr(klipper_report, "report", lambda filename: "Klipper report stub")
     listener = mel.Listener()
 
@@ -196,7 +196,7 @@ def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeyp
 
 
 def _claimed_listener(monkeypatch, tmp_path, job, *, message_id="777", edit_ok=True, claim_ts=1000):
-    from print_handy.hermes import print_alert_buttons as pab, print_next
+    from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "start_messages.json")
     if message_id:
         print_next.record_start_message(job.hashed, message_id)
@@ -212,7 +212,7 @@ def _claimed_listener(monkeypatch, tmp_path, job, *, message_id="777", edit_ok=T
 def test_claimed_start_edits_the_originating_channel(job, tmp_path, monkeypatch):
     """P2-11: an intake that started in another channel/thread gets its warmup
     edit there, not in the configured announcement channel."""
-    from print_handy.hermes import print_alert_buttons as pab, print_next
+    from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "start_messages.json")
     print_next.record_start_message(job.hashed, "888", chat_id="chan-other", thread_id="thread-1")
     monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: 1000)
@@ -431,7 +431,7 @@ def test_timelapse_wait_is_bounded_and_failure_safe(monkeypatch):
 
 
 def test_format_event_includes_persistent_print_number(tmp_path, monkeypatch):
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
     archive = tmp_path / 'archive'
     job_dir = archive / 'ghost'
     job_dir.mkdir(parents=True)
@@ -836,7 +836,9 @@ class StrictAdapter:
 def test_every_plugin_and_intake_send_uses_content_keyword():
     """Static guard on the real sources: no adapter.send(text=...) anywhere in the call paths."""
     core = HERE.parents[1] / "print_handy/core"
-    for path in (PLUGIN, core / "link_intake.py", core / "prepared_intake.py"):
+    from handler_source import handler_paths  # the handlers moved into print_handy/bot/handlers (#1323)
+    intake = sorted((HERE.parents[1] / "print_handy/intake").glob("*.py"))  # split out of prepared_intake (#1323)
+    for path in (*handler_paths(), core / "link_intake.py", core / "prepared_intake.py", *intake):
         source = path.read_text()
         for call in re.findall(r"adapter\.send\((?:[^()]|\([^()]*\))*\)", source):
             assert "text=" not in call, f"{path.name}: {call[:80]}"
@@ -952,7 +954,7 @@ def test_cancel_report_carries_a_cancelled_bank_roast(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "capture_stop", lambda filename, trigger: None)
     posted = []
     monkeypatch.setattr(mel, "post", lambda text: posted.append(text) or True)
-    from print_handy.hermes import klipper_report
+    from print_handy.runtime import klipper_report
     monkeypatch.setattr(klipper_report, "report", lambda filename, reason=None: "REPORT")
     mel.post_cancel_report("Benchy.gcode", reason="operator")
     assert len(posted) == 1

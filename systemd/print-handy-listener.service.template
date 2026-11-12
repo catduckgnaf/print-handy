@@ -9,7 +9,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PRINT_HANDY__BOT__MODE=standalone
 EnvironmentFile=-{{DATA_HOME}}/.env
 WorkingDirectory={{REPO}}
-ExecStart={{PYTHON}} -m print_handy.hermes.moonraker_event_listener
+ExecStart={{PYTHON}} -m print_handy.runtime.moonraker_event_listener
 Restart=always
 RestartSec=10
 MemoryMax=256M

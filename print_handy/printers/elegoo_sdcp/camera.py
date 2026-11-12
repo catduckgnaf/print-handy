@@ -24,7 +24,7 @@ everything this codebase actually speaks comes back empty:
 So there is no camera source to wire: this module — the vendor's
 camera seam, the counterpart of `printers.prusa.camera` and
 `printers.flashforge_stock.camera` — resolves to "no source", and the
-launched-print monitor (`print_handy.hermes.elegoo_watch`) runs its
+launched-print monitor (`print_handy.runtime.elegoo_watch`) runs its
 status-driven completion flow with that answer, logging the reason
 once per print. Inventing an endpoint here would be worse than the
 honest gap: a guessed URL that 404s (or answers something else) on

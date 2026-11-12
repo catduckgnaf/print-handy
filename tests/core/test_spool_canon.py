@@ -83,7 +83,7 @@ def test_audit_flags_duplicates_noise_and_unused_types():
 
 
 def test_create_spool_canonicalizes_and_reuses(monkeypatch):
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     calls = []
 
     def client(method, path, body):
@@ -108,7 +108,7 @@ def test_create_spool_canonicalizes_and_reuses(monkeypatch):
 
 
 def test_create_spool_refuses_unknown_material():
-    from print_handy.hermes import spool_sync
+    from print_handy.runtime import spool_sync
     with pytest.raises(spool_sync.SpoolError):
         spool_sync.create_spool({"material": "mystery goo", "color": "Black"},
                                 client=lambda *a: pytest.fail("Spoolman must not be called"))
@@ -124,7 +124,7 @@ def test_vendor_blacks_and_whites_match_but_greys_navy_and_cream_do_not():
 
 
 def test_walkthrough_typed_answers_are_canonical():
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     assert pab.intake_clean_typed("material", "pla plus", {}) == "PLA+"
     with pytest.raises(ValueError):
         pab.intake_clean_typed("material", "plastic", {})
@@ -136,7 +136,7 @@ def test_walkthrough_typed_answers_are_canonical():
 
 
 def test_walkthrough_material_buttons_fit_discord_rows_and_keep_old_indexes():
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     assert pab.INTAKE_MATERIALS[:6] == ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS")
     assert all(c.canonical_material(m) == m for m in pab.INTAKE_MATERIALS)
     # Every legacy button material is reachable through primary -> subtype.
@@ -155,7 +155,7 @@ def test_material_tree_covers_every_canonical_material_once():
 
 
 def test_typed_brand_or_color_not_in_picker_needs_explicit_yes():
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     state = {"material": "PLA", "types": [{"brand": "Sunlu", "material": "PLA", "color": "Black"}]}
     assert not pab.intake_typed_is_new("brand", "sunlu", state)
     assert pab.intake_typed_is_new("brand", "Polymaker", state)
@@ -168,7 +168,7 @@ def test_typed_brand_or_color_not_in_picker_needs_explicit_yes():
 
 
 def test_brand_picker_skips_placeholders_and_case_duplicates():
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
     opts = pab.intake_brand_options([{"brand": "Unknown", "material": "PLA"}, {"brand": "Generic", "material": "PLA"},
                                      {"brand": "SUNLU", "material": "PLA"}, {"brand": "sunlu", "material": "PLA+"}],
                                     "PLA")

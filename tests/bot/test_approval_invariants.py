@@ -33,7 +33,7 @@ import pytest
 from print_handy.bot import platform
 from print_handy.bot.platform import SendResult
 from print_handy.core import ai_fix, prompts, yolo
-from print_handy.hermes import print_next
+from print_handy.runtime import print_next
 
 OPERATOR = "200000000000000002"
 MEMBER = "200000000000000777"

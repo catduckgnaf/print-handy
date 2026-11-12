@@ -30,7 +30,7 @@ def a1_profiles(monkeypatch, tmp_path):
 
 def a1_config(tmp_path):
     cfg = config_for(A1)
-    cfg["paths"]["hermes_home"] = tmp_path / "hermes"
+    cfg["paths"]["state_home"] = tmp_path / "hermes"
     cfg["orca"]["templates"] = tmp_path / "hermes" / "state" / "orca-profiles" / "bambulab_a1"
     a1_fixture.install(printers.get(A1, cfg))
     return cfg

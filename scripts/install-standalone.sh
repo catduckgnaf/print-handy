@@ -24,7 +24,7 @@ done
 PYTHON=${PYTHON:-$(command -v python3)}
 SYSTEMD_USER_DIR=${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}
 # The data folder's settings key keeps its historical name until #1323 renames it (with an alias).
-DATA_HOME=$(cd "$REPO" && "$PYTHON" -m print_handy.settings get paths.hermes_home)
+DATA_HOME=$(cd "$REPO" && "$PYTHON" -m print_handy.settings get paths.state_home)
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 say() { printf '%s\n' "$*"; }

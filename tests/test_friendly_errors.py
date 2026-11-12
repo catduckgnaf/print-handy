@@ -157,7 +157,7 @@ def test_guided_debugging_findings_do_not_carry_raw_exceptions(tmp_path):
     from pathlib import Path
     from print_handy import settings
     cfg = settings.load(local=Path(os.devnull), environ={})
-    cfg["paths"]["hermes_home"] = tmp_path / "profile"
+    cfg["paths"]["state_home"] = tmp_path / "profile"
     (tmp_path / "profile" / "state").mkdir(parents=True, exist_ok=True)
     cfg["bot"]["mode"] = "standalone"
     cfg["discord"].update(chat_id="123456", allowed_user_ids="789")

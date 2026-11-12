@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from print_handy.core import model_job  # noqa: E402
+from print_handy.jobs import slice as jobs_slice  # noqa: E402
 from print_handy.core import plate_merge  # noqa: E402
 from print_handy.core import prepared_intake  # noqa: E402
 from .helpers import external  # noqa: E402
@@ -48,7 +49,7 @@ def test_grouped_prompts_cover_every_canonical_key_exactly_once():
 
 def test_single_plate_3mf_per_part_routes_to_merge_planner():
     import inspect
-    body = inspect.getsource(model_job._slice_job)  # slice_job wraps it (#1336)
+    body = inspect.getsource(jobs_slice._slice_job)  # slice_job wraps it (#1336)
     route = body.index("if src.suffix.lower() == '.3mf':")
     assert 'return slice_multi_plate(' in body[route:route + 400]
     assert 'except ImplicitPlateSplit' in body[route:route + 600]
@@ -111,7 +112,9 @@ def test_print_context_carries_multipart_plan_for_split_plate(tmp_path):
     plan = job['multipart_plan']
     second = [p for p in plan['parts'] if Path(p['gcode_path']) == gcodes[1].resolve()][0]
     assert second['id'] == 'plate2' and second['label'].endswith('(slot 2)')
-    src = Path(model_job.__file__).read_text()
+    from print_handy.launch import print_now
+    # record_start moved to launch/print_now.py (#1323); read both.
+    src = Path(model_job.__file__).read_text() + Path(print_now.__file__).read_text()
     assert "ctx.update(multipart_plan_id=plan['plan_id'], part_id=part['id'], required_parts=plan['parts'])" in src
 
 

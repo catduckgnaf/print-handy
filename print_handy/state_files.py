@@ -3,7 +3,7 @@
     python3 -m print_handy.state_files [--dry-run] [--remove]
 
 Reports by default. --remove deletes a stray only when the real copy exists in
-<hermes_home>/state, or the stray holds nothing (empty file, {}, [], empty folder). Anything else is
+<state_home>/state, or the stray holds nothing (empty file, {}, [], empty folder). Anything else is
 kept and reported. --dry-run with --remove lists what would be removed and touches nothing.
 
 Only fixed places are scanned, never a recursive walk of the home folder:
@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import settings
 
-# Every state file or folder name the code uses under <hermes_home>/state. tests/test_state_files.py
+# Every state file or folder name the code uses under <state_home>/state. tests/test_state_files.py
 # greps the source and fails when a name appears there that is missing here.
 KNOWN = (
     "bot_health.json",
@@ -116,14 +116,14 @@ def _scan(folder, state, reason, report_only=False):
 def find_strays(config=None):
     config = config or settings.current()
     state = settings.state_dir(config)
-    hermes_home = Path(config["paths"]["hermes_home"])
+    state_home = Path(config["paths"]["state_home"])
     found = []
     # The Hermes root and sibling profiles, only when the configured profile is <root>/profiles/<name>.
-    if hermes_home.parent.name == "profiles":
-        root = hermes_home.parent.parent
+    if state_home.parent.name == "profiles":
+        root = state_home.parent.parent
         found += _scan(root / "state", state, "Hermes root state folder")
-        for profile in sorted(hermes_home.parent.iterdir()):
-            if profile.is_dir() and not profile.is_symlink() and profile.resolve() != hermes_home.resolve():
+        for profile in sorted(state_home.parent.iterdir()):
+            if profile.is_dir() and not profile.is_symlink() and profile.resolve() != state_home.resolve():
                 # A sibling may be another Print Handy install with its own state: report, never delete.
                 found += _scan(profile / "state", state, f"state folder of profile {profile.name}", report_only=True)
     # Legacy dotfiles in $HOME that the cutover moved into the profile.

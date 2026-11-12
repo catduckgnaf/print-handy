@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 from print_handy import settings
-from print_handy.hermes import purchase_intake, spool_sync
+from print_handy.runtime import purchase_intake, spool_sync
 from print_handy.webui import server, spools
 
 TOKEN = "spool-test-token"
@@ -29,7 +29,7 @@ PRINTER = "flashforge-ad5x"
 
 def load_settings(tmp, extra="", environ=None):
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n{extra}")
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n{extra}")
     return settings.load(local=local, environ={} if environ is None else environ)
 
 
@@ -1025,7 +1025,7 @@ class CanonicalVendorTests(SpoolCase):
     """Review of #879: an existing vendor is matched by canonical brand name."""
 
     def test_existing_bambu_vendor_is_reused_for_bambu_lab(self):
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         self.fake.vendors[3] = {"id": 3, "name": "Bambu"}
         before = len(self.fake.vendors)
         spool_sync.create_spool({"brand": "Bambu Lab", "material": "PLA", "color": "Cobalt Teal",

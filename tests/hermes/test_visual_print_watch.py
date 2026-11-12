@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
 
 
 def test_strip_json_fence_and_profile_adapter(monkeypatch):
@@ -106,7 +106,7 @@ def test_family_idle_context_names_an_open_frame_when_the_facts_say_so():
     family printer, so an open-frame Prusa's idle frames were judged
     against an enclosed printer's description.
     """
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     from print_handy.printers.prusa import facts
 
     context = family_control._idle_context(_family_adapter("Prusa MK4S", facts.MK4S))
@@ -121,7 +121,7 @@ def test_family_idle_context_claims_no_enclosure_when_the_facts_record_none():
     "enclosed" fact at all; unknown stays unknown, so its idle context
     claims neither "enclosed" nor "open frame".
     """
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     from print_handy.printers.bambulab import facts
 
     context = family_control._idle_context(_family_adapter("Bambu Lab A1", facts.A1))
@@ -133,7 +133,7 @@ def test_family_idle_context_claims_no_enclosure_when_the_facts_record_none():
 
 def test_family_idle_context_keeps_enclosed_when_the_facts_record_it():
     """A model whose facts record an enclosure keeps the enclosed wording."""
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
     from print_handy.printers.elegoo_sdcp import facts
 
     context = family_control._idle_context(
@@ -151,7 +151,7 @@ def test_family_idle_context_claims_nothing_without_facts():
     """
     import types
 
-    from print_handy.hermes import family_control
+    from print_handy.runtime import family_control
 
     context = family_control._idle_context(
         types.SimpleNamespace(label="OctoPrint printer"))
@@ -176,7 +176,7 @@ def test_bambu_vision_context_does_not_call_an_a1_enclosed():
     for it, so its context must claim no enclosure at all — and the plate
     the facts do record for it is textured PEI, not smooth.
     """
-    from print_handy.hermes import bambu_watch
+    from print_handy.runtime import bambu_watch
     from print_handy.printers.bambulab import facts
 
     context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab A1", facts.A1))
@@ -188,7 +188,7 @@ def test_bambu_vision_context_does_not_call_an_a1_enclosed():
 
 
 def test_bambu_vision_context_names_an_open_frame_when_the_facts_say_so():
-    from print_handy.hermes import bambu_watch
+    from print_handy.runtime import bambu_watch
     from print_handy.printers.bambulab import facts
 
     context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab A1 mini", facts.A1MINI))
@@ -197,7 +197,7 @@ def test_bambu_vision_context_names_an_open_frame_when_the_facts_say_so():
 
 
 def test_bambu_vision_context_keeps_enclosed_for_a_p1s():
-    from print_handy.hermes import bambu_watch
+    from print_handy.runtime import bambu_watch
     from print_handy.printers.bambulab import facts
 
     context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab P1S", facts.P1S))
@@ -206,7 +206,7 @@ def test_bambu_vision_context_keeps_enclosed_for_a_p1s():
 
 
 def test_bambu_vision_context_claims_nothing_without_facts():
-    from print_handy.hermes import bambu_watch
+    from print_handy.runtime import bambu_watch
 
     context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab printer", {}))
     assert context.startswith("Printer: Bambu Lab printer. ")
@@ -355,7 +355,7 @@ def test_visual_check_alerts_text_only_when_the_snapshot_itself_fails(monkeypatc
     # is blind, not just see a log line (P2-8).
     import asyncio
     from unittest.mock import patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     alerts, texts = [], []
 
@@ -382,7 +382,7 @@ def test_visual_check_alerts_text_only_when_the_snapshot_itself_fails(monkeypatc
 def test_visual_check_snapshot_failure_respects_a_muted_print(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     texts = []
 
@@ -571,7 +571,7 @@ def test_stall_alert_text_rules_out_what_the_evidence_settles():
     # dark frame's stillness rules the print-side possibilities out.
     # (Pinned at the renderer: through the listener, a dark verdict takes
     # the dark-camera notice path and never reaches the stall alert.)
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
     text = vw.stall_alert_text(48, "dark", "camera image completely dark")
     assert "camera view dark" in text and "ruled out" in text
     for ruled in ("printing in air", "blocked nozzle", "toolhead parked"):
@@ -751,7 +751,7 @@ def _bright_jpeg():
 
 
 def test_frame_dark_pins_completely_dark_frames():
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
     # Pure black and near-black noise are dark.
     assert vw.frame_dark(_dark_jpeg()) is True
     assert vw.frame_dark(_pil_jpeg(lambda x, y: (x + y) % 3)) is True
@@ -813,7 +813,7 @@ def test_watchdog_snapshot_dark_direct_frame_is_returned_without_a_second_fanout
 def test_dark_frame_check_posts_one_notice_and_never_alerts_or_calls_vision(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     alerts, notices = [], []
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _dark_jpeg())
@@ -839,7 +839,7 @@ def test_dark_frame_check_posts_one_notice_and_never_alerts_or_calls_vision(monk
 def test_dark_frame_does_not_become_a_stall_baseline(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _dark_jpeg())
     monkeypatch.setattr(mel, "_visual_dark_notice", lambda filename, identity=None: None)
@@ -860,7 +860,7 @@ def test_dark_frame_does_not_become_a_stall_baseline(monkeypatch, tmp_path):
 def test_muted_print_posts_no_visual_alert(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import patch
-    from print_handy.hermes import print_alert_buttons as pab
+    from print_handy.runtime import print_alert_buttons as pab
 
     alerts = []
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
@@ -940,7 +940,7 @@ def test_unclaimed_print_gets_a_stable_identity(monkeypatch):
 
 
 def test_vision_ready_needs_an_endpoint_the_watch_can_actually_use(monkeypatch):
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(vw, "_vision_missing_logged", False)
     urls = {"vision_chat_url": ""}
@@ -1050,7 +1050,7 @@ def test_cadence_tick_with_fake_clock_and_40min_layer(monkeypatch):
 def test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second(monkeypatch):
     """An empty_idle verdict on layer 1 while printing re-checks in 60s and alerts on repeat (#913)."""
     import asyncio
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     alerts = []
     posts = []
@@ -1084,7 +1084,7 @@ def test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second(monkey
 
 def test_early_layer_schedule_for_risky_prints_vs_normal():
     """Early-layer mode checks every layer up to early_layers and every early_interval_s (#913)."""
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     # Normal print: layer 2, layer 5, then periodic
     normal_watch = mel.VisualPrintWatch(sensitivity=3)
@@ -1125,7 +1125,7 @@ def test_early_layer_schedule_for_risky_prints_vs_normal():
 def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     """Auto-pause is off by default; on opt-in it pauses on 2 suspicious verdicts, never cancels (#913)."""
     import asyncio
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     alerts = []
     pauses = []
@@ -1204,8 +1204,8 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
 
 def test_local_detector_fallback_in_early_layer_mode(monkeypatch, tmp_path):
     """Local detector is used as backup in early-layer mode when endpoint fails and model is present (#913)."""
-    from print_handy.hermes import local_vision
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import local_vision
+    from print_handy.runtime import visual_watch as vw
 
     model_file = tmp_path / "model.onnx"
     model_file.write_bytes(b"dummy-onnx")
@@ -1284,7 +1284,7 @@ def test_risky_job_reads_support_warnings_from_job_provenance():
     operator can settle supports through job['orientation']['supports'].
     risky_job must recognize those real shapes.
     """
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     warned = {"provenance": {"slice_warnings": {"support_needed": True,
                                                  "support_texts": ["floating regions"]}}}
@@ -1306,7 +1306,7 @@ def test_watch_mode_upgrades_when_start_context_arrives_late(monkeypatch):
     see no context and pick normal. The timer tick must retry the lookup until
     a context exists, instead of leaving the risky print unmonitored.
     """
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     contexts = {"late.gcode": {}}
     monkeypatch.setattr(mel.print_records, "load_context",
@@ -1336,7 +1336,7 @@ def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
     never sent as its PAUSE.
     """
     import asyncio
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     alerts = []
     pauses = []
@@ -1401,7 +1401,7 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     """
     import asyncio
     import time
-    from print_handy.hermes import visual_watch as vw
+    from print_handy.runtime import visual_watch as vw
 
     alerts = []
     pauses = []

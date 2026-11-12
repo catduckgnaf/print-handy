@@ -20,8 +20,8 @@ import time
 import pytest
 
 from print_handy.bot import health, recent_links
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import print_next
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import print_next
 
 NOW = 1_760_000_000.0
 

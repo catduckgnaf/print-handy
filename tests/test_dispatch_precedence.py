@@ -140,7 +140,7 @@ def test_the_two_last_print_resolvers_name_different_targets(tmp_path):
     an older job was launched. last_job (mtime) names the never-printed
     job; resolve_last_print (launch records) names the printed one.
     #979 H2 — decision D2 moves last_job to launch-record selection."""
-    from print_handy.hermes import print_control
+    from print_handy.runtime import print_control
 
     archive = tmp_path / "archive"
     shield_src = tmp_path / "shield.stl"

@@ -1261,8 +1261,8 @@ def _keep_failure_logs(folder: Path) -> Path:
     """Copy slicer logs out of a slice folder that is deleted after a failure; return the kept dir."""
     folder = Path(folder)
     try:
-        from ..hermes import _config
-        keep = Path(_config.hermes_home()) / 'state' / 'slice-failures' / folder.name
+        from ..runtime import _config
+        keep = Path(_config.state_home()) / 'state' / 'slice-failures' / folder.name
         keep.mkdir(parents=True, exist_ok=True)
         for name in ('orca.log', 'flash-studio.log', 'bambu.log', 'result.json', '00000.log', 'process.json', 'machine.json'):
             if (folder / name).is_file():

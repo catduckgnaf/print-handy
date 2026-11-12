@@ -1,8 +1,8 @@
 """klipper_report: offline, no printer traffic."""
 from unittest.mock import patch
 
-from print_handy.hermes import klipper_report as kr
-from print_handy.hermes import moonraker_event_listener as mel
+from print_handy.runtime import klipper_report as kr
+from print_handy.runtime import moonraker_event_listener as mel
 
 NOW = 1792070000.0
 MSG = "Nozzle hit bed or part detachment. Weight 1512>1500.0. Z=10. FIRMWARE_RESTART."
@@ -43,10 +43,10 @@ def test_report_trims_long_output():
 
 
 def test_listener_cancel_posts_report_and_falls_back():
-    with patch("print_handy.hermes.klipper_report.report", return_value="REPORT"), patch.object(mel, "post", return_value=True) as p:
+    with patch("print_handy.runtime.klipper_report.report", return_value="REPORT"), patch.object(mel, "post", return_value=True) as p:
         mel.post_cancel_report("f.gcode")
     assert "REPORT" in p.call_args[0][0]
-    with patch("print_handy.hermes.klipper_report.report", side_effect=RuntimeError("boom")), patch.object(mel, "post", return_value=True) as p:
+    with patch("print_handy.runtime.klipper_report.report", side_effect=RuntimeError("boom")), patch.object(mel, "post", return_value=True) as p:
         mel.post_cancel_report("f.gcode")
     assert "REPORT" not in p.call_args[0][0]
 

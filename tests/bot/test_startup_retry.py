@@ -10,7 +10,7 @@ import pytest
 from aiohttp.client_reqrep import ConnectionKey
 
 from print_handy.bot import client
-from print_handy.hermes import _config
+from print_handy.runtime import _config
 
 
 @pytest.fixture(autouse=True)

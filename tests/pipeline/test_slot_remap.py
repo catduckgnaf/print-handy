@@ -147,7 +147,7 @@ def test_cli_remap_slot_subcommand(tmp_path):
 
     test_config = tmp_path / "config.toml"
     test_config.write_text(
-        "[paths]\nhermes_home = " + json.dumps(str(tmp_path / "hermes")) + "\n"
+        "[paths]\nstate_home = " + json.dumps(str(tmp_path / "hermes")) + "\n"
     )
     state_path = tmp_path / "hermes" / "state" / "printer_hardware.json"
     state_path.parent.mkdir(parents=True)

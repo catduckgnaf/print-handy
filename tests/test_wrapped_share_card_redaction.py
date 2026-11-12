@@ -236,7 +236,7 @@ class ShareRouteDefaults(unittest.TestCase):
     def start(self, tmp):
         _write_vault(tmp)
         local = Path(tmp) / "local.yaml"
-        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n"
                          f"  records_vault: {tmp}/vault\n"
                          "webui:\n  enabled: true\n  port: 8765\n"
                          "timelapse:\n  wrapped_enabled: true\n")

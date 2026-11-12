@@ -24,7 +24,7 @@ Subjects, all pure or fake-clock driven:
 """
 import io
 
-from print_handy.hermes import local_vision, timelapse_capture
+from print_handy.runtime import local_vision, timelapse_capture
 
 TICK_S = 5
 MINUTES = 60

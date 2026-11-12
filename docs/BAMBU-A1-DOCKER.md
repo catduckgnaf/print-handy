@@ -100,7 +100,7 @@ The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5
 
 ## 3. Write the hardware record by hand
 
-**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<hermes_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
+**Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<state_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand.
 
 Create `data/state/state/printer_hardware.json` on the host (the container sees it as `/data/state/state/printer_hardware.json`). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
 
@@ -222,7 +222,7 @@ No restart is needed; the file is read on each MakerWorld request. A wrong or ex
 
 What to expect from the pending fixes on this step:
 
-- **The Discord button's idle check** (`live_idle_check` in `print_handy/hermes/print_next.py`) queries Moonraker, so on a Bambu printer it is not a live check of the A1 in this version. Look at the printer yourself before you confirm the bed is clear.
+- **The Discord button's idle check** (`live_idle_check` in `print_handy/runtime/print_next.py`) queries Moonraker, so on a Bambu printer it is not a live check of the A1 in this version. Look at the printer yourself before you confirm the bed is clear.
 - **"submitted, awaiting confirmation".** A start that the printer accepted can still be reported this way when the confirming snapshot does not arrive in time. The print is running; the record is uncertain. With LAN telemetry configured, the Bambu listener settles it on its own: the printer reporting that file running or preparing settles it as started, and the printer sitting idle with both heater targets at 0 for a minute without ever running it releases it as not started. If the printer shows that file already finished, cancelled or failed, the listener cannot tell whether it ran, so it leaves the record uncertain for you. Without the listener, or if it has not settled, check the printer; once you see it printing, settle it, and only then:
 
   ```bash

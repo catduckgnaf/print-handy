@@ -13,10 +13,10 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import print_control
-from print_handy.hermes import print_stop
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import print_control
+from print_handy.runtime import print_stop
 
 HEAD_SENSOR = "filament_switch_sensor head_switch_sensor"
 ISSUE_SENSOR_STATUS = {HEAD_SENSOR: {"filament_detected": False, "enabled": True}}
@@ -275,7 +275,7 @@ class SlotlessQuestionTests(ListenerRunoutCase):
         suspending usage stops charging EVERY spool until it is answered.
         The listener posts one plain notice instead and leaves usage
         running."""
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
 
         self.hardware.write_text(json.dumps({"spool": {"spoolman_id": 10}}))
         lis = self.listener({}, head=False, native=False)
@@ -487,7 +487,7 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
         self.assertIsNone(mel.failover_usage_target(3, 2, 20, {3: 20, 2: 20}.get))
 
     async def test_follow_failover_repoints_usage_and_says_so(self):
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         self.hardware.write_text(json.dumps({"filament_slots": {
             "2": {"spoolman_id": 19}, "3": {"spoolman_id": 20}}}))
         lis = self.listener({}, head=None)
@@ -511,7 +511,7 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
 
     async def test_failed_usage_read_is_retried_not_dropped(self):
         # Review of #878: a transient error must not consume the switch.
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         lis = self.listener({}, head=None)
         lis.failover_watch = mel.FailoverChannelWatch()
         for ch in (3, 2, 2):
@@ -522,7 +522,7 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
         self.assertEqual(lis.failover_watch.channel, 3)
 
     async def test_follow_failover_leaves_a_multi_slot_job_alone(self):
-        from print_handy.hermes import spool_sync
+        from print_handy.runtime import spool_sync
         lis = self.listener({}, head=None)
         with mock.patch.object(spool_sync, "active_usage_spool", return_value=None), \
              mock.patch.object(spool_sync, "resume_usage") as resume, \

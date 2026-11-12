@@ -1,5 +1,5 @@
 """Stop and cancel diagnostics filters (2026-11-05 cancel post): offline fixtures only."""
-from print_handy.hermes import klipper_report as kr
+from print_handy.runtime import klipper_report as kr
 
 NOW = 1792070000.0
 

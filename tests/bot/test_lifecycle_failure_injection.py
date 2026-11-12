@@ -37,9 +37,9 @@ import pytest
 
 from print_handy.bot import rest
 from print_handy.core import model_job, spoolman_client
-from print_handy.hermes import moonraker_discord_announcements as watcher
-from print_handy.hermes import moonraker_event_listener as listener
-from print_handy.hermes import print_records as records
+from print_handy.runtime import moonraker_discord_announcements as watcher
+from print_handy.runtime import moonraker_event_listener as listener
+from print_handy.runtime import print_records as records
 
 DEAD = "http://127.0.0.1:9"  # nothing ever connects; the socket seam is faked below
 REFUSED = urllib.error.URLError(OSError(111, "Connection refused"))

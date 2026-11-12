@@ -8,7 +8,7 @@ from print_handy import setup_state
 
 
 def _data(tmp_path):
-    return {"paths": {"hermes_home": tmp_path}}
+    return {"paths": {"state_home": tmp_path}}
 
 
 def test_record_round_trip(tmp_path):
@@ -67,7 +67,7 @@ def test_corrupt_record_reads_as_incomplete(tmp_path):
 
 
 def test_string_home_shape_is_accepted(tmp_path):
-    data = {"paths": {"hermes_home": str(tmp_path)}}
+    data = {"paths": {"state_home": str(tmp_path)}}
     setup_state.record_completion(data, "webui", when="2026-11-09T02:00:00+00:00")
     assert setup_state.is_complete(data)
 

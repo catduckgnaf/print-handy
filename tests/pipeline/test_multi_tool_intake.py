@@ -199,7 +199,7 @@ def test_duplicate_spool_colours_are_labelled_by_toolhead(creator, tmp_path):
 
 
 def test_summary_wording_names_toolheads(creator, tmp_path):
-    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.runtime import discord_print_summary as summary
     gcode = tmp_path / 'plate_1.gcode'
     gcode.write_text('; estimated printing time (normal mode) = 1h 0m 0s\nG1 X1\n')
     job = {'printer_model': creator, 'title': 'Ghost Stand', 'gcode': str(gcode),
@@ -497,7 +497,7 @@ def xl_capture(source_file, decisions, state, tmp_path, monkeypatch, **slice_kwa
     import shutil
     from print_handy.core import slice_guard
     cfg = settings.load(local=False, environ={'PRINT_HANDY__PRINTER__MODEL': 'prusa.xl',
-                                              'PRINT_HANDY__PATHS__HERMES_HOME': str(tmp_path / 'home')})
+                                              'PRINT_HANDY__PATHS__STATE_HOME': str(tmp_path / 'home')})
     monkeypatch.setattr(settings, 'current', lambda: cfg)
     adapter = printers.get('prusa.xl', cfg)
     # The XL's templates are operator-generated; stand in a real multi-extruder

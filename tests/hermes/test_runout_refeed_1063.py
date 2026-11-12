@@ -16,10 +16,10 @@ from unittest import mock
 
 import pytest
 
-from print_handy.hermes import lane_data_sync
-from print_handy.hermes import moonraker_event_listener as mel
-from print_handy.hermes import print_alert_buttons as pab
-from print_handy.hermes import spool_sync
+from print_handy.runtime import lane_data_sync
+from print_handy.runtime import moonraker_event_listener as mel
+from print_handy.runtime import print_alert_buttons as pab
+from print_handy.runtime import spool_sync
 
 SPEC = importlib.util.spec_from_file_location(
     "print_feedback_1063", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")

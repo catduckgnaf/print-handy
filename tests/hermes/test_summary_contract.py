@@ -3,7 +3,7 @@ from pathlib import Path
 
 from print_handy.core import discord_color_intake
 from print_handy.core import model_job
-from print_handy.hermes import print_records
+from print_handy.runtime import print_records
 
 
 def test_sanitized_summary_contract_for_discord_and_homeassistant():
@@ -32,7 +32,7 @@ def test_sanitized_summary_contract_for_discord_and_homeassistant():
 
 
 def test_filament_label_does_not_name_the_material_twice():
-    from print_handy.hermes.discord_print_summary import filament_label
+    from print_handy.runtime.discord_print_summary import filament_label
     assert filament_label("Coffee PLA+", "PLA+") == "Coffee PLA+"
     assert filament_label("coffee pla+", "PLA+") == "coffee pla+"
     assert filament_label("PLA+", "PLA+") == "PLA+"
@@ -44,6 +44,6 @@ def test_filament_label_does_not_name_the_material_twice():
 
 
 def test_alert_slot_line_names_the_material_once():
-    from print_handy.hermes.discord_print_summary import format_confirmed_print
+    from print_handy.runtime.discord_print_summary import format_confirmed_print
     text = format_confirmed_print(kind="paused", model="clip.gcode", slot=2, color="Coffee PLA+", material="PLA+")
     assert "Slot 2: Coffee PLA+" in text and "PLA+ PLA+" not in text

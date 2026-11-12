@@ -54,7 +54,7 @@ CONTROL_VERBS = ("pause", "resume", "cancel", "temperature", "target",
 
 def load_settings(tmp, extra="", environ=None):
     local = Path(tmp) / "local.yaml"
-    local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n{extra}")
+    local.write_text(f"paths:\n  state_home: {tmp}/hermes\n{extra}")
     return settings.load(local=local, environ={} if environ is None else environ)
 
 

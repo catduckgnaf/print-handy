@@ -8,12 +8,13 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest.mock import AsyncMock, Mock, patch
 
-import print_handy.hermes as hermes_pkg
+import print_handy.runtime as hermes_pkg
 
 
 class RebootStandbyTests(unittest.TestCase):
     def test_standby_offers_confirmation_but_active_states_do_not(self):
-        tree = ast.parse((Path(__file__).parents[2] / 'plugins/print-feedback/__init__.py').read_text())
+        from handler_source import handler_source  # the handlers moved into print_handy/bot/handlers (#1323)
+        tree = ast.parse(handler_source())
         node = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'print_reboot_dispatch')
         for state, klippy, allowed in [('standby', 'ready', True), ('printing', 'ready', False),
                                       ('paused', 'ready', False), ('unknown', 'ready', False),

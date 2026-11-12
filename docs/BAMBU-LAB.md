@@ -62,7 +62,7 @@ python3 scripts/bambu-templates.py --printer a1 --resources <OrcaSlicer resource
 ```
 
 - **The resources folder** is the one holding `profiles/BBL.json` and `profiles/BBL/`, or, OrcaSlicer 2.5 and later, the packed preset cache `profiles/BBL.opc` on its own. For the Flathub build it is under `$(flatpak info --show-location com.orcaslicer.OrcaSlicer)/files/share/`. For an AppImage it is `squashfs-root/resources`.
-- **What it does.** It resolves the A1 profiles' `inherits` and `include` chains and refuses unless they hash to an OrcaSlicer version Print Handy has been checked against: OrcaSlicer 2.4.2 (BBL vendor profiles `02.01.00.19`), OrcaSlicer v2.5.0-alpha (BBL vendor profiles `02.08.00.15`) and OrcaSlicer v2.5.0-beta (BBL vendor profiles `02.08.00.16`), the 2.5 releases from their JSON tree or their packed preset cache. The shipped slicer is now v2.5.0, whose BBL profiles are unchanged from the beta, so 2.5.0 installs hash to these same recorded beta identities. It then writes the profiles and Print Handy's overrides into `<hermes_home>/state/orca-profiles/bambulab_a1/`, never into the checkout. Nothing is downloaded.
+- **What it does.** It resolves the A1 profiles' `inherits` and `include` chains and refuses unless they hash to an OrcaSlicer version Print Handy has been checked against: OrcaSlicer 2.4.2 (BBL vendor profiles `02.01.00.19`), OrcaSlicer v2.5.0-alpha (BBL vendor profiles `02.08.00.15`) and OrcaSlicer v2.5.0-beta (BBL vendor profiles `02.08.00.16`), the 2.5 releases from their JSON tree or their packed preset cache. The shipped slicer is now v2.5.0, whose BBL profiles are unchanged from the beta, so 2.5.0 installs hash to these same recorded beta identities. It then writes the profiles and Print Handy's overrides into `<state_home>/state/orca-profiles/bambulab_a1/`, never into the checkout. Nothing is downloaded.
 - **`--check`** writes nothing. It reports whether the installed OrcaSlicer matches and whether the generated folder is current.
 - **Missing, edited or unrecognised profiles refuse everything.** Slicing, `verify-gcode`, packaging and `print-now` all fail closed with the command to run. That includes another OrcaSlicer version.
 - **OrcaSlicer 2.5's packed profiles are read directly.** It packs its vendor profiles into one `BBL.opc` preset cache; Print Handy decodes the cache (`print_handy/printers/bambulab/preset_cache.py`) and flattens it like the tree. The two packagings of one release flatten differently, the cache holds only the options OrcaSlicer's own config definitions know, under their current names, so each packaging has its own recorded identity in `facts.py`. A cache that fails its format checks (magic, format version, size, CRC32, vendor) is refused, as is any other unchecked version.
@@ -125,9 +125,9 @@ The A1 is one printer module under the existing Bambu Lab vendor profile. See [P
 | `print_handy/printers/bambulab/guard.py` | The A1 G-code checks, run after slicing, before packaging and at `print-now` |
 | `print_handy/printers/bambulab/facts.py` | Supplemental metadata only: each hardware value the guard enforces, with its source and whether it was verified, plus the profile names, Print Handy's overrides and the SHA-256 identity of the checked OrcaSlicer profiles. It decides nothing about connection, slicer or delivery |
 | `print_handy/printers/bambulab/profiles.py` | Generates the A1 templates from an installed OrcaSlicer and re-verifies them before every use |
-| `<hermes_home>/state/orca-profiles/bambulab_a1/` | The generated templates, on the operator's machine only (`MODEL.generated_templates`) |
+| `<state_home>/state/orca-profiles/bambulab_a1/` | The generated templates, on the operator's machine only (`MODEL.generated_templates`) |
 
-The P1S is `bambulab/p1s.py`: its facts in `facts.P1S` (profile names, checked identity, 250 mm Orca height, bed exclusion, motion envelope), a `BambuAdapter` subclass and a `MODEL` with `generated_templates=True`. Its templates go to `<hermes_home>/state/orca-profiles/bambulab_p1s/`. Every Stage 1 model follows exactly this shape: `bambulab/<model>.py`, a facts block in `facts.py`, and templates under `<hermes_home>/state/orca-profiles/bambulab_<model>/`.
+The P1S is `bambulab/p1s.py`: its facts in `facts.P1S` (profile names, checked identity, 250 mm Orca height, bed exclusion, motion envelope), a `BambuAdapter` subclass and a `MODEL` with `generated_templates=True`. Its templates go to `<state_home>/state/orca-profiles/bambulab_p1s/`. Every Stage 1 model follows exactly this shape: `bambulab/<model>.py`, a facts block in `facts.py`, and templates under `<state_home>/state/orca-profiles/bambulab_<model>/`.
 
 ## What works and what does not
 
@@ -327,7 +327,7 @@ What this repository holds, and what it does not:
 
 | Item | In the repository | Kind |
 |---|---|---|
-| OrcaSlicer/Bambu A1 machine, process and filament profiles, and their G-code | **No.** Generated per installation into `<hermes_home>/state/orca-profiles/bambulab_a1/` | Third-party, AGPL-3.0, read from the operator's OrcaSlicer |
+| OrcaSlicer/Bambu A1 machine, process and filament profiles, and their G-code | **No.** Generated per installation into `<state_home>/state/orca-profiles/bambulab_a1/` | Third-party, AGPL-3.0, read from the operator's OrcaSlicer |
 | Profile names, the `ORCA_OVERRIDES` keys and values, settings-ID keys | Yes, `facts.py` | Original: identifiers and Print Handy's own settings |
 | SHA-256 identity of the checked profiles and hardware numbers | Yes, `facts.py` | Facts: hashes and measurements, no profile text |
 | The material to filament-profile names (`orca_filaments`) and their hashes | Yes, `facts.py` | Identifiers and hashes, no profile text |
