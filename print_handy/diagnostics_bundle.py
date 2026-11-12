@@ -168,6 +168,11 @@ def runtime_section(data, *, now=None) -> str:
             lag = record.get("loop_lag_ms")
             if isinstance(lag, (int, float)):
                 beat_text += f", loop lag {lag / 1000:.1f}s"
+            # The camera watch's coverage as the listener reported it (#1320).
+            from .hermes import camera_watch
+            watch_text = camera_watch.coverage_text(record.get("camera_watch"))
+            if watch_text:
+                beat_text += f", camera watch {watch_text}"
         except Exception:
             pass
         sup = records.get(printer_id)

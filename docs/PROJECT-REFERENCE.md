@@ -557,6 +557,7 @@ bot posting progress notifications.
 * `print_handy/doctor.py`: checks that a machine can run Print Handy.
 * `print_handy/core/`: offline 3MF and STL pipeline. No printer connection.
 * `print_handy/hermes/`: Moonraker listener, Discord posts, spool sync, print control, and records.
+* `print_handy/printer_control.py`: the one printer-control service, keyed by printer id. Every stop, pause, resume, reboot, emergency stop and heater-ceiling question from chat, the alert buttons, the Web UI and the CLI goes through it; see [Printer control service](#printer-control-service).
 * `print_handy/printers/`: one package per brand, one file per printer model; see `base.py` for what each one owns.
 * `print_handy/templates/orca/<model folder>/`: Orca machine, process, and filament JSON per printer.
 * `plugins/print-feedback/`: the Discord command handlers, loaded by the standalone bot's router.
@@ -565,6 +566,23 @@ bot posting progress notifications.
 * `print-handy.cfg`, `install.sh`, `uninstall.sh`, `update.sh`: ZMod plugin macro and lifecycle scripts. The cfg file name must match the plugin name (`print-handy`) or ZMod refuses to enable the plugin, and the three script names are the lifecycle hooks the plugin host looks for, so they stay at the repository root under those names. They are not Print Handy install scripts (those are `scripts/install-standalone.sh` and `scripts/home-update.sh`).
 * `tests/`: offline suite, real slicer checks, the Discord flow corpus (`tests/corpus/`), and the Klipper macro tests.
 * `docs/`: install guide and AD5X integration specs.
+
+## Printer control service
+
+`print_handy/printer_control.py` (#1317) is the single front door for printer control. `printer_control.for_printer(printer_id)` returns the control for one roster printer; no id means the configured default printer. It owns:
+
+* **Capability discovery.** `connection` and `capabilities()` name the verbs the printer's transport carries (Moonraker carries all of them; the adapter-control families carry status, pause, resume and cancel, plus temperature or G-code where the adapter offers them; offline carries none).
+* **The heater ceiling.** `ceiling()` and `refusal()` ask `core.heater_ceiling` with the printer's adapter, settings view and hardware record, so the Web UI temperature routes and the CLI purge refuse the same values.
+* **Cancel, then verify the heaters.** `cancel()` re-reads the state, sends one cancel for the confirmed file, reads the state back, then reads the heater targets back and names any heater still set. Nothing is sent to turn a heater off.
+* **Pause and resume** with the same discipline, and `send_pause()` for the camera alert, which runs its own readback.
+* **Emergency stop and recovery.** `emergency_stop()` is the panic ladder (emergency stop, firmware restart, ready wait, REBOOT fallback); `clear_shutdown()` and `force_reboot()` are the confirmed recovery paths.
+* **The Web UI one-command shape.** `send(command, sender=...)` is the door every Web UI control command crosses; the Web UI keeps its immediate HTTP answers.
+
+A recorded family alert goes to that family's own adapter control, a Bambu LAN printer to its LAN client and Moonraker to Moonraker; the decision is made once, in the service. The transport drivers (`hermes/print_stop.py`, `hermes/print_control.py`, `hermes/family_control.py`, `hermes/panic.py` and the Web UI `default_send`) are unchanged and only the service calls them, so a gate added to a driver applies to every surface.
+
+The entry points are listed in `printer_control.ENTRY_POINTS`: the chat commands (`/print-stop`, `/print-resume`, `/print-reboot`, the exclude and spool-question stops, the force-restart offers), the alert buttons (Discord, Telegram and Matrix presses all reach `print_alert_buttons.handle_click`), the Web UI control routes and the CLI (`python -m print_handy.hermes.panic`). `tests/test_printer_control_entry_points.py` checks that each entry point calls the service and scans the package and the handler plugin for any stop, pause, resume, reboot, emergency-stop or family-control command sent around it. A new control surface is added to `ENTRY_POINTS` and calls the service.
+
+Starting a print is not part of this service (#1318). `bin/moonrakerctl` stays a raw Moonraker tool for the shell and is not a Print Handy control surface.
 
 ## Links
 

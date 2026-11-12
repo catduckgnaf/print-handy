@@ -530,8 +530,8 @@ def video_status(data, year, *, records_vault=None, jobs=None):
 
 
 def export_share(data, year, visibility="link-only", *, records_vault=None, out_dir=None,
-                 destination_note="", passphrase=None, include_titles=True,
-                 include_printers=True, include_video=False):
+                 destination_note="", passphrase=None, include_titles=False,
+                 include_printers=False, include_video=False):
     """(code, body) for POST /wrapped/share: one explicit export.
 
     Behind the same ``wrapped_enabled`` gate as every other Wrapped
@@ -844,9 +844,10 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
     titles = preview.get("titles") or []
     printers = preview.get("printers") or []
     parts = [
-        "<h2>Share this Wrapped</h2>",
+        "<h2>Share this Pasta Wrapped</h2>",
         "<p>Export this year as a self-contained static bundle — the "
-        "scrolling Wrapped page and the summary card images, written "
+        "scrolling Wrapped page and the summary card images (9:16 for "
+        "stories, 1:1 for feeds, and a link preview), written "
         "locally under the wrapped outputs. Print Handy uploads nothing "
         "and asks for no tokens: hosting is your own free static-host "
         "account. Choose what goes in before you export.</p>",
@@ -859,13 +860,17 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
         "rate, top color and material, busiest month), your printing "
         "personality and the commentary. Nothing else from your records, "
         "settings or files.</p>"
-        '<p><label><input type="checkbox" name="include_titles" value="1" checked> '
+        "<p>Print titles and printer names are <strong>left out by "
+        "default</strong>, from the page, the commentary and every card. "
+        "Tick a box to put them back for this export only; the choice is "
+        "recorded with the export.</p>"
+        '<p><label><input type="checkbox" name="include_titles" value="1"> '
         "Print titles"
         + (f" — would show: {_esc(', '.join(titles[:8]))}"
            + (f" and {len(titles) - 8} more" if len(titles) > 8 else "")
            if titles else " — none appear this year")
         + "</label></p>"
-        '<p><label><input type="checkbox" name="include_printers" value="1" checked> '
+        '<p><label><input type="checkbox" name="include_printers" value="1"> '
         "Printer names"
         + (f" — would show: {_esc(', '.join(printers[:6]))}" if printers
            else " — none appear this year")
@@ -877,7 +882,9 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
         + "</label> <strong>The video contains camera footage</strong>: "
         "frames from your printer's camera, which can show the room, the "
         "desk and anyone in view. It is left out unless you tick this, and "
-        "you should watch it first.</p>"
+        "you should watch it first. Its slides and narration may name "
+        "prints and printers, so it is attached only when both boxes above "
+        "are ticked too.</p>"
         "<p>Leaving titles or printer names out also drops every commentary "
         "line that mentions one.</p></fieldset>"
         '<label>Visibility <select name="visibility">'
@@ -924,8 +931,12 @@ def _share_panel(year, form_token, exports, registry_note, preview=None,
             + (f", to {_esc(entry['destination'])}" if entry.get("destination") else "")
             + f", exported {_esc(entry.get('exported_at') or '')}, "
             f"video {'included' if entry.get('video_included') else 'not included'}"
-            + ("" if entry.get("titles_included", True) else ", titles left out")
-            + ("" if entry.get("printer_names_included", True) else ", printer names left out")
+            # An entry from before these keys existed was exported with
+            # names in (the old default), so a missing key reads as included.
+            + (", titles included" if entry.get("titles_included", True)
+               else ", titles left out")
+            + (", printer names included" if entry.get("printer_names_included", True)
+               else ", printer names left out")
             + "</li>"
             for entry in exports)
         parts.append(f"<ul>{rows}</ul>")
@@ -1169,6 +1180,10 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
             f"<code>{_esc(payload.get('path') or '')}</code></p>"
             f"<p>Visibility: {_esc(payload.get('visibility') or '')}. "
             f"Video: {'included' if payload.get('video_included') else 'not included'}. "
+            "Print titles: "
+            f"{'included (you opted in)' if manifest.get('titles_included') else 'left out'}. "
+            "Printer names: "
+            f"{'included (you opted in)' if manifest.get('printer_names_included') else 'left out'}. "
             "Nothing was uploaded — hosting the bundle on your own static "
             "host is the next step (the Wrapped page's Share panel has "
             "the GitHub Pages and Cloudflare Pages steps).</p>"

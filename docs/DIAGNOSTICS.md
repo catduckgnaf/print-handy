@@ -758,8 +758,9 @@ What the bundle carries beyond versions and the redacted config summary:
   develop and nightly images have both stamped in by the workflow that
   publishes them, a local build says "not recorded", and a value you set
   on the container wins; the image digest is always shown when present),
-  each printer's listener
-  heartbeat age and event-loop lag, the supervisor's persisted restart
+  each printer's listener heartbeat age and event-loop lag, the camera
+  watch coverage the listener reported (active, or off and why), the
+  supervisor's persisted restart
   counts per printer (including a spent budget), and the
   capture-directory names with their lengths, one real hang was a
   capture name that outgrew its limit.

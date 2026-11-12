@@ -61,7 +61,7 @@ class DefaultsAndOptions(unittest.TestCase):
         self.assertIn("Garage AD5X", page)
         self.assertIn("contains camera footage", page)
         self.assertRegex(page, r'name="include_video" value="1"(?! checked)')
-        self.assertIn('name="include_titles" value="1" checked', page)
+        self.assertIn('name="include_titles" value="1">', page)  # unticked (#1321)
 
     def test_video_is_omitted_when_titles_are_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,7 +69,8 @@ class DefaultsAndOptions(unittest.TestCase):
             out.mkdir()
             (out / "wrapped-2025.mp4").write_bytes(b"video contains Secret Bracket")
             result = share_export.export_bundle(
-                payload(), out, include_video=True, include_titles=False)
+                payload(), out, include_video=True, include_titles=False,
+                include_printers=True)
             folder = Path(result["path"])
             self.assertFalse(result["video_included"])
             self.assertFalse((folder / "wrapped-2025.mp4").exists())
@@ -82,13 +83,15 @@ class DefaultsAndOptions(unittest.TestCase):
             out.mkdir()
             (out / "wrapped-2025.mp4").write_bytes(b"video contains printer name")
             result = share_export.export_bundle(
-                payload(), out, include_video=True, include_printers=False)
+                payload(), out, include_video=True, include_printers=False,
+                include_titles=True)
             self.assertFalse(result["video_included"])
             self.assertFalse((Path(result["path"]) / "wrapped-2025.mp4").exists())
 
     def test_titles_and_printer_names_can_be_left_out(self):
         with tempfile.TemporaryDirectory() as tmp:
-            kept = share_export.export_bundle(payload(), Path(tmp) / "a")
+            kept = share_export.export_bundle(payload(), Path(tmp) / "a",
+                                              include_titles=True, include_printers=True)
             self.assertIn("Secret Bracket", page_of(kept))
             self.assertIn("Garage AD5X", page_of(kept))
             left = share_export.export_bundle(
@@ -111,7 +114,8 @@ class DefaultsAndOptions(unittest.TestCase):
             out = Path(tmp) / "wrapped"
             out.mkdir()
             (out / "wrapped-2025.mp4").write_bytes(b"camera frames")
-            result = share_export.export_bundle(payload(), out, include_video=True)
+            result = share_export.export_bundle(payload(), out, include_video=True,
+                                                include_titles=True, include_printers=True)
             self.assertTrue(result["video_included"])
             self.assertIn(share_export.VIDEO_FOOTAGE_NOTE, result["manifest"]["notes"])
 
@@ -131,7 +135,8 @@ class PathsAreNeverTitles(unittest.TestCase):
         self.assertNotIn("/data/archive", lines)
         self.assertIn("Private Part", lines)
         with tempfile.TemporaryDirectory() as tmp:
-            result = share_export.export_bundle(data, Path(tmp) / "w")
+            result = share_export.export_bundle(data, Path(tmp) / "w",
+                                                include_titles=True)
             self.assertNotIn("/data/archive", page_of(result))
 
 
@@ -142,14 +147,15 @@ class StaleFilesAndPileUp(unittest.TestCase):
             out.mkdir()
             (out / "wrapped-2025.mp4").write_bytes(b"camera frames")
             first = share_export.export_bundle(payload(), out, visibility="public",
-                                               include_video=True)
+                                               include_video=True, include_titles=True,
+                                               include_printers=True)
             folder = Path(first["path"])
             self.assertTrue((folder / "wrapped-2025.mp4").is_file())
             (folder / "old-leftover.txt").write_text("x")
             share_export.export_bundle(payload(), out, visibility="public")
             self.assertEqual(sorted(p.name for p in folder.iterdir()),
-                             ["index.html", "manifest.json", "share-card-vertical.png",
-                              "share-card.png"])
+                             ["index.html", "manifest.json", "share-card-square.png",
+                              "share-card-story.png", "share-card.png"])
             entries, _ = share_export.load_exports(out)
             self.assertEqual(len(entries), 1)  # replaced, not listed twice
 
@@ -171,7 +177,8 @@ class StaleFilesAndPileUp(unittest.TestCase):
             out.mkdir()
             source = out / "wrapped-2025.mp4"
             source.write_bytes(b"x" * 1000)
-            result = share_export.export_bundle(payload(), out, include_video=True)
+            result = share_export.export_bundle(payload(), out, include_video=True,
+                                                include_titles=True, include_printers=True)
             copy = Path(result["path"]) / "wrapped-2025.mp4"
             self.assertEqual(copy.read_bytes(), source.read_bytes())
             try:

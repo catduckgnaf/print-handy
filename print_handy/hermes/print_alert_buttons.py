@@ -1672,8 +1672,10 @@ def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: f
     emergency stop, and print_stop.cancel for the job. Re-reads state first;
     never retries; no motion, no heat.
     """
+    from print_handy import printer_control
     from . import print_control as pc
     from . import print_stop
+    control = printer_control.for_printer(printer_id)
     kw = {"printer_id": printer_id} if printer_id else {}
     try:
         st = pc.status(**kw)
@@ -1681,7 +1683,7 @@ def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: f
         return f"Not cleared: I could not read the printer ({exc}). Nothing sent."
     lines = []
     if st.get("klippy") == "shutdown":
-        ok, msg = clear_shutdown(wait_s, poll_s, **kw)
+        ok, msg = control.clear_shutdown(wait_s, poll_s)
         lines.append(msg)
         if not ok:
             return "\n".join(lines)
@@ -1697,7 +1699,7 @@ def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: f
         if filename and st.get("filename") and st["filename"] != filename:
             lines.append("A different print is loaded now than the one in this alert. Not cancelling it.")
         else:
-            ended, text = print_stop.cancel(st.get("filename") or filename, printer_id=printer_id)
+            ended, text = control.cancel(st.get("filename") or filename)
             lines.append(text)
             # cancel() returns True when the command was sent, including when the
             # printer is still printing or paused, or the outcome is unknown.
@@ -1723,6 +1725,7 @@ def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: f
 def handle_click(action: str, alert: dict[str, Any] | None, *,
                  pause_wait_s: float = 15, pause_poll_s: float = 1.0) -> str:
     """Run one button action. Always re-reads state first; never retries."""
+    from print_handy import printer_control
     from . import print_control as pc
     from . import print_stop
     if not alert:
@@ -1744,10 +1747,11 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             if refusal:
                 return refusal
             kw = {"printer_id": pid} if pid else {}
-            if print_stop._lan_adapter(**kw) is not None:
+            control = printer_control.for_printer(pid)
+            if control.is_bambu_lan():
                 # Bambu camera watch (#294): the same button, the Bambu pause —
                 # print_stop.pause re-reads the LAN state and checks the file itself.
-                return print_stop.pause(filename, **kw)[1]
+                return control.pause(filename)[1]
             try:
                 st = pc.status(**kw)
             except Exception as exc:
@@ -1772,7 +1776,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             # state, or unknown when no usable readback was obtained.
             send_error: Exception | None = None
             try:
-                pc._send("/printer/print/pause", method="POST", timeout=15, **kw)
+                control.send_pause()
             except Exception as exc:
                 send_error = exc
             outcome = _poll_for_paused(pc, pause_wait_s, pause_poll_s, printer_id=pid)
@@ -1827,18 +1831,17 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     if refusal:
         return refusal
     kw = {"printer_id": pid} if pid else {}
+    control = printer_control.for_printer(pid)
     connection = alert.get("connection")
     if connection:
         # A non-Moonraker family's pause alert (#460): the press goes to
         # that family's own adapter control (family_control), with its
         # state re-read and filename check — never the Moonraker path
         # below, whose transport only speaks to Moonraker endpoints.
-        from . import family_control
-        control = family_control.control_for(pid)
-        if control is None or control.connection != connection:
-            return "That alert belongs to a printer I can't control from here. Nothing sent."
+        if not control.accepts_alert(connection):
+            return printer_control.FOREIGN_ALERT_TEXT
         if action == "resume":
-            ok, msg = control.resume(filename)
+            ok, msg = control.resume(filename, alert_connection=connection)
             if not ok and "still reports paused" in msg:
                 # #837: the claimed alert's buttons are gone; leave a
                 # fresh paused alert behind so Resume/Cancel survive.
@@ -1846,7 +1849,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
                               f"Still paused: {filename}. Tap Resume or Cancel below.")
             return msg
         if action == "cancel":
-            return control.cancel(filename)[1]
+            return control.cancel(filename, alert_connection=connection)[1]
         return "That alert action is not recognized. Nothing sent."
     if action == "recover":
         if alert.get("kind") != "shutdown":
@@ -1854,7 +1857,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         return recover_from_stop(filename, pid)
     st = pc.status(**kw)
     if action == "resume":
-        ok, msg = pc.resume(filename, **kw)
+        ok, msg = control.resume(filename)
         if not ok and ("still reports paused" in msg or msg == pc.HEAD_EMPTY_TEXT):
             # #837: resume was sent but the printer is still paused, and
             # the claimed alert's buttons are gone — re-post the paused
@@ -1879,7 +1882,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         if filename and st.get("filename") and st["filename"] != filename:
             notes.append("A different print is loaded now than the one in this alert. Not cancelling it.")
         else:
-            notes.append(print_stop.cancel(st.get("filename") or filename, **kw)[1])
+            notes.append(control.cancel(st.get("filename") or filename)[1])
     else:
         notes.append(f"The job is already gone (printer is {st.get('state')}). Nothing to cancel.")
     return "\n".join(notes)

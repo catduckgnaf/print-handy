@@ -256,8 +256,15 @@ def where_text(st: dict[str, Any]) -> str:
 # --------------------------------------------------------------------- posts
 
 def _mel():
-    from . import moonraker_event_listener as mel
-    return mel
+    """The shared listener helpers (listener_common): post path, bot token, pause classes, vision route.
+
+    The name predates #1320, when these helpers lived in
+    moonraker_event_listener and this module imported the whole Moonraker
+    listener to reach them; it stays the one seam the family code reads
+    them through.
+    """
+    from . import listener_common
+    return listener_common
 
 
 def paused_text(filename: str, status: dict[str, Any] | None = None) -> str:
@@ -783,14 +790,15 @@ class LaunchLeaseSettler:
 
     def __init__(self, printer_id):
         self._printer_id = printer_id
-        self._watch = None  # moonraker_event_listener.AbandonedStartWatch, built on first use
+        self._watch = None  # start_claims.AbandonedStartWatch, built on first use
         # Leases ((token, remote file)) whose own file this settler has seen
         # in a terminal state: never released as not started afterwards.
         self._ended_on_own_file: set = set()
 
     def _watch_for(self):
         if self._watch is None:
-            self._watch = _mel().AbandonedStartWatch()
+            from . import start_claims
+            self._watch = start_claims.AbandonedStartWatch()
         return self._watch
 
     def observe(self, state, filename, status, now=None):
