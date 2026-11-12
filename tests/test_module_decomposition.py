@@ -308,3 +308,16 @@ def test_site_dispatch_by_name_finds_a_function_patched_on_the_old_path(monkeypa
     assert sources.maker_inventory is fake
     assert model_job.inventory_for_url("https://makerworld.com/en/models/1") == "inventory"
     fake.assert_called_once_with("https://makerworld.com/en/models/1")
+
+
+def test_every_moved_offload_step_keeps_its_offload_name():
+    """Each ('model_job', step) the intake offloads resolves to a function whose home maps back to model_job."""
+    from print_handy.core import heavy_worker, prepared_intake
+    from print_handy.intake import worker
+    for module, name in sorted(prepared_intake._OFFLOAD):
+        if module != "model_job":
+            continue
+        func = getattr(model_job, name)
+        short = worker._OFFLOAD_HOMES.get(func.__module__, func.__module__.rsplit(".", 1)[-1])
+        assert short == "model_job", f"{name} moved to {func.__module__} without an _OFFLOAD_HOMES entry"
+        assert (module, name) in heavy_worker.ALLOWED

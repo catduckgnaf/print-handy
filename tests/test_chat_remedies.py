@@ -12,7 +12,8 @@ from print_handy.core import prepared_intake
 ROOT = Path(__file__).resolve().parents[1]
 SHELL_REMEDY = re.compile(r"reconcile-launch|--not-started")
 # The CLI and the raw refusal it explains (logged, then mapped to plain words before chat).
-ALLOWED = {"print_handy/core/launch_state.py", "print_handy/core/model_job.py"}
+# The launch CLI itself may name its own commands; it moved to jobs/cli.py (#1323).
+ALLOWED = {"print_handy/core/launch_state.py", "print_handy/core/model_job.py", "print_handy/jobs/cli.py"}
 
 HELD = ("REFUSED: an earlier start on this printer is uncertain (job /data/archive/bag/JOB.json, "
         "file Bag-Clip_plate_1.gcode.3mf, since 2026-10-30T19:21:32-0400). Check the printer, then run "
