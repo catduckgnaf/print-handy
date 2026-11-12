@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import html
 import json
+import threading
+import time
 import urllib.request
 from urllib.parse import quote
 
@@ -44,6 +46,25 @@ SCREEN_WEBCAM_NAME = "screen"
 SCREEN_SNAPSHOT_PATH = "/screen/snapshot"
 _MAX_JSON_BYTES = 256 * 1024
 _TIMEOUT_S = 8
+#: How long one successful webcam-list answer is reused for the same
+#: Moonraker address, so a refreshing page does not re-run discovery
+#: for every frame.
+_DISCOVERY_TTL_S = 30.0
+_discovery_cache = {}
+_discovery_lock = threading.Lock()
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Screen fetches follow no redirect at all: the view only ever
+    requests the two addresses it builds itself, so a printer answering
+    with a redirect (to another host, an internal address, anything) is
+    refused instead of followed (#1303 review)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("the printer answered with a redirect; not followed")
+
+
+_OPENER = urllib.request.build_opener(_NoRedirects)
 
 
 class ScreenError(Exception):
@@ -57,12 +78,38 @@ def _fetch_json(url, timeout=_TIMEOUT_S):
     """One bounded JSON document from ``url`` (Moonraker's webcam list)."""
     if not camera_module._web_url(url):
         raise ValueError("address is not http or https")
-    with camera_module._OPENER.open(urllib.request.Request(url),
-                                    timeout=timeout) as response:
+    with _OPENER.open(urllib.request.Request(url), timeout=timeout) as response:
         raw = response.read(_MAX_JSON_BYTES + 1)
     if len(raw) > _MAX_JSON_BYTES:
         raise ValueError("response is too large")
     return json.loads(raw.decode("utf-8"))
+
+
+def fetch_screen_jpeg(url, timeout=_TIMEOUT_S):
+    """One bounded JPEG from the screen service, redirects refused."""
+    if not camera_module._web_url(url):
+        raise ValueError("address is not http or https")
+    with _OPENER.open(urllib.request.Request(url), timeout=timeout) as response:
+        image = response.read(camera_module.MAX_BYTES + 1)
+    if len(image) > camera_module.MAX_BYTES             or not image.startswith(camera_module._JPEG_MAGIC):
+        raise ValueError("screen response is not a bounded JPEG")
+    return image
+
+
+def _cached_discover(moonraker_url, *, now=time.monotonic):
+    """discover_webcams with a short per-address cache of good answers.
+
+    Only a readable answer is cached; a failure is never cached, so a
+    printer that comes back is seen on the next request."""
+    key = moonraker_url.rstrip("/")
+    with _discovery_lock:
+        hit = _discovery_cache.get(key)
+        if hit is not None and now() - hit[0] < _DISCOVERY_TTL_S:
+            return hit[1]
+    webcams = discover_webcams(moonraker_url)
+    with _discovery_lock:
+        _discovery_cache[key] = (now(), webcams)
+    return webcams
 
 
 def discover_webcams(moonraker_url, *, fetch_json=None):
@@ -139,8 +186,8 @@ def _screen_still_url(view, *, discover):
 
 def snapshot(data, printer_id, *, discover=None, fetch=None):
     """(code, body, content_type) for GET /api/printers/<id>/screen/snapshot."""
-    discover = discover_webcams if discover is None else discover
-    fetch = camera_module.fetch_jpeg if fetch is None else fetch
+    discover = _cached_discover if discover is None else discover
+    fetch = fetch_screen_jpeg if fetch is None else fetch
     try:
         try:
             settings.by_id(printer_id, data)
@@ -202,12 +249,28 @@ def render_page(printer_name, printer_id, *, ok, reason,
             f'<p><img id="printer-screen" src="{esc(src)}" '
             'alt="The printer\'s screen" style="max-width:100%"></p>'
             "<p>The picture refreshes while this page is open.</p>"
+            '<p id="printer-screen-note"></p>'
             "<script>"
-            "setInterval(function () {"
+            "(function () {"
             "  var img = document.getElementById('printer-screen');"
+            "  var note = document.getElementById('printer-screen-note');"
             "  var base = img.src.split('?')[0];"
-            "  img.src = base + '?t=' + Date.now();"
-            "}, 2000);"
+            "  var failures = 0;"
+            "  function next() {"
+            "    var wait = Math.min(2000 * Math.pow(2, failures), 60000);"
+            "    setTimeout(tick, wait);"
+            "  }"
+            "  function tick() {"
+            "    if (document.hidden) { next(); return; }"
+            "    img.src = base + '?t=' + Date.now();"
+            "  }"
+            "  img.onload = function () { failures = 0; note.textContent = ''; next(); };"
+            "  img.onerror = function () {"
+            "    failures += 1;"
+            "    note.textContent = 'The printer screen did not answer; retrying less often.';"
+            "    next();"
+            "  };"
+            "})();"
             "</script>")
     else:
         body = (

@@ -18,6 +18,8 @@ import threading
 import unittest
 from pathlib import Path
 
+import pytest
+
 from print_handy import settings
 from print_handy.webui import camera, screen, server
 
@@ -316,3 +318,65 @@ class ScreenRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --------------------------------------------------------------------- review hardening
+
+def test_screen_fetches_refuse_redirects():
+    """A printer answering a screen request with a redirect is refused,
+    never followed: the view only requests the addresses it builds."""
+    import io
+    import urllib.error
+    import urllib.request
+    from print_handy.webui import screen as screen_mod
+
+    handler = screen_mod._NoRedirects()
+    request = urllib.request.Request("http://printer.local/screen/snapshot")
+    with pytest.raises(ValueError):
+        handler.redirect_request(request, io.BytesIO(b""), 302, "Found", {},
+                                 "http://169.254.169.254/latest/meta-data")
+    assert any(isinstance(h, screen_mod._NoRedirects)
+               for h in screen_mod._OPENER.handlers)
+
+
+def test_default_snapshot_path_uses_the_no_redirect_fetch(monkeypatch):
+    from print_handy.webui import screen as screen_mod
+    import inspect
+    source = inspect.getsource(screen_mod.snapshot)
+    assert "fetch_screen_jpeg" in source
+    assert "camera_module.fetch_jpeg" not in source
+
+
+def test_discovery_answers_are_cached_briefly_and_failures_are_not(monkeypatch):
+    from print_handy.webui import screen as screen_mod
+    calls = []
+    clock = [1000.0]
+
+    def fake_discover(url, **_):
+        calls.append(url)
+        if len(calls) == 3:
+            raise OSError("down")
+        return [{"name": "screen", "snapshot_url": "/screen/snapshot"}]
+
+    monkeypatch.setattr(screen_mod, "discover_webcams", fake_discover)
+    monkeypatch.setattr(screen_mod, "_discovery_cache", {})
+    now = lambda: clock[0]
+    screen_mod._cached_discover("http://p:7125", now=now)
+    screen_mod._cached_discover("http://p:7125/", now=now)
+    assert len(calls) == 1
+    clock[0] += screen_mod._DISCOVERY_TTL_S + 1
+    screen_mod._cached_discover("http://p:7125", now=now)
+    assert len(calls) == 2
+    clock[0] += screen_mod._DISCOVERY_TTL_S + 1
+    with pytest.raises(OSError):
+        screen_mod._cached_discover("http://p:7125", now=now)
+    screen_mod._cached_discover("http://p:7125", now=now)
+    assert len(calls) == 4
+
+
+def test_page_backs_off_and_pauses_while_hidden():
+    from print_handy.webui import screen as screen_mod
+    page = screen_mod.render_page("AD5X", "ad5x", ok=True, reason="")
+    assert "document.hidden" in page
+    assert "img.onerror" in page
+    assert "60000" in page
