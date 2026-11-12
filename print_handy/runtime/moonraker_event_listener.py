@@ -717,6 +717,26 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
     return print_summary.format_event("paused", filename, extra=extra)
 
 
+# A runout pause that comes back within this long of its resume, on the same
+# slot, is the same runout: the new filament has not reached the toolhead
+# yet. It is not a new episode (seen live: eight pause/resume rounds in 26
+# minutes, each a full three-step post, and a spool question re-opened for a
+# spool created four minutes earlier).
+RUNOUT_REPAUSE_WINDOW_S = 600
+
+
+def runout_repause_message(filename, slot=None, count=1):
+    """The one rewritten alert for a print that paused again right after a runout resume."""
+    where = filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "the slot"
+    times = "once more" if count == 1 else f"{count} times"
+    extra = (f"Paused again: the filament has not reached the toolhead yet. The print paused "
+             f"{times} within minutes of resuming after the runout on {where}. Feed the filament "
+             "at the printer until it comes out of the nozzle, then tap Resume print below (or "
+             "type /print-resume). The spool question from the runout is unchanged: nothing new "
+             "to answer.")
+    return print_summary.format_event("paused", filename, extra=extra, emit=False)
+
+
 def recovery_slot(filename):
     """The slot and spool this job was using, from the hardware map. No printer call."""
     try:
@@ -3469,6 +3489,10 @@ class Listener:
         self.last_pause_was_runout = False
         self.last_pause_episode = None  # the starter-pings episode of the live pause's alert
         self.pause_context = None
+        # The last runout of this print: its slot, its alert message (Discord
+        # channel and message ids, when known), when it was resumed, and how
+        # often it paused again since. None outside a runout.
+        self.runout_episode = None
         self.native_error_alerted = load_native_error_alerted()
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
         self.presence_failure = None  # last presence poll failure, logged once until it changes
@@ -3975,6 +3999,52 @@ class Listener:
         except Exception as exc:
             log(f"slot self-check failed: {exc!r}")
 
+    def _runout_repause(self, slot):
+        """True when this runout pause is the last runout pausing again on the same slot."""
+        episode = self.runout_episode
+        if not episode or not episode.get("resumed_at"):
+            return False
+        if slot is not None and episode.get("slot") is not None and slot != episode["slot"]:
+            return False
+        return time.time() - float(episode["resumed_at"]) <= RUNOUT_REPAUSE_WINDOW_S
+
+    def _alert_message(self, kind):
+        """(channel_id, message_id) of this job's newest Discord alert of ``kind``, or None."""
+        if _buttonless_standalone() or _telegram_standalone() or _matrix_standalone():
+            return None
+        try:
+            from . import print_alert_buttons as pab
+            return pab.latest_alert_message(kind, self.filename)
+        except Exception as exc:
+            log(f"alert message lookup failed file={self.filename!r}: {exc!r}")
+            return None
+
+    def _post_runout_repause(self):
+        """Rewrite the runout's alert in place; post one short alert when that is not possible.
+
+        Runs in a worker thread. The rewritten message gets fresh Resume
+        and Cancel buttons (the old ones were usually spent by the resume).
+        """
+        episode = self.runout_episode
+        episode["repauses"] = int(episode.get("repauses") or 0) + 1
+        episode["resumed_at"] = None
+        text = runout_repause_message(self.filename, episode.get("slot"), episode["repauses"])
+        log(f"runout pause again ({episode['repauses']}) on slot {episode.get('slot')}: "
+            f"filament not at the toolhead yet; no new spool question: {self.filename!r}")
+        target = episode.get("message")
+        if target:
+            try:
+                from . import print_alert_buttons as pab
+                from .. import listeners as _listeners
+                if pab.rearm_alert(_bot_token(), target[0], target[1], text, "paused", self.filename,
+                                   printer_id=_listeners.instance_printer_id() or None):
+                    return True
+            except Exception as exc:
+                log(f"runout alert rewrite failed file={self.filename!r}: {exc!r}")
+        delivered = post_alert(text, "paused", self.filename, episode="paused:runout")
+        episode["message"] = self._alert_message("paused") or target
+        return delivered
+
     async def upgrade_paused_runout(self, slot):
         """A paused print's slot emptied after the pause was posted as generic (#442).
 
@@ -3993,6 +4063,8 @@ class Listener:
                                 "paused", self.filename,
                                 episode=self.last_pause_episode or "paused:other")
         self.pause_context = await self.open_question(slot, "runout")
+        self.runout_episode = {"slot": slot, "resumed_at": None, "repauses": 0,
+                               "message": self._alert_message("paused")}
 
     def _visual_identity(self):
         """This print's identity for watchdog mutes (#476): the notification identity.
@@ -4371,6 +4443,8 @@ class Listener:
             # other tools) get exactly one canonical post here.
             if old == "paused":
                 log(f"resume, no start post: {self.filename!r}")
+                if self.last_pause_was_runout and self.runout_episode is not None:
+                    self.runout_episode["resumed_at"] = time.time()
                 self.last_pause_was_runout = False
                 self.last_pause_episode = None
                 # The pause is over: its starter-ping episodes stop
@@ -4378,6 +4452,7 @@ class Listener:
                 # new problem that can ping (#1095).
                 starter_pings.clear_pause_episodes(job_key=self.filename)
             else:
+                self.runout_episode = None
                 self.slot_tracker.reset()
                 self.failover_watch.reset()
                 self.visual_watch.reset()
@@ -4417,13 +4492,20 @@ class Listener:
                                         "paused", self.filename, episode="paused:jam")
             else:
                 self.last_pause_was_runout, slot = await self.classify_runout()
-                if self.last_pause_was_runout:
+                if self.last_pause_was_runout and self._runout_repause(slot):
+                    # The same runout pausing again: rewrite its alert, never
+                    # a new episode, a new usage suspend or a new question.
+                    self.last_pause_episode = "paused:runout"
+                    await asyncio.to_thread(self._post_runout_repause)
+                elif self.last_pause_was_runout:
                     self.last_pause_episode = "paused:runout"
                     spool_id = _mapped_spool(slot) if slot else None
                     await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
                                                                        slot=slot, spool_id=spool_id),
                                             "paused", self.filename, episode="paused:runout")
                     self.pause_context = await self.open_question(slot, "runout")
+                    self.runout_episode = {"slot": slot, "resumed_at": None, "repauses": 0,
+                                           "message": self._alert_message("paused")}
                 else:
                     self.last_pause_episode = "paused:other"
                     self.pause_context = None
@@ -4495,6 +4577,7 @@ class Listener:
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
         self.print_identity = None
+        self.runout_episode = None
         # #516: the print is over; open the auto light-off idle window.
         await self.light_print_finished()
         # An auto-started live session ends with its print (#311 stage 4).
