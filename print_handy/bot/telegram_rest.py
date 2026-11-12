@@ -105,24 +105,27 @@ def _file_call(token, chat_id, path, *, thread_id=None, opener=None, timeout=60)
     return call(token, method, payload, files=[(field, path)], timeout=timeout, opener=opener)
 
 
-def send(token, chat_id, text, *, thread_id=None, opener=None, timeout=60, files=None):
+def send(token, chat_id, text, *, thread_id=None, opener=None, timeout=60, files=None,
+         reply_markup=None):
     """Post text (and ``files``, plus any attachable MEDIA line) to a chat.
 
-    Returns (ok, first message id or error text)."""
+    ``reply_markup`` (an inline keyboard) rides the last text piece, the
+    same place the adapter's prompt keyboards sit. Returns (ok, first
+    message id or error text)."""
     if not token:
         return False, "no Telegram bot token"
     if not chat_id:
         return False, "telegram.chat_id is not configured"
     body, files = outgoing(text, files)
-    pieces = chunks(body, LIMIT)
+    pieces = [piece for piece in chunks(body, LIMIT) if piece]
     first = None
     try:
-        for piece in pieces:
-            if not piece:
-                continue
+        for index, piece in enumerate(pieces):
             payload = {"chat_id": str(chat_id), "text": piece}
             if thread_id:
                 payload["message_thread_id"] = str(thread_id)
+            if reply_markup is not None and index == len(pieces) - 1:
+                payload["reply_markup"] = reply_markup
             sent = call(token, "sendMessage", payload, timeout=timeout, opener=opener)
             first = first or str((sent or {}).get("message_id") or "")
         for path in files:

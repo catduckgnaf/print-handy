@@ -979,3 +979,84 @@ def test_the_default_printers_alert_keeps_the_configured_printer_call_shape():
             patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped.")) as cancel:
         pab.handle_click("cancel", {"kind": "paused", "filename": "f.gcode", "printer_id": "printer-a"})
     cancel.assert_called_once_with("f.gcode")
+
+
+# ------------------------------------------------- Telegram alert buttons (#1291 item 15)
+
+
+def _fake_telegram_send(captured, ok=True):
+    def send(token, chat_id, text, **kwargs):
+        captured.update(token=token, chat_id=chat_id, text=text, kwargs=kwargs)
+        return (True, "777") if ok else (False, "boom")
+    return send
+
+
+def test_telegram_keyboard_mirrors_the_discord_components():
+    for kind in ("paused", "visual", "visual-dark", "shutdown", "failed"):
+        keyboard = pab.telegram_keyboard("ab12cd34", kind)
+        discord = [b for row in pab.components("ab12cd34", kind) for b in row["components"]]
+        flat = [b for row in keyboard for b in row]
+        assert [b["text"] for b in flat] == [b["label"] for b in discord]
+        assert [b["callback_data"] for b in flat] == [b["custom_id"] for b in discord]
+        assert all(len(b["callback_data"].encode()) <= 64 for b in flat)
+
+
+def test_post_telegram_with_buttons_records_and_sends_the_keyboard(tmp_path):
+    captured = {}
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.telegram_rest.send", _fake_telegram_send(captured)):
+        assert pab.post_telegram_with_buttons("tok", "-1001", "Paused. Fix it.", "paused", "f.gcode") is True
+        keyboard = captured["kwargs"]["reply_markup"]["inline_keyboard"]
+        data = [b["callback_data"] for row in keyboard for b in row]
+        aid = data[0].rsplit(":", 1)[-1]
+        assert {d.rsplit(":", 1)[0] for d in data} == {"pbalert:resume", "pbalert:cancel"}
+        alert = pab.peek(aid)
+        assert alert is not None and alert["kind"] == "paused"
+        # Telegram ids live under their own keys: retire_alerts edits Discord
+        # messages by message_id/channel_id and must never see these.
+        assert alert.get("telegram_message_id") == "777" and alert.get("telegram_chat_id") == "-1001"
+        assert "message_id" not in alert and "channel_id" not in alert
+
+
+def test_post_telegram_with_buttons_failure_takes_the_alert(tmp_path):
+    captured = {}
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.telegram_rest.send", _fake_telegram_send(captured, ok=False)):
+        assert pab.post_telegram_with_buttons("tok", "-1001", "Paused.", "paused", "f.gcode") is False
+        keyboard = captured["kwargs"]["reply_markup"]["inline_keyboard"]
+        aid = keyboard[0][0]["callback_data"].rsplit(":", 1)[-1]
+        assert pab.peek(aid) is None  # a failed post leaves no live alert behind
+
+
+def test_post_telegram_with_buttons_needs_a_token_and_a_chat(tmp_path):
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.bot.telegram_rest.send", side_effect=AssertionError("must not send")):
+        assert pab.post_telegram_with_buttons("", "-1001", "x", "paused", "f") is False
+        assert pab.post_telegram_with_buttons("tok", "", "x", "paused", "f") is False
+
+
+def test_listener_telegram_alert_goes_out_with_buttons():
+    sent = {}
+
+    def fake_post_telegram(token, chat_id, content, kind, filename, **kw):
+        sent.update(token=token, chat_id=chat_id, content=content, kind=kind, filename=filename)
+        return True
+
+    with patch.object(mel, "_telegram_standalone", lambda: True), \
+            patch.object(mel, "_telegram_token", lambda: "tok"), \
+            patch.object(mel, "_telegram_chat_id", lambda: "-1001"), \
+            patch.object(pab, "post_telegram_with_buttons", fake_post_telegram), \
+            patch.object(mel, "post", return_value=False) as plain:
+        assert mel.post_alert("hi", "paused", "f") is True
+    plain.assert_not_called()
+    assert sent["kind"] == "paused" and sent["chat_id"] == "-1001" and sent["token"] == "tok"
+
+
+def test_listener_telegram_button_failure_falls_back_to_plain_post():
+    with patch.object(mel, "_telegram_standalone", lambda: True), \
+            patch.object(mel, "_telegram_token", lambda: "tok"), \
+            patch.object(mel, "_telegram_chat_id", lambda: "-1001"), \
+            patch.object(pab, "post_telegram_with_buttons", return_value=False), \
+            patch.object(mel, "post", return_value=True) as plain:
+        assert mel.post_alert("hi", "paused", "f") is True
+    plain.assert_called_once_with("hi")
