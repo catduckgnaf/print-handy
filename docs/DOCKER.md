@@ -279,7 +279,7 @@ Intel iGPU or AMD GPU:
 1. In the Unraid terminal, check the device exists and note its group: `ls -l /dev/dri` and `stat -c %g /dev/dri/renderD128`. On an Intel iGPU with no `/dev/dri`, install the **Intel GPU TOP** plugin (it loads the `i915` driver). AMD GPUs normally load `amdgpu` by themselves, or use the **Radeon TOP** plugin.
 2. Edit the container and switch to **Advanced View**: the template's **Hardware Acceleration (Intel / AMD)** device entry ships with an empty value so hosts without an iGPU still start: set its value to `/dev/dri` (its default) and add `--group-add=GID` to **Extra Parameters**, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
 3. Apply, then check from the Unraid terminal: `docker exec print-handy vainfo --display drm --device /dev/dri/renderD128`. It should list an H.264 `VAEntrypointEncSlice` (or `…EncSliceLP`) line.
-4. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
+4. Set `timelapse.capture_encoder` to `auto` in the config file (the default is `cpu`), or to `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
 
 NVIDIA:
 
@@ -287,7 +287,7 @@ NVIDIA:
 2. Edit the container, switch to **Advanced View**, and add `--runtime=nvidia` to **Extra Parameters**.
 3. Switch to **Advanced View** and set **NVIDIA Visible Devices** (`NVIDIA_VISIBLE_DEVICES`) to your GPU UUID, or `all`. The template ships it empty, which grants no GPU. **NVIDIA Driver Capabilities** (`NVIDIA_DRIVER_CAPABILITIES`) ships as `compute,video,utility`, the same as the image default. If you change it, keep `video` in it (or use `all`), or NVENC cannot load. Both variables are optional, and do nothing without `--runtime=nvidia`.
 4. Apply, then check: `docker exec print-handy ls /dev/nvidia0` and `docker exec print-handy sh -c 'ldconfig -p | grep libnvidia-encode'`.
-5. Leave `timelapse.capture_encoder` on `auto` in the config file, or set `nvenc`.
+5. Set `timelapse.capture_encoder` to `auto` in the config file (the default is `cpu`), or to `nvenc`.
 
 A host with both an iGPU and an NVIDIA card can grant either one or both. `auto` tries VAAPI (the iGPU) first, and `nvenc` moves NVIDIA first.
 

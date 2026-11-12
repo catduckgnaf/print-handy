@@ -303,5 +303,68 @@ Variables reason: The new option was checked on every surface: defaults tree, en
                 self.assertEqual(2, closure.main(["--metadata", str(path)]))
                 self.assertEqual(2, closure.main(["--metadata", str(Path(directory) / "missing.json")]))
 
+    # -- evidence for a met criterion (#1322) -------------------------------------
+
+    def run_policy(self, root, body, files):
+        """The workflow's own entry point: the script run on a metadata file, as contribution.yml runs it."""
+        import json, subprocess, sys
+        metadata = root / "pr.json"
+        metadata.write_text(json.dumps({"body": body, "files": files}), encoding="utf-8")
+        return subprocess.run([sys.executable, "-B", str(SCRIPT), "--metadata", str(metadata), "--root", str(root)],
+                              capture_output=True, text=True, timeout=60)
+
+    def scoped(self, criteria):
+        return self.body() + "## Scope and acceptance criteria\n" + criteria + "\n"
+
+    def test_a_ticked_criterion_without_a_test_fails_the_workflow_entry_point(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tests").mkdir()
+            (root / "tests/test_option.py").write_text("def test_default():\n    pass\n", encoding="utf-8")
+            files = ["print_handy/settings.py", "docs/CONFIGURATION-YAML.md"]
+            bare = self.run_policy(root, self.scoped("- [x] The option defaults to off."), files)
+            self.assertEqual(1, bare.returncode, bare.stdout)
+            self.assertIn("a met criterion cites no test", bare.stdout)
+            cited = self.run_policy(root, self.scoped(
+                "- [x] The option defaults to off: tests/test_option.py::test_default loads settings.load()."), files)
+            self.assertEqual(0, cited.returncode, cited.stdout)
+            missing = self.run_policy(root, self.scoped("- [x] Defaults to off: tests/test_gone.py::test_x."), files)
+            self.assertEqual(1, missing.returncode, missing.stdout)
+            self.assertIn("tests/test_gone.py, which is not in this tree", missing.stdout)
+
+    def test_evidence_label_and_unticked_items_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            body = self.scoped("- [x] Docs say so; evidence: docs/CONFIGURATION-YAML.md section Precedence.\n"
+                               "- [ ] Live check on a printer, tracked in #1082.\n"
+                               "- Acceptance criteria: the option loads.")
+            self.assertEqual([], self.policy.check_evidence(Path(directory), body, []))
+
+    def test_met_table_rows_need_a_test_in_the_body_and_in_changed_docs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tests").mkdir()
+            (root / "tests/test_route.py").write_text("", encoding="utf-8")
+            table = "| Criterion | Status | Evidence |\n|---|---|---|\n| Route refused | Met | {} |\n"
+            body = self.scoped(table.format("checked by hand"))
+            self.assertEqual(1, len(self.policy.check_evidence(root, body, [])))
+            self.assertEqual([], self.policy.check_evidence(root, self.scoped(table.format("tests/test_route.py")), []))
+            (root / "docs").mkdir()
+            (root / "docs/PLAN.md").write_text("# Plan\n" + table.format("seen in a log") + "- [x] a task list item\n",
+                                               encoding="utf-8")
+            errors = self.policy.check_evidence(root, self.body(), ["docs/PLAN.md"])
+            self.assertEqual(1, len(errors), errors)
+            self.assertTrue(errors[0].startswith("docs/PLAN.md:"), errors)
+            # Unchanged docs are not read, and a status that is not exactly "Met" is not a claim.
+            self.assertEqual([], self.policy.check_evidence(root, self.body(), []))
+            (root / "docs/PLAN.md").write_text("| Route | Metered | none |\n", encoding="utf-8")
+            self.assertEqual([], self.policy.check_evidence(root, self.body(), ["docs/PLAN.md"]))
+
+    def test_the_shipped_markdown_has_no_unproven_met_rows(self):
+        root = Path(__file__).resolve().parents[1]
+        docs = [p.relative_to(root).as_posix() for p in root.rglob("*.md")
+                if not {".git", ".claude", "node_modules"} & set(p.relative_to(root).parts)]
+        self.assertEqual([], self.policy.check_evidence(root, "", docs))
+
+
 if __name__ == "__main__":
     unittest.main()

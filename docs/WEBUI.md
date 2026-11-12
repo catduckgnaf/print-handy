@@ -287,6 +287,8 @@ Form posts (configuration, the walkthrough, spools, printers, uploads, chat, deb
 
 Changing or removing the login in the walkthrough's Login step on a claimed install also asks for the **current password** (or the access token); a wrong entry counts toward the login backoff. HTML pages are sent with `Cache-Control: no-store`, so a browser or proxy cache never keeps a page that embeds a token. Restarting the server, or changing the login, replaces the form secrets, so an old page must be reloaded.
 
+Every route declares exactly one of these policies in one table, `print_handy/webui/routes.py`, and one check in the server enforces it before the route answers: `public` (the health probe, the login form, logout, and the read-only `405` for other methods), `session` (the page and read rule: access open, the header, or a login session), `session+csrf` (the form posts above), `header` (the printer control and spool JSON APIs) and `link-token` (a no-login upload link). The Pasta Wrapped video and share forms still accept the server's start-up form token beside a signed-in session on a claimed install, because the Wrapped page embeds that token; the table marks those two routes. A test enumerates the table and fails when a route is undeclared, changes policy, or checks a credential on its own.
+
 ## Where the Web UI may be reached
 
 The Web UI has no HTTPS listener of its own. Put it where the network already limits who can open the port.

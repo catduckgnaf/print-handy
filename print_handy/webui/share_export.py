@@ -396,7 +396,7 @@ def render_share_card_png(payload, path, *, vertical=False):
     draw.rectangle([0, 0, width, 14], fill=(201, 168, 106))
     margin = 72
     y = 64
-    draw.text((margin, y), f"PRINT HANDY WRAPPED {parts['year']}",
+    draw.text((margin, y), f"PASTA WRAPPED {parts['year']}",
               font=_font(34, bold=True), fill=(201, 168, 106))
     y += 84
     if archetype.get("name"):

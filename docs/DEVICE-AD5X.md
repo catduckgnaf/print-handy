@@ -12,7 +12,7 @@ and in what order.
 
 | Item | Value |
 | --- | --- |
-| Firmware | ZMod 1.7.5-2 (stock base 3.1.7) |
+| Firmware | ZMod 1.7.6-17 (stock base 3.1.7; USB-installed base 1.7.5), updated 2026-11-11 through Print Handy's update path |
 | Klipper | 13 |
 | Screen mode | Screenless (`display_off=1`) |
 | Touch screen | HelixScreen |

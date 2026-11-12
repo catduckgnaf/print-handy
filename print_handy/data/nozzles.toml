@@ -1,7 +1,7 @@
 # Tuned slicing profile parameters per nozzle diameter (mm)
 # Used by orca_adapter to generate per-size machine and process configuration overrides.
 # Type-specific thermal and flow defaults are validated by nozzle.py; temperature
-# offsets can be overridden in config/home.yaml or legacy config/home.toml under [nozzle_temp_offsets].
+# offsets can be overridden in config/home.yaml or a local config file under nozzle_temp_offsets.
 [types.brass]
 max_temperature_c = 300.0
 temp_offset_c = 0.0

@@ -202,6 +202,57 @@ def check_pr(body, files, closing=()):
     return errors
 
 
+# --- evidence for a met criterion (#1322) -------------------------------------
+# A criterion claimed as met cites the test that proves it, by path, and that
+# test drives the production entry point. The check below can see the claim and
+# the citation; whether the cited test reaches the entry point is review work.
+# A claim is a ticked box in the PR's "Scope and acceptance criteria" section,
+# or a table row with a cell that reads "Met" there or in a changed Markdown file.
+# A criterion no automated test can prove says "evidence:" and names what does.
+
+_TEST_REF = re.compile(r"(?<![\w/.-])(tests/[\w./-]+?\.py)\b")
+_EVIDENCE = re.compile(r"\bevidence:\s*\S{3,}", re.I)
+_TICKED = re.compile(r"^\s*[-*+]\s+\[[xX]\]\s+(.*\S)", re.M)
+
+
+def met_claims(text):
+    """The lines of text that claim a criterion is met: ticked boxes and "Met" table rows."""
+    text = re.sub(r"```.*?```", "", text or "", flags=re.S)
+    claims = [m.group(0).strip() for m in _TICKED.finditer(text)]
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and any(cell.strip().casefold() == "met" for cell in stripped.strip("|").split("|")):
+            claims.append(stripped)
+    return claims
+
+
+def _claim_errors(root, where, claim):
+    refs = _TEST_REF.findall(claim)
+    shown = claim if len(claim) <= 90 else claim[:87] + "..."
+    if not refs and not _EVIDENCE.search(claim):
+        return [f"{where}: a met criterion cites no test: {shown!r}. Name the test that drives the production "
+                "entry point (tests/test_x.py::test_y), or say 'evidence:' and what proves it."]
+    return [f"{where}: cites {ref}, which is not in this tree." for ref in refs
+            if root is not None and not (root / ref).is_file()]
+
+
+def check_evidence(root, body, files):
+    """Every met-criterion claim in the PR body and in changed Markdown cites its evidence."""
+    root = root.resolve() if root is not None else None
+    body = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
+    errors = []
+    for claim in met_claims(section(body, "Scope and acceptance criteria")):
+        errors += _claim_errors(root, "Scope and acceptance criteria", claim)
+    for name in files:
+        if not name.endswith(".md") or root is None or not (root / name).is_file():
+            continue
+        text = re.sub(r"<!--.*?-->", "", (root / name).read_text(encoding="utf-8"), flags=re.S)
+        for claim in met_claims(text):
+            if claim.startswith("|"):  # a ticked box in a doc is a task list, not a criterion table
+                errors += _claim_errors(root, name, claim)
+    return errors
+
+
 def check_links(root, files):
     """Check local file destinations, not remote URLs or heading anchors."""
     errors = []
@@ -233,6 +284,7 @@ def main():
     args = parser.parse_args()
     data = json.loads(args.metadata.read_text())
     errors = (check_pr(data["body"], data["files"], data.get("closing_issues", ()))
+              + check_evidence(args.root, data["body"], data["files"])
               + check_links(args.root, data["files"]))
     for error in errors:
         print(error)
