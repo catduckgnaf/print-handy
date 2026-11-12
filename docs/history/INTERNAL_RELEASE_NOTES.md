@@ -2,6 +2,8 @@
 
 # Unreleased
 
+- Material warnings at print start (#1336). Owner ruling, restated 2026-11-11 (first recorded with #1190 and #1213): no filament or material condition hard-blocks a print. At print start a sliced-versus-loaded material mismatch, abrasive filament on a soft nozzle, a Bambu not-recommended material, a Bambu AMS with no tray of the required material and an AD5X slot label of another family now warn and ask Reslice for the loaded material (the default) / Print as sliced / Cancel on every chat transport, `/print-next`, `/print-again` and the Discord plate and Retry buttons; the CLI takes `print-now --accept-material-mismatch`. An accepted start heats to the G-code's own temperatures, keeps every mechanical limit, re-checks the loaded material against the nozzle and binds to the exact G-code for one start. A Spoolman spool that disagrees with the slot record at launch is a plain warning. The slicing-side items (a saved selection versus the slot's current record, a remap to a slot of another material, abrasive at slice time) are a separate change.
+
 # Version 2.2.9
 
 **Release Date:** Unreleased until tagged. Set when the tag is cut.

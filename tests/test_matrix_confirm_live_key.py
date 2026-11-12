@@ -311,3 +311,49 @@ def test_print_next_spool_change_prompt_answers_a_numbered_reply_through_the_rea
     assert out == {"action": "skip", "reason": "deterministic next plate handled"}
     assert len(started) == 2
     assert started[1].get("accept_spool_change") is True
+
+
+MATERIAL_REFUSAL = ("REFUSED: material warning, your answer is needed: G-code filament_type 'PETG' != loaded "
+                    "'PLA': the G-code was sliced for PETG and PLA is loaded [accept material|PETG|PLA]. "
+                    "Nothing uploaded or started.")
+
+
+def _material_scenario(confirm_env, answer):
+    stub = HomeserverStub()
+    adapter = _matrix_adapter(stub)
+    started = []
+    results = [(False, MATERIAL_REFUSAL), (True, "START REQUEST ACCEPTED")]
+
+    async def fake_start(target):
+        started.append(target)
+        return results[len(started) - 1]
+
+    async def scenario():
+        with mock.patch.object(core_prompts, "gateway", return_value=core_prompts),                 _print_next_env(fake_start),                 mock.patch.object(print_summary, "find_job",
+                                  lambda gcode: ({"derived_plates": []}, {"seconds": 600})),                 mock.patch.object(print_summary, "_print_number", lambda job: 3):
+            task = asyncio.create_task(plugin.print_next_dispatch(
+                _event("/print-next ghost"), _gateway(adapter)))
+            await _wait_for_prompt(stub, 1)
+            await adapter.answer_typed(LIVE_KEY, "1")
+            await _wait_for_prompt(stub, 2)
+            await adapter.answer_typed(LIVE_KEY, answer)
+            return await asyncio.wait_for(task, 15)
+
+    out = asyncio.run(scenario())
+    return stub, started, out
+
+
+def test_print_next_material_warning_print_as_sliced_through_the_real_matrix_adapter_1336(confirm_env):
+    """#1336 (fails on base 1d452a58: the refusal ended the command): a material warning asks
+    Reslice / Print as sliced / Cancel on a buttonless transport; "2" restarts with the answer."""
+    stub, started, out = _material_scenario(confirm_env, "2")
+    assert out == {"action": "skip", "reason": "deterministic next plate handled"}
+    assert len(started) == 2 and "accept_material" not in started[0]
+    assert started[1]["accept_material"] == ["material|PETG|PLA"]
+    assert any("Reslice for PLA" in body and "Print as sliced" in body for body in stub.bodies)
+
+
+def test_print_next_material_warning_reslice_starts_nothing_1336(confirm_env):
+    stub, started, out = _material_scenario(confirm_env, "1")
+    assert len(started) == 1
+    assert any("To reslice for PLA" in body for body in stub.bodies)

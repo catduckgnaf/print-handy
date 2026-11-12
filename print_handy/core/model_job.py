@@ -24,7 +24,7 @@ from typing import Any, NamedTuple
 from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
 from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client, start_recorder
-from . import start_truth
+from . import material_accept, start_truth
 from .filament_warnings import FilamentWarningPending
 from .site_accounts import SiteLoginNeeded
 from .threemf_canonical import intake_working_copy
@@ -2772,6 +2772,15 @@ def check_filament_readiness(state, status, selection=None, *, observed_at=None,
         observed = actual.get(actual_key)
         if not isinstance(wanted, str) or not wanted.strip():
             problems.append(f"job selection is missing {key}")
+        elif key == "material" and isinstance(observed, str) and observed.strip():
+            # The screen label is coarser than the job's material (PLA for PLA+,
+            # SILK for Silk PLA): family matching, and a real difference is a
+            # warning the operator may accept, never a hard block (#1336).
+            from ..printers.flashforge.zmod import screen_label_matches
+            if not screen_label_matches(observed, wanted):
+                problems += material_accept.problem(
+                    "label", f"selected IFS slot {slot_id} is labeled {observed} on the printer screen but "
+                             f"the job selected {wanted}", slot_id, observed, wanted)
         elif not isinstance(observed, str) or observed.casefold() != wanted.casefold():
             problems.append(f"selected IFS slot {slot_id} {key} does not match the job selection")
     return problems
@@ -2920,9 +2929,10 @@ def _sync_active_spool(st, slot, printer_id=None):
     carries `spoolman_pending` so the caller records the usage as pending
     in the job record for later reconciliation — it is never retried in a
     way that blocks the job. A live Spoolman answer that the spool is
-    archived or a different material than the slot record still refuses:
-    that is Spoolman data contradicting the operator's record, not an
-    outage, and the refusal protects the physical gate (#235).
+    archived or a different material than the slot record is a plain
+    warning (#1336): Spoolman is usage accounting, the slot record is what
+    the operator loaded and the slice used, so the record is kept and the
+    print goes ahead (#235).
     """
     configured = st.get('filament_slots', {}).get(str(slot), {})
     sid = configured.get('spoolman_id')
@@ -2942,7 +2952,15 @@ def _sync_active_spool(st, slot, printer_id=None):
     else:
         filament = spool.get('filament') or {}
         if spool.get('archived') or not printer_state.same_material(filament.get('material'), configured.get('material')):
-            raise RuntimeError(f'Spoolman spool #{sid} is archived or its material differs from slot {slot}; nothing uploaded or started')
+            # Usage accounting only (#235, #1336): a plain warning, never a block. The slot
+            # record (what the operator loaded and the slice used) is kept as the spool.
+            print(f"WARNING: Spoolman spool #{sid} is "
+                  + ('archived' if spool.get('archived') else
+                     f"{filament.get('material') or 'an unknown material'}, but slot {slot} records "
+                     f"{configured.get('material')}")
+                  + f"; printing with the slot record, and usage may be charged to the wrong spool "
+                    "until Spoolman is corrected.", flush=True)
+            filament = {}
     try:
         _mr(st, '/server/spoolman/spool_id', data={'spool_id': sid})
         back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
@@ -3065,8 +3083,10 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
             observed_at = native_at
         problems = check_filament_readiness(state, status, selection, observed_at=observed_at)
         if problems:
-            raise RuntimeError("; ".join(problems))
+            raise RuntimeError(material_accept.message(problems, ""))
     except Exception as exc:
+        if str(exc).startswith(material_accept.PREFIX):
+            raise  # only acceptable material warnings: the operator is asked (#1336)
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
@@ -3127,6 +3147,9 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
         materials = split_config_list(listed) if listed is not None else []
     except ValueError:
         materials = []
+    own = _mismatch_own_temperatures(state, text, materials)
+    if own is not None:
+        return {**state, 'temps_c': own}
 
     def fetch(spool_id):
         record = spoolman_client.get_spool(spool_id, base_url=printer_state.spoolman_url(state))
@@ -3136,6 +3159,39 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(f"G-code temperature check failed: {exc}") from exc
     return {**state, 'temps_c': temps}
+
+
+def _mismatch_own_temperatures(state, text, materials):
+    """The G-code's own temperatures, when it was sliced for another material than the loaded one (#1336).
+
+    A sliced-versus-loaded mismatch is a warning the operator may accept with
+    Print as sliced; the accepted run heats to the temperatures the G-code
+    itself carries (for the material it was sliced for), never the loaded
+    spool's. So the temperature checks hold the file to its own targets, and
+    the mismatch is the one warning the refusal names. The heater targets are
+    still held to the printer's mechanical maxima on every accepted start
+    (require_mechanical_limits). None when the file is not a single-material
+    mismatch or carries no readable targets: the normal resolution applies.
+    """
+    loaded = (state.get('spool') or {}).get('material')
+    named = [' '.join(str(m).split()) for m in materials if str(m).strip()]
+    if not loaded or len(set(named)) != 1 or printer_state.same_material(named[0], loaded):
+        return None
+    from ..printers import job_checks
+    from .nozzle import NozzleError, get_nozzle_type_adjustments
+    nozzle = (job_checks._config_numbers(text, 'nozzle_temperature_initial_layer')
+              or job_checks._config_numbers(text, 'nozzle_temperature')
+              or [v for v in job_checks._commands(text, 'M109') + job_checks._commands(text, 'M104') if v > 0])
+    bed = ([v for v in job_checks._commands(text, 'M190') + job_checks._commands(text, 'M140') if v > 0]
+           or [v for key in job_checks._PLATE_KEYS for v in job_checks._config_numbers(text, key) if v > 0])
+    if not nozzle or not bed:
+        return None
+    try:
+        offset = get_nozzle_type_adjustments(printer_state.recorded_nozzle_type(state))['temp_offset_c']
+    except NozzleError:
+        return None
+    # The file carries the effective target (base plus the nozzle-type offset); temps_c holds the base.
+    return {'nozzle': float(nozzle[0]) - offset, 'bed': float(bed[0])}
 
 
 def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
@@ -3201,7 +3257,7 @@ def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     text = Path(gcode_path).read_text(errors='ignore')
     problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text, recorded_temps))
     if problems:
-        raise RuntimeError('offline G-code verification failed: ' + '; '.join(problems))
+        raise RuntimeError(material_accept.message(problems, 'offline G-code verification failed: '))
     return {'offline': True, 'connection': adapter.connection}
 
 
@@ -3321,7 +3377,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if len(listed) == 1:
             material = listed[0]
         if not printer_state.same_material(material, st["spool"]["material"]):
-            errors.append(f"G-code filament_type {material!r} != loaded {st['spool']['material']!r}")
+            # A warning the operator may accept at start, never a hard block (#1336).
+            errors += material_accept.material_problem(material, st["spool"]["material"])
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
     def numeric_macro_match(macro_name, bed_key, hotend_key):
         match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)
@@ -3439,7 +3496,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
                 continue
             med=sorted(ws)[len(ws)//2]
             if med<floor: errors.append(f"{name} line width {med:.2f} mm < {floor:.2f} mm (90% of {nozzle} nozzle): starved extrusion, reslice")
-    if errors: raise RuntimeError("the G-code did not pass its safety checks: " + "; ".join(errors))
+    if errors: raise RuntimeError(material_accept.message(errors, "the G-code did not pass its safety checks: "))
     print(f"G-CODE OK: {p.name} | {printer_state.summary(st)}")
     return True
 
@@ -3609,12 +3666,29 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
     else:
         result = verify_gcode(gcode_path, **kw)
-    if isinstance(job, dict) and isinstance(facts_state, dict):
+    if isinstance(job, dict) and isinstance(facts_state, dict) and not material_accept.used():
+        # An accepted material warning is this run's answer, not a property of the
+        # artifact: the full-verification marker is recorded only for a clean pass.
         try:
             job['gcode_full_verified_sha256'] = _full_verified_marker(file_sha256(gcode_path), facts_state)
         except OSError:
             pass
+    if material_accept.used():
+        _after_material_accept(gcode_path, adapter, state)
     return result
+
+
+def _after_material_accept(gcode_path, adapter, state):
+    """An accepted material warning waives nothing else (#1336).
+
+    The printer's mechanical limits (axis bounds, heater maxima) hold as on a
+    yolo start, and the loaded material is checked against the fitted nozzle
+    and the result shown: abrasive filament on a brass nozzle is its own
+    warning, accepted on its own.
+    """
+    require_mechanical_limits(gcode_path, state, adapter)
+    material_accept.recheck_loaded_nozzle(printer_state.recorded_nozzle_type(state or {}),
+                                          ((state or {}).get('spool') or {}).get('material'))
 
 
 def _recorded_printer_id(job):
@@ -8949,7 +9023,13 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
                 Path(gcode).read_text(errors="ignore"), live_snapshot,
                 job_mapping=(job.get("ams_mapping") if isinstance(job, dict) else None),
                 dual=adapter.extruder_count() > 1)
-        except _ams.MappingError as exc:
+            for accepted_key in material_accept.used():
+                if accepted_key.startswith("tray|"):
+                    # The accepted tray's material against the nozzle, shown (#1336).
+                    material_accept.recheck_loaded_nozzle(printer_state.recorded_nozzle_type(state),
+                                                          accepted_key.split("|")[-1])
+                    require_mechanical_limits(gcode, state, adapter)
+        except RuntimeError as exc:
             raise refuse(exc) from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
     except BaseException:
@@ -9741,8 +9821,20 @@ def _record_intake_receipt_started(job, job_path, gcode, sha, out):
     return path
 
 
+def _print_target_sha256(target):
+    """The SHA-256 of the G-code a print-now target names (a G-code path or its JOB.json), or None."""
+    try:
+        g = Path(resolve_print_target(target)).expanduser().resolve()
+        if g.name == "JOB.json":
+            g = Path(json.loads(g.read_text()).get("gcode") or "").expanduser().resolve()
+        return file_sha256(g) if g.is_file() else None
+    except (OSError, ValueError, RuntimeError, SystemExit):
+        return None
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
-              yolo=False, bed_clear=None):
+              yolo=False, bed_clear=None, accept_material=(), accept_material_mismatch=False,
+              accept_material_sha256=None):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
     The whole start holds the printer's interprocess control lock (P1-33):
@@ -9759,7 +9851,27 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     transport before anything is uploaded (#1147): True for an explicit
     confirmation of this run, or the SHA-256 of the exact G-code confirmed.
     Without it the start refuses, yolo included.
+
+    ``accept_material`` (warning keys) or ``accept_material_mismatch`` (every
+    material warning of this run) is the operator's Print as sliced answer to
+    material warnings (#1336). It holds for this run only, and only for the
+    G-code whose SHA-256 is ``accept_material_sha256`` when one is given (the
+    chat passes the SHA its question was asked for). It never waives the
+    mechanical limits, and an accepted start re-checks the loaded material
+    against the nozzle.
     """
+    accept_sha = (_print_target_sha256(target)
+                  if (accept_material or accept_material_mismatch) and accept_material_sha256 else None)
+    with material_accept.accepting(accept_material, accept_all=accept_material_mismatch,
+                                   gcode_sha256=accept_sha, expected_sha256=accept_material_sha256):
+        return _print_now_accepting(target, wait_s=wait_s, accept_default_z_offset=accept_default_z_offset,
+                                    reprint=reprint, remap_slot_num=remap_slot_num, yolo=yolo,
+                                    bed_clear=bed_clear)
+
+
+def _print_now_accepting(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
+                         yolo=False, bed_clear=None):
+    """print_now inside the run's material acceptance (if any)."""
     lock = _print_now_control_lock(target)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
@@ -10170,6 +10282,9 @@ def _main():
     remap.add_argument("--tool", type=str, default=None, help="logical tool index the file uses (default: the file's only used tool)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
+    pn.add_argument("--accept-material-mismatch",action="store_true",help="print as sliced: accept this run's material warnings (sliced vs loaded material, abrasive filament on a soft nozzle, a material the maker does not recommend, an AMS tray or slot holding another material); this G-code and this run only, heater and axis limits are never waived")
+    pn.add_argument("--accept-material",action="append",default=[],metavar="KEY",help="accept one named material warning (the [accept KEY] a refusal printed); this run only")
+    pn.add_argument("--accept-material-sha256",default=None,help="the SHA-256 of the G-code the material acceptance was given for; any other G-code asks again")
     pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no single-use approval record (the bed-clear confirmation, mechanics, axis limits and heater maximums are never waived)")
     pn.add_argument("--bed-clear-sha256",default=None,help="the operator confirmed the bed is clear for the G-code with this SHA-256 (what the chat's Start button passes)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap the file's one used tool to another physical IFS slot (1-4) without physical spool changes; a file using several tools is refused (use remap-slot --tool)")
@@ -10317,6 +10432,10 @@ def _main():
         print(routine_phase(printer_state.load())); return
     pn_kw=dict(accept_default_z_offset=getattr(a,"accept_default_z_offset",False),reprint=getattr(a,"reprint",False),remap_slot_num=getattr(a,"remap_slot",None))
     if a.cmd=="print-now" and getattr(a,"yolo",False): pn_kw["yolo"]=True
+    if a.cmd=="print-now":
+        if getattr(a,"accept_material_mismatch",False): pn_kw["accept_material_mismatch"]=True
+        if getattr(a,"accept_material",None): pn_kw["accept_material"]=tuple(a.accept_material)
+        if getattr(a,"accept_material_sha256",None): pn_kw["accept_material_sha256"]=a.accept_material_sha256
     if getattr(a,"bed_clear_sha256",None): pn_kw["bed_clear"]=a.bed_clear_sha256
     elif getattr(a,"bed_clear_confirmed",False): pn_kw["bed_clear"]=True
     if a.cmd=="remap-slot":

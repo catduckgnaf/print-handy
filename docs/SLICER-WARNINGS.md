@@ -37,6 +37,34 @@ No filament condition blocks a print. A filament finding stops the slice once wi
 
 The fallback slot is the printer's active slot when the printer record names one that is loaded, otherwise its first loaded slot. With no loaded-slot information at all it is slot 1, and the warning says so. The warning always names the slot. The substitution is made before slicing, so the G-code only uses slots the printer has and goes through the same bounds and slot checks as any other print. The job keeps the color choices you made; the slots the print used are recorded with the sliced file.
 
+## Material warnings at print start (print as sliced)
+
+The same ruling holds when a print starts: no material condition hard-blocks it (#1336). When the start finds one of the conditions below and nothing else is wrong, nothing is uploaded and the chat asks once, on every transport (Discord, Telegram, Matrix and the Web UI chat), for the intake start, `/print-next`, `/print-again` (reprints and copies 2 and later) and the Discord plate and Retry buttons:
+
+- **Reslice for the loaded material** (the first button and the safe answer): nothing starts; send the model or link again and it is sliced for what is loaded now.
+- **Print as sliced**: the start runs again with your answer for this exact G-code only.
+- **Cancel**.
+
+The conditions, each named with its consequence in the question:
+
+- **Sliced for one material, another loaded** (for example a PETG file with PLA loaded), on every printer family. Printing it as sliced heats to the G-code's own temperatures, the ones for the material it was sliced for, never the loaded spool's.
+- **Abrasive filament on a brass or other soft nozzle** (carbon fiber, glass fiber, glow, wood, metal fill). The warning says plainly that this filament will wear out the nozzle.
+- **A material the printer maker does not recommend** for the printer (Bambu Lab's list).
+- **A Bambu AMS with no tray holding the required material**: the warning names the tray that would be used, and Print as sliced uses it for this start.
+- **An AD5X slot screen label of another material family** than the job selected (a family match such as PLA for PLA+, or SILK for Silk PLA, is not a difference).
+
+What an acceptance never does:
+
+- It never waives a mechanical limit. The axis bounds and the heater maxima are checked on every accepted start, as on a yolo start; a file over the maximum still refuses.
+- It never carries over. It is bound to the SHA-256 of the exact G-code it was given for and to the materials it names, and it lasts one start: another file, another mismatch, a later copy, a reprint or a Retry asks again.
+- It never skips the nozzle check. An accepted start checks the loaded material against the fitted nozzle and shows the result; abrasive filament on a brass nozzle is its own warning, accepted on its own.
+
+A refusal that names a material warning beside a real fault (a wrong nozzle size, for example) offers no Print as sliced: fix the fault first.
+
+A Spoolman spool that is archived or records another material than the slot record is a plain warning at start (usage may be charged to the wrong spool until Spoolman is corrected); the print uses the slot record.
+
+From the command line, `model_job print-now` (and `--reprint`) takes `--accept-material-mismatch` to print as sliced through every material warning of that run. A chat answer passes the exact warnings with `--accept-material KEY` (the `[accept KEY]` the refusal printed) and `--accept-material-sha256` for the G-code it was given for. `--accept-spool-change` is answered in chat with **Use the loaded spool**.
+
 ## Every other warning (information only)
 
 Other non-critical warnings never gate, block or add a button. Identical text is shown once, and the pre-print summary carries one compact line (count plus the first warning); the full list stays in the job's slice provenance. Warnings known to be harmless go in `print_handy/data/slice_warning_ignore.json` (`{"ignore": [{"pattern": "<regex>"}]}`); they are logged and not shown. The support finding cannot be ignored.

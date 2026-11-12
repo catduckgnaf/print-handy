@@ -1336,6 +1336,47 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     return await print_next.start({**target, 'accept_spool_change': True})
 
 
+async def _start_with_offers(adapter, source, metadata, print_next, target, live_key=None):
+    """One chat start that asks instead of hard-blocking on material warnings or a swapped spool (#1336).
+
+    A refusal that names only acceptable material warnings (sliced vs loaded
+    material, abrasive filament on a soft nozzle, a material the maker does not
+    recommend, an AMS tray or slot holding another material) asks Reslice for
+    the loaded material (the default) / Print as sliced / Cancel; Print as
+    sliced restarts with that answer bound to this exact G-code. A slot spool
+    swapped since slicing asks Use the loaded spool, as before. Returns
+    (ok, detail, plain): plain is True when detail is already chat wording.
+    """
+    from print_handy.core import material_accept
+    timeout = globals().get('_config').question_timeout_s() if globals().get('_config') else 1800
+    target = dict(target)
+    ok, detail = await print_next.start(target)
+    for _round in range(3):
+        if ok:
+            break
+        warnings = material_accept.pending(detail)
+        if warnings:
+            choices = material_accept.choices(warnings)
+            answer = await _confirm(adapter, source, metadata, 'print-material', material_accept.question(warnings),
+                                    choices, timeout, live_key=live_key, approval=True)
+            if answer != material_accept.PRINT_AS_SLICED_LABEL:
+                return False, (material_accept.reslice_message(warnings) if answer == choices[0]
+                               else 'Cancelled. Nothing uploaded or started.'), True
+            target['accept_material'] = sorted(set(target.get('accept_material') or ())
+                                               | {w['key'] for w in warnings})
+            ok, detail = await print_next.start(target)
+            continue
+        if SPOOL_CHANGED in str(detail) and not target.get('accept_spool_change'):
+            ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
+                                                    live_key=live_key)
+            if detail == 'Cancelled. Nothing uploaded or started.':
+                return False, detail, True
+            target['accept_spool_change'] = True
+            continue
+        break
+    return ok, detail, False
+
+
 async def _announce_command_start(send, target, detail, job=None, plate=None, chat_id=None, thread_id=None):
     """Post and register the one start announcement for a command start.
 
@@ -1480,10 +1521,11 @@ async def print_next_dispatch(event, gateway, **kwargs):
         else:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f"Preparing to start {target['label']}. {target.get('estimate_text', 'Estimated print time unknown')}.")
-            ok, detail = await print_next.start(target)
-            if not ok and SPOOL_CHANGED in str(detail):
-                ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
-                                                        live_key=live_key)
+            ok, detail, plain = await _start_with_offers(adapter, source, metadata, print_next, target,
+                                                         live_key=live_key)
+            if plain:
+                await adapter.send(chat_id=source.chat_id, content=detail, metadata=metadata)
+                return {'action': 'skip', 'reason': 'deterministic next plate handled'}
             if ok:
                 await _announce_command_start(
                     lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
@@ -4675,9 +4717,13 @@ async def print_again_dispatch(event, gateway, **kwargs):
             # never move. Bookkeeping only; the approval above is this
             # start's own and is not reused.
             await asyncio.to_thread(pc.arm_reprint_run, target)
-            ok, detail = await print_next.start(target)
+            ok, detail, plain = await _start_with_offers(adapter, source, metadata, print_next, target,
+                                                         live_key=live_key)
             if not ok:
                 await asyncio.to_thread(pc.disarm_reprint_run, target)
+            if plain:
+                await adapter.send(chat_id=source.chat_id, content=detail, metadata=metadata)
+                return {'action': 'skip', 'reason': 'print again not started on a material warning'}
             if ok:
                 # Queue bookkeeping lands in the job owner's own queue file,
                 # never another printer's (P2-135).
@@ -6177,6 +6223,8 @@ def alert_button_handlers(bot, adapter):
                 view.add_item(discord.ui.Button(label=USE_LOADED_SPOOL, style=discord.ButtonStyle.success,
                                                 custom_id=f'{pab.PLATE_PREFIX}:spool:{spool_aid}'))
                 message = f"Did not start {target['label']}.\n{_spool_change_text(target, detail)}"
+            elif not ok and _material_pending(detail):
+                view, message = await _material_view(target, detail, f"Did not start {target['label']}.")
         except Exception as exc:
             logger.exception('plate picker start failed')
             message = _failure_post('Next plate', exc, 'Check the printer screen before retrying.', subsystem='printer')
@@ -6186,6 +6234,51 @@ def alert_button_handlers(bot, adapter):
                                           target, detail, chat_id=str(getattr(interaction, 'channel_id', '') or '') or None)
         if message:
             await (interaction.followup.send(message, view=view) if view else interaction.followup.send(message))
+
+    def _material_pending(detail):
+        from print_handy.core import material_accept
+        return material_accept.pending(detail)
+
+    async def _material_view(target, detail, lead, view=None):
+        """A single-use Print as sliced button for this exact G-code, and the warning text (#1336)."""
+        import discord
+        from print_handy.core import material_accept
+        warnings = material_accept.pending(detail)
+        keys = sorted(set(target.get('accept_material') or ()) | {w['key'] for w in warnings})
+        stored = json.loads(json.dumps({k: v for k, v in target.items() if k != 'accept_material'}, default=str))
+        material_aid = await asyncio.to_thread(pab.record, 'start-material', '', target=stored, keys=keys)
+        view = view or discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        view.add_item(discord.ui.Button(label=material_accept.PRINT_AS_SLICED_LABEL, style=discord.ButtonStyle.danger,
+                                        custom_id=f'{pab.PLATE_PREFIX}:material:{material_aid}'))
+        return view, (f"{lead}\n{material_accept.question(warnings)}\n"
+                      f"{material_accept.reslice_message(warnings)}")
+
+    async def handle_plate_material(interaction, aid):
+        """Single-use Print as sliced tap: the exact stored G-code, these warnings only; start() re-checks all."""
+        from print_handy.core import material_accept
+        from print_handy.hermes import print_next
+        alert = await asyncio.to_thread(pab.take, aid)
+        if not alert or alert.get('kind') != 'start-material' or not isinstance(alert.get('target'), dict):
+            await interaction.response.send_message('That answer is old or was already used. Nothing started.', ephemeral=True)
+            return
+        target = {**alert['target'], 'accept_material': list(alert.get('keys') or [])}
+        await interaction.response.edit_message(content='Preparing to start as sliced.', view=None)
+        try:
+            ok, detail = await print_next.start(target)
+        except Exception as exc:
+            logger.exception('print as sliced start failed')
+            await interaction.followup.send(_failure_post('Print as sliced', exc, 'Check the printer screen before retrying.',
+                                                          subsystem='printer'))
+            return
+        if ok:
+            await _announce_command_start(lambda content: interaction.followup.send(content), target, detail,
+                                          chat_id=str(getattr(interaction, 'channel_id', '') or '') or None)
+            return
+        if material_accept.pending(detail):
+            view, text = await _material_view(target, detail, 'Did not start: another material warning.')
+            await interaction.followup.send(text, view=view)
+            return
+        await interaction.followup.send('Did not start. Not retrying.\n' + intake_plain_start_failure(detail))
 
     async def handle_plate_spool(interaction, aid):
         """Single-use 'use the loaded spool' tap. start() still re-checks the printer, claim and live slot."""
@@ -6249,6 +6342,11 @@ def alert_button_handlers(bot, adapter):
         raw = intake._raw_preupload_refusal(detail)
         logger.warning('print retry refused detail=%s', intake.logs.redact(raw or detail))
         if intake._safe_preupload_refusal(detail):
+            if _material_pending(detail):
+                # Material warnings: Print as sliced beside Retry, never a hard block (#1336).
+                view, text = await _material_view(target, detail, 'Did not start.', view=retry_view())
+                await interaction.message.edit(content=text, view=view)
+                return
             await interaction.message.edit(content=intake._launch_refusal_text(detail), view=retry_view())
         else:
             receipt.update(status='START_UNCERTAIN', uploaded=None, started=None,
@@ -6367,7 +6465,8 @@ def alert_button_handlers(bot, adapter):
                 await reject(interaction)
                 return
             await {'pick': handle_plate_pick, 'go': handle_plate_go,
-                   'spool': handle_plate_spool, 'drop': handle_plate_drop}[plate[0]](interaction, plate[1])
+                   'spool': handle_plate_spool, 'drop': handle_plate_drop,
+                   'material': handle_plate_material}[plate[0]](interaction, plate[1])
             return
         bind_confirm = pab.parse_bind_confirm_custom_id(custom_id)
         if bind_confirm:

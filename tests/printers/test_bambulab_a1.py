@@ -519,7 +519,7 @@ def test_other_printers_keep_the_whole_file_bounds_check(tmp_path):
     ({"hotend": 310}, "M104 S310 exceeds the Bambu Lab A1 limit of 300 C"),
     ({"material": "ABS"}, "ABS is not recommended"),
     ({"material": "PA-CF", "nozzle_type": "hardened_steel"}, "PA-CF is not recommended"),
-    ({"material": "PLA-CF"}, "needs a hardened steel nozzle"),
+    ({"material": "PLA-CF"}, "this filament will wear out the"),  # #1336: plain wording, acceptable
     ({"material": "PLA;PETG"}, "each filament slot needs its own checked profile"),
     ({"nozzle": "0.6"}, "nozzle 0.6 mm has no Bambu Lab A1 template"),
     ({"nozzle": ""}, "carries no nozzle_diameter"),  # Codex on #330: no metadata is no longer a pass
@@ -906,3 +906,16 @@ def test_print_now_refuses_a_job_prepared_for_another_printer(a1_current, tmp_pa
     with pytest.raises(SystemExit, match="prepared for flashforge.ad5x, but the configured printer model is bambulab.a1"):
         model_job.print_now(tmp_path / "JOB.json")
     assert a1_current == []
+
+
+def test_bambu_material_warnings_can_be_accepted_1336():
+    """#1336: abrasive on a soft nozzle and the maker's not-recommended list warn bluntly and can be
+    accepted at start (fails on base 1d452a58: no accept token, no acceptance)."""
+    from print_handy.core import material_accept
+    found = problems(a1_gcode(material="PLA-CF"))
+    abrasive = [p for p in found if "[accept abrasive|PLA-CF|" in p]
+    assert abrasive and "this filament will wear out the" in abrasive[0]
+    assert any("[accept not_recommended|ABS|" in p for p in problems(a1_gcode(material="ABS")))
+    with material_accept.accepting(accept_all=True):
+        assert problems(a1_gcode(material="PLA-CF")) == [p for p in found if p not in abrasive]
+        assert not any("not recommended" in p for p in problems(a1_gcode(material="ABS")))
