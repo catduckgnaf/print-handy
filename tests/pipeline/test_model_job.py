@@ -2154,15 +2154,23 @@ class SelectionConsistencyTests(unittest.TestCase):
                 model_job._sync_active_spool(st, 2)
         save.assert_not_called()
 
-    def test_sync_active_spool_refuses_archived_spool(self):
+    def test_sync_active_spool_warns_on_archived_spool_and_keeps_the_slot_record(self):
+        # #1336: Spoolman is usage accounting; an archived spool is a plain warning, not a refusal.
+        import contextlib
+        import io
         st = self.verified_state()
         st["spoolman_url"] = "http://spoolman.invalid"
         reply, calls = self.sync_transport([10])
+        out = io.StringIO()
         with mock.patch.object(model_job, "_mr", side_effect=reply), \
-             mock.patch.object(model_job.spoolman_client, "get_spool", return_value={"archived": True, "filament": {"material": "PLA"}}):
-            with self.assertRaisesRegex(RuntimeError, "archived"):
-                model_job._sync_active_spool(st, 2)
-        self.assertNotIn(("/server/spoolman/spool_id", {"spool_id": 11}), calls)
+             mock.patch.object(model_job.spoolman_client, "get_spool", return_value={"archived": True, "filament": {"material": "PLA"}}), \
+             mock.patch.object(model_job.printer_state, "load", return_value=self.verified_state()), \
+             mock.patch.object(model_job.printer_state, "save"), \
+             contextlib.redirect_stdout(out):
+            result = model_job._sync_active_spool(st, 2)
+        self.assertTrue(result["changed"])
+        self.assertIn("archived; printing with the slot record", out.getvalue())
+        self.assertEqual(st["spool"]["material"], self.verified_state()["filament_slots"]["2"]["material"])
 
     def test_material_family_treats_pla_plus_as_pla_but_not_petg(self):
         same = model_job.printer_state.same_material

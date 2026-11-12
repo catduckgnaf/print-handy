@@ -1362,8 +1362,9 @@ async def _start_with_offers(adapter, source, metadata, print_next, target, live
             if answer != material_accept.PRINT_AS_SLICED_LABEL:
                 return False, (material_accept.reslice_message(warnings) if answer == choices[0]
                                else 'Cancelled. Nothing uploaded or started.'), True
-            target['accept_material'] = sorted(set(target.get('accept_material') or ())
-                                               | {w['key'] for w in warnings})
+            # A new dict per start: an earlier start's target is never changed after the fact.
+            target = {**target, 'accept_material': sorted(set(target.get('accept_material') or ())
+                                                          | {w['key'] for w in warnings})}
             ok, detail = await print_next.start(target)
             continue
         if SPOOL_CHANGED in str(detail) and not target.get('accept_spool_change'):
@@ -1371,7 +1372,7 @@ async def _start_with_offers(adapter, source, metadata, print_next, target, live
                                                     live_key=live_key)
             if detail == 'Cancelled. Nothing uploaded or started.':
                 return False, detail, True
-            target['accept_spool_change'] = True
+            target = {**target, 'accept_spool_change': True}
             continue
         break
     return ok, detail, False
