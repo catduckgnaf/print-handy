@@ -2,6 +2,8 @@
 
 # Unreleased
 
+- #1160 folded-in debt (#1332), first part: the bot runtimes keep one warm single-use heavy intake worker, started ahead of time with its imports done, so a heavy step no longer waits 0.6 to 1.1 s for Python to start (one process per step as before; a spare from older settings or past 15 minutes is stopped, not used). The release, develop and nightly images stamp `PRINT_HANDY_IMAGE_TAG` and `PRINT_HANDY_IMAGE_SHA`, so the diagnostics bundle names the image. The budget-exhausted CRITICAL outage notice is pinned on Telegram and Matrix as well as Discord. The native-error and filament-failover posts name the slot base like the other listener alerts, and a guard keeps zero-based indexes out of slot text. Timing runs record the runner CPU: the post-#1165 Discord-flow timing rise was runner hardware (the same commits land in speed bands about 1.6x apart), not code. Recorded decisions: the #908 identity layer stays removed (owner rescope), the timelapse clip join through `print_number_was` is verified end to end, and per-frame camera work needs no further change (about 40 ms per check against a 120 s minimum interval).
+
 # Version 2.2.9
 
 **Release Date:** Unreleased until tagged. Set when the tag is cut.
