@@ -31,14 +31,32 @@ from .threemf_canonical import intake_working_copy
 
 logger = logging.getLogger(__name__)
 
-# Bambu Lab start confirmation (#271): the printer can take well over a minute after `project_file`
-# to unpack the package and report it, so one snapshot is not evidence. Poll this often, for the
-# [bambu] start_confirm_s window (default below). Both hooks are module attributes so tests can
-# drive the window with a fake clock instead of sleeping.
-BAMBU_START_CONFIRM_S = 90
-BAMBU_START_POLL_S = 10
-_confirm_clock = time.monotonic
-_confirm_sleep = time.sleep
+from ..launch.print_now import (  # moved in 2.3.0 (#1323); old path kept for one release
+    BAMBU_START_CONFIRM_S, BAMBU_START_POLL_S, INTAKE_RECEIPTS, MAP_PREFIX, START_CLAIMS,
+    START_CLAIM_TTL_S, START_CONFIRM_DEFAULT_S, START_CONFIRM_POLL_S, START_OUTCOME_MARK,
+    START_READBACK_QUERY, StartPoll, ToolRemapRefused, Z_OFFSET_NOTICE, _FILAMENT_COLOUR_RE,
+    _OUTCOME_KEYS, _RECEIPT_STARTABLE_STATUSES, _announce_polled_outcome, _announce_print_name,
+    _assign_print_number, _bambu_start_confirm_window, _bambu_total_estimated_time, _bang_lines,
+    _baseline_heaters_off, _baseline_heats, _check_mapped_slot_color, _clear_active_spool,
+    _confirm_bambu_start, _confirm_clock, _confirm_generic_start, _confirm_mapped_start,
+    _confirm_sleep, _emit_mapped_outcome, _emit_start_outcome, _entries_after_watermark,
+    _filament_total_g, _find_intake_receipt, _gcode_filament_colors, _gcode_store_entries,
+    _gcode_store_watermark, _maintenance_detail_line, _moonraker_started_files,
+    _note_delivery_format, _owning_job, _per_tool_filament_settings, _poll_start_confirmation,
+    _preparation_evidence, _print_bambu, _print_elegoo_sdcp, _print_flashforge_stock,
+    _print_now_control_lock, _print_now_locked, _print_octoprint, _print_prusa, _publish_job_card,
+    _read_claims, _read_start_readback, _readback_status, _reconcile_lost_start,
+    _record_intake_receipt_started, _rejected_start_message, _rerecord_selected_slot,
+    _settle_intake_start_claim, _settle_lost_start, _settle_polled_start, _start_baseline,
+    _start_confirm_window_s, _start_confirmed, _start_family_monitor, _start_pending,
+    _start_receipt_error, _start_rejection, _start_visibly_running, _store_entry_mark,
+    _submission_failed, _sync_active_spool, _uncertain_after_submission, _wait_printing,
+    _write_checkpoint, _write_claims, _zmod_upload_artifact, _zmod_version,
+    accepted_color_mismatches, accepted_label_mismatches, claim_start_announcement,
+    color_mismatch_key, job_card, job_details, label_mismatch_key, live_snapshot, mesh_line,
+    print_mapped_native, print_now, record_start, release_start_announcement, remap_slot,
+    z_offset_notice,
+)
 
 from ..jobs.common import (  # moved in 2.3.0 (#1323); old path kept for one release
     ARCHIVE, BED_MM, FILAMENT_SLOTS, MAX_HEIGHT_MM, MOONRAKERCTL, PROFILE, STATE, TIMEZONE, UA,
@@ -1697,30 +1715,12 @@ def download_for_site(job, source, target):
     return globals()[name](job, source, target)
 
 
-def _timing(job_path, stage, **extra):
-    """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises.
-
-    Stage map for the single-plate slice path (#952 — intervals are
-    wall-clock, ``time.time()``): ``slice_start`` -> ``inventory_done`` is
-    source inventory and the slice recipe; ``inventory_done`` ->
-    ``orca_begin`` is orientation/derived-source preparation;
-    ``orca_begin`` -> ``orca_finalize_done`` is all of ``slice_model`` —
-    the slicer subprocess **plus** finalize and the post-slice guards —
-    with the split recorded as ``slicer_s``/``python_s`` extras on
-    ``orca_finalize_done`` (and as ``timing_s`` in the slice provenance);
-    ``verify_begin`` -> ``verify_done`` is ``_verify_routed``; packaging
-    has no marker of its own (on the ZMod upload route it sits between
-    ``preflight_verify_done`` and ``upload_begin``, mixed with approval
-    consumption and lease acquisition). Other slice paths (multi-plate,
-    split) emit ``slice_done`` without the ``orca_*``/``verify_*`` stages.
-    """
-    try:
-        line={"stage":stage,"t":round(time.time(),3),"pid":os.getpid(),**extra}
-        logger.debug("TIMING %s", json.dumps(line))  # stdout stays clean in production logs
-        if job_path is not None:
-            with (Path(job_path).parent/"TIMING.jsonl").open("a") as out: out.write(json.dumps(line)+"\n")
-    except Exception:
-        pass
+from ..jobs.store import (  # moved in 2.3.0 (#1323); old path kept for one release
+    CONTEXT, RECORD_KEYS, _detail_tail, _job_adapter, _job_for_gcode, _job_printer_id,
+    _job_record_for_gcode, _printer_key, _recipe_changed, _recorded_printer_id, _timing,
+    decisions_digest, effective_color_decisions, gcode_estimate_s, human_dur, remote_name,
+    resolve_print_target, write_job,
+)
 
 
 from ..gcode.artifact import (  # moved in 2.3.0 (#1323); old path kept for one release
@@ -2017,14 +2017,6 @@ def intake_folder(archive, slug, intake_id=None):
     return Path(archive) / (safe_slug(slug) + ('--' + intake_id if intake_id else ''))
 
 
-def write_job(folder, job):
-    # Atomic replace: the background slice and the intake flow read JOB.json
-    # concurrently; a plain write_text truncates first, so a reader could see
-    # an empty file and fail with "Expecting value: line 1 column 1".
-    target = Path(folder) / "JOB.json"
-    tmp = target.with_name(f".JOB.json.{os.getpid()}.{time.monotonic_ns()}.tmp")
-    tmp.write_text(json.dumps(job, indent=2) + "\n")
-    os.replace(tmp, target)
 def show(job):
     print(f"{job['title']} [{job['site']} {job['model_id']}]\nHardware: {printer_state.summary(job['hardware'])}")
     print("Sources:")
@@ -2048,8 +2040,12 @@ from ..gcode.bounds import (  # moved in 2.3.0 (#1323); old path kept for one re
 )
 
 
-FILAMENT_SENSOR_OBJECTS = ("filament_switch_sensor head_switch_sensor", "zmod_color", "zmod_ifs", "print_stats", "save_variables")
-MAP_PREFIX = "; hermes_tool_slots = "
+from ..jobs.filament import (  # moved in 2.3.0 (#1323); old path kept for one release
+    FILAMENT_SENSOR_OBJECTS, _validate_slot_selection, apply_stock_presence, configured_slots,
+    position_limit, read_filament_telemetry, read_stock_detail, read_stock_filament_slots,
+    read_stock_filament_slots_from_detail, resolve_filament_selection, telemetry_state,
+    validate_filament_selection,
+)
 
 
 def format_color_title(c):
@@ -2084,116 +2080,12 @@ def build_tool_labels(selections):
     return _build_position_labels(selections, 'Toolhead')
 
 
-def position_limit(adapter=None):
-    """Highest colour position a selection may name on the printer.
-
-    An IFS printer bounds selections by [printer] filament_slots; a multi_tool
-    printer's positions are its toolheads (the adapter's slot_count) even
-    though filament_slots stays 1 there, so the bound is whichever the printer
-    actually has. Every other printer keeps exactly the bound it has today.
-    """
-    limit = FILAMENT_SLOTS
-    try:
-        limit = max(limit, int((adapter or printers.current()).slot_count or 1))
-    except Exception:
-        pass
-    return limit
 
 
-def validate_filament_selection(selection, spool_optional=False, limit=None):
-    """Validate a job-bound, user-confirmed filament selection.
-
-    `spool_optional` admits a selection with no Spoolman ID; only a single-extruder printer's unbound spool
-    gets it (resolve_filament_selection, #263). `limit` is the printer's colour-position bound
-    (position_limit); the default keeps the configured IFS bound.
-    """
-    if limit is None:
-        limit = FILAMENT_SLOTS
-    if not isinstance(selection, dict):
-        raise ValueError("explicit filament selection is required (use 'filament-select' command)")
-    slot = selection.get("slot")
-    if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= limit:
-        raise ValueError(f"filament slot must be an integer from 1 through {limit}")
-    for key in ("color", "material"):
-        if not isinstance(selection.get(key), str) or not selection[key].strip():
-            raise ValueError(f"filament {key} is required")
-    spool_id = selection.get("spoolman_id")
-    if not (spool_id is None and spool_optional) and (
-            not isinstance(spool_id, int) or isinstance(spool_id, bool) or spool_id <= 0):
-        raise ValueError("a positive Spoolman spool ID is required")
-    return {"slot": slot, "color": selection["color"].strip(),
-            "material": selection["material"].strip(), "spoolman_id": spool_id}
 
 
-def configured_slots(state):
-    """The slot records intake offers, keyed by slot number.
-
-    A recorded `filament_slots` map is used as is. A single-extruder printer with no slot map has one slot,
-    its configured spool (#263): slot entries are only written from Spoolman, so an offline printer never
-    gets one. Printers whose slots are bound in the record (AD5X IFS, stock Flashforge) still need their
-    recorded map. A multi_slot printer whose feeder reports its own contents (Bambu AMS, #671) is not
-    record-bound either: its record carries the one configured spool, offered as slot 1 the #263 way,
-    and the printer's reported trays are matched to a job's filament slots at print start instead.
-    """
-    mappings = (state or {}).get("filament_slots") or {}
-    current = printers.current()
-    if mappings or (current.slot_count != 1 and current.slots_bound_by_record):
-        return mappings
-    spool = (state or {}).get("spool") or {}
-    material = spool.get("material")
-    if not isinstance(material, str) or not material.strip():
-        return {}
-    # The spool's recorded label is its color name; "loaded" names it without inventing a color.
-    color = next((v.strip() for v in (spool.get("color"), spool.get("name")) if isinstance(v, str) and v.strip()),
-                 "loaded")
-    return {"1": {"color": color, "material": material.strip(), "spoolman_id": spool.get("spoolman_id")}}
 
 
-def resolve_filament_selection(state, selection):
-    """Resolve metadata from the requested slot, never the globally active spool.
-
-    Configured slot labels are consistency checks, not proof of physical loading.
-    An unmapped slot requires an explicit spool ID rather than an inferred one. A single-extruder
-    printer's slot whose spool has no Spoolman binding needs none (#263); Spoolman is advisory (#235).
-    """
-    limit = position_limit()
-    if not isinstance(selection, dict):
-        return validate_filament_selection(selection, limit=limit)
-    selection = dict(selection)
-    slot = selection.get("slot")
-    if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= limit:
-        raise ValueError(f"filament slot must be an integer from 1 through {limit}")
-    mappings = configured_slots(state)
-    configured = mappings.get(str(slot), {}) if isinstance(mappings, dict) else {}
-    if not isinstance(configured, dict):
-        raise ValueError(f"slot {slot} configured mapping is invalid")
-    mapped_id = configured.get("spoolman_id")
-    # "Unbound" = the slot's spool is the printer's one configured spool (the
-    # configured_slots synthesis), not a per-slot record binding: a printer
-    # whose slots are not bound in the record (single-extruder models, and the
-    # Bambu AMS models since #671) needs no Spoolman ID for it.
-    unbound = bool(configured) and mapped_id is None and (
-        printers.current().slot_count == 1 or not printers.current().slots_bound_by_record)
-    if selection.get("spoolman_id") is None:
-        if mapped_id is None and not unbound:
-            raise ValueError(f"slot {slot} requires an explicit Spoolman spool ID; no configured mapping")
-        selection["spoolman_id"] = mapped_id
-    for key in ("color", "material"):
-        if selection.get(key) is None and configured.get(key) is not None:
-            selection[key] = configured[key]
-    selection = validate_filament_selection(selection, spool_optional=unbound, limit=limit)
-    if mapped_id is not None and selection["spoolman_id"] != mapped_id:
-        raise ValueError(f"slot {slot} spool mismatch: requested #{selection['spoolman_id']}, configured #{mapped_id}")
-    def same_selection(key, configured_value, chosen):
-        if key == "color" and filament_color.parse_hex(configured_value) and filament_color.parse_hex(chosen):
-            # Both are hex: #FFF, FFFFFF and FAFAFA are one color, 067749 and 0C6283 are not.
-            return filament_color.compare_colors(configured_value, chosen) == "same"
-        return " ".join(configured_value.strip().casefold().split()) == " ".join(chosen.strip().casefold().split())
-    for key in ("color", "material"):
-        value = configured.get(key)
-        if value is not None and (not isinstance(value, str) or not same_selection(key, value, selection[key])):
-            raise ValueError(f"slot {slot} {key} does not match the configured selection")
-    return selection
 
 
 def save_filament_selection(job_path, selection):
@@ -2209,465 +2101,62 @@ def save_filament_selection(job_path, selection):
     return job["filament_selection"]
 
 
-READINESS_MAX_AGE_SECONDS = 15
-
-
-def _native():
-    """True when the configured printer has the ZMod native-screen runtime (display_off, offsets, stock API)."""
-    return printers.current().has_native_screen
-
-
-
-
-def telemetry_state(value):
-    """Classify raw telemetry without coercing strings, numbers, or null to booleans."""
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    return "unknown"
-
-
-def check_filament_readiness(state, status, selection=None, *, observed_at=None, now=None):
-    """Fail closed unless explicit, fresh telemetry agrees with the job's AD5X selection."""
-    problems = []
-    now = time.time() if now is None else now
-    if (not isinstance(now, (int, float)) or isinstance(now, bool) or
-            not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool)):
-        problems.append("telemetry freshness is unknown")
-    elif (now - observed_at < 0 or now - observed_at > READINESS_MAX_AGE_SECONDS):
-        problems.append("telemetry is stale or has an invalid timestamp")
-
-    sensor = status.get("filament_switch_sensor head_switch_sensor") if isinstance(status, dict) else None
-    if not isinstance(sensor, dict) or telemetry_state(sensor.get("enabled")) != "true":
-        problems.append(f"head filament sensor enabled state is {telemetry_state(sensor.get('enabled') if isinstance(sensor, dict) else None)}")
-    head = sensor.get("filament_detected") if isinstance(sensor, dict) else None
-    print_stats = status.get('print_stats') if isinstance(status, dict) else None
-    phase = print_stats.get('state') if isinstance(print_stats, dict) else None
-    staged_idle = phase in ('standby', 'complete', 'cancelled')
-    if telemetry_state(head) == "unknown" or (head is False and not staged_idle):
-        if telemetry_state(head) == "unknown":
-            problems.append(f"head filament sensor is unknown (value {head!r})")
-        else:
-            problems.append("head filament sensor reports no filament during a non-idle print phase (possible runout)")
-    # An enabled, empty head is normal before IFS loading. Unknown execution
-    # state and active/paused runout never receive the idle staging exemption.
-    if isinstance(selection, dict) and "filament_selection" in selection:
-        selection = selection.get("filament_selection")
-    if isinstance(selection, dict):
-        try:
-            selection = validate_filament_selection(selection)
-        except ValueError as exc:
-            problems.append(str(exc))
-            return problems
-    color = status.get("zmod_color") if isinstance(status, dict) else None
-    slots = color.get("slots") if isinstance(color, dict) else None
-    if not isinstance(slots, list):
-        problems.append("AD5X IFS slot inventory is unavailable")
-        return problems
-    if not isinstance(selection, dict):
-        problems.append("job has no explicit IFS slot/color selection")
-        return problems
-    try:
-        selection = validate_filament_selection(selection)
-    except ValueError as exc:
-        problems.append(str(exc))
-        return problems
-    slot_id = selection["slot"]
-    def slot_id_of(item):
-        raw = item.get("ID") if isinstance(item, dict) else None
-        if isinstance(raw, int) and not isinstance(raw, bool) and 1 <= raw <= FILAMENT_SLOTS:
-            return raw
-        if isinstance(raw, str) and raw.isdigit() and 1 <= int(raw) <= FILAMENT_SLOTS:
-            return int(raw)
-        return None
-
-    malformed = [item for item in slots if slot_id_of(item) is None]
-    if malformed:
-        problems.append("AD5X IFS inventory contains malformed slot IDs")
-    matches = [item for item in slots if slot_id_of(item) == selection["slot"]]
-    if len(matches) > 1:
-        problems.append(f"AD5X IFS inventory contains duplicate ID {slot_id}")
-        return problems
-    if not matches:
-        problems.append(f"selected IFS slot {slot_id} is unavailable")
-        return problems
-    actual = matches[0]
-    feeder = actual.get("hasFilament")
-    feeder_state = telemetry_state(feeder)
-    if feeder_state == "false":
-        problems.append(
-            f"selected IFS slot {slot_id} reports false (empty). Check the printer screen's IFS view for slot {slot_id}; "
-            f"if it is empty, feed filament into slot {slot_id}'s inlet until the IFS grips it, then retry. "
-            "The AD5X has no buffer switch to click")
-    elif feeder_state != "true":
-        problems.append(
-            f"selected IFS slot {slot_id} presence is unknown (raw value {feeder!r}); "
-            "this is a telemetry fault, not proof the slot is empty")
-    for key, actual_key in (("material", "Material"), ("color", "Color")):
-        wanted = selection.get(key)
-        observed = actual.get(actual_key)
-        if not isinstance(wanted, str) or not wanted.strip():
-            problems.append(f"job selection is missing {key}")
-        elif not isinstance(observed, str) or observed.casefold() != wanted.casefold():
-            problems.append(f"selected IFS slot {slot_id} {key} does not match the job selection")
-    return problems
-
-
-def read_filament_telemetry(state):
-    """Read and label filament telemetry without triggering any printer action."""
-    objects = urllib.parse.quote("&".join(FILAMENT_SENSOR_OBJECTS), safe="&")
-    try:
-        response = request_json(f"{state['moonraker_url']}/printer/objects/query?{objects}")
-        status = response.get("result", {}).get("status", {}) if isinstance(response, dict) else {}
-    except Exception as exc:
-        status = {}
-        query_error = f"{type(exc).__name__}: {exc}"
-    else:
-        query_error = None
-    if not isinstance(status, dict):
-        status = {}
-        query_error = query_error or "invalid Moonraker status payload"
-    sensor = status.get("filament_switch_sensor head_switch_sensor")
-    color = status.get("zmod_color")
-    slots = color.get("slots") if isinstance(color, dict) else None
-    raw_zmod_slots = [
-        {"ID": item.get("ID"), "hasFilament": item.get("hasFilament")}
-        for item in slots if isinstance(item, dict)
-    ] if isinstance(slots, list) else "unknown"
-    ifs = status.get("zmod_ifs")
-    ports = ifs.get("Ports") if isinstance(ifs, dict) else None
-    variables_obj = status.get("save_variables")
-    variables = variables_obj.get("variables") if isinstance(variables_obj, dict) else None
-    mode = variables.get("display_off") if isinstance(variables, dict) else None
-    if type(mode) is not int or mode not in (0, 1):
-        mode = None
-    mode_name = "native" if mode == 0 else "screenless" if mode == 1 else "unknown"
-    stock_detail_error = None
-    stock_detail_used = False
-    if mode == 0:
-        try:
-            native_slots = read_stock_filament_slots(state)
-            # Native authenticated /detail is authoritative for occupancy.
-            apply_stock_presence(status, native_slots)
-            slots = color.get("slots") if isinstance(color, dict) else None
-            stock_detail_used = True
-        except Exception as exc:
-            # Preserve raw ZMod telemetry, but never present its known-stale
-            # native-mode occupancy flags as evidence of empty or loaded slots.
-            stock_detail_error = f"{type(exc).__name__}: {exc}"
-            if isinstance(slots, list):
-                for item in slots:
-                    if isinstance(item, dict):
-                        item["hasFilament"] = "unknown"
-                        item["presence_source"] = "conflicted: stock /detail unavailable; raw zmod_color preserved separately"
-    return {
-        "queried_at_epoch": time.time(),
-        "source": "Moonraker printer/objects/query",
-        "printer_mode": mode_name,
-        "display_off": mode if mode in (0, 1) else "unknown",
-        "stock_detail_authoritative": stock_detail_used,
-        "stock_detail_error": stock_detail_error,
-        "raw_zmod_color_presence": raw_zmod_slots,
-        "freshness_note": "Query time is recorded; the endpoint does not provide per-field sample timestamps, so underlying sensor freshness is unknown.",
-        "query_error": query_error,
-        "configured_palette": [
-            {"ID": item.get("ID"), "Material": item.get("Material"), "Color": item.get("Color")}
-            for item in slots if isinstance(item, dict)
-        ] if isinstance(slots, list) else "unknown",
-        "feeder_slots": [
-            {"ID": item.get("ID"), "hasFilament": telemetry_state(item.get("hasFilament"))}
-            for item in slots if isinstance(item, dict)
-        ] if isinstance(slots, list) else "unknown",
-        "feeder_ports_zero_based": [telemetry_state(port) for port in ports]
-        if isinstance(ports, list) else "unknown",
-        "feeder_slot_mapping": "zmod_color slot IDs are 1-based; zmod_ifs Ports list indices are 0-based",
-        "ifs_enabled": telemetry_state(ifs.get("ifs")) if isinstance(ifs, dict) else "unknown",
-        "silk_state": ifs.get("Silk") if isinstance(ifs, dict) else "unknown",
-        "toolhead": {
-            "source_object": "filament_switch_sensor head_switch_sensor",
-            "filament_detected": telemetry_state(sensor.get("filament_detected"))
-            if isinstance(sensor, dict) else "unknown",
-            "enabled": telemetry_state(sensor.get("enabled")) if isinstance(sensor, dict) else "unknown",
-        },
-    }
-
-
-# Stock firmware /detail readers live with the ZMod code; these delegate through the printer adapter.
-def read_stock_detail(state, *, post=None):
-    """Read native status using profile credentials without logging them."""
-    return printers.current().native.read_stock_detail(state, post=post)
-
-
-def validate_native_start(detail, selection):
-    """Require native ready and an explicit physical-slot route, not stale feeder state."""
-    return printers.current().native.validate_native_start(detail, selection)
-
-
-def read_stock_filament_slots_from_detail(detail):
-    """Extract native slot presence from one already-fetched authenticated detail sample."""
-    return printers.current().native.read_stock_filament_slots_from_detail(detail)
-
-
-def read_stock_filament_slots(state, *, post=None):
-    """Native presence, not the screen-mode hardcoded zmod_color flags."""
-    return read_stock_filament_slots_from_detail(read_stock_detail(state, post=post))
-
-
-def apply_stock_presence(status, stock):
-    """Replace zmod_color hasFilament with stock presence; unknown stays unknown."""
-    return printers.current().native.apply_stock_presence(status, stock)
-
-
-def _validate_slot_selection(state, selection):
-    """The selected IFS slot, not the globally active spool, owns a single-color job."""
-    slot = state.get('filament_slots', {}).get(str(selection['slot']), {})
-    mapping_matches = (slot.get('spoolman_id') and slot.get('spoolman_id') == selection['spoolman_id']
-                       and str(slot.get('material', '')).casefold() == selection['material'].casefold())
-    if mapping_matches and not slot.get('physical_color_verified'):
-        # Only the color confirmation is missing: say so plainly and offer
-        # the one-button fix instead of a retry that fails the same way.
-        from .slice_refusal import unconfirmed_slot_color
-        raise unconfirmed_slot_color(
-            selection['slot'], slot,
-            f"selected IFS slot {selection['slot']} is unverified or its material/spool mapping differs")
-    if (not slot.get('physical_color_verified') or not slot.get('spoolman_id')
-            or slot.get('spoolman_id') != selection['spoolman_id']
-            or str(slot.get('material', '')).casefold() != selection['material'].casefold()):
-        # A different spool or material is never waved through: plain reason, no one-tap fix.
-        from .slice_refusal import slot_mismatch
-        raise slot_mismatch(selection['slot'], slot, selection,
-                            f"selected IFS slot {selection['slot']} is unverified or its material/spool mapping differs")
-    return slot
-
-
-def _sync_active_spool(st, slot, printer_id=None):
-    """Point Moonraker and the hardware record at the launching slot's spool.
-
-    Runs only after every launch preflight has passed and before upload.
-    Nozzle and bed temperatures are left alone; per-slot temperatures are
-    Phase 2.
-
-    Moonraker is a launch dependency: its active-spool read failing refuses
-    the launch, and a readback that ANSWERS with a different spool refuses
-    too (a live contradiction, nothing uploaded). Spoolman is not a launch
-    dependency (#387): when Spoolman does not answer, or the Moonraker
-    spool-pointer write itself fails, the launch proceeds on the slot's
-    recorded data, the user gets the one-line notice, and the result
-    carries `spoolman_pending` so the caller records the usage as pending
-    in the job record for later reconciliation — it is never retried in a
-    way that blocks the job. A live Spoolman answer that the spool is
-    archived or a different material than the slot record still refuses:
-    that is Spoolman data contradicting the operator's record, not an
-    outage, and the refusal protects the physical gate (#235).
-    """
-    configured = st.get('filament_slots', {}).get(str(slot), {})
-    sid = configured.get('spoolman_id')
-    if not isinstance(sid, int) or isinstance(sid, bool):
-        raise RuntimeError(f'IFS slot {slot} has no mapped Spoolman spool; nothing uploaded or started')
-    try:
-        current = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
-    except Exception as exc:
-        raise RuntimeError(f'Moonraker active spool read failed: {exc}; nothing uploaded or started') from exc
-    if current == sid and st.get('spool', {}).get('spoolman_id') == sid:
-        return {'spool_id': sid, 'changed': False}
-    spool = spoolman_client.get_spool(sid, base_url=printer_state.spoolman_url(st))
-    pending = spool is None
-    if pending:
-        spoolman_client.note_unavailable_once()
-        filament = {}
-    else:
-        filament = spool.get('filament') or {}
-        if spool.get('archived') or not printer_state.same_material(filament.get('material'), configured.get('material')):
-            raise RuntimeError(f'Spoolman spool #{sid} is archived or its material differs from slot {slot}; nothing uploaded or started')
-    try:
-        _mr(st, '/server/spoolman/spool_id', data={'spool_id': sid})
-        back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
-    except Exception as exc:
-        # The pointer write is Spoolman accounting routed through Moonraker;
-        # its failure must not refuse the launch (#387). Usage may charge
-        # the previous spool or none until reconciliation.
-        logger.warning('active spool sync failed for spool #%s: %s', sid, exc)
-        spoolman_client.note_unavailable_once()
-        pending = True
-    else:
-        if back != sid:
-            raise RuntimeError(f'Moonraker active spool readback {back!r} != #{sid}; nothing uploaded or started')
-    recorded = st.get('spool') or {}
-    # The reload/save stays on the printer `st` belongs to: with a roster
-    # printer_id the legacy no-ID record is a DIFFERENT printer's (#847).
-    with printer_state.hardware_lock(printer_id or None):
-        fresh = printer_state.load(printer_id) if printer_id else printer_state.load()
-        fresh['spool'] = {'spoolman_id': sid,
-                          'name': filament.get('name') or configured.get('name'),
-                          'material': filament.get('material') or configured.get('material'),
-                          'diameter_mm': filament.get('diameter', recorded.get('diameter_mm', 1.75)),
-                          'density': filament.get('density', recorded.get('density', 1.24))}
-        # temps_c belonged to the previous spool: mark it so slicing resolves this one's (#692).
-        fresh['temperature_resolution'] = {'source': 'spool changed by launch sync; resolved per slice'}
-        if printer_id:
-            printer_state.save(fresh, printer_id)
-        else:
-            printer_state.save(fresh)
-    st['spool'] = dict(fresh['spool'])
-    print(f'ACTIVE SPOOL SYNCED: #{current} -> #{sid} (slot {slot})', flush=True)
-    result = {'spool_id': sid, 'previous': current, 'changed': True}
-    if pending:
-        result['spoolman_pending'] = True
-    return result
-
-
-def _clear_active_spool(st):
-    """Clear Moonraker's active spool before a multi-slot launch (P1-24).
-
-    A multi-slot job's usage cannot be apportioned to one spool, so no spool
-    may be charged — but a pointer left over from a single-slot job or a
-    manual selection would keep Moonraker deducting ALL extrusion from that
-    stale spool while the launch claims deduction is disabled. Clear it with
-    verified readback before upload, with _sync_active_spool's posture:
-    Moonraker is a launch dependency (its read failing refuses, and a
-    readback that still names a spool after the clear refuses too), while a
-    failed clear WRITE is Spoolman accounting routed through Moonraker —
-    the launch proceeds and the result carries `spoolman_pending` so the
-    caller records it in the job record for later reconciliation (#387).
-    """
-    try:
-        current = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
-    except Exception as exc:
-        raise RuntimeError(f'Moonraker active spool read failed: {exc}; nothing uploaded or started') from exc
-    if current is None:
-        return {'spool_id': None, 'previous': None, 'changed': False}
-    try:
-        _mr(st, '/server/spoolman/spool_id', data={})
-        back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
-    except Exception as exc:
-        logger.warning('active spool clear failed for spool #%s: %s', current, exc)
-        spoolman_client.note_unavailable_once()
-        return {'spool_id': current, 'previous': current, 'changed': False, 'spoolman_pending': True}
-    if back is not None:
-        raise RuntimeError(f'Moonraker active spool readback {back!r} after clear; nothing uploaded or started')
-    print(f'ACTIVE SPOOL CLEARED: #{current} -> none (multi-slot job charges no spool)', flush=True)
-    return {'spool_id': None, 'previous': current, 'changed': True}
-
-
-def _verify_readiness_adapter(adapter, state, selection=None):
-    """Families without IFS: one Moonraker sample judged by the adapter's own readiness check."""
-    try:
-        objects = urllib.parse.quote("&".join(adapter.moonraker_objects()), safe="&")
-        status = request_json(f"{state['moonraker_url']}/printer/objects/query?{objects}")["result"]["status"]
-        problems = adapter.readiness_problems(state, status, selection)
-        if problems:
-            raise RuntimeError("; ".join(problems))
-    except Exception as exc:
-        raise RuntimeError(f"{adapter.label} readiness unavailable; print refused: {exc}") from exc
-
-
-def _verify_filament_readiness(state, selection=None, adapter=None):
-    """Read current mode, then obtain one freshness-bounded sensor/occupancy sample.
-
-    The adapter is the printer the state belongs to: print_now passes its
-    job-resolved adapter, because resolving printers.current() here would
-    judge a secondary printer's readiness by the default printer's family
-    (its multi_slot shape, its readiness problems). Without one, the
-    configured printer, as before.
-    """
-    adapter = adapter or printers.current()
-    if not adapter.multi_slot:
-        return _verify_readiness_adapter(adapter, state, selection)
-    try:
-        selection = resolve_filament_selection(state, selection)
-        _validate_slot_selection(state, selection)
-    except ValueError as exc:
-        raise RuntimeError(f"filament readiness refused: {exc}") from exc
-    # Phase 1: the Moonraker active spool is an accounting pointer that follows
-    # the job at launch (_sync_active_spool); it is not a physical feed fact.
-    try:
-        mode_data = _mr(state, "/printer/objects/query?save_variables")["result"]["status"]
-        mode = (mode_data.get("save_variables") or {}).get("variables", {}).get("display_off")
-        if mode not in (0, 1):
-            raise RuntimeError(f"printer mode unknown: display_off={mode!r}")
-        response = request_json(f"{state['moonraker_url']}/printer/objects/query?{urllib.parse.quote('&'.join(FILAMENT_SENSOR_OBJECTS), safe='&')}")
-        status = response["result"]["status"]
-        observed_at = time.time()
-        if mode == 0:
-            detail = read_stock_detail(state)
-            native_at = time.time()
-            native_phase = detail.get("status")
-            moonraker_phase, moonraker_file, _ = _printer_phase(state)
-            if native_phase == "printing" and moonraker_phase not in ("printing", "paused"):
-                raise RuntimeError("native status='printing' conflicts with Moonraker standby; execution state unresolved")
-            if native_phase in ("ready", "idle", "standby") and moonraker_phase in ("printing", "paused"):
-                raise RuntimeError(f"Moonraker {moonraker_phase} conflicts with native status={native_phase!r}; execution state unresolved")
-            apply_stock_presence(status, read_stock_filament_slots_from_detail(detail))
-            observed_at = native_at
-        problems = check_filament_readiness(state, status, selection, observed_at=observed_at)
-        if problems:
-            raise RuntimeError("; ".join(problems))
-    except Exception as exc:
-        raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
+from ..launch.gates import (  # moved in 2.3.0 (#1323); old path kept for one release
+    BED_CLEAR_REFUSAL, CHECKPOINT_NOT_SENT, IDLE_PRINT_STATES, MESH_PROFILE,
+    READINESS_MAX_AGE_SECONDS, YOLO_WAIVED_MARK, _BED_CLEAR, _HEATER_ARG_RE, _HEATER_MACRO_RE,
+    _HEATER_M_RE, _HEATER_SET_RE, _HEATER_VALUE_RE, _YOLO, _claim_bed_clear, _consume_approval,
+    _gate, _gcode_heater_targets, _heater_limits, _native, _printer_phase, _refuse,
+    _require_bed_clear, _require_idle, _require_idle_before_mapped_launch,
+    _require_launch_checkpoint_clear, _verify_filament_readiness, _verify_readiness_adapter,
+    _waive, check_filament_readiness, mesh_readiness, partial_job_refusal, refused_plates_digest,
+    require_current_artifact, require_mechanical_limits, screen_z_offset, start_print_settings,
+    validate_native_start, validate_saved_mesh_start, yolo_active,
+)
 
 
 
 
-def _detail_tail(detail):
-    """Demote raw machinery to a secondary Detail line (#467).
-
-    User-facing pipeline exits lead with a plain sentence; the raw stderr
-    tail / response body that used to *be* the message rides along after
-    it, whitespace-collapsed and capped, so a terminal or log reader keeps
-    the evidence without a chat reader having to start there.
-    """
-    text = " ".join(str(detail or "").split())[:300]
-    return f"\nDetail: {text}" if text else ""
 
 
 
 
-def _recorded_printer_id(job):
-    """A job's recorded printer_id, or None (unlike _job_printer_id, no default fallback:
-    launch helpers route verification and monitors only when the job itself names a printer)."""
-    return job.get("printer_id") if isinstance(job, dict) else None
 
 
-def _start_family_monitor(watch, adapter, remote, job):
-    """Start a family's launched-print monitor for a just-started print.
-
-    The monitor runs in a detached worker process (hermes.monitor_worker),
-    never on a thread here: print-now is a short-lived subprocess, so an
-    in-process daemon thread dies with the submission and the print loses
-    its completion post and timelapse (P1-85, P1-98). The worker rebuilds
-    the job printer's adapter there — this process's adapter only
-    identifies the family, through the watch module it pairs with. The
-    job's recorded printer_id rides along so the worker serves that
-    printer and the monitor's pause alerts act on it (SAFE-4 / P1-101).
-    """
-    from print_handy.hermes import monitor_worker
-    return monitor_worker.spawn(watch.__name__, remote, _recorded_printer_id(job))
 
 
-CONTEXT = Path(os.environ.get("PRINT_HANDY_CONTEXT_PATH", settings.state_dir()/"print_handy_context.json"))
-RECORD_KEYS = ("layer_height","first_layer_height","perimeters","fill_density","fill_pattern","support_material","brim_width","nozzle_diameter","filament_type","temperature","bed_temperature")
-
-def _job_record_for_gcode(g):
-    """(job, JOB.json path) for the archived job that produced G-code g, else (None, None)."""
-    for jp in ARCHIVE.glob("*/JOB.json"):
-        try: j=json.loads(jp.read_text())
-        except (OSError, ValueError): continue
-        if not isinstance(j, dict): continue
-        paths=[j.get("gcode")]
-        paths+=[r.get("gcode") for r in j.get("derived_plates") or [] if isinstance(r, dict)]
-        paths+=[p.get("gcode_path") for p in (j.get("multipart_plan") or {}).get("parts") or [] if isinstance(p, dict)]
-        if any(p and Path(p).resolve()==g for p in paths): return j, jp
-    return None, None
 
 
-def _job_for_gcode(g):
-    """The archived JOB.json that produced G-code g.
 
-    A split job keeps only plate 1 in JOB.json["gcode"]; plates 2..N live in
-    derived_plates and multipart_plan.parts, so match those too (#48).
-    """
-    return _job_record_for_gcode(g)[0]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def retry_pending_spool_sync(filename, printer_id=None):
@@ -2726,398 +2215,42 @@ def copies_supported(job, multi_plate=None):
                 or (job.get('color_decisions') or {}).get('mode') == 'per_part')
 
 
-def _per_tool_filament_settings(text):
-    """The per-tool filament split for slicer_settings (#981 v2).
-
-    ``filament_used_g_list`` (per-tool grams, the name
-    core/spool_lifecycle.py already uses for the same header list)
-    plus the aligned ``filament_color_list``, both from the G-code's
-    own header via gcode_3mf.plate_metadata(). Records used to flatten
-    a multi-color print to one color/grams total; carrying the split
-    in slicer_settings lets future records answer per-color grams
-    natively. A header that names no per-tool usage yields {} — the
-    keys stay absent, exactly like every other sparse record field.
-    """
-    try:
-        filaments = gcode_3mf.plate_metadata(text).get("filaments") or []
-    except Exception:
-        return {}
-    rows = [row for row in filaments if isinstance(row, dict)]
-    if not rows or any(not isinstance(row.get("used_g"), (int, float))
-                       or isinstance(row.get("used_g"), bool) for row in rows):
-        return {}
-    out = {"filament_used_g_list": [float(row["used_g"]) for row in rows]}
-    colors = [row.get("color") for row in rows]
-    if all(isinstance(c, str) and c for c in colors):
-        out["filament_color_list"] = colors
-    return out
-
-
-def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=None):
-    """Write the JSON start record plus the completion sidecar for a started print.
-
-    print_number, when the caller minted one for this launch, is stamped into
-    the record context so the completion record carries THIS launch's number,
-    not the job's first-print number.
-    """
-    print_records = _external.load("print_records")
-    st=printer_state.load(); g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
-    def cfg(key):
-        m=re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M); return m.group(1).strip() if m else None
-    job=_job_for_gcode(g)
-    key=moonraker_name or g.name
-    src=(job or {}).get("selected_source") or {}
-    ctx={"job_key":key,"title":(job or {}).get("title") or g.stem,"source_url":(job or {}).get("url"),
-         "source_platform":(job or {}).get("site"),"started_at":started_at or print_records.utc_now(),
-         "hardware":st.get("printer", "Klipper") + ", "+printer_state.summary(st),
-         "printer_profile":"Klipper base ini, resliced locally (site settings not imported)",
-         "estimated_time":cfg("estimated printing time (normal mode)") or _bambu_total_estimated_time(text),"estimated_filament_g":cfg("total filament used [g]") or _filament_total_g(text),
-         "filament_diameter_mm":st["spool"]["diameter_mm"],"filament_density":st["spool"]["density"],
-         "slicer_settings":{**{k:cfg(k) for k in RECORD_KEYS if cfg(k) is not None},
-                            **_per_tool_filament_settings(text),
-                            "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
-         "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
-    if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
-        ctx["print_number"] = print_number
-    plan = (job or {}).get('multipart_plan') or {}
-    project = (job or {}).get('project') or {}
-    project_id = (job or {}).get('project_id') or plan.get('project_id') or project.get('project_id')
-    if project_id:
-        ctx.update(project_id=project_id,
-                   project_source_kind=(job or {}).get('project_source_kind') or plan.get('source_kind')
-                   or project.get('source_kind'),
-                   project_run_id=plan.get('project_run_id') or 'original',
-                   project_plate_id='plate1', project_plate_suffix='A',
-                   project_component_ids=[str(p['component_id']) for p in project.get('components') or []
-                                          if isinstance(p, dict) and p.get('component_id')])
-    for part in plan.get('parts') or []:
-        if part.get('gcode_path') and Path(part['gcode_path']).resolve() == g:
-            # Split plates advance the same plan that /print-next reads.
-            ctx.update(multipart_plan_id=plan['plan_id'], part_id=part['id'], required_parts=plan['parts'])
-            if project_id:
-                ctx.update(project_plate_id=part.get('project_plate_id') or part['id'],
-                           project_plate_suffix=part.get('project_plate_suffix') or 'A',
-                           project_part_keys=part.get('component_keys') or [])
-                # Source component IDs and slicer part keys are distinct.
-                ctx.pop('project_component_ids', None)
-            break
-    if project_id:
-        # One project number for every plate, reprint and re-slice of this
-        # job: the first plate to start claims it in JOB.json with its own
-        # print number (#988 mints one per launch); later ones read it back.
-        try:
-            job_json_path = _job_record_for_gcode(g)[1]
-            claimed = print_records.claim_project_number(job_json_path, ctx.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: project number not claimed: {exc}")
-            claimed = None
-        if claimed:
-            ctx['project_number'] = claimed
-    mapped = None
-    current = printers.current()
-    if current.multi_slot:
-        # Only a native adapter has an embedded mapping to lift; a multi_slot
-        # adapter without the native contract (Bambu AMS, #671 — the stock
-        # AD5X never had one either) records the plain start, as it did while
-        # it was classified single.
-        native = current.native_or_none
-        if native is not None:
-            mapped = native.embedded_mapping(text, st)
-    if mapped is not None:
-        ctx['tool_to_physical_slot'] = mapped
-        ctx['active_spool']['accounting_only_not_job_color'] = True
-        ctx['slicer_settings']['mapped_materials'] = {
-            tool: st['filament_slots'][str(slot)] for tool, slot in mapped.items()}
-        ctx['printer_profile'] = 'Reviewed Orca AD5X native multicolor'
-    if (job or {}).get('delivery_format'):
-        ctx['delivery_format'] = job['delivery_format']
-    starter = (job or {}).get('started_by')
-    if isinstance(starter, dict) and starter.get('user_id'):
-        # The intake-stamped requester rides the start context into the
-        # print record, so the completion sidecar lookup can still name the
-        # starter after the job folder is gone.
-        ctx['started_by'] = {'platform': str(starter.get('platform') or 'discord'),
-                             'user_id': str(starter['user_id'])}
-    if isinstance((job or {}).get('spoolman_usage_pending'), dict):
-        # Launch-time accounting failure (#387): carry the pending marker and
-        # its intended spool into the start record and the completion sidecar,
-        # so the completion record is marked pending instead of silently
-        # attributing the usage to whatever spool answers then (P2-155).
-        ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
-    # #913: risky prints get the early-layer camera watch; the listener reads
-    # this back from the context sidecar and the record keeps it.
-    try:
-        why = _external.load("visual_watch").risky_job(job)
-    except Exception:
-        why = ""
-    ctx['watch_mode'] = 'early_layer' if why else 'normal'
-    if why:
-        ctx['watch_risk'] = why
-    ctx["record_path"]=print_records.write_start_record(ctx)
-    record_path=ctx["record_path"]
-    try: side=json.loads(CONTEXT.read_text())
-    except (OSError, ValueError): side={}
-    if not isinstance(side.get("jobs"),dict): side={"jobs":{}}
-    side["jobs"][key]={**side["jobs"].get(key,{}),**ctx}
-    tmp=CONTEXT.with_suffix(".tmp"); tmp.write_text(json.dumps(side,indent=2)+"\n"); os.replace(tmp,CONTEXT)
-    print(f"PRINT RECORD: {ctx['record_path']}")
-    return record_path
-
-
-# Start announcement ownership. print_now claims the file before starting it so the
-# Moonraker listener skips its generic "Print started" post for that same job.
-# The family print paths claim the same way (#460): a claimed start belongs to
-# the print path and its launched-print monitor; the family listener domains
-# post starts only for prints nobody claimed (started outside Print Handy).
-START_CLAIMS = Path(os.environ.get("PRINT_HANDY_START_CLAIMS", settings.state_dir()/"print_handy_start_claims.json"))
-START_CLAIM_TTL_S = settings.current()["listener"]["start_claim_ttl_s"]
-# Intake receipts (#970): the chat intake records each job it slices in
-# <state>/model-link-intakes/<intake_id>.json. A CLI print-now start is
-# out-of-band for that flow, so print_now reconciles the receipt itself
-# (see _record_intake_receipt_started).
-INTAKE_RECEIPTS = Path(os.environ.get("PRINT_HANDY_INTAKE_RECEIPTS", settings.state_dir()/"model-link-intakes"))
-
-
-def _write_claims(claims):
-    tmp = START_CLAIMS.with_suffix(".tmp"); tmp.write_text(json.dumps(claims)); os.replace(tmp, START_CLAIMS)
-
-
-def _read_claims():
-    try: claims = json.loads(START_CLAIMS.read_text())
-    except (OSError, ValueError): return {}
-    return claims if isinstance(claims, dict) else {}
-
-
-def claim_start_announcement(remote, now=None):
-    now = time.time() if now is None else now
-    claims = {k: v for k, v in _read_claims().items()
-              if isinstance(v, (int, float)) and now - v < START_CLAIM_TTL_S}
-    claims[remote] = now
-    _write_claims(claims)
-
-
-def release_start_announcement(remote):
-    claims = _read_claims()
-    if claims.pop(remote, None) is not None:
-        try: _write_claims(claims)
-        except OSError: pass
 
 
 
 
-def start_print_settings(text):
-    """Read the START_PRINT call the printer will actually execute."""
-    m = re.search(r'^(?:START_PRINT|PRINT_START)\b(.*)$', text, re.M)
-    if not m: return {"line": None, "args": {}}
-    return {"line": m.group(0).strip(), "args": dict(re.findall(r'(\w+)=(\S+)', m.group(1)))}
 
 
-def validate_saved_mesh_start(text, mesh):
-    """Both modes must consume the reviewed mesh without new offset/calibration."""
-    args = start_print_settings(text)['args']
-    expected = mesh.get('profile')
-    if (not expected or args.get('MESH') != expected or 'Z_OFFSET' in args or
-            args.get('FORCE_LEVELING', 'false').lower() not in ('false', '0') or
-            args.get('FORCE_KAMP', 'false').lower() not in ('false', '0')):
-        raise RuntimeError(f'saved-mesh flow requires START_PRINT MESH={expected}, no explicit Z_OFFSET and no forced leveling'
-                           f' (this file has MESH={args.get("MESH")}; it was sliced for a different screen mode'
-                           ' or calibration, so prepare it again)')
 
 
-Z_OFFSET_NOTICE = ("Z offset: no explicit START_PRINT Z_OFFSET; effective offset depends on the "
-                   "installed macros and screen mode. Historical first-layer cause is not established "
-                   "by this G-code. Do not inject or change an offset on this evidence alone.")
 
 
-def z_offset_notice(text):
-    """None when START_PRINT passes an explicit Z_OFFSET; otherwise the truthful notice.
-    Informational only: with display_off=0 ZMod applies the native screen zProbeOffset, which is correct."""
-    return None if "Z_OFFSET" in start_print_settings(text)["args"] else Z_OFFSET_NOTICE
 
 
-# The 2026-10-03 "too high" prints logged `Printing with bed mesh: ` (blank). The good one loaded `auto`.
-MESH_PROFILE = "auto"
 
 
-def screen_z_offset(st):
-    """zProbeOffset from the stock screen's Adventurer5M.json (what ZMod applies with display_off=0). Read-only.
-
-    The captured schema stores it at leftExtruderOffset.zProbeOffset. A top-level or level.zProbeOffset
-    is accepted only when the nested field is absent. Non-finite values fail closed as unreadable.
-    """
-    if not _native(): return None
-    try:
-        d=_mr(st,"/server/files/config/Adventurer5M.json",timeout=8)
-    except Exception: return None
-    def numeric(v):
-        return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(float(v))
-    nested=((d or {}).get("leftExtruderOffset") or {}).get("zProbeOffset") if isinstance(d,dict) else None
-    if "leftExtruderOffset" in (d or {}) and isinstance(d.get("leftExtruderOffset"), dict) and "zProbeOffset" in d["leftExtruderOffset"]:
-        return round(float(nested),3) if numeric(nested) else None
-    def find(o):
-        if isinstance(o,dict):
-            v=o.get("zProbeOffset")
-            if numeric(v): return v
-            for x in o.values():
-                r=find(x)
-                if r is not None: return r
-        return None
-    v=find(d)
-    return round(float(v),3) if numeric(v) else None
 
 
-def mesh_readiness(st):
-    """Read-only bed mesh check before upload. Returns dict; problem is None when the saved mesh is usable."""
-    info: dict = {"profile":None,"saved_at":None,"print_leveling":None,"problem":None,"stale":None}
-    if not _native():
-        # The printer owns its mesh and offset; there is no saved-mesh contract to enforce.
-        info.update(display_off=None, z_offset_mm=None, offset_source=None)
-        return info
-    try:
-        q=_mr(st,"/printer/objects/query?bed_mesh=profiles&save_variables",timeout=8)["result"]["status"]
-    except Exception as e:
-        info["problem"]=f"could not read the bed mesh from Klipper ({type(e).__name__})"; return info
-    profiles=(q.get("bed_mesh") or {}).get("profiles") or {}
-    info["print_leveling"]=((q.get("save_variables") or {}).get("variables") or {}).get("print_leveling")
-    variables=((q.get("save_variables") or {}).get("variables") or {})
-    info["display_off"]=variables.get("display_off")
-    saved_z=(variables.get("gcode_offsets") or {}).get("z")
-    saved_numeric=not isinstance(saved_z, bool) and isinstance(saved_z, (int, float)) and math.isfinite(saved_z)
-    # ZMod stores two offsets. display_off=1 (screenless) loads the numeric
-    # save_variables gcode_offsets.z when LOAD_ZOFFSET=1. display_off=0 leaves
-    # that value unused and applies the native screen zProbeOffset instead.
-    # Neither path has a required magnitude. The two values are never added.
-    if info["display_off"]==0:
-        native=screen_z_offset(st)
-        info["z_offset_mm"]=native
-        info["saved_gcode_offset_mm"]=saved_z if saved_numeric else None
-        info["offset_source"]="native screen zProbeOffset"
-        if not isinstance(native, (int, float)) or isinstance(native, bool):
-            info["problem"]="native screen is the offset owner but zProbeOffset is unreadable. Reconcile the screen calibration before starting; do not substitute the screenless saved offset"
-            return info
-    elif info["display_off"]==1:
-        info["z_offset_mm"]=saved_z if saved_numeric else None
-        info["offset_source"]="saved gcode offset"
-        if variables.get("load_zoffset")!=1 or not saved_numeric:
-            info["problem"]="screenless offset is not authoritative; expected LOAD_ZOFFSET=1 and a numeric saved gcode_offsets.z. The native screen offset is a separate store and is not used in this mode"
-            return info
-    else:
-        info["z_offset_mm"]=None
-        info["offset_source"]=None
-        info["problem"]="display_off is neither 0 nor 1, so the offset owner is unknown. Reconcile before starting"
-        return info
-    if info["display_off"]==1 and variables.get("mesh_test", 1) not in (0, 1):
-        info["problem"]="screenless saved-mesh flow permits MESH_TEST=0 or 1 only; modes 2/4 can rebuild and modes 3/4 auto-tune Z offset. Reconcile before starting"
-        return info
-    profile = MESH_PROFILE
-    if info['display_off'] == 0:
-        profile = (st.get('calibration_baseline') or {}).get('native_mesh', MESH_PROFILE)
-    if not isinstance(profile, str) or not re.fullmatch(r'[A-Za-z0-9_]+', profile):
-        info['problem'] = 'invalid calibration baseline mesh'
-        return info
-    if profile not in profiles:
-        info["problem"]=f"no saved '{profile}' bed mesh. Reconcile the selected calibration baseline before using the saved-mesh print flow"
-        return info
-    if info["print_leveling"] in (1,True,"1"):
-        info["problem"]="PRINT_LEVELING=1 selects per-print rebuilding in screenless ZMod. This saved-mesh workflow requires PRINT_LEVELING=0; reconcile the chosen strategy before starting"
-        return info
-    info["profile"]=profile
-    try:
-        files=_mr(st,"/server/files/list?root=config",timeout=8)["result"]
-        m=[f.get("modified") for f in files if f.get("path")=="printer.cfg"]
-        if m and isinstance(m[0],(int,float)): info["saved_at"]=m[0]
-    except Exception: pass
-    try:
-        inst=(st.get("nozzle") or {}).get("installed")
-        if inst and info["saved_at"]:
-            from datetime import datetime
-            info["stale"]=datetime.fromisoformat(inst).timestamp() > info["saved_at"]
-    except (ValueError, TypeError, AttributeError): pass
-    return info
 
 
-def mesh_line(mesh):
-    if not isinstance(mesh,dict) or not mesh.get("profile"): return "Bed mesh: unknown"
-    when="unknown"
-    if mesh.get("saved_at"):
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        when=datetime.fromtimestamp(mesh["saved_at"],ZoneInfo(TIMEZONE)).strftime("%-I:%M %p %a %b %-d")
-    line=f"Bed mesh: {mesh['profile']} (config saved {when})"
-    if mesh.get("stale"): line+=". Nozzle changed after this mesh; rerun full bed leveling"
-    return line
 
 
-def _assign_print_number(job_path, artifact=None):
-    """Mint this launch's own permanent print number; None on any failure.
-
-    Every launch mints a NEW number from the shared /print-again registry —
-    a reprint of an already-numbered job is a new print, not the old print
-    number again. The job's first mint stays its legacy registry number, so
-    old numbers keep resolving to the same job.
-    """
-    if job_path is None:
-        return None
-    try:
-        print_control = _external.load("print_control")
-        ARCHIVE, mint_launch_number = print_control.ARCHIVE, print_control.mint_launch_number
-        key = Path(job_path).resolve()
-        if not key.is_relative_to(ARCHIVE.resolve()):
-            return None  # scratch and test jobs are not prints
-        return mint_launch_number(key, at=time.time(), artifact=artifact)
-    except Exception as e:
-        print(f"WARNING: print number not assigned: {e}")
-        return None
 
 
-def _maintenance_detail_line():
-    try:
-        maintenance = _external.load("maintenance")
-        _call = _external.load("print_control")._call
-        runs = maintenance.load().get("runs", [])
-        hours = None
-        try:
-            data = _call("status")
-            hours = data.get("print_hours") if isinstance(data, dict) else None
-        except Exception: pass
-        full = next((r for r in reversed(runs) if r.get("kind") == "full"), None)
-        if full is None: return "- Maintenance: history unavailable"
-        try:
-            from datetime import datetime, timezone
-            age = (datetime.now(timezone.utc) - datetime.fromisoformat(full["at"])).days
-        except Exception: age = "unknown"
-        delta = "print hours unknown" if hours is None else f"{max(0,float(hours)-float(full.get('hours_total',0))):.1f} h"
-        note = " (history totals unavailable)" if hours is None else ""
-        return f"- Maintenance: last full clean {age} days / {delta} ago.{note}"
-    except Exception: return "- Maintenance: history unavailable"
 
 
-def job_details(out, *, hardware=None, selection=None, settings=None, record_path=None, z_notice=None, live=None,
-                screen_z=None, mesh=None, printer=None, nozzle_mm=None, calibration=True):
-    """Compact public summary; accounting, telemetry and paths stay in structured records."""
-    def u(v): return v if v not in (None, "") else "unknown"
-    args = (settings or {}).get("args") or {}
-    bed = args.get("BED_TEMP") or args.get("BED"); hot = args.get("EXTRUDER_TEMP") or args.get("HOTEND")
-    chan = (f"slot {selection.get('slot')}: {u(selection.get('color'))} {u(selection.get('material'))}"
-            if isinstance(selection, dict) and selection.get("slot") is not None else None)
-    grams = out.get("filament_g")
-    # Historical records may include a timezone label; public details always assume New York.
-    finish = re.sub(r"\s+(?:ET|EDT|EST)\b", "", str(u(out.get("finish_et"))))
-    owner = (mesh or {}).get("offset_source") if isinstance(mesh, dict) else None
-    source = owner or ("persisted" if isinstance(mesh, dict) else "screen")
-    z = f"{screen_z:.3f} mm ({source})" if isinstance(screen_z, (int, float)) and not isinstance(screen_z, bool) else "unknown"
-    return "\n".join([
-        "**Job Details:**",
-        *([f"- Print #{out['print_number']}"] if out.get("print_number") else []),
-        f"- Model: {u(out.get('title'))}",
-        f"- Estimated time: {u(out.get('print_time'))} printing + ~5 min warmup; finish {finish}",
-        f"- Filament: {f'{grams} g' if grams is not None else 'unknown'}; {u(chan)}",
-        f"- Printer: {u(printer)}",
-        f"- Stock nozzle: {u(nozzle_mm)} mm; targets nozzle {u(hot)} C, bed {u(bed)} C",
-        *([f"- Temperature material: {u((hardware or {}).get('spool', {}).get('material'))}; source: {u((hardware or {}).get('temperature_resolution', {}).get('source'))}"] if hardware else []),
-        *([f"- Calibration: Z offset {z}; {mesh_line(mesh)}"] if calibration else []),
-        _maintenance_detail_line(),
-    ])
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def get_author_settings(src_path):
@@ -3155,20 +2288,6 @@ def get_author_settings(src_path):
         raise RuntimeError(f"unable to read author settings from {p}: {exc}") from exc
     return res
 
-def decisions_digest(decisions):
-    """Canonical geometry-to-filament choice identity, independent of dict order.
-
-    A filament fallback (#1189) is identified by the operator decisions it
-    was derived from: slice_job derives it in memory from JOB.json's
-    color_decisions and the printer record (whose slots the slice recipe
-    already binds), so the artifact binding and every "decisions changed
-    during slicing" check keep comparing against what the job recorded.
-    """
-    if isinstance(decisions, dict) and isinstance(decisions.get('fallback'), dict) \
-            and 'original' in decisions['fallback']:
-        return decisions_digest(decisions['fallback']['original'])
-    return hashlib.sha256(json.dumps(decisions, sort_keys=True, separators=(',', ':'),
-                                     allow_nan=False).encode()).hexdigest()
 
 
 def set_color_decisions(job, decisions):
@@ -3359,109 +2478,6 @@ def intake_unit_confirmation(job_path, units=None, interactive=False):
     return True
 
 
-def require_current_artifact(job, gcode):
-    """Offline fail-closed guard before telemetry, approval consumption or upload."""
-    if not isinstance(job, dict):
-        return
-    from . import slice_warnings
-    finding = slice_warnings.support_finding(job)
-    if finding is not None:
-        # The slicer said supports are needed, the slice ran without them and nobody decided.
-        # A question, not a block: answering it (re-slice with supports, or print without)
-        # records the decision on the job and clears this.
-        raise RuntimeError('supports decision needed: ' + slice_warnings.question(finding).splitlines()[0]
-                           + ' Choose re-slice with supports or print without supports; nothing uploaded or started.')
-    unsupported = slice_warnings.support_mismatch(job)
-    if unsupported:
-        # The operator chose supports but an artifact was sliced without them: never print it.
-        raise RuntimeError('supports were chosen but ' + ', '.join(unsupported)
-                           + ' was sliced without them; re-slice before printing. Nothing uploaded or started.')
-    from . import support_clearance
-    clearance = job.get('support_clearance')
-    if clearance is None and job.get('downloaded_file'):
-        clearance = support_clearance.safe_analyze(job.get('downloaded_file'))
-    if support_clearance.risky(clearance):
-        ack = job.get('clearance_acknowledgement') or {}
-        src_path = job.get('downloaded_file')
-        src_sha = file_sha256(src_path) if src_path and Path(src_path).is_file() else None
-        binding = job.get('artifact_binding') or {}
-        rec_sha = binding.get('recipe_sha256')
-        gc_path = gcode or job.get('gcode')
-        gc_sha = file_sha256(gc_path) if gc_path and Path(gc_path).is_file() else None
-        # A "with supports" choice does not satisfy a low-clearance
-        # finding (#922 gap 2): it is recorded with via='with_supports'
-        # and deliberately fails this guard, because supports cannot fit
-        # into a sub-1.0 mm gap. An explicit print-anyway choice, a
-        # verified geometry repair, or the operator's explicit
-        # without-supports (as-authored) decision does satisfy it.
-        # Acknowledgements recorded before `via` existed keep their
-        # original print-anyway meaning.
-        if not (ack.get('acknowledged')
-                and ack.get('via', 'print_anyway') in ('print_anyway', 'geometry_repair', 'without_supports')
-                and (src_sha is None or ack.get('source_sha256') == src_sha)
-                and (rec_sha is None or ack.get('recipe_sha256') == rec_sha)
-                and (gc_sha is None or ack.get('gcode_sha256') == gc_sha)):
-            desc = '; '.join(support_clearance.describe(clearance)[:2]) or 'insufficient support clearance'
-            raise RuntimeError(f'insufficient support clearance: {desc}; choose a geometry repair or confirm print anyway. Nothing uploaded or started.')
-    binding = job.get('artifact_binding')
-    if binding is None and not job.get('color_decisions'):
-        return  # Preserve legacy jobs without source-color decisions.
-    if not binding or job.get('gcode_verified') is not True:
-        raise RuntimeError('stale color artifact: reslice current JOB before launch')
-    from .slice_recipe import RECIPE_VERSION, require_recorded
-    recipe_sha = require_recorded(job, binding)
-    # The stored record hashing to its own digest only proves it was not edited;
-    # it says nothing about the world since slicing. Recompute the recipe from
-    # the launch-time job, hardware record, profiles and settings (with the
-    # recorded overrides, exactly as _recipe_changed does during slicing) and
-    # refuse when the inputs moved after the artifact was sliced (P2-52).
-    try:
-        recipe_changed = _recipe_changed(job, job, _recorded_printer_id(job))
-    except Exception as exc:
-        raise RuntimeError('stale color artifact: the current slice recipe could not be '
-                           f'recomputed before launch ({exc}); reslice before launch') from exc
-    if recipe_changed:
-        raise RuntimeError('stale color artifact: the nozzle, profiles or job inputs changed '
-                           'after slicing; reslice before launch')
-    stored_hash = binding.get('gcode_sha256')
-    presented = Path(gcode).resolve()
-    if isinstance(stored_hash, dict):
-        plates = job.get('derived_plates') or []
-        normalized_hashes = {str(slot): digest for slot, digest in stored_hash.items()}
-        normalized_slots = set()
-        for row in plates:
-            slot = row.get('slot')
-            def _valid_slot(s):
-                return not isinstance(s, bool) and (isinstance(s, int) or isinstance(s, str) and s.isdigit())
-            # Painted multicolor plates carry every IFS slot they use.
-            painted_ok = (row.get('binding_key') and isinstance(slot, list) and slot
-                          and all(_valid_slot(s) for s in slot))
-            if not painted_ok and not _valid_slot(slot):
-                raise RuntimeError('stale color artifact: malformed physical IFS slot binding')
-            slot_key = str(row.get('binding_key') or slot)
-            if slot_key in normalized_slots:
-                raise RuntimeError('stale color artifact: duplicate physical IFS slot binding')
-            normalized_slots.add(slot_key)
-        if normalized_slots != set(normalized_hashes):
-            raise RuntimeError('stale color artifact: derived plates do not match the binding')
-        allowed = set()
-        for row in plates:
-            plate = Path(row['gcode']).resolve()
-            allowed.add(plate)
-            if file_sha256(plate) != normalized_hashes[str(row.get('binding_key') or row.get('slot'))]:
-                raise RuntimeError('stale color artifact: source, decisions or G-code changed; reslice before launch')
-        if presented not in allowed or Path(job.get('gcode', '')).resolve() not in allowed:
-            raise RuntimeError('stale color artifact: source, decisions or G-code changed; reslice before launch')
-        expected_hash = stored_hash
-    else:
-        expected_hash = file_sha256(gcode)
-        if Path(job.get('gcode', '')).resolve() != presented:
-            raise RuntimeError('stale color artifact: source, decisions or G-code changed; reslice before launch')
-    expected = {'source_sha256': file_sha256(job['downloaded_file']),
-                'decisions_sha256': decisions_digest(job.get('color_decisions')),
-                'gcode_sha256': expected_hash, 'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha}
-    if binding != expected:
-        raise RuntimeError('stale color artifact: source, decisions or G-code changed; reslice before launch')
 
 
 def _recipe_binding(job):
@@ -3494,22 +2510,6 @@ def _placed_bounds_by_object(geometry, object_of_key):
     return placed
 
 
-def _recipe_changed(job, latest, printer_id=None):
-    """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced.
-
-    The recomputation loads the job's own printer record, exactly as
-    slice_job did when it recorded the recipe: a secondary printer whose
-    nozzle or filament slots differ from the default printer's must not
-    read as a changed recipe, and reslicing must be able to clear the
-    mismatch. A job with no recorded printer keeps the legacy load.
-    """
-    from .slice_recipe import recipe_sha256, slice_recipe
-    sliced = job['slice_recipe']['recipe']
-    if printer_id is None:
-        printer_id = _recorded_printer_id(job) or _recorded_printer_id(latest)
-    state = printer_state.load(printer_id) if printer_id else printer_state.load()
-    current = slice_recipe(latest, sliced['source_sha256'], state, **sliced['overrides'])
-    return recipe_sha256(current) != job['slice_recipe']['sha256']
 
 
 def stamp_job_printer(job, printer_id=None):
@@ -3536,28 +2536,8 @@ def stamp_job_printer(job, printer_id=None):
     return job
 
 
-def _job_printer_id(job):
-    """The roster printer id a job belongs to: its recorded printer_id, else the default printer."""
-    if isinstance(job, dict) and job.get("printer_id"):
-        return job["printer_id"]
-    return settings.default_printer_id()
 
 
-def _job_adapter(job):
-    """Adapter for the printer a job belongs to.
-
-    With a recorded printer_id (#334) the adapter is that roster entry's —
-    its model, built on the entry's settings view (the uploaded-G-code path's
-    record-first resolution, generalised). Without one, the model the job was
-    prepared for: its recorded override, else the configured model.
-    """
-    if isinstance(job, dict) and job.get("printer_id"):
-        entry = settings.by_id(job["printer_id"])
-        return printers.get(entry["model"], settings.view_for(entry["id"]))
-    key = job.get("printer_model") if isinstance(job, dict) else None
-    if not key or key == printers.current().key:
-        return printers.current()
-    return printers.get(key)
 
 
 def _check_tool_assignments(manifest, rows, selections):
@@ -3855,15 +2835,6 @@ def filament_fallbacks(manifest, decisions, selected_plates, state, limit=None, 
     return effective, warnings
 
 
-def effective_color_decisions(job):
-    """The decisions the job's artifact was sliced with: a recorded #1189 fallback, else color_decisions."""
-    job = job if isinstance(job, dict) else {}
-    recorded = job.get('filament_fallback')
-    decisions = job.get('color_decisions')
-    if isinstance(recorded, dict) and isinstance(recorded.get('decisions'), dict) \
-            and decisions_digest(recorded['decisions']) == decisions_digest(decisions):
-        return recorded['decisions']
-    return decisions
 
 
 def _enforce_filament_readiness(job, manifest, decisions, selected_plates,
@@ -5967,164 +4938,24 @@ def prepare_first_layer(slot, color, material, spoolman_id, slicer="orca"):
     return output
 
 
-def _filament_total_g(text):
-    """Total filament grams from the slicer summary comments, or None when absent.
-
-    OrcaSlicer/Flash spell it "; total filament used [g] = X"; Bambu Studio's
-    header block spells it "; total filament weight [g] : X" (#444, verified
-    against a real 2.8.2.61 slice). Absent stays None (unknown), never zero.
-    """
-    m = (re.search(r"^; total filament used \[g\] = ([\d.]+)", text or "", re.M)
-         or re.search(r"^;\s*total filament weight \[g\]\s*:\s*([\d.]+)", text or "", re.M))
-    if not m:
-        return None
-    try:
-        return float(m.group(1))
-    except ValueError:
-        return None
-
-
-def _bambu_total_estimated_time(text):
-    """The header-block "total estimated time" string, for Bambu files only (#444).
-
-    Both BBL slicers write that header totals line with the same spelling, so
-    this is gated on the BambuStudio identity line and OrcaSlicer files keep
-    exactly the metadata they had before.
-    """
-    if not re.search(r"^; BambuStudio ", text or "", re.M):
-        return None
-    m = re.search(r"^;.*?total estimated time\s*:\s*([^;\n]+)", text or "", re.M)
-    return m.group(1).strip() if m else None
-
-
-def gcode_estimate_s(text):
-    m=re.search(r'^; estimated printing time \(normal mode\) = (.+)$',text,re.M)
-    if not m:
-        # Bambu Studio (and Orca's header block) write "; model printing time: 1h 2m 3s; total estimated
-        # time: 1h 7m 3s" instead (#271): printing time first, the slicer's total as the fallback.
-        m=(re.search(r'^;.*?\bmodel printing time\s*:\s*([^;\n]+)',text,re.M)
-           or re.search(r'^;.*?\btotal estimated time\s*:\s*([^;\n]+)',text,re.M))
-    if not m: return None
-    return sum(int(n)*{"d":86400,"h":3600,"m":60,"s":1}[u] for n,u in re.findall(r'(\d+)\s*([dhms])',m.group(1))) or None
-
-
-def human_dur(sec):
-    h,m=divmod(int(round(sec/60)),60)
-    return f"{h}h {m}m" if h else f"{m}m"
 
 
 
 
-def remote_name(gcode, sha, job=None):
-    """Moonraker file name: readable model title first, then the plate stem and exact SHA256.
-
-    The title makes Moonraker, Fluidd and the printer screen show what is printing; the
-    stem plus full hash keeps the name unique and lets discord_print_summary.find_job
-    bind it back to the exact local artifact.
-    """
-    g = Path(gcode)
-    title = job.get("title") if isinstance(job, dict) else None
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", str(title or "")).strip("-")[:40].strip("-")
-    stem = g.stem if not slug or slug.lower() == g.stem.lower() else f"{slug}_{g.stem}"
-    return f"{stem}_{sha}{g.suffix}"
 
 
-def _zmod_version(st):
-    """Installed ZMod version tuple from Moonraker's update status, or None (#564).
-
-    Fail-soft by design: any transport or parse problem is "unknown", never an
-    error — auto format resolution treats unknown as plain .gcode.
-    """
-    try:
-        status = firmware_update.fetch_status(lambda _method, path: _mr(st, path))
-    except Exception:
-        return None
-    return gcode_3mf.version_from_status(status)
 
 
-def _note_delivery_format(job, job_path, note):
-    """Persist the resolved delivery format on the job so record_start lifts it
-    into the print record (#564). Best effort: a failed note never blocks a print."""
-    if not isinstance(job, dict) or not job_path:
-        return
-    try:
-        job["delivery_format"] = note
-        write_job(Path(job_path).parent, job)
-    except Exception as exc:
-        logger.warning("could not record delivery format: %s", exc)
 
 
-def _zmod_upload_artifact(adapter, st, g, sha, remote):
-    """Resolve the Moonraker upload artifact for a Flashforge/ZMod print (#564).
-
-    Returns (upload_path, upload_sha256, remote, note). The default — and every
-    fallback — is the plain finalized .gcode exactly as before. When the
-    printer's zmod_delivery_format resolves to 3mf, the finalized G-code is
-    packaged as .gcode.3mf next to itself: the upload checksum becomes the
-    PACKAGE's sha256 (Moonraker verifies it against the uploaded bytes), while
-    the remote name keeps the G-code's stem+sha with a .3mf suffix so
-    find_job/record binding is unchanged. All verification has already run on
-    the .gcode by the time this is called; nothing here re-checks or alters it.
-    Callers note the returned note on the job once the upload verifies.
-    """
-    setting = str(adapter.config.get("printer", {}).get("zmod_delivery_format") or "gcode").strip().casefold()
-    if getattr(getattr(adapter, "model", None), "vendor_key", None) != "flashforge":
-        return g, sha, remote, None
-    version = _zmod_version(st) if setting == "auto" else None
-    fmt, reason = gcode_3mf.resolve_format(setting, version)
-    if fmt != "3mf":
-        return g, sha, remote, None
-    nozzle = (st.get("nozzle") or {}).get("diameter_mm")
-    package = gcode_3mf.package(g, gcode_3mf.package_path_for(g),
-                                nozzle_mm=float(nozzle) if isinstance(nozzle, (int, float)) else None)
-    note = {"format": "3mf", "setting": setting, "reason": reason,
-            "zmod_version": ".".join(map(str, version)) if version else None,
-            "package_sha256": file_sha256(package)}
-    packaged_remote = remote[:-len(".gcode")] + ".gcode.3mf" if remote.endswith(".gcode") else remote + ".3mf"
-    print(f"DELIVERY FORMAT: .gcode.3mf ({reason})", flush=True)
-    return package, note["package_sha256"], packaged_remote, note
 
 
-def _announce_print_name(st, job, slots=None, gcode=None):
-    """Best effort: publish "<title> (<colors>)" as Klipper display_status.message.
 
-    The Moonraker Home Assistant integration already exposes that field as the
-    "Current Display Message" sensor, so no listener or HA change is needed.
-    Sent before the start command because a script queued during START_PRINT
-    heating would block on the gcode mutex. Never blocks or fails a print.
-    """
-    title = job.get("title") if isinstance(job, dict) else None
-    if not title:
-        title = Path(str((job or {}).get("downloaded_file") or "")).stem if isinstance(job, dict) else ""
-    name = re.sub(r"[^\w .,&+#@:/-]", "", str(title or "")).strip()[:50]
-    if not name:
-        return None
-    colors = []
-    for slot in slots or []:
-        row = (st.get("filament_slots") or {}).get(str(slot)) or {}
-        label = " ".join(w.capitalize() for w in str(row.get("color") or "").split())
-        if label and label not in colors:
-            colors.append(label)
-    if not colors and isinstance(job, dict):
-        sel = job.get("filament_selection") or {}
-        if sel.get("color"):
-            colors.append(" ".join(w.capitalize() for w in str(sel["color"]).split()))
-    plates = (job.get("derived_plates") or []) if isinstance(job, dict) else []
-    if gcode is not None and len(plates) > 1:
-        paths = [str(r.get("gcode") or "") for r in plates]
-        if str(gcode) in paths:
-            name = f"{name} {paths.index(str(gcode)) + 1}/{len(plates)}"
-    if colors:
-        name = f"{name} ({' + '.join(colors)})"
-    try:
-        request_json(st["moonraker_url"] + "/printer/gcode/script",
-                     data={"script": f'SET_DISPLAY_TEXT MSG="{name}"'}, timeout=5,
-                     headers={"Content-Type": "application/json"})
-        print("PRINT NAME PUBLISHED " + json.dumps({"name": name}), flush=True)
-        return name
-    except Exception as exc:
-        print(f"WARNING: print name not published: {exc}", flush=True)
-        return None
+
+
+
+
+
 
 
 def _usage_for_source_extruder(manifest, source_extruder):
@@ -6364,36 +5195,8 @@ def format_spool_projection(rows, position_noun='Slot'):
     return '\n'.join(lines)
 
 
-def job_card(job, remote, gcode_text=""):
-    """Copies and spools for the Home Assistant print card: one JSON document, no secrets."""
-    job = job if isinstance(job, dict) else {}
-    dec = effective_color_decisions(job) or {}  # the slots a #1189 fallback artifact uses
-    picks = [dec["selection"]] if isinstance(dec.get("selection"), dict) else list((dec.get("choices") or {}).values())
-    if not picks and isinstance(job.get("filament_selection"), dict):
-        picks = [job["filament_selection"]]
-    spools, seen = [], set()
-    for row in picks:
-        if isinstance(row, dict) and row.get("slot") not in seen:
-            seen.add(row.get("slot"))
-            spools.append({k: row.get(k) for k in ("slot", "color", "material", "spoolman_id")})
-    grams = _filament_total_g(gcode_text)
-    return {"title": job.get("title") or Path(str(remote)).stem, "file": remote,
-            "copies": int(job.get("copies") or 1), "spools": spools,
-            "filament_g": round(grams, 1) if grams is not None else None,
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
-def _publish_job_card(st, job, remote, gcode_text=""):
-    """Best effort: Moonraker database hermes/current_job, read by Home Assistant. Never blocks a print."""
-    try:
-        card = job_card(job, remote, gcode_text)
-        request_json(st["moonraker_url"] + "/server/database/item",
-                     data={"namespace": "hermes", "key": "current_job", "value": card}, timeout=5,
-                     headers={"Content-Type": "application/json"})
-        return card
-    except Exception as exc:
-        print(f"WARNING: job card not published: {exc}", flush=True)
-        return None
 
 
 def _fetch_remote_gcode_sha256(moonraker_url, remote_name, timeout=60):
@@ -6414,145 +5217,26 @@ def _fetch_remote_gcode_sha256(moonraker_url, remote_name, timeout=60):
     return hasher.hexdigest()
 
 
-def _printer_phase(st, native=None):
-    """Return a single adapter's reported phase; native 'printing' needs corroboration.
-
-    native defaults to the configured printer's; a caller asking about a routed
-    printer passes that printer's own has_native_screen (2.2.5 review).
-    """
-    if native is None:
-        native=_native()
-    q=_mr(st,"/printer/objects/query?"+("save_variables&" if native else "")+"print_stats&idle_timeout&virtual_sdcard&webhooks")["result"]["status"]
-    variables=(q.get("save_variables") or {}).get("variables") or {}
-    mode=variables.get("display_off")
-    if native and mode not in (0,1):
-        raise RuntimeError(f"live display_off mode is {mode!r}; refusing ambiguous hardware behavior")
-    st["display_off"]=mode
-    st["force_md5"]=variables.get("force_md5")
-    stats=q.get("print_stats") or {}
-    state=stats.get("state")
-    filename=stats.get("filename")
-    idle=(q.get("idle_timeout") or {}).get("state")
-    virtual_sd = q.get("virtual_sdcard") or {}
-    webhooks = q.get("webhooks") or {}
-    # print_stats can remain standby/empty while PRINT_START is heating or
-    # otherwise preparing. These independent Klipper signals still prove the
-    # submitted job has been accepted; do not infer failure or retry it.
-    accepted = (virtual_sd.get("is_active") is True or bool(virtual_sd.get("file_path"))
-                or webhooks.get("state") == "Printing" or idle == "Printing")
-    if state not in ("standby", "printing", "paused", "complete", "error", "cancelled"):
-        raise RuntimeError(f"Moonraker print state unknown: {state!r}")
-    if state in ("printing", "paused"):
-        return state, filename, "Moonraker reports active execution"
-    return state, filename, "Printing" if accepted else idle
 
 
 # The Moonraker start truth (#1318): the baseline classifier and its helpers live in start_truth.
 StartReadback = start_truth.StartReadback
 classify_start_readback = start_truth.classify_start_readback
-_readback_status = start_truth._readback_status
 _same_job = start_truth._same_job
 
 
-START_READBACK_QUERY = ("/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard"
-                        "&idle_timeout&webhooks&toolhead")
 
 
-def _start_baseline(st, *, native=True):
-    """The printer's status immediately before the one start request: what the readback is compared with.
-
-    Remote names are derived from the artifact hash, so a reprint reports the same file name the previous
-    run left behind (state complete, the axes still homed). Only a change from this baseline is evidence
-    of the new start. {} when unreadable: an unreadable baseline proves no change, so then only a
-    printing state counts."""
-    try:
-        status = _readback_status(_mr(st, START_READBACK_QUERY + ("&zmod_ifs" if native else "")))
-    except Exception:
-        return {}
-    return status if isinstance(status.get("print_stats"), dict) else {}
 
 
-def _baseline_heaters_off(baseline):
-    """_preparation_evidence(st) is False, from an already-read baseline: every heater target read 0."""
-    try:
-        return all(float((baseline.get(k) or {}).get("target")) == 0 for k in ("extruder", "heater_bed"))
-    except (TypeError, ValueError, AttributeError):
-        return False
 
 
-def _baseline_heats(baseline):
-    """True only when a readable baseline shows a heater target above 0."""
-    for name in ("extruder", "heater_bed"):
-        try:
-            if float(((baseline or {}).get(name) or {}).get("target")) > 0:
-                return True
-        except (TypeError, ValueError, AttributeError):
-            pass
-    return False
 
 
-def _preparation_evidence(st):
-    """True when a heater target is set (native start preparation), False when all are 0,
-    None when unreadable. Read-only; used only after exactly one submission."""
-    try:
-        q = _mr(st, "/printer/objects/query?extruder=target&heater_bed=target")["result"]["status"]
-        targets = [float((q.get(k) or {}).get("target")) for k in ("extruder", "heater_bed")]
-    except Exception:
-        return None
-    return any(v > 0 for v in targets)
 
 
-def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
-    """Wait until print_stats is printing, or the start sequence settles without printing.
-
-    prep_check (native mapped starts): heater targets set by the printer's own preparation prove
-    acceptance only provisionally (#836). Once seen, keep watching: preparation that ends with
-    the heaters cold and print_stats still standby was a start the printer abandoned (an IFS load
-    fault, say), so return "abandoned" then instead of reporting the early heat as a started print.
-
-    baseline (_start_baseline): print_stats as it was just before the request. An error or cancelled
-    state that is still the previous job's (same state and file) is not this start ending, and a
-    printer back cold on that unchanged leftover (a reprint's state complete, same file) abandoned
-    the start just as one back at standby did."""
-    base_ps = (baseline or {}).get("print_stats") if isinstance((baseline or {}).get("print_stats"), dict) else {}
-    leftover = (base_ps.get("state"), base_ps.get("filename")) if base_ps else None
-    t0=time.monotonic(); state=None; prep_seen=False
-    while time.monotonic()-t0 < wait_s:
-        state,fn,busy=_printer_phase(st)
-        step = start_truth.moonraker_wait_step(state, fn, remote, leftover)
-        if step: return step  # this upload printing, or this start ended in error/cancelled
-        if prep_check and time.monotonic()-t0 > 2:
-            try:
-                prep = prep_check(st)
-                if prep is True: prep_seen=True
-                elif start_truth.moonraker_abandoned(prep, prep_seen, state, fn, leftover):
-                    return start_truth.ABANDONED  # prep ended, never printed
-            except Exception: pass
-        if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
-        time.sleep(1)
-    return "busy" if state == "printing" else state  # printing some other file is not this start
 
 
-def live_snapshot(st):
-    """Current temps and every IFS slot for Job Details. Read-only; unknown stays unknown."""
-    snap={"nozzle_c":None,"bed_c":None,"slots":"unknown"}
-    try:
-        q=_mr(st,"/printer/objects/query?extruder&heater_bed")["result"]["status"]
-        snap["nozzle_c"]=q.get("extruder",{}).get("temperature")
-        snap["bed_c"]=q.get("heater_bed",{}).get("temperature")
-    except Exception: pass
-    if not _native(): return snap
-    try:
-        tel=read_filament_telemetry(st); palette=tel.get("configured_palette")
-        presence={}
-        try: presence=read_stock_filament_slots(st)
-        except Exception: pass
-        if isinstance(palette,list):
-            snap["slots"]=[{"slot":p.get("ID"),"color":p.get("Color"),"material":p.get("Material"),
-                            "loaded":presence.get(int(p["ID"])) if str(p.get("ID")).isdigit() else None}
-                           for p in palette]
-    except Exception: pass
-    return snap
 
 
 def _fmt_slots(slots):
@@ -6588,79 +5272,16 @@ def routine_phase(st, accepted=True):
     return "unknown"
 
 
-# The operator's bed-clear confirmation for one print-now run (#1147), set by print_now from its
-# ``bed_clear`` argument: True is an explicit confirmation for whatever this run prints (the CLI's
-# --bed-clear-confirmed), a SHA-256 binds it to exactly that G-code (print_next passes the SHA of the
-# artifact the operator confirmed). Unset, the start primitive refuses: the approval no longer lives
-# only in the callers' button flows.
-_BED_CLEAR = contextvars.ContextVar("print_now_bed_clear", default=None)
-BED_CLEAR_REFUSAL = ("REFUSED: no bed-clear approval was given for this G-code, so nothing was uploaded or "
-                     "started. Confirm the bed is clear (the chat's Start button, or print-now "
-                     "--bed-clear-confirmed at the command line), then start again.")
 
 
-def _require_bed_clear(gcode):
-    """Refuse unless the operator's bed-clear confirmation covers this exact G-code (#1147).
-
-    Runs at every transport's approval step, before anything is uploaded, and
-    yolo does not waive it: saying yolo skips the checks, never the operator's
-    word that the bed is clear.
-    """
-    grant = _BED_CLEAR.get()
-    if grant is True:
-        return
-    if isinstance(grant, str) and grant.strip().lower() == file_sha256(gcode):
-        return
-    raise SystemExit(BED_CLEAR_REFUSAL)
 
 
-def _claim_bed_clear(job_path, job, gcode, reprint=False, *, consume=True):
-    """The approval step of every transport: the operator's confirmation, then the single-use record."""
-    _require_bed_clear(gcode)
-    if job_path is not None and consume:
-        _consume_approval(job_path, job, gcode, reprint=reprint)
 
 
-def _consume_approval(job_path, job, gcode, reprint=False):
-    """Single-use bed-clear approval per G-code. Refuses reuse unless an explicit new reprint approval.
-    Check and record run in one launch-state transaction on the current JOB.json, never the caller's
-    possibly stale snapshot; the database copy survives another writer saving an older JOB.json."""
-    sha=file_sha256(gcode); key=str(Path(job_path).resolve())
-    with launch_state.transaction(_job_printer_id(job)) as con:
-        current=json.loads(Path(job_path).read_text())
-        require_current_artifact(current, gcode)
-        now=time.strftime("%Y-%m-%dT%H:%M:%S%z")
-        used=[a for a in current.get("approvals",[]) if a.get("gcode_sha256")==sha and a.get("consumed_at")]
-        used+=launch_state.consumed(con, key, sha)
-        if used and not reprint:
-            raise SystemExit(f"REFUSED: the bed-clear approval for this G-code was already used at {used[-1]['consumed_at']}. "
-                             "Ask the operator for a new bed-clear confirmation, then rerun with --reprint. Nothing uploaded or started.")
-        kind="reprint" if used else "bed_clear"
-        launch_state.record_consumed(con, key, sha, kind, now)
-        current.setdefault("approvals",[]).append({"gcode_sha256":sha,"granted_at":now,"consumed_at":now,"kind":kind})
-        write_job(Path(job_path).parent, current)
-    job.clear(); job.update(current)
 
 
-def _printer_key(st=None, job=None):
-    """The submission-lease identity for a launch: the job's roster printer id (#334).
-
-    Kept under its old name for the callers and tests that keyed a lease by
-    the hardware record; the record no longer names the lease — the job's
-    printer does, and a job without one belongs to the default printer.
-    """
-    return _job_printer_id(job)
 
 
-def _require_idle_before_mapped_launch(require_idle_settled, read_moonraker, read_native):
-    """Report only an explicit idle-guard refusal as a clean pre-upload refusal."""
-    try:
-        require_idle_settled(read_moonraker, read_native)
-    except RuntimeError as exc:
-        message = str(exc)
-        if not message.startswith("REFUSED: idle guard failed:"):
-            raise
-        raise SystemExit(message + ". Nothing uploaded or started.") from None
 
 
 def _native_file_matches(reported, remote):
@@ -6668,48 +5289,8 @@ def _native_file_matches(reported, remote):
     return launch_state.same_remote(reported, remote)
 
 
-def _moonraker_started_files(st):
-    """Moonraker's recent job history as (job_id, filename, start_epoch) triples, for settling
-    an uncertain earlier start (launch_state.reached_printer) and for the pre-submission
-    history baseline (launch_state.acquire). Unreadable history settles nothing."""
-    try:
-        jobs = _mr(st, '/server/history/list?limit=20&order=desc', timeout=10)['result']['jobs']
-        # A printer with a wrong clock stamps its history with that clock, which never lines up with the
-        # lease time. Shift its start times onto host time so the lease can still settle (the history
-        # baseline, not the clock, is what proves a run is new).
-        skew = launch_state.printer_clock_skew(st.get('moonraker_url'))
-        shift = skew if skew is not None and abs(skew) >= launch_state.CLOCK_SKEW_WARN_S else 0
-        now = time.time()
-
-        def shifted(start):
-            # Only a run stamped by the wrong clock itself may be shifted. A run from before a
-            # clock reset carries a correct stamp; shifting it by the current skew would move it
-            # into the future, where reached_printer's lower bound alone (the pre-submission
-            # baseline can be empty when its read failed) would accept it as this lease's run.
-            # A shifted time beyond now (plus the history slack) proves a different clock epoch:
-            # keep the raw stamp, which is honestly dated and cannot confirm a later lease.
-            if shift > 0 and start + shift > now + launch_state.HISTORY_SLACK_S:
-                return start
-            return start + shift
-
-        return [(j.get('job_id'), j.get('filename'), shifted(j.get('start_time'))) for j in jobs
-                if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
-    except Exception:
-        return []
 
 
-def _read_start_readback(st, remote, *, native=True, baseline=None):
-    """(readable, readback): one status read after a start request that did not answer cleanly.
-
-    The readback is classified only when print_stats names this exact upload (never another job's);
-    it is None when the printer shows a different file, and `readable` is False when it could not be read.
-    `baseline` (_start_baseline, read just before the request) makes only a change count as evidence.
-    """
-    try:
-        snap = _mr(st, START_READBACK_QUERY + ("&zmod_ifs" if native else ""))  # generic Klipper has no ZMod objects
-        return True, start_truth.moonraker_readback(snap, remote, baseline)
-    except Exception:
-        return False, None
 
 
 def _reconcile_native_submission(st, remote):
@@ -6717,261 +5298,44 @@ def _reconcile_native_submission(st, remote):
     return _read_start_readback(st, remote)[1]
 
 
-def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True, baseline=None):
-    """What the printer says about one start request whose response was lost or rejected.
-
-    Shared by the mapped native path (#688) and the generic Moonraker path. Evidence, in order: the printer
-    reports this exact file (launch_state.same_remote via the readback), then heater targets set from a
-    baseline that proved every heater was off before the request, else nothing: pending. Heater targets
-    alone never count when the baseline was not proven, since they may belong to unrelated work.
-
-    Returns the outcome fields (phase, outcome, accepted, started, message, optional readback) plus `quiet`:
-    True only when the printer was readable, does not report this file and has no heater target, which is
-    what lets an HTTP 4xx answer be treated as "definitely not started".
-    """
-    readable, readback = _read_start_readback(st, remote, native=native, baseline=baseline)
-    # Heater targets are read only when print_stats does not name this file; they count only when the
-    # baseline proved every heater off before the request.
-    heating = _preparation_evidence(st) if readback is None else None
-    truth = start_truth.moonraker(readback, heating=heating, heating_counts=bool(heaters_were_off),
-                                  readable=readable)
-    return start_truth.lost_fields(truth)
 
 
-def _start_rejection(exc):
-    """The printer's own words when `exc` is a definitive refusal of the start request, else None.
-
-    Only an HTTP 4xx answer qualifies: the request arrived, was read and was refused (Moonraker 400
-    "Must home", 404 file not found). A timeout, a reset connection and every 5xx may have reached a
-    printer that went on to start, so they stay uncertain. 408, 425 and 429 describe the transport,
-    not the printer's decision, and stay uncertain too.
-    """
-    if not isinstance(exc, urllib.error.HTTPError) or not 400 <= exc.code < 500 or exc.code in (408, 425, 429):
-        return None
-    detail = ""
-    try:
-        body = json.loads(exc.read().decode("utf-8", "replace"))
-        error = body.get("error") if isinstance(body, dict) else None
-        detail = error.get("message") if isinstance(error, dict) else (error if isinstance(error, str) else "")
-    except Exception:
-        pass
-    return f"HTTP {exc.code}: {' '.join(str(detail or exc.reason or 'rejected').split())}"[:300]
 
 
-def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_command=True, native=True,
-                       baseline=None):
-    """Settle a start request that raised `exc`: returns (out, rejection).
-
-    Anything but a clean 4xx on the first command leaves the lease uncertain (never released by guessing)
-    and reconciles from the printer, like the mapped native path always did. A 4xx answer on a printer
-    that shows nothing happening releases the lease and the start claim and returns (None, message):
-    the caller ends as REFUSED, with the printer's words. A 4xx on a printer that shows activity is
-    uncertain after all.
-    """
-    rejection = _start_rejection(exc) if first_command else None
-    if rejection is None:
-        lease.uncertain(f'start request response lost: {exc!r}')
-    # Moonraker answers 400 when a macro errors partway, heaters left on: after a rejection only a
-    # readback naming this exact file may say started; heater targets alone are never evidence.
-    verdict = _reconcile_lost_start(st, remote, heaters_were_off=heaters_were_off and rejection is None,
-                                    native=native, baseline=baseline)
-    quiet = verdict.pop('quiet')
-    if rejection is not None:
-        if quiet:
-            lease.release()  # the printer refused it and shows no sign of work: nothing started
-            release_start_announcement(remote)
-            return None, rejection
-        lease.uncertain(f'start request rejected ({rejection}) but the printer shows activity: {exc!r}')
-    out = {**base, **verdict}
-    if not out['accepted']:
-        lease.uncertain(out['message'])
-        # Nobody has announced this start, so let the listener post the "Print started" card
-        # when print_stats reaches this file.
-        release_start_announcement(remote)
-    return out, rejection
 
 
-def _rejected_start_message(rejection):
-    return (f"REFUSED: the printer rejected the start request ({rejection}). "
-            "The file was uploaded but nothing started.")
 
 
-def _bang_lines(payload):
-    """Every `!!` line in a Moonraker reply payload, however deeply nested.
-
-    Klipper reports a macro failure (unknown command, macro error) as a `!!` console line while
-    Moonraker still answers HTTP 200, so a start receipt has to be read, not just its status."""
-    lines = []
-    if isinstance(payload, str):
-        lines.extend(ln.strip() for ln in payload.splitlines() if ln.strip().startswith("!!"))
-    elif isinstance(payload, dict):
-        for value in payload.values():
-            lines.extend(_bang_lines(value))
-    elif isinstance(payload, (list, tuple)):
-        for value in payload:
-            lines.extend(_bang_lines(value))
-    return lines
 
 
-def _gcode_store_entries(st):
-    """The gcode store entries Moonraker serves, or None when the read proves nothing."""
-    try:
-        entries = _mr(st, "/server/gcode_store?count=100")["result"]["gcode_store"]
-    except Exception:
-        return None
-    return entries if isinstance(entries, list) else None
 
 
-def _store_entry_mark(entry):
-    """A store entry's identity for watermark matching: its message and store timestamp."""
-    if not isinstance(entry, dict):
-        return None
-    return (entry.get("message"), entry.get("time"))
 
 
-def _gcode_store_watermark(st):
-    """The store's state immediately before a submission: (entry count, newest entry's mark).
-
-    Attribution by position, never by clock (#848): entries at or before the watermark belong
-    to whatever happened before the submission, however close in time, and entries after it
-    are the submission's, however skewed their timestamps are. None when the store cannot be
-    read at capture time — then no store entry can be attributed to the submission at all."""
-    entries = _gcode_store_entries(st)
-    if entries is None:
-        return None
-    return (len(entries), _store_entry_mark(entries[-1]) if entries else None)
 
 
-def _entries_after_watermark(entries, watermark):
-    """The entries that entered the store after `watermark` was captured.
-
-    The watermark's newest entry is located first (its last occurrence, in case the same line
-    was logged twice), because a capped store window can slide between capture and readback;
-    the count alone is the fallback when that entry is no longer served."""
-    count, mark = watermark
-    if mark is not None:
-        for index in range(len(entries) - 1, -1, -1):
-            if _store_entry_mark(entries[index]) == mark:
-                return entries[index + 1:]
-    return entries[count:] if len(entries) >= count else []
 
 
-def _start_receipt_error(st, receipt, *, watermark):
-    """The printer's `!!` refusal of the one start just sent, or None (#836).
-
-    The POST receipt is inspected first; when it carries no `!!` line, the gcode store is read
-    back, counting only entries after the watermark captured immediately before the POST
-    (#848: a `!!` line logged before the submission belongs to an earlier problem, not this
-    start, and comparing its printer timestamp with host time made attribution clock-skew
-    sensitive). With no watermark, or an unreadable store, there is no evidence — never a
-    refusal."""
-    lines = _bang_lines(receipt)
-    if lines:
-        return lines[0][:300]
-    if watermark is None:
-        return None
-    entries = _gcode_store_entries(st)
-    if entries is None:
-        return None
-    for entry in _entries_after_watermark(entries, watermark):
-        if not isinstance(entry, dict) or not isinstance(entry.get("message"), str):
-            continue
-        found = _bang_lines(entry["message"])
-        if found:
-            return found[0][:300]
-    return None
 
 
-def _start_visibly_running(st, remote, heaters_were_off):
-    """Whether the printer shows this start under way: it reports this file printing or paused, or
-    heater targets are set now that were proven off immediately before the POST. Unreadable: False."""
-    try:
-        state, fn, _busy = _printer_phase(st)
-    except Exception:
-        state = fn = None
-    return start_truth.moonraker_running(state, fn, remote, heaters_were_off=heaters_were_off,
-                                        heating=lambda: _preparation_evidence(st))
 
 
-START_OUTCOME_MARK = "START READBACK "  # "MAPPED START READBACK " contains it, so one parser reads both
-_OUTCOME_KEYS = ("phase", "outcome", "started", "accepted", "file", "method", "message")
 
 
-def _emit_start_outcome(out, mark=START_OUTCOME_MARK, compact=True):
-    """The one uniform outcome line every launch ends with: `START READBACK {json with phase}`.
-
-    prepared_intake and print_next read the phase from it to tell a confirmed start from an unresolved one.
-    """
-    line = {k: out[k] for k in _OUTCOME_KEYS if k in out} if compact else dict(out)
-    if isinstance(line.get('message'), str):
-        line['message'] = line['message'][:200]
-    print(mark + json.dumps(line, default=str), flush=True)
 
 
-def _emit_mapped_outcome(out):
-    """The mapped route's outcome: the bulky record on an earlier `MAPPED START DETAIL` line (the checkpoint
-    file holds it too), then the compact `MAPPED START READBACK` line last. print_next keeps only the last
-    1500 characters of output, so the line the intake parses must stay short."""
-    print('MAPPED START DETAIL ' + json.dumps(out, default=str), flush=True)
-    _emit_start_outcome(out, mark='MAPPED START READBACK ')
 
 
-def _uncertain_after_submission(lease, remote, exc, *, method, phase=start_truth.PHASE_AWAITING, extra=None,
-                                mark=START_OUTCOME_MARK):
-    """A failure after the start request went out (a readback that raised, a Klippy restart, a 503).
-
-    The printer may be starting, so nothing is retried: the lease becomes uncertain, the start-announcement
-    claim is released (nobody announced this start; the listener posts it when the printer reaches the
-    file, which is what the chat was told), and the run ends with a clean UNCERTAIN line and outcome.
-    """
-    reason = ' '.join(str(exc).split()) or type(exc).__name__
-    try:
-        lease.uncertain(f'readback after the start request failed: {reason}')
-    except Exception as lease_exc:
-        logger.warning('could not mark the lease uncertain: %s', lease_exc)
-    release_start_announcement(remote)
-    message = f'the start was sent, but reading the printer back failed ({reason}); do not resubmit'
-    out = {**(extra or {}), 'started': False, 'accepted': False, 'file': remote, 'method': method,
-           **start_truth.uncertain_fields(phase), 'message': message}
-    print('UNCERTAIN: ' + message, flush=True)
-    if extra is not None:
-        print(mark.replace('READBACK', 'DETAIL') + json.dumps(out, default=str), flush=True)
-    _emit_start_outcome(out, mark=mark)
-    return out
 
 
-def _submission_failed(lease, remote, label, exc):
-    """Upload or start raised for a transport whose client collapses both into one step: uncertain,
-    claim released, outcome line printed, never resubmitted. Raises."""
-    lease.uncertain(f"{label} submission did not complete: {exc!r}")
-    release_start_announcement(remote)
-    _emit_start_outcome({'started': False, 'accepted': False, 'file': remote, **start_truth.uncertain_fields(),
-                         'message': f'{label} submission did not complete; do not resubmit'})
-    if isinstance(exc, RuntimeError):
-        raise SystemExit(f"{label} submission failed or uncertain: {exc}. Do not resubmit without "
-                         "checking printer status.") from exc
-    raise exc
 
 
-# Start confirmation by polling (#271 for Bambu, now every transport): one immediate readback after the
-# start request is not evidence either way, since a printer takes seconds to minutes to report the file.
-START_CONFIRM_DEFAULT_S = 45
-START_CONFIRM_POLL_S = 3
 # Normalized states that mean "accepted, still starting" (heating the bed, running its calibration).
 START_TRANSITIONAL_STATES = start_truth.START_TRANSITIONAL_STATES
 
 
-def _start_confirm_window_s():
-    """How long a non-Bambu start is polled (Bambu has [bambu] start_confirm_s)."""
-    return float(START_CONFIRM_DEFAULT_S)
 
 
-class StartPoll(NamedTuple):
-    confirmed: bool    # the printer reports this file printing or preparing
-    preparing: bool    # ... and is still in a transitional state (heating, calibrating)
-    live: dict         # the last readable normalized status
-    snapshots: int
-    window_s: float
 
 
 def _reports_started(live, remote):
@@ -6979,833 +5343,42 @@ def _reports_started(live, remote):
     return start_truth.polled(live, remote).confirmed
 
 
-def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START_CONFIRM_POLL_S,
-                             reports=None, job_path=None, stage="start_confirm",
-                             evidence_of=None, on_snapshot=None, truth=None):
-    """Poll `read_status()` (a normalized status dict) until the start truth confirms or `window_s` ends.
-
-    `truth(live, remote)` is the transport's start-truth function (start_truth.polled by default, with
-    the caller's baseline bound in); a legacy yes/no `reports(live, remote)` matcher is still accepted.
-
-    Never raises for a bad read: an exception counts as a snapshot, the window keeps running and the last
-    readable status is what is reported. Every snapshot is written to the job's TIMING.jsonl so an
-    unconfirmed start leaves evidence of what the printer said. Both clock hooks are module attributes so
-    tests drive the window without sleeping.
-    """
-    window_s = _start_confirm_window_s() if window_s is None else float(window_s)
-    judge = truth or (start_truth.from_reports(reports) if reports is not None else start_truth.polled)
-    started = _confirm_clock()
-    deadline = started + window_s
-    last_good, snapshots = {}, 0
-    while True:
-        snapshots += 1
-        error = None
-        try:
-            live = read_status()
-            if not isinstance(live, dict):
-                raise RuntimeError("the printer returned no readable status")
-            last_good = live
-        except Exception as exc:
-            live, error = {}, " ".join(str(exc).split()) or type(exc).__name__
-        evidence = {"snapshot": snapshots, "elapsed_s": round(_confirm_clock() - started, 1),
-                    **(evidence_of(live) if evidence_of else {"state": live.get("state"), "file": live.get("filename")})}
-        if error:
-            evidence["error"] = error
-        if on_snapshot:
-            on_snapshot(evidence)
-        _timing(job_path, stage, **evidence)
-        verdict = judge(live, remote)
-        if verdict.confirmed:
-            return StartPoll(True, verdict.verdict == start_truth.PREPARING, live, snapshots, window_s)
-        remaining = deadline - _confirm_clock()
-        if remaining <= 0:
-            return StartPoll(False, False, last_good, snapshots, window_s)
-        _confirm_sleep(min(poll_s, remaining))
 
 
-def _settle_polled_start(lease, poll, remote, *, method, uncertain_detail=None, **extra):
-    """The lease and the outcome dict for a polled start.
-
-    Confirmed (printing, or accepted and still heating/calibrating) releases the lease: the busy printer
-    refuses another start. Anything else leaves it uncertain and frees the start claim so the listener
-    posts the start when the printer reaches the file. Nothing here ever resubmits.
-    """
-    phase, outcome, message = start_truth.polled_fields(poll.confirmed, poll.preparing)
-    if poll.confirmed:
-        lease.release()
-    else:
-        lease.uncertain(uncertain_detail or (
-            f"submitted, awaiting confirmation; printer reported state {poll.live.get('state') or 'unknown'}, "
-            f"file {poll.live.get('filename') or 'none'!r} on the last of {poll.snapshots} snapshot(s) "
-            f"over {poll.window_s:g}s"))
-        release_start_announcement(remote)
-    return {"started": poll.confirmed, "accepted": True, "file": remote, "method": method, "phase": phase,
-            "outcome": outcome, "live": poll.live, "message": message, **extra}
 
 
-def _announce_polled_outcome(out):
-    """The legacy human line plus the uniform outcome line, last so a 6-line tail always holds it."""
-    print(("PRINT STARTED " if out["phase"] == start_truth.PHASE_EXECUTING else "START SUBMITTED; AWAITING CONFIRMATION ")
-          + json.dumps(out, default=str))
-    _emit_start_outcome(out)
 
 
-CHECKPOINT_NOT_SENT = ("rejected", "not_submitted")  # launch attempts that provably never reached the printer
 
 
-def _require_launch_checkpoint_clear(checkpoint, reprint, remote=None):
-    """`<plate>.launch.json` records one launch attempt (print-again reads it too), so it is never deleted.
-
-    An earlier attempt's file must not stop a deliberate reprint (multi-copy plates, "Print again"): the
-    operator's new bed-clear approval is exactly that decision, and the printer lease already refused if
-    the earlier attempt is still unsettled. It does stop an unapproved replay of the same artifact, and
-    an attempt that never reached the printer never blocks anything.
-
-    A checkpoint whose recorded `file` is a DIFFERENT delivery of this plate than the current `remote`
-    (a stale plain-.gcode attempt, this resubmission packaged as .gcode.3mf, or the reverse) does not
-    block either (#838): it describes another artifact, and the printer lease — not this record — is
-    what refuses while an earlier attempt is still unsettled. A checkpoint with no recorded file keeps
-    the old fail-closed reading.
-    """
-    if not checkpoint.exists():
-        return
-    try:
-        data = json.loads(checkpoint.read_text())
-    except (OSError, ValueError):
-        data = {}
-    phase = data.get('phase') if isinstance(data, dict) else None
-    if phase in CHECKPOINT_NOT_SENT or reprint:
-        return
-    recorded_file = data.get('file') if isinstance(data, dict) else None
-    if remote is not None and recorded_file and recorded_file != remote:
-        return
-    raise RuntimeError('mapped submission checkpoint exists; reconcile or pass an explicit reprint approval '
-                       'instead of replaying')
 
 
-def _write_checkpoint(checkpoint, data):
-    try:
-        checkpoint.write_text(json.dumps(data, indent=2) + '\n')
-    except OSError as exc:
-        logger.warning('could not write the launch checkpoint %s: %s', checkpoint, exc)
 
 
-def color_mismatch_key(slot, shown_live, shown_recorded):
-    """The one slot color difference a Print anyway acknowledgement names (#795)."""
-    return f"{slot}:{shown_live}:{shown_recorded}"
 
 
-def accepted_color_mismatches(job, gcode_sha256):
-    """Slot color differences the operator chose to print anyway, for this exact G-code only (#795)."""
-    accepted = (job or {}).get('color_mismatch_accepted') or {}
-    if not gcode_sha256 or accepted.get('gcode_sha256') != gcode_sha256:
-        return frozenset()
-    return frozenset(str(key) for key in accepted.get('slots') or [])
 
 
-def label_mismatch_key(slot, shown_label, shown_recorded):
-    """The one slot material-label difference a Print anyway acknowledgement names (#839)."""
-    return f"{slot}:{shown_label}:{shown_recorded}"
 
 
-def accepted_label_mismatches(job, gcode_sha256):
-    """Slot material-label differences the operator chose to print anyway, for this exact G-code only.
-
-    The label analog of accepted_color_mismatches (#795): same binding —
-    the exact G-code's SHA, consumed by the caller before the start POST.
-    """
-    accepted = (job or {}).get('label_mismatch_accepted') or {}
-    if not gcode_sha256 or accepted.get('gcode_sha256') != gcode_sha256:
-        return frozenset()
-    return frozenset(str(key) for key in accepted.get('slots') or [])
 
 
-def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(), found=None):
-    """The printer screen's slot color against the recorded one, before a mapped launch.
-
-    The two are compared as colors, not strings (FFFFFF == FAFAFA, 0C6283FF == 0C6283),
-    and only a clear difference between two real hexes refuses. A missing, unreadable
-    or merely close value prints a WARNING and proceeds, and so does a difference from
-    a record hex we guessed ourselves (``hex_source`` name/default): that is our own
-    guess disagreeing with the screen, not the operator's evidence of a wrong spool.
-
-    With ``found`` (a list), an unacknowledged clear difference is appended there as
-    ``(slot, tool, shown_live, shown_recorded)`` instead of refusing, so the caller can
-    gather every mismatched slot and ask once (#795).
-    """
-    live = filament_color.normalize_hex(live_raw)
-    recorded = filament_color.first_hex(expected.get('hex'))
-    shown_live = f"#{live}" if live else (str(live_raw).strip() if isinstance(live_raw, str) and live_raw.strip() else 'blank')
-    shown_recorded = f"#{recorded}" if recorded else 'no color code'
-    # A blend spool (Spoolman's multi_color_hexes, carried on the slot record)
-    # has no single color: a screen set to ANY of its colors is the same spool,
-    # not a mismatch (#838). Records written before the field existed simply
-    # fall through to the representative hex below, exactly as before.
-    if live and any(filament_color.compare_colors(live, hx) == 'same'
-                    for hx in filament_color.all_hexes(expected.get('multi_color_hexes'))):
-        return
-    verdict = filament_color.compare_colors(live, recorded)
-    if verdict == 'same':
-        return
-    if verdict == 'different' and expected.get('hex_source') not in filament_color.DERIVED_SOURCES:
-        if color_mismatch_key(slot, shown_live, shown_recorded) in accepted:
-            print(f"WARNING: printer slot {slot} color is {shown_live} but Spoolman has {shown_recorded} "
-                  f"there (T{tool}); the operator chose Print anyway for this G-code.", flush=True)
-            return
-        if found is not None:
-            found.append((slot, tool, shown_live, shown_recorded))
-            return
-        # Never a hard refusal (#795): the intake asks Print anyway / set the screen / Cancel.
-        raise SystemExit(f"REFUSED: printer slot {slot} color is {shown_live} but Spoolman has "
-                         f"{shown_recorded} there (T{tool}). Nothing uploaded or started.")
-    reason = {'unknown': 'the colors could not be compared',
-              'close': 'the colors are close but not identical',
-              'different': 'the recorded color code was worked out from the spool name, not read from Spoolman'}[verdict]
-    print(f"WARNING: printer slot {slot} shows {shown_live} but the record has {shown_recorded} "
-          f"(T{tool}); {reason}, so the launch continues.", flush=True)
 
 
-def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
-    """Native explicit mapping route; exactly one SET_ZCOLOR submission, no fallback."""
-    adapter = _job_adapter(job)
-    _gate("current artifact", require_current_artifact, job, g)
-    display_off = mesh.get('display_off')
-    if display_off not in (0, 1):
-        raise SystemExit(f"REFUSED: ZMod reports an unknown screen mode (display_off={display_off!r}), "
-                         "so Print Handy cannot tell where slot and idle state come from. "
-                         "Nothing uploaded or started.")
-    # Screenless (display_off=1: HelixScreen or no screen) the stock firmware is not
-    # running and its /detail API refuses, so idle and slot presence come from Klipper
-    # alone. ZMod's own print-file macro starts AD5X prints with SET_ZCOLOR in both
-    # modes; [zmod_color] runs with display: False when screenless.
-    screenless = display_off == 1
-    text = g.read_text()
-    _embedded = adapter.native.embedded_mapping
-    _gate("spool since slicing", _embedded, text, st)  # refuses a spool swapped since slicing, before any printer I/O
-    # A towerless G-code on a Nopoop printer would purge nowhere (#832).
-    _gate("purge", purge.require_launch_safe, text, st)
-    _gate("saved-mesh start", validate_saved_mesh_start, text, mesh)
-    status_query = ('/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color'
-                    '&filament_switch_sensor%20head_switch_sensor')
-    response = _mr(st, status_query)
-    status = response['result']['status']
-    # #1153 item 9: the first idle check reads the status just taken instead of querying the same
-    # objects again, and the slot occupancy below reuses the /detail that check last read. Every
-    # later idle check (the retry loop, the one inside the lease) still reads the printer fresh.
-    primed = [status]
-    last_native = []
-    def read_moonraker():
-        current = primed.pop() if primed else _mr(st, status_query)['result']['status']
-        return {'state': current['webhooks']['state'], 'print': current['print_stats'],
-                'extruder': current['extruder'], 'bed': current['heater_bed']}
-    if screenless:
-        require_idle_screenless = adapter.native.require_idle_screenless
-        def require_idle():
-            _require_idle_before_mapped_launch(lambda *_: require_idle_screenless(read_moonraker),
-                                               read_moonraker, None)
-    else:
-        require_idle_settled = adapter.native.require_idle_settled
-        def read_native():
-            detail = read_stock_detail(st)
-            last_native[:] = [detail]
-            return detail
-        def require_idle():
-            _require_idle_before_mapped_launch(require_idle_settled, read_moonraker, read_native)
-    require_idle()
-    primed.clear()
-    sensor = status.get('filament_switch_sensor head_switch_sensor', {})
-    if sensor.get('enabled') is not True and not _waive(
-            "head filament sensor", 'head filament sensor protection is disabled or unknown'):
-        raise RuntimeError('head filament sensor protection is disabled or unknown')
-    # Idle nozzle engagement is not feeder occupancy. Genuine native errors and
-    # installed runout/jam protections stay intact; do not actuate sensor overrides.
-    configured = status.get('zmod_color', {}).get('slots', [])
-    if screenless:
-        occupancy = adapter.native.read_zmod_color_slots(status)
-    else:
-        occupancy = read_stock_filament_slots_from_detail(last_native[-1] if last_native else read_native())
-    normalize_mapping = adapter.native.normalize_mapping
-    label_matches = adapter.native.screen_label_matches
-    mapped = normalize_mapping(mapping, st)
-    sha = file_sha256(g)  # hashed once: the acknowledgements, the lease and the checkpoint all use it
-    accepted_colors = accepted_color_mismatches(job, sha)
-    accepted_labels = accepted_label_mismatches(job, sha)
-    color_found = []  # every unacknowledged slot color difference, refused together below (#795)
-    found_segments = []  # color and label differences in slot order, for the one combined refusal
-    for tool, slot in mapped.items():
-        expected = st['filament_slots'][str(slot)]
-        matches = [item for item in configured if str(item.get('ID')) == str(slot)]
-        # The native slot label is coarser than Spoolman's material: family match
-        # (PLA == PLA+), or the screen's own type for it (SILK for Silk PLA).
-        if len(matches) != 1:
-            _refuse("slot list", f"REFUSED: printer slot {slot} is missing from the printer's slot list (T{tool}). "
-                                 "Nothing uploaded or started.")
-            continue
-        label = matches[0].get('Material')
-        if not label_matches(label, expected['material']):
-            # A stale or blank native label gets the #795 ask-once treatment
-            # too (#839): collected here, refused once with the color
-            # differences below, and waived only by a Print anyway recorded
-            # for this exact G-code.
-            shown_label = label or 'blank'
-            if label_mismatch_key(slot, shown_label, expected['material']) in accepted_labels:
-                print(f"WARNING: printer slot {slot} is labeled {shown_label} but Spoolman has "
-                      f"{expected['material']} there (T{tool}); the operator chose Print anyway "
-                      "for this G-code.", flush=True)
-            else:
-                found_segments.append(f"printer slot {slot} is labeled {shown_label} but Spoolman has "
-                                      f"{expected['material']} there (T{tool})")
-        before = len(color_found)
-        _check_mapped_slot_color(slot, tool, matches[0].get('HEX'), expected, accepted_colors, color_found)
-        for c_slot, c_tool, live, recorded in color_found[before:]:
-            found_segments.append(f"printer slot {c_slot} color is {live} but Spoolman has "
-                                  f"{recorded} there (T{c_tool})")
-        if occupancy.get(slot) is not True:
-            # Operator-confirmed loaded feeders supersede idle false occupancy,
-            # never unknown telemetry or an actual native error/activity.
-            if (occupancy.get(slot) is not False or expected.get('physical_loading_verified') is not True) \
-                    and not _waive("slot occupancy", f'T{tool} slot {slot} occupancy is unknown or unconfirmed'):
-                raise RuntimeError(f'T{tool} slot {slot} occupancy is unknown or unconfirmed')
-    if found_segments:
-        # One refusal naming every mismatched slot, so the intake asks once (#795).
-        _refuse("slot color/label", 'REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
-    remote = remote_name(g, sha, job)
-    upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
-    lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=(status.get('print_stats') or {}).get('filename'),
-                                 started_files=lambda: _moonraker_started_files(st))
-    checkpoint, checkpoint_data = g.with_suffix('.launch.json'), None
-    try:
-        # Again inside the lease: the first read may predate another job's start.
-        require_idle()
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
-        _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
-        slots_used = sorted(set(mapped.values()))
-        _timing(job_path, 'upload_begin')
-        uploaded = subprocess.run([str(MOONRAKERCTL), 'upload', str(upload_path), remote, upload_sha],
-                                  text=True, capture_output=True, timeout=300, env=_moonrakerctl_env(st))
-        if uploaded.returncode:
-            raise RuntimeError('The file could not be uploaded to the printer, so nothing started. '
-                               'Check the printer is on and reachable, then try again.'
-                               + _detail_tail(uploaded.stderr or uploaded.stdout))
-        upload_json = json.loads(uploaded.stdout)
-        g.with_suffix('.upload.json').write_text(json.dumps(upload_json, indent=2) + '\n')
-        result = upload_json.get('result', upload_json)
-        item = result.get('item', {}) if isinstance(result, dict) else {}
-        if item.get('root') != 'gcodes' or item.get('path') != remote:
-            raise RuntimeError('uploaded target mismatch: ' + json.dumps(item))
-        # Integrity: Moonraker checked the SHA256 we sent and refuses the upload (HTTP 400) on mismatch,
-        # so the file is never downloaded back to hash it.
-        _timing(job_path, 'upload_verified')
-        if delivery: _note_delivery_format(job, job_path, delivery)
-        command = (f'SET_ZCOLOR FILENAME={remote} SILENT=1 AUTO_ASSIGN=0 LEVELING=0 ' +
-                   ' '.join(f'T{tool}={slot}' for tool, slot in sorted(mapping.items())))
-        # One checkpoint per launch attempt: keyed by this lease's token, so a deliberate reprint
-        # replaces the earlier attempt's record instead of colliding with it.
-        # The audit trail names BOTH artifacts (#838): `file` is the uploaded remote (the
-        # .gcode.3mf package when ZMod delivery packages it), so gcode_sha256 is the inner
-        # G-code's hash and upload_sha256 the bytes Moonraker actually received. `sha256`
-        # stays as the G-code hash for existing readers (resolve_print_target, /print-again).
-        checkpoint_data = {'phase': 'submission_pending', 'command': command, 'sha256': sha,
-                           'gcode_sha256': sha, 'upload_sha256': upload_sha,
-                           'file': remote, 'artifact': str(g), 'submission_count': 1,
-                           'accepted': False, 'started': False, 'lease_token': lease.token}
-        if delivery:
-            checkpoint_data['delivery_format'] = delivery
-        checkpoint.write_text(json.dumps(checkpoint_data, indent=2) + '\n')
-        # This path posts its own start card, so the listener must not post a second one
-        # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        # #836: the idle guard proved every heater target was 0 before an upload that can take
-        # minutes. Re-read the targets after the upload: a preheat tapped on HelixScreen during the
-        # upload is not this job's preparation, and a printer someone else is heating must not be
-        # started over. An unreadable read (None) proves nothing either way: the start still goes
-        # out, but with no proven-off baseline, so heater targets after a lost POST response are
-        # never credited to this job. This read comes BEFORE every side effect of the start (the
-        # active spool, the display message, the Home Assistant job card), so a refusal here leaves
-        # none of them behind; the status baseline read immediately before the POST re-checks the
-        # targets for the lost-response evidence.
-        pre_start_evidence = _preparation_evidence(st)
-        heaters_were_off = pre_start_evidence is False
-        if pre_start_evidence is True:
-            raise SystemExit("REFUSED: the printer's heaters are already on before the start was sent, "
-                             "so this start was not sent; a preheat or other work is heating the printer. "
-                             "Check the printer or HelixScreen, then try again. Nothing started.")
-        if len(slots_used) > 1:
-            print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
-            cleared = _clear_active_spool(st)
-            if cleared.get('spoolman_pending') and job_path is not None:
-                # The clear could not be written: Moonraker may keep charging
-                # the stale spool during this print. Record which spool that
-                # is in the job record for later reconciliation; recording
-                # must never block the launch (#387).
-                job['spoolman_usage_pending'] = {
-                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
-                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
-        else:
-            _routed = _recorded_printer_id(job)
-            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
-                    else _sync_active_spool(st, slots_used[0]))
-            if sync.get('spoolman_pending') and job_path is not None:
-                # Usage could not be pointed at this job's spool (#387):
-                # record it as pending in the job record for later
-                # reconciliation. Recording must never block the launch.
-                job['spoolman_usage_pending'] = {
-                    'spool_id': sync.get('spool_id'), 'slot': slots_used[0],
-                    'reason': 'Spoolman unavailable at print start; usage not yet reported',
-                    'recorded_at': time.time()}
-                try:
-                    write_job(Path(job_path).parent, job)
-                except Exception as exc:
-                    logger.warning('could not record pending Spoolman usage: %s', exc)
-        _announce_print_name(st, job, slots_used, g)
-        _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
-    except BaseException:
-        lease.release()  # nothing was sent to start
-        release_start_announcement(remote)  # the claim was taken in the block above
-        if checkpoint_data is not None:
-            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
-        raise
-    # What the printer shows just before the one POST. A reprint's remote name is the previous run's
-    # (state complete, same file, axes homed), so only a change from this counts as this start's evidence.
-    start_baseline = _start_baseline(st, native=True)
-    if _baseline_heats(start_baseline):
-        # A heater came on after the re-read above (during the spool and display steps): the
-        # start still goes out, but such heat is never this job's evidence after a lost response.
-        heaters_were_off = False
-    lease.submitting()
-    # #848: capture the gcode-store watermark immediately before the one POST, so a `!!` line
-    # the store gains afterwards is attributable to this submission by position — a line that
-    # was already there (an unrelated console error a second earlier) is not, and no printer
-    # or host clock is ever compared.
-    store_watermark = _gcode_store_watermark(st)
-    # #843/#842: opt-in (PRINT_HANDY_RECORD_STARTS=1) read-only recording of the printer from here
-    # until this start settles. A no-op when off; never raises, never delays or posts.
-    recorder = start_recorder.begin(st, remote, command=command, method='SET_ZCOLOR', native=True,
-                                    delivery=delivery, watermark=store_watermark,
-                                    store_after=_entries_after_watermark, baseline=status)
-    recorder.watch_lease(lease)
-    recorder.note('post_sent', path='/printer/gcode/script', command=command)
-    try:
-        receipt = _mr(st, '/printer/gcode/script', data={'script': command})
-    except Exception as exc:
-        recorder.note('receipt', http_status=getattr(exc, 'code', None), error=f'{type(exc).__name__}: {exc}'[:300])
-        _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
-        # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
-        # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
-        # are never attribution evidence. heaters_were_off is the re-read taken immediately before
-        # this POST above, not the idle guard's pre-upload proof (#836).
-        out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data,
-                                            heaters_were_off=heaters_were_off, baseline=start_baseline)
-        if out is None:
-            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
-            recorder.finish('refused', rejection=rejection)
-            raise SystemExit(_rejected_start_message(rejection)) from exc
-        if out['accepted']:
-            # The POST response was lost: preserve the duplicate guard until
-            # explicit reconciliation, even if a matching readback is active.
-            _write_checkpoint(checkpoint, out)
-            if out.get('print_number') is None:
-                try: out['print_number'] = _assign_print_number(job_path, artifact=g)
-                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
-            try:
-                out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
-            except Exception as record_exc:
-                logger.warning('start record failed after reconciled submission: %s', record_exc)
-        _write_checkpoint(checkpoint, out)
-        _emit_mapped_outcome(out)
-        recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
-        return out
-    recorder.note('receipt', http_status=200, receipt=receipt)
-    # Klipper can answer the POST with HTTP 200 while the macro itself failed: the receipt (or the
-    # gcode store readback, past the pre-POST watermark) carries a `!!` line. That is a refusal,
-    # not a pending start (#836).
-    receipt_error = _start_receipt_error(st, receipt, watermark=store_watermark)
-    if receipt_error is not None and _start_visibly_running(st, remote, heaters_were_off):
-        # A held-open SET_ZCOLOR POST spans the printer's whole preparation, so the store window
-        # can hold a `!!` from anything that ran meanwhile. A printer already running or heating
-        # for this start has not refused it: confirm it like any other start instead.
-        print(f"WARNING: console error after the start ({receipt_error}), but the printer is running "
-              "this start; not treated as a refusal.", flush=True)
-        receipt_error = None
-    if receipt_error is not None:
-        lease.release()
-        release_start_announcement(remote)
-        _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': receipt_error})
-        recorder.finish('refused', rejection=receipt_error)
-        raise SystemExit(_rejected_start_message(receipt_error))
-    _timing(job_path, 'start_submitted')
-    out = {'accepted': False, 'started': False, 'phase': start_truth.PHASE_SUBMITTED,
-           'file': remote, 'artifact': str(g), 'sha256': sha,
-           'gcode_sha256': sha, 'upload_sha256': upload_sha, 'mapping': mapping,
-           'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
-           'lease_token': lease.token}
-    try:
-        return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                                     recorder=recorder, baseline=start_baseline)
-    except Exception as exc:
-        # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
-        # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
-        out = _uncertain_after_submission(lease, remote, exc, method='mapped_native',
-                                          phase=start_truth.PHASE_UNRESOLVED, extra=dict(out),
-                                          mark='MAPPED START READBACK ')
-        _write_checkpoint(checkpoint, out)
-        recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
-        return out
 
 
-def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                          recorder=start_recorder.NULL, baseline=None):
-    """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle.
-
-    `baseline` is the status read just before the request (_start_baseline): a readback equal to it is
-    the previous run's leftover, never this start's evidence."""
-    # Number at submission, not at "printing": native preparation can outlast the readback
-    # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
-    try:
-        out['print_number'] = _assign_print_number(job_path, artifact=g)
-    except Exception as exc:
-        logger.warning('could not assign a print number: %s', exc)
-    if delivery:
-        out['delivery_format'] = delivery
-    _write_checkpoint(checkpoint, out)
-    print('MAPPED START SUBMITTED ' + json.dumps(out), flush=True)
-    # Record immediately so a long native preparation cannot lose its start record.
-    try:
-        out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
-    except Exception as exc:
-        logger.warning('start record failed after submission: %s', exc)
-    state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence, baseline=baseline)
-
-    def read_readback():
-        try:
-            return start_truth.moonraker_readback(_mr(st, START_READBACK_QUERY), remote, baseline)
-        except Exception:
-            return None
-
-    # The request was answered, and the native route heats for its own start, so set heater targets
-    # are this start's preparation here (#836: provisional; the lease stays uncertain until printing).
-    truth = start_truth.moonraker(read_readback, waited=state, heating=lambda: _preparation_evidence(st),
-                                  heating_counts=True)
-    if truth.verdict == start_truth.NOT_STARTED and truth.source == 'abandoned':
-        # #848 review: the printer heated for this start (targets proven off just before the POST),
-        # then went back to standby cold without ever printing it. Nothing is printing, so the
-        # printer is free: release it now instead of leaving an uncertain lease that nothing
-        # settles (no history entry, no print) and that refuses every later start.
-        reason = 'it heated for this job, then went back to standby without printing; check the IFS slot and HelixScreen'
-        lease.release()
-        release_start_announcement(remote)
-        _write_checkpoint(checkpoint, {**out, 'phase': 'abandoned', 'rejection': reason})
-        recorder.finish('abandoned', phase='abandoned', moonraker_state=state)
-        raise SystemExit(_rejected_start_message(reason))
-    out.update(start_truth.mapped_fields(truth))
-    _write_checkpoint(checkpoint, out)
-    if truth.verdict == start_truth.STARTED:
-        lease.release()  # printing; the busy printer now refuses another start
-    elif truth.verdict == start_truth.PREPARING:
-        # #836: preparation evidence is provisional. The printer may still abandon this start
-        # (heat, fail the IFS load, drop back to standby), so the lease stays uncertain until
-        # the printer reports this file printing; launch_state.acquire() self-settles it from
-        # Moonraker history when the file does run. The start claim stays held too: the
-        # listener edits this start's card when it prints, or reports the abandoned start.
-        lease.uncertain(out['message'])
-    else:
-        lease.uncertain(out['message'])  # reconciled when the printer reports this file
-        release_start_announcement(remote)  # unannounced: the listener posts the start card
-    _emit_mapped_outcome(out)
-    recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'),
-                    moonraker_state=out.get('moonraker_state'), message=out.get('message'))
-    return out
 
 
-def resolve_print_target(target, archive=None):
-    """A bare printer file name (what Moonraker shows) maps to the archived local artifact
-    that was uploaded under that name. Never searches outside the archive, never downloads."""
-    raw = str(target)
-    p = Path(raw).expanduser()
-    if p.is_absolute() or p.exists():
-        return raw
-    # A printer-reported path for an upload resolves too: ZMod reports a 3MF delivery as
-    # 3mf_print/X.gcode (launch_state.same_remote), and the listener passes that name as is
-    # (#847 review: the pending spool retry and runout slot lookup never found the job).
-    reported = "/" in raw
-    archive = Path(archive or ARCHIVE)
-    for pat in ("*/sliced/*/*/*.launch.json", "*/sliced/*/*/*.upload.json"):
-        for rec in sorted(archive.glob(pat), key=lambda x: x.stat().st_mtime, reverse=True):
-            try:
-                d = json.loads(rec.read_text())
-            except (OSError, ValueError):
-                continue
-            item = d.get("item") if isinstance(d.get("item"), dict) else {}
-            names = [n for n in (d.get("file"), d.get("remote"), d.get("remote_name"), item.get("path")) if n]
-            if raw in names or (reported and any(launch_state.same_remote(raw, n) for n in names)):
-                artifact = rec.with_name(rec.name.split(".", 1)[0] + ".gcode")
-                if artifact.is_file():
-                    return str(artifact)
-    if reported:
-        return raw  # a relative local path, as before: the caller reports it missing
-    raise SystemExit(f"REFUSED: {raw} is a printer file name, not a local path, and no archived job uploaded a "
-                     "file with that name. Pass the job's JOB.json instead. Nothing uploaded or started.")
 
 
-def _rerecord_selected_slot(job, selection):
-    """Carry a launch-time slot remap into the recorded slice recipe (2.2.5 review).
-
-    The recipe hashes filament_selection.slot, and a remap launches the same
-    G-code on another physical slot, so the recorded recipe and the binding's
-    recipe_sha256 move with it. Only that one field changes: a recipe that was
-    already inconsistent stays so, and every other input still has to match at
-    require_current_artifact.
-    """
-    from .slice_recipe import recipe_sha256, record
-    stored = job.get('slice_recipe')
-    recipe = stored.get('recipe') if isinstance(stored, dict) else None
-    if not isinstance(recipe, dict) or recipe_sha256(recipe) != stored.get('sha256'):
-        return
-    recipe = {**recipe, 'filament': {**(recipe.get('filament') or {}), 'selected_slot': selection.get('slot')}}
-    job['slice_recipe'] = record(recipe)
-    binding = job.get('artifact_binding')
-    if isinstance(binding, dict) and binding.get('recipe_sha256') == stored['sha256']:
-        binding['recipe_sha256'] = job['slice_recipe']['sha256']
 
 
-class ToolRemapRefused(RuntimeError):
-    """A slot remap names a tool the file does not use, or cannot tell which tool is meant."""
 
 
-def remap_slot(target, new_slot, tool=None, state=None):
-    """Remap one logical tool of a job or G-code to a different physical IFS slot.
-
-    Rewrites tool mapping metadata and checksum, updating job filament_selection
-    when given a JOB.json, allowing printing with a different physical spool
-    without physical changes or screen interaction.
-
-    The tool must be one the file uses (#1305): a plate that prints only T2
-    remaps T2, never an unused T0. With tool=None the file's single used tool
-    is remapped; a file that uses more than one tool is refused
-    (ToolRemapRefused), since one slot cannot name which tool is meant.
-    """
-    st = state or printer_state.load()
-    resolved = resolve_print_target(target)
-    target_path = Path(resolved).expanduser().resolve()
-
-    job = None
-    job_path = None
-    if target_path.name == "JOB.json":
-        job_path = target_path
-        job = json.loads(job_path.read_text())
-        if not job.get("gcode"):
-            raise RuntimeError("stale color artifact: job has no sliced gcode")
-        gcode_path = Path(job["gcode"]).expanduser().resolve()
-    else:
-        gcode_path = target_path
-        temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
-        for parent in list(gcode_path.parents)[:5]:
-            if parent in (Path("/"), temp_root) or temp_root in parent.parents:
-                break
-            if (parent / "JOB.json").is_file():
-                job_path = parent / "JOB.json"
-                job = json.loads(job_path.read_text())
-                break
-
-    # A job bound to another roster printer remaps against that printer's
-    # record and native contract, not the default's (SAFE-4 / P1-75). An
-    # explicit state argument from the caller still wins for the record.
-    routed_id = _recorded_printer_id(job)
-    if routed_id and state is None:
-        st = printer_state.load(routed_id)
-    routed_adapter = _job_adapter(job) if routed_id else printers.current()
-
-    # A split job's artifact binding hashes each derived plate apart (a dict
-    # keyed like require_current_artifact builds it). The remap below must
-    # update only the remapped plate's entry — and a file no derived plate
-    # names has no entry to update, so it is refused here, before finalize
-    # rewrites anything (P2-29).
-    binding_key = None
-    if job is not None and isinstance(job.get("artifact_binding"), dict):
-        recorded = job["artifact_binding"].get("gcode_sha256")
-        if isinstance(recorded, dict):
-            for row in job.get("derived_plates") or []:
-                if isinstance(row, dict) and row.get("gcode") \
-                        and Path(row["gcode"]).expanduser().resolve() == gcode_path:
-                    binding_key = str(row.get("binding_key") or row.get("slot"))
-                    break
-            if binding_key is None or binding_key not in recorded:
-                raise RuntimeError(
-                    f"split job artifact binding has no binding entry for {gcode_path}; "
-                    "refusing to remap a plate the binding does not name")
-
-    slot_int = int(new_slot)
-    if slot_int not in range(1, FILAMENT_SLOTS + 1):
-        raise ValueError(f"physical IFS slot must be an integer from 1 through {FILAMENT_SLOTS}")
-
-    selection = resolve_filament_selection(st, {"slot": slot_int})
-
-    raw_tools = {}
-    used = set()
-    if gcode_path.is_file():
-        gcode_text = gcode_path.read_text()
-        used = routed_adapter.native.used_tools(gcode_text)
-        for line in gcode_text.splitlines():
-            if line.startswith(MAP_PREFIX):
-                try:
-                    data = json.loads(line[len(MAP_PREFIX):])
-                    for t, v in data.items():
-                        raw_tools[str(t)] = v.get("physical_slot") if isinstance(v, dict) else v
-                except Exception:
-                    pass
-                break
-    used_names = ", ".join(f"T{t}" for t in sorted(used))
-    if tool is None:
-        if len(used) > 1:
-            raise ToolRemapRefused(
-                f"{gcode_path.name} uses {len(used)} tools ({used_names}); one slot cannot say which "
-                "tool to move. Remap one tool with remap-slot --tool N --slot S")
-        tool = str(next(iter(used))) if used else "0"
-    tool = str(tool)
-    if not re.fullmatch(r"\d+", tool):
-        raise ToolRemapRefused(f"malformed logical tool {tool!r}")
-    if used and int(tool) not in used:
-        raise ToolRemapRefused(
-            f"{gcode_path.name} never uses T{tool} (it uses {used_names}); "
-            "remapping it would change nothing the file prints")
-    mapping = dict(raw_tools) if raw_tools else {}
-    if used:
-        # Entries an older finalize kept for tools the file never selects
-        # (a support tool with no support generated) are dropped by the
-        # same rule the slice path applies (#1305).
-        mapping = {t: s for t, s in mapping.items() if int(t) in used}
-    mapping[tool] = slot_int
-    normalize_mapping = routed_adapter.native.normalize_mapping
-    mapping = normalize_mapping(mapping, st)
-
-    new_sha = None
-    if gcode_path.is_file():
-        finalize = routed_adapter.native.finalize
-        new_sha = finalize(gcode_path, None, st, mapping)
-        try:
-            _verify_routed(gcode_path, routed_adapter, st, routed_id, job=job)
-        except Exception:
-            offline_st = dict(st)
-            offline_st.setdefault("temps_c", {"bed": 60, "nozzle": 210})
-            verify_gcode_offline(gcode_path, offline_st, routed_adapter if routed_id else None)
-
-    if job is not None and job_path is not None:
-        job["filament_selection"] = selection
-        _rerecord_selected_slot(job, selection)
-        if new_sha:
-            job["gcode_verified"] = True
-            if binding_key is not None:
-                # Split job: the one plate's new hash, in its own entry only;
-                # the job-level single hash does not exist for a split job.
-                job["artifact_binding"]["gcode_sha256"][binding_key] = new_sha
-                job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
-            else:
-                job["gcode_sha256"] = new_sha
-                if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
-                    job["artifact_binding"]["gcode_sha256"] = new_sha
-                    job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
-        write_job(job_path.parent, job)
-
-    return {
-        "ok": True,
-        "slot": slot_int,
-        "tool": str(tool),
-        "mapping": mapping,
-        "selection": selection,
-        "gcode": str(gcode_path) if gcode_path.is_file() else None,
-        "gcode_sha256": new_sha,
-        "job_json": str(job_path) if job_path else None,
-    }
 
 
-def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """A separate transport path, retaining artifact and approval guards above."""
-    client = adapter.client()
-    try:
-        status = client.status()
-        client.require_ready(status)
-        observed = adapter.normalize_status(status).get('filename')
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text())
-    except RuntimeError as exc:
-        raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    # OctoPrint preheats from these, so they are the G-code spool's, resolved before anything is sent,
-    # and held to the printer's one heater ceiling (#1147): a preheat above it refuses before the lease.
-    try:
-        from . import heater_ceiling
-        from .nozzle import effective_nozzle_temperature
-        temps = _with_gcode_temperatures(state, Path(gcode).read_text(errors='ignore'))['temps_c']
-        hotend = effective_nozzle_temperature((state.get('nozzle') or {}).get('type', 'hardened_steel'), temps['nozzle'])
-        for heater, target in (('nozzle', hotend), ('bed', temps['bed'])):
-            heater_ceiling.require(adapter, heater, target, state=state)
-    except (RuntimeError, ValueError) as exc:
-        raise SystemExit(f'REFUSED: OctoPrint preheat: {exc}. Nothing uploaded or started.') from exc
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed)
-    try:
-        try:
-            ready = client.status()  # again inside the lease; also the start-truth baseline
-            client.require_ready(ready)
-            start_baseline = adapter.normalize_status(ready)
-        except RuntimeError as exc:
-            raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    # Upload and start are one uncertain step here: the client reports either failure the same way.
-    lease.submitting()
-    try:
-        remote = client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start(remote, temps['bed'], hotend)
-    except BaseException as exc:
-        _submission_failed(lease, remote, 'OctoPrint', exc)
-    # Accepted is not proof of printing: poll the readback over the confirmation window. No resubmission.
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage='octoprint_start_confirm',
-                                    truth=lambda live, rem: start_truth.octoprint(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method='octoprint')
-    confirmed = out['started']
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out['record_path'] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f'WARNING: start record failed: {exc}')
-        # The print path starts a launched-print monitor (#373): it makes
-        # the completion post, attaches the timelapse OctoPrint itself
-        # rendered, and posts this print's pause alerts (#460). Prints
-        # started outside Print Handy belong to the octoprint listener
-        # domain (family_event_listener). A monitor that cannot start
-        # never fails the print.
-        try:
-            from print_handy.hermes import octo_watch
-            _start_family_monitor(octo_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
 
 
-def _bambu_start_confirm_window():
-    """[bambu] start_confirm_s: how long a Bambu start is polled for confirmation (default 90 s)."""
-    value = (settings.current().get("bambu") or {}).get("start_confirm_s", BAMBU_START_CONFIRM_S)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        return float(BAMBU_START_CONFIRM_S)
-    return float(value)
 
 
 def _bambu_reports_file(live, remote):
@@ -7819,720 +5392,52 @@ def _bambu_reports_file(live, remote):
     return start_truth.bambu(live, remote).confirmed
 
 
-def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S, baseline=None):
-    """Poll status snapshots until the printer reports `remote` running or preparing, or `window_s` ends.
-
-    Returns (confirmed, last normalized status, snapshots taken). The shared poll
-    (_poll_start_confirmation) does the work; Bambu adds its own evidence fields (gcode_state, print_stage)
-    and matcher (_bambu_reports_file). Every snapshot is logged at INFO and written to the job's
-    TIMING.jsonl so an unconfirmed start leaves evidence of what the printer said, not just that it said
-    nothing (#271). A read error counts as a snapshot and the window keeps running. `baseline` is the
-    idle snapshot read inside the lease: only a subtask transition from it counts (start_truth.bambu).
-    """
-    def log(evidence):
-        error = evidence.get("error")
-        logger.info("Bambu start confirmation snapshot %d at %ss: state=%s gcode_state=%s file=%r stage=%s%s",
-                    evidence["snapshot"], evidence["elapsed_s"], evidence["state"], evidence["gcode_state"],
-                    evidence["file"], evidence["print_stage"], f" error={error}" if error else "")
-
-    poll = _poll_start_confirmation(
-        lambda: adapter.normalize_status(client.snapshot()), remote, window_s=window_s, poll_s=poll_s,
-        truth=lambda live, rem: start_truth.bambu(live, rem, baseline), job_path=job_path,
-        stage="bambu_start_confirm", on_snapshot=log,
-        evidence_of=lambda live: {"state": live.get("state"), "gcode_state": live.get("gcode_state"),
-                                  "file": live.get("filename"), "print_stage": live.get("stage")})
-    return poll.confirmed, poll.live, poll.snapshots
-
-
-def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """The Bambu Lab LAN print path (#187 stage d), mirroring _print_octoprint's guard order.
-
-    Every check that can refuse cleanly runs before the submission lease: LAN configured,
-    live snapshot idle with no readiness problems (the firmware signature bit — Developer
-    Mode off — is one of them), G-code verified, package built by the same delivery the
-    handoff uses and confirmed to hold exactly Metadata/plate_1.gcode. Inside the lease
-    the snapshot and readiness are taken again, the bed-clear approval is consumed, and
-    only then does anything reach the printer: FTPS upload (size-verified), then the
-    project_file command. Upload + start are one uncertain step from submitting() on,
-    exactly as for OctoPrint; acceptance is confirmed from fresh snapshots polled over the
-    [bambu] start_confirm_s window (#271), never assumed from the command being accepted.
-    """
-    from . import delivery as _delivery
-
-    def refuse(exc):
-        return SystemExit(f"REFUSED: {' '.join(str(exc).split())}. Nothing uploaded or started.")
-
-    try:
-        client = adapter.client()
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-
-    def ready_snapshot():
-        # readiness_problems covers busy/print-error/HMS and the firmware signature bit
-        # (Developer Mode off), which blocks every write including this start.
-        snapshot = client.snapshot()
-        problems = adapter.readiness_problems(state, snapshot)
-        norm = adapter.normalize_status(snapshot)
-        if norm["state"] not in ("standby", "complete"):
-            problems.append(f"printer state is {norm['state']!r}, not idle")
-        if problems:
-            raise RuntimeError("; ".join(dict.fromkeys(problems)))
-        return snapshot, norm
-
-    try:
-        _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
-                                            [gcode], settings.current())
-        if len(packages) != 1:
-            raise RuntimeError(f"expected exactly one Bambu package for this plate, got {len(packages)}")
-        package = Path(packages[0])
-        with zipfile.ZipFile(package) as archive:
-            plates = [n for n in archive.namelist() if n.startswith("Metadata/plate_") and n.endswith(".gcode")]
-        if plates != ["Metadata/plate_1.gcode"]:
-            raise RuntimeError(f"package holds plates {plates or 'none'}; LAN print start supports a "
-                               "single-plate package (Metadata/plate_1.gcode) only")
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    remote = package.name
-    sha = file_sha256(gcode)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
-    # AMS mapping (#308): resolved inside the lease, against the fresh snapshot, BEFORE the
-    # bed-clear approval is consumed — a job whose filaments cannot be mapped refuses with the
-    # approval intact. A JOB.json ams_mapping is trusted verbatim; anything else is recomputed
-    # from the snapshot's reported trays. A single-filament job that matches nothing reported
-    # keeps the pre-#308 payload (source "legacy"); a multi-filament one refuses loudly here.
-    from ..printers.bambulab import ams_mapping as _ams
-    try:
-        try:
-            live_snapshot, start_baseline = ready_snapshot()  # again inside the lease: the first read may predate another start
-        except RuntimeError as exc:
-            raise refuse(exc) from exc
-        try:
-            ams_map, ams_source = _ams.resolve_for_print(
-                Path(gcode).read_text(errors="ignore"), live_snapshot,
-                job_mapping=(job.get("ams_mapping") if isinstance(job, dict) else None),
-                dual=adapter.extruder_count() > 1)
-        except _ams.MappingError as exc:
-            raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(package, remote)
-        # Claim the start (#460): the Bambu listener's sink must not post a second start for this print.
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote, ams_mapping=ams_map)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "Bambu Lab", exc)
-    # Accepted is not proof of printing. No resubmission on delayed readback: the printer is polled
-    # over the confirmation window (#271) and the lease stays uncertain if it never reports this file.
-    window_s = _bambu_start_confirm_window()
-    confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s,
-                                                      baseline=start_baseline)
-    # Bambu has always reported a confirmed start, PREPARE included, as executing (#271).
-    poll = StartPoll(confirmed, False, live, snapshots, window_s)
-    out = _settle_polled_start(
-        lease, poll, remote, method="bambulab_lan",
-        uncertain_detail=("submitted, awaiting confirmation; printer reported state "
-                          f"{live.get('state') or 'unknown'} ({live.get('gcode_state') or 'no gcode_state'}), "
-                          f"file {live.get('filename') or 'none'!r} on the last of {snapshots} snapshot(s) "
-                          f"over {window_s:g}s"),
-        ams_mapping=ams_map, ams_mapping_source=ams_source,
-        confirmation={"snapshots": snapshots, "window_s": window_s})
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
-        # Camera parity (#294): a monitor watches this launched print — it makes
-        # the completion post with the final camera image, runs the camera
-        # watchdog, and posts this print's pause alerts (#460). The Bambu
-        # listener domain covers prints started outside Print Handy; a
-        # monitor that cannot start never fails the print.
-        try:
-            from print_handy.hermes import bambu_watch
-            _start_family_monitor(bambu_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: camera monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
-
-
-def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """The SDCP print path (#243), mirroring _print_prusa's guard order.
-
-    Every check that can refuse cleanly runs before the submission lease: SDCP configured,
-    live status idle with no readiness problems, G-code verified, single-tool only. Inside
-    the lease the status is read again and the bed-clear approval is consumed; only then does
-    anything reach the printer: the verified chunked-HTTP upload (the client read the size
-    back), then the SDCP start command for that exact file. Acceptance is confirmed from a
-    fresh status answer, never assumed; an unconfirmed start is uncertain and is never
-    resubmitted. SDCP has no authentication, so nothing here can add any.
-    """
-    def refuse(exc):
-        return SystemExit(f"REFUSED: {' '.join(str(exc).split())}. Nothing uploaded or started.")
-
-    try:
-        client = adapter.client()
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-
-    def ready_status():
-        raw = client.status()
-        problems = adapter.readiness_problems(state, raw)
-        norm = adapter.normalize_status(raw)
-        if norm["state"] not in ("standby", "complete"):
-            problems.append(f"printer state is {norm['state']!r}, not idle")
-        if problems:
-            raise RuntimeError("; ".join(dict.fromkeys(problems)))
-        return raw, norm
-
-    try:
-        _raw, observed_norm = ready_status()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text(errors="ignore"))
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
-    try:
-        try:
-            _raw, start_baseline = ready_status()  # again inside the lease; also the start-truth baseline
-        except RuntimeError as exc:
-            raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "SDCP", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage="sdcp_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
-        # Timelapse (#295): a monitor watches this launched print — the
-        # print path starts it; it makes the completion post, posts this
-        # print's pause alerts (#460), and, once an SDCP camera source is
-        # verified, captures frames for a timelapse attached to that post
-        # (no source is verified today — printers/elegoo_sdcp/camera.py —
-        # so for now the monitor is the completion post, with the reason
-        # logged). Prints started outside Print Handy belong to the
-        # elegoo_sdcp listener domain (family_event_listener). A monitor
-        # that cannot start never fails the print.
-        try:
-            from print_handy.hermes import elegoo_watch
-            _start_family_monitor(elegoo_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
-
-
-def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """The PrusaLink print path (#242), mirroring _print_octoprint's guard order.
-
-    Every check that can refuse cleanly runs before the submission lease: link configured,
-    live snapshot idle with no readiness problems, G-code verified, tools within the model's
-    toolheads. Inside
-    the lease the snapshot is taken again and the bed-clear approval is consumed; only then
-    does anything reach the printer: the verified upload (PUT, size read back by the client),
-    then the POST that starts that exact file. Acceptance is confirmed from a fresh snapshot,
-    never assumed; an unconfirmed start is uncertain and is never resubmitted.
-    """
-    def refuse(exc):
-        return SystemExit(f"REFUSED: {' '.join(str(exc).split())}. Nothing uploaded or started.")
-
-    try:
-        client = adapter.client()
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-
-    def ready_snapshot():
-        snapshot = client.snapshot()
-        problems = adapter.readiness_problems(state, snapshot)
-        norm = adapter.normalize_status(snapshot)
-        if norm["state"] not in ("standby", "complete"):
-            problems.append(f"printer state is {norm['state']!r}, not idle")
-        if problems:
-            raise RuntimeError("; ".join(dict.fromkeys(problems)))
-        return snapshot, norm
-
-    try:
-        _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        _refuse_multicolor(gcode.read_text(errors="ignore"))
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed_norm.get("filename"))
-    try:
-        try:
-            _snapshot, start_baseline = ready_snapshot()  # again inside the lease; also the start-truth baseline
-        except RuntimeError as exc:
-            raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.start_print(remote)
-    except BaseException as exc:
-        _submission_failed(lease, remote, "PrusaLink", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.snapshot()), remote,
-                                    job_path=job_path, stage="prusalink_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="prusalink")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
-        # Timelapse (#295): a monitor watches this launched print — the
-        # print path starts it; it makes the completion post, posts this
-        # print's pause alerts (#460), and, when the printer registers a
-        # camera with PrusaLink, captures frames for a timelapse attached
-        # to that post. Prints started outside Print Handy belong to the
-        # prusalink listener domain (family_event_listener). A monitor
-        # that cannot start never fails the print.
-        try:
-            from print_handy.hermes import prusa_watch
-            _start_family_monitor(prusa_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
-
-
-_FILAMENT_COLOUR_RE = re.compile(r'(?im)^;\s*filament_colou?r\s*=\s*([^\n]*)$')
-
-
-def _gcode_filament_colors(text):
-    """The slicer's per-filament colors from a G-code header (`; filament_colour = #RRGGBB;...`), in order."""
-    match = _FILAMENT_COLOUR_RE.search(text or "")
-    return [part.strip() for part in match.group(1).split(";") if part.strip()] if match else []
-
-
-def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprint):
-    """The stock Flashforge LAN path, mirroring _print_bambu's guard order.
-
-    Every check that can refuse cleanly runs before the submission lease: host and
-    credentials present, G-code free of Klipper or ZMod commands, /detail idle, then
-    the rest of the G-code check. Inside the lease the snapshot is taken again, the bed-clear approval is
-    consumed, and only then does anything reach the printer: one upload with print
-    disabled, then /printGcode for that exact name, naming the selected IFS bay for T0
-    (material and colors from the fresh /detail, the G-code's own color for the tool;
-    #1147). Upload and start are one uncertain step from submitting() on. Acceptance is
-    confirmed from a fresh /detail, never assumed.
-    """
-    def refuse(exc):
-        return SystemExit(f"REFUSED: {' '.join(str(exc).split())}. Nothing uploaded or started.")
-
-    from ..printers.flashforge_stock.client import StockClient, StockLanError
-    try:
-        client = adapter.client()
-    except (RuntimeError, StockLanError) as exc:
-        raise refuse(exc) from exc
-
-    def selected_slot():
-        selection = job.get("filament_selection") if isinstance(job, dict) else None
-        if not isinstance(selection, dict) or "slot" not in selection:
-            raise RuntimeError("pick one IFS slot before a stock Flashforge print")
-        slot = selection["slot"]
-        if type(slot) is not int or not 1 <= slot <= adapter.slot_count:
-            raise RuntimeError(f"IFS slot must be an integer from 1 through {adapter.slot_count}")
-        return slot
-
-    bay = {}  # the T0 -> bay mapping /printGcode sends, from the latest ready snapshot
-
-    def bay_mapping(detail, slot, text):
-        # The printer's own report for the bay first; else the job's selection and the hardware
-        # record's spool for that bay (the record binds the four bays to spools, like the ZMod AD5X).
-        material, slot_color = StockClient.slot_info(detail, slot)
-        selection = job.get("filament_selection") if isinstance(job, dict) else None
-        selection = selection if isinstance(selection, dict) else {}
-        record = ((state or {}).get("filament_slots") or {}).get(str(slot)) or {}
-        if not material:
-            material = str(selection.get("material") or record.get("material") or "").strip()
-        slot_color = slot_color or record.get("hex")
-        tool_color = (_gcode_filament_colors(text) or [None])[0] or slot_color
-        try:
-            return StockClient.material_mapping(slot, material=material, tool_color=tool_color,
-                                                slot_color=slot_color or tool_color)
-        except StockLanError as exc:
-            raise RuntimeError(f"IFS slot {slot} cannot be named in the start request: {exc}") from None
-
-    def ready_snapshot():
-        detail = client.detail()
-        problems = adapter.readiness_problems(state, detail)
-        reduced = adapter.normalize_status(detail)
-        if reduced["state"] not in ("standby", "complete", "cancelled"):
-            problems.append(f"printer state is {reduced['state']!r}, not idle")
-        try:
-            occupied = client.slots_of(detail)
-        except StockLanError as exc:
-            problems.append(str(exc))
-            occupied = {}
-        slot = selected_slot()
-        if occupied.get(slot) is not True:
-            problems.append(f"IFS slot {slot} does not report filament")
-        if problems:
-            raise RuntimeError("; ".join(dict.fromkeys(problems)))
-        bay["mapping"] = bay_mapping(detail, slot, text)
-        return reduced
-
-    try:
-        text = gcode.read_text(errors="ignore")
-        problems = adapter.gcode_problems(text)
-        if problems:
-            raise RuntimeError(problems[0])
-        observed = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
-        adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
-    except RuntimeError as exc:
-        raise refuse(exc) from exc
-    sha = file_sha256(gcode)
-    remote = remote_name(gcode, sha, job)
-    if not remote.endswith(".gcode"):
-        remote += ".gcode"
-    lease = launch_state.acquire(_printer_key(state, job), job_json=job_path, gcode_sha256=sha, remote=remote,
-                                 observed_file=observed.get("filename"))
-    try:
-        try:
-            # again inside the lease: the first read may predate another start; also the start-truth baseline
-            start_baseline = ready_snapshot()
-        except RuntimeError as exc:
-            raise refuse(exc) from exc
-        _claim_bed_clear(job_path, job, gcode, reprint)
-    except BaseException:
-        lease.release()
-        raise
-    lease.submitting()
-    try:
-        client.upload(gcode, remote)
-        # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        client.print_gcode(remote, bay=bay["mapping"])
-    except BaseException as exc:
-        _submission_failed(lease, remote, "stock Flashforge", exc)
-    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.detail()), remote,
-                                    job_path=job_path, stage="flashforge_stock_start_confirm",
-                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
-    out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
-    confirmed = out["started"]
-    if confirmed:
-        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
-        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
-        try:
-            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
-        except Exception as exc:
-            print(f"WARNING: start record failed: {exc}")
-        # Timelapse (#373): a monitor watches this launched print — the
-        # print path starts it; it captures frames from the camera source
-        # the printer advertises, makes the completion post with the
-        # timelapse attached, and posts this print's pause alerts (#460).
-        # Prints started outside Print Handy belong to the
-        # flashforge_stock listener domain (family_event_listener). A
-        # monitor that cannot start never fails the print.
-        try:
-            from print_handy.hermes import stock_watch
-            _start_family_monitor(stock_watch, adapter, remote, job)
-        except Exception as exc:
-            print(f"WARNING: timelapse monitor did not start: {exc}")
-    _announce_polled_outcome(out)
-    return out
-
-
-IDLE_PRINT_STATES = ("standby", "complete", "cancelled")  # print_next.live_idle_check's idle set
-
-
-def _require_idle(st):
-    try:
-        state,fn,busy=_printer_phase(st)
-    except OSError:
-        # Moonraker unreachable: every transport failure urllib surfaces on this read
-        # (refused, timeout, reset) is an OSError — URLError subclasses it. Name the
-        # refusal like the busy guard below instead of leaking a raw traceback (#1049).
-        # State/parse errors are RuntimeError/ValueError and keep propagating.
-        raise SystemExit("REFUSED: printer is offline/unreachable. Nothing uploaded or started.")
-    if state == "printing" or busy == "Printing":
-        raise SystemExit(f"REFUSED: printer is busy ({state}, {fn}). Nothing uploaded or started.")
-    # The idle set is print_next.live_idle_check's, exactly: a paused job (or an errored one the
-    # operator has not cleared) still owns the printer, whichever caller asks for a start.
-    if state not in IDLE_PRINT_STATES:
-        raise SystemExit(f"REFUSED: printer is not idle ({state}, {fn}). Finish or cancel that job "
-                         "on the printer first. Nothing uploaded or started.")
-    return state,fn,busy
-
-
-def _confirm_generic_start(st, remote, wait_s, lease, baseline=None):
-    """Wait for the one accepted start to show as printing: (out, readback, state).
-
-    Only a readback naming THIS file counts (launch_state.same_remote): printing, or preparing (lease
-    released, claim kept: the start card is posted), or failed/cancelled (lease released, REFUSED-style
-    SystemExit). Anything else, including a still-idle printer, a stale previous filename or an unreadable
-    status, leaves the lease uncertain and frees the claim for the listener: after a 200 the printer may
-    still be starting. `out` is None when printing. A readback exception propagates to the caller, which
-    settles it as uncertain. `baseline` (_start_baseline) keeps a reprint's leftover state from counting.
-    """
-    state = _wait_printing(st, remote, wait_s, baseline=baseline)
-    readable, readback = _read_start_readback(st, remote, native=False, baseline=baseline)
-    truth = start_truth.moonraker(readback, waited=state, readable=readable)
-    if truth.verdict == start_truth.STARTED:
-        return None, readback, state
-    if truth.verdict == start_truth.PREPARING:
-        lease.release()  # accepted; the busy printer now refuses another start
-        return start_truth.generic_fields(truth, file=remote, method="print/start"), readback, state
-    if truth.verdict == start_truth.NOT_STARTED:
-        release_start_announcement(remote)
-        lease.release()  # the printer reports this file's start failed
-        raise SystemExit("The printer did not start the print, and it was not retried. "
-                         "Check the printer screen before trying again." + _detail_tail(readback.message))
-    lease.uncertain("submitted, awaiting confirmation")  # reconciled when the printer reports this file
-    release_start_announcement(remote)
-    return start_truth.generic_fields(truth, file=remote, method="print/start"), readback, state
-
-
-def _owning_job(g):
-    """The (job, job_path) that owns a resolved print target, else (None, None).
-
-    A JOB.json target names its job directly. A G-code target belongs to
-    the nearest ancestor JOB.json: slices live at
-    <job>/sliced/orca/<uuid>/plate_1.gcode (four levels), so search every
-    nearby ancestor and an older slice is always bound to its JOB. The
-    climb stops at the temp root too: this profile sets TMPDIR inside
-    itself, so a fixture such as <scratch>/tmpXXX/x.gcode must not climb
-    into a real profile JOB.json.
-    """
-    if g.name == "JOB.json":
-        return json.loads(g.read_text()), g
-    temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
-    for parent in list(g.parents)[:5]:
-        if parent in (Path("/"), temp_root) or temp_root in parent.parents:
-            break
-        if (parent / "JOB.json").is_file():
-            job_path = parent / "JOB.json"
-            return json.loads(job_path.read_text()), job_path
-    return None, None
-
-
-def _print_now_control_lock(target):
-    """The shared interprocess control lock for this print's printer (P1-33).
-
-    Keyed by the owning job's recorded printer_id, resolved the same way
-    _print_now_locked resolves the job it launches — from a JOB.json
-    target, or from the ancestor JOB.json of a G-code target (the chat
-    flow's print_next.start passes the G-code path, not JOB.json) — else
-    the default printer: the same identity _printer_key leases by.
-    Resolution is read-only and defensive: any failure falls back to the
-    default printer and the print body raises its own error.
-    """
-    from . import control_lock as _cl
-    key = None
-    try:
-        g = Path(resolve_print_target(target)).expanduser().resolve()
-        job, _job_path = _owning_job(g)
-        if isinstance(job, dict):
-            key = job.get("printer_id")
-    except Exception:
-        key = None
-    return _cl.control_lock(key)
-
-
-def refused_plates_digest(job):
-    """Digest of the plates a slice refused, which partial_job_accepted must name."""
-    refused = (job or {}).get('refused_plates') or []
-    return hashlib.sha256(json.dumps(refused, sort_keys=True, default=str).encode()).hexdigest()
-
-
-def partial_job_refusal(job):
-    """Why launching this job would silently print an incomplete model, or None.
-
-    A per-plate slice records every plate a guard refused in refused_plates
-    and returns only the survivors. Those survivors are not the model the
-    operator asked for, so launch stays blocked until the operator
-    explicitly accepts the partial job (the chat intake discloses the
-    refused plates and records partial_job_accepted when the operator
-    confirms the start) (P1-20). The acceptance records the digest of the
-    plates it was shown, so a reslice that refuses a different set is not
-    covered by an earlier acceptance (2.2.5 review).
-    """
-    refused = (job or {}).get('refused_plates') or []
-    if not refused or (job or {}).get('partial_job_accepted') == refused_plates_digest(job):
-        return None
-    named = '; '.join(f"plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
-                      for row in refused)
-    return (f"this job is incomplete: {len(refused)} plate(s) were refused during slicing and "
-            f"will not print: {named}. Reslice after fixing the refusal, or accept the partial "
-            "job explicitly (the chat intake records acceptance when you confirm the start "
-            "after it shows you this list)")
-
-
-# Yolo (print now, skip the checks): the operator vouches for the file. Every
-# waivable gate still runs, but a failure prints one `YOLO WAIVED: <gate>:
-# <reason>` line instead of refusing, so the chat can say exactly what was
-# overridden. Mechanics are never waived: the control lock, a printer that is
-# already printing, the launch lease and duplicate-start claim, the upload
-# SHA256 check and the start readback. Neither are the mechanical limits
-# (S6): require_mechanical_limits refuses a yolo toolpath past the axis
-# limits (or one whose bounds cannot be verified) and a heater target above
-# the printer's absolute maximum.
-YOLO_WAIVED_MARK = "YOLO WAIVED:"
-_YOLO = contextvars.ContextVar("print_now_yolo", default=False)
-
-
-def yolo_active():
-    """True inside a print_now(yolo=True) run."""
-    return _YOLO.get()
-
-
-def _waive(gate, reason):
-    """Yolo: report a gate that would have refused. Otherwise the caller refuses."""
-    if not _YOLO.get():
-        return False
-    reason = " ".join(str(reason).split())
-    reason = re.sub(r"^REFUSED:\s*", "", reason)
-    reason = re.sub(r"\s*Nothing (?:was )?uploaded(?: or started)?\.?$", "", reason).rstrip(" .;")
-    print(f"{YOLO_WAIVED_MARK} {gate}: {reason}", flush=True)
-    return True
-
-
-def _refuse(gate, message):
-    """Raise SystemExit(message) unless a yolo run waives this gate."""
-    if not _waive(gate, message):
-        raise SystemExit(message)
-
-
-def _gate(gate, fn, *args, **kwargs):
-    """Run a check; in a yolo run its refusal is reported instead of raised."""
-    try:
-        return fn(*args, **kwargs)
-    except (RuntimeError, ValueError, SystemExit, MultiColorUnsupported) as exc:
-        if isinstance(exc, SystemExit) and not isinstance(exc.code, str):
-            raise
-        if not _waive(gate, exc):
-            raise
-        return None
-
-
-# Heater targets a G-code file sets, for the mechanical-limit check (S6):
-# M104/M109 (nozzle) and M140/M190 (bed) S/R values, Klipper's
-# SET_HEATER_TEMPERATURE, and the start macros' temperature arguments.
-_HEATER_M_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?M[^\S\n]*0*(104|109|140|190)(?![0-9])([^;\n]*)')
-_HEATER_VALUE_RE = re.compile(r'[SR]\s*(' + NUMBER + r')', re.I)
-_HEATER_SET_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?SET_HEATER_TEMPERATURE\b([^;\n]*)')
-_HEATER_MACRO_RE = re.compile(r'(?im)^[^\S\n]*(?:N[0-9]+[^\S\n]*)?(?:START_PRINT|PRINT_START)\b([^;\n]*)')
-_HEATER_ARG_RE = re.compile(r'([A-Z_]+)\s*=\s*(' + NUMBER + r')', re.I)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # The argument names are heater_ceiling's, shared with the macro run guard (#1147).
 from .heater_ceiling import MACRO_BED_ARGS as _MACRO_BED_ARGS, MACRO_NOZZLE_ARGS as _MACRO_HOTEND_ARGS  # noqa: E402
 
 
-def _heater_limits(state, adapter):
-    """(nozzle °C, bed °C): the printer's heater ceilings, from the one ceiling function (#1147).
-
-    heater_ceiling.ceiling is what every temperature path asks: the fitted
-    nozzle type's safe maximum lowered to the model's max_hotend_c, and the
-    model's max_bed_c, else the hottest bed any configured material asks for.
-    """
-    from . import heater_ceiling
-    return (heater_ceiling.ceiling(adapter, "nozzle", state=state),
-            heater_ceiling.ceiling(adapter, "bed", state=state))
 
 
-def _gcode_heater_targets(text):
-    """(nozzle targets, bed targets) the G-code text sets, in °C."""
-    nozzle, bed = [], []
-    for match in _HEATER_M_RE.finditer(text):
-        into = nozzle if match.group(1) in ("104", "109") else bed
-        into.extend(float(v) for v in _HEATER_VALUE_RE.findall(match.group(2)))
-    for match in _HEATER_SET_RE.finditer(text):
-        args = match.group(1)
-        heater = re.search(r'HEATER\s*=\s*"?([A-Za-z0-9_ ]+)', args, re.I)
-        target = re.search(r'TARGET\s*=\s*(' + NUMBER + r')', args, re.I)
-        if heater and target:
-            name = heater.group(1).strip().lower()
-            if name.startswith("extruder"):
-                nozzle.append(float(target.group(1)))
-            elif name == "heater_bed":
-                bed.append(float(target.group(1)))
-    for match in _HEATER_MACRO_RE.finditer(text):
-        for key, value in _HEATER_ARG_RE.findall(match.group(1)):
-            key = key.upper()
-            if key in _MACRO_HOTEND_ARGS:
-                nozzle.append(float(value))
-            elif key in _MACRO_BED_ARGS:
-                bed.append(float(value))
-    return nozzle, bed
 
 
-def require_mechanical_limits(gcode_path, state, adapter):
-    """Refuse a toolpath past the axis limits or a heater past its maximum (S6).
-
-    These are the printer's mechanical limits, so yolo never waives them:
-    print_now runs this after the waivable G-code checks. A toolpath whose
-    bounds the verifier cannot establish (a refusal of the bounds parser)
-    refuses too, because nothing then shows it stays inside the limits.
-    Raises RuntimeError naming every problem; returns None when all hold.
-    """
-    state = state or {}
-    raw = Path(gcode_path).read_bytes()
-    text = raw.decode(errors="ignore")
-    problems = []
-    try:
-        bounds = cached_motion_bounds(raw, text)
-    except RuntimeError as exc:
-        problems.append(f"toolpath bounds unavailable: {exc}")
-    else:
-        limits = state.get("axis_limits_mm", {"x": [0, 223], "y": [0, 223],
-                                               "z": [0, state.get("max_print_height_mm", 250)]})
-        for axis in "xyz":
-            low, high = bounds[axis]
-            limit_low, limit_high = map(float, limits[axis])
-            if low < limit_low - 1e-3 or high > limit_high + 1e-3:
-                problems.append(f"{axis.upper()} bounds {low:.3f}..{high:.3f} exceed "
-                                f"{limit_low:.3f}..{limit_high:.3f}")
-    hotend_max, bed_max = _heater_limits(state, adapter)
-    nozzle_targets, bed_targets = _gcode_heater_targets(text)
-    for label, targets, limit in (("nozzle", nozzle_targets, hotend_max), ("bed", bed_targets, bed_max)):
-        over = [t for t in targets if not t <= limit]
-        if over:
-            problems.append(f"{label} target {max(over):g} C exceeds the printer's {limit:g} C maximum")
-    if problems:
-        raise RuntimeError("mechanical limits are never waived: " + "; ".join(problems))
 
 
 def yolo_waivers(tail):
@@ -8551,502 +5456,20 @@ def yolo_waivers(tail):
 # (started_via: print-now) and the print id, and settles the chat one-start
 # claim so a later chat start of the same target is refused as a duplicate.
 
-# Receipt statuses a print-now start may settle: the intake sliced the job
-# and no start has been recorded as confirmed. Terminal receipts (cancelled,
-# expired, slice-failed, …) are history and are never rewritten by a start.
-_RECEIPT_STARTABLE_STATUSES = frozenset(
-    {"SLICED", "SLICED_NOT_STARTED", "START_REQUESTED", "START_REFUSED", "START_PENDING"})
 
 
-def _start_confirmed(out):
-    """Whether a print_now outcome dict confirms the printer took the start."""
-    if not isinstance(out, dict):
-        return False
-    if out.get("started") is True:
-        return True
-    return bool(out.get("accepted")) and str(out.get("phase") or "") in start_truth.CONFIRMED_PHASES
 
 
-def _start_pending(out):
-    """Whether a print_now outcome was accepted but is not yet confirmed.
-
-    Mirrors prepared_intake.classify_start: an accepted start in an
-    unresolved phase is START_PENDING (started unknown), never STARTED.
-    """
-    if not isinstance(out, dict) or _start_confirmed(out):
-        return False
-    return bool(out.get("accepted")) and str(out.get("phase") or "") in start_truth.PENDING_PHASES
 
 
-def _find_intake_receipt(job, job_path, gcode, sha):
-    """(path, receipt) of the intake receipt owning this exact artifact, else (None, None).
-
-    A receipt owns the artifact when the hash it recorded for this G-code
-    (``gcode_sha256``) equals the artifact's hash. A candidate tied to this
-    job — by its intake_id, its JOB.json or its G-code list — whose recorded
-    hash differs (or that records no hash for the artifact) is a mismatch:
-    it is logged and that receipt is left alone (#970).
-    """
-    iid = job.get("intake_id") if isinstance(job, dict) else None
-    gname = str(gcode)
-    resolved = str(Path(gcode).resolve())
-    job_json = str(Path(job_path).resolve()) if job_path is not None else None
-    candidates = []
-    if isinstance(iid, str) and re.fullmatch(r"[a-f0-9]{64}", iid):
-        candidates.append(INTAKE_RECEIPTS / f"{iid}.json")
-    try:
-        rest = sorted(INTAKE_RECEIPTS.glob("*.json"))
-    except OSError:
-        rest = []
-    candidates.extend(p for p in rest if p not in candidates)
-    for path in candidates:
-        try:
-            receipt = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
-        if not isinstance(receipt, dict):
-            continue
-        hashes = receipt.get("gcode_sha256") or {}
-        recorded = None
-        for key in (gname, resolved):
-            if key in hashes:
-                recorded = hashes[key]
-                break
-        tied = bool((iid and receipt.get("intake_id") == iid)
-                    or (job_json and receipt.get("job_json") == job_json)
-                    or gname in (receipt.get("gcodes") or [])
-                    or resolved in (receipt.get("gcodes") or []))
-        if recorded is not None:
-            if recorded == sha:
-                return path, receipt
-            logger.warning("intake receipt hash mismatch: receipt %s recorded %s for %s, "
-                           "artifact hash is %s; receipt left unchanged",
-                           path.name, recorded, gname, sha)
-        elif tied:
-            logger.warning("intake receipt hash mismatch: receipt %s records no hash for %s, "
-                           "artifact hash is %s; receipt left unchanged", path.name, gname, sha)
-    return None, None
 
 
-def _settle_intake_start_claim(receipt, gcode, sha):
-    """Settle the chat one-start claim for this intake target as started (#970).
-
-    The chat start path (print_next.start) claims (plan, part, copy, hash)
-    before spawning print-now; an out-of-band CLI start takes no claim, so
-    without this a later chat tap on the same target would not be refused
-    as a duplicate. Best effort: any failure is logged, never raised.
-    """
-    try:
-        iid = str(receipt.get("intake_id") or "")
-        if not re.fullmatch(r"[a-f0-9]{64}", iid):
-            return
-        target = None
-        saved = receipt.get("retry_target")
-        if isinstance(saved, dict) and saved.get("gcode_sha256") == sha and saved.get("plan_id"):
-            target = {"plan_id": saved["plan_id"], "part_id": saved.get("part_id") or "plate1",
-                      "copy": int(saved.get("copy") or 1), "gcode": str(gcode), "gcode_sha256": sha}
-        if target is None:
-            gcodes = receipt.get("gcodes") or []
-            part_id = "plate1"
-            if len(gcodes) > 1:
-                resolved = [str(Path(x).resolve()) for x in gcodes]
-                if str(Path(gcode).resolve()) in resolved:
-                    part_id = f"plate{resolved.index(str(Path(gcode).resolve())) + 1}"
-            plan_id = (f"yolo-{iid[:16]}" if receipt.get("yolo")
-                       else (receipt.get("split_plan") or f"intake-{iid[:16]}"))
-            target = {"plan_id": plan_id, "part_id": part_id, "copy": 1,
-                      "gcode": str(gcode), "gcode_sha256": sha}
-        print_next = _external.load("print_next")
-        path = print_next.claim_path(target)
-        if print_next._take_claim(path, target) is None:
-            print_next._settle_claim(path, "started", release=False)
-    except Exception as exc:
-        logger.warning("intake start claim settle failed: %s", exc)
 
 
-def _record_intake_receipt_started(job, job_path, gcode, sha, out):
-    """Move the intake receipt owning this started artifact to started (#970).
-
-    Confirmed starts become STARTED with started=True; accepted but
-    unconfirmed starts become START_PENDING with started=None, exactly as
-    the chat intake classifies its own starts. Records started_via as
-    'print-now' and the print id print-now assigned. Best effort: the print
-    already started, so a receipt problem is logged, never raised. Returns
-    the updated receipt path, or None when no receipt was updated.
-    """
-    confirmed, pending = _start_confirmed(out), _start_pending(out)
-    if not (confirmed or pending):
-        return None
-    try:
-        path, receipt = _find_intake_receipt(job, job_path, gcode, sha)
-        if path is None:
-            return None
-        if receipt.get("started") is True or receipt.get("status") == "STARTED":
-            return None  # a start is already recorded; history stays as written
-        if receipt.get("status") not in _RECEIPT_STARTABLE_STATUSES:
-            logger.info("intake receipt %s left at %s by print-now start", path.name, receipt.get("status"))
-            return None
-        print_number = out.get("print_number") if isinstance(out, dict) else None
-        if confirmed:
-            receipt.update(status="STARTED", started=True, uploaded=True)
-        else:
-            receipt.update(status="START_PENDING", started=None, uploaded=True,
-                           start_outcome="unknown")
-        receipt.update(started_via="print-now", started_gcode=str(gcode),
-                       started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
-        if print_number is not None:
-            receipt.update(print_number=print_number, print_id=print_number)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(receipt, indent=2) + "\n")
-        os.replace(tmp, path)
-    except Exception as exc:
-        logger.warning("intake receipt update failed for %s: %s", gcode, exc)
-        return None
-    _settle_intake_start_claim(receipt, gcode, sha)
-    return path
 
 
-def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
-              yolo=False, bed_clear=None):
-    """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
-
-    The whole start holds the printer's interprocess control lock (P1-33):
-    a purge, slot load or nozzle change from any other process — a
-    standalone CLI, the listener, another bot — refuses instead of
-    overlapping the start, and the start refuses while one is in flight.
-
-    ``yolo`` is the operator's explicit "print it, skip the checks": every
-    waivable gate reports instead of refusing (see ``_waive``) and the
-    single-use bed-clear record is not written. A yolo run is also a
-    deliberate reprint.
-
-    ``bed_clear`` is the operator's bed-clear confirmation, required by every
-    transport before anything is uploaded (#1147): True for an explicit
-    confirmation of this run, or the SHA-256 of the exact G-code confirmed.
-    Without it the start refuses, yolo included.
-    """
-    lock = _print_now_control_lock(target)
-    if not lock.acquire(blocking=False):
-        raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
-                         "is in flight for this printer. Nothing uploaded or started.")
-    token = _YOLO.set(bool(yolo))
-    clear_token = _BED_CLEAR.set(bed_clear) if bed_clear is not None else None
-    try:
-        if yolo:
-            print("YOLO: the operator chose to print without checks; failed checks are reported, "
-                  "not enforced, except the axis limits and heater maximums.", flush=True)
-        out = _print_now_locked(target, wait_s=wait_s,
-                                accept_default_z_offset=accept_default_z_offset,
-                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
-    finally:
-        if clear_token is not None:
-            _BED_CLEAR.reset(clear_token)
-        _YOLO.reset(token)
-        lock.release()
-    # The start happened: reconcile the intake receipt that owns this
-    # artifact (#970). Best effort — it never fails a started print.
-    if _start_confirmed(out) or _start_pending(out):
-        try:
-            g = Path(resolve_print_target(target)).expanduser().resolve()
-            job, job_path = _owning_job(g)
-            if g.name == "JOB.json" and isinstance(job, dict) and job.get("gcode"):
-                g = Path(job["gcode"]).expanduser().resolve()
-            if g.is_file():
-                _record_intake_receipt_started(job, job_path, g, file_sha256(g), out)
-        except Exception as exc:
-            logger.warning("intake receipt reconciliation failed: %s", exc)
-    return out
 
 
-def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
-    """print_now's body, run under the printer's interprocess control lock."""
-    if remap_slot_num is not None:
-        try:
-            remap_res = remap_slot(target, remap_slot_num)
-        except ToolRemapRefused as exc:
-            raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.") from exc
-        print(f"SLOT REMAPPED: T{remap_res['tool']} -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
-    g=Path(resolve_print_target(target)).expanduser().resolve()
-    job, job_path = _owning_job(g)
-    if g.name=="JOB.json":
-        if not job.get("gcode"):
-            raise RuntimeError("stale color artifact: reslice current JOB before launch")
-        g=Path(job["gcode"]).expanduser().resolve()
-    cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
-    if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
-            and not job.get("derived_plates")):
-        # A file from an earlier slice of this job (2026-10-10: the bot reran the pre-reslice name).
-        _refuse("older slice", f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
-                               f"run print-now {job_path} instead. Nothing uploaded or started.")
-    partial = partial_job_refusal(job)
-    if partial:
-        _refuse("partial job", f"REFUSED: {partial}. Nothing uploaded or started.")
-    _gate("current artifact", require_current_artifact, job, g)
-    if not g.is_file(): raise SystemExit(f"REFUSED: no G-code at {g}")
-    # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
-    # and its hardware record; a record written before the upgrade has no id and prints on
-    # the configured single printer, exactly as it always has.
-    printer_id = job.get("printer_id") if isinstance(job, dict) else None
-    if printer_id:
-        from print_handy import settings as _pb_settings  # this function shadows `settings` locally below
-        try:
-            entry = _pb_settings.by_id(printer_id)
-        except _pb_settings.SettingsError as exc:
-            raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.")
-        have = printers.job_model(job)
-        if have != entry["model"]:
-            _refuse("printer model", f"REFUSED: this job was prepared for {have}, but printer {printer_id!r} is an "
-                                     f"{entry['model']}. Nothing uploaded or started.")
-        adapter = printers.get(entry["model"], _pb_settings.view_for(printer_id))
-    else:
-        try:
-            if isinstance(job, dict): printers.check_job_model(job)
-        except printers.JobModelMismatch as exc:
-            _refuse("printer model", f"REFUSED: {exc}. Reslice it for the configured printer; nothing uploaded or started.")
-        adapter = printers.current()
-    _timing(job_path, 'print_now_start')
-    # accept_default_z_offset is kept for CLI compatibility only. With display_off=0 ZMod applies the
-    # native screen zProbeOffset, which is the correct calibrated value; no Z_OFFSET in START_PRINT is fine.
-    st=printer_state.load(printer_id) if printer_id else printer_state.load()
-    if getattr(adapter, 'transport', None) == 'octoprint':
-        return _print_octoprint(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'flashforge_stock':
-        return _print_flashforge_stock(adapter, st, g, job, job_path, wait_s, reprint)
-    if getattr(adapter, 'transport', None) == 'prusalink':
-        from . import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over PrusaLink; the link status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                         "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'elegoo_sdcp':
-        from . import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over SDCP; status alone is "
-                         f"read-only). {g} passed offline checks; move the file yourself (not yet tested on "
-                        "a printer). Nothing uploaded or started.")
-    if getattr(adapter, 'transport', None) == 'bambulab_lan':
-        from . import delivery as _delivery
-        if 'printer' in _delivery.methods():
-            return _print_bambu(adapter, st, g, job, job_path, wait_s, reprint)
-        # Print delivery is not enabled for this printer: verify the file for manual handoff;
-        # the bed-clear approval is left unused, exactly as for the offline path below.
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
-                         f"'printer' to [delivery] methods to print over LAN; LAN status alone is "
-                         f"read-only). {g} passed offline checks; use the Bambu package delivery and "
-                         "move the file yourself (not yet tested on a printer). Nothing uploaded or started.")
-    if adapter.connection == 'offline':
-        # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
-        try:
-            _verify_routed(g, adapter, st, printer_id, job=job)
-        except RuntimeError as exc:
-            raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-        raise SystemExit(f"REFUSED: {adapter.label} has no live connection in Print Handy (no upload, start or "
-                         f"control). {g} passed offline checks; use the Bambu package delivery and move the file "
-                         "yourself (not yet tested on a printer). Nothing uploaded or started.")
-    state,fn,busy=_require_idle(st)
-    mesh=mesh_readiness(st)
-    if mesh["problem"]:
-        _refuse("bed mesh", f"REFUSED: {mesh['problem']}. Nothing uploaded or started.")
-    selection = job.get("filament_selection") if isinstance(job, dict) else None
-    mapping = None
-    try:
-        # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
-        # claim and the operator can retry after fixing the cause (a traceback kept it held).
-        _gate("G-code safety checks", _verify_routed, g, adapter, st, printer_id, job=job)
-        if yolo_active():
-            require_mechanical_limits(g, st, adapter)  # never waived (S6)
-        _timing(job_path, 'preflight_verify_done')
-        # Read once: the tool-map/multicolor checks, the upload SHA and the job card all
-        # use these bytes, so the SHA Moonraker checks is the SHA of the bytes checked here.
-        gcode_raw = g.read_bytes()
-        gcode_text = _text_like_read_text(gcode_raw)  # strict, like the g.read_text() it replaces
-        if adapter.multi_slot:
-            embedded_mapping = adapter.native.embedded_mapping
-            normalize_mapping = adapter.native.normalize_mapping
-            raw_mapping = _gate("slot mapping", embedded_mapping, gcode_text, st)
-            mapping = (_gate("slot mapping", normalize_mapping, raw_mapping, st)
-                       if raw_mapping is not None else None)
-        else:
-            _gate("multicolor", _refuse_multicolor, gcode_text)
-    except (RuntimeError, MultiColorUnsupported) as exc:
-        raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-    if mapping is not None:
-        return print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint)
-    try:
-        _gate("filament readiness", _verify_filament_readiness, st, selection, adapter=adapter)
-    except RuntimeError as exc:
-        if adapter.multi_slot: raise
-        raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
-    sha=hashlib.sha256(gcode_raw).hexdigest(); remote=remote_name(g, sha, job)
-    text=gcode_text  # the strict decode succeeded, so errors="ignore" would give the same text
-    if mesh.get('display_off') in (0, 1):
-        try:
-            validate_saved_mesh_start(text, mesh)
-        except RuntimeError as exc:
-            _refuse("saved-mesh start", f'REFUSED: {exc}. Reslice with the reviewed machine profile; nothing uploaded.')
-    if mesh.get('display_off') == 0:
-        try:
-            validate_native_start(read_stock_detail(st), selection)
-        except Exception as exc:
-            _refuse("native preflight", f'REFUSED: native preflight: {exc}. Nothing uploaded or started.')
-    upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
-    lease=launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote, observed_file=fn,
-                               started_files=lambda: _moonraker_started_files(st))
-    try:
-        _require_idle(st)  # again inside the lease: the first read may predate another job's start
-        # Yolo owes no single-use button record, but the operator's bed-clear confirmation is never waived.
-        _claim_bed_clear(job_path, job, g, reprint, consume=not yolo_active())
-        _timing(job_path, 'upload_begin')
-        r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
-                         env=_moonrakerctl_env(st))
-        if r.returncode: raise SystemExit("The file could not be uploaded to the printer, so nothing started. "
-                                          "Check the printer is on and reachable, then try again."
-                                          + _detail_tail(r.stderr or r.stdout))
-        try:
-            up_json=json.loads(r.stdout)
-        except Exception as e:
-            raise SystemExit("The printer's reply to the upload could not be understood, so nothing started. "
-                             "Try again; if it keeps happening, check the printer screen."
-                             + _detail_tail(str(e)))
-        res=up_json.get("result", up_json) if isinstance(up_json, dict) else {}
-        item=res.get("item") if isinstance(res, dict) else None
-        if not isinstance(item, dict) or item.get("root")!="gcodes" or item.get("path")!=remote:
-            raise SystemExit("The printer did not confirm the uploaded file landed where it should, so nothing started. "
-                             "Try again; if it keeps happening, check the printer screen."
-                             + _detail_tail(json.dumps(up_json)[:300]))
-        # Moonraker verified the SHA256 sent with the upload (mismatch = HTTP 400 = the upload failure above).
-        _timing(job_path, 'upload_verified')
-        if delivery: _note_delivery_format(job, job_path, delivery)
-        try: claim_start_announcement(remote)
-        except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
-        _announce_print_name(st, job, gcode=g)
-        _publish_job_card(st, job, remote, text)
-    except BaseException:
-        lease.release()  # nothing was sent to start
-        release_start_announcement(remote)  # the claim was taken in the block above
-        raise
-    # Baseline for the lost-response reconcile: heater targets seen later prove this start only if every
-    # heater was off before it. Read-only; unreadable counts as not proven.
-    # The same read is the readback baseline: a reprint's remote name is the previous run's (state
-    # complete, same file), so only a change from the status just before the request is evidence.
-    start_baseline = _start_baseline(st, native=False)
-    heaters_were_off = _baseline_heaters_off(start_baseline)
-    lease.submitting()
-    # #843/#842: the opt-in read-only start recording (PRINT_HANDY_RECORD_STARTS=1); a no-op when off.
-    recorder = start_recorder.begin(st, remote, command=f"print/start {remote}", method="print/start",
-                                    native=False, delivery=delivery)
-    recorder.watch_lease(lease)
-    sent = 0
-    try:
-        for command in adapter.moonraker_start_commands(remote):
-            recorder.note("post_sent", path=command["path"], body=command["body"])
-            receipt = _mr(st, command["path"], data=command["body"])
-            recorder.note("receipt", http_status=200, path=command["path"], receipt=receipt)
-            sent += 1
-    except BaseException as exc:
-        recorder.note("receipt", http_status=getattr(exc, "code", None), error=f"{type(exc).__name__}: {exc}"[:300])
-        if not isinstance(exc, Exception):
-            lease.uncertain(f"start request did not complete: {exc!r}")
-            recorder.finish("unknown", phase="interrupted")
-            raise
-        _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
-        # The 30 s POST can time out after Moonraker accepted it, like the mapped native route's:
-        # reconcile from the printer (exact file, else heater evidence, else pending). An HTTP 4xx
-        # answer to the first command is a refusal and ends as REFUSED with the printer's message.
-        out, rejection = _settle_lost_start(lease, st, remote, exc, heaters_were_off=heaters_were_off,
-                                            first_command=sent == 0, native=False,
-                                            base={"file": remote, "method": "print/start"},
-                                            baseline=start_baseline)
-        if out is None:
-            recorder.finish("refused", rejection=rejection)
-            raise SystemExit(_rejected_start_message(rejection)) from exc
-        if out["accepted"]:
-            if out.get("print_number") is None:
-                try: out["print_number"] = _assign_print_number(job_path, artifact=g)
-                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
-            try:
-                out["record_path"] = str(record_start(g, remote, print_number=out.get("print_number")))
-            except Exception as record_exc:
-                print(f"WARNING: print start record failed: {record_exc}")
-        print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
-        _emit_start_outcome(out)
-        recorder.finish(out.get("outcome") or "unknown", phase=out.get("phase"))
-        return out
-    _timing(job_path, 'start_submitted')
-    print("START REQUEST ACCEPTED " + json.dumps({"file": remote, "printing_confirmed": False}), flush=True)
-    method="print/start"
-    try:
-        out, readback, state = _confirm_generic_start(st, remote, wait_s, lease, baseline=start_baseline)
-    except SystemExit:
-        recorder.finish("failed", phase="failed")  # the printer reported this file's start failed
-        raise
-    except Exception as exc:
-        # The request is out: a transient 503 or a Klippy restart while reading back is neither a
-        # traceback nor a refusal. Uncertain, never resubmitted, claim freed for the listener.
-        out = _uncertain_after_submission(lease, remote, exc, method=method)
-        recorder.finish("unknown", phase=out.get("phase"), message=out.get("message"))
-        return out
-    if out is not None:
-        print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
-        _emit_start_outcome(out)
-        recorder.finish(out.get("outcome") or "unknown", phase=out.get("phase"))
-        return out
-    lease.release()  # printing; the busy printer now refuses another start
-    recorder.finish("printing", phase=start_truth.PHASE_EXECUTING, moonraker_state=state)
-    # Mint this launch's number BEFORE the start record, so the record (and
-    # the completion record built from it) carries this print's own number.
-    try: print_no=_assign_print_number(job_path, artifact=g)
-    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
-    record_path=None
-    try: record_path=record_start(g, remote, print_number=print_no)
-    except Exception as e: print(f"WARNING: print start record failed: {e}")
-    if not isinstance(record_path,(str,os.PathLike)): record_path=None
-    elif record_path is not None: record_path=str(record_path)
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-    est=gcode_estimate_s(text); fg=_filament_total_g(text)
-    warm=5*60; now=datetime.now(ZoneInfo(TIMEZONE))
-    title=(job or {}).get("title") or g.stem
-    start_verdict = start_truth.moonraker(readback, waited=state)  # the verdict _confirm_generic_start reached
-    out={"started":start_verdict.confirmed,"title":title,"print_number":print_no,"file":remote,"method":method,
-         **start_truth.generic_fields(start_verdict),
-         "print_time":human_dur(est) if est else None,"filament_g":round(fg) if fg is not None else None,
-         "finish_et":(now+timedelta(seconds=(est or 0)+warm)).strftime("%-I:%M %p %a") if est else None}
-    if delivery: out["delivery_format"]=delivery
-    settings=start_print_settings(text); z_notice=z_offset_notice(text)
-    try: hardware=st.get("printer","Klipper")+", "+printer_state.summary(st)
-    except (KeyError, TypeError): hardware=None
-    out["z_offset_notice"]=z_notice; out["record_path"]=record_path
-    live=live_snapshot(st); out["live"]=live
-    screen_z=mesh.get("z_offset_mm"); out["screen_z_offset_mm"]=screen_z; out["native_screen_z_offset_mm"]=screen_z_offset(st); out["bed_mesh"]=mesh
-    out["details"]=job_details(out, hardware=st, selection=selection, settings=settings,
-                               record_path=record_path, z_notice=z_notice, live=live,
-                               screen_z=screen_z, mesh=mesh, printer=st.get("printer") or (None if adapter.multi_slot else adapter.label),
-                               nozzle_mm=(st.get("nozzle") or {}).get("diameter_mm"), calibration=adapter.has_native_screen)
-    print("PRINT STARTED " + json.dumps(out))
-    print(out["details"])
-    clock_note = launch_state.clock_warning(launch_state.printer_clock_skew(st.get("moonraker_url")))
-    if clock_note:  # a warning, never a blocker: the print already started
-        out["clock_warning"] = clock_note
-        print(clock_note, flush=True)
-    _emit_start_outcome(out)  # last, so a short tail always carries the phase
-    return out
 
 
 def _print_now_cli(target, **kw):
@@ -9414,7 +5837,9 @@ def _main():
 # (mock.patch, monkeypatch) for one release; see print_handy/_relocated.py.
 from .. import _relocated  # noqa: E402
 from ..gcode import artifact as _gcode_artifact, bounds as _gcode_bounds, verify as _gcode_verify  # noqa: E402
-from ..jobs import common as _jobs_common  # noqa: E402
+from ..jobs import common as _jobs_common, filament as _jobs_filament, store as _jobs_store  # noqa: E402
+from ..launch import gates as _launch_gates, print_now as _launch_print_now  # noqa: E402
 _relocated.keep_old_path(__name__, _gcode_bounds, _gcode_verify, _gcode_artifact, _jobs_common,
+                         _jobs_store, _jobs_filament, _launch_gates, _launch_print_now,
                          live=("_native_bounds_module", "_native_bounds_broken"))
 if __name__=="__main__": main()

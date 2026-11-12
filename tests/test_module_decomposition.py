@@ -25,9 +25,13 @@ HOMES = {
     "print_handy.gcode.verify": "print_handy.core.model_job",
     "print_handy.gcode.artifact": "print_handy.core.model_job",
     "print_handy.jobs.common": "print_handy.core.model_job",
+    "print_handy.jobs.store": "print_handy.core.model_job",
+    "print_handy.jobs.filament": "print_handy.core.model_job",
+    "print_handy.launch.gates": "print_handy.core.model_job",
+    "print_handy.launch.print_now": "print_handy.core.model_job",
 }
 # Packages and modules the decomposition adds: none may sit in an import cycle.
-NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy._relocated")
+NEW_MODULES = ("print_handy.gcode", "print_handy.jobs", "print_handy.launch", "print_handy._relocated")
 
 
 def _moved_names(old, home):
@@ -104,9 +108,22 @@ def test_an_unrelated_name_with_another_value_is_not_forwarded():
         del sys.modules["old_x"]
 
 
+def test_patching_a_start_gate_on_the_old_path_steers_print_now(monkeypatch):
+    """The gate seams tests and callers patch on model_job still reach the moved start path."""
+    from print_handy.launch import gates, print_now
+    refuse = mock.Mock(side_effect=RuntimeError("bed clear refused"))
+    monkeypatch.setattr(model_job, "_claim_bed_clear", refuse)
+    assert gates._claim_bed_clear is refuse and print_now._claim_bed_clear is refuse
+    monkeypatch.setattr(model_job, "verify_gcode", mock.Mock())
+    from print_handy.gcode import verify
+    assert verify.verify_gcode is model_job.verify_gcode
+
+
 def test_moved_code_keeps_the_model_job_logger():
     from print_handy.gcode import bounds
-    assert bounds.logger is model_job.logger
+    from print_handy.jobs import store
+    from print_handy.launch import print_now
+    assert bounds.logger is store.logger is print_now.logger is model_job.logger
 
 
 # --------------------------------------------------------------- import cycles
