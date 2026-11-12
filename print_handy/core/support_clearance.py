@@ -268,23 +268,31 @@ def _key(cell, z):
 class _Events:
     """Sorted ray hits of one class of parts, for 'what is below' and 'am I inside' queries."""
 
-    def __init__(self, cell, z, sign):
+    def __init__(self, cell, z, sign, leaf=None):
         order = np.lexsort((z, cell))
         self.cell, self.z, self.sign = cell[order], z[order], sign[order]
+        self.leaf = (np.full(len(cell), -1) if leaf is None else leaf)[order]
         self.keys = _key(self.cell, self.z)
         self.cum = np.concatenate([[0], np.cumsum(self.sign)])
         up = self.sign < 0
-        self.ucell, self.uz = self.cell[up], self.z[up]
+        self.ucell, self.uz, self.uleaf = self.cell[up], self.z[up], self.leaf[up]
         self.ukeys = self.keys[up]
 
-    def top_below(self, cell, z):
-        """Highest upward surface at or below z in the same ray, or NaN."""
+    def top_below(self, cell, z, with_leaf=False):
+        """Highest upward surface at or below z in the same ray, or NaN.
+
+        ``with_leaf`` also returns the leaf that surface belongs to (-1 for none).
+        """
         if not len(self.ukeys):
-            return np.full(len(cell), np.nan)
+            empty = np.full(len(cell), np.nan)
+            return (empty, np.full(len(cell), -1)) if with_leaf else empty
         idx = np.searchsorted(self.ukeys, _key(cell, z), side='right') - 1
         safe = np.maximum(idx, 0)
         ok = (idx >= 0) & (self.ucell[safe] == cell)
-        return np.where(ok, self.uz[safe], np.nan)
+        top = np.where(ok, self.uz[safe], np.nan)
+        if with_leaf:
+            return top, np.where(ok, self.uleaf[safe], -1)
+        return top
 
     def depth(self, cell, z):
         """How many solids of this class contain the point (entries minus exits below it)."""
@@ -400,10 +408,35 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
     """The structured support clearance report for a 3MF (see the module docstring).
 
     ``first_layer_mm`` is the first layer height the job slices with: a gap
-    smaller than it is read as contact. None keeps CONTACT_MM alone.
+    no taller than it is read as contact. None keeps CONTACT_MM alone.
     """
     return _analyze_parts(leaves(source), _sha256(source), gap_mm=gap_mm, area_mm2=area_mm2,
-                          span_mm=span_mm, min_coverage=min_coverage, first_layer_mm=first_layer_mm)
+                          span_mm=span_mm, min_coverage=min_coverage, first_layer_mm=first_layer_mm,
+                          authored_supports=authored_supports(source))
+
+
+def authored_supports(source):
+    """The designer's supports setting saved in a Bambu/Orca project 3MF: True, False or None.
+
+    Read from ``Metadata/project_settings.config`` (``enable_support``). None
+    for a plain 3MF, an STL, or a project that does not say.
+    """
+    try:
+        if not zipfile.is_zipfile(source):
+            return None
+        with zipfile.ZipFile(source) as archive:
+            try:
+                raw = archive.read('Metadata/project_settings.config')
+            except KeyError:
+                return None
+        value = json.loads(raw.decode('utf-8', errors='replace')).get('enable_support')
+    except Exception:  # noqa: BLE001 - an unreadable project says nothing about supports
+        return None
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if value is None:
+        return None
+    return str(value).strip().lower() in ('1', 'true')
 
 
 def rotated_report(source, matrix, first_layer_mm=None):
@@ -433,9 +466,10 @@ def rotated_report(source, matrix, first_layer_mm=None):
 
 
 def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM,
-                   min_coverage=MIN_COVERAGE, first_layer_mm=None):
+                   min_coverage=MIN_COVERAGE, first_layer_mm=None, authored_supports=None):
     first_layer_mm = float(first_layer_mm) if first_layer_mm else None
     report = {'version': VERSION, 'source_sha256': source_sha256,
+              'authored_supports': authored_supports,
               'thresholds': {'gap_mm': gap_mm, 'area_mm2': area_mm2, 'span_mm': span_mm,
                              'contact_mm': CONTACT_MM, 'min_coverage': min_coverage,
                              'first_layer_mm': first_layer_mm},
@@ -468,7 +502,7 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
         rows.append((np.full(len(first), li), c[first], z[first], sign[first], nz[tri][first]))
     leaf, cel, zz, sign, nzs = (np.concatenate(col) for col in zip(*rows))
     is_sup = np.array([p['support'] for p in parts])[leaf]
-    part_ev = _Events(cel[~is_sup], zz[~is_sup], sign[~is_sup])
+    part_ev = _Events(cel[~is_sup], zz[~is_sup], sign[~is_sup], leaf[~is_sup])
     sup_ev = _Events(cel[is_sup], zz[is_sup], sign[is_sup])
 
     # Below the plate: the solid length under Z 0 along each ray.
@@ -486,21 +520,26 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
     di = np.nonzero(down)[0]
     inside = part_ev.depth(cel[di], zz[di] - 1e-3) > 0
     di = di[~inside]
-    floor = part_ev.top_below(cel[di], zz[di] + 1e-3)
+    floor, floor_leaf = part_ev.top_below(cel[di], zz[di] + 1e-3, with_leaf=True)
     over_part = ~np.isnan(floor) & (floor > 0.01)
+    # The surface below belongs to the same mesh (#1373): one pinecone scale
+    # over the next, a step of the same part. Not a gap between two parts.
+    over_own = over_part & (floor_leaf == leaf[di])
     clear = zz[di] - np.where(over_part, floor, 0.0)
     # Zero-clearance anchor cells (#922 gap 1): underside rays that already
     # touch what is below them. A narrow sloped strip whose edge touches one
     # of these cells roots into the part below instead of floating over it.
-    # A gap smaller than the first layer height touches too: the first
+    # A gap no taller than the first layer height touches too: the first
     # layer is squished into it, so the underside prints as resting on what
     # is below it and is never a low-clearance gap.
     touching = clear <= CONTACT_MM
     if first_layer_mm:
-        touching |= clear < first_layer_mm
+        # A gap exactly one first layer tall is filled by that layer too
+        # (#1373): rounding must not turn a 0.24 mm layer's own gap into a finding.
+        touching |= clear <= first_layer_mm + 1e-3
     anchor_cells = {int(c) for c in cel[di[touching]]}
     keep = ~touching
-    di, clear, over_part = di[keep], clear[keep], over_part[keep]
+    di, clear, over_part, over_own = di[keep], clear[keep], over_part[keep], over_own[keep]
 
     def sink_loss(item, dz):
         m = np.array([p['item'] == item for p in parts])[leaf] & (zz < dz)
@@ -510,6 +549,7 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
         idx = di[sel][labels == lab]
         cl = clear[sel][labels == lab]
         op = over_part[sel][labels == lab]
+        own = over_own[sel][labels == lab]
         cells = np.unique(cel[idx])
         cx = lo[0] + (cells % w + 0.5) * cell
         cy = lo[1] + (cells // w + 0.5) * cell
@@ -547,6 +587,7 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
                 'clearance_mm': {'min': round(float(cl.min()), 3), 'median': round(float(np.median(cl)), 3),
                                  'max': round(float(cl.max()), 3)},
                 'over': 'part' if op.mean() > 0.5 else 'plate',
+                'over_self': bool(op.mean() > 0.5 and own.sum() > 0.5 * op.sum()),
                 'sloped': bool(zv.max() - zv.min() > 0.2),
                 'slope_nz': round(float(np.median(np.abs(nzs[idx]))), 4),
                 'span_mm': round(length, 1), 'width_mm': round(width, 1),
@@ -591,6 +632,17 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
             report['regions'].append(r)
             continue
         trigger = 'area' if r['area_mm2'] >= area_mm2 else 'span' if r['span_mm'] >= span_mm else None
+        if r['over_self'] and authored_supports is False:
+            # A designed overhang (#1373): the underside sits over the same
+            # part (one stacked scale or step over the next) and the
+            # designer's project prints it with supports off. Supports are
+            # not the answer and neither is a geometry repair; it is
+            # recorded as a note, never a risk or a coverage target.
+            r['kind'] = 'designed_overhang'
+            r['flagged'] = False
+            r['trigger'] = trigger
+            report['regions'].append(r)
+            continue
         r['kind'] = 'low_clearance'
         # Only a region that met the finding thresholds is a post-slice
         # coverage target (#963 item 2); sub-threshold regions are recorded
@@ -1353,7 +1405,8 @@ def _finding_lines(report):
     lines = []
     for f in (report or {}).get('findings') or []:
         if f['code'] == CODE_CLEARANCE:
-            below = 'the build plate' if f['over'] == 'plate' else 'the part below'
+            below = ('the build plate' if f['over'] == 'plate'
+                     else 'its own surface below' if f.get('over_self') else 'the part below')
             shape = (f'across {f["area_mm2"]:.0f} mm2' if f['trigger'] == 'area'
                      else f'along a {f["span_mm"]:.0f} mm span ({f["area_mm2"]:.0f} mm2)')
             slope = ' sloped' if f['sloped'] else ''

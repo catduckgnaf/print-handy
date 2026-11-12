@@ -47,10 +47,11 @@ DOMAINS = {"moonraker", "bambulab_lan", "prusalink", "elegoo_sdcp",
            "octoprint", "flashforge_stock", "offline"}
 
 
-def test_manifest_covers_all_twelve_catalogue_cases_and_four_private():
+def test_manifest_covers_all_twelve_catalogue_cases_and_five_private():
+    # The fifth private case is the #1373 live lantern (Standard Digital File License).
     assert len(PUBLIC) == 12, [c["slug"] for c in PUBLIC]
-    assert len(PRIVATE) == 4, [c["slug"] for c in PRIVATE]
-    assert len({c["slug"] for c in CASES}) == 16
+    assert len(PRIVATE) == 5, [c["slug"] for c in PRIVATE]
+    assert len({c["slug"] for c in CASES}) == 17
 
 
 def test_every_domain_has_a_case():

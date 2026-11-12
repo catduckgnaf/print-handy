@@ -59,6 +59,10 @@ class BackgroundSlice:
         self.clearance = None
         self.started = asyncio.Event()
         self.first_slice_done = asyncio.Event()
+        # Set once the first slice's supports verdict (flagged, finding,
+        # clearance) is known and any speculative supports slice has
+        # started (#1373): first_slice_done fires before that.
+        self.flag_decided = asyncio.Event()
         self.release = asyncio.Event()
         self.release.set()  # open unless a test holds the slice until the question is on screen
 
@@ -96,6 +100,7 @@ class BackgroundSlice:
         self.finding = None
         self.clearance = None
         self.first_slice_done = asyncio.Event()
+        self.flag_decided = asyncio.Event()
         self.task = asyncio.get_running_loop().create_task(self._run(slice_func))
 
     async def _run(self, slice_func):
@@ -113,6 +118,7 @@ class BackgroundSlice:
             raise
         except Exception as exc:  # the caller decides whether a failed early slice is fatal
             self.error = exc
+            self.flag_decided.set()
             return
         finally:
             self.finished_at = time.time()
@@ -120,6 +126,7 @@ class BackgroundSlice:
 
         job_data = _read_job(self.job_path)
         if job_data is None:
+            self.flag_decided.set()
             return
         self.job_no_supports = copy.deepcopy(job_data)
 
@@ -136,6 +143,8 @@ class BackgroundSlice:
         self.finding = finding
         self.clearance = clearance
         self.first_slice_done.set()
+        if not is_flagged:
+            self.flag_decided.set()
 
         if is_flagged:
             try:
@@ -162,6 +171,7 @@ class BackgroundSlice:
 
                 sup_work = asyncio.ensure_future(slice_func(self.job_path, self.work, self, **kw))
                 self.supports_task = sup_work
+                self.flag_decided.set()
                 self.supports_result = await asyncio.shield(sup_work)
                 self.job_with_supports = _read_job(self.job_path)
             except asyncio.CancelledError:
@@ -172,6 +182,7 @@ class BackgroundSlice:
             except Exception as exc:
                 self.supports_error = exc
             finally:
+                self.flag_decided.set()
                 self._write_slice_job(self.job_no_supports)
 
     def _write_slice_job(self, slice_job_data, default_supports=None):
@@ -230,6 +241,13 @@ class BackgroundSlice:
         if self.task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+        if _sliced_with_supports(self.result):
+            # The first slice ran before any decision, so a designer project
+            # with supports on (or painted enforcers) sliced WITH supports:
+            # it is not the "without supports" artifact the operator chose
+            # (#1373, cute-dino corpus case). Nothing usable here; the caller
+            # re-slices with the recorded decision.
+            return None
         self._write_slice_job(self.job_no_supports, default_supports=False)
         return self.result
 
@@ -326,6 +344,20 @@ def runner_for(job_path):
 
 def drop_runner(job_path):
     _RUNNERS.pop(str(Path(job_path).parent.resolve()), None)
+
+
+def _sliced_with_supports(result):
+    """True when any G-code of a slice result says ``enable_support = 1``. Never raises."""
+    paths = result if isinstance(result, (list, tuple)) else [result] if result else []
+    for path in paths:
+        try:
+            text = Path(path).read_text(errors='replace')
+        except (OSError, TypeError, ValueError):
+            continue
+        from .edit_plan import gcode_config
+        if str(gcode_config(text).get('enable_support') or '').strip() == '1':
+            return True
+    return False
 
 
 def slice_binding(job, source_sha256, state=None):

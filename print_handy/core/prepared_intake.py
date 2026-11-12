@@ -312,6 +312,9 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 # stages to <job>/TIMING.jsonl as they happen; these short notes relay the two that matter,
 # each only when that stage has lasted its grace period, so a fast start posts nothing extra.
 START_PROGRESS_POLL_S = 1.0
+# How long the Ready question waits for the speculative with-supports slice,
+# so that option shows its numbers before it can be chosen (#1373).
+SUPPORTS_ESTIMATE_WAIT_S = 120.0
 START_PROGRESS = (
     ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
                              'some printers take up to a minute to answer.'),
@@ -1000,8 +1003,14 @@ def _unsupported_for(site):
     return None
 
 
-async def _spool_projection_text(mj, job, manifest, state, copies):
-    """Display only: filament needed vs the chosen spool's grams. Never blocks the intake."""
+async def _spool_projection_text(mj, job, manifest, state, copies, shortages=None):
+    """Display only: filament needed vs the chosen spool's grams. Never blocks the intake.
+
+    ``shortages``, when given, collects the filament-shortage warning keys
+    (``material_accept.key('filament', slot, spool_id)``) of the spools this
+    text shows as short. A print button pressed under that text is the
+    operator's answer to them, so the start does not ask again (#1373).
+    """
     try:
         ids = [sel.get('spoolman_id') for sel, _ in mj.filament_usage_by_selection(job, manifest)]
         if not ids:
@@ -1016,6 +1025,12 @@ async def _spool_projection_text(mj, job, manifest, state, copies):
                 return spool_lifecycle.fetch_spoolman_spool(sid, base_url=base)
         weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
         rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
+        if shortages is not None and not getattr(weights, 'fetch_failed', False):
+            from . import material_accept
+            for row in rows:
+                if (row.get('projected_remaining_g') is not None and row['projected_remaining_g'] < 0
+                        and row.get('spoolman_id') is not None):
+                    shortages.append(material_accept.key('filament', row.get('slot'), row['spoolman_id']))
         text = mj.format_spool_projection(
             rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
         if getattr(weights, 'fetch_failed', False):
@@ -2847,6 +2862,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         scale_note = ''
         supports_choice = None
         clearance_ack_pending = False
+        shown_shortages = []
         # "Reorient (lay flat)" is offered until it has nothing left to do:
         # the model already lies flat, or the lay-flat turn was applied (the
         # turn is worked out from the authored pose, so pressing it again
@@ -2868,6 +2884,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             and early.release.is_set()
         ):
             await early.first_slice_done.wait()
+        # The with-supports option must show its own time and filament
+        # before it can be chosen (#1373 item 2): a flagged first slice
+        # starts the speculative supports slice, so it is waited out too,
+        # bounded so a very slow slice never holds the question forever.
+        decided = getattr(early, 'flag_decided', None)
+        if (decided is not None and early.running() and early.first_slice_done.is_set()
+                and getattr(early, 'release', None) is not None and early.release.is_set()):
+            # first_slice_done fires before the flagged verdict and the
+            # speculative supports slice exist; wait for those (bounded).
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
+        sup_task = getattr(early, 'supports_task', None)
+        if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
+                and getattr(early, 'release', None) is not None and early.release.is_set()):
+            # A timeout or a failed supports slice leaves the "slicing..." line;
+            # the intake's own cancellation still propagates.
+            with contextlib.suppress(asyncio.TimeoutError, Exception):
+                await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
         while choice is None:
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')
@@ -2887,6 +2921,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
 
             if is_flagged:
                 sup_est = _variant_estimate_str(early.job_with_supports, early.supports_result)
+                sup_task_now = getattr(early, 'supports_task', None)
+                if sup_est == 'slicing...' and (getattr(early, 'supports_error', None) is not None
+                                                 or (sup_task_now is not None and sup_task_now.done())):
+                    # The trial slice is over: never "slicing..." for a slice that
+                    # ended without numbers (#1373). Choosing it slices again.
+                    sup_est = 'no estimate (the trial slice with supports did not finish; choosing it slices again)'
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
                 flag_lines = [
                     with_supports_line(sup_reason, sup_est, early.finding, clearance),
@@ -2908,6 +2948,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
 
                 sup_label = 'Slice and print with supports (bed is clear)' if can_print else 'Slice with supports'
                 nosup_label = 'Slice and print without supports (bed is clear)' if can_print else 'Slice without supports'
+                if not sup_recommended:
+                    # The button says what its menu line says (#1373 item 2).
+                    sup_label = ('Slice and print with supports, not recommended (bed is clear)'
+                                 if can_print else 'Slice with supports, not recommended')
 
                 fix_actions = []
                 if clearance and support_clearance.risky(clearance):
@@ -2963,7 +3007,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     menu_options = menu_options[1:]
                 first_labels = [opt['label'] for opt in menu_options]
 
-            spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity)
+            shown_shortages = []
+            spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity,
+                                                      shortages=shown_shortages)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
             estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None
@@ -3717,14 +3763,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # today's behavior stands, plus the one-line note where a fix
             # would have been offered.
             from . import ai_fix as _ai_fix
-            heavy = _ai_fix.heavy_ready()
+            heavy = _ai_fix.intake_fix_offered()
             fix_ready = heavy and _fix_budget_left() > 0
-            no_fix_note = _ai_fix.UNCONFIGURED_NOTE if not heavy else _no_fix_left_note()
+            # No AI-fix note at all when the intake does not offer one (#1373).
+            no_fix_note = _no_fix_left_note() if heavy else ''
             if refusal is not None and not refusal.fix and not fix_ready:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=diagnostics.plain_post(
                     'Stage: slice. ' + refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
                     next_step=refusal.next_step, subsystem='slicing', exc=slice_error)
-                    + '\n' + no_fix_note)
+                    + ('\n' + no_fix_note if no_fix_note else ''))
                 return {'action': 'skip', 'reason': 'slice refused: ' + str(slice_error)}
             if refusal is not None and not refusal.fix:
                 prompt = diagnostics.plain_post(
@@ -3739,14 +3786,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 prompt = slice_failure.post(slice_error)
                 if not slice_failure.explain(slice_error).retryable and not fix_ready:
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=prompt + '\n' + no_fix_note)
+                                       content=prompt + ('\n' + no_fix_note if no_fix_note else ''))
                     return {'action': 'skip', 'reason': 'slice failed: ' + str(slice_error)}
                 labels = ((['Retry slice once (no print)']
                            if slice_failure.explain(slice_error).retryable else [])
                           + ([_ai_fix.FIX_LABEL] if fix_ready else []) + ['Cancel'])
-            if not fix_ready:
-                # Every question that would have offered the fix says why it
-                # does not (#985): AI not set up, or this job's budget spent.
+            if not fix_ready and no_fix_note:
+                # A fix the intake offers but cannot give now says why (#985):
+                # this job's budget spent.
                 prompt = prompt + '\n' + no_fix_note
             retry = None
             fix_attempts = 0
@@ -3840,7 +3887,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # an applied fix -- gets the same fix offer (#985), under
                     # the same per-question cap and the job's fix budget,
                     # instead of a dead end.
-                    if (_ai_fix.heavy_ready() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
+                    if (_ai_fix.intake_fix_offered() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
                             and _fix_budget_left() > 0):
                         picked = await _ask(adapter, source, key, failure_post,
                                             [_ai_fix.FIX_LABEL, 'Cancel'], timeout)
@@ -3865,9 +3912,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                            content='Cancelled. Nothing was sliced, uploaded or started.')
                         return {'action': 'skip', 'reason': 'slice retry failed'}
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=failure_post + '\n' + (
-                                           _ai_fix.UNCONFIGURED_NOTE if not _ai_fix.heavy_ready()
-                                           else _no_fix_left_note()))
+                                       content=failure_post + (
+                                           '\n' + _no_fix_left_note() if _ai_fix.intake_fix_offered()
+                                           else ''))
                     return {'action': 'skip', 'reason': 'slice retry failed'}
         mj._timing(jp, 'intake_slice_returned')
         gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
@@ -3962,7 +4009,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             """
             nonlocal gcodes, sliced, clearance_ack_pending
             from . import ai_fix as _ai_fix
-            heavy = _ai_fix.heavy_ready()
+            heavy = _ai_fix.intake_fix_offered()
             fix_ready = heavy and _fix_budget_left() > 0
             fix_attempts = 0
             while True:
@@ -3982,9 +4029,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  'supports cannot fix.')
                 lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
                              'repair the geometry (extend or sink).')
-                if not heavy and fix_attempts == 0:
-                    lines.append(_ai_fix.UNCONFIGURED_NOTE)
-                elif heavy and not fix_ready and _fix_budget_left() <= 0:
+                if heavy and not fix_ready and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
                 choices = [PRINT_ANYWAY_LABEL]
                 if fix_ready:
@@ -4333,6 +4378,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
                   'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
+        if choice == 0 and shown_shortages:
+            # The Ready question already showed these spools as short and the
+            # operator pressed a print button under it: that is the answer,
+            # so the start does not stop to ask the same thing again (#1373).
+            # Bound to this G-code like any acceptance; a shortage the Ready
+            # text did not show (another slot or spool) is still asked.
+            target['accept_material'] = sorted(set(shown_shortages))
         from . import yolo as _yolo
         if _yolo.ACTIVE.get():
             target['yolo'] = True

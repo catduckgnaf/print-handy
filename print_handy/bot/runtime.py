@@ -490,6 +490,12 @@ def _bed_down_fuzzy(clean):
     return None
 
 
+def _names_command(reply, command):
+    """True when a model reply mentions the slash command it also asked to run (#1373)."""
+    name = str(command or '').strip().split(' ')[0].casefold()
+    return bool(name.startswith('/') and name in str(reply or '').casefold())
+
+
 def command_suggestion(text):
     """The canonical command a near-miss message most likely meant, else None (#468 stage 3).
 
@@ -1076,7 +1082,13 @@ class BotCore:
                     # sent when the command's own output IS the help text:
                     # the LLM's wording plus the help dump for one message
                     # is exactly the double reply #437 forbids.
-                    replied = bool(reply) and command.casefold() not in HELP_WORDS
+                    # A reply that tells the person to type the very command
+                    # about to run ("Use `/print-stop` ...") contradicts the
+                    # confirm that follows it three seconds later (#1373):
+                    # the command's own output is the answer, so that reply
+                    # is dropped.
+                    replied = (bool(reply) and command.casefold() not in HELP_WORDS
+                               and not _names_command(reply, command))
                     if replied:
                         await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                                 reply_to=event.message_id, metadata=metadata)

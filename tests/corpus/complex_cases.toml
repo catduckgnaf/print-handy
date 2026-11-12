@@ -511,3 +511,28 @@ supports = "Flat parts (16.6 mm tall), none expected"
 # reproduces (it does in the mock tier: the colour-geometry export that raises it is Python,
 # not mocked). Remove it once the fix lands and the case passes (XPASS).
 notes = "PRIVATE TIER ONLY - CC BY-NC (MakerWorld API licence value 'BY-NC') permits non-commercial use only, so the file is never committed, released or uploaded. Downloaded file is 'Duplo swing - double.3mf' from print profile 976429 (fetched 2026-10-29 through the fetcher's MakerWorld route with an account token; bytes and SHA256 match the copy the live install archived) ('0.2mm layer, 4 walls, 15% infill'), Bambu Studio 01.10.02.73 project, one authored plate. Measured: 9 build items over 6 mesh objects; 44,964 triangles as built (29,536 unique mesh triangles - the chain and seat meshes are instanced); authored layout 239.30 x 201.27 x 16.60 mm, wider than the 220 mm AD5X bed, so the fit planner offers '100% · rearrange 1 plate' (live plan size_mm [207.55, 204.0, 16.6], 9 parts). Live failure on 2.1.9 (2026-10-29): per-part colours + that rearrange choice fail at slice with 'part group does not fit the target bed without cropping' - slice_job takes slice_multi_plate for a per-part 3MF before the rearrange_plan block, so the plan is ignored. Fixed by #601 (per-part jobs now honor the one-plate rearrangement and the arrangement is applied without asking); the case passes on main since."
+
+[[case]]
+tier = "private"
+slug = "pinecone-cottage-lantern"
+title = "Pinecone Cottage Lantern - Hanging or Tabletop"
+author = "MakerWorld design 3483992"
+source_page = "https://makerworld.com/en/models/3483992-pinecone-cottage-lantern-hanging-or-tabletop#profileId-3978285"
+site = "makerworld"
+site_model_id = "3483992"
+site_instance_id = "3978285"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 2834005
+sha256 = "569c8f4264c147647ac4382e46e891f241a933a94ecbd0a4020b80ab0f287a82"
+triangles = 139290
+dims_mm = [140.63, 115.73, 77.49]
+colors = "4 separate parts, unpainted, one authored filament; the live attempt put every part on one slot"
+supports = "Designer profile 'Pinecone Tree Lantern - No supports' (enable_support = 0); stacked pinecone scales sit about 0.6 mm over the scale below inside one mesh - a designed overhang, none expected"
+notes = "PRIVATE TIER ONLY - Standard Digital File License forbids sharing, hosting or distributing the file, so it is never committed or uploaded. Downloaded file is 'PineconeTreeLantern.3mf' from print profile 3978285 (Bambu Studio project for the P2S, 0.20 mm layers, 5% gyroid). Bytes and SHA256 match the copy the live install archived on 2026-11-12. Measured: 4 build items (Lantern Lower Section 73.8 x 72.1 x 77.5 mm printed inverted, Base, Hanging Loop, Upper Chimney), one authored plate. Live failures on 2.3.1 (2026-11-12, #1373): the support-clearance pre-check called the scales a 0.63 mm gap 'to the part below' that supports could not reach, offered supports and geometry repair, the AI fix was refused as 'built from 6 files' (the page's 6 print profiles), and the spool shortage was asked twice. The case pins the conversation, not just the receipt."

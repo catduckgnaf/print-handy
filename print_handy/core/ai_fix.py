@@ -135,6 +135,18 @@ def clean_summary(text, limit=200) -> str:
 FixError = mesh_repair.FixError
 
 
+def intake_fix_offered(cfg=None) -> bool:
+    """Whether a model-link intake offers "Fix this for my printer" (#1373: never).
+
+    Owner ruling (2026-11-12): the AI fix is part of design, a "fix this
+    file" request the operator makes on purpose, never a last-resort button
+    at the end of an intake. Intake gates (slice refusals, failed slices,
+    support coverage) answer with deterministic choices only, and say
+    nothing about an AI fix.
+    """
+    return False
+
+
 def heavy_ready(cfg=None) -> bool:
     """Whether the heavy AI tier would actually send a call (endpoint, model, key rules)."""
     try:
@@ -883,17 +895,38 @@ def out_of_attempts_message() -> str:
 def check_file_fix(job, proposal):
     """Refuse a file-changing fix the job record cannot carry (#978 review).
 
-    A job built from several source files keeps them in ``sources``; a
-    geometry or mesh fix rewrites one file, and repointing the job at it
-    would drop the others. Plan-only fixes are fine on any job.
+    A job built from several source files keeps them in ``selected_sources``
+    (or, for uploads, as file rows in ``sources``); a geometry or mesh fix
+    rewrites one file, and repointing the job at it would drop the others.
+    A site page's print profiles also live in ``sources`` but are not files:
+    one of them was downloaded, so they never count (#1373). Plan-only fixes
+    are fine on any job.
     """
     if not (proposal.geometry or proposal.mesh_repair):
         return
-    sources = (job or {}).get('sources') or []
-    if len(sources) > 1:
-        raise FixError(f'this job is built from {len(sources)} files; a geometry or mesh fix '
+    files = source_files(job)
+    if len(files) > 1:
+        raise FixError(f'this job is built from {len(files)} files; a geometry or mesh fix '
                        'changes one file and would drop the others, so it is refused. Fix the '
                        'file on its own first')
+
+
+def _is_file_row(row):
+    return isinstance(row, dict) and bool(row.get('path') or row.get('downloaded_file'))
+
+
+def source_files(job):
+    """The model files a job is built from: combined parts, else file rows of ``sources``.
+
+    MakerWorld and Printables jobs list the page's print profiles in
+    ``sources`` (title, instance id, compatibility; no file); only the
+    selected one was downloaded, into ``downloaded_file``.
+    """
+    job = job or {}
+    combined = [row for row in job.get('selected_sources') or [] if _is_file_row(row)]
+    if combined:
+        return combined
+    return [row for row in job.get('sources') or [] if _is_file_row(row)]
 
 
 def apply_to_job(job, proposal, plans, *, fixed_path, actor, problem, report, file_sha256,
@@ -926,7 +959,9 @@ def apply_to_job(job, proposal, plans, *, fixed_path, actor, problem, report, fi
         fixed_path = Path(fixed_path)
         job['downloaded_file'] = str(fixed_path)
         sources = job.get('sources') or []
-        if sources:
+        # Only a file row is repointed: a site page's profile list is not
+        # a list of files and stays as it was (#1373).
+        if sources and _is_file_row(sources[0]):
             job['sources'] = [dict(sources[0], path=str(fixed_path), name=fixed_path.name)]
         if isinstance(job.get('selected_source'), dict):
             job['selected_source'] = dict(job['selected_source'], path=str(fixed_path),

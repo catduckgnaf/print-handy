@@ -310,11 +310,11 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
     last_q = next(q for q in adapter.questions
-                  if q['choices'] and 'Slice and print with supports (bed is clear)' in q['choices'])
+                  if q['choices'] and 'Slice and print with supports, not recommended (bed is clear)' in q['choices'])
     choices = last_q['choices']
 
     assert choices[0] == 'Slice and print without supports (bed is clear)'
-    assert choices[1] == 'Slice and print with supports (bed is clear)'
+    assert choices[1] == 'Slice and print with supports, not recommended (bed is clear)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
     assert 'Reorient (lay flat)' in choices
@@ -437,7 +437,7 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
     assert 'Reorient (lay flat)' in ready[0]
     assert all('Reorient (lay flat)' not in choices for choices in ready[1:]) and len(ready) > 1
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -477,7 +477,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     assert any('already lies flat' in m for m in adapter.sent)
     assert not any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
     assert len(ready) == 2
     assert 'Reorient (lay flat)' in ready[0] and 'Reorient (lay flat)' not in ready[1]
     job = json.loads(Path(receipt['job_json']).read_text())

@@ -838,6 +838,18 @@ def check_expectations(case, run):
                           if line.startswith("; ") and " = " in line)
             for key, value in want["gcode_settings"].items():
                 assert header.get(key) == value, f"{path.name}: {key} = {header.get(key)!r}, expected {value!r}"
+    if "clearance_codes" in want:
+        report = run.job.get("support_clearance") or {}
+        codes = sorted({f.get("code") for f in report.get("findings") or []})
+        assert codes == sorted(want["clearance_codes"]), f"clearance codes {codes}\n{_transcript(run)}"
+    if "buttons_absent" in want:
+        offered = [label for q in run.adapter.questions for label in (q.get("choices") or [])]
+        for text in want["buttons_absent"]:
+            hit = [label for label in offered if text.casefold() in str(label).casefold()]
+            assert not hit, f"offered {hit!r}, expected no {text!r} button\n{_transcript(run)}"
+    if want.get("conversation_checks", True):
+        conversation_problems = conversation_checks(run)
+        assert not conversation_problems, "\n".join(conversation_problems) + "\n" + _transcript(run)
     if want.get("started", True):
         assert len(run.starts) == 1, "the start button path did not run exactly once"
     for row in gcode_checks(run):
@@ -849,6 +861,51 @@ def check_expectations(case, run):
         used_slots = sorted(set(row["mapping"].values()))
         if "slots" in want:
             assert len(used_slots) == want["slots"], used_slots
+
+
+def conversation_checks(run):
+    """Problems a person would notice in the conversation itself, for every case (#1373).
+
+    The corpus used to judge a run by its receipt alone (STARTED, scale,
+    colors), so a hard live intake that offered an option before its
+    numbers existed, asked about the same short spool twice and printed
+    with supports the operator had turned down still passed. These checks
+    read the questions, the posts and the sliced artifact:
+
+    - no question offers a "with supports" button while its line still
+      reads "slicing...";
+    - a spool shortage shown on the Ready question is not asked again at
+      the start;
+    - an operator's recorded supports decision is what the started G-code
+      (or, without a config block, the slice profile) says.
+    Returns a list of problem lines; empty when the conversation is sound.
+    """
+    problems = []
+    for q in run.adapter.questions:
+        text = str(q.get("question") or "")
+        if "with supports" in text and "slicing..." in text and any(
+                "with supports" in str(label) for label in q.get("choices") or []):
+            problems.append("a 'with supports' button was offered while its estimate still read 'slicing...'")
+            break
+    asked = [str(q.get("question") or "") for q in run.adapter.questions]
+    shown_short = any("short by about" in text and "Ready to slice" in text for text in asked)
+    if shown_short and any("short of filament" in text for text in asked):
+        problems.append("the spool shortage shown on the Ready question was asked again at the start")
+    decided = (run.job.get("support_decision") or {})
+    if decided.get("by") == "operator" and decided.get("supports") is not None:
+        want = "1" if decided["supports"] else "0"
+        from print_handy.core.edit_plan import gcode_config
+        seen = set()
+        for path in run.gcodes:
+            value = gcode_config(Path(path).read_text(errors="replace")).get("enable_support")
+            if value is not None:
+                seen.add(value.strip())
+        if not seen:
+            seen = slice_support_setting(run)
+        if seen and seen != {want}:
+            problems.append(f"the operator chose supports={decided['supports']} but the slice has "
+                            f"enable_support={sorted(seen)}")
+    return problems
 
 
 def _transcript(run):

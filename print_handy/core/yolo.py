@@ -44,6 +44,7 @@ _PREFERRED = (
     'Start next plate · bed is clear',
     'Slice and print now (bed is clear)',
     'Slice and print with supports (bed is clear)',
+    'Slice and print with supports, not recommended (bed is clear)',
     'Re-slice with supports',
 )
 _NEGATIVE = re.compile(r'^(cancel|stop|no\b|do not|don\'t|not now|skip)|\(cancel\)', re.I)

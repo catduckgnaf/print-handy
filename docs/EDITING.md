@@ -167,10 +167,14 @@ re-slices through the full intake so every gate runs again. A fix is never
 a waiver and never skips a check, and under yolo it is never auto-answered
 either: yolo hands the Fix offer and every Apply button to a person.
 Contradictory proposals (supports on and off, two scale changes) are
-refused, and every refusal names the item and why. The same offer appears
-on slice failures, slice refusals, a failed re-slice and post-slice gate
-failures; with no AI configured there is no offer, only a one-line note
-that a fix is available when AI is set up.
+refused, and every refusal names the item and why.
+
+The repair is something you ask for, like a design request. An intake
+never offers it as a last-resort button: slice failures, slice refusals, a
+failed re-slice and post-slice gate failures answer with their own
+deterministic choices (retry, print anyway, cancel) and say nothing about
+an AI fix (#1373). Ask "fix this" about the job afterwards when you want a
+repair.
 
 Rules the repair keeps:
 

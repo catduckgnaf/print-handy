@@ -101,6 +101,33 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
     assert len(opener.requests) == 1 and opener.requests[0]["model"] == "small-model"
 
 
+def test_llm_reply_telling_the_user_to_type_the_command_it_runs_is_dropped_1373(llm_cfg):
+    """Live #1373: "Cancel the print" got "Use `/print-stop` to request
+    cancellation" and, three seconds later, the stop confirm anyway. The
+    confirm is the answer; the contradicting instruction is not posted."""
+    opener = FakeLLM("Use `/print-stop` to request cancellation; it will ask you to confirm first.",
+                     "/print-stop")
+    discord, core = make(llm_cfg, opener)
+
+    async def flow():
+        task = asyncio.create_task(core.handle_message(discord.message("Cancel the print")))
+        for _ in range(300):
+            message = discord.last_question()
+            if message:
+                break
+            await asyncio.sleep(0.01)
+        assert message is not None, discord.sent
+        keep = next(cid for label, cid in message.buttons() if label == print_stop.KEEP_LABEL)
+        await discord.press(message, keep)
+        return await task
+
+    with mock.patch.object(print_stop, "status", return_value={"state": "printing", "filename": "a.gcode"}), \
+            mock.patch.object(print_stop, "_call"):
+        out = asyncio.run(flow())
+    assert out["reason"] == "deterministic print stop handled"
+    assert not any("/print-stop" in text for text in discord.sent), discord.sent
+
+
 def test_llm_keeps_bounded_context_per_session(llm_cfg):
     """A follow-up gets its own short context, never another user's turn."""
     llm.clear_history()
