@@ -2738,7 +2738,11 @@ def announce_warmup_done(filename):
     line = _objects_line(filename)
     if line:
         text += "\n" + line
-    text += "\nWarmup complete, now printing."
+    from ..core import status_voice
+    # print_monitor: the one in-print milestone post that exists. The key is
+    # per print and milestone, so a replayed edit keeps the same line.
+    text += "\n" + status_voice.voiced("Warmup complete, now printing.", "print_monitor",
+                                       event_key=f"{filename}:warmup_done")
     message_id = None
     channel_id = None
     try:

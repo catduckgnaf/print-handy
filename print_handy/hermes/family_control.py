@@ -365,6 +365,11 @@ def retire_headline(state: str) -> str:
     return _RETIRE_HEADLINES.get(str(state or ""), "Print ended.")
 
 
+# The status voice stage a plain lifecycle post reports. A cancel, a start
+# and an ended-at-the-printer post get no quip.
+FAMILY_EVENT_VOICE = {"complete": "print_complete", "error": "print_failure"}
+
+
 def post_family_event(kind: str, filename: str) -> bool:
     """A plain lifecycle post (start / terminal) in the shared format_event shape.
 
@@ -372,8 +377,14 @@ def post_family_event(kind: str, filename: str) -> bool:
     classifier decides the ping (#1095): terminal kinds ping the
     starter, a start post never does.
     """
-    return _mel().post(print_summary.format_event(kind, filename),
-                       ping_kind=kind, ping_job_key=filename)
+    text = print_summary.format_event(kind, filename)
+    stage = FAMILY_EVENT_VOICE.get(kind)
+    if stage:
+        # These plain terminal posts carry no completion or status roast, so
+        # one status quip may follow the facts on its own line.
+        from ..core import status_voice
+        text = status_voice.voiced(text, stage, separator="\n", event_key=f"{filename}:{kind}")
+    return _mel().post(text, ping_kind=kind, ping_job_key=filename)
 
 
 class PauseAlerts:
