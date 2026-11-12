@@ -54,6 +54,9 @@ def _drive(monkeypatch, tmp_path, transitions, *, stats=None, runout=None):
     monkeypatch.setattr(mel, "log", lambda line: None)
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: None)
     if runout is not _REAL:
+        # Never touch the shared runout state: the start-time settle (#1357)
+        # writes print_over back, which would leak an open question.
+        monkeypatch.setattr(mel, "RUNOUT_PAUSE_STATE", tmp_path / "runout_pause.json")
         monkeypatch.setattr(mel, "load_runout_pause", lambda *a, **kw: runout)
 
     async def _no_reminder():
