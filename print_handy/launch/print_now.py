@@ -218,6 +218,8 @@ def check_filament_amount(st, need):
                     spool = spoolman_client.get_spool(sid, base_url=base, timeout=5)
                 except Exception:
                     spool = None
+                if spool is None:
+                    base = ''  # Spoolman did not answer: the other slots use their records, no second wait
                 have = _grams((spool or {}).get('remaining_weight'))
                 source = 'spoolman' if have is not None else None
         if have is None:
