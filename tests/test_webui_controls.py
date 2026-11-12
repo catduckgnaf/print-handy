@@ -1304,3 +1304,45 @@ class RouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MoonrakerReplyTimeoutTests(unittest.TestCase):
+    """2026-11-08: Moonraker holds its reply until the AD5X macro finishes, past the 15 s
+    timeout. A reply that times out after the send is read back, not called a failure."""
+
+    class Moonraker:
+        connection = "moonraker"
+
+    def _control(self, action, states, body=None):
+        seq = iter(states)
+        posts = []
+
+        def post(view, path, payload=None):
+            posts.append(path)
+            raise TimeoutError("timed out")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(controls, "_moonraker_post", side_effect=post), \
+                mock.patch("print_handy.runtime.print_stop.time.sleep"):
+            code, out = controls.control(enabled(tmp), PRINTER, action, body, adapter=self.Moonraker(),
+                                         read=lambda adapter, view: {"state": next(seq)})
+        return code, out, posts
+
+    def test_resume_reply_timeout_reads_back_and_reports_success(self):
+        code, out, posts = self._control("resume", ["paused", "paused", "printing"])
+        self.assertEqual(code, 200, out)
+        self.assertIn("now reports printing", out["detail"])
+        self.assertEqual(posts, ["/printer/print/resume"])  # one send, never retried
+
+    def test_cancel_reply_timeout_reads_back_and_reports_success(self):
+        code, out, posts = self._control("cancel", ["printing", "printing", "cancelled"], {"confirm": True})
+        self.assertEqual(code, 200, out)
+        self.assertEqual(posts, ["/printer/print/cancel"])
+
+    def test_reply_timeout_with_no_state_change_names_the_state(self):
+        clock = iter(range(0, 10_000))
+        with mock.patch("print_handy.runtime.print_stop.time.monotonic",
+                        side_effect=lambda: float(next(clock))):
+            code, out, posts = self._control("pause", ["printing"] * 500)
+        self.assertEqual(code, 504)
+        self.assertIn("still reports printing", out["reason"])
+        self.assertEqual(posts, ["/printer/print/pause"])

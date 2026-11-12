@@ -458,7 +458,7 @@ def test_again_question_single_copy_and_unknown_figures_unchanged(tmp_path):
 
 
 def test_start_estimate_text_labels_sequential_copies_and_keeps_single_copy_wording():
-    single = "estimated print time ~1h 0m, plus warmup ~1h 5m total"
+    single = "estimated print time ~1h 0m, ~1h 5m total including warmup"
     assert print_control.start_estimate_text({"copies": 1}, 3600, 12.0) == single
     assert print_control.start_estimate_text({"copies": 1}, None, None) == "estimated print time unknown"
     assert print_control.start_estimate_text({"copies": 3}, 3600, 12.0) == (

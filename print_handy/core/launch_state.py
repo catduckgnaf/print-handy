@@ -497,6 +497,35 @@ def held(printer):
     return dict(row) if row is not None and row["phase"] != "leased" else None
 
 
+# An ``uncertain`` row is never released by guessing, so an old one says nothing about a start
+# happening right now; only a recent one counts as a start in flight.
+IN_FLIGHT_UNCERTAIN_S = LEASED_TTL_S
+
+
+def in_flight(printer, now=None):
+    """The printer's launch that is under way right now, or None. Never creates a database.
+
+    A live ``leased`` row (checks and upload) or ``submitting`` row, or an ``uncertain`` row
+    updated within IN_FLIGHT_UNCERTAIN_S. What /print-stop asks while the printer still reads
+    standby: a start in flight is something to stop, not "nothing to stop".
+    """
+    printer = printer or settings.default_printer_id()
+    if not os.environ.get("PRINT_HANDY_LAUNCH_DB") and not (settings.printer_state_dir(printer) / "jobs.db").is_file():
+        return None
+    with transaction(printer) as con:
+        row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
+    if row is None:
+        return None
+    if row["phase"] == "leased":
+        return None if _leased_abandoned(row, now=now) else dict(row)
+    if row["phase"] == "submitting":
+        return dict(row)
+    try:
+        updated = datetime.strptime(row["updated_at"] or row["leased_at"], "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except (TypeError, ValueError):
+        return None
+    return dict(row) if (time.time() if now is None else now) - updated <= IN_FLIGHT_UNCERTAIN_S else None
+
 def pending(printer=None):
     """Held leases: one printer's, or every roster printer's when none is named."""
     if printer is not None or os.environ.get("PRINT_HANDY_LAUNCH_DB"):

@@ -62,6 +62,9 @@ routes and inside raw G-code scripts alike. A family with no
 existing temperature command path refuses cleanly (501). Every route
 re-reads the printer first: an unreachable printer is an explicit 502
 failure and a printer in the wrong state is a 409; both send nothing.
+A Moonraker pause, resume or cancel whose reply times out after the
+request went out is read back (print_stop.read_back) for up to 90 s:
+reaching the action's state is success, otherwise a 504 naming the state.
 
 Each function returns ``(http_code, body)`` in the Web UI's ``{ok,
 reason}`` shape. ``read`` and ``send`` are injectable for tests, which
@@ -106,6 +109,11 @@ _ALLOWED_FROM = {"pause": ("printing",), "resume": ("paused",),
 _REACHED = {"pause": lambda s: s == "paused", "resume": lambda s: s == "printing",
             "cancel": lambda s: s not in ("printing", "paused", "unknown")}
 _SEND_TIMEOUT_S = 15
+# What a Moonraker control send returns when the request went out but the reply
+# timed out (print_stop.post_print_command): Moonraker holds that reply until the
+# printer's PAUSE/RESUME/CANCEL macro finishes, so the state read-back decides.
+NO_REPLY = object()
+_READBACK_POLL_S = 2.0
 
 OFF_REASON = ("printer controls are off: set [webui] controls_enabled = true "
               "to allow them. Nothing sent.")
@@ -152,7 +160,10 @@ def default_send(adapter, view, command):
     if command[0] == "control":
         action = command[1]
         if connection == "moonraker":
-            return _moonraker_post(view, f"/printer/print/{action}")
+            from ..runtime import print_stop
+            replied = print_stop.post_print_command(
+                lambda path, **_kw: _moonraker_post(view, path), f"/printer/print/{action}")
+            return None if replied else NO_REPLY
         if connection == "offline" or not callable(getattr(adapter, "control", None)):
             raise ControlError(501, f"print controls are not supported for "
                                     f"{connection or 'this'} printers. Nothing sent.")
@@ -261,7 +272,8 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
         detail = f"{action} sent; check the printer's status for the result."
         service = printer_control.for_printer(printer_id, adapter=adapter, view=view)
         try:
-            service.send(("control", action), sender=send)
+            if service.send(("control", action), sender=send) is NO_REPLY:
+                detail = _read_back_after_no_reply(adapter, view, read, action)
         except ControlError:
             raise
         except urllib.error.HTTPError as exc:
@@ -287,6 +299,22 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": action, "from_state": state,
                  "detail": detail}
+
+
+def _read_back_after_no_reply(adapter, view, read, action):
+    """The detail for a control whose reply timed out after it was sent: the printer's own answer.
+
+    Re-reads for up to print_stop.NO_REPLY_WAIT_S; success when the printer reaches the
+    action's state, a 504 naming the state it still reports otherwise. Never resent.
+    """
+    from ..runtime import print_stop
+    now = print_stop.read_back(lambda: _live_state(adapter, view, read), _REACHED[action],
+                               print_stop.NO_REPLY_WAIT_S, _READBACK_POLL_S)
+    if now is not None and _REACHED[action](now):
+        return f"{action} sent; the printer was slow to answer and now reports {now}."
+    raise ControlError(504, f"{action} sent, but the printer has not answered and still reports "
+                            f"{now or 'unknown'} after {print_stop.NO_REPLY_WAIT_S:.0f}s. "
+                            "Check the printer. Not retried.")
 
 
 def set_temperature(data, printer_id, body=None, *, adapter=None, read=None, send=None):
