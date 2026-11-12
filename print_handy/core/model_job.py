@@ -24,6 +24,7 @@ from typing import Any, NamedTuple
 from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
 from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client, start_recorder
+from . import start_truth
 from .filament_warnings import FilamentWarningPending
 from .site_accounts import SiteLoginNeeded
 from .threemf_canonical import intake_working_copy
@@ -7481,32 +7482,15 @@ def _printer_phase(st, native=None):
     return state, filename, "Printing" if accepted else idle
 
 
-class StartReadback(NamedTuple):
-    outcome: str
-    evidence: Any
-    message: str
+# The Moonraker start truth (#1318): the baseline classifier and its helpers live in start_truth.
+StartReadback = start_truth.StartReadback
+classify_start_readback = start_truth.classify_start_readback
+_readback_status = start_truth._readback_status
+_same_job = start_truth._same_job
 
 
 START_READBACK_QUERY = ("/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard"
                         "&idle_timeout&webhooks&toolhead")
-
-
-def _readback_status(snapshot):
-    """The Klipper object map inside a Moonraker query reply (or a bare map); {} for anything else."""
-    if not isinstance(snapshot, dict):
-        return {}
-    if isinstance(snapshot.get("result"), dict) and isinstance(snapshot["result"].get("status"), dict):
-        return snapshot["result"]["status"]
-    if isinstance(snapshot.get("status"), dict):
-        return snapshot["status"]
-    return snapshot
-
-
-def _same_job(now, before):
-    """Whether two print_stats reads show the same job: a new load resets state, file and durations.
-    State and file are always compared; a duration only where both reads carry it."""
-    keys = ["state", "filename"] + [k for k in ("total_duration", "print_duration") if k in now and k in before]
-    return all(now.get(k) == before.get(k) for k in keys)
 
 
 def _start_baseline(st, *, native=True):
@@ -7542,186 +7526,6 @@ def _baseline_heats(baseline):
     return False
 
 
-def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
-    """Pure function classifying printer status after submission.
-
-    Outcomes:
-    - 'preparing': accepted, with heating, homing or prep evidence.
-    - 'printing': state printing.
-    - 'failed': error or cancelled.
-    - 'unconfirmed': no evidence.
-
-    `baseline` is the status read immediately before the start request (_start_baseline). With one,
-    only what CHANGED counts: a print_stats job identity (state, file, durations) equal to the
-    baseline's is the previous run's leftover, so its complete/cancelled/error state and file name say
-    nothing about this start; heater targets count only where the baseline proved them 0. An empty
-    baseline (unreadable) proves no change at all. Without a baseline (None) the live signals count as
-    before, but a file name or homed axes alone never do: a reprint of the same artifact reports the
-    same name, and Klipper keeps axes homed between prints.
-    """
-    status = _readback_status(status_snapshot)
-    has_base = baseline is not None
-    base = _readback_status(baseline) if has_base else {}
-
-    def obj(source, name):
-        value = source.get(name)
-        return value if isinstance(value, dict) else {}
-
-    def fresh(name, key, value):
-        """Evidence counts with no baseline (legacy callers), or when it differs from a readable one."""
-        if not has_base:
-            return True
-        return bool(base) and obj(base, name).get(key) != value
-
-    ps = status.get("print_stats") if isinstance(status.get("print_stats"), dict) else {}
-    base_ps = obj(base, "print_stats")
-    # A new job identity: the printer loaded a job since the baseline (only provable from a readable one).
-    new_job = bool(base_ps) and bool(ps) and not _same_job(ps, base_ps)
-    ext = status.get("extruder") if isinstance(status.get("extruder"), dict) else {}
-    bed = status.get("heater_bed") if isinstance(status.get("heater_bed"), dict) else {}
-    vsd = status.get("virtual_sdcard") if isinstance(status.get("virtual_sdcard"), dict) else {}
-    idle = status.get("idle_timeout") if isinstance(status.get("idle_timeout"), dict) else {}
-    hooks = status.get("webhooks") if isinstance(status.get("webhooks"), dict) else {}
-    toolhead = status.get("toolhead") if isinstance(status.get("toolhead"), dict) else {}
-
-    raw_state = ps.get("state") or status.get("state")
-    state = raw_state.lower() if isinstance(raw_state, str) else None
-
-    # 1. Failed. Klipper shut down is failure whatever ran before; an error or cancelled print_stats is
-    # this start's only when it is not the previous job's leftover (same identity as the baseline).
-    hook_state = (hooks.get("state") or "").lower() if isinstance(hooks.get("state"), str) else ""
-    job_failed = state in ("error", "cancelled") and (not has_base or new_job)
-    if job_failed or hook_state in ("error", "shutdown"):
-        fail_state = state if job_failed else hook_state
-        return StartReadback(
-            outcome="failed",
-            evidence={"state": fail_state},
-            message=f"print failed: state is {fail_state}",
-        )
-
-    # 2. Printing
-    if state == "printing":
-        filament_used = None
-        for k in ("filament_used", "filament_used_mm", "filament_length"):
-            if k in ps:
-                filament_used = ps[k]
-                break
-            if k in status:
-                filament_used = status[k]
-                break
-
-        extruder_delta = None
-        for candidate in (
-            status.get("extruder_position_delta"),
-            status.get("extruder_delta"),
-            ext.get("position_delta"),
-            ext.get("delta"),
-            toolhead.get("extruder_position_delta"),
-            toolhead.get("extruder_delta"),
-        ):
-            if candidate is not None:
-                extruder_delta = candidate
-                break
-
-        extrusion_confirmed = False
-        if filament_used is not None:
-            try:
-                if float(filament_used) > 0:
-                    extrusion_confirmed = True
-            except (ValueError, TypeError):
-                pass
-        if extruder_delta is not None:
-            try:
-                if float(extruder_delta) > 0:
-                    extrusion_confirmed = True
-            except (ValueError, TypeError):
-                pass
-
-        msg = "printing" if extrusion_confirmed else "printing (extrusion not yet confirmed)"
-        evidence = {
-            "state": "printing",
-            "filament_used": filament_used,
-            "extruder_position_delta": extruder_delta,
-            "extrusion_confirmed": extrusion_confirmed,
-            "info": ps.get("info") or status.get("info"),
-        }
-        return StartReadback(outcome="printing", evidence=evidence, message=msg)
-
-    # 3. Preparing
-    prep_evidence = {}
-    heater_targets = {}
-
-    def proven_off(name):
-        """Without a baseline any target counts (legacy); with one, only where it read exactly 0."""
-        if not has_base:
-            return True
-        try:
-            return float(obj(base, name).get("target")) == 0
-        except (TypeError, ValueError):
-            return False
-
-    for name, heater in (("extruder", ext), ("heater_bed", bed)):
-        t = heater.get("target")
-        if t is not None and proven_off(name):
-            try:
-                if float(t) > 0:
-                    heater_targets[name] = float(t)
-            except (ValueError, TypeError):
-                pass
-    for name, key in (("extruder", "extruder_target"), ("heater_bed", "heater_bed_target")):
-        if key in status and proven_off(name):
-            try:
-                if float(status[key]) > 0:
-                    heater_targets[name] = float(status[key])
-            except (ValueError, TypeError):
-                pass
-    if heater_targets:
-        prep_evidence["heating"] = heater_targets
-
-    # Klipper keeps the axes homed between prints, so homed axes are evidence only when the baseline
-    # showed them unhomed; a homing-in-progress flag is live.
-    homed = toolhead.get("homed_axes") or status.get("homed_axes")
-    if homed and has_base and base and not obj(base, "toolhead").get("homed_axes"):
-        prep_evidence["homing"] = homed
-    elif toolhead.get("homing") or status.get("homing"):
-        prep_evidence["homing"] = True
-
-    if (vsd.get("is_active") is True and fresh("virtual_sdcard", "is_active", True)) \
-            or (vsd.get("file_path") and fresh("virtual_sdcard", "file_path", vsd.get("file_path"))):
-        prep_evidence["virtual_sdcard"] = vsd.get("file_path") or True
-    if (idle.get("state") == "Printing" and fresh("idle_timeout", "state", "Printing")) \
-            or status.get("idle_state") == "Printing":
-        prep_evidence["idle_timeout"] = "Printing"
-    if hook_state == "printing" and fresh("webhooks", "state", hooks.get("state")):
-        prep_evidence["webhooks"] = "Printing"
-    if new_job and ps.get("filename") and state not in ("error", "cancelled"):
-        # The printer loaded a job since the baseline (state, file or durations changed): the
-        # caller has already matched the file to this upload. A name alone is never evidence.
-        prep_evidence["new_job"] = ps.get("filename")
-    if status.get("preparation_evidence") is True or status.get("prep") is True:
-        prep_evidence["preparation_evidence"] = True
-    if status.get("ifs_loading") or status.get("ifs_load"):
-        prep_evidence["ifs_loading"] = True
-    ifs_obj = status.get("zmod_ifs") if isinstance(status.get("zmod_ifs"), dict) else {}
-    if (ifs_obj.get("state") or ifs_obj.get("feed") or ifs_obj.get("action")) \
-            and (not has_base or (bool(base) and obj(base, "zmod_ifs") != ifs_obj)):
-        prep_evidence["zmod_ifs"] = ifs_obj
-
-    if prep_evidence:
-        return StartReadback(
-            outcome="preparing",
-            evidence=prep_evidence,
-            message="printer accepted the job and is preparing (heating/loading); not a failure; do not resubmit",
-        )
-
-    # 4. Unconfirmed
-    return StartReadback(
-        outcome="unconfirmed",
-        evidence=None,
-        message="submitted, awaiting confirmation",
-    )
-
-
 def _preparation_evidence(st):
     """True when a heater target is set (native start preparation), False when all are 0,
     None when unreadable. Read-only; used only after exactly one submission."""
@@ -7750,16 +7554,14 @@ def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
     t0=time.monotonic(); state=None; prep_seen=False
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
-        unchanged = leftover is not None and (state, fn) == leftover
-        # A ZMod .gcode.3mf prints as 3mf_print/X.gcode; an exact compare never matched and sat out wait_s.
-        if state=="printing" and launch_state.same_remote(fn, remote): return "printing"
-        if state in ("error","cancelled") and not unchanged: return state
+        step = start_truth.moonraker_wait_step(state, fn, remote, leftover)
+        if step: return step  # this upload printing, or this start ended in error/cancelled
         if prep_check and time.monotonic()-t0 > 2:
             try:
                 prep = prep_check(st)
                 if prep is True: prep_seen=True
-                elif prep is False and prep_seen and (state == "standby" or unchanged):
-                    return "abandoned"  # prep ended, never printed
+                elif start_truth.moonraker_abandoned(prep, prep_seen, state, fn, leftover):
+                    return start_truth.ABANDONED  # prep ended, never printed
             except Exception: pass
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
@@ -7940,10 +7742,7 @@ def _read_start_readback(st, remote, *, native=True, baseline=None):
     """
     try:
         snap = _mr(st, START_READBACK_QUERY + ("&zmod_ifs" if native else ""))  # generic Klipper has no ZMod objects
-        ps = (snap.get("result", {}).get("status", {}) or {}).get("print_stats") or {}
-        if not _native_file_matches(ps.get("filename"), remote):
-            return True, None
-        return True, classify_start_readback(snap, baseline)
+        return True, start_truth.moonraker_readback(snap, remote, baseline)
     except Exception:
         return False, None
 
@@ -7966,28 +7765,12 @@ def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True, bas
     what lets an HTTP 4xx answer be treated as "definitely not started".
     """
     readable, readback = _read_start_readback(st, remote, native=native, baseline=baseline)
+    # Heater targets are read only when print_stats does not name this file; they count only when the
+    # baseline proved every heater off before the request.
     heating = _preparation_evidence(st) if readback is None else None
-    quiet = readable and readback is None and heating is False
-    if readback is None and heaters_were_off and heating is True:
-        # The idle guard proved every heater target was 0 before this one submission, so targets set now
-        # are this job's preparation (2026-10-30: the screenless SET_ZCOLOR POST held open through warmup
-        # and timed out after 30 s).
-        return {'phase': 'preparing', 'outcome': 'preparing', 'accepted': True, 'started': True,
-                'preparation_evidence': True, 'quiet': False,
-                'message': 'start response was lost; the printer is heating for this job'}
-    if readback is None:
-        return {'phase': 'preparing_or_unresolved', 'outcome': 'unknown', 'accepted': False, 'started': False,
-                'quiet': quiet,
-                'message': 'start response was lost; printer status does not yet identify this file; do not resubmit'}
-    fields = {'readback': readback._asdict(), 'quiet': False}
-    if readback.outcome == 'printing':
-        return {'phase': 'executing', 'outcome': 'printing', 'accepted': True, 'started': True,
-                'message': readback.message, **fields}
-    if readback.outcome == 'preparing':
-        return {'phase': 'preparing', 'outcome': 'preparing', 'accepted': True, 'started': True,
-                'message': readback.message, **fields}
-    return {'phase': 'preparing_or_unresolved', 'outcome': 'unknown', 'accepted': False, 'started': False,
-            'message': 'the submitted file is visible but start progress is unresolved; do not resubmit', **fields}
+    truth = start_truth.moonraker(readback, heating=heating, heating_counts=bool(heaters_were_off),
+                                  readable=readable)
+    return start_truth.lost_fields(truth)
 
 
 def _start_rejection(exc):
@@ -8139,11 +7922,10 @@ def _start_visibly_running(st, remote, heaters_were_off):
     heater targets are set now that were proven off immediately before the POST. Unreadable: False."""
     try:
         state, fn, _busy = _printer_phase(st)
-        if state in ("printing", "paused") and launch_state.same_remote(fn, remote):
-            return True
     except Exception:
-        pass
-    return bool(heaters_were_off) and _preparation_evidence(st) is True
+        state = fn = None
+    return start_truth.moonraker_running(state, fn, remote, heaters_were_off=heaters_were_off,
+                                        heating=lambda: _preparation_evidence(st))
 
 
 START_OUTCOME_MARK = "START READBACK "  # "MAPPED START READBACK " contains it, so one parser reads both
@@ -8169,7 +7951,7 @@ def _emit_mapped_outcome(out):
     _emit_start_outcome(out, mark='MAPPED START READBACK ')
 
 
-def _uncertain_after_submission(lease, remote, exc, *, method, phase='awaiting_confirmation', extra=None,
+def _uncertain_after_submission(lease, remote, exc, *, method, phase=start_truth.PHASE_AWAITING, extra=None,
                                 mark=START_OUTCOME_MARK):
     """A failure after the start request went out (a readback that raised, a Klippy restart, a 503).
 
@@ -8185,7 +7967,7 @@ def _uncertain_after_submission(lease, remote, exc, *, method, phase='awaiting_c
     release_start_announcement(remote)
     message = f'the start was sent, but reading the printer back failed ({reason}); do not resubmit'
     out = {**(extra or {}), 'started': False, 'accepted': False, 'file': remote, 'method': method,
-           'phase': phase, 'outcome': 'unknown', 'message': message}
+           **start_truth.uncertain_fields(phase), 'message': message}
     print('UNCERTAIN: ' + message, flush=True)
     if extra is not None:
         print(mark.replace('READBACK', 'DETAIL') + json.dumps(out, default=str), flush=True)
@@ -8198,8 +7980,8 @@ def _submission_failed(lease, remote, label, exc):
     claim released, outcome line printed, never resubmitted. Raises."""
     lease.uncertain(f"{label} submission did not complete: {exc!r}")
     release_start_announcement(remote)
-    _emit_start_outcome({'started': False, 'accepted': False, 'file': remote, 'phase': 'awaiting_confirmation',
-                         'outcome': 'unknown', 'message': f'{label} submission did not complete; do not resubmit'})
+    _emit_start_outcome({'started': False, 'accepted': False, 'file': remote, **start_truth.uncertain_fields(),
+                         'message': f'{label} submission did not complete; do not resubmit'})
     if isinstance(exc, RuntimeError):
         raise SystemExit(f"{label} submission failed or uncertain: {exc}. Do not resubmit without "
                          "checking printer status.") from exc
@@ -8211,7 +7993,7 @@ def _submission_failed(lease, remote, label, exc):
 START_CONFIRM_DEFAULT_S = 45
 START_CONFIRM_POLL_S = 3
 # Normalized states that mean "accepted, still starting" (heating the bed, running its calibration).
-START_TRANSITIONAL_STATES = frozenset({"heating", "calibrate_doing", "busy", "preparing", "starting"})
+START_TRANSITIONAL_STATES = start_truth.START_TRANSITIONAL_STATES
 
 
 def _start_confirm_window_s():
@@ -8228,16 +8010,17 @@ class StartPoll(NamedTuple):
 
 
 def _reports_started(live, remote):
-    """Printing or a transitional state, naming this upload (launch_state.same_remote)."""
-    state = live.get("state")
-    return ((state == "printing" or state in START_TRANSITIONAL_STATES)
-            and launch_state.same_remote(live.get("filename"), remote))
+    """Printing or a transitional state, naming this upload (launch_state.same_remote): start_truth.polled."""
+    return start_truth.polled(live, remote).confirmed
 
 
 def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START_CONFIRM_POLL_S,
-                             reports=_reports_started, job_path=None, stage="start_confirm",
-                             evidence_of=None, on_snapshot=None):
-    """Poll `read_status()` (a normalized status dict) until `reports(live, remote)` or `window_s` ends.
+                             reports=None, job_path=None, stage="start_confirm",
+                             evidence_of=None, on_snapshot=None, truth=None):
+    """Poll `read_status()` (a normalized status dict) until the start truth confirms or `window_s` ends.
+
+    `truth(live, remote)` is the transport's start-truth function (start_truth.polled by default, with
+    the caller's baseline bound in); a legacy yes/no `reports(live, remote)` matcher is still accepted.
 
     Never raises for a bad read: an exception counts as a snapshot, the window keeps running and the last
     readable status is what is reported. Every snapshot is written to the job's TIMING.jsonl so an
@@ -8245,6 +8028,7 @@ def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START
     tests drive the window without sleeping.
     """
     window_s = _start_confirm_window_s() if window_s is None else float(window_s)
+    judge = truth or (start_truth.from_reports(reports) if reports is not None else start_truth.polled)
     started = _confirm_clock()
     deadline = started + window_s
     last_good, snapshots = {}, 0
@@ -8265,8 +8049,9 @@ def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START
         if on_snapshot:
             on_snapshot(evidence)
         _timing(job_path, stage, **evidence)
-        if reports(live, remote):
-            return StartPoll(True, live.get("state") in START_TRANSITIONAL_STATES, live, snapshots, window_s)
+        verdict = judge(live, remote)
+        if verdict.confirmed:
+            return StartPoll(True, verdict.verdict == start_truth.PREPARING, live, snapshots, window_s)
         remaining = deadline - _confirm_clock()
         if remaining <= 0:
             return StartPoll(False, False, last_good, snapshots, window_s)
@@ -8280,28 +8065,22 @@ def _settle_polled_start(lease, poll, remote, *, method, uncertain_detail=None, 
     refuses another start. Anything else leaves it uncertain and frees the start claim so the listener
     posts the start when the printer reaches the file. Nothing here ever resubmits.
     """
+    phase, outcome, message = start_truth.polled_fields(poll.confirmed, poll.preparing)
     if poll.confirmed:
         lease.release()
-        if poll.preparing:
-            phase, outcome = "preparing", "preparing"
-            message = "printer accepted the job and is preparing (heating/calibrating); not a failure; do not resubmit"
-        else:
-            phase, outcome, message = "executing", "printing", "printing"
     else:
         lease.uncertain(uncertain_detail or (
             f"submitted, awaiting confirmation; printer reported state {poll.live.get('state') or 'unknown'}, "
             f"file {poll.live.get('filename') or 'none'!r} on the last of {poll.snapshots} snapshot(s) "
             f"over {poll.window_s:g}s"))
         release_start_announcement(remote)
-        phase, outcome = "awaiting_confirmation", "unconfirmed"
-        message = "submitted, awaiting confirmation; do not resubmit"
     return {"started": poll.confirmed, "accepted": True, "file": remote, "method": method, "phase": phase,
             "outcome": outcome, "live": poll.live, "message": message, **extra}
 
 
 def _announce_polled_outcome(out):
     """The legacy human line plus the uniform outcome line, last so a 6-line tail always holds it."""
-    print(("PRINT STARTED " if out["phase"] == "executing" else "START SUBMITTED; AWAITING CONFIRMATION ")
+    print(("PRINT STARTED " if out["phase"] == start_truth.PHASE_EXECUTING else "START SUBMITTED; AWAITING CONFIRMATION ")
           + json.dumps(out, default=str))
     _emit_start_outcome(out)
 
@@ -8697,7 +8476,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         recorder.finish('refused', rejection=receipt_error)
         raise SystemExit(_rejected_start_message(receipt_error))
     _timing(job_path, 'start_submitted')
-    out = {'accepted': False, 'started': False, 'phase': 'submitted_unconfirmed',
+    out = {'accepted': False, 'started': False, 'phase': start_truth.PHASE_SUBMITTED,
            'file': remote, 'artifact': str(g), 'sha256': sha,
            'gcode_sha256': sha, 'upload_sha256': upload_sha, 'mapping': mapping,
            'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
@@ -8709,7 +8488,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
         # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
         out = _uncertain_after_submission(lease, remote, exc, method='mapped_native',
-                                          phase='preparing_or_unresolved', extra=dict(out),
+                                          phase=start_truth.PHASE_UNRESOLVED, extra=dict(out),
                                           mark='MAPPED START READBACK ')
         _write_checkpoint(checkpoint, out)
         recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
@@ -8738,7 +8517,18 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
     state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence, baseline=baseline)
-    if state == 'abandoned':
+
+    def read_readback():
+        try:
+            return start_truth.moonraker_readback(_mr(st, START_READBACK_QUERY), remote, baseline)
+        except Exception:
+            return None
+
+    # The request was answered, and the native route heats for its own start, so set heater targets
+    # are this start's preparation here (#836: provisional; the lease stays uncertain until printing).
+    truth = start_truth.moonraker(read_readback, waited=state, heating=lambda: _preparation_evidence(st),
+                                  heating_counts=True)
+    if truth.verdict == start_truth.NOT_STARTED and truth.source == 'abandoned':
         # #848 review: the printer heated for this start (targets proven off just before the POST),
         # then went back to standby cold without ever printing it. Nothing is printing, so the
         # printer is free: release it now instead of leaving an uncertain lease that nothing
@@ -8749,35 +8539,11 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         _write_checkpoint(checkpoint, {**out, 'phase': 'abandoned', 'rejection': reason})
         recorder.finish('abandoned', phase='abandoned', moonraker_state=state)
         raise SystemExit(_rejected_start_message(reason))
-    readback = None
-    try:
-        snap = _mr(st, START_READBACK_QUERY)
-        ps = snap.get('result', {}).get('status', {}).get('print_stats', {})
-        if _native_file_matches(ps.get('filename'), remote):
-            readback = classify_start_readback(snap, baseline)
-    except Exception:
-        pass
-
-    if state == 'printing' or (readback and readback.outcome == 'printing'):
-        out.update(accepted=True, started=True, phase='executing', moonraker_state='printing',
-                   outcome='printing', message=(readback.message if readback else 'printing'),
-                   extrusion_confirmed=bool(readback and (readback.evidence or {}).get('extrusion_confirmed')))
-    else:
-        # The AD5X native route heats and loads the IFS slot for several minutes before
-        # print_stats reports printing (2026-10-16: ~7 min). The idle guard proved heaters
-        # were off before this one submission, so targets set now prove acceptance.
-        preparing = _preparation_evidence(st)
-        is_prep = preparing is True or bool(readback and readback.outcome == 'preparing')
-        outcome_val = 'preparing' if is_prep else (readback.outcome if readback else 'unconfirmed')
-        msg = readback.message if readback else 'submitted, awaiting confirmation'
-        out.update(accepted=is_prep, started=is_prep, moonraker_state=state,
-                   phase='preparing' if is_prep else 'preparing_or_unresolved',
-                   outcome=outcome_val,
-                   message=msg, preparation_evidence=preparing)
+    out.update(start_truth.mapped_fields(truth))
     _write_checkpoint(checkpoint, out)
-    if out['accepted'] and out.get('moonraker_state') == 'printing':
+    if truth.verdict == start_truth.STARTED:
         lease.release()  # printing; the busy printer now refuses another start
-    elif out['accepted']:
+    elif truth.verdict == start_truth.PREPARING:
         # #836: preparation evidence is provisional. The printer may still abandon this start
         # (heat, fail the IFS load, drop back to standby), so the lease stays uncertain until
         # the printer reports this file printing; launch_state.acquire() self-settles it from
@@ -9022,7 +8788,9 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
                                  observed_file=observed)
     try:
         try:
-            client.require_ready(client.status())  # again inside the lease
+            ready = client.status()  # again inside the lease; also the start-truth baseline
+            client.require_ready(ready)
+            start_baseline = adapter.normalize_status(ready)
         except RuntimeError as exc:
             raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
@@ -9041,7 +8809,8 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         _submission_failed(lease, remote, 'OctoPrint', exc)
     # Accepted is not proof of printing: poll the readback over the confirmation window. No resubmission.
     poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage='octoprint_start_confirm')
+                                    job_path=job_path, stage='octoprint_start_confirm',
+                                    truth=lambda live, rem: start_truth.octoprint(live, rem, start_baseline))
     out = _settle_polled_start(lease, poll, remote, method='octoprint')
     confirmed = out['started']
     if confirmed:
@@ -9080,28 +8849,20 @@ def _bambu_reports_file(live, remote):
     `printing` covers gcode_state RUNNING, PREPARE and SLICING: an A1 unpacking a package sits
     in PREPARE before RUNNING, and both prove the start reached it. The file name is the
     `subtask_name` the start command set, so exact; the bare project name (the printer's
-    display spelling of the same package) is accepted too.
+    display spelling of the same package) is accepted too. The rule is start_truth.bambu's.
     """
-    if live.get("state") != "printing":
-        return False
-    reported = str(live.get("filename") or "")
-    if not reported:
-        return False
-    accepted = {remote}
-    for suffix in (".gcode.3mf", ".3mf"):
-        if remote.endswith(suffix):
-            accepted.add(remote[:-len(suffix)])
-    return reported in accepted
+    return start_truth.bambu(live, remote).confirmed
 
 
-def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S):
+def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S, baseline=None):
     """Poll status snapshots until the printer reports `remote` running or preparing, or `window_s` ends.
 
     Returns (confirmed, last normalized status, snapshots taken). The shared poll
     (_poll_start_confirmation) does the work; Bambu adds its own evidence fields (gcode_state, print_stage)
     and matcher (_bambu_reports_file). Every snapshot is logged at INFO and written to the job's
     TIMING.jsonl so an unconfirmed start leaves evidence of what the printer said, not just that it said
-    nothing (#271). A read error counts as a snapshot and the window keeps running.
+    nothing (#271). A read error counts as a snapshot and the window keeps running. `baseline` is the
+    idle snapshot read inside the lease: only a subtask transition from it counts (start_truth.bambu).
     """
     def log(evidence):
         error = evidence.get("error")
@@ -9111,7 +8872,8 @@ def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAM
 
     poll = _poll_start_confirmation(
         lambda: adapter.normalize_status(client.snapshot()), remote, window_s=window_s, poll_s=poll_s,
-        reports=_bambu_reports_file, job_path=job_path, stage="bambu_start_confirm", on_snapshot=log,
+        truth=lambda live, rem: start_truth.bambu(live, rem, baseline), job_path=job_path,
+        stage="bambu_start_confirm", on_snapshot=log,
         evidence_of=lambda live: {"state": live.get("state"), "gcode_state": live.get("gcode_state"),
                                   "file": live.get("filename"), "print_stage": live.get("stage")})
     return poll.confirmed, poll.live, poll.snapshots
@@ -9179,7 +8941,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
     from ..printers.bambulab import ams_mapping as _ams
     try:
         try:
-            live_snapshot, _norm2 = ready_snapshot()  # again inside the lease: the first read may predate another start
+            live_snapshot, start_baseline = ready_snapshot()  # again inside the lease: the first read may predate another start
         except RuntimeError as exc:
             raise refuse(exc) from exc
         try:
@@ -9205,7 +8967,9 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
     # Accepted is not proof of printing. No resubmission on delayed readback: the printer is polled
     # over the confirmation window (#271) and the lease stays uncertain if it never reports this file.
     window_s = _bambu_start_confirm_window()
-    confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s)
+    confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s,
+                                                      baseline=start_baseline)
+    # Bambu has always reported a confirmed start, PREPARE included, as executing (#271).
     poll = StartPoll(confirmed, False, live, snapshots, window_s)
     out = _settle_polled_start(
         lease, poll, remote, method="bambulab_lan",
@@ -9277,7 +9041,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
                                  observed_file=observed_norm.get("filename"))
     try:
         try:
-            ready_status()  # again inside the lease
+            _raw, start_baseline = ready_status()  # again inside the lease; also the start-truth baseline
         except RuntimeError as exc:
             raise refuse(exc) from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
@@ -9294,7 +9058,8 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
     except BaseException as exc:
         _submission_failed(lease, remote, "SDCP", exc)
     poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
-                                    job_path=job_path, stage="sdcp_start_confirm")
+                                    job_path=job_path, stage="sdcp_start_confirm",
+                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
     out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
     confirmed = out["started"]
     if confirmed:
@@ -9363,7 +9128,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
                                  observed_file=observed_norm.get("filename"))
     try:
         try:
-            ready_snapshot()  # again inside the lease
+            _snapshot, start_baseline = ready_snapshot()  # again inside the lease; also the start-truth baseline
         except RuntimeError as exc:
             raise refuse(exc) from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
@@ -9380,7 +9145,8 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
     except BaseException as exc:
         _submission_failed(lease, remote, "PrusaLink", exc)
     poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.snapshot()), remote,
-                                    job_path=job_path, stage="prusalink_start_confirm")
+                                    job_path=job_path, stage="prusalink_start_confirm",
+                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
     out = _settle_polled_start(lease, poll, remote, method="prusalink")
     confirmed = out["started"]
     if confirmed:
@@ -9501,7 +9267,8 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
                                  observed_file=observed.get("filename"))
     try:
         try:
-            ready_snapshot()  # again inside the lease: the first read may predate another start
+            # again inside the lease: the first read may predate another start; also the start-truth baseline
+            start_baseline = ready_snapshot()
         except RuntimeError as exc:
             raise refuse(exc) from exc
         _claim_bed_clear(job_path, job, gcode, reprint)
@@ -9518,7 +9285,8 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     except BaseException as exc:
         _submission_failed(lease, remote, "stock Flashforge", exc)
     poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.detail()), remote,
-                                    job_path=job_path, stage="flashforge_stock_start_confirm")
+                                    job_path=job_path, stage="flashforge_stock_start_confirm",
+                                    truth=lambda live, rem: start_truth.polled(live, rem, start_baseline))
     out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
     confirmed = out["started"]
     if confirmed:
@@ -9578,21 +9346,20 @@ def _confirm_generic_start(st, remote, wait_s, lease, baseline=None):
     """
     state = _wait_printing(st, remote, wait_s, baseline=baseline)
     readable, readback = _read_start_readback(st, remote, native=False, baseline=baseline)
-    if state == "printing" or (readback and readback.outcome == "printing"):
+    truth = start_truth.moonraker(readback, waited=state, readable=readable)
+    if truth.verdict == start_truth.STARTED:
         return None, readback, state
-    if readback and readback.outcome == "preparing":
+    if truth.verdict == start_truth.PREPARING:
         lease.release()  # accepted; the busy printer now refuses another start
-        return {"started": True, "accepted": True, "phase": "preparing", "outcome": "preparing", "file": remote,
-                "method": "print/start", "message": readback.message}, readback, state
-    if readback and readback.outcome == "failed":
+        return start_truth.generic_fields(truth, file=remote, method="print/start"), readback, state
+    if truth.verdict == start_truth.NOT_STARTED:
         release_start_announcement(remote)
         lease.release()  # the printer reports this file's start failed
         raise SystemExit("The printer did not start the print, and it was not retried. "
                          "Check the printer screen before trying again." + _detail_tail(readback.message))
     lease.uncertain("submitted, awaiting confirmation")  # reconciled when the printer reports this file
     release_start_announcement(remote)
-    return {"started": False, "accepted": True, "phase": "awaiting_confirmation", "outcome": "unconfirmed",
-            "file": remote, "method": "print/start", "message": "submitted, awaiting confirmation"}, readback, state
+    return start_truth.generic_fields(truth, file=remote, method="print/start"), readback, state
 
 
 def _owning_job(g):
@@ -9832,7 +9599,7 @@ def _start_confirmed(out):
         return False
     if out.get("started") is True:
         return True
-    return bool(out.get("accepted")) and str(out.get("phase") or "") in ("executing", "preparing")
+    return bool(out.get("accepted")) and str(out.get("phase") or "") in start_truth.CONFIRMED_PHASES
 
 
 def _start_pending(out):
@@ -9843,8 +9610,7 @@ def _start_pending(out):
     """
     if not isinstance(out, dict) or _start_confirmed(out):
         return False
-    return bool(out.get("accepted")) and str(out.get("phase") or "") in (
-        "awaiting_confirmation", "preparing_or_unresolved", "submitted_unconfirmed")
+    return bool(out.get("accepted")) and str(out.get("phase") or "") in start_truth.PENDING_PHASES
 
 
 def _find_intake_receipt(job, job_path, gcode, sha):
@@ -10277,7 +10043,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         recorder.finish(out.get("outcome") or "unknown", phase=out.get("phase"))
         return out
     lease.release()  # printing; the busy printer now refuses another start
-    recorder.finish("printing", phase="executing", moonraker_state=state)
+    recorder.finish("printing", phase=start_truth.PHASE_EXECUTING, moonraker_state=state)
     # Mint this launch's number BEFORE the start record, so the record (and
     # the completion record built from it) carries this print's own number.
     try: print_no=_assign_print_number(job_path, artifact=g)
@@ -10292,9 +10058,9 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     est=gcode_estimate_s(text); fg=_filament_total_g(text)
     warm=5*60; now=datetime.now(ZoneInfo(TIMEZONE))
     title=(job or {}).get("title") or g.stem
-    out={"started":True,"title":title,"print_number":print_no,"file":remote,"method":method,
-         "phase":"executing","outcome":"printing","message":(readback.message if readback else "printing"),
-         "extrusion_confirmed":bool(readback and (readback.evidence or {}).get("extrusion_confirmed")),
+    start_verdict = start_truth.moonraker(readback, waited=state)  # the verdict _confirm_generic_start reached
+    out={"started":start_verdict.confirmed,"title":title,"print_number":print_no,"file":remote,"method":method,
+         **start_truth.generic_fields(start_verdict),
          "print_time":human_dur(est) if est else None,"filament_g":round(fg) if fg is not None else None,
          "finish_et":(now+timedelta(seconds=(est or 0)+warm)).strftime("%-I:%M %p %a") if est else None}
     if delivery: out["delivery_format"]=delivery
