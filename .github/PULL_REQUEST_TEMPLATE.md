@@ -64,7 +64,7 @@ Closure check:
 
 ## Scope and acceptance criteria
 
-<!-- State what is included and explicitly excluded. Link existing related work to avoid overlapping implementations. Keep this PR draft until required acceptance checks are complete. -->
+<!-- State what is included and explicitly excluded. Link existing related work to avoid overlapping implementations. Keep this PR draft until required acceptance checks are complete. A criterion ticked as met, or a table row marked Met, names the test that proves it through the production entry point (tests/test_x.py::test_y), or says "evidence:" and what proves it; contribution-policy fails otherwise (CONTRIBUTING.md, Evidence for a met criterion). -->
 
 - Acceptance criteria:
 - Out of scope / remaining work:
@@ -120,6 +120,7 @@ Variables reason:
 - [ ] User-visible behavior, configuration and limitations match the docs and release note.
 - [ ] Documentation impact and wiki impact were reviewed, including any exemption or deferral.
 - [ ] Tests cover the changed behavior; reported checks match actual evidence.
+- [ ] Each test cited for a met criterion exercises the production entry point (command, route, handler, CLI or loader), not only a library function.
 - [ ] Tests added are named in the Tests added section, or the reason for adding none is specific and credible; added tests pin the changed behavior or regression, not only the happy path.
 - [ ] Regression scoping is credible: the full suite and neighboring regression areas were considered, and any exclusion or coverage gap is named with its reason.
 - [ ] Safety/authorization guards and contributor attribution are preserved.
