@@ -46,6 +46,12 @@ Hardening (the drift classes from #791):
   echo of Print Handy's own bind (which writes the claim and the lane
   record together), not a screen-side change: it is adopted silently,
   with no announcement and no mid-print note (#1063).
+- A lane record whose own inner ``lane`` field names a different slot
+  than the key it sits under is self-contradicting — writers that keep
+  entries by their lane field can strand one under another slot's key
+  where the key-colliding writers overlap. It is named once as a slot
+  disagreement and never converged into either slot (#1304); the
+  print-start self-check applies the same distrust (#1020 D3).
 
 Announcements follow the #483 watcher pattern: an event waits in a
 persisted "pending" map until the caller reports it delivered, is
@@ -611,6 +617,32 @@ class LaneDataWatcher:
                 seen.pop(slot, None)
             else:
                 seen[slot] = cur_fp
+
+        # -- the record's own lane field names a different slot (#1304) ----
+        if lane is not None:
+            inner_slot = lane.get("lane_slot")
+            if inner_slot is not None and inner_slot != slot:
+                # Writers that keep lane entries by their inner ``lane``
+                # field (the published zmod_nfc behavior) can leave a
+                # record under another slot's key in the zone where the
+                # key-colliding writers overlap (#852). The print-start
+                # self-check already distrusts that disagreement (#1020
+                # D3); the converge path must too — acting on the key's
+                # slot could bind the spool to the wrong physical slot,
+                # and acting on the inner slot would trust one field of
+                # a self-contradicting record. Name it, change nothing.
+                spool_part = (f" naming spool #{lane['spool_id']}"
+                              if lane.get("spool_id") is not None else "")
+                self._queue(pending, noted, slot, "slot_disagreement",
+                            f"**HelixScreen lane needs attention:** the lane record stored "
+                            f"under {_slot(slot)} says it belongs to {_slot(inner_slot)}"
+                            f"{spool_part}, so Print Handy cannot tell which slot it "
+                            "describes. Nothing was changed: no slot was rebound from it. "
+                            "Correct the record at the printer, or relink the slot it "
+                            f"really describes with `/spool change {inner_slot} <spool#>`.",
+                            action, spool_id=lane.get("spool_id"))
+                adopt()
+                return True
 
         # -- cleared lane --------------------------------------------------
         if lane is None or (lane["spool_id"] is None and not lane["material"] and not lane["color"]):

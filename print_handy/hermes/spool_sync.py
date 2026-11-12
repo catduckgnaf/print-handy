@@ -6,7 +6,10 @@ stays human-readable (`IFS Slot N` / `Shelf`) and is written but never read
 as truth, and ``printer_hardware.json``'s ``filament_slots`` is a cache that
 :func:`reconcile` rebuilds from Spoolman. The AD5X screen is *told* what
 Spoolman says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=` macro and
-through the Moonraker ``lane_data`` record written on a bind (#791). The
+through the Moonraker ``lane_data`` record written on a bind (#791) — the
+record only on families with screen lane sync: a printer whose adapter
+declares none (the multi-tool Creator family, whose ``lane_data`` keys are
+``T0``..``T3``) gets no IFS-shaped record in its namespace (#1304). The
 inbound direction — screen-initiated changes read back from ``lane_data``
 and converged through :func:`reconcile` — lives in ``lane_data_sync``.
 
@@ -866,15 +869,6 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
     lane_data = "not requested"
     if push_screen_update:
-        # The lane_data side of the screen converge (#791): write this slot's
-        # record beside the CHANGE_ZCOLOR push_screen sends below (the gcode
-        # itself is not duplicated here). Best effort, like the screen push:
-        # a Moonraker database failure names itself and never fails the bind.
-        try:
-            write_lane_record(slot, spool, mr=mr, name=record["name"])
-            lane_data = "written"
-        except Exception:
-            lane_data = "not updated — run `/spool sync` to try again"
         try:
             if printer_id:
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr,
@@ -884,6 +878,26 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr, pending_path=pending_path)
         except Exception as exc:
             screen = "not updated — run `/spool sync` to try again"
+        if screen == "unsupported":
+            # The family has no screen lane sync (the multi-tool adapter
+            # declares none; its lane_data namespace is keyed T0..T3, not
+            # laneN): an IFS-shaped lane record would sit in that namespace
+            # as a foreign record, and writers that find entries by their
+            # lane field could act on it as another toolhead's (#1304).
+            # The bind's Spoolman side above stands; only the record is
+            # skipped.
+            lane_data = "unsupported"
+        else:
+            # The lane_data side of the screen converge (#791): write this
+            # slot's record beside the CHANGE_ZCOLOR push_screen sent above
+            # (the gcode itself is not duplicated here). Best effort, like
+            # the screen push: a Moonraker database failure names itself
+            # and never fails the bind.
+            try:
+                write_lane_record(slot, spool, mr=mr, name=record["name"])
+                lane_data = "written"
+            except Exception:
+                lane_data = "not updated — run `/spool sync` to try again"
     else:
         screen = "not requested"
     screen_note = (screen_fallback_note(record["material"], _printer_adapter(printer_id))
