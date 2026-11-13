@@ -1372,7 +1372,8 @@ def test_capacity_zero_full_size_split_names_the_reorientation_and_its_supports(
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     scale_prompt = next(q for q in adapter.questions if 'does not fit the' in q['question'])
     assert scale_prompt['choices'][0] == '100% · split 2 plates'
-    assert 'Part 1 (reoriented: Rotate 90° on Y, needs supports) on plate 1' in scale_prompt['question']
+    # #1380: the label ends with why the part was tipped.
+    assert 'Part 1 (reoriented: Rotate 90° on Y, needs supports; too ' in scale_prompt['question']
     assert 'Part 2 on plate 2' in scale_prompt['question']
     job_data = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())
     assert job_data['full_size_split_plan']['plates'] == [['1:1'], ['2:1']]
@@ -1419,7 +1420,7 @@ def test_capacity_zero_full_size_split_names_a_diagonal_reorientation_turn(env, 
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     scale_prompt = next(q for q in adapter.questions if 'does not fit the' in q['question'])
     assert scale_prompt['choices'][0] == '100% · split 2 plates'
-    assert ('Part 1 (reoriented: Rotate 90° on Y, turned 45° on the bed) on plate 1'
+    assert ('Part 1 (reoriented: Rotate 90° on Y, turned 45° on the bed; too big for the bed lying as designed'
             in scale_prompt['question'])
     assert 'Part 2 on plate 2' in scale_prompt['question']
     job_data = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())

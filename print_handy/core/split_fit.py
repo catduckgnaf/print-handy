@@ -379,20 +379,53 @@ def _rank_reorientation_candidates(candidates):
 
 
 def _ranked_reorientation_candidates(candidates):
-    """Proved reorientation candidates in offer order (#221 diagonal).
+    """Proved reorientation candidates in offer order (#221 diagonal, #1380).
 
-    Candidates whose bed turn is cardinal (0 or 90 degrees) rank ahead of
-    candidates that need a diagonal turn — each class internally in the
-    fit-quality order of :func:`_rank_reorientation_candidates`. A diagonal
-    turn is an additional candidate class, never a replacement: when any
-    cardinal-turn candidate is proved, the winner is exactly the one R1
-    would have recorded, and diagonal candidates only ever add fits for
-    parts no cardinal reorientation could fit.
+    A pose that needs no supports ranks ahead of every pose that does
+    (#1380: tipping a designer-placed part onto supports is the last
+    resort, so a diagonal turn without supports beats a cardinal one with
+    them). Within each supports class, cardinal bed turns (0 or 90 degrees)
+    rank ahead of diagonal ones, each in the fit-quality order of
+    :func:`_rank_reorientation_candidates`. Ranking only orders proved
+    candidates; it never creates one.
     """
-    cardinal = [c for c in candidates if c['yaw_deg'] in (0.0, 90.0)]
-    diagonal = [c for c in candidates if c['yaw_deg'] not in (0.0, 90.0)]
-    return (_rank_reorientation_candidates(cardinal)
-            + _rank_reorientation_candidates(diagonal))
+    ordered = []
+    for needs_supports in (False, True):
+        group = [c for c in candidates if bool(c['supports']) is needs_supports]
+        cardinal = [c for c in group if c['yaw_deg'] in (0.0, 90.0)]
+        diagonal = [c for c in group if c['yaw_deg'] not in (0.0, 90.0)]
+        ordered += _rank_reorientation_candidates(cardinal) + _rank_reorientation_candidates(diagonal)
+    return ordered
+
+
+# The smallest uniform size offered for a split that keeps every part as designed (#1380).
+DESIGNER_POSE_MIN_SCALE = 0.5
+
+
+def designer_pose_scale(extent, best_ratio, height_limit):
+    """Largest uniform scale (at most 1) at which a part fits lying as designed, at its best bed turn.
+
+    ``best_ratio`` is the best yaw's worst usable-area ratio from
+    :func:`mesh_yaw_candidates` at full size; a footprint scales linearly,
+    so the part fits at ``1 / best_ratio``. Height scales the same way.
+    Floored to 0.1% so the offered size never rounds up past the proof.
+    """
+    limits = [1.0]
+    if best_ratio > 0:
+        limits.append(1.0 / best_ratio)
+    if extent[2] > 0:
+        limits.append(height_limit / extent[2])
+    return math.floor(min(limits) * 1000 - 1e-6) / 1000
+
+
+def turn_reason(extent, height_limit, usable, best_envelope):
+    """Why a part had to be tipped onto another face: plain words for the question (#1380)."""
+    if extent[2] > height_limit + 1e-9:
+        return (f'too tall to stand as designed ({extent[2]:g} mm, the printer takes '
+                f'{height_limit:g} mm)')
+    return (f'too big for the bed lying as designed at any turn (best '
+            f'{best_envelope[0]:.1f} x {best_envelope[1]:.1f} mm on a usable '
+            f'{usable[0]:.1f} x {usable[1]:.1f} mm)')
 
 
 def _reorientation_candidates(source, oid, item_points, usable, height_limit):
@@ -649,6 +682,9 @@ def per_part_fit(source, bed=None, height=None, exclusions=None, brim_policy=Non
                                       'brim_recommended', 'bed_contact_mm2', 'overhang_mm2')}
                     fits = True
             yaw, envelope = chosen if chosen else (best_deg, best_envelope)
+            pose_scale = designer_pose_scale(extent, _ratio, height_limit)
+            why_turned = (turn_reason(extent, height_limit, usable, best_envelope)
+                          if reorientation else None)
             reason = None
             if not fits:
                 if extent[2] > height_limit + 1e-9:
@@ -685,6 +721,8 @@ def per_part_fit(source, bed=None, height=None, exclusions=None, brim_policy=Non
                          'feature_edge_mm': round(feature, 3),
                          'fits_full_size': bool(fits),
                          'reorientation': reorientation,
+                         'designer_pose_scale': pose_scale,
+                         'turn_reason': why_turned,
                          'placement_mm': list(placement) if placement else None,
                          'exclusions_mm': [[round(v, 3) for v in rect] for rect in exclusions],
                          'blocking_reason': reason})
@@ -1109,8 +1147,68 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
         plan['yaw_by_object'] = yaw_by_object
     if reorientation_by_object:
         plan['reorientation_by_object'] = reorientation_by_object
+        plan['turn_reason_by_object'] = {row['object_id']: row['turn_reason'] for row in report
+                                         if row.get('reorientation') and row.get('turn_reason')}
     if placement_by_object:
         plan['placement_by_object'] = placement_by_object
     if any(shifts_by_plate):
         plan['shifts_by_plate'] = shifts_by_plate
+    if reorientation_by_object and not exclusions_eff:
+        alternative = designer_pose_plan(plan, report, by_object)
+        if alternative:
+            plan['designer_pose'] = alternative
     return plan
+
+
+def designer_pose_plan(plan, report, keys_by_object):
+    """The same split at the largest size where no part is tipped onto another face (#1380), or None.
+
+    A full-size split may stand a designer-placed part on another face, often
+    onto supports. This alternative keeps every part the way its designer laid
+    it out, turned only in the bed plane, at one uniform scale for the whole
+    project so assembled parts still fit each other: the smallest
+    :func:`designer_pose_scale` of the parts the full-size plan reoriented.
+    Every plate is realized through the exporter's whole-plate fit, which
+    scales a plate's selected items about one origin and keeps their layout:
+    a plate the full-size plan slices as authored keeps its grouping, and any
+    plate that needed shifts, a shared turn or a reorientation is broken into
+    one plate per object (a shrunken layout of shifted objects is not
+    something the whole-plate fit can realize). Each solo object keeps its
+    full-size turn, and a formerly reoriented part takes its best designer-pose
+    turn, at which it fits by construction. Never on an exclusion bed (the
+    caller checks): a scaled placement was never proved.
+    Returns {'scale', 'plates', 'yaw_by_object'} or None below
+    DESIGNER_POSE_MIN_SCALE.
+    """
+    rows = {row['object_id']: row for row in report}
+    reoriented = set(plan.get('reorientation_by_object') or {})
+    if not reoriented:
+        return None
+    scale = min(rows[oid]['designer_pose_scale'] for oid in reoriented)
+    if not DESIGNER_POSE_MIN_SCALE <= scale < 1.0:
+        return None
+    full_yaw = plan.get('yaw_by_object') or {}
+    shifts = plan.get('shifts_by_plate') or []
+    key_to_object = {key: oid for oid, keys in keys_by_object.items() for key in keys}
+    plates, yaw_by_object = [], {}
+    for index, keys in enumerate(plan['plates']):
+        objects = list(dict.fromkeys(key_to_object[key] for key in keys))
+        shifted = index < len(shifts) and shifts[index] is not None
+        transformed = [oid for oid in objects if oid in reoriented or oid in full_yaw]
+        if len(objects) > 1 and (shifted or transformed):
+            groups = [[key for key in keys if key_to_object[key] == oid] for oid in objects]
+        else:
+            groups = [list(keys)]
+        for group in groups:
+            plates.append(group)
+            members = {key_to_object[key] for key in group}
+            if len(members) != 1:
+                continue
+            oid = next(iter(members))
+            if oid in reoriented:
+                degrees = float(rows[oid]['best_yaw_deg'])
+            else:
+                degrees = float(full_yaw.get(oid) or 0.0)
+            if degrees > 0:
+                yaw_by_object[oid] = degrees
+    return {'scale': scale, 'plates': plates, **({'yaw_by_object': yaw_by_object} if yaw_by_object else {})}

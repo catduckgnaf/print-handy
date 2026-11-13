@@ -1739,6 +1739,38 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     return Path(combined['path'])
 
 
+def designer_pose_text(split_plan, rows, parts_count=None):
+    """The plain trade-off when a full-size split tips parts onto another face (#1380), or ''.
+
+    Names how many parts full size stands on another face (and whether they
+    need supports), then the size at which every part prints as its designer
+    laid it out: the as-designed split when one is offered, else the plain
+    shrink when that is offered. Says nothing when no part was reoriented.
+    """
+    reoriented = (split_plan or {}).get('reorientation_by_object') or {}
+    if not reoriented:
+        return ''
+    # The question lists parts, and one reoriented object can hold several of them.
+    count = parts_count or len(reoriented)
+    braced = any(isinstance(row, dict) and row.get('supports') for row in reoriented.values())
+    parts = 'part' if count == 1 else 'parts'
+    lead = (f' Full size stands {count} {parts} on another face'
+            f"{' with supports' if braced else ''}, because {'it does' if count == 1 else 'they do'} "
+            f"not fit the bed the way the designer laid {'it' if count == 1 else 'them'} out.")
+    designed = next((row for row in rows if row.get('designer_pose')), None)
+    if designed is not None:
+        return (lead + f" At {_fit_pct(designed['scale'])}, every part prints as designed, "
+                f"on {len(designed['plates'])} plates.")
+    shrink = next((row for row in rows if row.get('kind') == 'scale'), None)
+    if shrink is not None:
+        return lead + f" Shrinking to {_fit_pct(shrink['scale'])} keeps the designer's orientation."
+    return lead
+
+
+def _fit_pct(scale):
+    return f'{round(float(scale) * 100, 1):g}%'
+
+
 SPLIT_TURN_SUPPORTS_NOTE = ('Parts the split turned to fit ({names}) keep the supports their new pose needs, '
                             'whichever supports choice you make here.')
 
@@ -2705,6 +2737,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 placement_by_object = split_plan.get('placement_by_object') or {}
                 shifts_by_plate = split_plan.get('shifts_by_plate') or []
                 reorientation_by_object = split_plan.get('reorientation_by_object') or {}
+                turn_reasons = split_plan.get('turn_reason_by_object') or {}
                 from print_handy.core.orca_adapter import UP_AXES as _UP_AXES
                 for index, part_keys in enumerate(split_plan['plates'], 1):
                     plate_shifts = (shifts_by_plate[index - 1]
@@ -2734,6 +2767,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                 label += ', needs supports'
                             if reorientation.get('brim_recommended'):
                                 label += ', brim recommended'
+                            why = turn_reasons.get(object_by_key.get(part_key, ''))
+                            if why:
+                                label += f'; {why}'
                             label += ')'
                         labels.append(label)
                     distribution.append(f"{', '.join(labels)} on plate {index}")
@@ -2744,8 +2780,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 else:
                     lead = (f"{title} does not fit the {_printer_name()} bed full size as one plate, even rearranged. "
                             f"Full size works as {len(split_plan['plates'])} plates: ")
-                prompt = (lead + '; '.join(distribution) +
-                          '. Choose a fit option, or type ' + fit_hint(picked)[len(FIT_HINT_PREFIX):])
+                tipped = sum(1 for keys in split_plan['plates'] for part_key in keys
+                             if object_by_key.get(part_key, '') in reorientation_by_object)
+                prompt = (lead + '; '.join(distribution) + '.'
+                          + designer_pose_text(split_plan, picked, parts_count=tipped) +
+                          ' Choose a fit option, or type ' + fit_hint(picked)[len(FIT_HINT_PREFIX):])
             else:
                 prompt = fit_question(title, options, picked)
             # Fits at 100% by rotation alone (no supports): just do it, no question, no announcement.
@@ -2796,8 +2835,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 mj.write_job(folder, latest)
             if row['kind'] == 'split':
                 latest['plate_mode'] = 'separate'
-                latest['scale'] = 1.0
-                if row.get('plates'):
+                latest['scale'] = float(row.get('scale') or 1.0)
+                if row.get('designer_pose'):
+                    # The as-designed split (#1380): every plate at one smaller
+                    # scale, no part reoriented, so it carries only turns.
+                    latest['full_size_split_plan'] = {'plates': row['plates'], 'scale': latest['scale'],
+                                                      **({'yaw_by_object': row['yaw_by_object']}
+                                                         if row.get('yaw_by_object') else {})}
+                elif row.get('plates'):
                     latest['full_size_split_plan'] = {'plates': row['plates'],
                                                       **({'yaw_by_object': row['yaw_by_object']}
                                                          if row.get('yaw_by_object') else {}),
@@ -2806,11 +2851,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       **({'shifts_by_plate': row['shifts_by_plate']}
                                                          if row.get('shifts_by_plate') else {}),
                                                       **({'reorientation_by_object': row['reorientation_by_object']}
-                                                         if row.get('reorientation_by_object') else {})}
+                                                         if row.get('reorientation_by_object') else {}),
+                                                      **({'turn_reason_by_object': row['turn_reason_by_object']}
+                                                         if row.get('turn_reason_by_object') else {})}
                 latest.pop('orientation', None)
                 latest.pop('full_size_rearrange_plan', None)
                 receipt['full_size_split'] = True
-                receipt['scale'] = 1.0
+                if row.get('designer_pose'):
+                    receipt['split_as_designed'] = True
+                receipt['scale'] = latest['scale']
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 mj.write_job(folder, latest)
             selected_scale = row.get('scale', 1.0)
