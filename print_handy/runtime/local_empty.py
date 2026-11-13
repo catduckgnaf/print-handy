@@ -66,7 +66,7 @@ REFERENCE_MAX_AGE_DAYS = 30
 # and exposure shifts; what remains is structure — a part on the
 # plate. The Stage 1 gate (zero false-empty across >= 300 part-present
 # frames, >= 95% true-empty across lighting states) is measured
-# against these constants in tests/hermes/test_local_empty.py on
+# against these constants in tests/runtime/test_local_empty.py on
 # synthetic fixtures.
 GRID_COLS = 24
 GRID_ROWS = 18

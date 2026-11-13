@@ -27,7 +27,7 @@ from print_handy.core import model_job, spoolman_client
 from print_handy.launch import print_now
 from print_handy.runtime import print_records
 
-from tests.hermes.test_spool_usage_runaway_1374 import (
+from tests.runtime.test_spool_usage_runaway_1374 import (
     BASELINE_G, DENSITY, DIAMETER, FILE, PRINT_MM, RUNAWAY_MM, SPOOL, FakeSpoolman, _drive, grams,
 )
 

@@ -36,7 +36,7 @@ from print_handy.runtime import spool_sync
 # --------------------------------------------------------------- (a) Spoolman race
 
 class FakeSpoolman:
-    """The stateful fake from tests/hermes/test_spool_reconcile.py, made
+    """The stateful fake from tests/runtime/test_spool_reconcile.py, made
     thread-safe and given a rendezvous: the first per-spool GET for each
     target spool waits at a barrier, so both binds are provably inside
     Spoolman traffic at the same time."""

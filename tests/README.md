@@ -16,11 +16,11 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Guided setup | `tests/bot/test_guided.py`, `test_guided_multi.py`, `tests/test_setup_wizard.py` |
 | Bot health / heartbeat / listener transport | `tests/bot/test_health_and_transport.py`, `tests/test_listener_health.py`, `tests/test_listener_gate.py` |
 | (removed) Hermes profile platform switch (#384) | the reader, its doctor/bot-check rows and its tests were deleted with the Hermes install and runtime mode |
-| Moonraker listener, announcements, completion delivery | `tests/hermes/test_lane_b.py`, `test_print_messages.py`, `test_completion_delivery.py`, `test_paused_job_gone.py`, `test_print_alert_buttons.py` |
-| Timelapse: Moonraker delivery contract (#373) | `tests/hermes/test_timelapse_delivery_contract.py` |
-| Timelapse: launched-print monitors (OctoPrint / stock / Bambu / Prusa / Elegoo SDCP) | `tests/hermes/test_octo_watch.py`, `test_stock_watch.py`, `test_bambu_watch.py`, `test_prusa_watch.py`, `tests/printers/test_prusa_camera.py`, `test_elegoo_watch.py`, `tests/printers/test_elegoo_sdcp_camera.py` |
-| Timelapse: capture, encode, sizing, plan clips, vertical short | `tests/hermes/test_timelapse_capture.py`, `test_timelapse_encode.py`, `test_platform_media_sizing.py`, `test_plan_timelapse.py`, `test_vertical_short.py`, `test_timelapse_cli_transport.py` |
-| Roast (one per print, #374) + roast generator fail-soft | `tests/hermes/test_print_messages.py`, `tests/pipeline/test_prepared_intake.py` |
+| Moonraker listener, announcements, completion delivery | `tests/runtime/test_lane_b.py`, `test_print_messages.py`, `test_completion_delivery.py`, `test_paused_job_gone.py`, `test_print_alert_buttons.py` |
+| Timelapse: Moonraker delivery contract (#373) | `tests/runtime/test_timelapse_delivery_contract.py` |
+| Timelapse: launched-print monitors (OctoPrint / stock / Bambu / Prusa / Elegoo SDCP) | `tests/runtime/test_octo_watch.py`, `test_stock_watch.py`, `test_bambu_watch.py`, `test_prusa_watch.py`, `tests/printers/test_prusa_camera.py`, `test_elegoo_watch.py`, `tests/printers/test_elegoo_sdcp_camera.py` |
+| Timelapse: capture, encode, sizing, plan clips, vertical short | `tests/runtime/test_timelapse_capture.py`, `test_timelapse_encode.py`, `test_platform_media_sizing.py`, `test_plan_timelapse.py`, `test_vertical_short.py`, `test_timelapse_cli_transport.py` |
+| Roast (one per print, #374) + roast generator fail-soft | `tests/runtime/test_print_messages.py`, `tests/pipeline/test_prepared_intake.py` |
 | Intake / slicing pipeline / model job | `tests/pipeline/`, `tests/core/`, `tests/slicer/`, `tests/corpus/` |
 | Slice failure explanations and worker transport | `tests/core/test_slice_failure.py`; `tests/pipeline/test_prepared_intake.py` exercises one/two copies, direct/serialized errors, safe cleanup, no upload/start, and a failed retry; `tests/pipeline/test_orca_adapter.py` exercises both engine failures and retained logs. These offline tests inject failures; they do not prove that a private model slices successfully. |
 | Model sites via API (#462): Thingiverse inventory/download; MyMiniFactory inventory plus the OAuth sign-in download (#464), the Cloudflare-challenge stop and the token never following a redirect to another host | `tests/pipeline/test_thingiverse_sites.py`, `tests/pipeline/test_myminifactory_sites.py` |
@@ -45,7 +45,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Web UI (status, config, login, roster) | `tests/test_webui_*.py` |
 | Web UI webserver (real HTTP: every-route auth sweep, page/API shapes, camera proxy route, Data/Wrapped route gates, control/spools body plumbing, malformed-input robustness, concurrency, startup/bind rules incl. #1042) | `tests/test_webui_webserver.py` |
 | Wrapped / Data tab (#956, #981 v1.1 + v2 + sharing + video/TTS: watchdog events, receipt/JOB joins, per-color grams, timelapse name join, slide presentation, music bed, narration) | `tests/test_print_stats_wrapped.py`, `tests/test_wrapped_v2.py`, `tests/test_wrapped_sharing.py`, `tests/test_wrapped_video_real_ffmpeg.py`, `tests/test_wrapped_video_tts.py` |
-| Vision verdict evaluation harness (#455 item 4, Stage 0): session-fixture manifest contract, watchdog-cadence replay, per-print outcome accounting, box-geometry detached experiment | `tests/hermes/test_vision_eval_harness.py`, fixtures in `tests/hermes/fixtures/vision_eval/`, harness in `tests/hermes/vision_eval/` |
+| Vision verdict evaluation harness (#455 item 4, Stage 0): session-fixture manifest contract, watchdog-cadence replay, per-print outcome accounting, box-geometry detached experiment | `tests/runtime/test_vision_eval_harness.py`, fixtures in `tests/runtime/fixtures/vision_eval/`, harness in `tests/runtime/vision_eval/` |
 | Doctor / bot check surfaces | `tests/test_doctor.py`, `tests/bot/test_health_and_transport.py` |
 | Settings / config loading | `tests/test_settings.py`, `tests/test_print_handy_cfg.py`, `tests/test_webui_config*.py` |
 | Docs / contribution policy / post-release surfaces / pre-release checklist | `tests/test_docs_index_contract.py`, `tests/test_contribution_policy.py`, `tests/test_post_release_surfaces_workflow.py`, `tests/test_pre_release_checklist.py` |
@@ -203,7 +203,7 @@ Phase 2 additions (#594):
   and per-journey scale, plate count, exactly one start and embedded tool to slot mapping assertions. Cancelling the
   fit prompt slices nothing, starts nothing and uploads nothing. These run the fake slicer: they prove the Discord and
   pipeline journey, not real slicing. Real Orca per PR covers the generated corpus in the `ci.yml` real Orca job.
-- Ack order: `tests/hermes/test_component_ack_order.py` checks the interaction response is sent before the slow call
+- Ack order: `tests/runtime/test_component_ack_order.py` checks the interaction response is sent before the slow call
   for plate confirm, intake Retry, and spool-question same and cancel. The spool-question pair was a strict xfail
   until the handlers were fixed to acknowledge first (P2-164); the markers are gone.
   These are ordering tests with a fake Discord, not a real 3 s network proof. Not covered: insertion, new-spool and

@@ -30,7 +30,7 @@ The 4 failures in that shard were
 `test_visual_check_alerts_on_air_uncertain_and_endpoint_error`,
 `test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second` and
 `test_concurrent_suspicious_checks_pause_only_once`
-(all `tests/hermes/test_visual_print_watch.py`) plus
+(all `tests/runtime/test_visual_print_watch.py`) plus
 `SettingsParityTests.test_every_documented_env_name_is_accepted_by_the_loader`
 with `env='PRINT_HANDY__VISION__ROAST_MODEL'` (`tests/test_docker_release.py`).
 The other shards of the same run failed on sibling tests from the same two
@@ -72,14 +72,14 @@ in another shard or a dedicated job on the same PR.
 | # | Category | Location | Verdict | Action taken | Evidence |
 |---|---|---|---|---|---|
 | 1 | Missing binary (shipped dependency) | `tests/core/test_design.py:29`, `tests/pipeline/test_render_preview.py:12`, `tests/test_design_dispatch.py:33` (openscad/xvfb-run) | install-and-run | `ci.yml` offline legs now install `openscad xvfb xauth` (step modeled on the existing ffmpeg/jq steps) | Dockerfile runtime stage installs openscad and xvfb; `print_handy/core/design.py`, `cad_split.py` and `render_preview.py` shell out to openscad; `docs/DESIGN.md` and `docs/STANDALONE.md` document it as a requirement |
-| 2 | Missing binary (shipped dependency) | `tests/hermes/test_issue_514_photo_intake.py:589` (tesseract) | install-and-run | `ci.yml` offline legs now install `tesseract-ocr` in the same step | Dockerfile runtime stage installs tesseract-ocr; `print_handy/hermes/spool_label.py:376-417` is the live local OCR route and only offers itself when the binary exists |
+| 2 | Missing binary (shipped dependency) | `tests/runtime/test_issue_514_photo_intake.py:589` (tesseract) | install-and-run | `ci.yml` offline legs now install `tesseract-ocr` in the same step | Dockerfile runtime stage installs tesseract-ocr; `print_handy/hermes/spool_label.py:376-417` is the live local OCR route and only offers itself when the binary exists |
 | 3 | Extension not built in job | `tests/pipeline/test_native_bounds.py:73,82,126,236` (38 skips in the screenshot shard) | install-and-run | `ci.yml` offline legs build the bounds wheel exactly as the `native-bounds` job does (pinned rustup 1.99.1, maturin 1.16.0, skeleton staging, wheel install, `.so` mirrored into the source package) and set `PRINT_HANDY_BOUNDS_REQUIRE_NATIVE=1` so a missing extension hard-fails instead of skipping | The dedicated `native-bounds` job (3.12 and 3.14) already ran this file with the extension; the offline legs ran the same file without building it |
 | 4 | Dead fixture reference (host-only folder) | `tests/pipeline/test_color_geometry.py` (5 tests), `tests/pipeline/test_tower_conflicts.py:66` (1 test) — `PRINT_HANDY_COUPONS` / sol_recovery coupon 3MF | repair with shipped fixture | Tests now use the shipped corpus case `tests/corpus/cases/assembly-3c-tight/model.3mf` (3 parts, 3 source extruders, inventory-verified); the env gate is deleted. The `painted` refusal case now builds the file's own real painted fixture (`_painted_two_plate_source`) and drops the `filament:2` decision so a painted state is genuinely uncovered | No workflow sets `PRINT_HANDY_COUPONS`; the folder exists only on one operator host; the corpus case satisfies every assertion the coupon tests make (verified by running them) |
 | 5 | Dead fixture variant (host-only recording) | `tests/pipeline/test_multicolor_contract.py` `reviewed-orca` parametrization of `test_public_prepare_verify_launch` (8 cases) | remove-dead (variant only) | Parametrization removed; the synthetic variant (same flow) stays and runs everywhere | The variant only re-ran the identical flow against recorded Orca G-code pinned by SHA-256 from the same sol_recovery folder; real Orca G-code is covered by the Slicer test jobs |
 | 6 | Dead reference model (archive path) | `tests/pipeline/test_orca_e2e_postit.py` (whole file, 1 test) | remove-dead | File deleted | It globs the operator's print archive for the post-it model, but `tests/conftest.py` replaces the archive path with an empty temp dir, so the test skipped on every machine including the operator's; it also needed a real Orca flatpak and printer hardware state. Per-part slicing of multi-part 3MFs is covered by the corpus and slicer jobs |
 | 7 | Dead reference model (archive path) | `tests/pipeline/test_part_families_split.py` `test_postit_merges_on_one_plate_with_tower` | remove-dead | Test removed (with the now-unused archive/settings lines); a comment in the file records why | Same archive-glob mechanism as #6: always skipped under the test harness. Family grouping stays covered by the synthetic-manifest tests in the same file |
 | 8 | Dead fixture + hardcoded personal path | `tests/pipeline/test_support_clearance.py:12,124` — V14 fixture at a hardcoded `/home/<operator>/.hermes/profiles/<profile>/...` path (full literal deliberately not re-quoted here) | repair (rewrite) | `test_component_based_3mf_parses_transforms_no_false_positives` builds a synthetic component-based 3MF in `tmp_path`: two components, one authored 0.4 mm above the plate and pulled onto it by its component transform (a dropped transform would flag its 900 mm2 underside). The hardcoded path is gone — it was the only personal home path in the whole test tree | Path search across `tests/`: this was the sole `/home/<name>/` literal that is not an intentional fake in a sanitizer test. The phase-2 file in the same area already establishes the synthetic-fixture pattern for these Pixel Patina conditions |
-| 9 | Dead external import | `tests/hermes/conftest.py` `hermes_cli_plugins` fixture + 2 tests in `tests/hermes/test_print_feedback_guard.py:327,341` | rewrite against live surface | The two tests now call the plugin's registered hooks directly (`cap_discord_clarifications`, `guard_terminal_loop`) and assert the same outcomes through their documented dict returns; the fixture is deleted | `hermes_cli` is the external Hermes Agent package: this repo references it only as a host module name (`print_handy/bot/health.py` `HERMES_MODULES`), nothing in the repo or any workflow provides it, so both tests skipped everywhere. The plugin itself is live: `plugins/print-feedback/__init__.py` `register()` binds both functions as `pre_tool_call` hooks, and the hook-registration test in the same file pins that |
+| 9 | Dead external import | `tests/runtime/conftest.py` `hermes_cli_plugins` fixture + 2 tests in `tests/runtime/test_print_feedback_guard.py:327,341` | rewrite against live surface | The two tests now call the plugin's registered hooks directly (`cap_discord_clarifications`, `guard_terminal_loop`) and assert the same outcomes through their documented dict returns; the fixture is deleted | `hermes_cli` is the external Hermes Agent package: this repo references it only as a host module name (`print_handy/bot/health.py` `HERMES_MODULES`), nothing in the repo or any workflow provides it, so both tests skipped everywhere. The plugin itself is live: `plugins/print-feedback/__init__.py` `register()` binds both functions as `pre_tool_call` hooks, and the hook-registration test in the same file pins that |
 | 10 | Stale skip guard (surface now exists) | `tests/pipeline/test_discord_color_hook.py:18` | repair | The `hasattr` skip guard became an assertion | `color_selection_dispatch` exists at `plugins/print-feedback/__init__.py:1469`; the guard predated it landing and could only mask a future regression |
 | 11 | Stale skip guard (parameter now exists) | `tests/core/test_spool_canon.py:103` | repair | The `TypeError`-to-skip wrapper is removed | `create_spool(spec, *, client=...)` exists at `print_handy/hermes/spool_sync.py:1809` |
 | 12 | Env gate no workflow sets | `tests/corpus/test_complex_corpus.py:239` `COMPLEX_CORPUS_ROOT` | repair (align) | The test now also accepts `PRINT_HANDY_PRIVATE_CORPUS`, the root the model-corpus workflow and `run_complex_corpus.py` already use | `model-corpus.yml` sets only `PRINT_HANDY_PRIVATE_CORPUS`; `run_complex_corpus.py` already falls back to it. Named follow-up: `model-corpus.yml` runs the corpus runner scripts, not pytest, so this manifest check still only executes on a machine that fetched the corpus — wiring it into that workflow is left as a follow-up rather than expanding this PR |
@@ -272,103 +272,103 @@ Files inventoried: 538. Test functions/classes counted by AST: 7403.
 | `tests/docker/lifecycle_backup.py` | 0 | reviewed, clean |
 | `tests/fixtures/support_coverage_969/generate_fixtures.py` | 0 | reviewed, clean |
 | `tests/gcode_factory.py` | 0 | reviewed, clean |
-| `tests/hermes/__init__.py` | 0 | reviewed, clean |
-| `tests/hermes/conftest.py` | 0 | reviewed, clean |
-| `tests/hermes/fixtures/build_tiny_detector.py` | 0 | reviewed, clean |
-| `tests/hermes/test_abandoned_start.py` | 17 | reviewed, clean |
-| `tests/hermes/test_bambu_watch.py` | 47 | reviewed; gates: L766:@_pytest.mark.skipif(not (_FFMPEG and _FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
-| `tests/hermes/test_bed_separate.py` | 23 | reviewed, clean |
-| `tests/hermes/test_boundary_integration.py` | 21 | reviewed, clean |
-| `tests/hermes/test_clarify_plugin.py` | 8 | reviewed, clean |
-| `tests/hermes/test_clarify_retire.py` | 9 | reviewed, clean |
-| `tests/hermes/test_clarify_ui.py` | 14 | reviewed, clean |
-| `tests/hermes/test_clarify_wiring.py` | 10 | reviewed, clean |
-| `tests/hermes/test_coldpull_acceptance.py` | 13 | reviewed, clean |
-| `tests/hermes/test_completion_delivery.py` | 12 | reviewed, clean |
-| `tests/hermes/test_component_ack_order.py` | 8 | reviewed; gates: L6:fails this file. The spool-question same/cancel gap was a strict xfail until the handlers acknowledged; L7:first (P2-164); those markers are removed, and a new strict xfail belongs in; L8:tests/strict_xfail_register.json with an owner and an expiry.; L151:"""Was a strict xfail for the #594 phase 2 gap (the handler awaited the |
-| `tests/hermes/test_control_lock_interprocess.py` | 2 | reviewed, clean |
-| `tests/hermes/test_elegoo_watch.py` | 19 | reviewed; gates: L364:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
-| `tests/hermes/test_estimate_breakdown.py` | 13 | reviewed, clean |
-| `tests/hermes/test_exclude_chat.py` | 10 | reviewed, clean |
-| `tests/hermes/test_family_auto_light.py` | 22 | reviewed, clean |
-| `tests/hermes/test_family_control.py` | 19 | reviewed, clean |
-| `tests/hermes/test_family_event_listener.py` | 16 | reviewed, clean |
-| `tests/hermes/test_family_watch_pauses.py` | 6 | reviewed, clean |
-| `tests/hermes/test_hosting_profile.py` | 15 | reviewed, clean |
-| `tests/hermes/test_issue_512_intake.py` | 24 | reviewed, clean |
-| `tests/hermes/test_issue_514_photo_intake.py` | 47 | reviewed; gates: L589:@pytest.mark.skipif(not spool_label.tesseract_available(), reason="no tesseract binary"); L593:pytest.skip("no TrueType font to render a label with"); L638:@pytest.mark.skipif(not spool_codes.codes_available(), reason="zxing-cpp not installed"); L726:@pytest.mark.skipif(not spool_codes.codes_available(), reason="zxing-cpp not installed") |
-| `tests/hermes/test_issue_792_picker_hardening.py` | 14 | reviewed, clean |
-| `tests/hermes/test_klipper_report.py` | 11 | reviewed, clean |
-| `tests/hermes/test_klipper_report_filters.py` | 6 | reviewed, clean |
-| `tests/hermes/test_lane_b.py` | 6 | reviewed, clean |
-| `tests/hermes/test_lane_data_sync.py` | 46 | reviewed, clean |
-| `tests/hermes/test_legacy_slots_key.py` | 4 | reviewed, clean |
-| `tests/hermes/test_light_control.py` | 24 | reviewed, clean |
-| `tests/hermes/test_listener_auto_light.py` | 3 | reviewed, clean |
-| `tests/hermes/test_listener_mesh.py` | 16 | reviewed, clean |
-| `tests/hermes/test_loaded_spools.py` | 15 | reviewed, clean |
-| `tests/hermes/test_loaded_spools_fuzzy.py` | 8 | reviewed, clean |
-| `tests/hermes/test_local_vision.py` | 61 | reviewed, clean |
-| `tests/hermes/test_maintenance.py` | 8 | reviewed, clean |
-| `tests/hermes/test_material_matrix.py` | 6 | reviewed, clean |
-| `tests/hermes/test_material_temps.py` | 10 | reviewed, clean |
-| `tests/hermes/test_material_validation.py` | 5 | reviewed, clean |
-| `tests/hermes/test_monitor_worker.py` | 8 | reviewed, clean |
-| `tests/hermes/test_native_error_alert.py` | 4 | reviewed, clean |
-| `tests/hermes/test_next_plate_offer.py` | 8 | reviewed, clean |
-| `tests/hermes/test_nozzle_change_workflow.py` | 6 | reviewed, clean |
-| `tests/hermes/test_octo_watch.py` | 19 | reviewed, clean |
-| `tests/hermes/test_panic.py` | 13 | reviewed, clean |
-| `tests/hermes/test_paused_job_gone.py` | 6 | reviewed, clean |
-| `tests/hermes/test_plan_timelapse.py` | 15 | reviewed, clean |
-| `tests/hermes/test_platform_media_sizing.py` | 28 | reviewed, clean |
-| `tests/hermes/test_print_alert_buttons.py` | 60 | reviewed, clean |
-| `tests/hermes/test_print_control.py` | 50 | reviewed, clean |
-| `tests/hermes/test_print_feedback_guard.py` | 20 | reviewed, clean |
-| `tests/hermes/test_print_markers.py` | 18 | reviewed, clean |
-| `tests/hermes/test_print_messages.py` | 50 | reviewed, clean |
-| `tests/hermes/test_print_next.py` | 45 | reviewed, clean |
-| `tests/hermes/test_print_number_followups.py` | 6 | reviewed, clean |
-| `tests/hermes/test_print_record_timestamps.py` | 4 | reviewed, clean |
-| `tests/hermes/test_print_records.py` | 21 | reviewed, clean |
-| `tests/hermes/test_print_stop.py` | 18 | reviewed, clean |
-| `tests/hermes/test_profile_platform_intake.py` | 1 | reviewed, clean |
-| `tests/hermes/test_prusa_watch.py` | 20 | reviewed; gates: L331:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
-| `tests/hermes/test_purchase_intake.py` | 31 | reviewed, clean |
-| `tests/hermes/test_reboot_standby.py` | 1 | reviewed, clean |
-| `tests/hermes/test_roast_chat.py` | 6 | reviewed, clean |
-| `tests/hermes/test_runout_pause_442.py` | 44 | reviewed, clean |
-| `tests/hermes/test_runout_same_filament.py` | 6 | reviewed, clean |
-| `tests/hermes/test_safe4_pause_alerts.py` | 2 | reviewed, clean |
-| `tests/hermes/test_screenless_ifs_presence.py` | 25 | reviewed, clean |
-| `tests/hermes/test_slot_load.py` | 11 | reviewed, clean |
-| `tests/hermes/test_spool_guided.py` | 34 | reviewed, clean |
-| `tests/hermes/test_spool_ifs_identity_regressions.py` | 6 | reviewed, clean |
-| `tests/hermes/test_spool_question_cancel.py` | 15 | reviewed, clean |
-| `tests/hermes/test_spool_question_stale_buttons.py` | 11 | reviewed, clean |
-| `tests/hermes/test_spool_reconcile.py` | 22 | reviewed, clean |
-| `tests/hermes/test_spool_swap_override.py` | 3 | reviewed, clean |
-| `tests/hermes/test_spool_sync.py` | 34 | reviewed, clean |
-| `tests/hermes/test_spoolman_watcher.py` | 20 | reviewed, clean |
-| `tests/hermes/test_start_bookkeeping_838.py` | 13 | reviewed, clean |
-| `tests/hermes/test_start_claim_paths.py` | 5 | reviewed, clean |
-| `tests/hermes/test_state_file_isolation.py` | 5 | reviewed, clean |
-| `tests/hermes/test_stock_watch.py` | 23 | reviewed; gates: L319:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
-| `tests/hermes/test_stop_button_view.py` | 4 | reviewed, clean |
-| `tests/hermes/test_stop_capture.py` | 9 | reviewed, clean |
-| `tests/hermes/test_stray_chat_dispatch.py` | 13 | reviewed, clean |
-| `tests/hermes/test_summary_contract.py` | 5 | reviewed, clean |
-| `tests/hermes/test_timelapse_capture.py` | 55 | reviewed, clean |
-| `tests/hermes/test_timelapse_delivery_contract.py` | 5 | reviewed; gates: L163:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
-| `tests/hermes/test_timelapse_encode.py` | 46 | reviewed; gates: L526:@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),; L567:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available"); L589:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available"); L614:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available") |
-| `tests/hermes/test_timelapse_gpu_fallback.py` | 19 | reviewed, clean |
-| `tests/hermes/test_timelapse_playback.py` | 26 | reviewed, clean |
-| `tests/hermes/test_timelapse_rest_transport.py` | 4 | reviewed, clean |
-| `tests/hermes/test_timelapse_states.py` | 8 | reviewed, clean |
-| `tests/hermes/test_vertical_short.py` | 23 | reviewed, clean |
-| `tests/hermes/test_vision_keyless_local.py` | 5 | reviewed, clean |
-| `tests/hermes/test_vision_url_contract.py` | 10 | reviewed, clean |
-| `tests/hermes/test_visual_print_watch.py` | 52 | reviewed, clean |
+| `tests/runtime/__init__.py` | 0 | reviewed, clean |
+| `tests/runtime/conftest.py` | 0 | reviewed, clean |
+| `tests/runtime/fixtures/build_tiny_detector.py` | 0 | reviewed, clean |
+| `tests/runtime/test_abandoned_start.py` | 17 | reviewed, clean |
+| `tests/runtime/test_bambu_watch.py` | 47 | reviewed; gates: L766:@_pytest.mark.skipif(not (_FFMPEG and _FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
+| `tests/runtime/test_bed_separate.py` | 23 | reviewed, clean |
+| `tests/runtime/test_boundary_integration.py` | 21 | reviewed, clean |
+| `tests/runtime/test_clarify_plugin.py` | 8 | reviewed, clean |
+| `tests/runtime/test_clarify_retire.py` | 9 | reviewed, clean |
+| `tests/runtime/test_clarify_ui.py` | 14 | reviewed, clean |
+| `tests/runtime/test_clarify_wiring.py` | 10 | reviewed, clean |
+| `tests/runtime/test_coldpull_acceptance.py` | 13 | reviewed, clean |
+| `tests/runtime/test_completion_delivery.py` | 12 | reviewed, clean |
+| `tests/runtime/test_component_ack_order.py` | 8 | reviewed; gates: L6:fails this file. The spool-question same/cancel gap was a strict xfail until the handlers acknowledged; L7:first (P2-164); those markers are removed, and a new strict xfail belongs in; L8:tests/strict_xfail_register.json with an owner and an expiry.; L151:"""Was a strict xfail for the #594 phase 2 gap (the handler awaited the |
+| `tests/runtime/test_control_lock_interprocess.py` | 2 | reviewed, clean |
+| `tests/runtime/test_elegoo_watch.py` | 19 | reviewed; gates: L364:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
+| `tests/runtime/test_estimate_breakdown.py` | 13 | reviewed, clean |
+| `tests/runtime/test_exclude_chat.py` | 10 | reviewed, clean |
+| `tests/runtime/test_family_auto_light.py` | 22 | reviewed, clean |
+| `tests/runtime/test_family_control.py` | 19 | reviewed, clean |
+| `tests/runtime/test_family_event_listener.py` | 16 | reviewed, clean |
+| `tests/runtime/test_family_watch_pauses.py` | 6 | reviewed, clean |
+| `tests/runtime/test_hosting_profile.py` | 15 | reviewed, clean |
+| `tests/runtime/test_issue_512_intake.py` | 24 | reviewed, clean |
+| `tests/runtime/test_issue_514_photo_intake.py` | 47 | reviewed; gates: L589:@pytest.mark.skipif(not spool_label.tesseract_available(), reason="no tesseract binary"); L593:pytest.skip("no TrueType font to render a label with"); L638:@pytest.mark.skipif(not spool_codes.codes_available(), reason="zxing-cpp not installed"); L726:@pytest.mark.skipif(not spool_codes.codes_available(), reason="zxing-cpp not installed") |
+| `tests/runtime/test_issue_792_picker_hardening.py` | 14 | reviewed, clean |
+| `tests/runtime/test_klipper_report.py` | 11 | reviewed, clean |
+| `tests/runtime/test_klipper_report_filters.py` | 6 | reviewed, clean |
+| `tests/runtime/test_lane_b.py` | 6 | reviewed, clean |
+| `tests/runtime/test_lane_data_sync.py` | 46 | reviewed, clean |
+| `tests/runtime/test_legacy_slots_key.py` | 4 | reviewed, clean |
+| `tests/runtime/test_light_control.py` | 24 | reviewed, clean |
+| `tests/runtime/test_listener_auto_light.py` | 3 | reviewed, clean |
+| `tests/runtime/test_listener_mesh.py` | 16 | reviewed, clean |
+| `tests/runtime/test_loaded_spools.py` | 15 | reviewed, clean |
+| `tests/runtime/test_loaded_spools_fuzzy.py` | 8 | reviewed, clean |
+| `tests/runtime/test_local_vision.py` | 61 | reviewed, clean |
+| `tests/runtime/test_maintenance.py` | 8 | reviewed, clean |
+| `tests/runtime/test_material_matrix.py` | 6 | reviewed, clean |
+| `tests/runtime/test_material_temps.py` | 10 | reviewed, clean |
+| `tests/runtime/test_material_validation.py` | 5 | reviewed, clean |
+| `tests/runtime/test_monitor_worker.py` | 8 | reviewed, clean |
+| `tests/runtime/test_native_error_alert.py` | 4 | reviewed, clean |
+| `tests/runtime/test_next_plate_offer.py` | 8 | reviewed, clean |
+| `tests/runtime/test_nozzle_change_workflow.py` | 6 | reviewed, clean |
+| `tests/runtime/test_octo_watch.py` | 19 | reviewed, clean |
+| `tests/runtime/test_panic.py` | 13 | reviewed, clean |
+| `tests/runtime/test_paused_job_gone.py` | 6 | reviewed, clean |
+| `tests/runtime/test_plan_timelapse.py` | 15 | reviewed, clean |
+| `tests/runtime/test_platform_media_sizing.py` | 28 | reviewed, clean |
+| `tests/runtime/test_print_alert_buttons.py` | 60 | reviewed, clean |
+| `tests/runtime/test_print_control.py` | 50 | reviewed, clean |
+| `tests/runtime/test_print_feedback_guard.py` | 20 | reviewed, clean |
+| `tests/runtime/test_print_markers.py` | 18 | reviewed, clean |
+| `tests/runtime/test_print_messages.py` | 50 | reviewed, clean |
+| `tests/runtime/test_print_next.py` | 45 | reviewed, clean |
+| `tests/runtime/test_print_number_followups.py` | 6 | reviewed, clean |
+| `tests/runtime/test_print_record_timestamps.py` | 4 | reviewed, clean |
+| `tests/runtime/test_print_records.py` | 21 | reviewed, clean |
+| `tests/runtime/test_print_stop.py` | 18 | reviewed, clean |
+| `tests/runtime/test_profile_platform_intake.py` | 1 | reviewed, clean |
+| `tests/runtime/test_prusa_watch.py` | 20 | reviewed; gates: L331:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
+| `tests/runtime/test_purchase_intake.py` | 31 | reviewed, clean |
+| `tests/runtime/test_reboot_standby.py` | 1 | reviewed, clean |
+| `tests/runtime/test_roast_chat.py` | 6 | reviewed, clean |
+| `tests/runtime/test_runout_pause_442.py` | 44 | reviewed, clean |
+| `tests/runtime/test_runout_same_filament.py` | 6 | reviewed, clean |
+| `tests/runtime/test_safe4_pause_alerts.py` | 2 | reviewed, clean |
+| `tests/runtime/test_screenless_ifs_presence.py` | 25 | reviewed, clean |
+| `tests/runtime/test_slot_load.py` | 11 | reviewed, clean |
+| `tests/runtime/test_spool_guided.py` | 34 | reviewed, clean |
+| `tests/runtime/test_spool_ifs_identity_regressions.py` | 6 | reviewed, clean |
+| `tests/runtime/test_spool_question_cancel.py` | 15 | reviewed, clean |
+| `tests/runtime/test_spool_question_stale_buttons.py` | 11 | reviewed, clean |
+| `tests/runtime/test_spool_reconcile.py` | 22 | reviewed, clean |
+| `tests/runtime/test_spool_swap_override.py` | 3 | reviewed, clean |
+| `tests/runtime/test_spool_sync.py` | 34 | reviewed, clean |
+| `tests/runtime/test_spoolman_watcher.py` | 20 | reviewed, clean |
+| `tests/runtime/test_start_bookkeeping_838.py` | 13 | reviewed, clean |
+| `tests/runtime/test_start_claim_paths.py` | 5 | reviewed, clean |
+| `tests/runtime/test_state_file_isolation.py` | 5 | reviewed, clean |
+| `tests/runtime/test_stock_watch.py` | 23 | reviewed; gates: L319:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
+| `tests/runtime/test_stop_button_view.py` | 4 | reviewed, clean |
+| `tests/runtime/test_stop_capture.py` | 9 | reviewed, clean |
+| `tests/runtime/test_stray_chat_dispatch.py` | 13 | reviewed, clean |
+| `tests/runtime/test_summary_contract.py` | 5 | reviewed, clean |
+| `tests/runtime/test_timelapse_capture.py` | 55 | reviewed, clean |
+| `tests/runtime/test_timelapse_delivery_contract.py` | 5 | reviewed; gates: L163:@pytest.mark.skipif(not (FFMPEG and FFPROBE), reason="needs ffmpeg and ffprobe on PATH") |
+| `tests/runtime/test_timelapse_encode.py` | 46 | reviewed; gates: L526:@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),; L567:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available"); L589:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available"); L614:@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available") |
+| `tests/runtime/test_timelapse_gpu_fallback.py` | 19 | reviewed, clean |
+| `tests/runtime/test_timelapse_playback.py` | 26 | reviewed, clean |
+| `tests/runtime/test_timelapse_rest_transport.py` | 4 | reviewed, clean |
+| `tests/runtime/test_timelapse_states.py` | 8 | reviewed, clean |
+| `tests/runtime/test_vertical_short.py` | 23 | reviewed, clean |
+| `tests/runtime/test_vision_keyless_local.py` | 5 | reviewed, clean |
+| `tests/runtime/test_vision_url_contract.py` | 10 | reviewed, clean |
+| `tests/runtime/test_visual_print_watch.py` | 52 | reviewed, clean |
 | `tests/perf/__init__.py` | 0 | reviewed, clean |
 | `tests/perf/test_perf_gate.py` | 7 | reviewed, clean |
 | `tests/pipeline/__init__.py` | 0 | reviewed, clean |

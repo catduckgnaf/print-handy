@@ -13,7 +13,7 @@ from print_handy.runtime import local_vision as lv
 # camera checks on (vision.ai_enabled, off by default since #1376).
 pytestmark = pytest.mark.usefixtures("vision_ai_on")
 
-FIXTURE = Path(__file__).parent.parent / "hermes" / "fixtures" / "tiny_failure_detector.onnx"
+FIXTURE = Path(__file__).parent.parent / "runtime" / "fixtures" / "tiny_failure_detector.onnx"
 
 
 def rows(cfg, monkeypatch):

@@ -109,7 +109,7 @@ voice fails to load, the factual message still goes out without its joke.
 Run:
 
 ```sh
-pytest -q tests/core/test_status_voice.py tests/core/test_roast_engine.py tests/pipeline/test_prepared_intake.py   tests/pipeline/test_status_voice_wiring.py tests/pipeline/test_status_voice_wiring_support.py   tests/hermes/test_status_voice_listeners.py
+pytest -q tests/core/test_status_voice.py tests/core/test_roast_engine.py tests/pipeline/test_prepared_intake.py   tests/pipeline/test_status_voice_wiring.py tests/pipeline/test_status_voice_wiring_support.py   tests/runtime/test_status_voice_listeners.py
 ```
 
 The copy-count tests cover first-time guarantees, independence, replay,

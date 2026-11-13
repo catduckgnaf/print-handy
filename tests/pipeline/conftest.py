@@ -101,7 +101,7 @@ def _clarify_gateway_stand_in():
     """A `tools.clarify_gateway` name may still be imported by test fakes
     that answer questions the way the old host module did; the module
     installed here delegates every call to the one real registry,
-    print_handy.core.prompts (see tests/hermes/conftest.py).
+    print_handy.core.prompts (see tests/runtime/conftest.py).
     Package scope so it leaves with tests/pipeline."""
     try:
         import tools.clarify_gateway  # noqa: F401

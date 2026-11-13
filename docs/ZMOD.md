@@ -211,7 +211,7 @@ ships in release payloads, not in that repo.
   screen-side field (`spool_id`, `scan_time`/`scanned_at`/`timestamp`,
   or any `helix_*` key); every screen record in the suite, including
   the id-less screen lane, still parses exactly as before (4 new
-  tests in `tests/hermes/test_lane_data_sync.py`). On a
+  tests in `tests/runtime/test_lane_data_sync.py`). On a
   no-HelixScreen install the watcher becomes inert for ZMod-authored
   data instead of wrong.
 - **HelixScreen installs are unchanged by construction.** ZMod skips
