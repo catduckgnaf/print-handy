@@ -373,15 +373,22 @@ def test_no_pause_when_the_printer_stopped_printing_during_the_alert(monkeypatch
 def test_local_escalation_needs_spaced_changed_views():
     from print_handy.runtime import local_vision as lv
     weak = [(0.35, [0.1, 0.1, 0.5, 0.5])]
-    a, b, c = (vw.frame_signature(_frame(seed)) for seed in (1, 2, 3))
+    a, b, c, d = (vw.frame_signature(_frame(seed)) for seed in (1, 2, 3, 4))
     streak = lv.FailureStreak()
     assert streak.note(weak, now=1000.0, signature=a)[0] == "uncertain"
-    verdict, detail = streak.note(weak, now=1010.0, signature=b)
+    repeat = streak.note(weak, now=1010.0, signature=b)
+    verdict, detail = repeat
     assert verdict == "uncertain" and "not counted" in detail
+    assert not repeat.detection.counted and not repeat.detection.posts  # only noted
     assert streak.note(weak, now=1100.0, signature=a)[0] == "uncertain"  # frozen frame
     assert streak.positives == 1
     verdict, detail = streak.note(weak, now=1100.0, signature=c)
-    assert verdict == "spaghetti" and "2 consecutive checks" in detail
+    assert verdict == "uncertain" and "seen in 2 consecutive checks" in detail
+    verdict, detail = streak.note(weak, now=1110.0, signature=d)
+    assert verdict == "uncertain" and "not counted" in detail  # too soon after c
+    assert streak.positives == 2
+    verdict, detail = streak.note(weak, now=1200.0, signature=d)
+    assert verdict == "spaghetti" and "3 consecutive checks" in detail
 
 
 # -- 3. a watch that is on but cannot run says so, once per print ------------

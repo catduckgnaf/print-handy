@@ -4291,11 +4291,16 @@ class Listener:
             prompt = _camera_watch.WATCH_PROMPT
             early = self.visual_watch.in_early_window(layer)
             try:
-                verdict, detail = await _watch_io(
+                result = await _watch_io(
                     _visual_verdict, image, prompt, self.local_streak, local_fallback=early)
             except TypeError:
-                verdict, detail = await _watch_io(
+                result = await _watch_io(
                     _visual_verdict, image, prompt, self.local_streak)
+            verdict, detail = result
+            # The local detector's structured result (local_vision.Verdict);
+            # None for an endpoint answer. The weak-detection rules decide
+            # on it, never on the detail text.
+            detection = _local_vision.detection_of(result)
             if stale():
                 log(f"visual check discarded file={filename!r} reason={reason} verdict={verdict}: "
                     "the print changed while the verdict was in flight")
@@ -4326,7 +4331,8 @@ class Listener:
             # re-check.
             suspicious = _camera_watch.is_suspicious(
                 verdict, reason=reason, changed=changed, profile=self.visual_watch.profile,
-                rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing")
+                rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing",
+                detection=detection)
             log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
@@ -4351,6 +4357,13 @@ class Listener:
             event_action = "none"
             event_discarded = False
             pause_now = False
+            if not suspicious and _camera_watch.weak_noted(verdict, detection, reason=reason,
+                                                           changed=changed):
+                # A weak local detection that has not persisted: logged
+                # above and recorded, never posted (camera_watch.weak_noted).
+                log(f"visual check file={filename!r} reason={reason}: weak local detection "
+                    "noted, not posted")
+                event_action = "noted"
             if suspicious and image is not None:
                 from . import print_alert_buttons as pab
                 if await asyncio.to_thread(pab.visual_muted, filename, identity):
@@ -4377,7 +4390,8 @@ class Listener:
                     if streak and not pause_now:
                         log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     text = _camera_watch.alert_text(reason, layer, verdict, detail,
-                                                    pause_why=pause_why if pause_now else "")
+                                                    pause_why=pause_why if pause_now else "",
+                                                    detection=detection)
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -4388,8 +4402,8 @@ class Listener:
                                                   f"spaghetti:{identity or filename}")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity,
-                                            **({"ping": False} if _camera_watch.below_threshold(
-                                                verdict, detail) else {}))
+                                            **({} if _camera_watch.alert_pings(
+                                                reason, verdict, detection) else {"ping": False}))
                     if pause_now and (stale() or self.state != "printing"):
                         # The alert took time; the printer must still be
                         # printing this print when the PAUSE goes out.

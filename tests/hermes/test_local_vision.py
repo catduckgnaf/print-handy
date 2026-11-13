@@ -749,12 +749,83 @@ def independent_views(monkeypatch):
     monkeypatch.setattr(vw, "frames_differ", lambda before, after: True)
 
 
-def test_streak_weak_positive_escalates_on_the_second_consecutive_check():
+def test_streak_weak_positive_is_noted_then_posted_then_escalates_on_the_third_check():
     streak = lv.FailureStreak()
-    verdict, detail = streak.note(_kept(0.35))
-    assert verdict == "uncertain" and "first consecutive detection" in detail
-    verdict, detail = streak.note(_kept(0.35))
-    assert verdict == "spaghetti" and "2 consecutive checks" in detail
+    first = streak.note(_kept(0.35))
+    assert first.verdict == "uncertain"
+    assert first.detection == lv.Detection(0.35, 1, True, "uncertain")
+    assert first.detection.weak and not first.detection.posts  # one sighting is only noted
+    second = streak.note(_kept(0.35))
+    assert second.verdict == "uncertain" and second.detection.seen == 2
+    assert second.detection.posts  # persisted: posted, still uncertain
+    third = streak.note(_kept(0.35))
+    assert third.verdict == "spaghetti"
+    assert third.detection == lv.Detection(0.35, 3, True, "spaghetti")
+    assert not third.detection.weak and not third.detection.posts  # a failure verdict
+
+
+def test_a_verdict_unpacks_as_the_pair_every_route_returns():
+    result = lv.FailureStreak().note(_kept(0.35))
+    verdict, detail = result
+    assert (verdict, detail) == (result.verdict, result.detail) and len(result) == 2
+    assert lv.detection_of(result) is result.detection
+    assert lv.detection_of(("uncertain", "model unsure")) is None  # an endpoint answer
+    assert lv.FailureStreak().note([]).detection is None
+
+
+@pytest.fixture
+def changed_frames(monkeypatch):
+    """Every frame is visibly new; only the 60 s spacing decides independence."""
+    monkeypatch.setattr(vw, "frames_differ", lambda before, after: True)
+
+
+def test_a_repeat_view_is_not_counted_and_never_posts(changed_frames):
+    streak = lv.FailureStreak()
+    streak.note(_kept(0.2), now=1000.0)
+    streak.note(_kept(0.2), now=1100.0)  # spaced and a new frame: counted
+    repeat = streak.note(_kept(0.2), now=1110.0)  # 10 s later: the same view
+    assert repeat.detection == lv.Detection(0.2, 2, False, "uncertain")
+    assert not repeat.detection.posts and streak.positives == 2
+
+
+def test_the_weak_detail_wording_is_pinned(changed_frames):
+    """The detail is display text only, but it is what the log and an
+    endpoint-less operator read: pin it word for word."""
+    streak = lv.FailureStreak()
+    assert streak.note(_kept(0.12), now=1000.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 1 consecutive check (noted, not posted: one weak "
+        "detection is usually nothing)")
+    assert streak.note(_kept(0.12), now=1010.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 1 consecutive check; this frame was not counted (too "
+        "soon after, or unchanged from, the last detection)")
+    assert streak.note(_kept(0.12), now=1100.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 2 consecutive checks (posted without a ping; 3 in a row "
+        "make it a failure verdict)")
+    assert streak.note(_kept(0.12), now=1200.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold, but now seen in 3 consecutive checks; sustained detections "
+        "escalate to a failure verdict")
+
+
+def test_a_sub_threshold_confidence_never_reads_as_the_threshold():
+    assert lv.percent(0.4999) == 49 and lv.percent(0.495) == 49
+    assert lv.percent(0.12) == 12 and lv.percent(0.5) == 50 and lv.percent(0.29) == 29
+    verdict, detail = lv.FailureStreak().note(_kept(0.4999))
+    assert verdict == "uncertain" and "possible failure at 49% confidence" in detail
+
+
+def test_the_weak_and_escalation_counts():
+    assert (lv.WEAK_ALERT_AFTER, lv.ESCALATE_AFTER) == (2, 3)
+
+
+def test_the_early_layer_fallback_keeps_the_structured_detection(process_cfg):
+    result = vw._local_fallback_verdict(frame(84), lv.FailureStreak())
+    assert result.verdict == "uncertain" and result.detail.startswith("local detector fallback: ")
+    assert lv.detection_of(result) == lv.Detection(result.detection.confidence, 1, True,
+                                                   "uncertain")
 
 
 def test_streak_clean_frame_clears_and_the_count_restarts():
@@ -803,6 +874,8 @@ def test_local_verdict_with_streak_escalates_across_frames(independent_views):
     streak = lv.FailureStreak()
     verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
     assert verdict == "uncertain"
+    verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
+    assert verdict == "uncertain"
     verdict, detail = lv.local_verdict(frame(84), cfg_with(), streak=streak)
     assert verdict == "spaghetti" and "consecutive checks" in detail
     # Without a streak the same frames stay single-frame verdicts.
@@ -827,11 +900,15 @@ def test_detector_failure_neither_builds_nor_clears_the_streak(monkeypatch, inde
     assert streak.positives == 1  # the failed check left the streak untouched
     monkeypatch.setattr(lv, "detect", real_detect)
     verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
-    assert verdict == "spaghetti"  # the next real positive completes the streak
+    assert verdict == "uncertain" and streak.positives == 2  # the run continues where it was
+    verdict, _ = lv.local_verdict(frame(84), cfg_with(), streak=streak)
+    assert verdict == "spaghetti"  # the third real positive completes the streak
 
 
 def test_visual_verdict_threads_the_streak(process_cfg, independent_views):
     streak = lv.FailureStreak()
+    verdict, _ = _verdict(frame(84), local_streak=streak)
+    assert verdict == "uncertain"
     verdict, _ = _verdict(frame(84), local_streak=streak)
     assert verdict == "uncertain"
     verdict, detail = _verdict(frame(84), local_streak=streak)
@@ -848,6 +925,8 @@ def test_listener_verdict_threads_its_streak(process_cfg, independent_views):
     verdict, _ = mel._visual_verdict(frame(84), "prompt", listener.local_streak)
     assert verdict == "uncertain"
     verdict, _ = mel._visual_verdict(frame(84), "prompt", listener.local_streak)
+    assert verdict == "uncertain"
+    verdict, _ = mel._visual_verdict(frame(84), "prompt", listener.local_streak)
     assert verdict == "spaghetti"
     # The idle-check form (no streak) stays single-frame.
     assert mel._visual_verdict(frame(84), "prompt")[0] == "uncertain"
@@ -858,6 +937,7 @@ def test_bambu_monitor_verdict_threads_its_streak(process_cfg, independent_views
     adapter = SimpleNamespace(label="Test Bambu")
     streak = lv.FailureStreak()
     verdict = bambu_watch._default_verdict(adapter, streak=streak)
+    assert verdict(frame(84), "prompt")[0] == "uncertain"
     assert verdict(frame(84), "prompt")[0] == "uncertain"
     assert verdict(frame(84), "prompt")[0] == "spaghetti"
     single = bambu_watch._default_verdict(adapter)

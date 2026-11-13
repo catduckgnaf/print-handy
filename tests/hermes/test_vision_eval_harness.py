@@ -100,6 +100,36 @@ def test_healthy_session_false_alert_is_counted(tmp_path):
     assert report["sessions"][0]["producer_outcome"] == "false_alert"
 
 
+def test_a_weak_detection_that_did_not_persist_is_not_a_false_alert(tmp_path):
+    # The watches only note a lone weak local detection (camera_watch.weak_noted);
+    # the replay's alert policy must not score it as an alert either.
+    from print_handy.runtime import local_vision as lv
+    once = lv.Detection(0.12, 1, True, "uncertain")
+    twice = lv.Detection(0.12, 2, True, "uncertain")
+    session = harness.load_session(_write_session(tmp_path))
+    noted = harness.replay_session(session, harness.scripted_producer(
+        {0: ("uncertain", "weak", once)}))
+    assert noted["producer_outcome"] == "quiet" and harness.posted_alerts(noted) == []
+    posted = harness.replay_session(session, harness.scripted_producer(
+        {0: ("uncertain", "weak", once), 1: ("uncertain", "persisted", twice)}))
+    assert posted["producer_outcome"] == "false_alert"
+    assert [c["detail"] for c in harness.posted_alerts(posted)] == ["persisted"]
+
+
+def test_posted_mirrors_the_watch_for_a_stall_promoted_weak_check():
+    from print_handy.runtime import camera_watch as cw
+    from print_handy.runtime import local_vision as lv
+    from print_handy.runtime import visual_watch as vw
+    once = lv.Detection(0.12, 1, True, "uncertain")
+    for reason, changed in (("stalled_layers", False), ("periodic", True), ("periodic", False)):
+        watch_posts = cw.is_suspicious("uncertain", reason=reason, changed=changed,
+                                       profile={"vision_veto": False},
+                                       rules=cw.FAMILY_RULES["moonraker"], detection=once)
+        assert harness._posted("uncertain", once, reason=reason, changed=changed) is watch_posts
+    assert harness._posted("uncertain", once, reason="stalled_layers", changed=False)
+    assert "uncertain" in vw.VISUAL_ALERT_VERDICTS
+
+
 def test_healthy_session_false_confirmation_needs_the_streak(tmp_path):
     # One early suspicious verdict alerts but does not confirm; two
     # consecutive ones inside the early window are the false confirmation

@@ -29,7 +29,8 @@ One event carries: ``timestamp`` (ISO UTC), ``printer`` and
 be null — the watch does not always have a print number), ``verdict``,
 ``streak`` (the watch's consecutive-suspicious count where it tracks
 one, else null), and ``action`` — what the watch did with the verdict
-(``"alert"``, ``"auto_pause"``, ``"suppressed"`` or ``"none"``).
+(``"alert"``, ``"auto_pause"``, ``"suppressed"``, ``"noted"`` for a weak
+local detection that was logged but not posted, or ``"none"``).
 """
 from __future__ import annotations
 
