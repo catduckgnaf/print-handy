@@ -272,6 +272,9 @@ def start_in_flight(printer_id: str | None = None, st: dict[str, Any] | None = N
         now = time.time() if now is None else now
         claims = []
         for name in start_claims.claimed_start_filenames(now):
+            owner = start_claims.claim_printer(name)
+            if printer_id and owner and owner != printer_id:
+                continue  # another printer's start (#1380)
             ts = start_claims.start_claim_time(name, now)
             if ts is not None and (max_age_s is None or now - ts <= max_age_s):
                 claims.append((ts, name))
