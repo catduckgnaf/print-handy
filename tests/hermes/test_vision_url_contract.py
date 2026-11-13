@@ -20,6 +20,11 @@ import pytest
 
 from print_handy.runtime import visual_watch as vw
 
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
 FRAME = bytes((0xFF, 0xD8, 0xFF, 0xD9))  # the verdict path never decodes the frame
 PROMPT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
 FAILED = ("uncertain", "the vision check could not be completed")

@@ -74,10 +74,14 @@ async def press(discord, label):
 # ---------------------------------------------------------------------- the switch itself
 
 
-def test_discord_adapter_can_use_the_llm_and_the_setting_defaults_on(cfg):
+def test_discord_adapter_can_use_the_llm_and_the_setting_defaults_off(cfg):
     """Unlike Telegram/Matrix, the Discord adapter itself stays uses_llm=True:
-    the operator's per-install choice is [discord] chat_llm_enabled (#466)."""
+    the operator's per-install choice is [discord] chat_llm_enabled (#466),
+    off by default since #1376 and on only when the operator says so."""
     assert StandaloneAdapter.uses_llm is True
+    assert runtime.discord_chat_llm_enabled(cfg) is False
+    assert runtime.discord_chat_llm_enabled({"discord": {}}) is False
+    cfg["discord"]["chat_llm_enabled"] = True
     assert runtime.discord_chat_llm_enabled(cfg) is True
     cfg["llm"].update(chat_url=LLM_URL, model="m")
     discord, core = make(cfg)
@@ -87,6 +91,8 @@ def test_discord_adapter_can_use_the_llm_and_the_setting_defaults_on(cfg):
 
 def test_discord_chat_llm_setting_loads_from_env_and_validates():
     data = settings.load(local=False, environ={})
+    assert data["discord"]["chat_llm_enabled"] is False  # off by default (#1376)
+    data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "true"})
     assert data["discord"]["chat_llm_enabled"] is True
     data = settings.load(local=False, environ={"PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED": "false"})
     assert data["discord"]["chat_llm_enabled"] is False
@@ -101,10 +107,11 @@ def test_discord_no_llm_configured_never_calls_the_llm(cfg):
     """Discord-named version of the generic proof: no [llm], exploding stub,
     a deterministic command still answers, unmatched text gets the command
     list exactly once and no second reply follows."""
+    # Chat AI on (it is off by default, #1376): use_llm is the platform/
+    # operator capability; with nothing configured the fallback still never
+    # fires, which status() reports and the exploding stub below proves.
+    cfg["discord"]["chat_llm_enabled"] = True
     discord, core = make(cfg)
-    # use_llm is the platform/operator capability (on, by default, for
-    # Discord); with nothing configured the fallback still never fires,
-    # which status() reports and the exploding stub below proves.
     assert core.use_llm is True and core.status(True)["llm"] is False
     calls = []
     with mock.patch.object(runtime.llm, "ask", exploding_ask(calls)), \
@@ -172,6 +179,7 @@ def test_discord_chat_llm_off_typed_answers_and_buttons_still_work(no_llm_cfg):
 
 def test_discord_bot_check_llm_row_pins_every_mode(cfg, monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "x" * 20)
+    cfg["discord"]["chat_llm_enabled"] = True  # off by default (#1376); on, the rows follow [llm]
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
     assert rows["llm"] == (True, "off (unmatched messages get the short not-understood reply)")
     cfg["llm"].update(chat_url=LLM_URL, model="m")

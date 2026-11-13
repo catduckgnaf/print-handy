@@ -5,7 +5,13 @@ target and minutes / on but no vision endpoint / on but no light target
 named (bot check is offline — auto-discovery is the listener's job, so
 an unnamed target is reported as unresolved-with-remedy, not verified).
 """
+import pytest
 from print_handy.bot import __main__ as bot_main
+
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
 
 
 def rows(cfg, monkeypatch):

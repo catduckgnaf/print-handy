@@ -38,6 +38,8 @@ def wait_for(service, kind, needle="", timeout=10.0):
 
 def test_chat_enabled_is_the_page_switch_not_the_llm_gate(cfg):
     assert web.chat_enabled(cfg) is True
+    assert web.chat_llm_enabled(cfg) is False  # chat AI is off by default (#1376)
+    cfg["webui"]["chat_llm_enabled"] = True
     assert web.chat_llm_enabled(cfg) is True
     cfg["webui"]["chat_enabled"] = False
     assert web.chat_enabled(cfg) is False
@@ -83,13 +85,14 @@ def test_shipped_configs_show_both_chat_toggles_explicitly():
     """The default config files name both toggles, not a loader comment.
 
     A reviewer (and an operator) should find chat_llm_enabled in the
-    defaults they are handed, at the same explicit true as
-    chat_enabled — in all three shipped files (home.toml was retired in #1322).
+    defaults they are handed, explicitly — chat_enabled true and
+    chat_llm_enabled false (#1376: AI is for designing models) — in all
+    three shipped files (home.toml was retired in #1322).
     """
     for name in ("home.yaml", "docker.yaml", "docker.toml"):
         data = settings._read(settings.ROOT / "config" / name)
         assert data["webui"]["chat_enabled"] is True, name
-        assert data["webui"]["chat_llm_enabled"] is True, name
+        assert data["webui"]["chat_llm_enabled"] is False, name
 
 
 # -- chat_enabled=false: the service processes nothing ----------------------

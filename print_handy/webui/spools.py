@@ -75,8 +75,8 @@ PURCHASE_ACTIONS = ("purchase/propose", "purchase/create")
 SLOTS = spool_sync.SLOTS
 
 NO_AI_REASON = ("purchase link intake needs an AI route, and none is configured: "
-                "set PRINT_VISION_URL or services.vision_chat_url to use it. "
-                "Nothing was created.")
+                "set vision.ai_enabled to true and PRINT_VISION_URL or "
+                "services.vision_chat_url to use it. Nothing was created.")
 
 
 class SpoolsError(Exception):

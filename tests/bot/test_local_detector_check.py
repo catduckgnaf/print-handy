@@ -2,10 +2,16 @@
 local-only state: every state names itself and the remedy, in the roast
 row's style. Offline — the detector is pointed at the tiny test fixture,
 and bot check never downloads or infers."""
+import pytest
 from pathlib import Path
 
 from print_handy.bot import __main__ as bot_main
 from print_handy.runtime import local_vision as lv
+
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
 
 FIXTURE = Path(__file__).parent.parent / "hermes" / "fixtures" / "tiny_failure_detector.onnx"
 

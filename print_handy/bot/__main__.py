@@ -138,6 +138,20 @@ def checks(cfg):
     vision_url = str((cfg.get("services") or {}).get("vision_chat_url") or "")
     if ai_routes.explicit("small", cfg):
         vision_url = vision_url or cfg["ai"]["small"]["chat_url"]
+    env_vision_url = os.environ.get("PRINT_VISION_URL") or ""
+    # AI camera checks (#1376): off by default, and while off no endpoint
+    # counts for the rows below, however it is configured.
+    from ..runtime import visual_watch as _vw_gate
+    if _vw_gate.vision_ai_enabled(cfg):
+        add("vision ai", True, "on (vision.ai_enabled: camera checks and label reads may use "
+                               "the vision endpoint)")
+    else:
+        if vision_url or env_vision_url:
+            add("vision ai", True, f"off ({_vw_gate.VISION_AI_OFF}: the configured vision "
+                                   "endpoint is not used; set vision.ai_enabled to true to use it)")
+        else:
+            add("vision ai", True, f"off ({_vw_gate.VISION_AI_OFF})")
+        vision_url, env_vision_url = "", ""
     if not vision.get("roast_enabled", True):
         add("roast", True, "off (vision.roast_enabled is false)")
     else:
@@ -226,18 +240,24 @@ def checks(cfg):
                                 f"light-off covers Moonraker, Bambu Lab and Elegoo "
                                 f"SDCP printers); the setting has no effect here")
     elif _ref_state == "ready" and not vision_url \
-            and not os.environ.get("PRINT_VISION_URL"):
+            and not env_vision_url:
         add("auto light", True, f"on (the local plate reference certifies the empty "
                                 f"plate for the idle check; light off after the plate "
                                 f"has been seen empty for {light_minutes} minutes; set "
                                 f"vision.auto_light_off_minutes=0 to turn auto light off)")
     elif vision.get("local_detector_enabled") and not vision_url \
-            and not os.environ.get("PRINT_VISION_URL"):
+            and not env_vision_url:
         add("auto light", True, "on, but the local failure detector cannot certify an "
                                 "empty plate (it never answers empty_idle), so the light "
-                                "will stay on; auto light-off needs a vision endpoint "
-                                "(services.vision_chat_url or PRINT_VISION_URL)")
-    elif not vision_url and not os.environ.get("PRINT_VISION_URL"):
+                                "will stay on; auto light-off needs a calibrated plate "
+                                "reference (vision.local_empty_enabled) or a vision endpoint "
+                                "with vision.ai_enabled")
+    elif not vision_url and not env_vision_url and not _vw_gate.vision_ai_enabled(cfg):
+        add("auto light", True, "on, but the empty-plate check has no route: AI camera "
+                                "checks are off (vision.ai_enabled is false) and no plate "
+                                "reference is calibrated (vision.local_empty_enabled, then "
+                                "/print-plate-calibrate)")
+    elif not vision_url and not env_vision_url:
         add("auto light", True, "on, but no vision endpoint is available "
                                 "(services.vision_chat_url is empty and PRINT_VISION_URL "
                                 "is not set); the empty-plate check needs one")

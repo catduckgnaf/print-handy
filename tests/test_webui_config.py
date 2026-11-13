@@ -48,7 +48,7 @@ class WebUISettingsTests(unittest.TestCase):
                                          "require_auth": True,
                                          "controls_enabled": False,
                                          "cookie_secure": False,
-                                         "chat_llm_enabled": True,
+                                         "chat_llm_enabled": False,
                                          "chat_enabled": True,
                                          "trusted_proxies": ""})
 

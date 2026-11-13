@@ -14,6 +14,11 @@ import pytest
 from print_handy.runtime import visual_watch as vw
 
 
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
+
 @pytest.mark.parametrize("url", [
     "http://127.0.0.1:11434/v1/chat/completions",
     "http://localhost:1234/v1/chat/completions",

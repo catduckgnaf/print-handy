@@ -26,6 +26,11 @@ from print_handy.webui import config as config_api
 from print_handy.webui import pages as pages_module
 from print_handy.webui import server
 
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
 KEY = "test-stored-key-0000-not-real"
 FORM_HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 

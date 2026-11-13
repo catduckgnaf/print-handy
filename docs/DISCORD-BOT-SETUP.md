@@ -107,10 +107,10 @@ All settings support `PRINT_HANDY__SECTION__KEY` process-environment overrides, 
 The actual token still comes from the variable named by `token_env` (default `DISCORD_BOT_TOKEN`),
 not a `discord.token` field. `PRINT_HANDY_CONFIG` selects an explicit configuration file.
 See [settings and optional LLM/logging fields](STANDALONE.md#settings) and
-[configuration load order](CONFIGURATION-YAML.md). Leave `llm.chat_url` empty for command-list replies
-with no LLM, or, when `[llm]` is set up for `/print-design`, set `discord.chat_llm_enabled` to `false`
-(or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=false`) to run Discord with no chat LLM while design keeps
-its endpoint; `bot check` names the switch on its llm row. See
+[configuration load order](CONFIGURATION-YAML.md). Discord runs with no chat LLM by default, even when
+`[llm]` is set up for `/print-design`: `discord.chat_llm_enabled` is `false` unless you set it, because AI is
+for designing models. Set it to `true` (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=true`) if you want the
+model to answer stray chat; `bot check` names the switch on its llm row. See
 [Running Discord with no chat LLM](STANDALONE.md#running-discord-with-no-chat-llm). Separate from that chat LLM, the print-started post carries the
 one-line **roast** from the local roast corpus, no LLM needed: `vision.roast_enabled` is
 on by default, and setting it `false` (or

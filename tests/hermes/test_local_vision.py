@@ -25,6 +25,11 @@ from PIL import Image
 from print_handy import settings
 from print_handy.runtime import _config, local_vision as lv, visual_watch as vw
 
+
+# These tests exercise the vision endpoint routes, which run only with AI
+# camera checks on (vision.ai_enabled, off by default since #1376).
+pytestmark = pytest.mark.usefixtures("vision_ai_on")
+
 FIXTURE = Path(__file__).parent / "fixtures" / "tiny_failure_detector.onnx"
 FIXTURE_SHA256 = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
 

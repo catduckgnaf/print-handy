@@ -10,6 +10,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 |---|---|
 | Discord bot core, commands, runtime, typed replies | `tests/bot/test_runtime.py`, `test_prompts.py`, `test_typed_reply_scope.py`, `tests/corpus/` |
 | Discord no-LLM modes (#466): no `[llm]`, and `[llm]` configured with `discord.chat_llm_enabled=false`; bot-check/status pins, touchpoint inventory, full intake | `tests/bot/test_discord_no_llm.py` |
+| AI is for designing models (#1376): chat AI and AI camera checks off by default on every platform, `/print-design` still reaching its model, the vision gate and its local routes | `tests/bot/test_ai_design_only_defaults.py` |
 | Bot startup retry / transient classification (#364) | `tests/bot/test_startup_retry.py` |
 | Platform adapters (Discord / Matrix / Telegram), access control | `tests/bot/test_platform.py`, `test_matrix.py`, `test_telegram.py`, `test_access.py`, `test_routing.py` |
 | Guided setup | `tests/bot/test_guided.py`, `test_guided_multi.py`, `tests/test_setup_wizard.py` |

@@ -2,6 +2,8 @@
 
 # Unreleased
 
+- AI is for designing models (#1376): chat AI and AI camera checks are off by default. `discord.chat_llm_enabled` and `webui.chat_llm_enabled` now default to `false`, so unmatched chat gets the short not-understood reply and no `[llm]` or `[agent]` call is made; Telegram and Matrix were already pure bots. New `vision.ai_enabled` (default `false`) keeps every frame and photo away from `PRINT_VISION_URL`, `services.vision_chat_url` and `[ai.small]`: the camera watchdog, idle plate checks, label photo reads and purchase intake treat the endpoint as not configured, while the local failure detector and plate reference keep working under their own switches. `/print-design` and the design-side edit and fix path keep their AI route. Upgrade: an install that used chat AI or AI camera checks sets `discord.chat_llm_enabled`, `webui.chat_llm_enabled` or `vision.ai_enabled` to `true` to keep them.
+
 # Version 2.3.1
 
 **Release Date:** 2026-11-12
