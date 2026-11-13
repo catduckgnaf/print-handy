@@ -216,6 +216,7 @@ def test_finish_post_line_names_the_correction(monkeypatch, tmp_path):
 
 def test_missed_finish_while_the_listener_was_down_is_checked(tmp_path, monkeypatch):
     from print_handy.runtime import multislot_usage
+    monkeypatch.setenv("PRINT_HANDY_SPOOL_WEIGHT_SET_STATE", str(tmp_path / "weight_set.json"))
     fake = FakeSpoolman(BASELINE_G)
     fake.report(RUNAWAY_MM)
     fake.report(PRINT_MM)

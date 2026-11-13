@@ -119,6 +119,12 @@ def _isolated_launch_state(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_spool_weight_marks(tmp_path, monkeypatch):
+    """/spool weight and the Web UI edit record a per-spool mark (#1374); each test gets its own file."""
+    monkeypatch.setenv("PRINT_HANDY_SPOOL_WEIGHT_SET_STATE", str(tmp_path / "spool_weight_set.json"))
+
+
+@pytest.fixture(autouse=True)
 def _isolated_credential_bindings(tmp_path, monkeypatch):
     """Each test's service-key host bindings (#1192) live in its own file, starting empty."""
     from print_handy import credential_binding
