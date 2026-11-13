@@ -379,7 +379,7 @@ jobs:
       - name: Run the bounds corpus against the native path
         env:
           PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: "1"
-        run: python -m pytest tests/pipeline/test_native_bounds.py -q -rs
+        run: python -m pytest tests/pipeline/test_native_bounds.py tests/pipeline/test_native_bed_scan.py -q -rs
 
   discord-timing:
     # A required status check on main (the owner added it; #1196). Keep the job name.

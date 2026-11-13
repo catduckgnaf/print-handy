@@ -1,23 +1,26 @@
-"""A slice normalizes its G-code once (#1392).
+"""A finalized G-code is re-finalized in full, cheaply, without being rewritten (#1392).
 
 Seen live on 2.3.2: a 25 MB single-color lantern G-code took about 26 s
 between OrcaSlicer finishing and the Ready question. Part of it was the ZMod
 finalize running twice on the same file: slice_model finalizes with the
 one-slot map built from ``filament_slot``, and every single-color caller in
-jobs/slice.py then called ``finalize_multicolor`` with that same map. The
-second pass re-normalized the whole file (about 12 s) to produce identical
-bytes.
+jobs/slice.py then called ``finalize_multicolor`` with that same map.
 
-``finalize`` now returns early when the file already carries a valid checksum
-and exactly the map and color lines it would write. Anything else (another
-slot, a file without Print Handy's map line, ``drop_unused``) still takes the
-full path. These tests pin the bytes, the early return, and the pass count.
+#1393 skipped the second pass when the file already carried a valid checksum
+and Print Handy's own map lines. Review found the hole: both can be written by
+hand, so a crafted file skipped the start-heater normalization and the material
+and tool checks. The shortcut is gone; the full pass is made cheap instead
+(the start code is read around START_PRINT only, the tools in one pass, the
+filament_type line found without a whole-text regex), and an unchanged result
+is not rewritten.
 """
 import copy
 import hashlib
 import re
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from print_handy.core import model_job as job
 from print_handy.core import orca_adapter as adapter
@@ -42,51 +45,63 @@ def counting_normalize():
     return calls, patch.object(native_startup, "normalize", normalize)
 
 
-def test_refinalizing_with_the_same_map_keeps_the_bytes_and_skips_normalization(tmp_path):
+def _checksummed(payload):
+    body = payload.encode()
+    return b"; MD5:" + hashlib.md5(body).hexdigest().encode() + b"\r\n" + body
+
+
+def test_refinalizing_with_the_same_map_keeps_the_bytes_and_writes_nothing(tmp_path):
     st = state()
     path = tmp_path / "plate.gcode"
     path.write_text(sparse_artifact([0], ["PLA"]))
     first = contract.finalize(path, None, st, {"0": 1}, drop_unused=True)
     finalized = path.read_bytes()
     calls, patched = counting_normalize()
-    with patched:
+    with patched, patch.object(Path, "write_bytes", side_effect=AssertionError("rewritten")):
         again = contract.finalize(path, None, st, {"0": 1})
-    assert calls == []
+    assert len(calls) == 1, "every finalize normalizes and validates in full"
     assert again == first == hashlib.sha256(finalized).hexdigest()
     assert path.read_bytes() == finalized
     assert job.zmod_md5_valid(path)
 
 
-def test_the_early_return_gives_the_bytes_a_full_refinalize_gives(tmp_path):
+def test_a_checksummed_file_with_print_handys_map_lines_is_still_normalized(tmp_path):
+    """The review finding on #1393: a valid MD5 and matching map lines prove nothing about the start code."""
     st = state()
-    fast, full = tmp_path / "fast.gcode", tmp_path / "full.gcode"
-    for path in (fast, full):
-        path.write_text(sparse_artifact([0], ["PLA"]))
-        contract.finalize(path, None, st, {"0": 1}, drop_unused=True)
-    contract.finalize(fast, None, st, {"0": 1})
-    with patch.object(contract, "_header_metadata", return_value=None):
-        contract.finalize(full, None, st, {"0": 1})
-    assert fast.read_bytes() == full.read_bytes()
+    reference = tmp_path / "reference.gcode"
+    reference.write_text(sparse_artifact([0], ["PLA"]))
+    contract.finalize(reference, None, st, {"0": 1})
+    payload = reference.read_bytes().partition(b"\n")[2].decode()
+    assert "M190 S60\nM104 S210 T0\nSTART_PRINT" in payload
+    crafted = tmp_path / "crafted.gcode"
+    crafted.write_bytes(_checksummed(payload.replace("M190 S60\nM104 S210 T0\n", "")))
+    contract.finalize(crafted, None, st, {"0": 1})
+    assert crafted.read_bytes() == reference.read_bytes(), "the heaters were not put back"
 
 
-def test_another_slot_or_an_unmapped_file_still_finalizes_in_full(tmp_path):
+def test_a_checksummed_file_with_print_handys_map_lines_is_still_material_checked(tmp_path):
     st = state()
     path = tmp_path / "plate.gcode"
     path.write_text(sparse_artifact([0], ["PLA"]))
     contract.finalize(path, None, st, {"0": 1})
-    calls, patched = counting_normalize()
-    with patched:
-        contract.finalize(path, None, st, {"0": 2})
-    assert len(calls) == 1
+    payload = path.read_bytes().partition(b"\n")[2].decode()
+    path.write_bytes(_checksummed(payload.replace("; filament_type = PLA", "; filament_type = PETG")))
+    with pytest.raises(RuntimeError, match="material"):
+        contract.finalize(path, None, st, {"0": 1})
+
+
+def test_another_slot_or_an_unmapped_file_finalizes_to_the_new_map(tmp_path):
+    st = state()
+    path = tmp_path / "plate.gcode"
+    path.write_text(sparse_artifact([0], ["PLA"]))
+    contract.finalize(path, None, st, {"0": 1})
+    contract.finalize(path, None, st, {"0": 2})
     assert contract.embedded_mapping(path.read_text(), st) == {"0": 2}
 
     single = tmp_path / "single.gcode"
     single.write_text(sparse_artifact([0], ["PLA"]))
     contract.finalize(single, ("#FFFFFF", "PLA"))  # checksum, no Print Handy map line
-    calls, patched = counting_normalize()
-    with patched:
-        contract.finalize(single, None, st, {"0": 1})
-    assert len(calls) == 1
+    contract.finalize(single, None, st, {"0": 1})
     assert contract.embedded_mapping(single.read_text(), st) == {"0": 1}
 
 
@@ -96,20 +111,40 @@ def test_an_invalid_checksum_is_still_refused(tmp_path):
     path.write_text(sparse_artifact([0], ["PLA"]))
     contract.finalize(path, None, st, {"0": 1})
     path.write_bytes(path.read_bytes().replace(b"G1 X10", b"G1 X11"))
-    try:
+    with pytest.raises(RuntimeError, match="invalid existing ZMod checksum"):
         contract.finalize(path, None, st, {"0": 1})
-    except RuntimeError as exc:
-        assert "invalid existing ZMod checksum" in str(exc)
-    else:
-        raise AssertionError("an edited finalized file must be refused")
+
+
+def test_the_first_filament_type_line_is_found_like_the_whole_text_search():
+    texts = ["", "; filament_type = PLA\n", "x; filament_type = A\n; filament_type = B\n",
+             "; filament_type = \n; filament_type = C\r\n", "\n\n; filament_type = D", "; filament_type = E\rF\n",
+             ";  filament_type = G\n; FILAMENT_TYPE = H\n", "a\r; filament_type = I\n"]
+    for text in texts:
+        fast = contract._first_line_match(text, contract.FILAMENT_TYPE_LINE, "; filament_type = ")
+        slow = re.search(r"^; filament_type = (.+)$", text, re.M)
+        assert (None if fast is None else (fast.span(), fast.groups())) == \
+            (None if slow is None else (slow.span(), slow.groups())), repr(text)
+
+
+def test_used_tools_matches_the_two_pass_scan():
+    def old(text):
+        def scan(pattern, candidates):
+            return {int(m.group(1)) for line in text.splitlines()
+                    if line[:1] in candidates and (m := pattern.fullmatch(line.strip()))}
+        return (scan(contract.TOOL_LINE, contract._TOOL_CANDIDATES)
+                or scan(contract.HEATER_TOOL_LINE, contract._HEATER_CANDIDATES))
+    texts = [sparse_artifact([0, 2], ["PLA"] * 3), sparse_artifact([], ["PLA"]), "M104 S200 T1\nM109 S200 T0\n",
+             "M104 S200 T1\nT3\n", " T2 ; c\n\tM104 S1 T0\n", "", "T\nM104 T\n", "M104 S1 T2\n　T4\n"]
+    for text in texts:
+        assert contract.used_tools(text) == old(text), repr(text)
 
 
 _OLD_WORD = re.compile(r"\b([XYZE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", re.I)
+MOVE = re.compile(r"^\s*G[0-3]\b([^;]*)", re.I)
 
 
 def _old_bed_verdict(text, bed):
     """post_slice's bed loop before #1392, frozen: every word parsed, every point kept."""
-    from print_handy.core.slice_guard import MOVE
     coords = []
     x = y = 0.0
     for line in text.splitlines():
@@ -145,17 +180,18 @@ def test_the_narrowed_bed_check_blocks_exactly_what_the_old_loop_blocked():
             assert got == _old_bed_verdict(text, bed), text[:80]
 
 
-def test_a_single_color_slice_and_its_caller_normalize_the_gcode_once(tmp_path):
-    """The jobs/slice.py pattern: slice_model(filament_slot=N), then finalize_multicolor with {'0': N}."""
+def test_a_single_color_slice_and_its_caller_never_list_every_command(tmp_path):
+    """Work-count guard: the slice and its caller's re-finalize read the start code around
+    START_PRINT only (commands() lists every command line: 1.2 s on 25 MB) and write once."""
     from print_handy.jobs import slice as jobs_slice
     source = tmp_path / "part.stl"
     source.write_text("solid x\nendsolid x\n")
     st = state()
-    calls, patched = counting_normalize()
-    with patched, patch.object(adapter.subprocess, "run", side_effect=fake_slice):
+    with patch.object(native_startup, "commands", side_effect=AssertionError("listed every command")), \
+            patch.object(adapter.subprocess, "run", side_effect=fake_slice):
         out, provenance, _ = adapter.slice_model(source, tmp_path / "out", st, filament_slot=1)
         finalized = out.read_bytes()
-        jobs_slice.finalize_multicolor(out, None, st, {"0": 1})
-    assert len(calls) == 1, f"the G-code was normalized {len(calls)} times"
+        with patch.object(Path, "write_bytes", side_effect=AssertionError("rewritten")):
+            jobs_slice.finalize_multicolor(out, None, st, {"0": 1})
     assert out.read_bytes() == finalized
     assert provenance["gcode_sha256"] == hashlib.sha256(finalized).hexdigest()

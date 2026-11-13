@@ -26,6 +26,7 @@ back to a plain whole-text call: slower, never different.
 """
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 
@@ -76,12 +77,16 @@ class GcodeLines:
         if branches:
             text = self.text
             lookaheads = [(re.compile(a.fragment).match, positions[a].append) for a in fragments]
-            last = -1
-            for match in re.finditer(f"^(?:{'|'.join(branches)})", text, re.M):
-                pos = match.start()
-                if pos == last:
-                    continue
-                last = pos
+            alternation = f"(?:{'|'.join(branches)})"
+            # "^" under re.M is position 0 or just after a "\n". A pattern led by a literal "\n"
+            # lets the engine jump from newline to newline instead of trying "^" at every
+            # character (1.1 s to about 0.2 s on a 25 MB G-code, #1392). Matches cannot hide a
+            # line: a literal holds no newline and a lookahead consumes nothing.
+            first = re.compile(alternation).match(text, 0)
+            hits = itertools.chain(
+                () if first is None else ((0, first),),
+                ((match.start() + 1, match) for match in re.finditer("\n" + alternation, text)))
+            for pos, match in hits:
                 literal = match.group(1) if ordered else None
                 if literal is not None:
                     for add in adds[literal]:
