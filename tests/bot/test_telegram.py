@@ -154,12 +154,13 @@ def test_rest_send_needs_a_token_and_a_chat():
 # ---------------------------------------------------------------------- update parsing
 
 
-def test_parse_message_strips_the_bot_suffix_and_maps_forum_threads():
+def test_parse_message_keeps_the_text_and_maps_forum_threads():
+    """The bot suffix is the mention step's to judge (it knows the bot's own username)."""
     parsed = telegram.parse_message({
         "message_id": 7, "from": {"id": int(USER), "is_bot": False},
         "chat": {"id": int(CHAT)}, "message_thread_id": 55,
         "text": "/print-next@PrintHandyBot plan-1"})
-    assert parsed.content == "/print-next plan-1"
+    assert parsed.content == "/print-next@PrintHandyBot plan-1"
     assert parsed.channel.parent_id == int(CHAT) and parsed.channel.id == 55
     assert runtime.channel_scope(parsed.channel) == (CHAT, "55")
 
@@ -173,9 +174,15 @@ def test_parse_message_document_becomes_an_attachment():
     assert parsed.attachments[0].filename == "cube.stl" and parsed.attachments[0].size == 12
 
 
-def test_clean_command_text_leaves_plain_text_alone():
-    assert telegram.clean_command_text("print it @someone") == "print it @someone"
-    assert telegram.clean_command_text("/spool@Bot list") == "/spool list"
+def test_the_bot_suffix_is_stripped_only_for_this_bot(cfg):
+    stub = BotApiStub()
+    client, core = make_core(cfg, stub)
+    client.user = telegram.S(id=999, username="printhandybot")
+    assert core.addressed("print it @someone").text == "print it @someone"
+    assert core.addressed("/spool@PrintHandyBot list").text == "/spool list"
+    assert core.addressed("/spool@OtherBot list").elsewhere
+    client.user = None  # getMe never answered: any suffix is stripped, as before
+    assert core.addressed("/spool@Bot list").text == "/spool list"
 
 
 # ---------------------------------------------------------------------- adapter prompts

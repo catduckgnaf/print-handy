@@ -350,6 +350,16 @@ def test_discord_client_registers_commands_and_reports_connection_proc(cfg):
         run(flow())
 
 
+def test_a_mention_of_the_bot_before_a_slash_command_runs_it(cfg):
+    """Regression: "<@bot> /print-help" reached every command gate still starting with "<@"
+    and got the unmatched reply. The mention is stripped before routing (bot/mention.py)."""
+    discord, core = make(cfg)
+    bot = discord.bot_user.id
+    out = run(core.handle_message(discord.message(f"<@{bot}> /print-help")))
+    assert out == {"action": "skip", "reason": "help"}
+    assert discord.sent == [core.help] and len(core.help) <= 2000  # one message, not two
+
+
 @pytest.mark.parametrize("name", ["Print Bitch", "Print Handy"])
 def test_custom_name_is_used_in_help_and_wrong_channel_refusal(cfg, name):
     cfg["discord"]["bot_name"] = name

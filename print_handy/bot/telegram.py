@@ -54,17 +54,14 @@ def telegram_token(cfg=None):
     return _config.profile_env_value(name)
 
 
-def clean_command_text(text):
-    """Strip a trailing @BotName from a command token ('/print-next@PrintHandy x' -> '/print-next x')."""
-    text = str(text or "")
-    head, _, rest = text.partition(" ")
-    if head.startswith("/") and "@" in head:
-        head = head.split("@", 1)[0]
-    return head + ((" " + rest) if rest else "")
-
-
 def parse_message(message):
-    """A Bot API message dict as the namespace BotCore.handle_message consumes, or None."""
+    """A Bot API message dict as the namespace BotCore.handle_message consumes, or None.
+
+    The text is passed on as typed. A ``/cmd@username`` suffix or a leading
+    ``@username`` is handled by BotCore's mention step (``bot/mention.py``),
+    which knows this bot's own username and ignores a command addressed to
+    a different bot.
+    """
     if not isinstance(message, dict):
         return None
     sender = message.get("from") or {}
@@ -79,7 +76,7 @@ def parse_message(message):
     for photo in (message.get("photo") or [])[-1:]:
         if isinstance(photo, dict) and photo.get("file_id"):
             attachments.append(_attachment(photo, fallback_name="photo.jpg"))
-    text = clean_command_text(message.get("text") or message.get("caption") or "")
+    text = str(message.get("text") or message.get("caption") or "")
     return S(author=S(id=sender.get("id"), bot=bool(sender.get("is_bot"))),
              channel=S(id=thread if thread else chat.get("id"),
                        parent_id=chat.get("id") if thread else None),

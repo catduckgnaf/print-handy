@@ -25,10 +25,12 @@ runs the same claim-then-act path as a Discord button click.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -110,8 +112,38 @@ def parse_event(event, room_id, bot_user_id=""):
         text = str(content.get("body") or "")
     else:
         return None
+    mentions_bot, mention_names = _bot_mention(content, _own_ids(bot_user_id))
     return S(author=S(id=sender, bot=False), channel=S(id=str(room_id), parent_id=None),
-             content=text, id=event.get("event_id"), attachments=attachments)
+             content=text, id=event.get("event_id"), attachments=attachments,
+             mentions_bot=mentions_bot, mention_names=mention_names)
+
+
+_PILL = re.compile(r"""<a\s[^>]*href\s*=\s*["']https://matrix\.to/#/([^"'?]+)[^"']*["'][^>]*>(.*?)</a>""",
+                   re.I | re.S)
+
+
+def _bot_mention(content, own_ids):
+    """(mentions_bot, pill texts): whether a message mentions this bot, and what its pills say.
+
+    A pill (a ``matrix.to`` link to the bot in ``formatted_body``) is a
+    mention, and its link text is the name the body shows for it ("Print
+    Handy: spool list"), so the mention step can strip it. ``m.mentions``
+    naming the bot is one too, except on a reply: clients add the replied-to
+    sender there, and replying to the bot is not addressing it.
+    """
+    if not own_ids:
+        return False, ()
+    own = {uid.casefold() for uid in own_ids}
+    names = []
+    for target, label in _PILL.findall(str(content.get("formatted_body") or "")):
+        if urllib.parse.unquote(target).casefold() in own:
+            names.append(html.unescape(re.sub(r"<[^>]+>", "", label)).strip())
+    relates = content.get("m.relates_to")
+    reply = isinstance(relates, dict) and "m.in_reply_to" in relates
+    listed = (content.get("m.mentions") or {}).get("user_ids") if isinstance(content.get("m.mentions"), dict) else None
+    flagged = bool(names) or (not reply and isinstance(listed, list)
+                              and any(str(uid).casefold() in own for uid in listed))
+    return flagged, tuple(name for name in names if name)
 
 
 def _own_ids(bot_user_id):
@@ -406,6 +438,7 @@ class MatrixClient:
         self.connected = False
         self.room_id = str((cfg.get("matrix") or {}).get("room_id") or "")
         self.bot_user_id = str((cfg.get("matrix") or {}).get("bot_user_id") or "")
+        self.display_name = None  # the account's profile name, read at start for mentions
         self._started_ms = int(time.time() * 1000)
         self._since = None
         self._background = []
@@ -516,13 +549,22 @@ class MatrixClient:
         served = self._served_rooms()
         out = []
         for room_id, room in joined.items():
-            if room_id not in served:
-                continue
             timeline = (room or {}).get("timeline") or {}
             events = timeline.get("events")
-            if isinstance(events, list):
+            if not isinstance(events, list):
+                continue
+            if room_id in served:
                 out.extend((room_id, event) for event in events)
+            else:
+                # Another room the account is in: only a mention of the bot
+                # gets through, and BotCore answers it with the print-room notice.
+                out.extend((room_id, event) for event in events if self._mentions_me(event, room_id))
         return out
+
+    def _mentions_me(self, event, room_id):
+        addressed = getattr(self.core, "addressed", None)
+        parsed = self.parse(event, room_id) if addressed is not None else None
+        return parsed is not None and addressed(parsed.content, parsed).mentioned
 
     async def _maybe_join(self, data):
         """Accept invitations to served rooms when they show up in /sync."""
@@ -608,6 +650,14 @@ class MatrixClient:
                            configured, bot_id, bot_id)
         self.bot_user_id = bot_id
         self.user = S(id=bot_id)
+        # The profile name is what Element shows and writes for a mention
+        # ("Print Handy: spool list"). Best effort: without it the localpart
+        # and the configured bot_name still count.
+        try:
+            self.display_name = await asyncio.to_thread(mx.display_name, self.homeserver, self.token,
+                                                        bot_id, opener=self.opener)
+        except Exception:
+            logger.debug("could not read the bot's display name", exc_info=True)
         self.core = BotCore(self, self.cfg, chat_id=self.room_id)
         if getattr(self, "warm_worker", False):
             from .runtime import enable_warm_worker

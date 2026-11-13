@@ -158,6 +158,7 @@ Live camera streaming starts with a delivery-agnostic core in `print_handy/live_
 * `/print-live [start | stop | status]` runs the live camera viewing session (Discord only; see [live camera Activity](DISCORD-BOT-SETUP.md#7-live-camera-activity-optional)). Start posts the Activity pointer for the one configured voice channel; the bot sends no video itself and records nothing. Telegram and Matrix have no live command.
 * `/print-troubleshoot` walks a guided physical troubleshooting flow (first layer, clog, heat creep, bed level, ringing, prepare to clean) one question at a time. Advice only; it never commands the printer.
 * `/print-help` answers with what Print Handy can do and the commands it registers. Read-only.
+* Mentioning the bot replaces the slash on every chat platform: "@Print Handy spool list" runs `/spool list`, "@Print Handy /print-stop" and "@Print Handy stop" both run `/print-stop`, and a bare mention answers with the help. One step in `print_handy/bot/mention.py`, run before routing, recognizes and strips a mention of this bot from its live identity: Discord `<@id>`, `<@!id>` and the bot's managed role; the Telegram `@username` and this bot's `/command@username` suffix (a command for another bot is ignored); a Matrix pill, `m.mentions`, display name (read from the profile at startup) or `@localpart`; and the configured `bot_name`, with or without "@", on every platform including web chat. Nothing is hard-coded, so a renamed bot does not answer to "Print Handy" text (the `/print-handy` command keeps its name, and "set up <bot name>" offers it). After the mention, a first word that is a registered command name, with or without the `print-` prefix, becomes that command; other text takes the normal plain-language path. A bare name without "@" counts only in front of a command, and a message that mentions nobody is routed unchanged. A mention outside the routed print channels runs nothing and gets one "only works in its print channel" reply per person and channel per hour.
 
 ## Settings
 
@@ -390,7 +391,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | | `upload_max_bytes` | `9500000` | Largest upload before video is shrunk |
 | | `post_print_quiet_s` | retired | — | Retired: ignored if set in old config or environment |
 | | `daily_reset_hour` | retired | — | Retired: ignored if set in old config or environment |
-| | `bot_name` | `Print Handy` | Name the bot uses in the roast persona and the rendered profile templates (`SOUL.md`, locale strings). Set it to anything, for example your old name |
+| | `bot_name` | `Print Handy` | Name the bot uses in the roast persona and the rendered profile templates (`SOUL.md`, locale strings), and a name it answers to when mentioned ("@Print Handy spool list"). Set it to anything, for example your old name |
 | | `question_timeout_s` | `1800` | How long a Discord question waits for a button press |
 | | `safety_confirm_timeout_s` | `600` | How long a safety confirmation (stop, resume, reboot, cold-pull go-ahead) waits |
 | | `upload_wait_s` | `3600` | How long an upload-wait freeze stays active |

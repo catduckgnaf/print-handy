@@ -558,7 +558,8 @@ class WebChatService:
             count = self._message_count
             self._inflight[scope] = self._inflight.get(scope, 0) + 1
         self._append({"kind": "operator", "content": str(text or "")}, scope)
-        event = runtime.make_event(self._source(scope), text, f"web-{count}")
+        # "@Print Handy spool list" runs /spool list here too (bot/mention.py).
+        event = runtime.make_event(self._source(scope), self.core.addressed(text).text, f"web-{count}")
         future = asyncio.run_coroutine_threadsafe(
             self._in_scope(scope, lambda: self.core.process(event)), self._loop)
         future.add_done_callback(lambda done: self._process_done(done, scope))

@@ -247,7 +247,13 @@ require_confirmation`) and the project's `bot/configuration.py` /
   document. Timelapse video is sized to `telegram.upload_max_bytes`
   (50 MB by default), not to Discord's smaller cap, so Telegram keeps
   the quality Discord's limit would have thrown away.
-- **Commands** arrive as text: `/print-next plan-1`. A trailing
-  `@YourBot` suffix that group chats add is stripped automatically.
+- **Commands** arrive as text: `/print-next plan-1`. The `@YourBot`
+  suffix that group chats add is stripped when it names this bot; a
+  command addressed to a different bot (`/spool@OtherBot`) is ignored.
+  Mentioning the bot works in place of the slash: `@YourBot spool list`
+  runs `/spool list`, and so does the configured `bot_name` typed at
+  the start ("Print Handy, spool list"). Even with BotFather's privacy
+  mode on, Telegram delivers commands and `@YourBot` mentions in a
+  group, so mentioning the bot works either way.
 - **The roast**: completion posts carry the same one-line roast as Discord, from the
   local corpus with no LLM (`vision.roast_enabled`, on by default; see [The roast](#the-roast)).
