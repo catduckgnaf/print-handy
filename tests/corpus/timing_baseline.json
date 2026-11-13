@@ -8,183 +8,176 @@
     "fit_check_s": 0.0,
     "wall_s": 0.38
    },
-   "previous_reason": "2.2.10 re-record of assembly-2c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.5s -> 0.44s, first_prompt_s 0.21s -> 0.26s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.26,
-    "fit_check_s": 0.0,
-    "wall_s": 0.44
-   },
-   "reason": "2.3.1 re-record of assembly-2c-tight/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.44s -> 0.59s, first_prompt_s 0.26s -> 0.44s. The largest rise, 0.18 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.59
+   "wall_s": 0.58
   },
   "assembly-2c-tight/standalone": {
-   "first_prompt_s": 0.45,
+   "first_prompt_s": 0.47,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.31,
     "fit_check_s": 0.0,
     "wall_s": 0.4
    },
-   "previous_reason": "2.2.9 re-record of assembly-2c-tight/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.41s -> 0.42s, first_prompt_s 0.36s -> 0.37s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of assembly-2c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.42s -> 0.53s, first_prompt_s 0.37s -> 0.46s. The largest rise, 0.11 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.37,
+    "first_prompt_s": 0.45,
     "fit_check_s": 0.0,
-    "wall_s": 0.42
+    "wall_s": 0.53
    },
-   "reason": "2.2.10 re-record of assembly-2c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.42s -> 0.53s, first_prompt_s 0.37s -> 0.46s. The largest rise, 0.11 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "reason": "2.3.2 re-record of assembly-2c-tight/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): first_prompt_s 0.45s -> 0.47s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
    "wall_s": 0.53
   },
   "assembly-3c-tight/direct": {
-   "first_prompt_s": 0.23,
+   "first_prompt_s": 0.26,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
-   "previous_reason": "2.2.10 re-record of assembly-3c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.26s -> 0.3s, first_prompt_s 0.17s -> 0.22s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-3c-tight/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.22s -> 0.23s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.22,
+    "first_prompt_s": 0.23,
     "fit_check_s": 0.0,
     "wall_s": 0.3
    },
-   "reason": "2.3.1 re-record of assembly-3c-tight/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.22s -> 0.23s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.3
+   "reason": "2.3.2 re-record of assembly-3c-tight/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.3s -> 0.33s, first_prompt_s 0.23s -> 0.26s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.33
   },
   "assembly-3c-tight/standalone": {
-   "first_prompt_s": 0.22,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.25,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.18,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
-   "previous_reason": "2.2.10 re-record of assembly-3c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.32s -> 0.3s, first_prompt_s 0.17s -> 0.22s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-3c-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
     "first_prompt_s": 0.22,
-    "fit_check_s": 0.0,
+    "fit_check_s": 0.01,
     "wall_s": 0.3
    },
-   "reason": "2.3.1 re-record of assembly-3c-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.3
+   "reason": "2.3.2 re-record of assembly-3c-tight/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.3s -> 0.33s, first_prompt_s 0.22s -> 0.25s, fit_check_s 0.01s -> 0.0s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.33
   },
   "assembly-four-color-tight/direct": {
-   "first_prompt_s": 0.25,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
     "wall_s": 0.25
    },
-   "previous_reason": "2.2.9 re-record of assembly-four-color-tight/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.31s -> 0.42s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of assembly-four-color-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.42s -> 0.33s, first_prompt_s 0.2s -> 0.25s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.25,
     "fit_check_s": 0.0,
-    "wall_s": 0.42
+    "wall_s": 0.33
    },
-   "reason": "2.2.10 re-record of assembly-four-color-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.42s -> 0.33s, first_prompt_s 0.2s -> 0.25s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.33
+   "reason": "2.3.2 re-record of assembly-four-color-tight/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.33s -> 0.37s, first_prompt_s 0.25s -> 0.29s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.37
   },
   "assembly-four-color-tight/standalone": {
-   "first_prompt_s": 0.26,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.19,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
-   "previous_reason": "2.2.10 re-record of assembly-four-color-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.2s -> 0.25s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-four-color-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s, first_prompt_s 0.25s -> 0.26s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.25,
+    "first_prompt_s": 0.26,
     "fit_check_s": 0.0,
-    "wall_s": 0.33
+    "wall_s": 0.34
    },
-   "reason": "2.3.1 re-record of assembly-four-color-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s, first_prompt_s 0.25s -> 0.26s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.34
+   "reason": "2.3.2 re-record of assembly-four-color-tight/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.34s -> 0.36s, first_prompt_s 0.26s -> 0.29s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.36
   },
   "assembly-small-tower/direct": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.24,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.21
    },
-   "previous_reason": "2.2.10 re-record of assembly-small-tower/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.37s -> 0.27s, first_prompt_s 0.16s -> 0.2s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-small-tower/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.27s -> 0.28s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.0,
-    "wall_s": 0.27
+    "wall_s": 0.28
    },
-   "reason": "2.3.1 re-record of assembly-small-tower/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.27s -> 0.28s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.28
+   "reason": "2.3.2 re-record of assembly-small-tower/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.28s -> 0.31s, first_prompt_s 0.21s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.31
   },
   "assembly-small-tower/standalone": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.24,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
     "wall_s": 0.22
    },
-   "previous_reason": "2.2.10 re-record of assembly-small-tower/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.22s -> 0.27s, first_prompt_s 0.16s -> 0.2s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-small-tower/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.27s -> 0.28s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.0,
-    "wall_s": 0.27
+    "wall_s": 0.28
    },
-   "reason": "2.3.1 re-record of assembly-small-tower/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.27s -> 0.28s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.28
+   "reason": "2.3.2 re-record of assembly-small-tower/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.28s -> 0.31s, first_prompt_s 0.21s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.31
   },
   "assembly-three-color-no-room/direct": {
-   "first_prompt_s": 0.29,
+   "first_prompt_s": 0.32,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
     "wall_s": 0.28
    },
-   "previous_reason": "2.2.10 re-record of assembly-three-color-no-room/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.27s -> 0.32s, first_prompt_s 0.22s -> 0.28s. The largest rise, 0.06 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-three-color-no-room/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.32s -> 0.34s, first_prompt_s 0.28s -> 0.29s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.28,
+    "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
-    "wall_s": 0.32
+    "wall_s": 0.34
    },
-   "reason": "2.3.1 re-record of assembly-three-color-no-room/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.32s -> 0.34s, first_prompt_s 0.28s -> 0.29s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.34
+   "reason": "2.3.2 re-record of assembly-three-color-no-room/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.34s -> 0.36s, first_prompt_s 0.29s -> 0.32s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.36
   },
   "assembly-three-color-no-room/standalone": {
-   "first_prompt_s": 0.28,
+   "first_prompt_s": 0.32,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.22,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
-   "previous_reason": "2.2.10 re-record of assembly-three-color-no-room/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.25s -> 0.31s, first_prompt_s 0.22s -> 0.28s. The largest rise, 0.06 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-three-color-no-room/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.31s -> 0.32s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
     "first_prompt_s": 0.28,
     "fit_check_s": 0.0,
-    "wall_s": 0.31
+    "wall_s": 0.32
    },
-   "reason": "2.3.1 re-record of assembly-three-color-no-room/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.31s -> 0.32s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.32
+   "reason": "2.3.2 re-record of assembly-three-color-no-room/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.32s -> 0.35s, first_prompt_s 0.28s -> 0.32s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.35
   },
   "assembly-two-color-roomy/direct": {
-   "first_prompt_s": 0.1,
+   "first_prompt_s": 0.11,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.07,
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "previous_reason": "2.2.10 re-record of assembly-two-color-roomy/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.15s -> 0.18s, first_prompt_s 0.07s -> 0.09s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of assembly-two-color-roomy/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.09,
+    "first_prompt_s": 0.1,
     "fit_check_s": 0.0,
-    "wall_s": 0.18
+    "wall_s": 0.17
    },
-   "reason": "2.3.1 re-record of assembly-two-color-roomy/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
+   "reason": "2.3.2 re-record of assembly-two-color-roomy/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): first_prompt_s 0.1s -> 0.11s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
    "wall_s": 0.17
   },
   "assembly-two-color-roomy/standalone": {
@@ -195,13 +188,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.14
    },
-   "previous_reason": "2.2.10 re-record of assembly-two-color-roomy/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.17s, first_prompt_s 0.08s -> 0.09s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.09,
-    "fit_check_s": 0.0,
-    "wall_s": 0.17
-   },
-   "reason": "2.3.1 re-record of assembly-two-color-roomy/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "wall_s": 0.17
   },
   "copies-multiple-plates/direct": {
@@ -212,14 +198,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.10 re-record of copies-multiple-plates/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.24s -> 0.09s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.3.1 re-record of copies-multiple-plates/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.09
   },
   "copies-multiple-plates/standalone": {
    "first_prompt_s": 0.03,
@@ -229,82 +208,47 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.10 re-record of copies-multiple-plates/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.15s -> 0.1s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.1
-   },
-   "reason": "2.3.1 re-record of copies-multiple-plates/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.09
   },
   "core-basematerials-parts/direct": {
-   "first_prompt_s": 0.04,
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "previous_reason": "2.2.9 re-record of core-basematerials-parts/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.13s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.13
-   },
-   "reason": "2.2.10 re-record of core-basematerials-parts/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.03s -> 0.04s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.13
+   "wall_s": 0.12
   },
   "core-basematerials-parts/standalone": {
-   "first_prompt_s": 0.04,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "previous_reason": "2.2.9 re-record of core-basematerials-parts/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.1s -> 0.17s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.17
-   },
-   "reason": "2.2.10 re-record of core-basematerials-parts/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.17s -> 0.14s, first_prompt_s 0.03s -> 0.04s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.14
+   "wall_s": 0.12
   },
   "core-colorgroup-items/direct": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.10 re-record of core-colorgroup-items/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.08s -> 0.1s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.1
-   },
-   "reason": "2.3.1 re-record of core-colorgroup-items/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.08
   },
   "core-colorgroup-items/standalone": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.10 re-record of core-colorgroup-items/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.1
-   },
-   "reason": "2.3.1 re-record of core-colorgroup-items/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.09
   },
   "core-cyclic-components/direct": {
    "original": {
@@ -316,33 +260,18 @@
    "original": {
     "wall_s": 0.01
    },
-   "previous_reason": "",
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "2.2.10 re-record of core-cyclic-components/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.02
   },
   "core-dangling-build-item/direct": {
    "original": {
     "wall_s": 0.01
    },
-   "previous_reason": "",
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "2.2.10 re-record of core-dangling-build-item/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.02
   },
   "core-dangling-build-item/standalone": {
    "original": {
     "wall_s": 0.01
    },
-   "previous_reason": "",
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "2.2.10 re-record of core-dangling-build-item/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.02
   },
   "core-inch-nested-assembly/direct": {
@@ -353,14 +282,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "2.2.10 re-record of core-inch-nested-assembly/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.07
+   "wall_s": 0.06
   },
   "core-inch-nested-assembly/standalone": {
    "first_prompt_s": 0.02,
@@ -370,14 +292,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of core-inch-nested-assembly/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.2.10 re-record of core-inch-nested-assembly/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.06s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.07
+   "wall_s": 0.06
   },
   "core-multiproperties-texture/direct": {
    "first_prompt_s": 0.02,
@@ -387,65 +302,44 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of core-multiproperties-texture/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of core-multiproperties-texture/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.01,
+    "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.11
+    "wall_s": 0.07
    },
-   "reason": "2.2.10 re-record of core-multiproperties-texture/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.07
+   "reason": "2.3.2 re-record of core-multiproperties-texture/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.07s -> 0.09s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.09
   },
   "core-multiproperties-texture/standalone": {
-   "first_prompt_s": 0.04,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.10 re-record of core-multiproperties-texture/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.17s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.3.1 re-record of core-multiproperties-texture/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.07s -> 0.09s, first_prompt_s 0.02s -> 0.04s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.09
+   "wall_s": 0.06
   },
   "core-one-color/direct": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.10 re-record of core-one-color/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.2s -> 0.14s, first_prompt_s 0.03s -> 0.04s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.04,
-    "fit_check_s": 0.03,
-    "wall_s": 0.14
-   },
-   "reason": "2.3.1 re-record of core-one-color/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.04s -> 0.05s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "wall_s": 0.12
   },
   "core-one-color/standalone": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "previous_reason": "2.2.10 re-record of core-one-color/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.15s -> 0.12s, first_prompt_s 0.03s -> 0.04s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.04,
-    "fit_check_s": 0.01,
-    "wall_s": 0.12
-   },
-   "reason": "2.3.1 re-record of core-one-color/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.04s -> 0.05s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.12
+   "wall_s": 0.11
   },
   "core-prefixed-namespace/direct": {
    "first_prompt_s": 0.02,
@@ -455,14 +349,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of core-prefixed-namespace/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.2.10 re-record of core-prefixed-namespace/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.07
+   "wall_s": 0.06
   },
   "core-prefixed-namespace/standalone": {
    "first_prompt_s": 0.02,
@@ -472,14 +359,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.10 re-record of core-prefixed-namespace/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.08s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.3.1 re-record of core-prefixed-namespace/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.07s -> 0.08s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.08
+   "wall_s": 0.06
   },
   "core-triangle-colors/direct": {
    "first_prompt_s": 0.02,
@@ -489,14 +369,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of core-triangle-colors/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.2.10 re-record of core-triangle-colors/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.06s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.07
+   "wall_s": 0.06
   },
   "core-triangle-colors/standalone": {
    "first_prompt_s": 0.02,
@@ -506,14 +379,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.10 re-record of core-triangle-colors/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.06s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.3.1 re-record of core-triangle-colors/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.07s -> 0.08s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "duplicate-part-names/direct": {
    "first_prompt_s": 0.02,
@@ -523,14 +389,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.2.10 re-record of duplicate-part-names/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.06s -> 0.08s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "duplicate-part-names/standalone": {
    "first_prompt_s": 0.02,
@@ -540,67 +399,29 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.9 re-record of duplicate-part-names/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.2.10 re-record of duplicate-part-names/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.06s -> 0.08s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "five-colors-over-slots/direct": {
-   "first_prompt_s": 0.03,
-   "fit_check_s": 0.01,
-   "original": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.08
-   },
-   "previous_reason": "2.2.10 re-record of five-colors-over-slots/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.12s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.12
-   },
-   "reason": "2.3.1 re-record of five-colors-over-slots/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.12
-  },
-  "five-colors-over-slots/standalone": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.9 re-record of five-colors-over-slots/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
+   "wall_s": 0.1
+  },
+  "five-colors-over-slots/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.1
+    "wall_s": 0.08
    },
-   "reason": "2.2.10 re-record of five-colors-over-slots/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.1s -> 0.12s, first_prompt_s 0.02s -> 0.03s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.12
+   "wall_s": 0.1
   },
   "foreign-bambu-profile-split/direct": {
-   "first_prompt_s": 0.22,
-   "fit_check_s": 0.02,
-   "original": {
-    "first_prompt_s": 0.17,
-    "fit_check_s": 0.01,
-    "wall_s": 0.26
-   },
-   "previous_reason": "2.2.10 re-record of foreign-bambu-profile-split/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.28s -> 0.34s, first_prompt_s 0.16s -> 0.21s. The largest rise, 0.06 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.21,
-    "fit_check_s": 0.02,
-    "wall_s": 0.34
-   },
-   "reason": "2.3.1 re-record of foreign-bambu-profile-split/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.34s -> 0.35s, first_prompt_s 0.21s -> 0.22s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.35
-  },
-  "foreign-bambu-profile-split/standalone": {
    "first_prompt_s": 0.24,
    "fit_check_s": 0.02,
    "original": {
@@ -608,14 +429,31 @@
     "fit_check_s": 0.01,
     "wall_s": 0.26
    },
-   "previous_reason": "2.2.10 re-record of foreign-bambu-profile-split/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.31s -> 0.34s, first_prompt_s 0.17s -> 0.21s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of foreign-bambu-profile-split/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.34s -> 0.35s, first_prompt_s 0.21s -> 0.22s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.21,
+    "first_prompt_s": 0.22,
     "fit_check_s": 0.02,
-    "wall_s": 0.34
+    "wall_s": 0.35
    },
-   "reason": "2.3.1 re-record of foreign-bambu-profile-split/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.34s -> 0.38s, first_prompt_s 0.21s -> 0.24s. The largest rise, 0.04 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.38
+   "reason": "2.3.2 re-record of foreign-bambu-profile-split/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.35s -> 0.37s, first_prompt_s 0.22s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.37
+  },
+  "foreign-bambu-profile-split/standalone": {
+   "first_prompt_s": 0.25,
+   "fit_check_s": 0.02,
+   "original": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.01,
+    "wall_s": 0.26
+   },
+   "previous_reason": "2.3.1 re-record of foreign-bambu-profile-split/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.34s -> 0.38s, first_prompt_s 0.21s -> 0.24s. The largest rise, 0.04 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
+   "raised_from": {
+    "first_prompt_s": 0.24,
+    "fit_check_s": 0.02,
+    "wall_s": 0.38
+   },
+   "reason": "2.3.2 re-record of foreign-bambu-profile-split/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.38s -> 0.35s, first_prompt_s 0.24s -> 0.25s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.35
   },
   "foreign-bambu-profile/direct": {
    "first_prompt_s": 0.03,
@@ -625,31 +463,17 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.9 re-record of foreign-bambu-profile/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.09s -> 0.18s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.18
-   },
-   "reason": "2.2.10 re-record of foreign-bambu-profile/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.18s -> 0.12s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.12
+   "wall_s": 0.11
   },
   "foreign-bambu-profile/standalone": {
    "first_prompt_s": 0.03,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.10 re-record of foreign-bambu-profile/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.09s -> 0.12s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.12
-   },
-   "reason": "2.3.1 re-record of foreign-bambu-profile/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.12s -> 0.13s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.13
+   "wall_s": 0.11
   },
   "four-colors-one-plate/direct": {
    "first_prompt_s": 0.03,
@@ -659,31 +483,17 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.9 re-record of four-colors-one-plate/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.2.10 re-record of four-colors-one-plate/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.09s -> 0.11s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.11
+   "wall_s": 0.1
   },
   "four-colors-one-plate/standalone": {
    "first_prompt_s": 0.03,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.9 re-record of four-colors-one-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.11
-   },
-   "reason": "2.2.10 re-record of four-colors-one-plate/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.15s, first_prompt_s 0.02s -> 0.03s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.12
+   "wall_s": 0.1
   },
   "height-color-changes/direct": {
    "first_prompt_s": 0.02,
@@ -693,14 +503,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.10 re-record of height-color-changes/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.3.1 re-record of height-color-changes/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.08
   },
   "height-color-changes/standalone": {
    "first_prompt_s": 0.02,
@@ -710,48 +513,27 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.10 re-record of height-color-changes/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.08s -> 0.09s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.3.1 re-record of height-color-changes/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "wall_s": 0.1
   },
   "islands-144-four-color/direct": {
-   "first_prompt_s": 0.27,
-   "fit_check_s": 0.07,
+   "first_prompt_s": 0.21,
+   "fit_check_s": 0.06,
    "original": {
     "first_prompt_s": 0.2,
     "fit_check_s": 0.03,
     "wall_s": 0.77
    },
-   "previous_reason": "2.2.9 re-record of islands-144-four-color/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.77s -> 0.87s, fit_check_s 0.03s -> 0.06s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.2,
-    "fit_check_s": 0.06,
-    "wall_s": 0.87
-   },
-   "reason": "2.2.10 re-record of islands-144-four-color/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.87s -> 1.19s, first_prompt_s 0.2s -> 0.27s, fit_check_s 0.06s -> 0.08s. The largest rise, 0.32 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 1.19
+   "wall_s": 0.94
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.3,
-   "fit_check_s": 0.05,
+   "first_prompt_s": 0.24,
+   "fit_check_s": 0.04,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.05,
     "wall_s": 0.75
    },
-   "previous_reason": "2.2.10 re-record of islands-144-four-color/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.93s -> 1.22s, first_prompt_s 0.23s -> 0.3s, fit_check_s 0.04s -> 0.05s. The largest rise, 0.29 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.3,
-    "fit_check_s": 0.05,
-    "wall_s": 1.22
-   },
-   "reason": "2.3.1 re-record of islands-144-four-color/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 1.22s -> 1.23s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 1.23
+   "wall_s": 0.96
   },
   "loose-2c-tight/direct": {
    "first_prompt_s": 0.08,
@@ -761,13 +543,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.11
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.12
-   },
-   "reason": "2.2.10 re-record of loose-2c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.12s -> 0.15s, first_prompt_s 0.06s -> 0.08s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.15
   },
   "loose-2c-tight/standalone": {
@@ -778,31 +553,24 @@
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "previous_reason": "2.2.10 re-record of loose-2c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.15s, first_prompt_s 0.06s -> 0.08s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.08,
-    "fit_check_s": 0.0,
-    "wall_s": 0.15
-   },
-   "reason": "2.3.1 re-record of loose-2c-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.15s -> 0.16s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.16
+   "wall_s": 0.15
   },
   "loose-3c-tight/direct": {
-   "first_prompt_s": 0.11,
+   "first_prompt_s": 0.12,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.08,
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
-   "previous_reason": "2.2.9 re-record of loose-3c-tight/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.15s -> 0.23s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of loose-3c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.23s -> 0.19s, first_prompt_s 0.09s -> 0.11s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.09,
+    "first_prompt_s": 0.11,
     "fit_check_s": 0.0,
-    "wall_s": 0.23
+    "wall_s": 0.19
    },
-   "reason": "2.2.10 re-record of loose-3c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.23s -> 0.19s, first_prompt_s 0.09s -> 0.11s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.19
+   "reason": "2.3.2 re-record of loose-3c-tight/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.19s -> 0.18s, first_prompt_s 0.11s -> 0.12s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.18
   },
   "loose-3c-tight/standalone": {
    "first_prompt_s": 0.12,
@@ -812,48 +580,27 @@
     "fit_check_s": 0.0,
     "wall_s": 0.15
    },
-   "previous_reason": "2.2.10 re-record of loose-3c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.16s -> 0.19s, first_prompt_s 0.09s -> 0.11s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.11,
-    "fit_check_s": 0.0,
-    "wall_s": 0.19
-   },
-   "reason": "2.3.1 re-record of loose-3c-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.19s -> 0.2s, first_prompt_s 0.11s -> 0.12s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.2
+   "wall_s": 0.19
   },
   "loose-4c-tight/direct": {
-   "first_prompt_s": 0.08,
+   "first_prompt_s": 0.07,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
     "wall_s": 0.13
    },
-   "previous_reason": "2.2.10 re-record of loose-4c-tight/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.12s -> 0.16s, first_prompt_s 0.06s -> 0.07s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.07,
-    "fit_check_s": 0.0,
-    "wall_s": 0.16
-   },
-   "reason": "2.3.1 re-record of loose-4c-tight/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.07s -> 0.08s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.16
+   "wall_s": 0.14
   },
   "loose-4c-tight/standalone": {
-   "first_prompt_s": 0.08,
+   "first_prompt_s": 0.07,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
     "wall_s": 0.12
    },
-   "previous_reason": "2.2.10 re-record of loose-4c-tight/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.16s, first_prompt_s 0.06s -> 0.07s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.07,
-    "fit_check_s": 0.01,
-    "wall_s": 0.16
-   },
-   "reason": "2.3.1 re-record of loose-4c-tight/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.07s -> 0.08s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.16
+   "wall_s": 0.14
   },
   "many-parts/direct": {
    "first_prompt_s": 0.03,
@@ -863,31 +610,24 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.10 re-record of many-parts/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.07s -> 0.09s, first_prompt_s 0.02s -> 0.03s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.3.1 re-record of many-parts/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.09s -> 0.1s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.09
   },
   "many-parts/standalone": {
    "first_prompt_s": 0.03,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.10 re-record of many-parts/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.02s -> 0.03s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of many-parts/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
     "first_prompt_s": 0.03,
-    "fit_check_s": 0.0,
+    "fit_check_s": 0.01,
     "wall_s": 0.1
    },
-   "reason": "2.3.1 re-record of many-parts/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "reason": "2.3.2 re-record of many-parts/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.1s -> 0.11s, fit_check_s 0.01s -> 0.0s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.11
   },
   "missing-plate-metadata/direct": {
    "first_prompt_s": 0.02,
@@ -897,14 +637,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.10 re-record of missing-plate-metadata/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.12s -> 0.07s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.3.1 re-record of missing-plate-metadata/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.07s -> 0.1s. The largest rise, 0.03 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.1
+   "wall_s": 0.06
   },
   "missing-plate-metadata/standalone": {
    "first_prompt_s": 0.02,
@@ -914,116 +647,95 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of missing-plate-metadata/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.08
-   },
-   "reason": "2.2.10 re-record of missing-plate-metadata/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "multiplate-select/direct": {
-   "first_prompt_s": 0.22,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.24,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.23
    },
-   "previous_reason": "2.2.10 re-record of multiplate-select/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.41s -> 0.3s, first_prompt_s 0.16s -> 0.2s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of multiplate-select/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.3s -> 0.31s, first_prompt_s 0.2s -> 0.22s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.2,
-    "fit_check_s": 0.0,
-    "wall_s": 0.3
+    "first_prompt_s": 0.22,
+    "fit_check_s": 0.01,
+    "wall_s": 0.31
    },
-   "reason": "2.3.1 re-record of multiplate-select/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.3s -> 0.31s, first_prompt_s 0.2s -> 0.22s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.31
+   "reason": "2.3.2 re-record of multiplate-select/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.31s -> 0.32s, first_prompt_s 0.22s -> 0.24s, fit_check_s 0.01s -> 0.0s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.32
   },
   "multiplate-select/standalone": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.24,
    "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.0,
     "wall_s": 0.24
    },
-   "previous_reason": "2.2.10 re-record of multiplate-select/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.29s -> 0.3s, first_prompt_s 0.17s -> 0.2s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of multiplate-select/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.3s -> 0.31s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.01,
-    "wall_s": 0.3
+    "wall_s": 0.31
    },
-   "reason": "2.3.1 re-record of multiplate-select/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.3s -> 0.31s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.31
+   "reason": "2.3.2 re-record of multiplate-select/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.31s -> 0.33s, first_prompt_s 0.21s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.33
   },
   "must-shrink/direct": {
-   "first_prompt_s": 0.38,
+   "first_prompt_s": 0.43,
    "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
     "wall_s": 0.36
    },
-   "previous_reason": "2.2.10 re-record of must-shrink/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.4s -> 0.45s, first_prompt_s 0.3s -> 0.37s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of must-shrink/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.45s -> 0.46s, first_prompt_s 0.37s -> 0.38s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.37,
+    "first_prompt_s": 0.38,
     "fit_check_s": 0.02,
-    "wall_s": 0.45
+    "wall_s": 0.46
    },
-   "reason": "2.3.1 re-record of must-shrink/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.45s -> 0.46s, first_prompt_s 0.37s -> 0.38s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.46
+   "reason": "2.3.2 re-record of must-shrink/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.46s -> 0.71s, first_prompt_s 0.38s -> 0.43s. The rise came with #1378 (6868d634): normalized to each run's own runner speed, the shrink cases sit at 1.0x of this baseline on every main run through c8a63b01 and at about 1.5x on every main run from 6868d634 on, across EPYC 7763, 9V45, 9V74 and Xeon runners. #1378 adds the designer layer-height and support-gap resolution and the conversation-side checks to the intake that asks the shrink question; the cause inside #1378 was not isolated. Accepted for 2.3.2: about 0.27 s on a question the user answers by hand.",
+   "wall_s": 0.71
   },
   "must-shrink/standalone": {
-   "first_prompt_s": 0.38,
+   "first_prompt_s": 0.43,
    "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.3,
     "fit_check_s": 0.01,
     "wall_s": 0.38
    },
-   "previous_reason": "2.2.10 re-record of must-shrink/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.38s -> 0.45s, first_prompt_s 0.31s -> 0.37s, fit_check_s 0.01s -> 0.02s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of must-shrink/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.45s -> 0.47s, first_prompt_s 0.37s -> 0.38s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.37,
+    "first_prompt_s": 0.38,
     "fit_check_s": 0.02,
-    "wall_s": 0.45
+    "wall_s": 0.47
    },
-   "reason": "2.3.1 re-record of must-shrink/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.45s -> 0.47s, first_prompt_s 0.37s -> 0.38s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.47
+   "reason": "2.3.2 re-record of must-shrink/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.47s -> 0.73s, first_prompt_s 0.38s -> 0.43s. The rise came with #1378 (6868d634): normalized to each run's own runner speed, the shrink cases sit at 1.0x of this baseline on every main run through c8a63b01 and at about 1.5x on every main run from 6868d634 on, across EPYC 7763, 9V45, 9V74 and Xeon runners. #1378 adds the designer layer-height and support-gap resolution and the conversation-side checks to the intake that asks the shrink question; the cause inside #1378 was not isolated. Accepted for 2.3.2: about 0.27 s on a question the user answers by hand.",
+   "wall_s": 0.73
   },
   "needs-supports/direct": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "previous_reason": "2.2.10 re-record of needs-supports/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.13s -> 0.14s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.04,
-    "fit_check_s": 0.0,
-    "wall_s": 0.14
-   },
-   "reason": "2.3.1 re-record of needs-supports/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.14s -> 0.15s, first_prompt_s 0.04s -> 0.05s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.15
+   "wall_s": 0.13
   },
   "needs-supports/standalone": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.03,
     "fit_check_s": 0.0,
     "wall_s": 0.1
    },
-   "previous_reason": "2.2.10 re-record of needs-supports/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.14s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.04,
-    "fit_check_s": 0.0,
-    "wall_s": 0.14
-   },
-   "reason": "2.3.1 re-record of needs-supports/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.14s -> 0.15s, first_prompt_s 0.04s -> 0.05s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.15
+   "wall_s": 0.13
   },
   "parts-512-four-color/direct": {
    "first_prompt_s": 1.01,
@@ -1065,14 +777,7 @@
     "fit_check_s": 0.01,
     "wall_s": 0.1
    },
-   "previous_reason": "2.2.10 re-record of parts-one-plate/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.14s, first_prompt_s 0.04s -> 0.05s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.05,
-    "fit_check_s": 0.01,
-    "wall_s": 0.14
-   },
-   "reason": "2.3.1 re-record of parts-one-plate/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.14
+   "wall_s": 0.13
   },
   "parts-one-plate/standalone": {
    "first_prompt_s": 0.08,
@@ -1082,14 +787,7 @@
     "fit_check_s": 0.01,
     "wall_s": 0.12
    },
-   "previous_reason": "2.2.10 re-record of parts-one-plate/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.13s -> 0.14s, first_prompt_s 0.04s -> 0.06s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.01,
-    "wall_s": 0.14
-   },
-   "reason": "2.3.1 re-record of parts-one-plate/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.14s -> 0.17s, first_prompt_s 0.06s -> 0.08s. The largest rise, 0.03 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.17
+   "wall_s": 0.16
   },
   "plates-multicolor/direct": {
    "first_prompt_s": 0.05,
@@ -1099,14 +797,7 @@
     "fit_check_s": 0.01,
     "wall_s": 0.14
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.04,
-    "fit_check_s": 0.01,
-    "wall_s": 0.12
-   },
-   "reason": "2.2.10 re-record of plates-multicolor/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.12s -> 0.16s, first_prompt_s 0.04s -> 0.05s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.16
+   "wall_s": 0.13
   },
   "plates-multicolor/standalone": {
    "first_prompt_s": 0.05,
@@ -1116,41 +807,41 @@
     "fit_check_s": 0.01,
     "wall_s": 0.11
    },
-   "wall_s": 0.16
+   "wall_s": 0.14
   },
   "prime-tower-clearance/direct": {
-   "first_prompt_s": 0.17,
+   "first_prompt_s": 0.18,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
     "wall_s": 0.26
    },
-   "previous_reason": "2.2.10 re-record of prime-tower-clearance/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.26s -> 0.33s, first_prompt_s 0.13s -> 0.16s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of prime-tower-clearance/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s, first_prompt_s 0.16s -> 0.17s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
-    "wall_s": 0.33
+    "wall_s": 0.34
    },
-   "reason": "2.3.1 re-record of prime-tower-clearance/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s, first_prompt_s 0.16s -> 0.17s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.34
+   "reason": "2.3.2 re-record of prime-tower-clearance/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.34s -> 0.32s, first_prompt_s 0.17s -> 0.18s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.32
   },
   "prime-tower-clearance/standalone": {
-   "first_prompt_s": 0.17,
-   "fit_check_s": 0.0,
+   "first_prompt_s": 0.18,
+   "fit_check_s": 0.01,
    "original": {
     "first_prompt_s": 0.13,
     "fit_check_s": 0.0,
     "wall_s": 0.24
    },
-   "previous_reason": "2.2.10 re-record of prime-tower-clearance/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.27s -> 0.34s, first_prompt_s 0.12s -> 0.16s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of prime-tower-clearance/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.16s -> 0.17s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.16,
+    "first_prompt_s": 0.17,
     "fit_check_s": 0.0,
     "wall_s": 0.34
    },
-   "reason": "2.3.1 re-record of prime-tower-clearance/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.16s -> 0.17s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.34
+   "reason": "2.3.2 re-record of prime-tower-clearance/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.34s -> 0.31s, first_prompt_s 0.17s -> 0.18s, fit_check_s 0.0s -> 0.01s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.31
   },
   "print-next-second-plate/direct": {
    "first_prompt_s": 0.0,
@@ -1158,12 +849,6 @@
     "first_prompt_s": 0.0,
     "wall_s": 0.01
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.0,
-    "wall_s": 0.01
-   },
-   "reason": "2.2.10 re-record of print-next-second-plate/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.01
   },
   "print-next-second-plate/standalone": {
@@ -1172,12 +857,6 @@
     "first_prompt_s": 0.0,
     "wall_s": 0.0
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.0,
-    "wall_s": 0.0
-   },
-   "reason": "2.2.10 re-record of print-next-second-plate/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.01
   },
   "prusa-mmu-project/direct": {
@@ -1188,14 +867,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.9 re-record of prusa-mmu-project/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.2.10 re-record of prusa-mmu-project/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.07s -> 0.09s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.09
+   "wall_s": 0.08
   },
   "prusa-mmu-project/standalone": {
    "first_prompt_s": 0.02,
@@ -1205,14 +877,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.9 re-record of prusa-mmu-project/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.07s, first_prompt_s 0.01s -> 0.02s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.02,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.2.10 re-record of prusa-mmu-project/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.07s -> 0.09s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.09
+   "wall_s": 0.08
   },
   "rotation-fit/direct": {
    "first_prompt_s": 0.13,
@@ -1222,31 +887,31 @@
     "fit_check_s": 0.01,
     "wall_s": 0.14
    },
-   "previous_reason": "2.2.9 re-record of rotation-fit/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.17s -> 0.32s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of rotation-fit/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.32s -> 0.2s, first_prompt_s 0.1s -> 0.13s, fit_check_s 0.01s -> 0.02s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.1,
-    "fit_check_s": 0.01,
-    "wall_s": 0.32
+    "first_prompt_s": 0.13,
+    "fit_check_s": 0.02,
+    "wall_s": 0.2
    },
-   "reason": "2.2.10 re-record of rotation-fit/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.32s -> 0.2s, first_prompt_s 0.1s -> 0.13s, fit_check_s 0.01s -> 0.02s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.2
+   "reason": "2.3.2 re-record of rotation-fit/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.2s -> 0.27s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.27
   },
   "rotation-fit/standalone": {
-   "first_prompt_s": 0.13,
+   "first_prompt_s": 0.14,
    "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.1,
     "fit_check_s": 0.01,
     "wall_s": 0.15
    },
-   "previous_reason": "2.2.10 re-record of rotation-fit/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.18s -> 0.2s, first_prompt_s 0.1s -> 0.12s, fit_check_s 0.01s -> 0.02s. The largest rise, 0.02 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of rotation-fit/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.2s -> 0.21s, first_prompt_s 0.12s -> 0.13s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.12,
+    "first_prompt_s": 0.13,
     "fit_check_s": 0.02,
-    "wall_s": 0.2
+    "wall_s": 0.21
    },
-   "reason": "2.3.1 re-record of rotation-fit/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.2s -> 0.21s, first_prompt_s 0.12s -> 0.13s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.21
+   "reason": "2.3.2 re-record of rotation-fit/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.21s -> 0.27s, first_prompt_s 0.13s -> 0.14s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.27
   },
   "single-part/direct": {
    "first_prompt_s": 0.02,
@@ -1256,13 +921,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of single-part/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.2.10 re-record of single-part/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.07
   },
   "single-part/standalone": {
@@ -1273,41 +931,41 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "split-plan/direct": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.24,
    "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.16,
     "fit_check_s": 0.01,
     "wall_s": 0.25
    },
-   "previous_reason": "2.2.10 re-record of split-plan/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.38s -> 0.32s, first_prompt_s 0.16s -> 0.2s. The largest rise, 0.04 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of split-plan/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.32s -> 0.33s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.2,
+    "first_prompt_s": 0.21,
     "fit_check_s": 0.02,
-    "wall_s": 0.32
+    "wall_s": 0.33
    },
-   "reason": "2.3.1 re-record of split-plan/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.32s -> 0.33s, first_prompt_s 0.2s -> 0.21s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.33
+   "reason": "2.3.2 re-record of split-plan/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.33s -> 0.34s, first_prompt_s 0.21s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.34
   },
   "split-plan/standalone": {
-   "first_prompt_s": 0.21,
+   "first_prompt_s": 0.24,
    "fit_check_s": 0.02,
    "original": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
     "wall_s": 0.25
    },
-   "previous_reason": "2.2.10 re-record of split-plan/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.28s -> 0.33s, first_prompt_s 0.17s -> 0.21s. The largest rise, 0.05 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of split-plan/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
     "first_prompt_s": 0.21,
     "fit_check_s": 0.02,
-    "wall_s": 0.33
+    "wall_s": 0.34
    },
-   "reason": "2.3.1 re-record of split-plan/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.33s -> 0.34s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.34
+   "reason": "2.3.2 re-record of split-plan/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.34s -> 0.35s, first_prompt_s 0.21s -> 0.24s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.35
   },
   "stl-ascii/direct": {
    "first_prompt_s": 0.01,
@@ -1317,7 +975,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-ascii/standalone": {
    "first_prompt_s": 0.01,
@@ -1327,27 +985,18 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-degenerate-zero-volume/direct": {
    "original": {
     "wall_s": 0.01
    },
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "2.3.1 re-record of stl-degenerate-zero-volume/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.02
+   "wall_s": 0.01
   },
   "stl-degenerate-zero-volume/standalone": {
    "original": {
     "wall_s": 0.01
    },
-   "previous_reason": "",
-   "raised_from": {
-    "wall_s": 0.01
-   },
-   "reason": "2.2.10 re-record of stl-degenerate-zero-volume/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.02
   },
   "stl-inverted-normals/direct": {
@@ -1358,14 +1007,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.9 re-record of stl-inverted-normals/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.1s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.1
-   },
-   "reason": "2.2.10 re-record of stl-inverted-normals/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.1s -> 0.11s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "stl-inverted-normals/standalone": {
    "first_prompt_s": 0.02,
@@ -1375,14 +1017,14 @@
     "fit_check_s": 0.0,
     "wall_s": 0.06
    },
-   "previous_reason": "2.2.9 re-record of stl-inverted-normals/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.06s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of stl-inverted-normals/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.08s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
-    "first_prompt_s": 0.01,
+    "first_prompt_s": 0.02,
     "fit_check_s": 0.0,
-    "wall_s": 0.11
+    "wall_s": 0.08
    },
-   "reason": "2.2.10 re-record of stl-inverted-normals/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.11s -> 0.08s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "reason": "2.3.2 re-record of stl-inverted-normals/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.08s -> 0.09s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.09
   },
   "stl-large-plate/direct": {
    "first_prompt_s": 0.06,
@@ -1392,13 +1034,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.05,
-    "fit_check_s": 0.0,
-    "wall_s": 0.08
-   },
-   "reason": "2.2.10 re-record of stl-large-plate/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.08s -> 0.11s, first_prompt_s 0.05s -> 0.06s. The largest rise, 0.03 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.11
   },
   "stl-large-plate/standalone": {
@@ -1409,48 +1044,41 @@
     "fit_check_s": 0.0,
     "wall_s": 0.09
    },
-   "previous_reason": "2.2.9 re-record of stl-large-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.09s -> 0.11s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.05,
-    "fit_check_s": 0.0,
-    "wall_s": 0.11
-   },
-   "reason": "2.2.10 re-record of stl-large-plate/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.11
   },
   "stl-must-shrink/direct": {
-   "first_prompt_s": 0.37,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.42,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
     "wall_s": 0.33
    },
-   "previous_reason": "2.2.10 re-record of stl-must-shrink/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.36s -> 0.41s, first_prompt_s 0.29s -> 0.36s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of stl-must-shrink/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.41s -> 0.42s, first_prompt_s 0.36s -> 0.37s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.36,
+    "first_prompt_s": 0.37,
     "fit_check_s": 0.01,
-    "wall_s": 0.41
+    "wall_s": 0.42
    },
-   "reason": "2.3.1 re-record of stl-must-shrink/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.41s -> 0.42s, first_prompt_s 0.36s -> 0.37s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.42
+   "reason": "2.3.2 re-record of stl-must-shrink/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.42s -> 0.7s, first_prompt_s 0.37s -> 0.42s, fit_check_s 0.01s -> 0.0s. The rise came with #1378 (6868d634): normalized to each run's own runner speed, the shrink cases sit at 1.0x of this baseline on every main run through c8a63b01 and at about 1.5x on every main run from 6868d634 on, across EPYC 7763, 9V45, 9V74 and Xeon runners. #1378 adds the designer layer-height and support-gap resolution and the conversation-side checks to the intake that asks the shrink question; the cause inside #1378 was not isolated. Accepted for 2.3.2: about 0.27 s on a question the user answers by hand.",
+   "wall_s": 0.7
   },
   "stl-must-shrink/standalone": {
-   "first_prompt_s": 0.37,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.42,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.29,
     "fit_check_s": 0.0,
     "wall_s": 0.35
    },
-   "previous_reason": "2.2.10 re-record of stl-must-shrink/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.38s -> 0.41s, first_prompt_s 0.29s -> 0.36s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.07 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
+   "previous_reason": "2.3.1 re-record of stl-must-shrink/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.41s -> 0.43s, first_prompt_s 0.36s -> 0.37s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "raised_from": {
-    "first_prompt_s": 0.36,
+    "first_prompt_s": 0.37,
     "fit_check_s": 0.01,
-    "wall_s": 0.41
+    "wall_s": 0.43
    },
-   "reason": "2.3.1 re-record of stl-must-shrink/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.41s -> 0.43s, first_prompt_s 0.36s -> 0.37s. The largest rise, 0.02 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.43
+   "reason": "2.3.2 re-record of stl-must-shrink/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.43s -> 0.7s, first_prompt_s 0.37s -> 0.42s, fit_check_s 0.01s -> 0.0s. The rise came with #1378 (6868d634): normalized to each run's own runner speed, the shrink cases sit at 1.0x of this baseline on every main run through c8a63b01 and at about 1.5x on every main run from 6868d634 on, across EPYC 7763, 9V45, 9V74 and Xeon runners. #1378 adds the designer layer-height and support-gap resolution and the conversation-side checks to the intake that asks the shrink question; the cause inside #1378 was not isolated. Accepted for 2.3.2: about 0.27 s on a question the user answers by hand.",
+   "wall_s": 0.7
   },
   "stl-needs-supports/direct": {
    "first_prompt_s": 0.02,
@@ -1460,13 +1088,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "previous_reason": "2.2.9 re-record of stl-needs-supports/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.14s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.14
-   },
-   "reason": "2.2.10 re-record of stl-needs-supports/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.1s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.1
   },
   "stl-needs-supports/standalone": {
@@ -1477,109 +1098,81 @@
     "fit_check_s": 0.0,
     "wall_s": 0.08
    },
-   "wall_s": 0.1
-  },
-  "stl-open-thin-wall/direct": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "original": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "previous_reason": "2.2.10 re-record of stl-open-thin-wall/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.08s -> 0.09s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
-   },
-   "reason": "2.3.1 re-record of stl-open-thin-wall/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "wall_s": 0.09
   },
-  "stl-open-thin-wall/standalone": {
-   "first_prompt_s": 0.02,
+  "stl-open-thin-wall/direct": {
+   "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "previous_reason": "2.2.9 re-record of stl-open-thin-wall/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.08s -> 0.14s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
+   "wall_s": 0.08
+  },
+  "stl-open-thin-wall/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
-    "wall_s": 0.14
+    "wall_s": 0.07
    },
-   "reason": "2.2.10 re-record of stl-open-thin-wall/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.14s -> 0.1s, first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.1
+   "wall_s": 0.08
   },
   "stl-single-part/direct": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "previous_reason": "2.2.10 re-record of stl-single-part/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.3.1 re-record of stl-single-part/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-single-part/standalone": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.10 re-record of stl-single-part/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.06
-   },
-   "reason": "2.3.1 re-record of stl-single-part/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-tall/direct": {
    "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "",
+   "previous_reason": "2.2.10 re-record of stl-tall/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
     "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
+    "fit_check_s": 0.01,
+    "wall_s": 0.06
    },
-   "reason": "2.2.10 re-record of stl-tall/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.06
+   "reason": "2.3.2 re-record of stl-tall/direct from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.06s -> 0.12s, fit_check_s 0.01s -> 0.0s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.12
   },
   "stl-tall/standalone": {
    "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
    "original": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of stl-tall/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.09s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
+   "previous_reason": "2.2.10 re-record of stl-tall/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.09s -> 0.07s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "raised_from": {
     "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.09
+    "fit_check_s": 0.01,
+    "wall_s": 0.06
    },
-   "reason": "2.2.10 re-record of stl-tall/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.09s -> 0.07s, fit_check_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.06
+   "reason": "2.3.2 re-record of stl-tall/standalone from CI run 43464701551 (8cc484ae), the release commit's discord-timing re-run on an Intel Xeon Platinum 8573C, which measures at the 2.3.1 baseline runner's speed (median wall ratio 1.03 over the cases of 0.3 s and up, the shrink cases left out): wall_s 0.06s -> 0.12s, fit_check_s 0.01s -> 0.0s. The rise is under the mock leg's 0.35 s noise floor and spread over the intake path; the cause was not isolated per case. The range adds #1378's layer-height, support-gap and clearance work to every intake.",
+   "wall_s": 0.12
   },
   "stl-text-solid-header/direct": {
    "first_prompt_s": 0.01,
@@ -1589,7 +1182,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-text-solid-header/standalone": {
    "first_prompt_s": 0.01,
@@ -1609,7 +1202,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-thin-footprint/standalone": {
    "first_prompt_s": 0.01,
@@ -1619,7 +1212,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-tiny/direct": {
    "first_prompt_s": 0.01,
@@ -1629,14 +1222,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "previous_reason": "2.2.9 re-record of stl-tiny/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.04s -> 0.05s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "2.2.10 re-record of stl-tiny/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-tiny/standalone": {
    "first_prompt_s": 0.01,
@@ -1656,13 +1242,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "2.3.1 re-record of stl-very-thin-wall/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "stl-very-thin-wall/standalone": {
    "first_prompt_s": 0.01,
@@ -1672,14 +1252,7 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.05
-   },
-   "reason": "2.2.10 re-record of stl-very-thin-wall/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 0.05s -> 0.06s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.06
+   "wall_s": 0.05
   },
   "typed-setup-walkthrough/direct": {
    "original": {
@@ -1691,10 +1264,6 @@
    "original": {
     "wall_s": 0.0
    },
-   "raised_from": {
-    "wall_s": 0.0
-   },
-   "reason": "2.3.1 re-record of typed-setup-walkthrough/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 0.0s -> 0.01s. The largest rise, 0.01 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
    "wall_s": 0.01
   },
   "unicode-part-extra-plate/direct": {
@@ -1705,13 +1274,6 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of unicode-part-extra-plate/direct from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.07s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.07
-   },
-   "reason": "2.2.10 re-record of unicode-part-extra-plate/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
    "wall_s": 0.07
   },
   "unicode-part-extra-plate/standalone": {
@@ -1722,48 +1284,27 @@
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "previous_reason": "2.2.9 re-record of unicode-part-extra-plate/standalone from CI run 42975457360 (f8a3f6e), the release code commit's green run on main: wall_s 0.05s -> 0.08s. Every rise in this re-record is under 0.18 s, below the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.7..2.2.9 range adds per-plate filament usage reads, warn-and-accept rounds and the job-printer fit probe to the intake path (#1129, #1190, #1232, #1238).",
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "fit_check_s": 0.0,
-    "wall_s": 0.08
-   },
-   "reason": "2.2.10 re-record of unicode-part-extra-plate/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: first_prompt_s 0.01s -> 0.02s. The largest rise, 0.01 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "wall_s": 0.08
+   "wall_s": 0.07
   },
   "witch-ghost-cults3d/direct": {
-   "first_prompt_s": 0.56,
-   "fit_check_s": 0.14,
+   "first_prompt_s": 0.47,
+   "fit_check_s": 0.13,
    "original": {
     "first_prompt_s": 0.38,
     "fit_check_s": 0.13,
     "wall_s": 1.12
    },
-   "previous_reason": "2.2.10 re-record of witch-ghost-cults3d/direct from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 1.43s -> 1.63s, first_prompt_s 0.47s -> 0.56s, fit_check_s 0.12s -> 0.14s. The largest rise, 0.20 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.56,
-    "fit_check_s": 0.14,
-    "wall_s": 1.63
-   },
-   "reason": "2.3.1 re-record of witch-ghost-cults3d/direct from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 1.63s -> 1.66s. The largest rise, 0.03 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 1.66
+   "wall_s": 1.39
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 0.54,
-   "fit_check_s": 0.15,
+   "first_prompt_s": 0.45,
+   "fit_check_s": 0.14,
    "original": {
     "first_prompt_s": 0.4,
     "fit_check_s": 0.12,
     "wall_s": 1.16
    },
-   "previous_reason": "2.2.10 re-record of witch-ghost-cults3d/standalone from CI run 43140745657 (0b0ebac1), the release code commit's green run on main: wall_s 1.31s -> 1.61s, first_prompt_s 0.45s -> 0.52s. The largest rise, 0.30 s, is under the mock leg's 0.35 s noise floor; the cause was not isolated per case. The 2.2.9..2.2.10 range adds ZMod update alerts to the bot heartbeat, the web chat alert loop, the per-command fuzzy coverage routes and the renumber-only remap slicing route (#1283, #1297, #1298).",
-   "raised_from": {
-    "first_prompt_s": 0.52,
-    "fit_check_s": 0.15,
-    "wall_s": 1.61
-   },
-   "reason": "2.3.1 re-record of witch-ghost-cults3d/standalone from CI run 43261865512 (e6f05723), the release code on the usual EPYC 7763 runner: wall_s 1.61s -> 1.65s, first_prompt_s 0.52s -> 0.54s. The largest rise, 0.04 s, is under the mock leg's noise floor; the cause was not isolated per case. The 2.3.0 rise that #1349 traced to the plugin shim recompiling every handler on each load (#1343) is fixed by #1352, which brought islands-144 back from 1.35 s at the 2.3.0 tag to 1.19 s on this runner class.",
-   "wall_s": 1.65
+   "wall_s": 1.39
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
@@ -1780,7 +1321,7 @@
   "stl-tall/direct",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 43261865512 (e6f057232f64f5e1fd808e0aa6a06428bc9e8140), artifact discord-timing, median of 3, runner CPU AMD EPYC 7763 64-Core Processor. Recorded from CI run 43261865512 (e6f05723) on the usual AMD EPYC 7763 runner class: same product code as the release commit adf85824 (#1370 changed only two tests); its timing jobs passed and its only failures were those two tests. The green run on adf85824 (43267608720) landed on a faster EPYC 9V74 runner (islands-144 0.84 s against 1.19 s) and is not used, so slower hosted runners do not trip the gate (the #1347 lesson).",
+ "recorded_from": "CI run 43464701551 (8cc484aee2b4a19d7ef09b832de1b8f357d6df1b), artifact discord-timing, median of 3, runner CPU INTEL(R) XEON(R) PLATINUM 8573C",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
