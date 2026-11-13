@@ -1797,6 +1797,17 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             # Job-level profile settings (#978): only the allowlisted
             # process keys in edit_plan.PROFILE_SETTINGS are applied.
             from .edit_plan import PROFILE_SETTINGS as _PROFILE_KEYS
+            if key == 'initial_layer_height':
+                # Orca reads initial_layer_print_height; the clearance check already used
+                # this edit, so the slice must too (2.3.2 review). Clamped like the
+                # designer's first layer.
+                first = float(value)
+                if tuned_profile is not None:
+                    high = max(tuned_profile.max_layer_height, tuned_profile.default_initial_layer_height)
+                    first = min(max(first, tuned_profile.min_layer_height), high)
+                process['initial_layer_print_height'] = f'{first:g}'
+                _selected('operator', ['initial_layer_print_height'])
+                continue
             if key in _PROFILE_KEYS:
                 process[key] = str(value)
                 _selected('operator', [key])

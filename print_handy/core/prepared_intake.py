@@ -2980,8 +2980,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 and not (getattr(early, 'supports_task', None) is not None and not early.supports_task.done()))
             if waiting and getattr(early, 'release', None) is not None and early.release.is_set():
                 try:
+                    comparing = getattr(early, 'flagged', False)
                     await _with_stop(adapter, source, key, metadata,
-                                     'Slicing to compare with and without supports. Press Stop to cancel.',
+                                     ('Slicing to compare with and without supports. Press Stop to cancel.'
+                                      if comparing else 'Slicing. Press Stop to cancel.'),
                                      _wait_ready_slices(), allow_stop=True)
                 except Stopped:
                     await early.discard()
@@ -4493,13 +4495,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
                   'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
-        if choice == 0 and shown_shortages and len(shown_shortages) == 1:
+        from . import yolo as _yolo_short
+        if choice == 0 and shown_shortages and len(shown_shortages) == 1 and not _yolo_short.ACTIVE.get():
             # The Ready question already showed this spool as short and the
             # operator pressed a print button under it: that is the answer, so
             # the start does not ask the same thing again (#1373). Only while the
-            # slice needs no more than the shown amount (a quarter or 5 g over at
-            # most): a slice that needs more, or a multi-slot job whose per-slot
-            # grams are only known to the start gate, is asked again (#1373 review).
+            # slice needs no more than the shown amount (rounding aside): a slice
+            # that needs more, a multi-slot job whose per-slot grams are only known
+            # to the start gate, or a yolo run (whose waiver must be posted) is
+            # asked or waived at the start as before (2.3.2 review).
             # Bound to this G-code like any acceptance.
             key, shown_g = shown_shortages[0]
             sliced_g = None
@@ -4508,7 +4512,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 plates = dps.plate_estimates(json.loads(jp.read_text()))
                 grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
                 sliced_g = float(sum(grams)) if grams else None
-            if sliced_g is not None and sliced_g <= shown_g * 1.25 + 5:
+            if sliced_g is not None and sliced_g <= shown_g + 0.5:
                 target['accept_material'] = [key]
         from . import yolo as _yolo
         if _yolo.ACTIVE.get():

@@ -266,9 +266,10 @@ RULES = (
           _TA + "::test_painted_supports_turn_generation_on_unless_the_operator_decided"), (_FOREIGN,),
          {"key": "enable_support", "on_value": "1", "enforcer_state": 1}),
     Rule("arachne-flex-profile", "profile_substitution", "any", "any", "orca", _ORCA,
-         "A designer who chose Arachne walls chose a thin, print-in-place model; the named flex profile "
-         "(Arachne, 2 walls, 15% line infill, no brim/supports/ironing/fuzzy skin) keeps moving gaps from "
-         "fusing, per the AD5X Flexy Ring guide. The substitution is this exact profile, no other keys.",
+         "The named flex profile (Arachne, 2 walls, 15% line infill, no brim/supports/ironing/fuzzy skin) keeps "
+         "moving gaps from fusing, per the AD5X Flexy Ring guide. Since 2.3.2 it is the recovery when Orca "
+         "rejects a slice of a thin print-in-place model, not an up-front swap for any Arachne project "
+         "(author_settings.FLEX_ON_ARACHNE, #1373). The substitution is this exact profile, no other keys.",
          ("tests/core/test_flex_print_slicing.py::test_flex_profile_follows_the_guide",
           _TO + "::test_flex_retry_preserves_explicit_supports_and_brim_policy"), (_FOREIGN,),
          {"profile": _FLEX_PROFILE, "trigger_key": "wall_generator", "trigger_value": "arachne"}),
