@@ -563,7 +563,9 @@ class MatrixClient:
 
     def _mentions_me(self, event, room_id):
         addressed = getattr(self.core, "addressed", None)
-        parsed = self.parse(event, room_id) if addressed is not None else None
+        if addressed is None or not isinstance(event, dict) or str(event.get("sender") or "") in self._own_ids():
+            return False  # the bot's own posts never count, and are not parsed
+        parsed = self.parse(event, room_id)
         return parsed is not None and addressed(parsed.content, parsed).mentioned
 
     async def _maybe_join(self, data):

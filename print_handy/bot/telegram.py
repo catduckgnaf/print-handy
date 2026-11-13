@@ -451,7 +451,8 @@ class TelegramClient:
     async def start(self):
         from .runtime import BotCore
         me = await asyncio.to_thread(tg.whoami, self.token, opener=self.opener)
-        self.user = S(id=(me or {}).get("id"), username=(me or {}).get("username"))
+        self.user = S(id=(me or {}).get("id"), username=(me or {}).get("username"),
+                      first_name=(me or {}).get("first_name"))
         self.core = BotCore(self, self.cfg)
         if getattr(self, "warm_worker", False):
             from .runtime import enable_warm_worker

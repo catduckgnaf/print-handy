@@ -181,8 +181,8 @@ def test_the_bot_suffix_is_stripped_only_for_this_bot(cfg):
     assert core.addressed("print it @someone").text == "print it @someone"
     assert core.addressed("/spool@PrintHandyBot list").text == "/spool list"
     assert core.addressed("/spool@OtherBot list").elsewhere
-    client.user = None  # getMe never answered: any suffix is stripped, as before
-    assert core.addressed("/spool@Bot list").text == "/spool list"
+    client.user = None  # getMe never answered: a suffixed command is never guessed to be ours
+    assert core.addressed("/spool@Bot list").elsewhere
 
 
 # ---------------------------------------------------------------------- adapter prompts

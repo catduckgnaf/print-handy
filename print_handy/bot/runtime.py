@@ -864,7 +864,12 @@ class BotCore:
         # Per-session ordering for the model lane, on the event loop: a
         # queued ask waits on an asyncio lock, not in a worker thread.
         self._lane_turns = SessionTurns()
-        self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
+        # bot_name counts only when the operator set it (#1394 review): left
+        # at the built-in default, the bot goes by its own account's name, so
+        # renaming the account alone renames the bot in replies and mentions.
+        self.configured_bot_name = mention.configured_name(section.get("bot_name") or discord.get("bot_name"))
+        accounts = mention.account_names(self.platform_name, client)
+        self.bot_name = self.configured_bot_name or (accounts[0] if accounts else mention.DEFAULT_BOT_NAME)
         # Help is a platform surface: a platform that cannot run the live
         # command does not advertise it (P2-123).
         self.help = commands.help_text(
@@ -945,10 +950,11 @@ class BotCore:
     def addressed(self, text, message=None):
         """``text`` with a mention of this bot recognised and stripped (see ``bot/mention.py``).
 
-        The bot's identity is read from the platform's logged-in account and
-        the configured ``bot_name`` on every call, never a hard-coded name.
+        The bot's identity is read from the platform's logged-in account on
+        every call, plus ``bot_name`` when the operator set it; never a
+        hard-coded name.
         """
-        identity = mention.identity_for(self.platform_name, self.client, self.bot_name, message)
+        identity = mention.identity_for(self.platform_name, self.client, self.configured_bot_name, message)
         return mention.address(text, identity)
 
     async def handle_message(self, message):
@@ -964,7 +970,8 @@ class BotCore:
         if addressed.elsewhere:
             return None  # "/cmd@OtherBot": a command for a different bot
         if not routed and not self.gateway.setup_only:
-            if addressed.mentioned:
+            if addressed.mentioned and self.adapter.is_allowed_id(author.id):
+                # Only someone the access lists admit hears where the bot works.
                 await self._note_elsewhere(author.id, chat_id, thread_id)
             return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
@@ -993,7 +1000,10 @@ class BotCore:
                 await self.adapter.send(chat_id=source.chat_id, content=content_from,
                                         metadata={"thread_id": source.thread_id} if source.thread_id else None)
                 return None
-            text = self.addressed(getattr(content_from, "content", ""), content_from).text
+            linked = self.addressed(getattr(content_from, "content", ""), content_from)
+            if linked.elsewhere:
+                return None  # the linked message was meant for a different bot
+            text = linked.text
         media = await self.save_attachments(content_from)
         event = make_event(source, text, message.id, media)
         return await self.process(event)
@@ -1002,11 +1012,14 @@ class BotCore:
         """Answer a mention outside the print channels, once per user and channel per period.
 
         The same words a slash command gets there. Nothing else runs: the
-        channel is not routed, so no command is handled in it.
+        channel is not routed, so no command is handled in it. Throttle
+        entries older than the period are dropped, so the map stays small.
         """
         now = time.time()
+        self._elsewhere_notices = {k: t for k, t in self._elsewhere_notices.items()
+                                   if now - t < REFUSAL_NOTICE_PERIOD_S}
         key = (str(user_id), str(chat_id))
-        if now - self._elsewhere_notices.get(key, 0.0) < REFUSAL_NOTICE_PERIOD_S:
+        if key in self._elsewhere_notices:
             return
         self._elsewhere_notices[key] = now
         try:

@@ -11,6 +11,7 @@ import asyncio
 import json
 import time
 from types import SimpleNamespace as S
+from unittest import mock
 
 import pytest
 
@@ -149,7 +150,7 @@ def test_a_renamed_bot_answers_to_its_own_name_only(cfg):
     run(core.handle_message(discord.message("@Print Handy spool list")))
     run(core.handle_message(discord.message("Print Handy, spool list")))
     assert seen == ["/spool list", "/spool list"]
-    assert core.help.startswith("**Shop Bot**") and '"@Shop Bot spool list"' in core.help
+    assert core.help.startswith("**Shop Bot**") and core.help.count("Shop Bot") == 1
 
 
 def test_set_up_intent_follows_the_configured_name():
@@ -207,7 +208,7 @@ def telegram_core(seen, cfg, username="printhandybot", name=None):
 
 @pytest.mark.parametrize("form", [
     "@printhandybot spool list", "@PrintHandyBot /spool list", "/spool@printhandybot list",
-    "/spool@PrintHandyBot list", "Print Handy, spool list", "/spool list",
+    "/spool@PrintHandyBot list", "printhandybot, spool list", "/spool list",
 ])
 def test_telegram_mention_forms_run_the_command(cfg, form):
     seen = []
@@ -299,8 +300,8 @@ PILL = f'<a href="https://matrix.to/#/{tm.BOT}">Printer Pal</a>: spool list'
     matrix_event("Printer Pal: spool list", formatted=PILL),
     matrix_event("Printer Pal: spool list",
                  formatted=PILL.replace(tm.BOT, tm.BOT.replace("@", "%40").replace(":", "%3A"))),
-    matrix_event("Print Handy: spool list", mentions=[tm.BOT]),
-    matrix_event("Print Handy, spool list"),
+    matrix_event("Shelf: spool list", mentions=[tm.BOT]),
+    matrix_event("printhandy, spool list"),
     matrix_event("Shelf: /spool list", mentions=[tm.BOT]),
 ])
 def test_matrix_mention_forms_run_the_command(cfg, tmp_path, event):
@@ -404,3 +405,148 @@ def test_web_chat_mention_of_the_bot_name_runs_the_command(cfg):
             raise AssertionError(f"no help reply: {service.entries()}")
     finally:
         service.close()
+
+
+# ---------------------------------------------------------------------- #1394 review
+
+@pytest.mark.parametrize("text,expected", [
+    ("<@3>, spool list", "/spool list"),
+    ("<@3>: help", "/print-help"),
+    ("<@3>,", "/print-help"),
+    ("<@3>help", "/print-help"),
+    ("<@3>spool list", "/spool list"),
+    ("@bot:example.org: spool list", "/spool list"),
+    ("@bot:example.org. spool list", "/spool list"),
+    ("<@3> design\na box\nwith a lid", "/design a box\nwith a lid"),
+])
+def test_punctuation_and_spacing_around_a_mention(text, expected):
+    identity = mention.Identity(names=("Print Handy",), tokens=("<@3>", "@bot:example.org"))
+    assert mention.address(text, identity) == mention.Addressed(expected, mentioned=True)
+
+
+def test_a_longer_matrix_id_is_not_the_bot():
+    identity = mention.Identity(tokens=("@bot:example.org",))
+    said = mention.address("@bot:example.org.evil spool list", identity)
+    assert said == mention.Addressed("@bot:example.org.evil spool list")
+
+
+def test_renaming_only_the_account_renames_the_bot(cfg):
+    """bot_name left at its default: the account's own name is the bot's name, and
+    "Print Handy" text no longer wakes it (the /print-handy command keeps its name)."""
+    seen = []
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(cfg["discord"]["allowed_user_ids"]))
+    discord.bot_user.name = discord.bot_user.display_name = "Shop Bot"
+    assert mention.configured_name(cfg["discord"].get("bot_name")) is None
+    core = runtime.BotCore(discord.client, cfg, router=recording_router(seen))
+    assert core.bot_name == "Shop Bot" and core.help.startswith("**Shop Bot**")
+    run(core.handle_message(discord.message("@Print Handy spool list")))
+    run(core.handle_message(discord.message("Print Handy, spool list")))
+    assert seen == []
+    run(core.handle_message(discord.message("@Shop Bot spool list")))
+    run(core.handle_message(discord.message(f"<@{discord.bot_user.id}> spool list")))
+    assert seen == ["/spool list", "/spool list"]
+    elsewhere = discord.add_channel(557)
+    run(core.handle_message(discord.message("@Shop Bot help", channel=elsewhere)))
+    assert discord.messages[-1].content == "Shop Bot only works in its print channel."
+
+
+def test_a_set_bot_name_counts_alongside_the_account():
+    client = S(user=S(id=3, name="Shop Bot", global_name=None, display_name="Shop Bot"))
+    named = mention.identity_for("discord", client, "Garage Printer")
+    assert named.names[0] == "Garage Printer" and "Shop Bot" in named.names
+    unnamed = mention.identity_for("discord", client, None)
+    assert "Print Handy" not in unnamed.names
+    assert mention.identity_for("webui", None, None).names == ("Print Handy",)
+
+
+def test_the_unrouted_notice_follows_the_access_lists(cfg):
+    discord, core = discord_core(cfg)
+    elsewhere = discord.add_channel(558)
+    stranger = fake_discord.FakeUser(999, "stranger")
+    bot = discord.bot_user.id
+    run(core.handle_message(discord.message(f"<@{bot}> help", author=stranger, channel=elsewhere)))
+    assert discord.messages == []
+    core.adapter.denied = {str(discord.operator.id)}
+    run(core.handle_message(discord.message(f"<@{bot}> help", channel=elsewhere)))
+    assert discord.messages == []
+    core.adapter.denied = set()
+    run(core.handle_message(discord.message(f"<@{bot}> help", channel=elsewhere)))
+    assert [m.content for m in discord.messages] == ["Print Handy only works in its print channel."]
+
+
+def test_old_notice_throttles_are_pruned(cfg):
+    discord, core = discord_core(cfg)
+    core._elsewhere_notices = {("1", "2"): 0.0, ("3", "4"): time.time()}
+    elsewhere = discord.add_channel(559)
+    run(core.handle_message(discord.message(f"<@{discord.bot_user.id}> help", channel=elsewhere)))
+    assert ("1", "2") not in core._elsewhere_notices and ("3", "4") in core._elsewhere_notices
+    assert (str(discord.operator.id), "559") in core._elsewhere_notices
+
+
+def test_telegram_suffixed_command_before_getme_is_dropped(cfg):
+    seen = []
+    stub, client, _core = telegram_core(seen, cfg)
+    client.user = None  # getMe has not answered (or failed)
+    assert run(client.handle_update(telegram_update("/spool@printhandybot list"))) is None
+    assert seen == [] and stub.payloads("sendMessage") == []
+    run(client.handle_update(telegram_update("/spool list")))
+    assert seen == ["/spool list"]
+
+
+def test_telegram_account_display_name_is_a_name(cfg):
+    seen = []
+    _stub, client, core = telegram_core(seen, cfg)
+    client.user = S(id=999, username="printhandybot", first_name="Shelf Printer")
+    assert core.addressed("Shelf Printer, spool list").text == "/spool list"
+    assert core.addressed("Print Handy, spool list").text == "Print Handy, spool list"
+
+
+def test_a_linked_message_meant_for_another_bot_is_dropped(cfg):
+    from . import test_message_link_rerun as lr
+    discord, core, post = lr.setup(cfg)
+    first = post("/spool@OtherBot list")
+    again = post(lr.link(discord.channel.id, first.id))
+    real = core.addressed
+
+    def addressed(text, message=None):
+        if "@OtherBot" in str(text):
+            return mention.Addressed(text, elsewhere=True)
+        return real(text, message)
+
+    core.addressed = addressed
+    assert lr.intake(core, again) == []
+    assert discord.sent == []
+
+
+def test_web_chat_drops_a_message_meant_for_another_bot(cfg, monkeypatch):
+    service = web.WebChatService(cfg)
+    try:
+        processed = []
+        monkeypatch.setattr(service.core, "process", lambda event: processed.append(event))
+        monkeypatch.setattr(service.core, "addressed",
+                            lambda text, message=None: mention.Addressed(text, elsewhere=True))
+        assert service.submit("/spool@OtherBot list") is True
+        time.sleep(0.1)
+        assert processed == []
+        assert [e["content"] for e in service.entries() if e["kind"] == "operator"] == ["/spool@OtherBot list"]
+    finally:
+        service.close()
+
+
+def test_matrix_own_posts_are_never_parsed_as_mentions(cfg, tmp_path):
+    seen = []
+    _stub, client, _core = matrix_core(cfg, tmp_path, seen)
+    own = matrix_event("@printhandy spool list")
+    own["sender"] = tm.BOT
+    with mock.patch.object(client, "parse", side_effect=AssertionError("parsed")):
+        assert client._mentions_me(own, "!lounge:example.org") is False
+
+
+@pytest.mark.parametrize("name", ["Print Handy", "X" * 32])
+def test_help_is_one_discord_message_for_names_up_to_32_characters(name):
+    from print_handy.bot import commands
+    for live in (True, False):
+        text = commands.help_text(name, supports_live_stream=live)
+        assert len(text) <= 2000 and text.count(name) == 1
+        assert '"add a new spool"' in text

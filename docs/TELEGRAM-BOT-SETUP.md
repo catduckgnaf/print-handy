@@ -249,11 +249,17 @@ require_confirmation`) and the project's `bot/configuration.py` /
   the quality Discord's limit would have thrown away.
 - **Commands** arrive as text: `/print-next plan-1`. The `@YourBot`
   suffix that group chats add is stripped when it names this bot; a
-  command addressed to a different bot (`/spool@OtherBot`) is ignored.
-  Mentioning the bot works in place of the slash: `@YourBot spool list`
-  runs `/spool list`, and so does the configured `bot_name` typed at
-  the start ("Print Handy, spool list"). Even with BotFather's privacy
-  mode on, Telegram delivers commands and `@YourBot` mentions in a
-  group, so mentioning the bot works either way.
+  command addressed to a different bot (`/spool@OtherBot`), or a
+  message that starts with another bot's `@username`, is ignored. Until
+  the bot has read its own username at startup, suffixed commands are
+  dropped rather than guessed.
+- **Mentions**: `@YourBot spool list` runs `/spool list`, and so does
+  the bot's display name, or `bot_name` when you set one, typed at the
+  start ("Shelf Printer, spool list"). Telegram only delivers these to
+  the bot in a group when BotFather's privacy mode is off
+  (`/setprivacy`) or the bot is a group admin. With privacy mode on
+  (the default), a group delivers only commands meant for the bot and
+  replies to its messages: use `/spool@YourBot list`, or reply to one
+  of the bot's messages. A private chat with the bot always works.
 - **The roast**: completion posts carry the same one-line roast as Discord, from the
   local corpus with no LLM (`vision.roast_enabled`, on by default; see [The roast](#the-roast)).

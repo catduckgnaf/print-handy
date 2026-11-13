@@ -117,11 +117,13 @@ def as_text(name, values):
 
 
 def help_text(bot_name="Print Handy", supports_live_stream=True):
+    # The name appears once, and the whole text stays one Discord message
+    # (2000 characters) for a bot_name of up to 32 characters.
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
-             "- Post a model link or .3mf/.stl to print; `/print-source` lists sites.",
+             "- Post a model link or .3mf/.stl; `/print-source` lists sites.",
              '- "print it" prints the last link; "print again" or "print 57" reprints.',
-             '- "add new filament" or "swap the filament" starts the guided /spool flow.',
-             f'- Or mention me: "@{bot_name} spool list".']
+             '- "add new filament", "add a new spool" or "swap the filament": guided /spool.',
+             '- @mention me, no slash: "spool list".']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
               for c in COMMANDS if c.name != "print-help"
