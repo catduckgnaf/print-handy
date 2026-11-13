@@ -548,6 +548,12 @@ class WebChatService:
         if not self._enabled():
             return False
         scope = str(scope or "")
+        # "@Print Handy spool list" runs /spool list here too (bot/mention.py);
+        # a message meant for a different bot is shown and not processed.
+        addressed = self.core.addressed(text)
+        if addressed.elsewhere:
+            self._append({"kind": "operator", "content": str(text or "")}, scope)
+            return True
         now = time.time()
         with self._lock:
             self._sent_at[:] = [t for t in self._sent_at if now - t < 60]
@@ -558,7 +564,7 @@ class WebChatService:
             count = self._message_count
             self._inflight[scope] = self._inflight.get(scope, 0) + 1
         self._append({"kind": "operator", "content": str(text or "")}, scope)
-        event = runtime.make_event(self._source(scope), text, f"web-{count}")
+        event = runtime.make_event(self._source(scope), addressed.text, f"web-{count}")
         future = asyncio.run_coroutine_threadsafe(
             self._in_scope(scope, lambda: self.core.process(event)), self._loop)
         future.add_done_callback(lambda done: self._process_done(done, scope))

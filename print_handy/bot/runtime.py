@@ -29,7 +29,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..runtime import _config
-from . import agent, commands, llm, platform, rest, routing
+from . import agent, commands, llm, mention, platform, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}watch\s+(?:the\s+)?print\s+live{_END}", re.I), "/print-live"),
     (re.compile(rf"^{_LEAD}(?:calibrate\s+(?:the\s+)?plate|plate\s+calibration|capture\s+(?:the\s+)?plate\s+reference){_END}", re.I), "/print-plate-calibrate"),
     (re.compile(rf"^{_LEAD}add\s+(?:a\s+|an\s+|another\s+)?printer{_END}", re.I), "/print-handy add-printer"),
-    (re.compile(rf"^(?:please\s+)?(?:set\s+up|setup)\s+print\s+handy{_END}", re.I), "/print-handy setup"),
+    # "set up <bot name>" is built per configured name: see _setup_intent.
     (re.compile(rf"^(?:please\s+)?what\s+can\s+you\s+do{_END}", re.I), "/print-help"),
     (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?commands{_END}", re.I), "/print-help"),
     # Symptoms with a dedicated troubleshooting flow
@@ -418,39 +418,56 @@ def _intent_vocabulary():
     # "guppy") would otherwise become correction targets for every other
     # route ("what does screns mean" must stay "screens").
     words = set(_FW_COMPONENT_VOCABULARY)
-    for pattern, _cmd in _TASK_INTENT_SUGGESTIONS:
+    for pattern, _cmd in (*_TASK_INTENT_SUGGESTIONS, _setup_intent()):
         source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern.replace(_FW_COMPONENT, " "))
         words.update(w.casefold() for w in re.findall(r"[A-Za-z]{5,}", source))
     return frozenset(words - _INTENT_REGEX_JUNK)
 
 
+def _setup_intent(bot_name=None):
+    """("set up <name>", "/print-handy setup") for the configured bot name.
+
+    "print handy" always counts too: ``/print-handy`` is the command's name
+    whatever the bot is called, so "set up print handy" keeps working on a
+    renamed bot, and "set up shop bot" works on one named "Shop Bot".
+    """
+    names = {"print handy", " ".join(str(bot_name or "").split()).casefold()} - {""}
+    alternatives = "|".join(r"\s+".join(re.escape(word) for word in name.split())
+                            for name in sorted(names, key=len, reverse=True))
+    return (re.compile(rf"^(?:please\s+)?(?:set\s+up|setup)\s+(?:{alternatives}){_END}", re.I),
+            "/print-handy setup")
+
+
 _INTENT_VOCABULARY = _intent_vocabulary()
 
 
-def _task_suggestion(text):
+def _task_suggestion(text, bot_name=None):
     clean = " ".join(str(text or "").split()).strip()
     if not clean or clean.startswith("/"):
         return None
-    found = _match_task_intent(clean)
+    found = _match_task_intent(clean, bot_name)
     if found:
         return found
     # Upfront typo-folding resolves curated phrases and single-word typos
     # (e.g. "spegatti" -> "spaghetti", "cancle" -> "cancel", "seperate" -> "separate").
     folded = fuzzy.typo_fold(clean)
     if folded.casefold() != clean.casefold():
-        found = _match_task_intent(folded)
+        found = _match_task_intent(folded, bot_name)
         if found:
             return found
     # Second pass: correct near-miss typos against the intent vocabulary.
     corrected = fuzzy.correct_typos(folded, _INTENT_VOCABULARY)
     if corrected.casefold() != folded.casefold():
-        found = _match_task_intent(corrected)
+        found = _match_task_intent(corrected, bot_name)
         if found:
             return found
     return _bed_down_fuzzy(clean) or _bed_down_fuzzy(folded)
 
 
-def _match_task_intent(clean):
+def _match_task_intent(clean, bot_name=None):
+    setup, setup_cmd = _setup_intent(bot_name)
+    if setup.match(clean):
+        return setup_cmd
     for pattern, cmd in _TASK_INTENT_SUGGESTIONS:
         match = pattern.match(clean)
         if not match:
@@ -499,8 +516,10 @@ def _names_command(reply, command):
     return re.search(rf'(?<![\w/-]){re.escape(name)}(?![\w-])', str(reply or '').casefold()) is not None
 
 
-def command_suggestion(text):
+def command_suggestion(text, bot_name=None):
     """The canonical command a near-miss message most likely meant, else None (#468 stage 3).
+
+    ``bot_name`` is the configured name, for "set up <bot name>".
 
     Only the first word is matched — "/spol list" suggests "/spool list",
     arguments carried over untouched — against command names and aliases
@@ -524,7 +543,7 @@ def command_suggestion(text):
     in the fallback after every model lane has declined, so #466's
     no-LLM posture keeps it too.
     """
-    task = _task_suggestion(text)
+    task = _task_suggestion(text, bot_name)
     if task is not None:
         return task
     scored, rest, wholes = _command_scores(text)
@@ -836,6 +855,7 @@ class BotCore:
         self.agent_opener = agent_opener
         self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
+        self._elsewhere_notices: dict[tuple, float] = {}  # (user_id, chat_id) -> last notice time
         # Did-you-mean waits running off the message path on serial-polling
         # platforms (P1-109): the tasks are tracked so they are never
         # garbage-collected mid-wait and their failures are logged.
@@ -844,7 +864,12 @@ class BotCore:
         # Per-session ordering for the model lane, on the event loop: a
         # queued ask waits on an asyncio lock, not in a worker thread.
         self._lane_turns = SessionTurns()
-        self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
+        # bot_name counts only when the operator set it (#1394 review): left
+        # at the built-in default, the bot goes by its own account's name, so
+        # renaming the account alone renames the bot in replies and mentions.
+        self.configured_bot_name = mention.configured_name(section.get("bot_name") or discord.get("bot_name"))
+        accounts = mention.account_names(self.platform_name, client)
+        self.bot_name = self.configured_bot_name or (accounts[0] if accounts else mention.DEFAULT_BOT_NAME)
         # Help is a platform surface: a platform that cannot run the live
         # command does not advertise it (P2-123).
         self.help = commands.help_text(
@@ -922,6 +947,16 @@ class BotCore:
 
     # ------------------------------------------------------------------ messages
 
+    def addressed(self, text, message=None):
+        """``text`` with a mention of this bot recognised and stripped (see ``bot/mention.py``).
+
+        The bot's identity is read from the platform's logged-in account on
+        every call, plus ``bot_name`` when the operator set it; never a
+        hard-coded name.
+        """
+        identity = mention.identity_for(self.platform_name, self.client, self.configured_bot_name, message)
+        return mention.address(text, identity)
+
     async def handle_message(self, message):
         author = getattr(message, "author", None)
         me = getattr(getattr(self.client, "user", None), "id", None)
@@ -929,7 +964,15 @@ class BotCore:
             return None
         chat_id, thread_id = channel_scope(message.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
+        # A mention of the bot ("@Print Handy spool list") is stripped here,
+        # before any gate sees the text; a message with none is unchanged.
+        addressed = self.addressed(getattr(message, "content", ""), message)
+        if addressed.elsewhere:
+            return None  # "/cmd@OtherBot": a command for a different bot
         if not routed and not self.gateway.setup_only:
+            if addressed.mentioned and self.adapter.is_allowed_id(author.id):
+                # Only someone the access lists admit hears where the bot works.
+                await self._note_elsewhere(author.id, chat_id, thread_id)
             return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
                              printer_id=printer_id,
@@ -940,7 +983,7 @@ class BotCore:
             # refuses every non-setup command itself; no other handler
             # is authorized by this branch. Nothing is downloaded here:
             # nobody has been admitted yet, and setup takes no attachments.
-            event = make_event(source, getattr(message, "content", ""), message.id)
+            event = make_event(source, addressed.text, message.id)
             return await self.process(event)
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never
@@ -948,18 +991,42 @@ class BotCore:
             # plus one throttled in-channel notice.
             await self._note_refusal(source)
             return None
-        if str(getattr(message, "content", "") or "").strip() or getattr(message, "attachments", None):
+        if addressed.text.strip() or getattr(message, "attachments", None):
             self._signal_working(source)
-        content_from = message
-        if parse_message_link(getattr(message, "content", "")):
+        content_from, text = message, addressed.text
+        if parse_message_link(text):
             content_from = await self._linked_message(message)
             if isinstance(content_from, str):
                 await self.adapter.send(chat_id=source.chat_id, content=content_from,
                                         metadata={"thread_id": source.thread_id} if source.thread_id else None)
                 return None
+            linked = self.addressed(getattr(content_from, "content", ""), content_from)
+            if linked.elsewhere:
+                return None  # the linked message was meant for a different bot
+            text = linked.text
         media = await self.save_attachments(content_from)
-        event = make_event(source, getattr(content_from, "content", ""), message.id, media)
+        event = make_event(source, text, message.id, media)
         return await self.process(event)
+
+    async def _note_elsewhere(self, user_id, chat_id, thread_id=None):
+        """Answer a mention outside the print channels, once per user and channel per period.
+
+        The same words a slash command gets there. Nothing else runs: the
+        channel is not routed, so no command is handled in it. Throttle
+        entries older than the period are dropped, so the map stays small.
+        """
+        now = time.time()
+        self._elsewhere_notices = {k: t for k, t in self._elsewhere_notices.items()
+                                   if now - t < REFUSAL_NOTICE_PERIOD_S}
+        key = (str(user_id), str(chat_id))
+        if key in self._elsewhere_notices:
+            return
+        self._elsewhere_notices[key] = now
+        try:
+            await self.adapter.send(chat_id=chat_id, content=f"{self.bot_name} only works in its print channel.",
+                                    metadata={"thread_id": thread_id} if thread_id else None)
+        except Exception as exc:  # no permission to post there, or the platform is down
+            logger.info("could not answer a mention in channel %s: %r", chat_id, exc)
 
     async def _linked_message(self, message):
         """The message a pasted Discord message link points at, or the reason it cannot be used.
@@ -1153,7 +1220,7 @@ class BotCore:
             # The LLM already answered this message and its named command
             # fell through: a solved reply stands alone, no help after it.
             return {"action": "skip", "reason": "llm reply"}
-        suggestion = command_suggestion(event.text)
+        suggestion = command_suggestion(event.text, self.bot_name)
         if suggestion is not None:
             # #468 stage 3: a near-miss command gets a did-you-mean prompt
             # instead of the plain unmatched reply. It sits here — after
@@ -1170,7 +1237,7 @@ class BotCore:
             # An explicit invocation no lane answered: the stripped
             # question gets the deterministic chance on its own words,
             # then the AI-specific terminal reply (see the docstring).
-            suggestion = command_suggestion(invoke)
+            suggestion = command_suggestion(invoke, self.bot_name)
             if suggestion is not None:
                 return await self._offer_suggestion(event, suggestion, metadata)
             candidates = command_suggestion_candidates(invoke)

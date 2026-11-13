@@ -95,7 +95,7 @@ Developer Portal and replace it locally. Never commit `.env` or `config/local.ya
 | `discord.approval_user_id` | Optional approval users: numeric user IDs separated by commas or spaces. Each is always allowed to act; setting them does not restrict anyone else |
 | `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `false` |
 | `discord.token_env` | Environment variable name holding the secret, not the token itself |
-| `discord.bot_name` | Name in replies; does not change the Discord account name |
+| `discord.bot_name` | Name in replies, and a name the bot answers to when mentioned; left at the default, the Discord account's name is used instead. Does not change the Discord account name |
 | `bot.mode` | `standalone`; the only mode |
 | `bot.sync_commands` | Register slash commands at startup; default `true` |
 | `bot.health_port` | Default `0`: no HTTP listener; leave disabled for this setup |
@@ -181,7 +181,12 @@ Keep the printer listener stopped during this first check. As an allowed user in
 channel, send `/print-help` or plain `hello` with the optional LLM disabled. Expect the command list for
 `/print-help`, and the short “didn't understand” reply for `hello`;
 neither starts a print. Do not send model links, files or printer-control commands for verification.
-A stranger or a message in another channel is ignored.
+Mentioning the bot works too: `@Print Handy help` (pick the bot from Discord's mention list) answers with
+the same command list, and `@Print Handy spool list` runs `/spool list`. A mention of the bot's own role
+counts, and so does its account name or server nickname typed at the start ("Print Handy, help"), or
+`bot_name` when you set one. This needs no extra permission or intent beyond the invite above. A stranger
+or a plain message in another channel is ignored. A mention of the bot in another channel runs nothing; an
+allowed user gets one "only works in its print channel" reply, a denied or unlisted user gets none.
 
 In a second terminal using the same environment and configuration:
 

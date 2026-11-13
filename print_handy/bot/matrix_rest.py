@@ -69,6 +69,15 @@ def whoami(homeserver, token, *, opener=None, timeout=10):
     return _request(homeserver, token, "GET", f"{CLIENT}/account/whoami", timeout=timeout, opener=opener)
 
 
+def display_name(homeserver, token, user_id, *, opener=None, timeout=10):
+    """A user's profile display name, or None when it has none."""
+    user = urllib.parse.quote(str(user_id), safe="")
+    data = _request(homeserver, token, "GET", f"{CLIENT}/profile/{user}/displayname",
+                    timeout=timeout, opener=opener)
+    name = str((data or {}).get("displayname") or "").strip()
+    return name or None
+
+
 def media_config(homeserver, token, *, opener=None, timeout=10):
     """The server's upload size limit in bytes (m.upload.size), or None when unknown."""
     try:

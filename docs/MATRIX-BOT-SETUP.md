@@ -122,6 +122,15 @@ Matrix prompt.
 
 ## How Matrix differs from Discord here
 
+- **Mentions**: mentioning the bot works in place of the slash.
+  Picking the bot from the client's mention list (a pill, written as
+  "Print Handy: spool list") runs `/spool list`, and so do
+  `@localpart spool list`, the full `@bot:example.org` id, and the
+  display name or `bot_name` (when you set one) typed at the start. The
+  bot reads its display name from its profile at startup. Replying to
+  one of the bot's messages is not a mention. A mention in another room
+  the bot account has joined runs nothing there; an allowed user gets
+  one "only works in its print channel" reply, anyone else gets none.
 - **No buttons**: Matrix has no inline keyboards, so a prompt is the
   question plus a numbered list, reply with the number (`2`) or with
   the choice text itself. Answering posts a short note recording the

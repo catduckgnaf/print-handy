@@ -52,7 +52,7 @@ Use one bot token for one bot. Two live connections on one token both answer eve
 | `logging.level` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`. Use `DEBUG` while chasing a problem; environment: `PRINT_HANDY__LOGGING__LEVEL` |
 | `logging.format` | `text` | `text` is one readable line per event. `json` is one JSON object per line for a log shipper |
 | `logging.file` | empty | Also write a rotating log file (5 MiB, 3 backups) at this path. Empty logs to stderr only |
-| `discord.bot_name` | `Print Handy` | Name used in bot replies and help; environment: `PRINT_HANDY__DISCORD__BOT_NAME` |
+| `discord.bot_name` | `Print Handy` | Name used in bot replies and help, and a name the bot answers to when mentioned ("@Garage Printer spool list"). Left at the default, the bot uses its account's own name instead. Telegram and Matrix use it too unless their own section sets `bot_name`; environment: `PRINT_HANDY__DISCORD__BOT_NAME` |
 | `discord.chat_id` | empty | The print channel. The bot ignores every other channel (threads inside it work) |
 | `discord.allowed_user_ids` | empty | Optional whitelist of Discord user IDs, separated by commas or spaces. Empty lets everyone in the print channel use the bot |
 | `discord.denied_user_ids` | empty | Optional deny list of Discord user IDs; a denied user is refused even when whitelisted or the approval user |
@@ -185,6 +185,19 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   `/print-firmware` (firmware version report on Moonraker printers; `update <component>` applies one component update behind a confirmation on ZMod and vanilla Klipper printers only; `guide zmod` / `guide stock` walk through the manual AD5X updates; other families get their manual update guidance),
   `/print-calibration` (printer calibrations with before/after values and an accept step before anything saves, on ZMod and vanilla Klipper printers; Z offset is report + guide; `records` lists past runs),
   `/print-handy` (guided setup and read-only debugging), `/print-source` (which model sites are connected), `/print-help`. Typing the same text works too.
+* Mentioning the bot works in place of the slash: "@Print Handy /spool list", "@Print Handy spool list" and
+  "@Print Handy stop" run `/spool list` and `/print-stop`, and a bare mention answers with the help. After the
+  mention, a first word that is a command name, with or without its `print-` prefix, runs that command; any other
+  text goes through the usual plain-language handling. The bot recognizes its own account at run time, never a
+  fixed name: a Discord mention of the bot (or of the role Discord manages for it) and its account or server
+  nickname, the Telegram `@username`, display name or a `/command@username` suffix, a Matrix pill, display name or
+  `@localpart`, and `bot_name` when you set one ("Garage Printer, help"). Left at its default, `bot_name` is not a name
+  the bot answers to: renaming only the account to "Shop Bot" makes the bot answer to "@Shop Bot" and not to
+  "Print Handy", and its replies and help use the account's name. Web chat has no account, so there the default name
+  counts. The `/print-handy` command keeps its name, and "set up print handy" still offers it. A message that
+  mentions nobody routes exactly as before. A mention in a channel the bot does not print from runs nothing; a
+  person the access lists admit gets one "only works in its print channel" reply per channel per hour, and a denied
+  or unlisted person gets no reply.
 * When a multi-plate job still has a plate queued, chat can offer the next plate once the camera's empty-bed check says the bed is clear. On Discord that offer uses the existing Start next plate button, and confirm runs the same start as `/print-next`. Cancel leaves the queue alone and ends the bed checks for that plate. The check runs only while the printer is idle, and each finished plate gets its own offer. Telegram and Matrix name `/print-next`, which still asks before starting. A bed that is not clear is posted once and does not offer. No camera, a dark frame, or no verdict posts nothing, and it does not invent an empty bed. Nothing starts without the confirm.
 * `/print-design <what to make>` (or the short `/design`) designs a new part with AI + OpenSCAD (see
   [AI design](DESIGN.md)); with a model file dropped in the same message, or a model link in it, it edits
