@@ -338,6 +338,10 @@ Live status: verified end to end on 2026-10-29 with operator tokens. For both si
 
 MakerOnline (Anycubic) links (`makeronline.com/en/model/<title>/<id>.html`) are recognized, and Print Handy looks up the model and lists its STL/3MF files through the JSON API the MakerOnline web app uses. No login is needed for that. **Downloads are not supported, and no token changes that.** MakerOnline's download service wants a device-fingerprint token from a browser security SDK (NetEase Yidun) on every download. Tested on 2026-10-29 with a valid operator login token: the token was accepted, and every download on two different models was refused with "The system is busy". Producing that fingerprint from a script would mean getting around a site's bot check, which Print Handy never does. So intake lists the files and stops with the gap named, and the workaround is to download the file from the model page in a browser and upload or drop it in the chat instead. There is no MakerOnline token file and no connect offer.
 
+### Discord message links
+
+On Discord, a message that is only a link to another message (`https://discord.com/channels/<server>/<channel>/<message>`) runs the linked message's model link or file again, as the person who pasted the link: their access is checked and every button after it asks them. Only links into the same server's print channels are followed. A link to one of the bot's own posts, to another message link, to another server or to a message that cannot be read is answered with the reason, and nothing runs.
+
 ### Direct file links
 
 A public link that points straight at a `.stl` or `.3mf` file works on any host, with no token or setup; the shape to use when a file is too big for a Discord upload. Dropbox share links work as pasted: a `www.dropbox.com` `/s/` or `/scl/` link is asked for its download form (the share form serves a preview page, not the file), and `dl.dropboxusercontent.com` links are used as-is. Other sharing services whose download needs a sign-in or an interstitial page (Google Drive, for example) are not supported; the refusal names that the link returned a web page instead of a file.
