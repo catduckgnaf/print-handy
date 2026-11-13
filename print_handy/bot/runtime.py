@@ -678,6 +678,16 @@ def make_event(source, text, message_id, media_urls=(), metadata=None):
                            message_id=str(message_id), metadata=dict(metadata or {}), internal=False)
 
 
+_MESSAGE_LINK = re.compile(
+    r"^\s*<?https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)/?>?\s*$")
+
+
+def parse_message_link(text):
+    """(guild_id, channel_id, message_id) when ``text`` is only a Discord message link, else None."""
+    match = _MESSAGE_LINK.match(str(text or ""))
+    return match.groups() if match else None
+
+
 def channel_scope(channel):
     """(chat_id, thread_id) for a channel or a thread in one."""
     parent = getattr(channel, "parent_id", None)
@@ -940,9 +950,46 @@ class BotCore:
             return None
         if str(getattr(message, "content", "") or "").strip() or getattr(message, "attachments", None):
             self._signal_working(source)
-        media = await self.save_attachments(message)
-        event = make_event(source, getattr(message, "content", ""), message.id, media)
+        content_from = message
+        if parse_message_link(getattr(message, "content", "")):
+            content_from = await self._linked_message(message)
+            if isinstance(content_from, str):
+                await self.adapter.send(chat_id=source.chat_id, content=content_from,
+                                        metadata={"thread_id": source.thread_id} if source.thread_id else None)
+                return None
+        media = await self.save_attachments(content_from)
+        event = make_event(source, getattr(content_from, "content", ""), message.id, media)
         return await self.process(event)
+
+    async def _linked_message(self, message):
+        """The message a pasted Discord message link points at, or the reason it cannot be used.
+
+        Pasting a link to an earlier message in a print channel runs that
+        message's model link or file again, as the person who pasted it: the
+        same access check already passed for them, and every button after it
+        still asks them. Only links into this server's print channels are
+        followed, so a link never reads a channel the bot does not serve.
+        """
+        guild_id, channel_id, message_id = parse_message_link(message.content)
+        guild = getattr(message, "guild", None)
+        if guild is None or str(getattr(guild, "id", "")) != guild_id:
+            return "That message link points outside this server, so nothing happened."
+        routed, _printer = self.printer_for_chat(channel_id)
+        if not routed and channel_id != channel_scope(message.channel)[0]:
+            return "That message link points at a channel I do not print from, so nothing happened."
+        try:
+            channel = self.client.get_channel(int(channel_id)) or await self.client.fetch_channel(int(channel_id))
+            linked = await channel.fetch_message(int(message_id))
+        except Exception as exc:  # deleted message, no access, Discord down
+            logger.info("could not read linked message %s/%s: %r", channel_id, message_id, exc)
+            return "I could not open that message (it may be deleted), so nothing happened."
+        if getattr(getattr(linked, "author", None), "bot", False):
+            return ("That message link points at one of my own posts. Link the message with the "
+                    "model link or file instead.")
+        if parse_message_link(getattr(linked, "content", "")):
+            return "That message is itself a message link. Link the message with the model link or file."
+        logger.info("message %s re-runs linked message %s/%s", message.id, channel_id, message_id)
+        return linked
 
     def _signal_working(self, source):
         """Fire the platform's typing indicator for an accepted message, off the message path.
