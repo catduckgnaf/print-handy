@@ -159,6 +159,8 @@ Sensitivity also sets the periodic check interval (30, 20, 15, 10 or 7.5 minutes
 
 Print Handy has a Web UI: a simple status page plus a picker configuration page that reads and writes the same YAML settings file as everything else. It is on by default in the code settings and in the container: `config/docker.yaml` and Compose both serve it on `0.0.0.0:8088`, and the Unraid template maps that port. Set `PRINT_HANDY__WEBUI__ENABLED=false` to turn it off; then the supervisor starts no extra child and nothing listens. The supervisor decides from the resolved configuration (`python3 -m print_handy.webui_gate`, mirroring the listener gate), and the container healthcheck reports a Web UI row that is skipped while disabled.
 
+**Claim it at first start.** The container serves the Web UI with no login until one is set, printer controls included. After the first start, open port 8088 and finish the walkthrough's **Login** step: set a password, or record that you mean to leave it open on a trusted network. To have it claimed before anyone can reach it, set `WEBUI_ACCESS_TOKEN` in `.env` (or the masked Unraid template variable) before the first start. See [First boot and logins](WEBUI.md#first-boot-and-logins).
+
 Enable it in the mounted YAML (`webui` in `config/docker.yaml`), in TOML (`[webui]` in `config/docker.toml`), or with Compose/`.env` variables. Compose carries them as environment entries; the Unraid template carries only the port mapping, so on Unraid they are set in the mounted config file:
 
 | YAML key | Environment variable | Default | What it does |

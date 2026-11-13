@@ -15,6 +15,8 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[test]"
 ```
 
+A native install floats its Python dependencies: `pyproject.toml` gives lower bounds (and an upper bound only for `discord.py`), and there is no lock file, so two installs a week apart can resolve different versions. The Docker image is the pinned, tested combination. If you need a repeatable native install, record what you got with `.venv/bin/python -m pip freeze > requirements.lock` and reinstall from that file.
+
 Use `.venv/bin/python` wherever this page says `python3` from here on, or activate the environment with `. .venv/bin/activate`. The direct service installer in step 4 uses the system `python3` by default, so pass the virtual environment's interpreter explicitly when running it without activation.
 
 ## 2. OrcaSlicer
@@ -51,6 +53,8 @@ Or install the systemd user services directly:
 scripts/install-standalone.sh --python "$PWD/.venv/bin/python"
 systemctl --user enable --now print-handy-bot.service print-handy-listener.service
 ```
+
+If you turn the Web UI on (it is off on a native install until `webui.port` is set; see [Enable it on a native or manual install](WEBUI.md#enable-it-on-a-native-or-manual-install)), claim it as part of setup: open it and finish the walkthrough's **Login** step before anyone else on the network can reach it.
 
 Put the bot token in the data folder's `.env`; see the [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md) guide. The listener service runs `print_handy.runtime.moonraker_event_listener` (a module name left over from the project's history), and only applies to Moonraker printers.
 

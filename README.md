@@ -89,7 +89,7 @@ docker compose up -d
 docker compose ps        # wait for "healthy"
 ```
 
-Open `http://<this-machine>:8088` for the Web UI and its first-run walkthrough, then send `/print-help` in your print channel. If the bot answers with its command list, paste a model link and see what happens. The Web UI on port 8088 has no password until you set one in its walkthrough, so do that before exposing the port beyond a network you trust.
+Open `http://<this-machine>:8088` for the Web UI and its first-run walkthrough. **Claim it in the walkthrough's Login step**: set a password, or record that you mean to leave it open. Until one of those is done, anyone who can reach port 8088 can use it, printer controls included. Then send `/print-help` in your print channel. If the bot answers with its command list, paste a model link and see what happens.
 
 On Unraid, add `https://github.com/catduckgnaf/catduck-unraid-templates` under **Apps > Settings > Use DockerHub / Custom repositories**, then search for `print-handy` in Apps. The [Docker guide](docs/DOCKER.md) has the Unraid details and the image pin.
 
