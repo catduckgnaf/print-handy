@@ -370,6 +370,14 @@ class BasePlatformAdapter:
         uid = str(user_id or "")
         if initiator is None or uid == initiator:
             return True
+        # Stopping work in progress stays open to anyone allowed (2.3.2 review): a
+        # household member must be able to stop someone else's slice or start.
+        try:
+            labels = self.registry.choices(clarify_id) or []
+        except Exception:  # a registry that cannot list choices has no Stop prompt to exempt
+            labels = []
+        if list(labels) == ["Stop"]:  # prepared_intake.STOP_LABEL, the one-button progress prompt
+            return True
         return bool(uid) and uid not in self.denied and uid in self.approvers
 
     def _prompt_initiator(self, clarify_id):

@@ -234,6 +234,11 @@ def resolve_layer_heights(profile: NozzleProfile, authored: dict | None):
     """
     authored = authored or {}
     out, reasons, notes = {}, {}, []
+    designed_for = _authored_mm(authored.get('nozzle_diameter'))
+    if designed_for is not None and abs(designed_for - profile.diameter_mm) > 0.01 and (
+            authored.get('layer_height') is not None):
+        notes.append(f'the project was set up for a {designed_for:g} mm nozzle; its layer heights are '
+                     f'kept inside the fitted {profile.diameter_mm:g} mm nozzle\'s range (2.3.2 review)')
     for key, default in (('layer_height', profile.default_layer_height),
                          ('initial_layer_print_height', profile.default_initial_layer_height)):
         value = _authored_mm(authored.get(key))

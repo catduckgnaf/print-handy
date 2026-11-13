@@ -370,12 +370,16 @@ def _sha256(path):
 
 
 def _authored_project(source):
-    """The designer's project settings of a 3MF, or {} (an STL or a plain 3MF)."""
+    """The designer's settings in Orca key names, as the slicer reads them, or {}.
+
+    author_settings.read covers Bambu/Orca projects and translated PrusaSlicer
+    projects alike (2.3.2 review: a Prusa project's first layer was missed).
+    """
     try:
-        if not (source and zipfile.is_zipfile(source)):
+        if not source:
             return {}
-        with zipfile.ZipFile(source) as archive:
-            return json.loads(archive.read('Metadata/project_settings.config').decode('utf-8', errors='replace'))
+        from . import author_settings
+        return author_settings.read(source) or {}
     except Exception:  # noqa: BLE001 - an unreadable project says nothing
         return {}
 
@@ -479,8 +483,10 @@ def posed_report(source, matrix=None, scale=None, first_layer_mm=None):
             low = min(float(p['tris'][:, :, 2].min()) for p in parts)
             for p in parts:
                 p['tris'][:, :, 2] -= low
+        # The designer printed the authored pose without supports; a turned pose has
+        # other undersides, so that intent does not carry (2.3.2 review).
         report = _analyze_parts(parts, _sha256(source), first_layer_mm=first_layer_mm,
-                                authored_supports=authored_supports(source))
+                                authored_supports=authored_supports(source) if rot is None else None)
         report['orientation_applied'] = rot is not None
     report['pose'] = pose_key(matrix, scale)
     return report
@@ -587,9 +593,11 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
     # is below it and is never a low-clearance gap.
     touching = clear <= CONTACT_MM
     if first_layer_mm:
+        # Only at the plate (2.3.2 review): a lid 0.2 mm over a base at Z 10 is two
+        # unsupported fine layers, not a squished first layer.
         # A gap exactly one first layer tall is filled by that layer too
         # (#1373): rounding must not turn a 0.24 mm layer's own gap into a finding.
-        touching |= clear <= first_layer_mm + 1e-3
+        touching |= (clear <= first_layer_mm + 1e-3) & ~over_part
     anchor_cells = {int(c) for c in cel[di[touching]]}
     keep = ~touching
     di, clear, over_part, over_own = di[keep], clear[keep], over_part[keep], over_own[keep]

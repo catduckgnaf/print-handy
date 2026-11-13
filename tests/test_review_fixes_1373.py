@@ -18,12 +18,12 @@ def test_print_anyway_is_labeled_by_whether_printing_is_on():
 def test_with_no_approvers_another_member_cannot_answer_someone_elses_prompt():
     adapter = BasePlatformAdapter.__new__(BasePlatformAdapter)
     adapter.denied, adapter.approvers = set(), set()
-    adapter.registry = S(session_key=lambda cid: "discord:chat::111")
+    adapter.registry = S(session_key=lambda cid: "discord:chat::111", choices=lambda cid: ["Black", "White"])
     assert adapter.may_answer_prompt("111", "c") is True       # the person asked
     assert adapter.may_answer_prompt("222", "c") is False      # anyone else, no approvers configured
     adapter.approvers = {"333"}
     assert adapter.may_answer_prompt("333", "c") is True       # a configured approver
-    adapter.registry = S(session_key=lambda cid: "flow")       # older flows name nobody
+    adapter.registry = S(session_key=lambda cid: "flow", choices=lambda cid: [])  # older flows name nobody
     assert adapter.may_answer_prompt("222", "c") is True
 
 

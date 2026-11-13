@@ -602,6 +602,37 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
 
 
+def test_print_anyway_on_a_slice_only_install_slices_and_starts_nothing(env, monkeypatch):
+    """2.3.2 review: the low-clearance waiver started a print where print delivery is off
+    and recorded a bed-clear approval it never asked for. It is "Slice anyway" there."""
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+    monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
+
+    adapter = None
+
+    def picks():
+        # one color (1), slot 1 (0), then the waiver by its label
+        yield 1
+        yield 0
+        while True:
+            q = adapter.questions[-1] if adapter and adapter.questions else None
+            choices = (q or {}).get('choices') or []
+            yield choices.index(prepared_intake.SLICE_ANYWAY_RISK_LABEL) \
+                if prepared_intake.SLICE_ANYWAY_RISK_LABEL in choices else len(choices) - 1
+
+    adapter = Adapter(picks())
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+              text='https://www.printables.com/model/1-ghost')
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    offered = [label for q in adapter.questions for label in (q.get('choices') or [])]
+    assert prepared_intake.SLICE_ANYWAY_RISK_LABEL in offered
+    assert prepared_intake.PRINT_ANYWAY_RISK_LABEL not in offered
+    assert env.starts == [] and 'bed_clear_approval' not in receipt
+
+
 def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch):
     """The clearance acknowledgement must carry the selected variant's G-code
     hash, not whichever artifact was on disk when the operator answered

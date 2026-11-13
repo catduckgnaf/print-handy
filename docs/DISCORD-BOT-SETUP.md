@@ -134,6 +134,12 @@ channel per user per hour ("You are not on this bot's allowed list."). Approvals
 restricts anyone else, and widening intake does not widen the live camera's own allowlist
 (`approval_user_id` plus `allowed_user_ids`, as before).
 
+A question's buttons belong to the person it was asked of. Another member pressing them gets "That question
+was asked of someone else. Nothing changed."; an approval user may answer anyone's question. With no approval
+user configured, nobody but the person asked can answer it. The one exception is the Stop button on a slice or
+start in progress: anyone allowed may press it. Telegram, Matrix and web chat follow the same rule (#1146; on
+Discord since 2.3.2).
+
 ### Yolo
 
 Saying `yolo` with a model or link, or dropping an already-sliced `.gcode` / `.gcode.3mf` file, prints
