@@ -157,8 +157,10 @@ def test_suspend_and_resume_usage():
     client.assert_any_call("POST", "/server/spoolman/spool_id", {})
 
     client2 = mock.MagicMock()
-    client2.side_effect = [{}, {"result": {"spool_id": 99}}]
-    spool_sync.resume_usage(99, mr=client2)
+    # The print_stats read first: an idle printer is not running a multi-slot print (#1362).
+    client2.side_effect = [{"result": {"status": {"print_stats": {"state": "standby", "filename": ""}}}},
+                           {}, {"result": {"spool_id": 99}}]
+    assert spool_sync.resume_usage(99, mr=client2) is True
     client2.assert_any_call("POST", "/server/spoolman/spool_id", {"spool_id": 99})
 
 

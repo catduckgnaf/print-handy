@@ -19,6 +19,7 @@ from print_handy.runtime import print_alert_buttons as pab
 
 FILE = "dragon-two-color.gcode"
 PLANNED_MM = 11627.68
+STARTED_TS = 1794319200.0  # 2026-11-10T14:00:00Z, the context's started_at
 CONTEXT = {
     "job_key": FILE,
     "print_number": 41,
@@ -65,6 +66,15 @@ def _drive(monkeypatch, tmp_path, transitions, *, stats=None, runout=None):
     monkeypatch.setattr(klipper_report, "report", lambda filename, *a, **kw: "Klipper report stub")
     monkeypatch.setattr(klipper_report, "cancelled_by_bot", lambda: True)
     monkeypatch.setattr(pab, "retire_alerts", lambda *a, **kw: 1)
+    # Moonraker's history entry for this print: the end charge checks the
+    # context's start falls inside it (#1362 review).
+    entry = {"job_id": "000041", "filename": FILE, "status": "in_progress", "start_time": STARTED_TS + 60}
+
+    def get_json(path, timeout=10):
+        if path.startswith("/server/history"):
+            return {"result": {"jobs": [entry]}}
+        return {"result": {}}
+    monkeypatch.setattr(mel.announcer, "get_json", get_json)
     listener = mel.Listener()
 
     async def run():

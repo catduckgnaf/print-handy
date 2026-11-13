@@ -864,6 +864,13 @@ def _cancel_spool_question_print(listener, spool_sync, context):
             'question opened, and no spool binding changed.')
 
 
+# A multi-slot print keeps Moonraker's active spool cleared (#1362): the
+# answer never points usage at one spool, and the print's end charges each
+# slot's spool its share.
+_MULTISLOT_TRACKING = ('This is a multi-slot print, so no single spool is charged while it runs; '
+                       "each slot's spool is charged its share when the print ends.")
+
+
 def _answer_spool_question(listener, spool_sync, context, choice):
     """Apply one answer. Spoolman first, then hardware map + screen, then usage resumes. No motion."""
     current = listener.load_runout_pause()
@@ -887,8 +894,9 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         keep = prior or context.get('suspended_spool_id')
         if not keep:
             raise spool_sync.SpoolError('I do not know which spool was in the slot; answer with its number instead')
-        spool_sync.resume_usage(int(keep))
+        resumed = spool_sync.resume_usage(int(keep))
         listener.clear_runout_pause()
+        tracking = f'Usage tracking is back on #{keep}.' if resumed is not False else _MULTISLOT_TRACKING
         # The three concerns stay separate (#1063 jam follow-up): this
         # settles the inventory record only. It does not say the feed
         # path is clear, it does not resume the print, and Print Handy
@@ -896,8 +904,7 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         # itself instead of funneling the operator into a replacement.
         return (f'Got it — the same physical spool #{keep} stays in the slot; this is a feed '
                 f'fix, not a replacement. No new spool was created, spool #{keep} was not '
-                f'marked depleted, and its remaining weight record is unchanged. Usage '
-                f'tracking is back on #{keep}.\n'
+                f'marked depleted, and its remaining weight record is unchanged. {tracking}\n'
                 f'That settles the spool records only: it does not mean the feed path is '
                 f'clear, and it does not resume the print. Clear the stuck filament at the '
                 f'printer and resume from the print controls when the path is actually '
@@ -909,9 +916,10 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         if not keep:
             raise spool_sync.SpoolError('I do not know which spool was there before; reply with its number')
         if context.get('cause') != 'runout':
-            spool_sync.resume_usage(int(keep))
+            resumed = spool_sync.resume_usage(int(keep))
             listener.clear_runout_pause()
-            return f'Got it, same spool #{keep}. Usage tracking is back on #{keep}.'
+            return (f'Got it, same spool #{keep}. '
+                    + (f'Usage tracking is back on #{keep}.' if resumed is not False else _MULTISLOT_TRACKING))
         # A runout's "same" is a new roll of the same product: the old spool is
         # empty, so charging it on would leave Spoolman wrong. Clone, then bind
         # below exactly like a New spool answer (the old one goes depleted).
@@ -994,11 +1002,12 @@ def _answer_spool_question(listener, spool_sync, context, choice):
             f'spool #{spool_id} rather than adding another.')
         error.spool_created = spool_id
         raise error from exc
-    spool_sync.resume_usage(spool_id)
+    resumed = spool_sync.resume_usage(spool_id)
     listener.clear_runout_pause()
     # bind_text already names the 'depleted' disposition ("Spool #N was
     # marked as depleted"), so the old spool's fate is stated once (#787).
-    return f'{created}{spool_sync.bind_text(result)} Usage tracking is back on, charged to #{spool_id}.'
+    tracking = f'Usage tracking is back on, charged to #{spool_id}.' if resumed is not False else _MULTISLOT_TRACKING
+    return f'{created}{spool_sync.bind_text(result)} {tracking}'
 
 
 def _spool_timeout():

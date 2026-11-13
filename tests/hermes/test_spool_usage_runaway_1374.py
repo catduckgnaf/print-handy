@@ -10,6 +10,14 @@ These tests replay Moonraker's per-report ``PUT /spool/{id}/use`` calls
 against a stateful fake Spoolman and drive the listener's end transition
 (Listener.on_status), the production entry point. On the base commit
 nothing compares the charge with the print, so the spool keeps the runaway.
+
+The launch tests drive the real start path first (print_now's record_start,
+and the generic Moonraker route) so the print context is the one a launch
+writes, not a hand-built one: on 2.3.1 the one-slot mapped launch dropped
+the baseline and the unmapped Moonraker route never recorded one, so the
+check never ran on a real print. The guard also leaves alone a spool whose
+weight someone else settled during the print: marked depleted by the runout
+answer, set by hand with /spool weight or the Web UI, or no longer active.
 """
 import asyncio
 import json
@@ -62,6 +70,7 @@ class FakeSpoolman:
 
     def __init__(self, used):
         self.used = used
+        self.archived = False
         self.calls = []
 
     def report(self, mm):
@@ -72,12 +81,17 @@ class FakeSpoolman:
         self.calls.append((method, path, body))
         if method == "GET":
             return {"id": SPOOL, "used_weight": self.used, "initial_weight": 1000.0,
-                    "remaining_weight": max(0.0, 1000.0 - self.used)}
+                    "remaining_weight": max(0.0, 1000.0 - self.used), "archived": self.archived,
+                    "filament": {"name": "Bronze", "material": "PLA+"}}
         if method == "PUT" and path.endswith("/use"):
             self.used += body.get("use_weight") or grams(body.get("use_length") or 0)
             return {}
         if method == "PATCH":
-            self.used = body["used_weight"]
+            if "remaining_weight" in body:
+                self.used = 1000.0 - body["remaining_weight"]
+            if "used_weight" in body:
+                self.used = body["used_weight"]
+            self.archived = body.get("archived", self.archived)
             return {}
         raise AssertionError(f"unexpected call {method} {path}")
 
@@ -85,12 +99,30 @@ class FakeSpoolman:
         return [c for c in self.calls if c[0] == "PATCH"]
 
 
-def _drive(monkeypatch, tmp_path, reports, end, *, filament_used, context=None, repeat_end=False):
+def _moonraker(monkeypatch, *, active=SPOOL, start_time=STARTED_TS + 60):
+    """The listener's Moonraker reads: the print's history entry and the active spool."""
+    entry = {"job_id": "000113", "filename": FILE, "status": "in_progress", "start_time": start_time}
+
+    def get_json(path, timeout=10):
+        if path.startswith("/server/history"):
+            return {"result": {"jobs": [entry]}}
+        if path == "/server/spoolman/spool_id":
+            return {"result": {"spool_id": active}}
+        raise AssertionError(f"unexpected Moonraker read {path}")
+    monkeypatch.setattr(mel.announcer, "get_json", get_json)
+    return entry
+
+
+def _drive(monkeypatch, tmp_path, reports, end, *, filament_used, context=None, repeat_end=False,
+           fake=None, active=SPOOL, during=None, history_start=STARTED_TS + 60):
     context_path = tmp_path / "print_handy_context.json"
-    context_path.write_text(json.dumps({"jobs": {FILE: context or _context()}}))
+    if context is not None or not context_path.exists():
+        context_path.write_text(json.dumps({"jobs": {FILE: context or _context()}}))
     monkeypatch.setenv("PRINT_HANDY_CONTEXT_PATH", str(context_path))
     monkeypatch.setenv("PRINT_HANDY_MULTISLOT_USAGE_STATE", str(tmp_path / "ledger.json"))
-    fake = FakeSpoolman(BASELINE_G)
+    monkeypatch.setenv("PRINT_HANDY_SPOOL_WEIGHT_SET_STATE", str(tmp_path / "weight_set.json"))
+    _moonraker(monkeypatch, active=active, start_time=history_start)
+    fake = fake or FakeSpoolman(BASELINE_G)
     monkeypatch.setattr(spoolman_client, "request", fake)
     monkeypatch.setattr(mel, "post", lambda message, **kw: True)
     monkeypatch.setattr(mel, "post_alert", lambda *a, **kw: True)
@@ -117,6 +149,8 @@ def _drive(monkeypatch, tmp_path, reports, end, *, filament_used, context=None, 
         await status("printing")
         for mm in reports:  # Moonraker's progress reports while the print runs
             fake.report(mm)
+        if during is not None:
+            during(fake)
         await status(end)
         if repeat_end:
             await status("printing")
@@ -182,13 +216,14 @@ def test_finish_post_line_names_the_correction(monkeypatch, tmp_path):
 
 def test_missed_finish_while_the_listener_was_down_is_checked(tmp_path, monkeypatch):
     from print_handy.runtime import multislot_usage
+    monkeypatch.setenv("PRINT_HANDY_SPOOL_WEIGHT_SET_STATE", str(tmp_path / "weight_set.json"))
     fake = FakeSpoolman(BASELINE_G)
     fake.report(RUNAWAY_MM)
     fake.report(PRINT_MM)
     job = {"status": "completed", "start_time": STARTED_TS, "end_time": STARTED_TS + 300,
            "filament_used": PRINT_MM}
-    entry = multislot_usage.charge_history_job(job, _context(), suspended=False, request=fake,
-                                               path=tmp_path / "ledger.json")
+    entry = multislot_usage.charge_history_job(job, _context(), active_spool_id=SPOOL, suspended=False,
+                                               request=fake, path=tmp_path / "ledger.json")
     assert entry["status"] == "corrected"
     assert fake.used == pytest.approx(BASELINE_G + grams(PRINT_MM), abs=0.01)
 
@@ -212,3 +247,50 @@ def test_launch_records_the_baseline_and_a_failed_read_clears_it(tmp_path, monke
     print_now._record_usage_baseline({}, job, job_dir / "JOB.json", SPOOL)
     assert "spool_usage_baseline" not in job
     assert len(written) == 2
+
+
+# ------------------------------------------- weights someone else settled
+
+def test_a_spool_the_runout_answer_marked_depleted_is_left_alone(monkeypatch, tmp_path):
+    def depleted(fake):
+        # The runout answer's disposition (spool_sync.bind_slot "depleted").
+        fake("PATCH", f"/api/v1/spool/{SPOOL}", {"archived": True, "remaining_weight": 0,
+                                                 "location": "depleted"})
+    fake = _drive(monkeypatch, tmp_path, [RUNAWAY_MM, PRINT_MM], "complete", filament_used=PRINT_MM,
+                  during=depleted)
+    assert len(fake.patches()) == 1  # only the runout answer's own write
+    assert fake.archived is True and fake.used == 1000.0
+
+
+def test_a_weight_set_with_spool_weight_during_the_print_is_kept(monkeypatch, tmp_path):
+    from print_handy.runtime import spool_sync
+
+    def weighed(fake):
+        # /spool weight 19 800 runs this function.
+        text = spool_sync.set_remaining_text(SPOOL, 800.0, client=lambda m, p, b=None: fake(m, p, b))
+        assert "now has 800 g left" in text
+    fake = _drive(monkeypatch, tmp_path, [RUNAWAY_MM, PRINT_MM], "complete", filament_used=PRINT_MM,
+                  during=weighed)
+    assert fake.used == pytest.approx(200.0)
+    assert [c[2] for c in fake.patches()] == [{"remaining_weight": 800.0}]
+
+
+def test_a_weight_set_in_the_web_ui_during_the_print_is_kept(monkeypatch, tmp_path):
+    from print_handy.webui import spools
+
+    def weighed(fake):
+        monkeypatch.setattr(spools, "_resolve_write", lambda data, printer_id: {"id": printer_id})
+        code, body = spools.edit({}, "ad5x", {"spool_id": SPOOL, "remaining_weight": 750},
+                                 client=lambda m, p, b=None: fake(m, p, b))
+        assert code == 200, body
+    fake = _drive(monkeypatch, tmp_path, [RUNAWAY_MM, PRINT_MM], "complete", filament_used=PRINT_MM,
+                  during=weighed)
+    assert fake.used == pytest.approx(250.0)
+    assert [c[2] for c in fake.patches()] == [{"remaining_weight": 750.0}]
+
+
+@pytest.mark.parametrize("active", [20, None])
+def test_a_spool_no_longer_active_at_the_end_is_left_alone(active, monkeypatch, tmp_path):
+    fake = _drive(monkeypatch, tmp_path, [RUNAWAY_MM, PRINT_MM], "complete", filament_used=PRINT_MM,
+                  active=active)
+    assert fake.patches() == []
