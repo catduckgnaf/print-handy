@@ -188,6 +188,35 @@ def validate_materials(text, material, state, mapping=None):
     return mapping
 
 
+def _mapped_metadata(mapping, state):
+    """The map line and one zmod_color_data line per tool that finalize inserts for ``mapping``."""
+    recorded = {}
+    for tool, slot in mapping.items():
+        spool_id = state['filament_slots'][str(slot)].get('spoolman_id')
+        recorded[tool] = {'physical_slot': slot, 'spoolman_id': spool_id} if spool_id is not None else slot
+    metadata = [MAP_PREFIX + json.dumps(recorded, sort_keys=True, separators=(',', ':')) + '\n']
+    from print_handy.core.filament_color import slot_hex
+    for tool in sorted(map(int, mapping)):
+        slot = state['filament_slots'][str(mapping[str(tool)])]
+        # Same fallback as slicing: a slot without a code gets its name's
+        # color or the neutral default (WARNING logged), never a refusal.
+        color = slot_hex(mapping[str(tool)], slot)
+        metadata.append(f'; zmod_color_data = {tool}|{color}|{slot["material"]}\n')
+    return metadata
+
+
+def _header_metadata(payload):
+    """The map and zmod_color_data lines finalize placed before ``; HEADER_BLOCK_END``, read from the
+    header only (never the toolpaths). None when the file has no header end or no map line."""
+    head_end = payload[:262144].lower().find(b'; header_block_end')
+    if head_end < 0:
+        return None
+    lines = payload[:head_end].decode('utf-8', errors='replace').splitlines(keepends=True)
+    found = [line for line in lines
+             if line.startswith(MAP_PREFIX) or line.strip().lower().startswith('; zmod_color_data =')]
+    return found if any(line.startswith(MAP_PREFIX) for line in found) else None
+
+
 def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     """Idempotent color/map insertion, then MD5 of exact remaining bytes.
 
@@ -202,10 +231,20 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     path = Path(path)
     raw = path.read_bytes()
     if raw.startswith(b'; MD5:'):
+        original = raw
         first, sep, payload = raw.partition(b'\n')
         if not sep or first.rstrip(b'\r') != b'; MD5:' + hashlib.md5(payload).hexdigest().encode():
             raise RuntimeError('refusing to replace invalid existing ZMod checksum')
         raw = payload
+        if mapping is not None and state is not None and not drop_unused:
+            # Already finalized by this function with exactly this map: the
+            # result would be the same bytes, so skip the whole-file
+            # normalization (about 12 s on a 25 MB G-code). The slice path
+            # finalizes inside slice_model and its callers finalized the same
+            # file again with the same one-slot map (#1392).
+            wanted = _mapped_metadata(normalize_mapping(mapping, state), state)
+            if _header_metadata(payload) == wanted:
+                return hashlib.sha256(original).hexdigest()
     from .native_startup import normalize
     text = normalize(raw.decode('utf-8'))
     if mapping is not None:
@@ -234,23 +273,12 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     lines = [line for line in text.splitlines(keepends=True)
              if not line.strip().lower().startswith('; zmod_color_data =')
              and not line.startswith(MAP_PREFIX)]
-    metadata = []
     if mapping is not None:
         if state is None:
             raise RuntimeError('mapped finalization requires hardware state')
-        recorded = {}
-        for tool, slot in mapping.items():
-            spool_id = state['filament_slots'][str(slot)].get('spoolman_id')
-            recorded[tool] = {'physical_slot': slot, 'spoolman_id': spool_id} if spool_id is not None else slot
-        metadata.append(MAP_PREFIX + json.dumps(recorded, sort_keys=True, separators=(',', ':')) + '\n')
-        for tool in sorted(map(int, mapping)):
-            slot = state['filament_slots'][str(mapping[str(tool)])]
-            # Same fallback as slicing: a slot without a code gets its name's
-            # color or the neutral default (WARNING logged), never a refusal.
-            from print_handy.core.filament_color import slot_hex
-            color = slot_hex(mapping[str(tool)], slot)
-            metadata.append(f'; zmod_color_data = {tool}|{color}|{slot["material"]}\n')
+        metadata = _mapped_metadata(mapping, state)
     else:
+        metadata = []
         color, material = colors
         metadata.append(f'; zmod_color_data = 0|{color}|{material}\r\n')
     index = next((i for i, line in enumerate(lines) if line.strip().lower().startswith('; header_block_end')), 0)

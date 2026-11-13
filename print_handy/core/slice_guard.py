@@ -104,7 +104,7 @@ def pre_slice(*, bounds=None, bed=None, profile=None, required_keys=(), before_p
 TIME_HEADER=re.compile(r"(?im)^;\s*(?:estimated printing time(?:\s*\([^)]*\))?|estimated time|printing time)\s*=\s*\S"
                        r"|^;.*\b(?:model printing time|total estimated time)\s*:\s*\S|^;\s*time\s*:\s*\S")
 MOVE=re.compile(r"^\s*G[0-3]\b([^;]*)",re.I)
-WORD=re.compile(r"\b([XYZE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
+XY_WORD=re.compile(r"\b([XY])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
 HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")
@@ -581,18 +581,22 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         if n not in tool_slots: r.block(f"G-code uses T{n}, but no physical IFS slot mapping is recorded.")
         elif not 1<=int(tool_slots[n])<=filament_slots: r.block(f"T{n} maps outside the available IFS slots.")
     if tools and max(tools)>=filament_slots: r.block(f"G-code uses tool T{max(tools)} but only {filament_slots} IFS slots are available.")
-    coords=[]; x=y=0.0
+    x=y=0.0
     if envelope is not None:
         for problem in toolpath_motion_problems(text, bed, envelope):
             r.block(problem)
+    # The bed check reads only X and Y: parsing every word into a dict of floats
+    # (and keeping a list of every point) cost about 10 s on a 25 MB G-code (#1392).
     for line in (text.splitlines() if envelope is None else ()):
         m=MOVE.match(line)
         if not m: continue
-        vals={k.upper():float(v) for k,v in WORD.findall(m.group(1))}
-        x=vals.get('X',x); y=vals.get('Y',y)
-        if 'X' in vals or 'Y' in vals:
-            coords.append((x,y))
-            if x<0 or y<0 or x>bed[0] or y>bed[1]: r.block(f"G-code move goes off the {bed[0]:g}x{bed[1]:g} mm bed at X{x:g} Y{y:g}."); break
+        moved=False
+        for axis, value in XY_WORD.findall(m.group(1)):
+            if axis in 'Xx': x=float(value)
+            else: y=float(value)
+            moved=True
+        if moved and (x<0 or y<0 or x>bed[0] or y>bed[1]):
+            r.block(f"G-code move goes off the {bed[0]:g}x{bed[1]:g} mm bed at X{x:g} Y{y:g}."); break
     effective = {}
     for line in comments:
         match = EFFECTIVE_SETTING.match(line)
