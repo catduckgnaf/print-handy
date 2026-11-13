@@ -1714,16 +1714,34 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         machine['min_layer_height'] = [str(tuned_profile.min_layer_height)]
         machine['max_layer_height'] = [str(tuned_profile.max_layer_height)]
         machine['retraction_length'] = [str(tuned_profile.retraction_length)]
-        process['layer_height'] = str(tuned_profile.default_layer_height)
-        process['initial_layer_print_height'] = str(tuned_profile.default_initial_layer_height)
+        # Layer heights: the designer's, inside the nozzle's range (#1373); the tuned
+        # default only when the project sets none. Line widths and retraction stay the
+        # nozzle profile's job.
+        from .nozzle import resolve_layer_heights
+        layer_mm, first_mm, layer_reasons, layer_notes = resolve_layer_heights(tuned_profile, author)
+        process['layer_height'] = f'{layer_mm:g}'
+        process['initial_layer_print_height'] = f'{first_mm:g}'
+        author_notes.extend(layer_notes)
+        for key, why in layer_reasons.items():
+            _selected(why, [key])
+        # Support Z gaps follow the layer height they were meant for (#1373 supports audit).
+        from .nozzle import resolve_support_gaps
+        gaps, gap_reasons = resolve_support_gaps(layer_mm, layer_reasons['layer_height'], author)
+        for key, value in gaps.items():
+            process[key] = f'{value:g}'
+            _selected(gap_reasons[key], [key])
         process['line_width'] = str(tuned_profile.line_width)
         process['initial_layer_line_width'] = str(tuned_profile.initial_layer_line_width)
         process['internal_solid_infill_line_width'] = str(tuned_profile.line_width)
-        _selected('job', ['layer_height', 'initial_layer_print_height', 'line_width', 'initial_layer_line_width',
-                          'internal_solid_infill_line_width'])
-    if author.get('wall_generator') == 'arachne' and not first_layer and not mapping:
-        # The designer chose variable-width walls: treat it as a thin/print-in-place model
-        # and use the flex profile so moving gaps are not fused (AD5X Flexy Ring guide).
+        _selected('job', ['line_width', 'initial_layer_line_width', 'internal_solid_infill_line_width'])
+    if (author.get('wall_generator') == 'arachne' and not first_layer and not mapping
+            and author_settings.FLEX_ON_ARACHNE):
+        # Retired by default (#1373): Arachne is Orca's better general wall generator
+        # for fine detail, not a print-in-place marker, and this swap replaced the
+        # designer's infill, first layer and supports (a decorative lantern sliced at
+        # 15% line instead of its 5% gyroid). The designer's own settings, Arachne
+        # included, are carried above; the flex profile stays the recovery for a
+        # slice Orca rejects (the -100 retry below).
         process.update(FLEX_PROFILE)
         _selected('compatibility_fallback', FLEX_PROFILE)
         if supports:
@@ -1739,7 +1757,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # the template and tuned-profile defaults they were confirmed
         # against. (A first-layer test slice keeps its own fixed recipe.)
         if edits.get('support_type'):
-            process['support_type'] = 'tree(auto)' if edits['support_type'] == 'tree' else 'normal(auto)'
+            # Keep the designer's auto/manual placement (painted enforcers need manual)
+            # and reset a style that belongs to the other type (#1373 supports audit).
+            kind = 'tree' if edits['support_type'] == 'tree' else 'normal'
+            placement = 'manual' if str(process.get('support_type') or '').endswith('(manual)') else 'auto'
+            if not str(process.get('support_type') or '').startswith(kind):
+                process['support_style'] = 'default'
+                _selected('operator', ['support_style'])
+            process['support_type'] = f'{kind}({placement})'
             _selected('operator', ['support_type'])
         if edits.get('support_plate_only') is not None:
             process['support_on_build_plate_only'] = '1' if edits['support_plate_only'] else '0'
@@ -1747,6 +1772,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if edits.get('layer_height') is not None:
             process['layer_height'] = str(edits['layer_height'])
             _selected('operator', ['layer_height'])
+            # The support gaps follow the edited layer height (#1373).
+            from .nozzle import support_z_gap
+            for key in ('support_top_z_distance', 'support_bottom_z_distance'):
+                process[key] = f'{support_z_gap(float(edits["layer_height"])):g}'
+                _selected('job', [key])
         if edits.get('infill_percent') is not None:
             process['sparse_infill_density'] = f"{edits['infill_percent']:g}%"
             _selected('operator', ['sparse_infill_density'])
@@ -2279,7 +2309,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         resolved_by = dict(selected_by)
         process.update(FLEX_PROFILE)
         _selected('compatibility_fallback', FLEX_PROFILE)
-        if supports is not None:
+        if supports is not None or resolved_by.get('enable_support') == 'designer':
+            # The operator's decision, and equally the designer's own supports or painted
+            # enforcers, survive the flex retry (#1373 supports audit: painted supports
+            # were silently switched off).
             process['enable_support'] = resolved_support
             selected_by['enable_support'] = resolved_by.get('enable_support', 'operator')
         if brim is not None or brim_policy is not None:

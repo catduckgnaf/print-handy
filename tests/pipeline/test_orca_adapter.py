@@ -310,9 +310,10 @@ def test_designer_support_placement_keys_carry_over_the_template(tmp_path, monke
     assert seen['support_type'] == 'tree(auto)' and seen['support_style'] == 'tree_slim'
     assert seen['support_critical_regions_only'] == '1' and seen['support_remove_small_overhang'] == '0'
     assert seen['wall_loops'] == '2' and seen['sparse_infill_density'] == '5%'
-    # Material and Z-gap calibration stay the printer template's.
+    # Material calibration stays the printer template's. The Z gap belongs to the layer height it
+    # was designed with: the designer's 0.24 mm layer is kept, so its 0.1 mm gap is too (#1373).
     assert seen['support_filament'] == template['support_filament']
-    assert seen['support_top_z_distance'] == template['support_top_z_distance']
+    assert seen['layer_height'] == '0.24' and seen['support_top_z_distance'] == '0.1'
     assert provenance['author_process']['support_threshold_angle'] == '35'
 
 

@@ -95,6 +95,7 @@ def _fixture_texts():
         for tools in ("", "T0\nT1\n", "  T1\nT0 ; swap\n"):
             texts[f"corpus fake slicer support={support} tools={tools!r}"] = harness.FAKE_GCODE.format(
                 hotend=215, bed=60, nozzle="0.4", support=support, types="PLA;PLA", tools=tools,
+                layer="0.2", first_layer="0.2", infill="15%", pattern="gyroid",
                 support_lines="; FEATURE: Support\nG1 X110 Y110 E2\n" if support == "1" else "")
     for family in ("orca", "bambu", "prusa", "cura"):
         texts[f"gcode_factory {family}"] = gcode_text(family)

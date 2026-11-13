@@ -369,13 +369,25 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def profile_first_layer_mm(printer_id=None):
-    """The first layer height the printer's tuned profile slices with, or None.
+def _authored_project(source):
+    """The designer's project settings of a 3MF, or {} (an STL or a plain 3MF)."""
+    try:
+        if not (source and zipfile.is_zipfile(source)):
+            return {}
+        with zipfile.ZipFile(source) as archive:
+            return json.loads(archive.read('Metadata/project_settings.config').decode('utf-8', errors='replace'))
+    except Exception:  # noqa: BLE001 - an unreadable project says nothing
+        return {}
 
-    Every slice sets ``initial_layer_print_height`` from the tuned profile of
-    the printer's recorded nozzle (orca_adapter.slice_model), so that is the
-    height whose squish closes a smaller gap. None when the printer record or
-    its nozzle profile cannot be read; the analysis then keeps CONTACT_MM only.
+
+def profile_first_layer_mm(printer_id=None, source=None):
+    """The first layer height a slice of ``source`` uses on this printer, or None.
+
+    Every slice resolves ``initial_layer_print_height`` with
+    nozzle.resolve_layer_heights (orca_adapter.slice_model): the designer's
+    value inside the nozzle's range, else the tuned default (#1373), so that is
+    the height whose squish closes a smaller gap. None when the printer record
+    or its nozzle profile cannot be read; the analysis then keeps CONTACT_MM only.
     """
     try:
         from . import printer_state
@@ -386,7 +398,10 @@ def profile_first_layer_mm(printer_id=None):
             from .. import settings
             diameter = settings.current()['printer']['nozzle_diameter_mm']
         profile = get_tuned_nozzle_profile(float(diameter))
-        return float(profile.default_initial_layer_height) if profile is not None else None
+        if profile is None:
+            return None
+        from .nozzle import resolve_layer_heights
+        return float(resolve_layer_heights(profile, _authored_project(source))[1])
     except Exception:  # noqa: BLE001 - an unreadable record keeps the plain contact threshold
         return None
 
@@ -400,7 +415,7 @@ def job_first_layer_mm(job, printer_id=None):
             return float(edited)
     except (TypeError, ValueError):
         pass
-    return profile_first_layer_mm(printer_id)
+    return profile_first_layer_mm(printer_id, source=(job or {}).get('downloaded_file'))
 
 
 def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE,
@@ -459,7 +474,7 @@ def rotated_report(source, matrix, first_layer_mm=None):
         for p in parts:
             p['tris'][:, :, 2] -= low
     if first_layer_mm is None:
-        first_layer_mm = profile_first_layer_mm()
+        first_layer_mm = profile_first_layer_mm(source=source)
     report = _analyze_parts(parts, _sha256(source), first_layer_mm=first_layer_mm)
     report['orientation_applied'] = True
     return report
@@ -750,7 +765,7 @@ def safe_analyze(source, first_layer_mm=None):
         if not (source and Path(source).is_file()):
             return None
         if first_layer_mm is None:
-            first_layer_mm = profile_first_layer_mm()
+            first_layer_mm = profile_first_layer_mm(source=source)
         return analyze(source, first_layer_mm=first_layer_mm)
     except Exception:
         return None

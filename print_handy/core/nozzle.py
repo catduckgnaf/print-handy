@@ -211,6 +211,81 @@ def get_tuned_nozzle_profile(diameter_mm: float | int) -> NozzleProfile | None:
     return None
 
 
+def _authored_mm(value):
+    if isinstance(value, list):
+        value = value[0] if value else None
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def resolve_layer_heights(profile: NozzleProfile, authored: dict | None):
+    """The layer and first-layer heights a job slices with, and why (#1373).
+
+    The designer's project values are honored when they fall inside the
+    nozzle's tuned range, as ForgeBridge and OrcaSlicer's own AD5X default
+    (0.20 mm Standard) do; a value outside the range is clamped to the
+    nearest bound and named in a note; the tuned default applies only when
+    the project sets no value (an STL, a plain 3MF). Returns
+    ``(layer_mm, first_layer_mm, {key: reason}, notes)`` where reason is
+    ``designer``, ``compatibility_fallback`` (clamped) or ``job`` (default).
+    """
+    authored = authored or {}
+    out, reasons, notes = {}, {}, []
+    for key, default in (('layer_height', profile.default_layer_height),
+                         ('initial_layer_print_height', profile.default_initial_layer_height)):
+        value = _authored_mm(authored.get(key))
+        if value is None:
+            out[key], reasons[key] = float(default), 'job'
+            continue
+        low, high = profile.min_layer_height, profile.max_layer_height
+        if key == 'initial_layer_print_height':
+            # A first layer may be thicker than the layers above it, up to the nozzle's
+            # 80% ceiling the tuned maximum stands for, never thinner than its minimum.
+            high = max(high, profile.default_initial_layer_height)
+        clamped = min(max(value, low), high)
+        out[key] = round(clamped, 3)
+        if abs(clamped - value) > 1e-9:
+            reasons[key] = 'compatibility_fallback'
+            notes.append(f'designer {key} {value:g} mm is outside the {profile.diameter_mm:g} mm nozzle range '
+                         f'({low:g}-{high:g} mm); using {clamped:g} mm')
+        else:
+            reasons[key] = 'designer'
+    return out['layer_height'], out['initial_layer_print_height'], reasons, notes
+
+
+def support_z_gap(layer_mm: float) -> float:
+    """The support top/bottom Z distance for a layer height (#1373).
+
+    OrcaSlicer's shipped Flashforge AD5X 0.4 mm profiles pair 0.12/0.16/0.20/0.24 mm
+    layers with 0.12/0.14/0.16/0.18 mm gaps, exactly 0.5 x layer + 0.06; finer layers
+    are capped at one layer (0.08 mm layers, 0.08 mm gap, as Bambu ships them).
+    A fixed 0.16 mm gap was two layers at 0.08 and only 0.67 of a 0.24 mm layer.
+    """
+    layer = float(layer_mm)
+    return round(min(0.5 * layer + 0.06, layer), 3)
+
+
+def resolve_support_gaps(layer_mm: float, layer_reason: str, authored: dict | None):
+    """({top, bottom Z distance}, {key: reason}) for the layer height a job slices with.
+
+    The designer's gaps belong to the designer's layer height: they are kept when that
+    layer height is (``layer_reason == 'designer'``); otherwise the gap follows the
+    layer actually sliced (support_z_gap).
+    """
+    authored = authored or {}
+    out, reasons = {}, {}
+    for key in ('support_top_z_distance', 'support_bottom_z_distance'):
+        value = _authored_mm(authored.get(key))
+        if key in authored and layer_reason == 'designer' and (value is not None or str(authored.get(key)).strip() in ('0', '0.0')):
+            out[key], reasons[key] = (value or 0.0), 'designer'
+        else:
+            out[key], reasons[key] = support_z_gap(layer_mm), 'job'
+    return out, reasons
+
+
 # Thermal and flow defaults are typed in print_handy/data/nozzles.toml.
 # Runtime temperature offsets are separately configurable per nozzle type.
 def _nozzle_type_defaults() -> dict[str, dict[str, float]]:

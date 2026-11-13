@@ -50,6 +50,9 @@ GENERIC_CLICKS = [
     {"question": "Choose the color", "button": "White"},
     {"question": "one color for everything?", "button": "One color for everything"},
     {"question": "does not fit the bed full size", "button": "Shrink to"},
+    # Multi-plate designer projects (#1373 archive cases): the full-size split, then plate 1 first.
+    {"question": "full size as one plate", "button": "split"},
+    {"question": "Which plate prints first?", "button": "Plate 1"},
     {"question": "How many copies", "button": "One copy"},
     {"question": "·", "button": "Slice and print"},
 ]
