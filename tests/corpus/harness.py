@@ -157,7 +157,7 @@ class ExploreLoop(AssertionError):
     """An explored path kept asking questions past MAX_PATH_QUESTIONS (a loop, not a journey)."""
 
 
-MAX_PATH_QUESTIONS = 40
+MAX_PATH_QUESTIONS = 400  # a 166-part per-part color journey is real, not a loop
 _CANCEL_LABEL = re.compile(r"^(cancel|stop|no\b|do not|don't|keep printing)|\(cancel\)", re.I)
 
 
@@ -177,11 +177,14 @@ class FakeAdapter:
         self.sent = []
         self.overrides = dict(overrides or {})
         self.fallback = fallback
+        self.raised = []  # harness exceptions the intake may catch and log (#1373)
 
     def pick(self, question, choices):
         index = len(self.questions)
         if index >= MAX_PATH_QUESTIONS:
-            raise ExploreLoop(f"more than {MAX_PATH_QUESTIONS} questions on one path; last: {question[:200]}")
+            exc = ExploreLoop(f"more than {MAX_PATH_QUESTIONS} questions on one path; last: {question[:200]}")
+            self.raised.append(exc)
+            raise exc
         wanted = self.overrides.get(index)
         if wanted is not None:
             if wanted in choices:
@@ -206,7 +209,12 @@ class FakeAdapter:
 
     async def send_clarify(self, **kw):
         from print_handy.core import prompts as cm
-        index = self.pick(kw["question"], kw["choices"])
+        try:
+            index = self.pick(kw["question"], kw["choices"])
+        except (UnansweredPrompt, ExploreLoop) as exc:
+            if exc not in self.raised:
+                self.raised.append(exc)
+            raise
         self.questions.append({"question": kw["question"], "choices": list(kw["choices"]),
                                "picked": kw["choices"][index]})
         self.events.append(("prompt", kw["question"]))
@@ -974,6 +982,8 @@ def path_invariants(run):
     Returns a list of problem lines; empty when the path is sound.
     """
     problems = list(conversation_checks(run))
+    for exc in getattr(run.adapter, "raised", None) or []:
+        problems.append(f"harness raised inside the intake (caught there): {type(exc).__name__}: {str(exc)[:200]}")
     if getattr(run.adapter, "errors", None):
         problems.append(f"errors: {run.adapter.errors}")
     picked = [str(q.get("picked") or "") for q in run.adapter.questions]
