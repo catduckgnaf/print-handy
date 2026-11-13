@@ -278,9 +278,16 @@ def resolve_support_gaps(layer_mm: float, layer_reason: str, authored: dict | No
     authored = authored or {}
     out, reasons = {}, {}
     for key in ('support_top_z_distance', 'support_bottom_z_distance'):
-        value = _authored_mm(authored.get(key))
-        if key in authored and layer_reason == 'designer' and (value is not None or str(authored.get(key)).strip() in ('0', '0.0')):
-            out[key], reasons[key] = (value or 0.0), 'designer'
+        raw = authored.get(key)
+        raw = raw[0] if isinstance(raw, list) and raw else raw
+        try:
+            number = float(str(raw).strip())
+        except (TypeError, ValueError):
+            number = None
+        # A zero gap (a soluble or zero-gap interface) is a real designer value in any
+        # spelling: '0', '0.00', ['0'] (#1373 review).
+        if number is not None and number >= 0 and layer_reason == 'designer':
+            out[key], reasons[key] = round(number, 3), 'designer'
         else:
             out[key], reasons[key] = support_z_gap(layer_mm), 'job'
     return out, reasons

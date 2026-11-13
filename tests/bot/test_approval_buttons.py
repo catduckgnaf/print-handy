@@ -126,7 +126,9 @@ def test_discord_approval_button_refuses_a_member_and_takes_the_approver(cfg):
     assert run(flow()) == 0
 
 
-def test_discord_ordinary_button_still_takes_a_member(cfg):
+def test_discord_ordinary_button_belongs_to_the_person_asked(cfg):
+    """#1373 review: Discord clicks follow the #1146 initiator rule like every other
+    platform. A member cannot answer the operator's question; an approver can."""
     cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER)
     discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
                                        operator_id=int(OPERATOR))
@@ -142,13 +144,14 @@ def test_discord_ordinary_button_still_takes_a_member(cfg):
             if message is not None:
                 break
             await asyncio.sleep(0.01)
-        label, custom_id = next((text, cid) for text, cid in discord.prompt_buttons(message)
-                                if text == "White")
-        member = fake_discord.FakeUser(int(MEMBER), "member")
-        await discord.press(message, custom_id, user=member)
+        buttons = dict(discord.prompt_buttons(message))
+        await discord.press(message, buttons["White"], user=fake_discord.FakeUser(int(MEMBER), "member"))
+        await asyncio.sleep(0.05)
+        assert not task.done()  # the member's press answered nothing
+        await discord.press(message, buttons["Black"], user=fake_discord.FakeUser(int(APPROVER), "approver"))
         return await task
 
-    assert run(flow()) == 1
+    assert run(flow()) == 0
 
 
 # ---------------------------------------------------------------------- the Telegram button path

@@ -40,7 +40,7 @@ MEMBER = "200000000000000777"
 APPROVER = "200000000000000555"
 DENIED = "200000000000000999"
 
-APPROVAL_CHOICES = ["Print anyway (accept the risk)", "Cancel"]
+APPROVAL_CHOICES = ["Print anyway, accept the risk (bed is clear)", "Cancel"]
 ORDINARY_CHOICES = ["PLA", "PETG", "Cancel"]
 
 _counter = [0]

@@ -39,7 +39,8 @@ ACTIVE = contextvars.ContextVar('print_handy_yolo', default=False)
 # Labels a yolo run takes over any other choice, most preferred first: the
 # explicit waivers, then the start buttons.
 _PREFERRED = (
-    'Print anyway (accept the risk)',
+    'Print anyway, accept the risk (bed is clear)',
+    'Slice anyway (accept the risk)',
     'Print anyway',
     'Start next plate · bed is clear',
     'Slice and print now (bed is clear)',

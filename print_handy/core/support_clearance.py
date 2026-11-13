@@ -415,7 +415,8 @@ def job_first_layer_mm(job, printer_id=None):
             return float(edited)
     except (TypeError, ValueError):
         pass
-    return profile_first_layer_mm(printer_id, source=(job or {}).get('downloaded_file'))
+    return profile_first_layer_mm(printer_id or (job or {}).get('printer_id'),
+                                  source=(job or {}).get('downloaded_file'))
 
 
 def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE,

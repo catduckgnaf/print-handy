@@ -358,7 +358,7 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
     else:
         try:
             from . import klipper_report
-            klipper_report.mark_bot_cancel()
+            klipper_report.mark_bot_cancel(printer_id=printer_id)
         except Exception:
             pass
         # Moonraker holds the reply until the cancel macro finishes; a reply that times out

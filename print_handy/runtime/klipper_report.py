@@ -82,11 +82,17 @@ def _job_for(filename: str, job: dict[str, Any] | None) -> dict[str, Any] | None
     return job
 
 
-def mark_bot_cancel(now: float | None = None) -> None:
-    """Called by print_stop.cancel so the report can say who cancelled."""
+def mark_bot_cancel(now: float | None = None, printer_id: str | None = None) -> None:
+    """Called by print_stop.cancel so the report can say who cancelled.
+
+    The marker names the printer it was sent to (#1373 review): one install can
+    run several printers, and a screen cancel on printer B within the window
+    must not read as the bot's cancel of printer A.
+    """
     try:
         BOT_CANCEL.parent.mkdir(parents=True, exist_ok=True)
-        BOT_CANCEL.write_text(json.dumps({"at": time.time() if now is None else now}))
+        BOT_CANCEL.write_text(json.dumps({"at": time.time() if now is None else now,
+                                          "printer_id": printer_id}))
     except OSError:
         pass
 
@@ -94,9 +100,16 @@ def mark_bot_cancel(now: float | None = None) -> None:
 def cancelled_by_bot(now: float | None = None) -> bool:
     now = time.time() if now is None else now
     try:
-        return now - float(json.loads(BOT_CANCEL.read_text()).get("at", 0)) < BOT_WINDOW_S
-    except (OSError, ValueError, TypeError):
+        marker = json.loads(BOT_CANCEL.read_text())
+        if not now - float(marker.get("at", 0)) < BOT_WINDOW_S:
+            return False
+    except (OSError, ValueError, TypeError, AttributeError):
         return False
+    from .. import instance
+    mine, theirs = instance.printer_id(), marker.get("printer_id")
+    # A marker for another printer is not this listener's cancel; an unnamed one
+    # (a single-printer install, or an older marker) still counts.
+    return not (mine and theirs and str(mine) != str(theirs))
 
 
 def _hm(seconds: Any) -> str:

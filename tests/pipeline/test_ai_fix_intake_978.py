@@ -296,7 +296,7 @@ def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypat
     _coverage_sequence(monkeypatch)
     clean = {'version': 1, 'risky': False, 'findings': [], 'objects': [], 'limitations': [],
              'regions': []}
-    monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix: clean)
+    monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix, **_kw: clean)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
     # one color (1), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0)
     adapter, result, receipt = run_flow(env, [1, 0, 1, 0, 0])
@@ -317,7 +317,7 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
     real_analyze = support_clearance.safe_analyze
     # The sunk copy still has its low underside (the fix was too small).
     monkeypatch.setattr(support_clearance, 'safe_analyze',
-                        lambda path: real_analyze(fixture if '.fixed-' in str(path) else path))
+                        lambda path, **kw: real_analyze(fixture if '.fixed-' in str(path) else path, **kw))
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05},
                                            summary='sink a little'))
     # one color (1), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0), then on the

@@ -135,8 +135,10 @@ class BackgroundSlice:
         finding = slice_warnings.support_finding(job_data)
         clearance = job_data.get('support_clearance')
         if clearance is None and job_data.get('downloaded_file'):
-            clearance = support_clearance.safe_analyze(job_data.get('downloaded_file'),
-                                                       first_layer_mm=support_clearance.job_first_layer_mm(job_data))
+            # Off the event loop: a large mesh would stall buttons and heartbeats (#1373 review).
+            clearance = await asyncio.to_thread(
+                support_clearance.safe_analyze, job_data.get('downloaded_file'),
+                first_layer_mm=support_clearance.job_first_layer_mm(job_data))
 
         is_flagged = bool(finding) or support_clearance.risky(clearance)
         self.flagged = is_flagged
@@ -241,7 +243,7 @@ class BackgroundSlice:
         if self.task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
-        if _sliced_with_supports(self.result):
+        if await asyncio.to_thread(_sliced_with_supports, self.result):
             # The first slice ran before any decision, so a designer project
             # with supports on (or painted enforcers) sliced WITH supports:
             # it is not the "without supports" artifact the operator chose

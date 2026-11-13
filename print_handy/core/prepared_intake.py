@@ -315,6 +315,8 @@ START_PROGRESS_POLL_S = 1.0
 # How long the Ready question waits for the speculative with-supports slice,
 # so that option shows its numbers before it can be chosen (#1373).
 SUPPORTS_ESTIMATE_WAIT_S = 120.0
+PRINT_ANYWAY_RISK_LABEL = 'Print anyway, accept the risk (bed is clear)'
+SLICE_ANYWAY_RISK_LABEL = 'Slice anyway (accept the risk)'
 START_PROGRESS = (
     ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
                              'some printers take up to a minute to answer.'),
@@ -1030,7 +1032,8 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
             for row in rows:
                 if (row.get('projected_remaining_g') is not None and row['projected_remaining_g'] < 0
                         and row.get('spoolman_id') is not None):
-                    shortages.append(material_accept.key('filament', row.get('slot'), row['spoolman_id']))
+                    shortages.append((material_accept.key('filament', row.get('slot'), row['spoolman_id']),
+                                      float(row.get('estimated_used_g') or 0)))
         text = mj.format_spool_projection(
             rows, position_noun='Toolhead' if mj._job_adapter(job).tool_based else 'Slot')
         if getattr(weights, 'fetch_failed', False):
@@ -1750,6 +1753,10 @@ def _variant_estimate_str(job_data, result):
                 return ', '.join(parts)
     except Exception:
         pass
+    # slice_job returns one Path for a single plate and a list for several (#1373 review:
+    # result[0] on a Path raised TypeError and stopped the Ready question).
+    if isinstance(result, (str, Path)):
+        result = [result]
     if result and Path(result[0]).is_file():
         try:
             from print_handy.core import model_job as mj
@@ -2133,7 +2140,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         job['color_manifest'] = manifest
         job['color_schema'] = 'part_slots_v1'
         from . import support_clearance
-        clearance_rep = await asyncio.to_thread(support_clearance.safe_analyze, path)
+        # The job's own printer's nozzle and the project's first layer (#1373 review:
+        # the default printer's profile was read on multi-printer installs).
+        clearance_rep = await asyncio.to_thread(
+            support_clearance.safe_analyze, path,
+            first_layer_mm=support_clearance.profile_first_layer_mm(printer_id, source=path))
         if clearance_rep:
             job['support_clearance'] = clearance_rep
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
@@ -2956,6 +2967,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # ended without numbers (#1373). Choosing it slices again.
                     sup_est = 'no estimate (the trial slice with supports did not finish; choosing it slices again)'
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
+                from .background_slice import _sliced_with_supports
+                if early.result and await asyncio.to_thread(_sliced_with_supports, early.result):
+                    # The first slice used the designer's supports, so its numbers are
+                    # not the without-supports print (#1373 review).
+                    nosup_est = 'estimated after slicing without supports'
+                if getattr(early, 'error', None) is not None and not early.result:
+                    # The first slice failed: nothing is still slicing (#1373 review).
+                    nosup_est = 'no estimate (the first slice failed)'
+                    if sup_est == 'slicing...':
+                        sup_est = 'no estimate (the first slice failed)'
                 flag_lines = [
                     with_supports_line(sup_reason, sup_est, early.finding, clearance),
                     f"- Slice and print without supports: {nosup_est}",
@@ -3021,7 +3042,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The one explicit waiver for a low-clearance finding
                     # (#922 gap 2): neither "with supports" nor "without
                     # supports" records it.
-                    menu_options.append({'kind': 'print_anyway', 'label': 'Print anyway (accept the risk)'})
+                    menu_options.append({'kind': 'print_anyway',
+                                         'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice only'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
@@ -3105,7 +3127,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     recipe_sha = binding_sha256(binding)
                     break
                 elif opt['kind'] == 'print_anyway':
-                    choice = 0
+                    # Like every print button: it prints only where print delivery is
+                    # on, and says the bed is clear (#1373 review: it used to start a
+                    # print on a slice-only install and record an unasked bed check).
+                    choice = 0 if can_print else 1
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_supports_question(folder, question_audit)
@@ -3625,8 +3650,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # pre-slice Reorient button already follows).
                 try:
                     matrix = (latest.get('orientation') or {}).get('rotation')
-                    clearance = (await asyncio.to_thread(support_clearance.rotated_report, path, matrix)
-                                 if matrix else await asyncio.to_thread(support_clearance.safe_analyze, path))
+                    first = support_clearance.job_first_layer_mm(latest)
+                    clearance = (await asyncio.to_thread(support_clearance.rotated_report, path, matrix,
+                                                         first_layer_mm=first)
+                                 if matrix else await asyncio.to_thread(support_clearance.safe_analyze, path,
+                                                                        first_layer_mm=first))
                     latest['support_clearance'] = clearance
                 except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
                     latest.pop('support_clearance', None)
@@ -4409,13 +4437,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
                   'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
-        if choice == 0 and shown_shortages:
-            # The Ready question already showed these spools as short and the
-            # operator pressed a print button under it: that is the answer,
-            # so the start does not stop to ask the same thing again (#1373).
-            # Bound to this G-code like any acceptance; a shortage the Ready
-            # text did not show (another slot or spool) is still asked.
-            target['accept_material'] = sorted(set(shown_shortages))
+        if choice == 0 and shown_shortages and len(shown_shortages) == 1:
+            # The Ready question already showed this spool as short and the
+            # operator pressed a print button under it: that is the answer, so
+            # the start does not ask the same thing again (#1373). Only while the
+            # slice needs no more than the shown amount (a quarter or 5 g over at
+            # most): a slice that needs more, or a multi-slot job whose per-slot
+            # grams are only known to the start gate, is asked again (#1373 review).
+            # Bound to this G-code like any acceptance.
+            key, shown_g = shown_shortages[0]
+            sliced_g = None
+            with contextlib.suppress(Exception):
+                from print_handy.runtime import discord_print_summary as dps
+                plates = dps.plate_estimates(json.loads(jp.read_text()))
+                grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
+                sliced_g = float(sum(grams)) if grams else None
+            if sliced_g is not None and sliced_g <= shown_g * 1.25 + 5:
+                target['accept_material'] = [key]
         from . import yolo as _yolo
         if _yolo.ACTIVE.get():
             target['yolo'] = True

@@ -206,7 +206,7 @@ def test_callback_resolves_the_prompt_and_a_stranger_is_refused():
     stub = BotApiStub()
     adapter = telegram.StandaloneAdapter(None, [USER], token=TOKEN, opener=stub)
     cid = "cd" * 16
-    key = "telegram:chat::user"
+    key = f"telegram:chat::{USER}"  # the asked user (#1146 initiator rule)
     prompts.register(cid, key, "Which color?", ["Black", "White"])
     run(adapter.send_clarify(chat_id=CHAT, question="Which color?", choices=["Black", "White"],
                              clarify_id=cid, session_key="flow"))

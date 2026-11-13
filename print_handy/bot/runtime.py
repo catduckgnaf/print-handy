@@ -493,7 +493,10 @@ def _bed_down_fuzzy(clean):
 def _names_command(reply, command):
     """True when a model reply mentions the slash command it also asked to run (#1373)."""
     name = str(command or '').strip().split(' ')[0].casefold()
-    return bool(name.startswith('/') and name in str(reply or '').casefold())
+    if not name.startswith('/'):
+        return False
+    # The whole command, not a prefix of another one ("/print" is not "/print-stop").
+    return re.search(rf'(?<![\w/-]){re.escape(name)}(?![\w-])', str(reply or '').casefold()) is not None
 
 
 def command_suggestion(text):

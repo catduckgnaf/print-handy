@@ -125,7 +125,7 @@ def test_1147_ad5x_zmod_cancel_sequence_is_unchanged():
     fake, calls = moonraker_calls(heaters())
     order = []
     with mock.patch.object(print_stop, "status", side_effect=seq), \
-            mock.patch.object(klipper_report, "mark_bot_cancel", side_effect=lambda: order.append("marker")), \
+            mock.patch.object(klipper_report, "mark_bot_cancel", side_effect=lambda **_kw: order.append("marker")), \
             mock.patch.object(print_stop, "_call", side_effect=lambda *a, **k: order.append(a[0]) or fake(*a, **k)), \
             mock.patch.object(print_stop.time, "sleep"):
         sent, text = print_stop.cancel("plate_1.gcode.3mf", wait_s=5)
