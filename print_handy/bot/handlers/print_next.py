@@ -45,7 +45,7 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
         if not getattr(sent, 'success', False):
             return False, detail
-        answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+        answer = await _prompt_marks.await_answer(cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800), registry=cm)
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         _prompt_marks.forget_approval(cid)
@@ -200,7 +200,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
                                               session_key=session_key, metadata=metadata)
             if not getattr(sent, 'success', False):
                 raise RuntimeError('button delivery failed')
-            answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
+            answer = await _prompt_marks.await_answer(cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800), registry=cm)
         finally:
             cm.resolve_gateway_clarify(cid, cm.CANCELLED)
             _prompt_marks.forget_approval(cid)

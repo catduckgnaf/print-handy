@@ -280,7 +280,7 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
                 metadata={'thread_id': source.thread_id} if source.thread_id else None)
             if not result.success:
                 raise RuntimeError('color prompt delivery failed')
-            answer = await asyncio.to_thread(cm.wait_for_response, cid, timeout)
+            answer = await _prompt_marks.await_answer(cid, timeout, registry=cm)
             if cancel_added and answer == CANCEL_LABEL:
                 raise PromptCancelled('cancelled')
             if answer in choices:

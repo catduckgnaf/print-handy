@@ -1,12 +1,14 @@
 """Button question registry: register, wait, resolve, cancel.
 
-The intake asks a question in four steps: register an id, send the buttons, wait in a worker
-thread, then resolve the id with CANCELLED to clean up. A button click (or a typed answer) resolves
-the id from the event loop. ``gateway()`` returns this module: it is the one registry the bot's
-buttons resolve in (the API shape is kept from when a host gateway could own the clicks).
+The intake asks a question in four steps: register an id, send the buttons, wait for the answer
+(``await_answer``, on the event loop), then resolve the id with CANCELLED to clean up. A button
+click (or a typed answer) resolves the id from the event loop. ``gateway()`` returns this module:
+it is the one registry the bot's buttons resolve in (the API shape is kept from when a host
+gateway could own the clicks).
 """
 from __future__ import annotations
 
+import asyncio
 import sys
 import threading
 import time
@@ -160,6 +162,58 @@ def wait_for_response(clarify_id, timeout=None):
             _prompts.pop(str(clarify_id), None)
         _approval_marks.pop(str(clarify_id), None)
     return prompt.answer if got else None
+
+
+# The blocking wait as this module defines it. await_answer waits on the
+# loop only for this registry with this wait: a stand-in registry, or a
+# replaced blocking wait, keeps the thread wait it was written against.
+_BLOCKING_WAIT = wait_for_response
+
+#: How often an on-loop wait looks for its answer. A press resolves the
+#: prompt from wherever it arrives (a button, a typed reply, a session
+#: cancel), so checking on the loop costs no thread while it waits.
+POLL_S = 0.1
+
+
+async def await_answer(clarify_id, timeout=None, *, registry=None):
+    """The answer to an open prompt, or None on timeout: ``wait_for_response`` without a thread.
+
+    The same contract as ``wait_for_response`` (the prompt is closed either
+    way, so a late press finds nothing), but the wait is an ``asyncio.sleep``
+    loop on the running event loop. A question can stay open for half an
+    hour; parking a worker thread on it that long took a thread from the
+    small default pool of a 1-CPU container, and a few open questions
+    stalled every other ``asyncio.to_thread`` call, print starts included.
+    Only the timeout edge uses a thread: a prompt whose answer is reserved
+    mid-commit (P2-166) gets the registry's bounded grace there, as before.
+    Cancelling the wait closes the prompt row, as the parked thread did.
+    """
+    this = sys.modules[__name__]
+    registry = this if registry is None else registry
+    if registry is not this or registry.wait_for_response is not _BLOCKING_WAIT:
+        return await asyncio.to_thread(registry.wait_for_response, clarify_id, timeout)
+    loop = asyncio.get_running_loop()
+    deadline = None if timeout is None else loop.time() + max(0.0, float(timeout))
+    try:
+        while is_open(clarify_id):
+            remaining = None if deadline is None else deadline - loop.time()
+            if remaining is not None and remaining <= 0:
+                return await asyncio.to_thread(wait_for_response, clarify_id, 0)
+            await asyncio.sleep(POLL_S if remaining is None else min(POLL_S, remaining))
+    except asyncio.CancelledError:
+        _discard(clarify_id)
+        raise
+    return wait_for_response(clarify_id, 0)
+
+
+def _discard(clarify_id):
+    """Close a prompt whose waiter is gone: a later press finds nothing to resolve."""
+    with _lock:
+        prompt = _prompts.pop(str(clarify_id), None)
+        if prompt is not None and not prompt.event.is_set():
+            prompt.answer = CANCELLED
+            prompt.event.set()
+        _approval_marks.pop(str(clarify_id), None)
 
 
 def is_open(clarify_id):

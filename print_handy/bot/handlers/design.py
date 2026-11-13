@@ -9,7 +9,8 @@ from pathlib import Path
 from .common import (
     _DESIGN_BUSY, _adapter_for, _design_busy_reply, _design_claim, _design_conversation,
     _design_engine, _design_failure_text, _design_owner, _design_root, _design_slice,
-    _design_transport, _is_print_discord_event, _recent_model_link, _run_design_turn,
+    _design_transport, _is_print_discord_event, _plain_print_number, _recent_model_link,
+    _run_design_turn,
 )
 from ...runtime import _config
 
@@ -103,6 +104,59 @@ async def _no_design_model(messages):
                              'is configured (see docs/DESIGN.md).')
 
 
+def _brings_a_model(event, text):
+    """True when a message carries a model for the print intake and no design phrase.
+
+    The same detection the intake hook uses: a model link, dropped
+    .stl/.3mf files or a .zip of them, or a G-code file. A design phrase
+    beside it ("redesign this <link>") is a design request instead.
+    """
+    if _design_command_args(text) is not None or _design_parse(text) is not None:
+        return False
+    from print_handy.core import prepared_intake, yolo
+    from print_handy.core.link_intake import model_link
+    return bool(model_link(text) or prepared_intake.model_files(event)
+                or prepared_intake.archive_files(event) or yolo.gcode_file(event))
+
+
+_PRINT_VERB_RE = re.compile(r"\b(?:print|reprint|start|send|slice)\b", re.I)
+
+
+def _starts_a_print(text):
+    """True for a plain print request that is not a design instruction.
+
+    A reprint ("print 57", "print the last one again") or a print phrase
+    naming a configured printer ("print this on the Garage AD5X"). Plain
+    "print it" stays with the design: while a design is running it may
+    mean the design itself.
+    """
+    if not text or _design_parse(text) is not None:
+        return False
+    from print_handy.core import prepared_intake
+    if _plain_print_number(text) is not None or prepared_intake.reprint_request(text):
+        return True
+    if not _PRINT_VERB_RE.search(text):
+        return False
+    try:
+        from print_handy import settings
+        roster = settings.printers(_config.cfg())
+    except Exception:
+        return False
+    low = text.casefold()
+    return any(re.search(rf"(?<!\w){re.escape(name)}(?!\w)", low)
+               for entry in roster for name in _printer_names(entry))
+
+
+def _printer_names(entry):
+    """What a message may call a roster printer: its name, its id, and the
+    distinctive words of its name ("Garage AD5X" -> "garage", "ad5x")."""
+    full = str(entry.get('name') or '').casefold().strip()
+    names = {full, str(entry.get('id') or '').casefold().strip()}
+    names.update(word for word in re.findall(r"\w+", full)
+                 if len(word) >= 4 or (len(word) >= 2 and any(c.isdigit() for c in word)))
+    return {name for name in names if len(name) >= 2}
+
+
 async def design_dispatch(event, gateway, **kwargs):
     """Serialize design turns per owner around _design_dispatch_turns (P2-151).
 
@@ -114,6 +168,14 @@ async def design_dispatch(event, gateway, **kwargs):
     geometry. Hold a per-owner claim for the whole dispatch and refuse a
     concurrent one with a busy note; other commands and unrelated chat
     still fall through untouched.
+
+    The claim covers design instructions only. A message that brings a
+    model (a pasted link, a dropped file) always goes to the intake, and
+    while a turn runs a print request ("print 57", "print this on the
+    Garage AD5X") goes to the print handlers: the owner can start another
+    print while the design works. A second design by the same owner in the
+    same channel or thread is still refused; a design in another thread is
+    another owner and runs alongside.
 
     While the design's own question is open (phase "prompt"), a plain
     message is the answer to it — a typed choice, a Matrix number, or a
@@ -129,7 +191,15 @@ async def design_dispatch(event, gateway, **kwargs):
         text = str(getattr(event, 'text', '') or '').strip()
         if _design_command_args(text) is None and text.startswith('/'):
             return None  # another command: not design's to refuse
-        if _DESIGN_BUSY.get(owner) == 'prompt' and _design_command_args(text) is None:
+        phase = _DESIGN_BUSY.get(owner)
+        if _brings_a_model(event, text) or (phase == 'turn' and _starts_a_print(text)):
+            # A new model (a pasted link, a dropped file) or a print
+            # request is not a design instruction: the intake and print
+            # handlers take it while the design keeps running. A link
+            # typed at the open design question is a new intake too,
+            # never a revision of the design on screen.
+            return None
+        if phase == 'prompt' and _design_command_args(text) is None:
             # The answer to the open design question. Answer it here, the
             # way the bot core's typed-answer route would: returning None
             # let a later hook (edit_dispatch) claim "make it 5 mm taller"
@@ -197,7 +267,11 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
         intent = ("command", command_args, None, None)
     elif text.startswith('/'):
         return None
-    elif session and session.get('status') == 'awaiting_revision':
+    elif (session and session.get('status') == 'awaiting_revision'
+          and not _brings_a_model(event, text)):
+        # A pasted link or a dropped model is a new print, not the change
+        # the design waits for: with no design phrase it is left to the
+        # intake hook, and the design keeps waiting.
         intent = ("revision", text, None, None)
     else:
         parsed = _design_parse(text)
