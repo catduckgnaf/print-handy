@@ -16,8 +16,10 @@ name: Nightly Docker image to GHCR
 # promote-only run) never strands a commit unpublished (P2-97).
 on:
   schedule:
-    # 06:17 UTC daily. The odd minute avoids the top-of-hour scheduler rush.
-    - cron: "17 6 * * *"
+    # 09:17 UTC daily — 4:17 AM EST (5:17 AM EDT in summer; GitHub cron is
+    # UTC-only, so one fixed value cannot hold 4 AM local year-round).
+    # The odd minute avoids the top-of-hour scheduler rush.
+    - cron: "17 9 * * *"
   workflow_dispatch:
     inputs:
       publish:
