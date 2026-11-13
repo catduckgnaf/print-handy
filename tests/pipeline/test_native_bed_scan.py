@@ -181,6 +181,18 @@ def test_the_native_setting_raises_instead_of_falling_back(monkeypatch):
         bed_scan.first_off_bed("G1 X1\n", (220, 220))
 
 
+def test_the_native_setting_still_reads_non_ascii_text_in_python(monkeypatch):
+    """By design, as for the bounds parser: the Rust port covers ASCII only, so non-ASCII
+    G-code (a comment with an accented name) is read by the Python loop, never refused."""
+    def refuse(*a):
+        raise AssertionError("non-ASCII text reached the native scan")
+    _fake(monkeypatch)
+    monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
+    assert bed_scan.first_off_bed("G1 X1\n", (220, 220)) is None  # verified and used for ASCII
+    sys.modules["print_handy.core._bounds_native"].first_off_bed = refuse
+    assert bed_scan.first_off_bed("G1 X-1 ; café\n", (220, 220)) == (-1.0, 0.0)
+
+
 def test_keyboard_interrupt_is_never_swallowed(monkeypatch):
     module = _fake(monkeypatch)
     bed_scan.first_off_bed("G1 X1\n", (220, 220))

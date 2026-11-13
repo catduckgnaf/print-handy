@@ -8,8 +8,11 @@ uses the Rust port in the bounds extension (``print_handy.core._bounds_native``,
 extension imports, reports the expected ``BED_SCAN_VERSION`` and passes a
 golden self-check, and never when ``PRINT_HANDY_BOUNDS_IMPL=python``. Any
 native error falls back to Python, is logged, and disables the native path
-for the rest of the process; ``PRINT_HANDY_BOUNDS_IMPL=native`` makes it an
-error instead.
+for the rest of the process; ``PRINT_HANDY_BOUNDS_IMPL=native`` makes a
+missing, mismatched or failing extension an error instead. Non-ASCII text
+takes the Python loop under every setting, ``native`` included, exactly as
+the bounds parser does: the Rust port implements the ASCII subset of the
+patterns, so this is how the two stay equal, not a fallback from a fault.
 """
 
 import logging
