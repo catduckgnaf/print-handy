@@ -98,11 +98,13 @@ def test_failure_streak_never_escalates_on_silence():
     for _ in range(MINUTES * 12):
         pass  # time passes; the streak is frame-driven, not clock-driven
     assert streak.positives == 1
-    # The next real frame is judged exactly as if no time had passed:
-    # it is the ESCALATE_AFTER-th consecutive positive, so it escalates
-    # on the frame rule — the silence contributed nothing either way.
+    # The next real frames are judged exactly as if no time had passed:
+    # the ESCALATE_AFTER-th consecutive positive escalates on the frame
+    # rule — the silence contributed nothing either way.
     verdict, _ = streak.note(weak)
-    assert verdict == "spaghetti" and streak.positives == 2
+    assert verdict == "uncertain" and streak.positives == 2
+    verdict, _ = streak.note(weak)
+    assert verdict == "spaghetti" and streak.positives == local_vision.ESCALATE_AFTER == 3
     verdict, reason = streak.note([])
     assert verdict == "ok" and "did not persist" in reason
     assert streak.positives == 0

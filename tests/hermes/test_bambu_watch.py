@@ -544,6 +544,142 @@ def test_visual_alert_keeps_the_episode_when_the_fallback_delivers(monkeypatch, 
     assert "mention_user_id" not in button_kwargs[-1]
 
 
+def test_visual_alert_without_a_ping_mentions_nobody_and_keeps_the_episode(monkeypatch, tmp_path):
+    """A weak local detection posts with ping=False: no mention, and the
+    starter's one watchdog ping is still there for a real failure."""
+    from print_handy.runtime import print_alert_buttons as pab
+    _watchdog_ping_rig(monkeypatch, tmp_path)
+    button_kwargs = []
+    monkeypatch.setattr(pab, "post_visual_alert",
+                        lambda *args, **kw: button_kwargs.append(kw) or True)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "Routine check: possible failure, low confidence",
+                                     token="tok", chat_id="42", buttonless=False, ping=False)
+    assert "mention_user_id" not in button_kwargs[-1]
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "layer2: spaghetti; test",
+                                     token="tok", chat_id="42", buttonless=False)
+    assert button_kwargs[-1].get("mention_user_id") == _WATCH_STARTER
+
+
+def test_visual_alert_without_a_ping_buttonless_mentions_nobody(monkeypatch, tmp_path):
+    from print_handy.runtime import moonraker_event_listener as mel
+    _watchdog_ping_rig(monkeypatch, tmp_path)
+    delivered = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or True)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "Routine check: possible failure, low confidence",
+                                     token="tok", chat_id="42", buttonless="telegram", ping=False)
+    assert delivered == [{}]
+
+
+# -- weak local detections: noted, then posted without a ping, then failure ----
+
+def _noise_jpegs():
+    """Real, visibly different camera frames: a new view of the print each call."""
+    import io as _io3
+    import random
+    from PIL import Image
+    rng = random.Random(1392)
+
+    def make():
+        image = Image.new("L", (160, 120))
+        image.putdata([rng.randrange(40, 220) for _ in range(160 * 120)])
+        out = _io3.BytesIO()
+        image.convert("RGB").save(out, "JPEG")
+        return out.getvalue()
+
+    return make
+
+
+class _BambuWeakRig:
+    """A Bambu monitor judging scripted detector confidences through a real FailureStreak."""
+
+    def __init__(self, monkeypatch, *, verdict=None):
+        from print_handy.runtime import local_vision as lv
+        from print_handy.runtime import print_alert_buttons as pab
+        self.alerts, self.events, self.pauses = [], [], []
+        self.clock = FakeClock()
+        self.clock.t = 10_000.0
+        self.confidence = 0.12
+        streak = lv.FailureStreak()
+        monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+        real_settings = vw.watch_settings
+        monkeypatch.setattr(vw, "watch_settings",
+                            lambda *a, **k: {**real_settings(*a, **k), "auto_pause_early": True})
+
+        def detector(image, prompt):
+            kept = [(self.confidence, [0.1, 0.1, 0.5, 0.5])] if self.confidence else []
+            return streak.note(kept, now=self.clock(), signature=vw.frame_signature(image))
+
+        def alert(filename, image, reason, identity=None, ping=True):
+            self.alerts.append((reason, ping))
+
+        watch = vw.VisualPrintWatch(sensitivity=3)
+        watch.set_mode(vw.WATCH_MODE_EARLY)
+        self.streak = streak
+        self.monitor = bambu_watch.BambuPrintMonitor(
+            REMOTE, status_fn=scripted([st("complete")]), camera_fn=_noise_jpegs(),
+            post=lambda text: None, watch=watch, verdict=verdict or detector, alert=alert,
+            changed=lambda before, after: True,
+            event_recorder=lambda **kw: self.events.append((kw["verdict"], kw["action"])),
+            auto_pause=lambda filename, identity: self.pauses.append(filename) or "Paused",
+            clock=self.clock, wall=self.clock, sleep=self.clock.sleep, poll_s=10)
+        self.monitor._last_state = "printing"
+
+    def check(self, confidence, *, reason="periodic", layer=6, gap_s=600.0):
+        self.clock.t += gap_s
+        self.confidence = confidence
+        self.monitor.visual_check(reason, layer)
+
+
+def test_bambu_a_single_weak_detection_posts_nothing(monkeypatch):
+    rig = _BambuWeakRig(monkeypatch)
+    rig.check(0.12, reason="layer2", layer=2)
+    assert rig.alerts == []
+    assert rig.events == [("uncertain", "noted")]
+    assert rig.streak.positives == 1
+
+
+def test_bambu_a_weak_detection_seen_in_two_independent_checks_posts_once_without_a_ping(monkeypatch):
+    rig = _BambuWeakRig(monkeypatch)
+    rig.check(0.12)
+    rig.check(0.12)
+    assert rig.alerts == [("Routine check at layer 6: possible failure, low confidence (12%, seen "
+                           "in 2 checks in a row). Probably fine; take a look.", False)]
+    assert rig.events == [("uncertain", "noted"), ("uncertain", "alert")]
+    assert rig.pauses == [] and rig.monitor._watch.auto_paused is False
+
+
+def test_bambu_a_weak_repeat_that_is_not_independent_is_only_noted(monkeypatch):
+    rig = _BambuWeakRig(monkeypatch)
+    rig.check(0.12)
+    rig.check(0.12, gap_s=10.0)
+    assert rig.alerts == []
+    assert rig.events == [("uncertain", "noted"), ("uncertain", "noted")]
+
+
+def test_bambu_weak_detections_escalate_to_spaghetti_on_the_third_independent_check(monkeypatch):
+    rig = _BambuWeakRig(monkeypatch)
+    for _ in range(3):
+        rig.check(0.12)
+    assert [ping for _, ping in rig.alerts] == [False, True]
+    assert "possible spaghetti" in rig.alerts[1][0]
+    assert [e[0] for e in rig.events] == ["uncertain", "uncertain", "spaghetti"]
+
+
+def test_bambu_a_single_strong_detection_still_alerts_with_a_ping(monkeypatch):
+    rig = _BambuWeakRig(monkeypatch)
+    rig.check(0.9)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+    assert rig.events == [("spaghetti", "alert")]
+
+
+@pytest.mark.parametrize("detail", ["model unsure", "the vision check could not be completed"])
+def test_bambu_endpoint_and_detector_error_uncertain_still_alert_with_a_ping(monkeypatch, detail):
+    rig = _BambuWeakRig(monkeypatch, verdict=lambda image, prompt: ("uncertain", detail))
+    rig.check(0.0, reason="layer2", layer=2)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+    assert rig.events == [("uncertain", "alert")]
+
+
 # -- Stage 3: the alert's Pause button on Bambu ---------------------------------
 
 def test_pause_sends_one_lan_pause_for_the_alerted_file(monkeypatch):

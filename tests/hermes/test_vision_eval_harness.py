@@ -100,6 +100,20 @@ def test_healthy_session_false_alert_is_counted(tmp_path):
     assert report["sessions"][0]["producer_outcome"] == "false_alert"
 
 
+def test_a_weak_detection_that_did_not_persist_is_not_a_false_alert(tmp_path):
+    # The watches only note a lone weak local detection (camera_watch.weak_noted);
+    # the replay's alert policy must not score it as an alert either.
+    from print_handy.runtime import local_vision as lv
+    session = harness.load_session(_write_session(tmp_path))
+    noted = harness.replay_session(session, harness.scripted_producer(
+        {0: ("uncertain", lv._weak_detail(0.12, 1))}))
+    assert noted["producer_outcome"] == "quiet" and harness.posted_alerts(noted) == []
+    posted = harness.replay_session(session, harness.scripted_producer(
+        {0: ("uncertain", lv._weak_detail(0.12, 1)), 1: ("uncertain", lv._weak_detail(0.12, 2))}))
+    assert posted["producer_outcome"] == "false_alert"
+    assert [c["detail"] for c in harness.posted_alerts(posted)] == [lv._weak_detail(0.12, 2)]
+
+
 def test_healthy_session_false_confirmation_needs_the_streak(tmp_path):
     # One early suspicious verdict alerts but does not confirm; two
     # consecutive ones inside the early window are the false confirmation

@@ -4326,7 +4326,8 @@ class Listener:
             # re-check.
             suspicious = _camera_watch.is_suspicious(
                 verdict, reason=reason, changed=changed, profile=self.visual_watch.profile,
-                rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing")
+                rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing",
+                detail=detail)
             log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
@@ -4351,6 +4352,12 @@ class Listener:
             event_action = "none"
             event_discarded = False
             pause_now = False
+            if not suspicious and _camera_watch.weak_noted(verdict, detail):
+                # A weak local detection that has not persisted: logged
+                # above and recorded, never posted (camera_watch.weak_noted).
+                log(f"visual check file={filename!r} reason={reason}: weak local detection "
+                    "noted, not posted")
+                event_action = "noted"
             if suspicious and image is not None:
                 from . import print_alert_buttons as pab
                 if await asyncio.to_thread(pab.visual_muted, filename, identity):

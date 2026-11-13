@@ -291,28 +291,132 @@ def test_layer_two_trigger_only_once():
     assert watch.due(3, 20) is None
 
 
-def test_a_below_threshold_detection_posts_plainly_and_without_a_ping(monkeypatch):
-    """Seen live: "layer5 at layer 5: uncertain; local failure detector:
-    possible failure at 39% confidence, below the single-frame failure
-    threshold ..." posted with a mention of the print's starter."""
-    import asyncio
+# The live alert this rule replaced: one 12% box on a healthy print's
+# first-layer check posted a photo alert (the next check was clean).
+LIVE_WEAK_DETAIL = ("local failure detector: possible failure at 12% confidence, below the "
+                    "single-frame failure threshold (first consecutive detection; it escalates "
+                    "to a failure verdict if later checks keep seeing it)")
 
-    alerts = []
-    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
-    monkeypatch.setattr(mel, "_visual_alert",
-                        lambda filename, image, reason, identity=None, ping=True: alerts.append((reason, ping)))
-    weak = ("local failure detector: possible failure at 39% confidence, below the single-frame "
-            "failure threshold (first consecutive detection; it escalates to a failure verdict "
-            "if later checks keep seeing it)")
-    monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt, streak=None: ("uncertain", weak))
-    listener = mel.Listener()
-    listener.filename = "bin.gcode"
-    asyncio.run(listener.visual_check("layer5", 5))
-    assert len(alerts) == 1
-    text, ping = alerts[0]
+
+class _WeakRig:
+    """A Moonraker listener judging scripted detector confidences through its real FailureStreak.
+
+    Every check gets a new, visibly different camera frame; ``gap_s`` is
+    the simulated time between checks (the streak's independence rule
+    wants 60 s and a changed frame). Records what the watch posted, with
+    the ping decision, the watchdog events, roast lines and pauses.
+    """
+
+    def __init__(self, monkeypatch, *, verdict=None):
+        from print_handy.runtime import local_vision as lv
+        from print_handy.runtime import visual_watch as vw
+        self.alerts, self.events, self.roasts, self.pauses = [], [], [], []
+        self.clock = [10_000.0]
+        self.confidence = [0.12]
+        make = _distinct_jpegs()
+        monkeypatch.setattr(mel, "_camera_snapshot_bytes", make)
+        monkeypatch.setattr(mel, "_watch_now", lambda: self.clock[0])
+        monkeypatch.setattr(mel, "_visual_alert",
+                            lambda filename, image, reason, identity=None, ping=True:
+                            self.alerts.append((reason, ping)))
+        monkeypatch.setattr(mel, "_record_watchdog_event",
+                            lambda filename, verdict, streak=None, action="none":
+                            self.events.append((verdict, action)))
+        monkeypatch.setattr(mel, "_with_status_roast",
+                            lambda text, *args, **kwargs: self.roasts.append(text) or text)
+        monkeypatch.setattr(mel, "_auto_pause_early",
+                            lambda filename, identity: self.pauses.append(filename) or "Paused")
+        monkeypatch.setattr(mel, "post", lambda msg, **kw: True)
+        monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+        real_settings = vw.watch_settings
+        monkeypatch.setattr(vw, "watch_settings",
+                            lambda *a, **k: {**real_settings(*a, **k), "auto_pause_early": True})
+
+        def detector(image, prompt, streak=None, local_fallback=False):
+            kept = [(self.confidence[0], [0.1, 0.1, 0.5, 0.5])] if self.confidence[0] else []
+            return streak.note(kept, now=self.clock[0], signature=vw.frame_signature(image))
+
+        monkeypatch.setattr(mel, "_visual_verdict", verdict or detector)
+        self.listener = mel.Listener()
+        self.listener.filename = "bin.gcode"
+        self.listener.state = "printing"
+        self.listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+        self.lv = lv
+
+    def check(self, confidence, *, reason="periodic", layer=6, gap_s=600.0):
+        import asyncio
+        self.clock[0] += gap_s
+        self.confidence[0] = confidence
+        asyncio.run(self.listener.visual_check(reason, layer))
+
+
+def test_a_single_weak_detection_posts_nothing(monkeypatch):
+    """Seen live: one 12% box at the first-layer check posted an alert
+    for a healthy print. It is noted (log and watchdog event), not posted."""
+    rig = _WeakRig(monkeypatch)
+    rig.check(0.12, reason="layer2", layer=2)
+    assert rig.alerts == []
+    assert rig.events == [("uncertain", "noted")]
+    assert rig.listener.local_streak.positives == 1  # still in the streak
+    rig.check(0.0, reason="layer5", layer=5)  # the next check is clean
+    assert rig.alerts == [] and rig.listener.local_streak.positives == 0
+
+
+def test_the_live_weak_detail_posts_nothing(monkeypatch):
+    rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
+                   ("uncertain", LIVE_WEAK_DETAIL))
+    rig.check(0.12, reason="layer2", layer=2)
+    assert rig.alerts == [] and rig.events == [("uncertain", "noted")]
+
+
+def test_a_weak_detection_seen_in_two_independent_checks_posts_once_without_a_ping(monkeypatch):
+    rig = _WeakRig(monkeypatch)
+    rig.check(0.12)
+    rig.check(0.12)
+    assert len(rig.alerts) == 1
+    text, ping = rig.alerts[0]
     assert ping is False
-    assert text.startswith("Early check (layer 5) at layer 5: the check could not tell")
-    assert "layer5" not in text and "uncertain;" not in text
+    assert text == ("Routine check at layer 6: possible failure, low confidence (12%, seen in "
+                    "2 checks in a row). Probably fine; take a look.")
+    assert rig.events == [("uncertain", "noted"), ("uncertain", "alert")]  # not pasta
+    assert rig.roasts == [] and rig.pauses == []
+    assert rig.listener.visual_watch.auto_paused is False
+
+
+def test_a_weak_repeat_that_is_not_independent_is_only_noted(monkeypatch):
+    rig = _WeakRig(monkeypatch)
+    rig.check(0.12)
+    rig.check(0.12, gap_s=10.0)  # seconds later: the same view, not new evidence
+    assert rig.alerts == []
+    assert rig.events == [("uncertain", "noted"), ("uncertain", "noted")]
+    assert rig.listener.local_streak.positives == 1
+
+
+def test_weak_detections_escalate_to_spaghetti_on_the_third_independent_check(monkeypatch):
+    rig = _WeakRig(monkeypatch)
+    for _ in range(3):
+        rig.check(0.12)
+    assert [ping for _, ping in rig.alerts] == [False, True]  # the failure verdict pings
+    assert "possible spaghetti" in rig.alerts[1][0] and "3 consecutive checks" in rig.alerts[1][0]
+    assert [e[0] for e in rig.events] == ["uncertain", "uncertain", "spaghetti"]
+    assert len(rig.roasts) == 1  # only the failure verdict carries a roast line
+
+
+def test_a_single_strong_detection_still_alerts_as_spaghetti_with_a_ping(monkeypatch):
+    rig = _WeakRig(monkeypatch)
+    rig.check(0.9)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+    assert "possible spaghetti" in rig.alerts[0][0]
+    assert rig.events == [("spaghetti", "alert")] and len(rig.roasts) == 1
+
+
+@pytest.mark.parametrize("detail", ["model unsure", "the vision check could not be completed"])
+def test_endpoint_and_detector_error_uncertain_still_alert_with_a_ping(monkeypatch, detail):
+    rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
+                   ("uncertain", detail))
+    rig.check(0.0, reason="layer2", layer=2)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+    assert rig.events == [("uncertain", "alert")]
 
 def _jpeg():
     return bytes((0xff, 0xd8, 0xff, 0xd9))

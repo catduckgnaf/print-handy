@@ -106,14 +106,17 @@ def keep_frame(watch, reason, layer, image, now):
     return False
 
 
-def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True):
+def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True, detail=None):
     """Whether a verdict alerts the operator, by the family's recorded rules.
 
     Missing plastic, spaghetti, detached, uncertain and the safety
     answers no/unsafe alert. An empty bed while printing is suspicious
     (at once, or on its re-check, per ``rules.empty_idle``). On a stall
     over an unchanged frame a healthy verdict may veto the alert
-    (``rules.stall_veto``). "uncertain" always alerts.
+    (``rules.stall_veto``). "uncertain" alerts, except a weak local
+    detection that has not persisted (:func:`weak_noted`, read from
+    ``detail``): that one is only noted. A stall check still alerts on
+    it, as on any uncertain verdict.
     """
     suspicious = verdict in _vw.VISUAL_SUSPICIOUS_VERDICTS
     if verdict == "empty_idle":
@@ -125,7 +128,8 @@ def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True):
         veto = rules.stall_veto == "always" or bool(profile.get("vision_veto"))
         suspicious = not (veto and verdict in _vw.VISUAL_HEALTHY_VERDICTS)
     if verdict == "uncertain":
-        suspicious = True
+        stall = reason == "stalled_layers" and changed is False
+        suspicious = stall or not weak_noted(verdict, detail)
     return suspicious
 
 
@@ -175,21 +179,50 @@ def _verdict_text(verdict):
     return VERDICT_TEXT.get(str(verdict or ""), f"the check answered {verdict!r}")
 
 
+def weak_detection(verdict, detail):
+    """The local detector's weak "possible failure" behind this verdict, or None.
+
+    A ``local_vision.WeakDetection`` (confidence in percent, how many
+    independent checks in a row saw it, whether this frame counted). Only
+    an ``uncertain`` verdict from the local detector qualifies; detector
+    errors and the endpoint route's ``uncertain`` (no confidence) do not.
+    """
+    if verdict != "uncertain":
+        return None
+    from .local_vision import weak_detection as _weak
+
+    return _weak(detail)
+
+
 def below_threshold(verdict, detail):
     """True for the local detector's weak "possible failure" (below its failure threshold).
 
-    Still posted for a look, but it does not ping anyone: it is not a
-    failure verdict until later checks keep seeing it.
+    It never pings anyone: it is not a failure verdict until later checks
+    keep seeing it (``local_vision.ESCALATE_AFTER``).
     """
-    from .local_vision import BELOW_THRESHOLD
+    return weak_detection(verdict, detail) is not None
 
-    return verdict == "uncertain" and BELOW_THRESHOLD in str(detail or "")
+
+def weak_noted(verdict, detail):
+    """True for a weak detection that is only noted (logged and recorded), not posted.
+
+    One sighting, or a frame that repeats the last one, is noted; a weak
+    detection seen in ``local_vision.WEAK_ALERT_AFTER`` independent
+    checks in a row is posted (without a ping).
+    """
+    weak = weak_detection(verdict, detail)
+    return weak is not None and not weak.posts
 
 
 def alert_text(reason, layer, verdict, detail, *, pause_why=""):
     """The camera alert's text; with ``pause_why`` the auto-pause line is appended."""
+    weak = weak_detection(verdict, detail)
     if reason == "stalled_layers":
         text = _vw.stall_alert_text(layer, verdict, detail)
+    elif weak is not None:
+        text = (f"{check_label(reason)} {_where(layer)}: possible failure, low confidence "
+                f"({weak.confidence}%, seen in {weak.seen} check{'s' if weak.seen != 1 else ''} "
+                "in a row). Probably fine; take a look.")
     else:
         text = f"{check_label(reason)} {_where(layer)}: {_verdict_text(verdict)}."
         detail = str(detail or "").strip().rstrip(".")

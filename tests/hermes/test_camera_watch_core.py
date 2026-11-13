@@ -401,3 +401,36 @@ def test_a_below_threshold_detection_is_not_a_ping():
     assert cw.below_threshold("uncertain", weak)
     assert not cw.below_threshold("spaghetti", weak)  # escalated: a failure verdict pings
     assert not cw.below_threshold("uncertain", "model unsure")
+
+
+def _weak(seen, *, counted=True, confidence=0.12):
+    from print_handy.runtime import local_vision as lv
+    return lv._weak_detail(confidence, seen, counted=counted)
+
+
+@pytest.mark.parametrize("family", sorted(cw.FAMILY_RULES))
+def test_a_weak_detection_alerts_only_once_it_persisted(family):
+    rules = cw.FAMILY_RULES[family]
+
+    def suspicious(detail, reason="periodic", changed=True):
+        return cw.is_suspicious("uncertain", reason=reason, changed=changed, profile=NO_VETO,
+                                rules=rules, detail=detail)
+
+    assert not suspicious(_weak(1)) and cw.weak_noted("uncertain", _weak(1))
+    assert not suspicious(_weak(2, counted=False)) and cw.weak_noted("uncertain", _weak(2, counted=False))
+    assert suspicious(_weak(2)) and not cw.weak_noted("uncertain", _weak(2))
+    # Endpoint and detector-error uncertain verdicts keep alerting.
+    assert suspicious("model unsure") and suspicious(vw.VISION_FAILED_DETAIL) and suspicious(None)
+    assert not cw.weak_noted("uncertain", "model unsure")
+    # A stall over an unchanged frame still alerts, whatever the detector saw.
+    assert suspicious(_weak(1), reason="stalled_layers", changed=False)
+
+
+def test_a_posted_weak_detection_says_low_confidence_and_how_often():
+    text = cw.alert_text("layer5", 5, "uncertain", _weak(2))
+    assert text == ("Early check (layer 5) at layer 5: possible failure, low confidence (12%, "
+                    "seen in 2 checks in a row). Probably fine; take a look.")
+    fallback = cw.alert_text("periodic", 9, "uncertain", "local detector fallback: " + _weak(2, confidence=0.3))
+    assert "(30%, seen in 2 checks in a row)" in fallback
+    # The endpoint's uncertain keeps its own wording.
+    assert "the check could not tell" in cw.alert_text("periodic", 9, "uncertain", "model unsure")

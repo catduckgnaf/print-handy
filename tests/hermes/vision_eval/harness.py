@@ -11,7 +11,9 @@ one camera are correlated — a confusing scene stays confusing for many
 checks in a row. A producer is therefore judged on sessions:
 
 * **false alert** — the session is healthy (label ``ok``) but the
-  replayed alert policy fires at least once;
+  replayed alert policy fires at least once (a check whose verdict
+  would be *posted*: a weak local detection that is only noted,
+  ``camera_watch.weak_noted``, does not count);
 * **false confirmation** — a healthy session produces a *streak-confirmed*
   named verdict (two consecutive verdicts in the #913 auto-pause set), the
   strictest consumer a named verdict has;
@@ -39,7 +41,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from print_handy.runtime import local_vision, visual_watch
+from print_handy.runtime import camera_watch, local_vision, visual_watch
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "vision_eval"
 
@@ -124,6 +126,39 @@ def load_eval_set(root=FIXTURES_ROOT):
     return [load_session(p) for p in discover_sessions(root)]
 
 
+FRAME_SUFFIXES = (".jpg", ".jpeg", ".png")
+
+
+def folder_session(folder, *, label="ok", cadence_s=600, name=None):
+    """A session from a plain folder of saved camera frames, no manifest.
+
+    For checking a producer against frames a deployed install saved (or
+    the repo's real timelapse frames): the frames are replayed in file
+    name order, ``cadence_s`` apart, one layer per frame, labeled
+    ``label`` (default healthy). The session is marked not synthetic.
+    """
+    folder = Path(folder)
+    paths = sorted(p for p in folder.iterdir()
+                   if p.is_file() and p.suffix.lower() in FRAME_SUFFIXES) if folder.is_dir() else []
+    if not paths:
+        raise EvalSetError(f"{folder}: no frames ({', '.join(FRAME_SUFFIXES)}) found")
+    if label not in SESSION_LABELS:
+        raise EvalSetError(f"{folder}: label {label!r} not in {sorted(SESSION_LABELS)}")
+    source = f"frames folder {folder.name}"
+    manifest = {"session": name or folder.name, "label": label, "source": source,
+                "license": "the operator's own frames", "synthetic": False,
+                "cadence_s": cadence_s, "layers": list(range(1, len(paths) + 1)),
+                "frames": [{"file": p.name, "label": label, "source": source,
+                            "license": "the operator's own frames", "synthetic": False}
+                           for p in paths]}
+    return {"manifest": manifest, "frames": [p.read_bytes() for p in paths]}
+
+
+def posted_alerts(row):
+    """The checks of one replayed session whose verdict the watch would post."""
+    return [c for c in row["checks"] if c["posted"]]
+
+
 def _is_dark(frame_bytes):
     """frame_dark on raw bytes, without raising on a non-image fixture."""
     try:
@@ -196,7 +231,7 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
             continue
         ctx = {"session": manifest["session"], "frame_index": index,
                "layer": layer, "reason": reason, "streak": streak,
-               "sensitivity": sensitivity}
+               "sensitivity": sensitivity, "t": now}
         verdict, detail, boxes = producer(frame, ctx)
         if _is_dark(frame):
             # Mirrors the listeners: on a dark frame the route is skipped
@@ -205,7 +240,8 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
             verdict, detail = "dark", "frame too dark to judge"
         watch.note_verdict(verdict, layer)
         checks.append({"frame_index": index, "t": now, "layer": layer,
-                       "reason": reason, "verdict": verdict, "detail": detail})
+                       "reason": reason, "verdict": verdict, "detail": detail,
+                       "posted": _posted(verdict, detail)})
         geometry.append(box_geometry_step(geometry[-1]["state"] if geometry else None,
                                           boxes, verdict))
         if reason != "layer_progress":
@@ -213,7 +249,7 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
             # record() moves the snapshot baseline, exactly as the listeners do.
             watch.record(layer, now, frame)
     named = [c["verdict"] for c in checks]
-    alert_fired = any(v in ALERT_VERDICTS for v in named)
+    alert_fired = any(c["posted"] for c in checks)
     confirmed = _streak_confirmed(checks, watch)
     return {"session": manifest["session"], "label": manifest["label"],
             "synthetic": bool(manifest["synthetic"]),
@@ -223,6 +259,15 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
             "streak_verdict": confirmed,
             "geometry": geometry,
             "producer_outcome": _session_outcome(manifest["label"], checks, confirmed)}
+
+
+def _posted(verdict, detail):
+    """Whether the watch would post this check's verdict (the alert policy).
+
+    An alert verdict posts, except a weak local detection that has not
+    persisted: the watches only note that one (``camera_watch.weak_noted``).
+    """
+    return verdict in ALERT_VERDICTS and not camera_watch.weak_noted(verdict, detail)
 
 
 def _streak_confirmed(checks, watch):
@@ -250,13 +295,13 @@ def _session_outcome(label, checks, confirmed):
     if label == "ok":
         if confirmed:
             return "false_confirmation"
-        if any(c["verdict"] in ALERT_VERDICTS for c in checks):
+        if any(c["posted"] for c in checks):
             return "false_alert"
         return "quiet"
     named = {c["verdict"] for c in checks}
     if label in named:
         return "detected_named"
-    if named & ALERT_VERDICTS:
+    if any(c["posted"] for c in checks):
         return "detected_alert_only"
     return "missed"
 
@@ -325,7 +370,8 @@ def local_detector_producer(frame, ctx):
     the replay scores the session missed, which is what an install in
     that state would experience."""
     try:
-        verdict, detail = local_vision.local_verdict(frame, streak=ctx["streak"])
+        verdict, detail = local_vision.local_verdict(frame, streak=ctx["streak"],
+                                                     now=ctx.get("t"))
     except local_vision.LocalVisionError as exc:
         return "unavailable", str(exc), []
     try:
@@ -428,6 +474,16 @@ def format_report(report):
             f"  {label}: {stats['sessions']} session(s), named detection "
             f"{stats['detected_named_rate']:.0%}, alerted {stats['alerted_rate']:.0%}, "
             f"outcomes {stats['outcomes']}")
+    for row in report["sessions"]:
+        counts = {}
+        for check in row["checks"]:
+            counts[check["verdict"]] = counts.get(check["verdict"], 0) + 1
+        posted = posted_alerts(row)
+        lines.append(f"  session {row['session']} ({row['label']}): {len(row['checks'])} check(s), "
+                     f"verdicts {dict(sorted(counts.items()))}, posted alerts {len(posted)}")
+        for check in posted:
+            lines.append(f"    posted: frame {check['frame_index']} layer {check['layer']} "
+                         f"{check['reason']}: {check['verdict']} ({check['detail']})")
     geo = report["geometry_experiment"]
     lines.append(
         f"box-geometry detached heuristic: fired on {geo['sessions_fired_detached']}/"
