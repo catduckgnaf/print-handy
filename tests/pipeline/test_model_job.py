@@ -968,6 +968,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
         # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
+        # #1374: before any of it, one read-only look at Moonraker's active spool for the
+        # end-of-print usage check (never a write, never a start).
+        self.assertEqual(paths[0], "/server/spoolman/spool_id")
+        self.assertEqual(mr.call_args_list[0].kwargs.get("data"), None)
+        paths = paths[1:]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
         self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
@@ -1007,6 +1012,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 # One start POST, then the #84 status readback. Not a second start.
                 # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
                 paths = [c.args[1] for c in mr.call_args_list]
+                # #1374: before any of it, one read-only look at Moonraker's active spool for the
+                # end-of-print usage check (never a write, never a start).
+                self.assertEqual(paths[0], "/server/spoolman/spool_id")
+                self.assertEqual(mr.call_args_list[0].kwargs.get("data"), None)
+                paths = paths[1:]
                 self.assertEqual(paths.count("/printer/print/start"), 1)
                 self.assertEqual(len(paths), 4)
                 self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
@@ -1485,6 +1495,11 @@ class EnglishAndPrintNowTests(unittest.TestCase):
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
         # A read-only status baseline before the start (heaters and print_stats: evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
+        # #1374: before any of it, one read-only look at Moonraker's active spool for the
+        # end-of-print usage check (never a write, never a start).
+        self.assertEqual(paths[0], "/server/spoolman/spool_id")
+        self.assertEqual(mr.call_args_list[0].kwargs.get("data"), None)
+        paths = paths[1:]
         self.assertEqual(paths.count("/printer/print/start"), 1)
         self.assertEqual(len(paths), 4)
         self.assertEqual(paths[0], model_job.START_READBACK_QUERY)  # heaters and print_stats in one read
