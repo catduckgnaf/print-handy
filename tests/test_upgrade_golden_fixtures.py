@@ -11,7 +11,7 @@ there is presented as a recorded shape unless the README says so.
 Readers exercised, at the seams the existing suites use:
 print-again planning (``print_control.printed_jobs`` /
 ``_target_from_record`` / ``again_question``, as in
-``tests/hermes/test_print_control.py``), the shared terminal renderer
+``tests/runtime/test_print_control.py``), the shared terminal renderer
 (``discord_print_summary.format_event``), Wrapped aggregates
 (``print_stats.load_records`` / ``aggregate``, as in
 ``tests/test_wrapped_records_from_writers.py``), settings loading with

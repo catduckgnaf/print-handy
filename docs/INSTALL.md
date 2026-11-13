@@ -34,7 +34,7 @@ Or install by hand from the OrcaSlicer 2.5.0 release page: download the `x86_64`
 Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; an existing `config/local.toml` remains supported. YAML takes precedence when both formats are present. See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
 
 - `services.moonraker_url` and `services.spoolman_url`
-- `paths.state_home` (the state folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x), `archive`, `records_vault` and `cache`
+- `paths.state_home` (the state folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x and removed in 2.4.0), `archive`, `records_vault` and `cache`
 - `printer.model` and supported printer-specific overrides
 
 The guided setup (`python3 -m print_handy.bot setup`) writes these with you; see [guided setup and debugging](GUIDED-SETUP-DEBUGGING.md).

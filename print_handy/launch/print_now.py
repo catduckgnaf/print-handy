@@ -55,6 +55,7 @@ _confirm_clock = time.monotonic
 _confirm_sleep = time.sleep
 
 
+# The G-code tool map anchor. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
 MAP_PREFIX = "; hermes_tool_slots = "
 
 
@@ -769,7 +770,11 @@ def job_card(job, remote, gcode_text=""):
 
 
 def _publish_job_card(st, job, remote, gcode_text=""):
-    """Best effort: Moonraker database hermes/current_job, read by Home Assistant. Never blocks a print."""
+    """Best effort: Moonraker database hermes/current_job, read by Home Assistant. Never blocks a print.
+
+    The ``hermes`` namespace and ``current_job`` key are a frozen format: see
+    docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
+    """
     try:
         card = job_card(job, remote, gcode_text)
         request_json(st["moonraker_url"] + "/server/database/item",

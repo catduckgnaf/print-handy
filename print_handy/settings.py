@@ -124,7 +124,7 @@ KEY_ALIASES = {
     ("timelapse", "wrapped_ai_video"): ("timelapse", "wrapped_video"),
     # #1323 (from #1157): the state directory was named after the Hermes install
     # method, which no longer exists. The old spelling is read, with a warning,
-    # through 2.3.x.
+    # through 2.3.x and removed in 2.4.0 (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
     ("paths", "hermes_home"): ("paths", "state_home"),
 }
 # Aliases that log a deprecation warning when an install still uses the old spelling.
@@ -138,7 +138,7 @@ def _warn_key_alias(old, new):
         _warned_aliases.add(old)
         import logging
         logging.getLogger(__name__).warning(
-            "[%s] %s is deprecated and will stop working after 2.3.x; rename it to [%s] %s "
+            "[%s] %s is deprecated and stops working in 2.4.0; rename it to [%s] %s "
             "(environment: PRINT_HANDY__%s__%s)", old[0], old[1], new[0], new[1],
             new[0].upper(), new[1].upper())
 

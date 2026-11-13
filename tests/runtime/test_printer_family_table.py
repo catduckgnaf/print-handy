@@ -1,6 +1,6 @@
 """#1241: one table over every printer family for start read-back and alert-button routing.
 
-`/print-stop` already has its per-family table (tests/hermes/test_print_stop.py). This file is the
+`/print-stop` already has its per-family table (tests/runtime/test_print_stop.py). This file is the
 same idea for the other two acceptance rows of #1147:
 
 - the start verdict each family's print path reaches ignores a leftover state: a reprint's previous

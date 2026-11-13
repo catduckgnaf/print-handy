@@ -525,6 +525,7 @@ def recorded_nozzle_type(state):
 # The GcodeLines anchors for the two header questions that do not start with a
 # fixed literal; offline verification declares them in its one scan (#1153 item 7).
 TOOL_LINE_ANCHOR = Anchor(r"[ \t]*T\d")
+# Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
 TOOL_SLOTS_ANCHOR = Anchor(r";\s*hermes_tool_slots\s*=")
 
 

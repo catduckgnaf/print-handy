@@ -129,8 +129,8 @@ def _exclude_click(monkeypatch, tmp_path, custom_id, values=None):
     """The real plugin button handler with a fake Discord that records call order."""
     import asyncio
     from print_handy.runtime import exclude_chat, print_alert_buttons as pab
-    from tests.hermes.test_print_next import Interaction
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_print_next import Interaction
+    from tests.runtime.test_stop_button_view import _install
     monkeypatch.setattr(pab, 'STATE', tmp_path / 'alerts.json')
     _sent, on_interaction, _plugin = _install(monkeypatch)
     import sys

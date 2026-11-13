@@ -4,7 +4,7 @@ unassign/swap primitives beside bind_slot.
 Fake Spoolman and fake Moonraker only: nothing here opens a socket to
 a printer or to Spoolman. The settings/routing patterns follow
 tests/test_webui_controls.py; the fake Spoolman follows
-tests/hermes/test_spool_reconcile.py.
+tests/runtime/test_spool_reconcile.py.
 """
 import copy
 import http.client

@@ -111,6 +111,7 @@ TIME_HEADER_SCAN_CHARS = 1 << 18
 # A tool change line, matched per '\n' line: the same set of tools as
 # re.findall(r"(?im)^\s*T(\d+)\s*(?:;.*)?$", text), without scanning every character.
 TOOL_LINE = re.compile(r"\s*T(\d+)\s*(?:;.*)?", re.I)
+# Generated filament profile names. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
 HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")

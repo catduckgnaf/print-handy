@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from tests.hermes.vision_eval import harness
+from tests.runtime.vision_eval import harness
 
 ROOT = harness.FIXTURES_ROOT
 

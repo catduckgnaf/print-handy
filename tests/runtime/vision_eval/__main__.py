@@ -2,9 +2,9 @@
 
 Usage::
 
-    python -m tests.hermes.vision_eval
-    python -m tests.hermes.vision_eval --model obico-failure-detector.onnx --frames saved-frames/
-    python -m tests.hermes.vision_eval --model obico-failure-detector.onnx \\
+    python -m tests.runtime.vision_eval
+    python -m tests.runtime.vision_eval --model obico-failure-detector.onnx --frames saved-frames/
+    python -m tests.runtime.vision_eval --model obico-failure-detector.onnx \\
         --frames healthy-print/ --frames failed-print/=spaghetti
 
 With no arguments it replays the shipped fixture set with the local
@@ -31,11 +31,11 @@ import sys
 from pathlib import Path
 
 from print_handy.runtime import _config
-from tests.hermes.vision_eval.harness import (
+from tests.runtime.vision_eval.harness import (
     SESSION_LABELS, EvalSetError, evaluate, folder_session, format_report,
     local_detector_producer)
 
-PROG = "python -m tests.hermes.vision_eval"
+PROG = "python -m tests.runtime.vision_eval"
 
 
 def frames_arg(value, default_label):

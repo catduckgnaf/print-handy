@@ -79,7 +79,7 @@ the same variable from `.env`. Restart the bot after changing it. This changes i
 not the Discord account username or server nickname; set those in Discord. The default stays `Print Handy`.
 
 The token is only ever read from the environment variable `discord.token_env` names, or from the `.env` file in
-`paths.state_home` (the data folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x). With no allow list,
+`paths.state_home` (the data folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x and removed in 2.4.0). With no allow list,
 everyone in the print channel can use the bot, the channel is the access boundary, and `check` reports
 `access: channel (everyone)`; set `discord.allowed_user_ids` to restrict the bot to listed users, and
 `discord.denied_user_ids` to exclude specific users in any mode. A refused message is logged at INFO with

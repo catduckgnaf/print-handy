@@ -135,7 +135,7 @@ def _clarify_gateway_stand_in():
     print_handy.core.prompts, so a question registered by the code under
     test and an answer delivered through the fake land in the same book.
 
-    Package scope, not session: the stand-in must leave with tests/hermes.
+    Package scope, not session: the stand-in must leave with tests/runtime.
     """
     try:
         import tools.clarify_gateway  # noqa: F401

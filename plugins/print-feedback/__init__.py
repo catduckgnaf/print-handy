@@ -7,7 +7,8 @@ older layouts and many tests do: it executes the handler modules' code in
 this one namespace, in their dependency order, so a module loaded from here
 is a fresh, self-contained copy with every name the old file had, and
 patching it changes what its own handlers see. Then it registers them
-exactly as before. Remove it after 2.3.x.
+exactly as before. Removed in 2.4.0 (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0),
+together with its MANIFEST.in line.
 """
 import ast
 import logging
