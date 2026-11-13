@@ -253,6 +253,25 @@ def temperature_limit(adapter, view, heater, printer_id=None):
         heater, state=_hardware_record(printer_id))
 
 
+def temperature_limits(data, printer_id, *, adapter=None):
+    """{heater: ceiling °C} for every heater ``temperature_limit`` answers
+    (nozzle, bed, chamber), for the status payloads (#1400).
+
+    The same call the temperature routes and the G-code scan refuse
+    above, so a consumer's bounds match what this server enforces. Reads
+    configuration and the hardware record only: nothing is sent to the
+    printer. None when the printer cannot be resolved; never raises.
+    """
+    try:
+        entry = settings.by_id(printer_id, data)
+        view = settings.view_for(printer_id, data)
+        adapter = adapter or printers.get(entry["model"], view)
+        return {heater: float(temperature_limit(adapter, view, heater, printer_id))
+                for heater in _heater_ceiling.HEATERS}
+    except Exception:  # a broken entry is a missing row, never a broken payload
+        return None
+
+
 def control(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):
     """(code, body) for POST /api/printers/<id>/pause|resume|cancel."""
     read = status_module.read_live_status if read is None else read
