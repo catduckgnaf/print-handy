@@ -817,6 +817,33 @@ def missed_finishes(previous, now=None):
     return found[-OFFLINE_FINISH_MAX:]
 
 
+def missed_stop_of_this_job(previous, job_key):
+    """The history entry for this job's cancel that ended before this process started, or None.
+
+    The listener reconnects to the same job, now cancelled: the job key did not
+    change, so missed_finishes never runs, and the listener's live cancel post
+    needs a transition it never saw (2.3.2 review, finding 17). A stop that
+    ended after this process started was seen live and posted by the listener.
+    Returns (job_id, status, filename, end_time) for an entry not announced yet.
+    """
+    jobs = (get_json("/server/history/list?limit=5&order=desc").get("result") or {}).get("jobs") or []
+    announced = set(previous.get("offline_finishes_announced") or [])
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("filename") != job_key:
+            continue
+        if job.get("status") != "cancelled":
+            return None  # the job's newest entry is not a cancel
+        try:
+            ended = float(job.get("end_time"))
+        except (TypeError, ValueError):
+            return None
+        job_id = str(job.get("job_id") or f"{job.get('filename')}@{job.get('start_time')}")
+        if ended >= _PROCESS_STARTED_AT or job_id in announced:
+            return None
+        return job_id, job["status"], str(job.get("filename") or job_key), ended
+    return None
+
+
 def offline_finish_text(status, filename, ended):
     """The one post for a print that ended while the bot was offline."""
     kind, verb = OFFLINE_FINISH_KINDS[status]
@@ -1067,6 +1094,21 @@ def main():
         except Exception as exc:
             print(f"Stopped print record unavailable: {exc}", file=sys.stderr)
             previous["record_error"] = str(exc)
+        try:
+            missed = missed_stop_of_this_job(previous, job_key) if native == "cancelled" else None
+        except Exception as exc:
+            print(f"Missed stop check unavailable: {exc}", file=sys.stderr)
+            missed = None
+        if missed is not None:
+            job_id, status, name, ended = missed
+            text = offline_finish_text(status, name, ended)
+            message = f"{text}\n{message}" if message else text
+            announced = [str(item) for item in previous.get("offline_finishes_announced") or []]
+            previous["offline_finishes_announced"] = (announced + [job_id])[-50:]
+            # Retryable like the other offline finishes until the listener confirms delivery.
+            earlier = pending_completion_message(previous)
+            message = f"{earlier}\n{message}" if earlier else message
+            set_pending_completion_message(previous, message)
 
     # A transient metadata or vault failure must not permanently lose the
     # record merely because the Discord announcement already succeeded.
