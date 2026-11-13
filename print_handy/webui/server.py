@@ -1247,6 +1247,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _api_status(self):
         self._json(200, self.server.api_snapshot_func())
 
+    def _api_printers(self):
+        # The cheap roster (#1400): no doctor run, no probe, no printer read.
+        self._json(200, self.server.roster_func())
+
     def _readyz(self):
         # Readiness per component (Spoolman, slicer, each printer), behind
         # the same auth as /api/status; /healthz stays the
@@ -2664,7 +2668,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
                 printer_status_func=None, printer_control_func=None,
                 camera_snapshot_func=None, screen_snapshot_func=None,
                 screen_probe_func=None, spools_view_func=None, spools_action_func=None,
-                readiness_func=None):
+                readiness_func=None, roster_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -2742,6 +2746,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.readiness_func = readiness_func or (
         (lambda: (snapshot_func() or {}).get("components") or {}) if snapshot_func
         else (lambda: status_module.readiness(data, environ=environ)))
+    server.roster_func = roster_func or (lambda: status_module.roster(data))
     server.printer_status_func = printer_status_func or (
         lambda printer_id: status_module.printer_status(data, printer_id))
     server.printer_control_func = printer_control_func or (

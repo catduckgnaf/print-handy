@@ -268,6 +268,8 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
         "doctor": rows,
         "slice_failures": _slice_failures_section(data),
         "ok": ok,
+        "instance_id": _instance_id(data),
+        "controls_enabled": _controls_enabled(data),
         "components": components(data, {"spoolman": spoolman}, environ=environ),
     }
 
@@ -321,9 +323,9 @@ def _roster_section(data):
             "connection": healthcheck.listener_connection(view),
             "chat_id": entry.get("chat_id") or "",
             "default": entry["id"] == default_id,
+            **_control_fields(data, entry["id"]),
         }
-        for key in ("moonraker_url", "octoprint_url", "camera_snapshot_url",
-                    "lan_host", "link_host", "host"):
+        for key in _ROSTER_ENDPOINT_KEYS:
             if entry.get(key):
                 row[key] = _shown_url(entry[key]) if key.endswith("_url") else entry[key]
         # Where a ZMod printer's color-change purge goes (#832): the cached reading only, so the
@@ -332,6 +334,65 @@ def _roster_section(data):
             row["purge"] = purge.status_row(entry["id"], data)
         rows.append(row)
     return rows
+
+
+def _instance_id(data):
+    from . import instance
+    return instance.instance_id(data)
+
+
+def _controls_enabled(data):
+    from . import controls
+    return controls.controls_enabled(data)
+
+
+def _control_fields(data, printer_id):
+    """The control facts a consumer needs to size and gate its controls (#1400):
+    whether this server accepts printer controls at all, and the per-heater
+    ceilings (°C) the control routes refuse above. Configuration only."""
+    from . import controls
+    return {"controls_enabled": controls.controls_enabled(data),
+            "temperature_limits_c": controls.temperature_limits(data, printer_id)}
+
+
+# Roster row keys that are endpoints worth handing a consumer (non-secret).
+_ROSTER_ENDPOINT_KEYS = ("moonraker_url", "octoprint_url", "camera_snapshot_url",
+                         "lan_host", "link_host", "host")
+
+
+def roster(data):
+    """The GET /api/printers body (#1400): the configured printers, cheaply.
+
+    Read from configuration and the state folder only. It runs no doctor
+    check, probes no service and contacts no printer, so a consumer can
+    poll it often; ``/api/status`` stays the full self-check.
+    """
+    rows = []
+    try:
+        entries = settings.printers(data)
+        default_id = settings.default_printer_id(data)
+    except Exception:  # a broken roster is an empty list, never a failed request
+        entries, default_id = [], None
+    for entry in entries:
+        try:
+            view = settings.view_for(entry["id"], data)
+            row = {
+                "id": entry["id"],
+                "name": entry.get("name") or "",
+                "model": entry.get("model") or "",
+                "vendor": view["printer"].get("vendor") or "",
+                "connection": healthcheck.listener_connection(view),
+                "default": entry["id"] == default_id,
+                **_control_fields(data, entry["id"]),
+            }
+        except Exception:  # one unreadable entry never hides the others
+            continue
+        for key in _ROSTER_ENDPOINT_KEYS:
+            if entry.get(key):
+                row[key] = _shown_url(entry[key]) if key.endswith("_url") else entry[key]
+        rows.append(row)
+    return {"ok": True, "version": __version__, "instance_id": _instance_id(data),
+            "controls_enabled": _controls_enabled(data), "printers": rows}
 
 
 # The [printer] slicer value -> the settings section whose command runs it.
@@ -544,6 +605,7 @@ def printer_status(data, printer_id, *, read=None):
         "model": entry.get("model") or "",
         "vendor": view["printer"].get("vendor") or "",
         "connection": healthcheck.listener_connection(view),
+        **_control_fields(data, entry["id"]),
     }
     read = read_live_status if read is None else read
     try:

@@ -45,6 +45,7 @@ EXPECTED = [
     ("GET", "/walkthrough", S),
     ("GET", "/", S),
     ("GET", "/api/status", S),
+    ("GET", "/api/printers", S),
     ("GET", "/data", S),
     ("GET", "/wrapped", S),
     ("GET", "/api/data", S),
