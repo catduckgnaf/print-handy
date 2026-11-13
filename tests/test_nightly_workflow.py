@@ -24,7 +24,7 @@ class NightlyWorkflowContract(unittest.TestCase):
     def test_triggers_are_schedule_and_dispatch_only(self):
         workflow = load_workflow()
         self.assertEqual(sorted(workflow["on"]), ["schedule", "workflow_dispatch"])
-        self.assertEqual(workflow["on"]["schedule"], [{"cron": "17 6 * * *"}])
+        self.assertEqual(workflow["on"]["schedule"], [{"cron": "17 9 * * *"}])
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(sorted(inputs), ["promote", "publish"])
         for name in ("promote", "publish"):
