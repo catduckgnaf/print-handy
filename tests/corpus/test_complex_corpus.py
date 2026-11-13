@@ -47,10 +47,11 @@ DOMAINS = {"moonraker", "bambulab_lan", "prusalink", "elegoo_sdcp",
            "octoprint", "flashforge_stock", "offline"}
 
 
-def test_manifest_covers_all_twelve_catalogue_cases_and_four_private():
+def test_manifest_covers_all_twelve_catalogue_cases_and_eighteen_private():
+    # #1373 added the live lantern and 13 real intakes from the live install archive.
     assert len(PUBLIC) == 12, [c["slug"] for c in PUBLIC]
-    assert len(PRIVATE) == 4, [c["slug"] for c in PRIVATE]
-    assert len({c["slug"] for c in CASES}) == 16
+    assert len(PRIVATE) == 18, [c["slug"] for c in PRIVATE]
+    assert len({c["slug"] for c in CASES}) == 30
 
 
 def test_every_domain_has_a_case():

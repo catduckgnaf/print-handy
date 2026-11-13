@@ -75,7 +75,7 @@ def test_intake_analysis_uses_the_profile_first_layer(tmp_path, monkeypatch):
     """safe_analyze (every intake, repair and start-guard caller) reads the
     printer profile's first layer height, so the supports question carries
     no "not recommended" reason and the post-slice gate has nothing to grade."""
-    monkeypatch.setattr(support_clearance, 'profile_first_layer_mm', lambda printer_id=None: FIRST_LAYER_MM,
+    monkeypatch.setattr(support_clearance, 'profile_first_layer_mm', lambda printer_id=None, source=None: FIRST_LAYER_MM,
                         raising=False)  # absent on the base commit, which then flags the gap
     rep = support_clearance.safe_analyze(str(slab_file(tmp_path, 0.07, 'thin.3mf')))
     assert rep is not None and rep['risky'] is False
@@ -89,7 +89,7 @@ def test_intake_analysis_uses_the_profile_first_layer(tmp_path, monkeypatch):
 
 
 def test_rotated_report_uses_the_profile_first_layer(tmp_path, monkeypatch):
-    monkeypatch.setattr(support_clearance, 'profile_first_layer_mm', lambda printer_id=None: FIRST_LAYER_MM,
+    monkeypatch.setattr(support_clearance, 'profile_first_layer_mm', lambda printer_id=None, source=None: FIRST_LAYER_MM,
                         raising=False)  # absent on the base commit, which then flags the gap
     identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
     # Rotated reports drop the model onto the plate, so lift only the slab's
@@ -99,7 +99,7 @@ def test_rotated_report_uses_the_profile_first_layer(tmp_path, monkeypatch):
 
 
 def test_a_job_edit_of_the_first_layer_height_wins_over_the_profile(monkeypatch):
-    monkeypatch.setattr(support_clearance, "profile_first_layer_mm", lambda printer_id=None: 0.24)
+    monkeypatch.setattr(support_clearance, "profile_first_layer_mm", lambda printer_id=None, source=None: 0.24)
     job = {"edit_settings": {"profile": {"initial_layer_height": 0.1}}}
     assert support_clearance.job_first_layer_mm(job) == 0.1
     assert support_clearance.job_first_layer_mm({}) == 0.24

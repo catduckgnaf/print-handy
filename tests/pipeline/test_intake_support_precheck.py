@@ -310,15 +310,15 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
     last_q = next(q for q in adapter.questions
-                  if q['choices'] and 'Slice and print with supports (bed is clear)' in q['choices'])
+                  if q['choices'] and 'Slice and print with supports, not recommended (bed is clear)' in q['choices'])
     choices = last_q['choices']
 
     assert choices[0] == 'Slice and print without supports (bed is clear)'
-    assert choices[1] == 'Slice and print with supports (bed is clear)'
+    assert choices[1] == 'Slice and print with supports, not recommended (bed is clear)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
     assert 'Reorient (lay flat)' in choices
-    assert 'Print anyway (accept the risk)' in choices
+    assert 'Print anyway, accept the risk (bed is clear)' in choices
 
     # Disclosure in question text, including the measured volume deltas (#922 gap 5)
     q_text = last_q['question']
@@ -369,7 +369,7 @@ def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env
     assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
 
 
-def _coverage_only_report(path):
+def _coverage_only_report(path, **_kw):
     """A report whose only post-slice target is a non-risky supportable overhang."""
     return {'version': 1, 'risky': False, 'findings': [], 'objects': [], 'limitations': [],
             'regions': [{'kind': 'supportable_overhang', 'part': 'Body', 'area_mm2': 600.0,
@@ -437,7 +437,7 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
     assert 'Reorient (lay flat)' in ready[0]
     assert all('Reorient (lay flat)' not in choices for choices in ready[1:]) and len(ready) > 1
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -477,7 +477,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     assert any('already lies flat' in m for m in adapter.sent)
     assert not any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
-             if 'Slice and print with supports (bed is clear)' in (q['choices'] or [])]
+             if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
     assert len(ready) == 2
     assert 'Reorient (lay flat)' in ready[0] and 'Reorient (lay flat)' not in ready[1]
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -613,7 +613,7 @@ def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch)
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), "Print anyway (accept the risk)" (5)
+    # picks: one color (1), slot 1 (0), "Print anyway, accept the risk (bed is clear)" (5)
     adapter, result, receipt = run_flow(env, [1, 0, 5])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())

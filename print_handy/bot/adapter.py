@@ -197,6 +197,15 @@ class StandaloneAdapter(BasePlatformAdapter):
                         getattr(user, "id", ""), self.approval_refusal_reason(getattr(user, "id", "")))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return True
+        if not prompts.is_approval(cid) and not self.may_answer_prompt(getattr(user, "id", ""), cid):
+            # The same initiator rule as every other platform (#1146): a prompt
+            # belongs to the person who was asked, or an approver (#1373 review:
+            # Discord clicks skipped it, so anyone could answer anyone's prompt).
+            logger.info("refused button press from Discord user %s: prompt %s belongs to its "
+                        "initiator or an approver", getattr(user, "id", ""), cid)
+            await interaction.response.send_message(
+                "That question was asked of someone else. Nothing changed.", ephemeral=True)
+            return True
         with _prompts_guard(self):
             row = self._prompts.get(cid)
         if row is not None:

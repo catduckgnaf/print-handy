@@ -423,17 +423,19 @@ def _reorientation_candidates(source, oid, item_points, usable, height_limit):
     a point set for having more than one item.)
     """
     from .orca_adapter import (IDENTITY_ROT, UP_AXES, _hull, _matmul,
-                               _object_triangles, _rotate, _surface_stats, _yaw)
+                               _object_triangles, _rotate, _surface_stats, _yaw,
+                               support_threshold_nz)
     tris = _object_triangles(source, oid)
     if not tris:
         return []
-    _contact, authored_overhang = _surface_stats(tris, IDENTITY_ROT)
+    threshold = support_threshold_nz(source)
+    _contact, authored_overhang = _surface_stats(tris, IDENTITY_ROT, threshold)
     proved = []
     for pair in (('+Y', '-Y'), ('+X', '-X')):
         options = []
         for axis in pair:
             _name, up = UP_AXES[axis]
-            contact, overhang = _surface_stats(tris, up)
+            contact, overhang = _surface_stats(tris, up, threshold)
             options.append((contact, -overhang, axis, up, overhang))
         contact, _neg_overhang, axis, up, overhang = max(
             options, key=lambda option: (option[0], option[1], option[2]))

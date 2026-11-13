@@ -139,6 +139,35 @@ def test_file_changing_fix_on_a_multi_file_job_is_refused():
     ai_fix.check_file_fix(job, ai_fix.FixProposal(plans=[{"kind": "infill", "percent": 20.0}]))
 
 
+def test_site_print_profiles_are_not_counted_as_files_1373():
+    """A MakerWorld job lists the page's print profiles in ``sources``; only one
+    file was downloaded, so a geometry fix is allowed (#1373)."""
+    profiles = [{"title": t, "instance_id": n} for n, t in enumerate(
+        ["No supports", "Multicolour", "Hanging loop", "Clean", "PLA", "PETG"])]
+    job = {"sources": profiles, "downloaded_file": "/data/archive/x/source/model.3mf"}
+    ai_fix.check_file_fix(job, ai_fix.FixProposal(mesh_repair=True))
+    assert ai_fix.source_files(job) == []
+
+
+def test_combined_parts_are_counted_from_selected_sources_1373():
+    job = {"sources": [{"title": "page"}],
+           "selected_sources": [{"downloaded_file": "a.stl"}, {"downloaded_file": "b.stl"},
+                                {"downloaded_file": "c.stl"}]}
+    with pytest.raises(ai_fix.FixError, match="3 files"):
+        ai_fix.check_file_fix(job, ai_fix.FixProposal(mesh_repair=True))
+
+
+def test_applying_a_fix_keeps_a_site_profile_list_1373(tmp_path):
+    profiles = [{"title": "No supports"}, {"title": "Multicolour"}]
+    job = {"sources": [dict(p) for p in profiles], "downloaded_file": str(tmp_path / "m.3mf")}
+    fixed = tmp_path / "fixed.3mf"
+    fixed.write_bytes(b"x")
+    ai_fix.apply_to_job(job, ai_fix.FixProposal(mesh_repair=True), [], fixed_path=fixed, actor="t",
+                        problem="p", report={}, file_sha256=lambda p: "sha")
+    assert job["sources"] == profiles
+    assert job["downloaded_file"] == str(fixed)
+
+
 # ---------------------------------------------------------------- record and undo
 
 def _sha(path):

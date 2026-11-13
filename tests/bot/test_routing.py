@@ -285,7 +285,7 @@ def test_a_telegram_callback_from_another_chat_never_resolves_the_prompt():
     stub = _TgStub()
     adapter = telegram.StandaloneAdapter(None, [OPERATOR], token="123:abc", opener=stub)
     cid = "ef" * 16
-    prompts.register(cid, "telegram:chat::user", "Stop the print?", ["Stop", "Keep"])
+    prompts.register(cid, f"telegram:chat::{OPERATOR}", "Stop the print?", ["Stop", "Keep"])
     run(adapter.send_clarify(chat_id="-100111", question="Stop the print?", choices=["Stop", "Keep"],
                              clarify_id=cid, session_key="flow"))
 

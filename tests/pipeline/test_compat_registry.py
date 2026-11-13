@@ -89,7 +89,7 @@ def test_registry_tables_hold_the_expected_values():
         "raft_layers": "0", "ironing_type": "no ironing", "fuzzy_skin": "none"}
     keys = compat_registry.get_rule("author-intent-allowlist").parameters["keys"]
     assert keys[:4] == ("layer_height", "initial_layer_print_height", "wall_loops", "sparse_infill_density")
-    assert len(keys) == 32 and "outer_wall_speed" not in keys
+    assert len(keys) == 33 and "outer_wall_speed" not in keys  # +support_object_xy_distance (#1373)
     assert compat_registry.get_rule("bed-type-replacement").parameters["default_bed_type"] == "Cool Plate"
     # The converter's live tables carry exactly these values.
     assert orca_adapter.FLEX_PROFILE == dict(flex) and orca_adapter.PROCESS_KEYS == keys

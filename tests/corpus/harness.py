@@ -153,16 +153,44 @@ def dispatch_text(plugin, adapter, text):
 
 # ----------------------------------------------------------------------------- fake Discord
 
-class FakeAdapter:
-    """The two DiscordAdapter calls the intake makes. A click is an immediate clarify resolution."""
+class ExploreLoop(AssertionError):
+    """An explored path kept asking questions past MAX_PATH_QUESTIONS (a loop, not a journey)."""
 
-    def __init__(self, clicks, events=None):
+
+MAX_PATH_QUESTIONS = 400  # a 166-part per-part color journey is real, not a loop
+_CANCEL_LABEL = re.compile(r"^(cancel|stop|no\b|do not|don't|keep printing)|\(cancel\)", re.I)
+
+
+class FakeAdapter:
+    """The two DiscordAdapter calls the intake makes. A click is an immediate clarify resolution.
+
+    ``overrides`` ({question index: button label}) answers the Nth question with that button
+    instead of its [[click]] rule, the explorer's one-change-per-path walk (#1373). With
+    ``fallback`` a question no rule answers takes its first non-cancel button instead of failing,
+    so a path that reaches a question the default journey never sees can still finish.
+    """
+
+    def __init__(self, clicks, events=None, overrides=None, fallback=False):
         self.clicks = clicks
         self.events = events if events is not None else []
         self.questions = []   # {'question', 'choices', 'picked'}
         self.sent = []
+        self.overrides = dict(overrides or {})
+        self.fallback = fallback
+        self.raised = []  # harness exceptions the intake may catch and log (#1373)
 
     def pick(self, question, choices):
+        index = len(self.questions)
+        if index >= MAX_PATH_QUESTIONS:
+            exc = ExploreLoop(f"more than {MAX_PATH_QUESTIONS} questions on one path; last: {question[:200]}")
+            self.raised.append(exc)
+            raise exc
+        wanted = self.overrides.get(index)
+        if wanted is not None:
+            if wanted in choices:
+                return choices.index(wanted)
+            raise UnansweredPrompt(f"explored button {wanted!r} is not offered at question {index}\n"
+                                   f"question: {question}\nbuttons: {choices}")
         for rule in self.clicks:
             if str(rule["question"]).casefold() not in question.casefold():
                 continue
@@ -170,13 +198,23 @@ class FakeAdapter:
             for index, label in enumerate(choices):
                 if want in label.casefold():
                     return index
+        if self.fallback:
+            for index, label in enumerate(choices):
+                if not _CANCEL_LABEL.search(str(label)):
+                    return index
+            return 0
         raise UnansweredPrompt(
             "no [[click]] rule answers this question; add one to case.toml\n"
             f"question: {question}\nbuttons: {choices}")
 
     async def send_clarify(self, **kw):
         from print_handy.core import prompts as cm
-        index = self.pick(kw["question"], kw["choices"])
+        try:
+            index = self.pick(kw["question"], kw["choices"])
+        except (UnansweredPrompt, ExploreLoop) as exc:
+            if exc not in self.raised:
+                self.raised.append(exc)
+            raise
         self.questions.append({"question": kw["question"], "choices": list(kw["choices"]),
                                "picked": kw["choices"][index]})
         self.events.append(("prompt", kw["question"]))
@@ -217,6 +255,10 @@ FAKE_GCODE = """\
 ; estimated printing time (normal mode) = 1h 0m 0s
 ; nozzle_diameter = {nozzle}
 ; enable_support = {support}
+; layer_height = {layer}
+; initial_layer_print_height = {first_layer}
+; sparse_infill_density = {infill}
+; sparse_infill_pattern = {pattern}
 ; filament_type = {types}
 M190 S{bed}
 M104 S{hotend} T0
@@ -265,7 +307,8 @@ def fake_orca_run(real_run, orca_command, events=None, warnings=()):
         out = Path(cmd[cmd.index("--outputdir") + 1])
         machine, process = (Path(p) for p in cmd[cmd.index("--load-settings") + 1].split(";")[:2])
         filaments = cmd[cmd.index("--load-filaments") + 1].split(";")
-        support = str(json.loads(process.read_text()).get("enable_support", "0"))
+        process_cfg = json.loads(process.read_text())
+        support = str(process_cfg.get("enable_support", "0"))
         nozzle = json.loads(machine.read_text()).get("nozzle_diameter", "0.4")
         nozzle = nozzle[0] if isinstance(nozzle, list) else nozzle
         tools = "".join(f"T{i}\n" for i in range(len(filaments))) if len(filaments) > 1 else ""
@@ -275,6 +318,8 @@ def fake_orca_run(real_run, orca_command, events=None, warnings=()):
         hotend, bed = _profile_temperatures(filaments[0])
         text = FAKE_GCODE.format(
             hotend=hotend, bed=bed, nozzle=nozzle, support=support, types=";".join(["PLA"] * len(filaments)), tools=tools,
+            layer=process_cfg.get("layer_height", ""), first_layer=process_cfg.get("initial_layer_print_height", ""),
+            infill=process_cfg.get("sparse_infill_density", ""), pattern=process_cfg.get("sparse_infill_pattern", ""),
             support_lines="; FEATURE: Support\nG1 X110 Y110 E2\n" if support == "1" else "")
         (out / "plate_1.gcode").write_text(text)
         result = {"error_string": "Success.", "return_code": 0, "sliced_plates": [{"id": 1}]}
@@ -363,7 +408,8 @@ def is_post_slice_question(text):
     return text.startswith(slice_warnings.QUESTION_PREFIX)
 
 
-def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="direct", audit_started=None, auto=True):
+def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="direct", audit_started=None, auto=True,
+             overrides=None, explore=False, spools=None):
     """Run the case end to end and return what happened. `work` is a fresh directory.
 
     Everything the flow writes (archive, receipts, claims) goes under `work`.
@@ -376,6 +422,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         raise ValueError(f"unknown transport {transport!r}")
     spoolman = None
     # A case's [printer] table varies the shared hardware record (nozzle, bed, slots, tower; #824).
+    path_overrides = overrides
     overrides = printer_overrides.validate((getattr(case, "data", None) or {}).get("printer"))
     if overrides and state_file != BUILT:
         raise ValueError("[printer] overrides apply to the built default state only")
@@ -391,7 +438,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
             skeleton = Path(work) / "built-state" / "skeleton.json"
             skeleton.write_text(json.dumps(printer_overrides.apply_to_state(json.loads(FIXTURE_STATE.read_text()), overrides)))
         state_file, spoolman = spool_fixture.build_state(
-            Path(work) / "built-state", skeleton, spools=spool_fixture.SPOOLS[:overrides.get("slots", len(spool_fixture.SPOOLS))])
+            Path(work) / "built-state", skeleton,
+            spools=spools or spool_fixture.SPOOLS[:overrides.get("slots", len(spool_fixture.SPOOLS))])
     spoolman_calls_built = len(spoolman.calls) if spoolman else 0
     entry = getattr(case, "entry", None) or {}
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
@@ -405,7 +453,7 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         model_copy = work / case.model.name
         model_copy.write_bytes(case.model.read_bytes())
     events = TimedEvents()
-    adapter = FakeAdapter(case.clicks, events)
+    adapter = FakeAdapter(case.clicks, events, overrides=path_overrides, fallback=explore)
     starts = []
     slice_starts = []
     real_background_start = background_slice.BackgroundSlice.start
@@ -473,6 +521,11 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         patch(prepared_intake, "_heavy", thread_heavy)
         patch(background_slice.BackgroundSlice, "start", observe_slice_start)
         patch(model_job, "verify_gcode", offline_verify)
+        # The already-verified shortcut in _verify_routed still asks the printer (#1373): the
+        # mock tier has none, so a re-slice of identical bytes failed with "the printer could
+        # not be reached". Offline, the live check is the same no-op the offline verify is.
+        from print_handy.gcode import verify as _gverify
+        patch(_gverify, "_run_live_printer_check", lambda *a, **k: None)
         # Multicolor summaries probe live ZMod purge settings. This offline corpus models
         # an unavailable reading explicitly, rather than attempting (and swallowing) I/O.
         patch(printer_state, "read_purge_mode", lambda st: None)
@@ -838,6 +891,18 @@ def check_expectations(case, run):
                           if line.startswith("; ") and " = " in line)
             for key, value in want["gcode_settings"].items():
                 assert header.get(key) == value, f"{path.name}: {key} = {header.get(key)!r}, expected {value!r}"
+    if "clearance_codes" in want:
+        report = run.job.get("support_clearance") or {}
+        codes = sorted({f.get("code") for f in report.get("findings") or []})
+        assert codes == sorted(want["clearance_codes"]), f"clearance codes {codes}\n{_transcript(run)}"
+    if "buttons_absent" in want:
+        offered = [label for q in run.adapter.questions for label in (q.get("choices") or [])]
+        for text in want["buttons_absent"]:
+            hit = [label for label in offered if text.casefold() in str(label).casefold()]
+            assert not hit, f"offered {hit!r}, expected no {text!r} button\n{_transcript(run)}"
+    if want.get("conversation_checks", True):
+        conversation_problems = conversation_checks(run)
+        assert not conversation_problems, "\n".join(conversation_problems) + "\n" + _transcript(run)
     if want.get("started", True):
         assert len(run.starts) == 1, "the start button path did not run exactly once"
     for row in gcode_checks(run):
@@ -849,6 +914,149 @@ def check_expectations(case, run):
         used_slots = sorted(set(row["mapping"].values()))
         if "slots" in want:
             assert len(used_slots) == want["slots"], used_slots
+
+
+def conversation_checks(run):
+    """Problems a person would notice in the conversation itself, for every case (#1373).
+
+    The corpus used to judge a run by its receipt alone (STARTED, scale,
+    colors), so a hard live intake that offered an option before its
+    numbers existed, asked about the same short spool twice and printed
+    with supports the operator had turned down still passed. These checks
+    read the questions, the posts and the sliced artifact:
+
+    - no question offers a "with supports" button while its line still
+      reads "slicing...";
+    - a spool shortage shown on the Ready question is not asked again at
+      the start;
+    - an operator's recorded supports decision is what the started G-code
+      (or, without a config block, the slice profile) says.
+    Returns a list of problem lines; empty when the conversation is sound.
+    """
+    problems = []
+    for q in run.adapter.questions:
+        text = str(q.get("question") or "")
+        if "with supports" in text and "slicing..." in text and any(
+                "with supports" in str(label) for label in q.get("choices") or []):
+            problems.append("a 'with supports' button was offered while its estimate still read 'slicing...'")
+            break
+    asked = [str(q.get("question") or "") for q in run.adapter.questions]
+    shown_short = any("short by about" in text and "Ready to slice" in text for text in asked)
+    if shown_short and any("short of filament" in text for text in asked):
+        problems.append("the spool shortage shown on the Ready question was asked again at the start")
+    decided = (run.job.get("support_decision") or {})
+    if decided.get("by") == "operator" and decided.get("supports") is not None:
+        want = "1" if decided["supports"] else "0"
+        from print_handy.core.edit_plan import gcode_config
+        seen = set()
+        for path in run.gcodes:
+            value = gcode_config(Path(path).read_text(errors="replace")).get("enable_support")
+            if value is not None:
+                seen.add(value.strip())
+        if not seen:
+            seen = slice_support_setting(run)
+        told = any("keep the supports their new pose needs" in str(q.get("question") or "")
+                   for q in run.adapter.questions)
+        if told and decided["supports"] is False and seen == {"0", "1"}:
+            # A full-size split that turned parts onto supports keeps them on those plates,
+            # and the Ready question said so (#1373, prepared_intake.split_turn_supports_note).
+            seen = {want}
+        if seen and seen != {want}:
+            problems.append(f"the operator chose supports={decided['supports']} but the slice has "
+                            f"enable_support={sorted(seen)}")
+    return problems
+
+
+STARTED_STATUSES = {"STARTED"}
+
+
+def path_invariants(run):
+    """Product rules every path through the intake must keep, whatever the operator pressed (#1373).
+
+    The conversation checks plus what each pressed button promises:
+    - no error was recorded and no question went unanswered;
+    - a cancel ("Cancel", "Stop", "Do not print") means nothing started;
+    - a start happened at most once, and a STARTED receipt means exactly once;
+    - "without supports" G-code has supports off, "with supports" has them on;
+    - nothing posted reads as an internal failure (a traceback or a raw exception name).
+    Returns a list of problem lines; empty when the path is sound.
+    """
+    problems = list(conversation_checks(run))
+    for exc in getattr(run.adapter, "raised", None) or []:
+        problems.append(f"harness raised inside the intake (caught there): {type(exc).__name__}: {str(exc)[:200]}")
+    if getattr(run.adapter, "errors", None):
+        problems.append(f"errors: {run.adapter.errors}")
+    picked = [str(q.get("picked") or "") for q in run.adapter.questions]
+    status = run.receipt.get("status")
+    if len(run.starts) > 1:
+        problems.append(f"the start ran {len(run.starts)} times")
+    if status in STARTED_STATUSES and len(run.starts) != 1:
+        problems.append(f"receipt says {status} but the start ran {len(run.starts)} times")
+    if any(_CANCEL_LABEL.search(label) for label in picked) and run.starts:
+        problems.append(f"a cancel was pressed ({[p for p in picked if _CANCEL_LABEL.search(p)]}) "
+                        "but the print still started")
+    from print_handy.core.edit_plan import gcode_config
+    configs = [gcode_config(Path(g).read_text(errors="replace")) for g in run.gcodes if Path(g).is_file()]
+    supports = {str(c.get("enable_support") or "").strip() for c in configs} - {""}
+    last_support_choice = next((label for label in reversed(picked)
+                                if "with supports" in label or "without supports" in label), None)
+    told = any("keep the supports their new pose needs" in str(q.get("question") or "")
+               for q in run.adapter.questions)
+    if last_support_choice and supports and run.starts:
+        want = "0" if "without supports" in last_support_choice else "1"
+        if told and want == "0" and supports <= {"0", "1"}:
+            supports = {want}  # split-turned parts keep their supports, and the question said so
+        if supports != {want}:
+            problems.append(f"pressed {last_support_choice!r} but the started G-code has enable_support={sorted(supports)}")
+    for text in run.adapter.sent:
+        if re.search(r"Traceback \(most recent call last\)|\b(?:KeyError|TypeError|AttributeError|IndexError)\b", str(text)):
+            problems.append(f"posted an internal error: {str(text)[:200]}")
+            break
+    return problems
+
+
+def explore(case, work_root, *, max_runs=None, spools=None):
+    """Walk the case's decision tree one changed answer at a time and check every path (#1373).
+
+    The default journey runs first; then, for each question it asked, every other offered button
+    is pressed in a fresh run (later questions keep their [[click]] rules, and a question no rule
+    answers takes its first non-cancel button). Every run is held to path_invariants. Returns a
+    list of (path description, problems) for the paths that broke a rule, and the number of
+    runs. ``max_runs`` bounds the walk (None: every alternative).
+    """
+    work_root = Path(work_root)
+    failures, runs = [], 0
+
+    def one(overrides, label):
+        nonlocal runs
+        runs += 1
+        work = work_root / f"path-{runs:03d}"
+        try:
+            run = run_case(case, work, overrides=overrides, explore=True, spools=spools)
+        except (UnansweredPrompt, ExploreLoop) as exc:
+            failures.append((label, [f"{type(exc).__name__}: {str(exc)[:300]}"]))
+            return None
+        problems = path_invariants(run)
+        if problems:
+            failures.append((label, problems + [_transcript(run)[-2500:]]))
+        return run
+
+    base = one({}, "default journey")
+    if base is None:
+        return failures, runs
+    # The Ready question carries most decisions (supports, repairs, scale, reorient, print
+    # anyway), so a bounded walk tries its buttons first, then the rest in order.
+    order = sorted(range(len(base.adapter.questions)),
+                   key=lambda i: (0 if "Ready to slice" in base.adapter.questions[i]["question"] else 1, i))
+    for index in order:
+        q = base.adapter.questions[index]
+        for label in q["choices"]:
+            if label == q["picked"]:
+                continue
+            if max_runs is not None and runs >= max_runs:
+                return failures, runs
+            one({index: label}, f"Q{index} {q['question'][:70]!r} -> {label!r}")
+    return failures, runs
 
 
 def _transcript(run):

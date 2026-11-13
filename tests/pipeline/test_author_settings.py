@@ -191,6 +191,87 @@ def test_more_author_intent_is_kept_over_the_template(tmp_path):
     assert "wall_infill_order" not in process  # the template's legacy order key cannot override the author's
 
 
+# --- 7b. layer heights and Arachne (#1373) -----------------------------------------------------------
+
+def test_designer_layer_heights_inside_the_nozzle_range_are_kept(tmp_path):
+    process, _ = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {
+        "layer_height": "0.2", "initial_layer_print_height": "0.2"}))
+    assert process["layer_height"] == "0.2" and process["initial_layer_print_height"] == "0.2"
+
+
+def test_designer_layer_height_outside_the_range_is_clamped_with_a_note(tmp_path):
+    process, provenance = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {
+        "layer_height": "0.4", "initial_layer_print_height": "0.04"}))
+    assert process["layer_height"] == "0.28"           # the 0.4 mm nozzle's tuned maximum
+    assert process["initial_layer_print_height"] == "0.08"  # its tuned minimum
+    assert any("layer_height 0.4 mm is outside" in note for note in provenance["author_notes"])
+
+
+def test_a_project_without_layer_heights_gets_the_tuned_default(tmp_path):
+    process, _ = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {"wall_loops": "3"}))
+    assert process["layer_height"] == "0.24" and process["initial_layer_print_height"] == "0.24"
+
+
+def test_designer_arachne_keeps_the_designers_infill_and_supports(tmp_path):
+    """Live #1373: a decorative lantern with Arachne walls sliced at 15% line infill (the flex
+    print-in-place profile) instead of its designer's 5% gyroid."""
+    project = {"wall_generator": "arachne", "sparse_infill_density": "5%", "sparse_infill_pattern": "gyroid",
+               "initial_layer_print_height": "0.24", "layer_height": "0.2", "enable_support": "1"}
+    process, _ = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", project))
+    assert process["wall_generator"] == "arachne"
+    assert process["sparse_infill_density"] == "5%" and process["sparse_infill_pattern"] == "gyroid"
+    assert process["initial_layer_print_height"] == "0.24" and process["layer_height"] == "0.2"
+    assert process["enable_support"] == "1"
+
+
+def test_support_gaps_follow_the_layer_height_they_were_designed_for(tmp_path):
+    # Designer layer kept: the designer's gaps ride with it.
+    process, _ = sliced_process(tmp_path / "a", bambu_project(tmp_path / "a.3mf", {
+        "layer_height": "0.08", "support_top_z_distance": "0.08", "support_bottom_z_distance": "0.08"}))
+    assert process["support_top_z_distance"] == "0.08" and process["support_bottom_z_distance"] == "0.08"
+    # No designer layer: the gap follows the tuned 0.24 layer as Orca's AD5X Draft profile does.
+    process, _ = sliced_process(tmp_path / "b", bambu_project(tmp_path / "b.3mf", {"wall_loops": "3"}))
+    assert process["support_top_z_distance"] == "0.18" and process["support_bottom_z_distance"] == "0.18"
+
+
+def test_designer_support_xy_distance_is_kept(tmp_path):
+    process, _ = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {"support_object_xy_distance": "0.5"}))
+    assert process["support_object_xy_distance"] == "0.5"
+
+
+def test_support_z_gap_matches_orcas_ad5x_profiles():
+    from print_handy.core.nozzle import support_z_gap
+    assert [support_z_gap(x) for x in (0.08, 0.12, 0.16, 0.20, 0.24, 0.28)] == [0.08, 0.12, 0.14, 0.16, 0.18, 0.2]
+
+
+def test_default_style_tree_with_variable_layer_height_slices_as_tree_hybrid():
+    """Orca's "default" style on a tree type is organic; it fails with variable layer height too."""
+    process = {"support_type": "tree(auto)", "support_style": "default", "support_top_z_distance": "0.16"}
+    with patch.object(author_settings, "variable_layer_height", return_value=True):
+        note = author_settings.tree_style(process, "x.3mf")
+    assert note and process["support_style"] == author_settings.compat_registry.get_rule(
+        "organic-tree-hybrid-conversion").parameters["to_style"]
+    plain = {"support_type": "normal(auto)", "support_style": "default"}
+    with patch.object(author_settings, "variable_layer_height", return_value=True):
+        assert author_settings.tree_style(plain, "x.3mf") is None
+
+
+def test_a_support_type_edit_keeps_manual_placement_and_resets_the_style(tmp_path):
+    process, _ = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {
+        "enable_support": "1", "support_type": "tree(manual)", "support_style": "tree_slim"}),
+        edits={"support_type": "normal"})
+    assert process["support_type"] == "normal(manual)" and process["support_style"] == "default"
+
+
+def test_with_supports_on_a_manual_project_without_painted_enforcers_places_them_automatically(tmp_path):
+    """#1373 review: manual placement only supports painted enforcers; with none, the
+    operator's "with supports" sliced with no supports at all."""
+    process, provenance = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {
+        "enable_support": "0", "support_type": "normal(manual)"}), supports=True)
+    assert process["enable_support"] == "1" and process["support_type"] == "normal(auto)"
+    assert any("automatic placement" in note for note in provenance["author_notes"])
+
+
 # --- 8. designer-lowered speeds ------------------------------------------------------------------------
 
 def test_only_speeds_below_the_profile_are_kept():

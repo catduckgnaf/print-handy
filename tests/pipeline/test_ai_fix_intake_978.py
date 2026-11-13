@@ -22,6 +22,9 @@ print_next = external("print_next")
 
 
 def _ai_on(monkeypatch, proposal):
+    # The intake offer is off by owner ruling (#1373); these tests keep the
+    # dormant gate machinery covered by switching it back on explicitly.
+    monkeypatch.setattr(ai_fix, 'intake_fix_offered', lambda cfg=None: True)
     monkeypatch.setattr(ai_fix, 'heavy_ready', lambda cfg=None: True)
     monkeypatch.setattr(ai_fix, 'propose_fix', lambda problem, job=None, **kw: proposal)
 
@@ -191,7 +194,7 @@ def test_yolo_never_auto_answers_a_fix_question():
 
 
 def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatch):
-    """AI not configured: today's question, plus the one-line note; no fix."""
+    """No intake fix offer (#1373): the gate's own choices, and no AI-fix note."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     _coverage_sequence(monkeypatch)
@@ -200,7 +203,7 @@ def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatc
     adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
-    assert ai_fix.UNCONFIGURED_NOTE in q['question']
+    assert ai_fix.UNCONFIGURED_NOTE not in q['question'] and 'AI fix' not in q['question']
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'ai_fix' not in receipt
 
@@ -293,7 +296,7 @@ def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypat
     _coverage_sequence(monkeypatch)
     clean = {'version': 1, 'risky': False, 'findings': [], 'objects': [], 'limitations': [],
              'regions': []}
-    monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix: clean)
+    monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix, **_kw: clean)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
     # one color (1), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0)
     adapter, result, receipt = run_flow(env, [1, 0, 1, 0, 0])
@@ -314,7 +317,7 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
     real_analyze = support_clearance.safe_analyze
     # The sunk copy still has its low underside (the fix was too small).
     monkeypatch.setattr(support_clearance, 'safe_analyze',
-                        lambda path: real_analyze(fixture if '.fixed-' in str(path) else path))
+                        lambda path, **kw: real_analyze(fixture if '.fixed-' in str(path) else path, **kw))
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05},
                                            summary='sink a little'))
     # one color (1), slot 1 (0), with supports (1: not recommended, so second), Fix (0), Apply (0), then on the
@@ -375,3 +378,21 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     assert not list(folder.glob('*.fixed-*'))
     job = json.loads(Path(receipt['job_json']).read_text())
     assert 'ai_fixes' not in job
+
+
+def test_intake_never_offers_the_ai_fix_even_with_ai_ready_1373(env, monkeypatch):
+    """Owner ruling 2026-11-12 (#1373): the AI fix is a design request, never a
+    last-resort button at the end of an intake. With the heavy tier ready, the
+    support gate still offers only Print anyway and Cancel, and says nothing
+    about an AI fix."""
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    monkeypatch.setattr(ai_fix, 'heavy_ready', lambda cfg=None: True)
+    monkeypatch.setattr(ai_fix, 'propose_fix', lambda *a, **k: pytest.fail('no AI call at intake'))
+    assert ai_fix.intake_fix_offered() is False
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    assert not any(ai_fix.FIX_LABEL in (q.get('choices') or []) for q in adapter.questions)
+    assert not any('AI fix' in (q.get('question') or '') for q in adapter.questions)
+    assert adapter.questions[-1]['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert 'ai_fix_attempts' not in json.loads(Path(receipt['job_json']).read_text())

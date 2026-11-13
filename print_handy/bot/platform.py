@@ -356,6 +356,22 @@ class BasePlatformAdapter:
                     self.name, user_id, self.approval_refusal_reason(user_id))
         return True
 
+    def may_answer_prompt(self, user_id, clarify_id):
+        """May ``user_id`` answer this ordinary prompt (#1146)? Every platform asks this.
+
+        A prompt's buttons belong to the person who was asked: the initiator,
+        or a configured approver, may press them. An approver is someone on the
+        approval list itself; with no approvers configured nobody else may answer
+        another person's prompt (#1373 review: the old approval fallback let any
+        allowed member answer anyone's question). A prompt whose session key names
+        no initiator (older flows) keeps channel access.
+        """
+        initiator = self._prompt_initiator(clarify_id)
+        uid = str(user_id or "")
+        if initiator is None or uid == initiator:
+            return True
+        return bool(uid) and uid not in self.denied and uid in self.approvers
+
     def _prompt_initiator(self, clarify_id):
         """The user id a prompt was asked of, from its session key, else None.
 
@@ -408,9 +424,7 @@ class BasePlatformAdapter:
             # answer a question meant for someone else. The initiator or an
             # approver may press; a prompt whose session key records no
             # initiator (older flows) keeps the channel-access rule above.
-            initiator = self._prompt_initiator(clarify_id)
-            if initiator is not None and str(user_id) != initiator \
-                    and not self.may_approve_id(user_id):
+            if not self.may_answer_prompt(user_id, clarify_id):
                 logger.info("refused button press from %s user %s: prompt %s "
                             "belongs to its initiator or an approver",
                             self.name, user_id, clarify_id)

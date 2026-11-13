@@ -505,6 +505,8 @@ _MARKUP_RE = re.compile(r"[*_~`|>\[\]()<{}\\#]")
 _URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
 _MENTION_RE = re.compile(r"(?i)@(?:everyone|here)\b|<[@#!&][^>]*>|@\w+")
 _EXT_RE = re.compile(r"(?i)(?:\.(?:gcode|bgcode|3mf|stl|step|stp|obj))+$")
+_TITLE_SEPARATOR_RE = re.compile(r"\s+[-–|:]\s+|\s*[(\[]|:\s")
+_DANGLING_TITLE_WORDS = frozenset({'or', 'and', 'with', 'the', 'a', 'an', 'of', 'for', 'to', 'in', 'on', 'by'})
 
 
 def scrub_title(title: Any) -> str:
@@ -523,6 +525,13 @@ def scrub_title(title: Any) -> str:
     text = re.sub(r"[_]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" -.,;:!?'")
     words = text.split()
+    if len(words) > TITLE_MAX_WORDS or len(text) > TITLE_MAX_CHARS:
+        # A long title keeps its name, not a fragment of its subtitle (#1373):
+        # "Pinecone Cottage Lantern - Hanging or Tabletop" is "Pinecone
+        # Cottage Lantern", never "... - Hanging or".
+        head = _TITLE_SEPARATOR_RE.split(text, maxsplit=1)[0].strip(" -.,;:!?'")
+        if head and head != text:
+            words = head.split()
     if len(words) > TITLE_MAX_WORDS:
         words = words[:TITLE_MAX_WORDS]
     out = ""
@@ -531,7 +540,11 @@ def scrub_title(title: Any) -> str:
         if len(candidate) > TITLE_MAX_CHARS:
             break
         out = candidate
-    return out
+    # A cut title never ends on a dangling joiner ("Hanging or", "Box with").
+    parts = out.split()
+    while len(parts) > 1 and (parts[-1].casefold() in _DANGLING_TITLE_WORDS or parts[-1] in {'-', '|', '&'}):
+        parts.pop()
+    return ' '.join(parts)
 
 
 def scrub_last_title(title: Any) -> str:

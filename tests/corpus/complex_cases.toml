@@ -511,3 +511,326 @@ supports = "Flat parts (16.6 mm tall), none expected"
 # reproduces (it does in the mock tier: the colour-geometry export that raises it is Python,
 # not mocked). Remove it once the fix lands and the case passes (XPASS).
 notes = "PRIVATE TIER ONLY - CC BY-NC (MakerWorld API licence value 'BY-NC') permits non-commercial use only, so the file is never committed, released or uploaded. Downloaded file is 'Duplo swing - double.3mf' from print profile 976429 (fetched 2026-10-29 through the fetcher's MakerWorld route with an account token; bytes and SHA256 match the copy the live install archived) ('0.2mm layer, 4 walls, 15% infill'), Bambu Studio 01.10.02.73 project, one authored plate. Measured: 9 build items over 6 mesh objects; 44,964 triangles as built (29,536 unique mesh triangles - the chain and seat meshes are instanced); authored layout 239.30 x 201.27 x 16.60 mm, wider than the 220 mm AD5X bed, so the fit planner offers '100% · rearrange 1 plate' (live plan size_mm [207.55, 204.0, 16.6], 9 parts). Live failure on 2.1.9 (2026-10-29): per-part colours + that rearrange choice fail at slice with 'part group does not fit the target bed without cropping' - slice_job takes slice_multi_plate for a per-part 3MF before the rearrange_plan block, so the plan is ignored. Fixed by #601 (per-part jobs now honor the one-plate rearrangement and the arrangement is applied without asking); the case passes on main since."
+
+[[case]]
+tier = "private"
+slug = "pinecone-cottage-lantern"
+title = "Pinecone Cottage Lantern - Hanging or Tabletop"
+author = "MakerWorld design 3483992"
+source_page = "https://makerworld.com/en/models/3483992-pinecone-cottage-lantern-hanging-or-tabletop#profileId-3978285"
+site = "makerworld"
+site_model_id = "3483992"
+site_instance_id = "3978285"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 2834005
+sha256 = "569c8f4264c147647ac4382e46e891f241a933a94ecbd0a4020b80ab0f287a82"
+triangles = 139290
+dims_mm = [140.63, 115.73, 77.49]
+colors = "4 separate parts, unpainted, one authored filament; the live attempt put every part on one slot"
+supports = "Designer profile 'Pinecone Tree Lantern - No supports' (enable_support = 0); stacked pinecone scales sit about 0.6 mm over the scale below inside one mesh - a designed overhang, none expected"
+notes = "PRIVATE TIER ONLY - Standard Digital File License forbids sharing, hosting or distributing the file, so it is never committed or uploaded. Downloaded file is 'PineconeTreeLantern.3mf' from print profile 3978285 (Bambu Studio project for the P2S, 0.20 mm layers, 5% gyroid). Bytes and SHA256 match the copy the live install archived on 2026-11-12. Measured: 4 build items (Lantern Lower Section 73.8 x 72.1 x 77.5 mm printed inverted, Base, Hanging Loop, Upper Chimney), one authored plate. Live failures on 2.3.1 (2026-11-12, #1373): the support-clearance pre-check called the scales a 0.63 mm gap 'to the part below' that supports could not reach, offered supports and geometry repair, the AI fix was refused as 'built from 6 files' (the page's 6 print profiles), and the spool shortage was asked twice. The case pins the conversation, not just the receipt."
+
+# #1373 corpus expansion: real intakes from the live install archive (2026-11-12),
+# private tier. Explored with harness.explore as well as the default journey.
+[[case]]
+tier = "private"
+slug = "v-cradle-supports"
+title = "v_cradle_sketch_orientation_test"
+author = "owner upload"
+source_page = ""
+site = "upload"
+site_model_id = "v_cradle_sketch_orientation_test"
+license = "Owner's own upload (no license; private)"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.stl"
+bytes = 90084
+sha256 = "c91f10be04c1c0cd42ab267d9dba776734d4a69f052c9f165fea80926835ccab"
+triangles = 1800
+dims_mm = [14.65, 3.0, 3.7]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Owner upload STL the live job printed with supports"
+
+[[case]]
+tier = "private"
+slug = "two-tier-shelf"
+title = "2-Tier Shelf – Modular & Easy to Print"
+author = "source page"
+source_page = "https://makerworld.com/en/models/2492064-2-tier-shelf-modular-easy-to-print?from=search#profileId-2738515"
+site = "makerworld"
+site_model_id = "2492064"
+site_instance_id = "2738515"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 976097
+sha256 = "1050fa17b15ebe60ca327aad11351efc81bd8a1c5adfa113d705a60e463a84a3"
+triangles = 600
+dims_mm = [477.83, 230.0, 119.8]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Two authored plates; live job split per part and shrank to 94% to fit"
+
+[[case]]
+tier = "private"
+slug = "sticker-buddy"
+title = "Sticker Buddy - One-Handed Sticker Assistant (21g)"
+author = "source page"
+source_page = "https://makerworld.com/en/models/2354477-sticker-buddy-one-handed-sticker-assistant-21g?from=search#profileId-2575415"
+site = "makerworld"
+site_model_id = "2354477"
+site_instance_id = "2575415"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 1866239
+sha256 = "384f09bd7aa6ff8bbce5355c3d3a57dfc6e2147aaa5316cead5ec291cb60575e"
+triangles = 74080
+dims_mm = [384.86, 101.03, 37.51]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Two authored plates, 4 objects, single color"
+
+[[case]]
+tier = "private"
+slug = "stair-display-stand"
+title = "Stair Display Stand for Figures"
+author = "source page"
+source_page = "https://makerworld.com/en/models/2606843-stair-display-stand-for-figures?from=search#profileId-2876921"
+site = "makerworld"
+site_model_id = "2606843"
+site_instance_id = "2877074"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 918976
+sha256 = "27a26e7066882ebc4436ed582f5d66a90209bb9d6ef782ddff1d8845933420e1"
+triangles = 468
+dims_mm = [366.69, 135.72, 4.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Two authored plates of figure stand steps (7 build items, 14 objects); live job chose per-part colors on two slots and was turned and shrunk to 94.4% to fit"
+
+[[case]]
+tier = "private"
+slug = "multiple-sized-trays"
+title = "Multiple Sized Trays for Build Plate Cleaner"
+author = "source page"
+source_page = "https://makerworld.com/en/models/467269-multiple-sized-trays-for-build-plate-cleaner#profileId-376315"
+site = "makerworld"
+site_model_id = "467269"
+site_instance_id = "376315"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 5507714
+sha256 = "dda2cb56c4206896e47dbef0f5318c2dd16e070179cd91e50c54a51e4133b456"
+triangles = 287826
+dims_mm = [1446.72, 1375.19, 20.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Extreme plate count: 23 authored plates, 46 objects"
+
+[[case]]
+tier = "private"
+slug = "post-it-stencils"
+title = "Holder for Post-It Notes - Stencils Included"
+author = "source page"
+source_page = "https://makerworld.com/en/models/931302-holder-for-post-it-notes-stencils-included?from=search#profileId-1418839"
+site = "makerworld"
+site_model_id = "931302"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 19417892
+sha256 = "fb6b06faa34a00bd3717144563fce6a160862e0d8e0d9c918655bef8c5af79f0"
+triangles = 6420
+dims_mm = [173.05, 182.66, 84.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Multi-part stencil holder, 19.4 MB project, per-part colors"
+
+[[case]]
+tier = "private"
+slug = "hello-kitty-shelf"
+title = "Hello Kitty Shelf"
+author = "source page"
+source_page = "https://makerworld.com/en/models/2668472-hello-kitty-shelf#profileId-2953235"
+site = "makerworld"
+site_model_id = "2668472"
+site_instance_id = "2953235"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 1040222
+sha256 = "39592666931caf9d47e77b478de85ad599c312b97e1a36d0716089dc6e068f9c"
+triangles = 36522
+dims_mm = [476.56, 172.75, 50.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Two authored plates, 7 objects, multicolor shelf"
+
+[[case]]
+tier = "private"
+slug = "ghost-face-caddy"
+title = "Ghost Face Slim Caddy"
+author = "source page"
+source_page = "https://makerworld.com/en/models/3354874-ghost-face-slim-caddy?from=search#profileId-3813599"
+site = "makerworld"
+site_model_id = "3354874"
+site_instance_id = "3813599"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 1336949
+sha256 = "f0890fffeb6969a0e6e883be90a39f3fe6a0006c3a38c4288425f8a4add9c7ac"
+triangles = 11062
+dims_mm = [106.37, 62.5, 143.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Three-color caddy the live job split across plates"
+
+[[case]]
+tier = "private"
+slug = "easy-strandbeest"
+title = "Easy Strandbeest"
+author = "source page"
+source_page = "https://makerworld.com/en/models/431313-easy-strandbeest"
+site = "makerworld"
+site_model_id = "431313"
+site_instance_id = "335837"
+license = "BY-SA"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 2863985
+sha256 = "e4759c2a7cde91ab4f6c4b0b70a5c51829ea734feafcb0caf27d39f9aa0ccdc4"
+triangles = 145548
+dims_mm = [501.4, 529.93, 107.3]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Mechanism kit: 26 objects over 4 authored plates (13 build items)"
+
+[[case]]
+tier = "private"
+slug = "dog-star-basset"
+title = "Dog Star - Basset Hound Rockstar Playing Bass Guitar"
+author = "source page"
+source_page = "https://www.printables.com/model/1640745-dog-star-basset-hound-rockstar-playing-bass-guitar"
+site = "printables"
+site_model_id = "1640745"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 49021861
+sha256 = "9a29c8519868f62f2476ce4f85034f41f4fe57e8b67dac4ac839f9bbc44fae98"
+triangles = 3380040
+dims_mm = [187.97, 171.35, 200.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Printables 49 MB project, 2 objects (big file intake)"
+
+[[case]]
+tier = "private"
+slug = "qr-code-stand"
+title = "Customizable QR code with stand"
+author = "source page"
+source_page = "https://makerworld.com/en/models/2876996-customizable-qr-code-with-stand?from=search#profileId-3829874"
+site = "makerworld"
+site_model_id = "2876996"
+site_instance_id = "3829874"
+license = "MakerWorld Exclusive License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 2028236
+sha256 = "43168237fafa04ed180f56b08ad7d98cc733e77b15301803258e8889c45d0486"
+triangles = 4602
+dims_mm = [120.0, 70.24, 10.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Customizable multicolor model: 2 objects on 3 slots"
+
+[[case]]
+tier = "private"
+slug = "build-plate-cleaner"
+title = "Build Plate Cleaner"
+author = "source page"
+source_page = "https://makerworld.com/en/models/386963-build-plate-cleaner#profileId-287445"
+site = "makerworld"
+site_model_id = "386963"
+site_instance_id = "287445"
+license = "BY-NC-ND"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 13187802
+sha256 = "e14be4abfb7433fe55587119eee54e12b0ee83bc0372a73817ef26f396e72fac"
+triangles = 843082
+dims_mm = [261.0, 122.0, 28.0]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Two authored plates the live job merged onto one bed (13 MB project)"
+
+[[case]]
+tier = "private"
+slug = "articulated-octopus"
+title = "Articulated Octopus"
+author = "source page"
+source_page = "https://makerworld.com/en/models/1925665-articulated-octopus#profileId-2066623"
+site = "makerworld"
+site_model_id = "1925665"
+site_instance_id = "2066623"
+license = "Standard Digital File License"
+target_domain = "moonraker"
+target_printer = "flashforge.ad5x"
+target_printer_label = "Flashforge AD5X"
+target_bed_mm = [220.0, 220.0]
+target_max_height_mm = 250.0
+status = "ready"
+file = "model.3mf"
+bytes = 36855142
+sha256 = "b7349c3e44324dd1be47509da6b0b42fc7584d11ac639e8cdd99ddf436dbc0e5"
+triangles = 2319478
+dims_mm = [175.0, 170.37, 64.78]
+notes = "PRIVATE TIER ONLY - from the live install archive on 2026-11-12 (#1373 corpus expansion), so the file is never committed or uploaded; bytes and SHA256 match the archived copy. Print-in-place articulated model, 36.9 MB project with 166 painted or per-part color choices on the live job"

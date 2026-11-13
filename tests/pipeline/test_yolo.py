@@ -33,7 +33,7 @@ def test_strip_leaves_the_rest_of_the_message():
 
 @pytest.mark.parametrize('choices, want', [
     (['Slice and print with supports (bed is clear)', 'Slice and print without supports (bed is clear)',
-      'Print anyway (accept the risk)', 'Slice only', 'Cancel'], 2),
+      'Print anyway, accept the risk (bed is clear)', 'Slice only', 'Cancel'], 2),
     (['Print anyway', 'Cancel'], 0),
     (['Re-slice with supports', 'Print without supports', 'Cancel'], 0),
     (['Cancel', 'One color for everything'], 1),
@@ -359,7 +359,7 @@ def test_yolo_model_answers_every_question_out_loud_and_starts_with_the_flag(env
     assert event.text == 'https://www.printables.com/model/1-ghost'
     answered = [m for m in adapter.sent if m.startswith('Yolo: ') and ' -> ' in m]
     assert answered, 'every auto-answer is posted'
-    assert any(m.endswith('-> Print anyway (accept the risk)') for m in answered)
+    assert any(m.endswith('-> Print anyway, accept the risk (bed is clear)') for m in answered)
     assert receipt['status'] == 'STARTED'
     assert started_targets and started_targets[-1].get('yolo') is True
     assert yolo.ACTIVE.get() is False

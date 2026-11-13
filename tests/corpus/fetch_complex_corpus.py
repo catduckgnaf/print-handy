@@ -50,6 +50,9 @@ GENERIC_CLICKS = [
     {"question": "Choose the color", "button": "White"},
     {"question": "one color for everything?", "button": "One color for everything"},
     {"question": "does not fit the bed full size", "button": "Shrink to"},
+    # Multi-plate designer projects (#1373 archive cases): the full-size split, then plate 1 first.
+    {"question": "full size as one plate", "button": "split"},
+    {"question": "Which plate prints first?", "button": "Plate 1"},
     {"question": "How many copies", "button": "One copy"},
     {"question": "·", "button": "Slice and print"},
 ]
@@ -81,6 +84,16 @@ CASE_CLICKS = {
         # On a failed slice, stop rather than retry so the receipt keeps the error.
         {"question": "No G-code was kept", "button": "Cancel"},
     ],
+    # Live #1373 (2026-11-12, 2.3.1): per-part colors, every part on one slot,
+    # as the live attempt answered. The supports menu must not appear at all,
+    # so no rule answers it; an unanswered question fails the case.
+    "pinecone-cottage-lantern": [
+        {"question": "one color for everything?", "button": "Choose colors"},
+        {"question": "Lantern Lower Section", "button": "Pink"},
+        {"question": "Pinecone Lantern Base", "button": "Pink"},
+        {"question": "Pinecone Lantern Hanging Loop", "button": "Pink"},
+        {"question": "Lantern Upper Chimney Section", "button": "Pink"},
+    ],
 }
 # Verified 2026-10-27 (mock-tier flow runs): these three cases exceed the
 # product's own intake limits, so the honest pinned expectation is the
@@ -95,6 +108,16 @@ CASE_EXPECT = {
     # What a working flow must do for the live 2026-10-29 failure: start one
     # full-size print with the chosen per-part colors on one rearranged plate.
     # Failed on 2.1.9; fixed by #601 (passes on main since).
+    # #1373: a designer no-supports project whose scales overhang their own
+    # mesh. The pre-check finds no clearance risk, the menu offers no
+    # supports, repair or AI fix, and the slice prints without supports. The
+    # harness's conversation checks (harness.conversation_checks) also run.
+    "pinecone-cottage-lantern": {
+        "status": "STARTED", "scale": 1.0, "gcodes": 1, "supports": False,
+        "clearance_codes": [],
+        "buttons_absent": ["with supports", "Extend underside", "Flatten (sink)", "Reorient",
+                           "Fix this for my printer"],
+    },
     "duplo-swing-two-seats": {
         "status": "STARTED", "scale": 1.0, "gcodes": 1,
         "colors": {"frameLeg": "white", "double-frame": "dark green",

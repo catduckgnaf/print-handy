@@ -400,10 +400,28 @@ def capture_stop(filename, trigger):
         return ""
 
 
-def post_cancel_report(filename, reason=None):
-    """Full Klipper report on any cancel; falls back to the short summary if the report fails."""
+def post_cancel_report(filename, reason=None, *, operator_cancel=False):
+    """Full Klipper report on a cancel nobody asked for; title plus roast for the bot's own.
+
+    ``operator_cancel`` is True only for a Moonraker "cancelled" transition (not a
+    print that dropped to standby at the printer); with the bot's own cancel
+    marker fresh, the operator asked for it and the short post is enough (#1373).
+    """
     if reason is None:
         reason = capture_stop(filename, "cancel")
+    mention = starter_pings.ping_for("cancelled", job_key=filename) or None
+    try:
+        from . import klipper_report
+        by_bot = klipper_report.cancelled_by_bot()
+    except Exception:
+        by_bot = False
+    if by_bot and operator_cancel:
+        # The operator asked for this cancel and just confirmed it (#1373): the
+        # title and the roast say it; temperatures, Z height and console
+        # lines are for a stop nobody asked for.
+        return post(_with_status_roast(f"Print cancelled: {_cancel_title(filename)}", filename,
+                                       "cancelled", f"cancelled:{filename}"),
+                    **({"mention_user_id": mention} if mention else {}))
     try:
         from . import klipper_report
         try:
@@ -414,9 +432,19 @@ def post_cancel_report(filename, reason=None):
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
-    mention = starter_pings.ping_for("cancelled", job_key=filename) or None
     return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"),
                 **({"mention_user_id": mention} if mention else {}))
+
+
+def _cancel_title(filename):
+    """The job's own title for a cancel post, else the file's label. Never raises."""
+    try:
+        job, _plate = print_summary.find_job(filename)
+        if (job or {}).get("title"):
+            return job["title"]
+    except Exception:
+        pass
+    return print_summary.safe_label(filename) if filename else "the print"
 
 
 SCREEN_CANCEL_NATIVE = {"cancel", "cancelled"}
@@ -4546,7 +4574,9 @@ class Listener:
                 # Finish stop capture before starting the screen-cancel reboot so Moonraker
                 # state and log tails are read before Klipper restarts.
                 reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
-                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename, reason))
+                task = asyncio.create_task(asyncio.to_thread(
+                    post_cancel_report, self.filename, reason,
+                    operator_cancel=(new_state == "cancelled" and not gone)))
                 self.background_tasks.add(task)
                 task.add_done_callback(self.background_tasks.discard)
                 from . import klipper_report

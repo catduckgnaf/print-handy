@@ -19,6 +19,11 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 PROJECT = 'Metadata/project_settings.config'
+# A designer project with Arachne walls used to get the whole flex print-in-place
+# profile up front (15% line infill, 0.20 mm first layer, supports off). Off by
+# default since #1373: the designer's own settings are kept, and the flex profile is
+# only the recovery when Orca rejects a slice. True restores the old swap.
+FLEX_ON_ARACHNE = False
 PRUSA_CONFIG = 'Metadata/Slic3r_PE.config'
 PRUSA_MODEL = 'Metadata/Slic3r_PE_model.config'
 
@@ -639,7 +644,12 @@ def tree_style(process, source):
     zero-gap interface); Tree Hybrid handles both. `process` is changed in place.
     """
     _tree = compat_registry.get_rule('organic-tree-hybrid-conversion').parameters
-    if process.get('support_style') != _tree['from_style']:
+    style = str(process.get('support_style') or 'default')
+    # Orca's "default" style on a tree support type IS organic (SupportParameters), so a
+    # default-style tree with variable layer height failed the same way (#1373 audit).
+    organic = style == _tree['from_style'] or (
+        style == 'default' and str(process.get('support_type') or '').startswith('tree'))
+    if not organic:
         return None
     try:
         zero_gap = float(str(process.get(_tree['gap_key'], _tree['gap_default'])).strip()) == 0
