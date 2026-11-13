@@ -214,6 +214,7 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         return await work
     import uuid
     from .prompts import gateway as _prompts
+    from . import prompts as _prompt_wait
     cm = _prompts()
     cid = uuid.uuid4().hex
     cm.register(cid, key, text, [STOP_LABEL])
@@ -233,7 +234,7 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         return await work
     task = asyncio.ensure_future(work)
-    waiter = asyncio.ensure_future(asyncio.to_thread(cm.wait_for_response, cid, 3600))
+    waiter = asyncio.ensure_future(_prompt_wait.await_answer(cid, 3600, registry=cm))
     result = None
     try:
         # Race the work against the Stop button. The work finishing must never wait on a press:

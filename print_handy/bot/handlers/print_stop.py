@@ -113,7 +113,8 @@ async def print_stop_dispatch(event, gateway, **kwargs):
                                                   session_key=session_key, metadata=metadata)
                 if not getattr(sent, 'success', False):
                     raise RuntimeError('button delivery failed')
-                return await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600))
+                from print_handy.core import prompts as _prompt_wait
+                return await _prompt_wait.await_answer(cid, (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600), registry=cm)
             finally:
                 cm.resolve_gateway_clarify(cid, cm.CANCELLED)
 

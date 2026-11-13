@@ -65,7 +65,10 @@ class Lane:
             sem.release()
 
 
-# Concurrent Flatpak Orca runs collide (orca_adapter), so steps that can launch it run one at a time.
+# Concurrent Flatpak Orca runs collide (orca_adapter, exit 243), so steps that can launch it run
+# one at a time across every printer, whatever the CPU budget. Only real slicer steps take this
+# lane: an AI design's model call and its OpenSCAD render never do, so a design in progress does
+# not hold up another printer's slice (only a design's own "Slice it" queues here, as a slice).
 SLICER = Lane('slicing', slots=1, waiting=4)
 GENERAL = Lane('model check', slots=2, waiting=8)
 

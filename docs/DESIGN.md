@@ -225,7 +225,7 @@ without the command (case-insensitive):
 Anything without a design phrase (a plain link, a plain file drop, "print
 it", every existing command) behaves exactly as before, and while a design
 is waiting for a revision, your next plain message is the revision, phrases
-or not. When design cannot run (switched off, or auto with no endpoint
+or not, unless it brings a model (see below). When design cannot run (switched off, or auto with no endpoint
 configured), a message with a design phrase gets the same
 "design is not set up" reply as the command, and with design forced on but
 no model configured, the same "no design model is configured" reply, while
@@ -233,6 +233,35 @@ messages without a design phrase are untouched either way. The phrases work
 on Telegram and Matrix exactly as on Discord; on Matrix the Slice it /
 Change it / Cancel choices arrive as a numbered list you answer by number
 or by typing the choice, like every other Matrix prompt.
+
+## Printing while a design runs
+
+A design turn can take a few minutes. Meanwhile you, and everyone else, can
+keep printing:
+
+- A model link or a dropped model file without a design phrase starts a
+  normal print intake, whether the design is still working, its "What next
+  for this design?" question is open, or it is waiting for your change. A
+  link never becomes a change to the design on screen.
+- While a turn is working, a print request such as "print 57", "print the
+  last one again" or "print this on the Garage AD5X" (a phrase naming one
+  of your printers) runs as usual. Commands (`/print-again`, `/print-stop`
+  and the rest) always do.
+- Plain text that could be a change to the design ("make it 5 mm taller")
+  still gets "A design turn is already running" while the turn works, so a
+  change never lands on the wrong version. Send it again when the turn is
+  posted. At the open question, plain text is your answer or your next
+  change, as before.
+- A second `/print-design` from the same person in the same channel or
+  thread is refused until the first design ends, because both would edit
+  the same design session. Start the other design in a thread (each thread
+  has its own design), or let the first one finish or cancel it. Other
+  people's designs never wait for yours.
+- Prints on other printers do not wait for a design: the design's model
+  call and preview render do not use the slicing queue, and open questions
+  do not hold the bot's worker threads. Slicing itself still runs one job
+  at a time across all printers, because OrcaSlicer runs that overlap can
+  fail; a second slice waits for the first and then starts.
 
 ## Browsing designs in the Web UI
 

@@ -508,8 +508,9 @@ async def _design_busy_reply(adapter, source):
     if adapter is not None:
         metadata = {'thread_id': source.thread_id} if source.thread_id else None
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='A design turn is already running — let it finish, '
-                                   'then send your change again. Nothing was changed.')
+                           content='A design turn is already running. Let it finish, '
+                                   'then send your change again. Nothing was changed. '
+                                   'Model links, files and print commands still work meanwhile.')
     return {'action': 'skip', 'reason': 'design turn already running'}
 
 
@@ -611,7 +612,10 @@ async def _design_conversation(event, gateway, adapter, engine, result, *, note=
                       f'({design.MAX_TURNS} turns per design; this one has had {session["turns"]}.)')
             return {'action': 'skip', 'reason': 'design awaiting revision'}
         typed = str(answer or '').strip()
-        if answer is None or not typed or typed == design.CANCEL_LABEL:
+        from print_handy.core.prompts import CANCELLED
+        # A closed question (a session reset or shutdown resolves it with
+        # CANCELLED) ends the design; it is never a change to run.
+        if answer is None or not typed or typed in (design.CANCEL_LABEL, CANCELLED):
             break
         # A change typed instead of pressing a button ("make it 5 mm taller")
         # is the revision itself: run it as the next turn of the same design.
@@ -1257,7 +1261,7 @@ async def _confirm(adapter, source, metadata, prefix, question, choices, timeout
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
         if not getattr(sent, 'success', False):
             raise RuntimeError('button delivery failed')
-        return await asyncio.to_thread(cm.wait_for_response, cid, timeout)
+        return await _prompt_marks.await_answer(cid, timeout, registry=cm)
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         _prompt_marks.forget_approval(cid)

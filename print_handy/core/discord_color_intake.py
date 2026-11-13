@@ -33,6 +33,7 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
 
 async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None, timeout=None):
     from .prompts import gateway as _prompts
+    from . import prompts as _prompt_wait
     cm = _prompts()
     from .. import printers
     from .model_job import (intake_color_choices, set_color_decisions, resolve_filament_selection,
@@ -87,7 +88,7 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                 choices=offered, clarify_id=cid, session_key=session_key, metadata=metadata)
             if not result.success:
                 raise RuntimeError('Discord color prompt delivery failed')
-            answer = await asyncio.to_thread(cm.wait_for_response, cid, timeout)
+            answer = await _prompt_wait.await_answer(cid, timeout, registry=cm)
             if answer == CANCEL_LABEL:
                 raise PromptCancelled('cancelled')
             if answer not in choices:
