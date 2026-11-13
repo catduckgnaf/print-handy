@@ -106,6 +106,7 @@ def test_recorded_pause_notifies_once_and_the_chat_post_still_returns(monkeypatc
 
 def test_name_lookup_never_publishes_and_a_publish_never_blocks_the_caller(monkeypatch):
     import threading
+    import time
     import print_handy.runtime.discord_print_summary as summary
     monkeypatch.setattr(summary, "find_job", lambda *args, **kwargs: (None, None))
     gate = threading.Event()
@@ -121,9 +122,12 @@ def test_name_lookup_never_publishes_and_a_publish_never_blocks_the_caller(monke
     summary.format_event("started", "plate.gcode")  # returns while the publish is still waiting
     assert calls == []
     gate.set()
-    for thread in threading.enumerate():
-        if thread is not threading.current_thread() and thread.daemon:
-            thread.join(2)
+    # Wait for the publish itself, not for every daemon thread in the process:
+    # other tests' long-lived threads would each cost a full join timeout.
+    deadline = time.time() + 5
+    while not calls and time.time() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.05)  # a second publish (the emit=False call) would land by now
     assert calls == ["print_started"]
 
 

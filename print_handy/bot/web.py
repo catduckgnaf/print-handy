@@ -54,6 +54,22 @@ Update and Skip this version) are the prompt's own, pressed through
 :meth:`WebChatService.answer` like any other. The merge-time guard
 (tests/bot/test_command_webui_parity.py) fails a heartbeat check a chat
 platform runs that web chat neither runs nor exempts with a reason.
+
+The listener's print posts reach web chat too. The listener runs in its
+own process and posts through the platform REST senders, not BotCore,
+so it appends every post it delivered to the feed file in the state
+folder both processes share (bot/web_feed.py), and this service reads
+the new lines every ``FEED_POLL_S`` and posts them as shared posts: the
+same ``format_event`` text (started, paused, resumed, complete,
+cancelled, error, the roast and timelapse follow-ups) from every printer
+family. An attachment the page cannot show is named in one line. An
+alert that asks for a decision (a pause, an error, an emergency stop, a
+camera check) comes with the same actions as buttons: web chat records
+its own alert in the alert store (print_alert_buttons), and a press
+claims it the way a chat press does: the operator allow-list
+(answer_choice), peek, take once, then ``handle_click``, which re-reads
+the printer before it acts. The buttons close when the alert leaves the
+store (answered, or retired when the print ended).
 """
 from __future__ import annotations
 
@@ -64,8 +80,9 @@ import hashlib
 import logging
 import threading
 import time
+import uuid
 
-from . import rest, runtime
+from . import rest, runtime, web_feed
 from .platform import BasePlatformAdapter, SendResult, _prompts_guard
 
 logger = logging.getLogger(__name__)
@@ -78,6 +95,10 @@ RATE_LIMIT_PER_MINUTE = 20
 # as on the chat platforms (client.py, telegram.py, matrix.py).
 HEARTBEAT_CHECKS = ("check_firmware_updates",)
 HEARTBEAT_S = 15
+# How often the listener's feed is read (a stat when nothing changed).
+FEED_POLL_S = 2
+# How often an open listener alert checks that it is still in the store.
+ALERT_RECHECK_S = 5
 OUTBOX_LIMIT = 200
 # Web UI sessions whose transcripts are kept; the least recently used
 # one is forgotten past this.
@@ -259,10 +280,16 @@ class WebChatService:
         self._thread.start()
         self._message_count = 0
         self._heartbeat = None
+        self._feed_task = None
+        self._alert_tasks = set()
+        # Lines the listener writes from now on (a restart replays nothing).
+        self._feed = web_feed.FeedReader(_state_dir(cfg))
         if chat_enabled(cfg):
             asyncio.run_coroutine_threadsafe(self._announce_startup(), self._loop)
             self._heartbeat = asyncio.run_coroutine_threadsafe(
                 self._in_scope("", self._run_heartbeat), self._loop)
+            self._feed_task = asyncio.run_coroutine_threadsafe(
+                self._in_scope("", self._run_feed), self._loop)
 
     @staticmethod
     def _source(scope):
@@ -306,6 +333,40 @@ class WebChatService:
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
+        # Only close() stops the loop: cancel what is left and let it unwind.
+        try:
+            pending = asyncio.all_tasks(self._loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                self._loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True))
+            self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+        except Exception:
+            pass
+
+    def close(self, timeout=2.0):
+        """Stop the heartbeat, the feed reader and the chat loop thread.
+
+        Idempotent and never raises. The Web UI process keeps one service
+        for its life, so this is for callers that build short-lived ones
+        (tests), which otherwise leave a loop thread running per service.
+        """
+        loop = self._loop
+        if loop.is_closed():
+            return
+        try:
+            # Queued after anything already scheduled, so those calls start
+            # first; the loop thread then cancels and drains every task.
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            pass
+        self._thread.join(timeout)
+        if not self._thread.is_alive():
+            try:
+                loop.close()
+            except Exception:
+                pass
 
     async def _announce_startup(self):
         """The on_ready notices, for a Web UI process start.
@@ -356,6 +417,110 @@ class WebChatService:
             except Exception:  # the loop must outlive any one bad pass
                 logger.exception("web chat heartbeat pass failed")
             await asyncio.sleep(HEARTBEAT_S)
+
+    # -- the listener's print posts ----------------------------------------
+
+    async def feed_once(self):
+        """Post the listener's new feed lines (bot/web_feed.py); never raises.
+
+        Skipped while the page's switch is off, like the heartbeat; the
+        lines are still read, so turning it back on never floods the page
+        with posts from while it was off. Runs in the shared scope: a
+        print post belongs to no session. Returns the lines posted.
+        """
+        rows = await asyncio.to_thread(self._feed.poll)
+        if not rows or not self._enabled():
+            return []
+        for row in rows:
+            try:
+                text = web_feed.render(row)
+                alert = row.get("alert")
+                if isinstance(alert, dict) and alert.get("kind") in web_feed.ALERT_KINDS:
+                    task = asyncio.ensure_future(self._listener_alert(text, alert))
+                    self._alert_tasks.add(task)
+                    task.add_done_callback(self._alert_tasks.discard)
+                    await asyncio.sleep(0)  # let it post before the next line
+                elif text:
+                    await self.adapter.send(CHAT_ID, text)
+            except Exception:
+                logger.exception("web chat could not post a listener line")
+        return rows
+
+    async def _run_feed(self):
+        while True:
+            try:
+                await self.feed_once()
+            except Exception:
+                logger.exception("web chat feed pass failed")
+            await asyncio.sleep(FEED_POLL_S)
+
+    async def _listener_alert(self, text, alert):
+        """One listener alert as a shared prompt with the alert's own buttons.
+
+        Web chat records its own alert in the alert store (the same kind,
+        file and routing fields the chat button's record has), so a press
+        here goes through exactly the claim-then-act path a chat press
+        does: the operator allow-list (answer_choice), peek, take once,
+        then ``print_alert_buttons.handle_click``, which re-reads the
+        printer before acting and never retries. A second press, here or
+        after the record left the store, sends nothing.
+        """
+        from ..core import prompts
+        from ..runtime import print_alert_buttons as pab
+        kind = str(alert["kind"])
+        filename = str(alert.get("filename") or "")
+        fields = alert.get("fields") if isinstance(alert.get("fields"), dict) else {}
+        aid = await asyncio.to_thread(pab.record, kind, filename, **fields)
+        buttons = []
+        for row in pab.components(aid, kind):
+            for button in row["components"]:
+                parsed = pab.parse_custom_id(button.get("custom_id"))
+                if parsed:
+                    buttons.append((button["label"], parsed[0]))
+        labels = [label for label, _action in buttons]
+        registry = prompts.gateway()
+        clarify_id = f"webalert-{uuid.uuid4().hex[:12]}"
+        session = f"listener-alert:{CHAT_ID}:{aid}"
+        registry.register(clarify_id, session, text, labels)
+        try:
+            await self.adapter.send_clarify(CHAT_ID, text, labels, clarify_id, session)
+        except Exception:
+            logger.exception("web chat could not post a listener alert")
+            _close_prompt(registry, clarify_id)
+            await asyncio.to_thread(pab.take, aid)
+            return None
+        answer = await self._await_alert(registry, clarify_id, aid)
+        _close_prompt(registry, clarify_id)
+        action = dict(buttons).get(answer)
+        if action is None:
+            gone = await asyncio.to_thread(pab.take, aid) is None
+            await self.adapter.close_prompt(
+                clarify_id, "This alert was answered or ended. Nothing sent."
+                if gone else "This alert expired. Nothing sent.")
+            return None
+        claimed = await asyncio.to_thread(pab.peek, aid)
+        if not claimed or not await asyncio.to_thread(pab.take, aid):
+            await self.adapter.close_prompt(
+                clarify_id, "That alert is old or was already answered. Nothing sent.")
+            return None
+        await self.adapter.close_prompt(clarify_id, f"You chose {answer}.")
+        try:
+            outcome = await asyncio.to_thread(pab.handle_click, action, claimed)
+        except Exception:
+            logger.exception("web chat alert action %s failed", action)
+            outcome = "That action failed before it reached the printer. The error was logged."
+        await self.adapter.send(CHAT_ID, str(outcome))
+        return outcome
+
+    async def _await_alert(self, registry, clarify_id, aid):
+        """The pressed label, or None once the alert left the store or its TTL passed."""
+        from ..runtime import print_alert_buttons as pab
+        deadline = time.time() + pab.TTL
+        while registry.is_open(clarify_id) and time.time() < deadline:
+            await asyncio.sleep(min(ALERT_RECHECK_S, max(0.0, deadline - time.time())))
+            if registry.is_open(clarify_id) and await asyncio.to_thread(pab.peek, aid) is None:
+                return None  # retired at print end, or expired in the store
+        return registry.wait_for_response(clarify_id, 0)
 
     async def _in_scope(self, scope, coro_fn):
         """Run one turn (or press) with the scope set for every send it makes."""
@@ -522,6 +687,20 @@ class ScopedChat:
         return self.service.open_prompt(self.scope)
 
 
+def _close_prompt(registry, clarify_id):
+    registry.resolve_gateway_clarify(clarify_id, registry.CANCELLED)
+    registry.wait_for_response(clarify_id, 0.001)
+
+
+def _state_dir(cfg):
+    """The state folder the listener's feed lives in, from these settings."""
+    from .. import settings
+    try:
+        return settings.state_dir(cfg)
+    except Exception:
+        return settings.state_dir()
+
+
 def chat_llm_enabled(cfg):
     """Web chat's stray-chat LLM gate ([webui] chat_llm_enabled)."""
     return bool((cfg.get("webui") or {}).get("chat_llm_enabled", False))
@@ -539,5 +718,5 @@ def chat_enabled(cfg):
     return bool((cfg.get("webui") or {}).get("chat_enabled", True))
 
 
-__all__ = ["CHAT_ID", "HEARTBEAT_CHECKS", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
+__all__ = ["CHAT_ID", "FEED_POLL_S", "HEARTBEAT_CHECKS", "OPERATOR_ID", "ScopedChat", "WebAdapter", "WebChatService",
            "chat_enabled", "chat_llm_enabled", "scope_for"]

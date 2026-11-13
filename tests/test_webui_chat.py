@@ -331,12 +331,16 @@ def test_the_server_starts_web_chat_when_it_has_alerts_to_deliver(tmp_path, monk
     assert len(built) == 1 and service is srv.chat_service is not None
 
 
-@pytest.mark.parametrize("extra", [
-    "  chat_enabled: false\n",
-    "firmware:\n  update_alerts: false\n",
-])
-def test_the_server_keeps_web_chat_lazy_without_alerts(tmp_path, monkeypatch, extra):
-    srv, service, built = _start_with(tmp_path, monkeypatch, extra)
+def test_the_server_starts_web_chat_for_print_posts_without_update_alerts(tmp_path, monkeypatch):
+    """Print posts (bot/web_feed.py) reach web chat on every printer, so
+    turning ZMod update alerts off does not keep web chat lazy: the feed
+    only carries posts from the moment web chat starts."""
+    srv, service, built = _start_with(tmp_path, monkeypatch, "firmware:\n  update_alerts: false\n")
+    assert len(built) == 1 and service is srv.chat_service is not None
+
+
+def test_the_server_keeps_web_chat_lazy_with_the_chat_page_off(tmp_path, monkeypatch):
+    srv, service, built = _start_with(tmp_path, monkeypatch, "  chat_enabled: false\n")
     assert service is None and built == [] and srv.chat_service is None
 
 

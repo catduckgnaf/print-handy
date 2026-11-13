@@ -2786,19 +2786,19 @@ def start_web_alerts(server):
 
     Web chat delivers the bot heartbeat's alerts (bot/web.py
     HEARTBEAT_CHECKS: a ZMod update alert with its Update and Skip this
-    version buttons), so waiting for the first /chat request would hold
-    an alert back until someone happened to open the page. Started only
-    when the page's switch is on, ``[firmware] update_alerts`` is on and
-    the roster has a printer that gets alerts; otherwise the service stays
-    lazy, as before. Returns the service, or None. Never raises: a failure
-    is logged and the page builds the service on first use as before.
+    version buttons) and the listener's print posts (bot/web_feed.py:
+    started, paused, complete, cancelled, error, with an alert's buttons),
+    so waiting for the first /chat request would hold them back until
+    someone happened to open the page, and the feed only carries posts
+    from the moment web chat starts. Every printer gets print posts, so
+    it starts whenever the page's switch is on; with it off the service
+    stays lazy, as before. Returns the service, or None. Never raises: a
+    failure is logged and the page builds the service on first use.
     """
     try:
         data = server.settings_data
-        from ..bot import firmware_alert
         from ..bot.web import chat_enabled
-        if not (chat_enabled(data) and firmware_alert.enabled(data)
-                and firmware_alert.alert_printers(data)):
+        if not chat_enabled(data):
             return None
         return chat_service_for(server)
     except Exception:

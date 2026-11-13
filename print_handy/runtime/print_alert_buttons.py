@@ -1161,6 +1161,26 @@ def _owner(printer_id: str | None = None) -> str | None:
         return None
 
 
+def alert_fields(connection: str | None = None, printer_id: str | None = None,
+                 identity: Any = None) -> dict[str, Any]:
+    """The routing fields an alert record carries, as the button posts record them.
+
+    The family connection (#460), the owning printer (``_owner``) and the
+    per-print identity (#476). Web chat (bot/web_feed.py) records its own
+    alert from these, so its buttons route a press exactly as a chat
+    button on the same alert does.
+    """
+    extra: dict[str, Any] = {}
+    if connection:
+        extra["connection"] = str(connection)
+    owner = _owner(printer_id)
+    if owner:
+        extra["printer_id"] = owner
+    if identity:
+        extra["identity"] = str(identity)
+    return extra
+
+
 ALERT_PRINTER_UNKNOWN = ("This alert was recorded before alerts named their printer, and more than one "
                          "printer is configured, so I can't tell which printer it came from. Nothing sent. "
                          "Use the printer's own screen or the Web UI.")
