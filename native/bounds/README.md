@@ -45,6 +45,14 @@ cd native/bounds
 maturin develop --release   # installs into the current environment
 ```
 
+The crate also carries the post-slice bed check (`src/bed_scan.rs`,
+`first_off_bed` and `BED_SCAN_VERSION`, #1392). Its contract is the Python
+loop in `print_handy/gcode/bed_scan.py`, dispatched under the same rules
+(ASCII only, version handshake, golden self-check, Python fallback, the same
+`PRINT_HANDY_BOUNDS_IMPL` setting; under `=native`, as for the bounds
+parser, non-ASCII text still takes Python by design); `tests/pipeline/test_native_bed_scan.py`
+holds the two to the same answers.
+
 Without the built extension everything still works — the Python parser
 handles every input. Set `PRINT_HANDY_BOUNDS_IMPL=python` to force the
 fallback, or `=native` to make a missing/broken extension an error.

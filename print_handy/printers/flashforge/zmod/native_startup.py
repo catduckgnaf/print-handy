@@ -4,6 +4,7 @@ ZMod FAQ prescribes M190 S<bed>, M104 S<hotend> T0 before start
 for single_extruder_multi_material. T0 here addresses the one heater,
 not the first logical filament; subsequent T1 selection is preserved.
 """
+import itertools
 import re
 
 NUM = r'(?:\d+(?:\.\d*)?|\.\d+)'
@@ -44,20 +45,56 @@ def _benign_preamble(cmd):
                for line in cmd)
 
 
+def _command_lines(lines):
+    for line in lines:
+        line = line.partition(';')[0].strip()
+        if line:
+            yield line
+
+
+class _Startup:
+    """The START_PRINT command of a G-code and the commands around it, as commands(text) reads them.
+
+    Built without commands(text) for the whole file: that list of every command line cost
+    about 1.2 s on a 25 MB G-code, and the rules below only read the commands before
+    START_PRINT, START_PRINT itself and the first few after it (#1392). ``starts`` is the
+    number of START_PRINT commands; ``before``, ``start`` and ``after()`` exist when it is 1.
+    """
+
+    def __init__(self, text):
+        self.lines = text.splitlines()
+        # A START_PRINT command line contains the text START_PRINT: test that first.
+        hits = [i for i, line in enumerate(self.lines)
+                if 'START_PRINT' in line and line.partition(';')[0].strip().startswith('START_PRINT ')]
+        self.starts = len(hits)
+        if self.starts == 1:
+            self._line = hits[0]
+            self.before = list(_command_lines(self.lines[:self._line]))
+            self.start = self.lines[self._line].partition(';')[0].strip()
+
+    def after(self, count=None):
+        """The commands after START_PRINT, lazily (the first ``count`` as a list when given)."""
+        rest = _command_lines(itertools.islice(self.lines, self._line + 1, None))
+        return rest if count is None else list(itertools.islice(rest, count))
+
+
 def valid(text, bed, hotend):
-    cmd = commands(text)
-    if len(cmd) < 3:
+    return _valid(_Startup(text), bed, hotend)
+
+
+def _valid(view, bed, hotend):
+    if view.starts != 1:
+        # commands(text) has fewer than 3 commands, or not exactly one START_PRINT: invalid either way.
         return False
-    starts = [i for i, line in enumerate(cmd) if line.startswith('START_PRINT ')]
-    if len(starts) != 1:
+    if len(view.before) + 1 + len(view.after(2)) < 3:
         return False
-    start = starts[0]
+    start = len(view.before)
     # Allow only the observed benign slicer preamble BEFORE the contiguous
     # header. It cannot split a heater pair from START_PRINT.
-    if start >= 2 and cmd[start - 2].startswith('M190 ') and _benign_preamble(cmd[:start - 2]):
-        heater_cmd = cmd[start - 2:start]
-    elif _benign_preamble(cmd[:start]):
-        heater_cmd = cmd[start + 1:start + 3]
+    if start >= 2 and view.before[start - 2].startswith('M190 ') and _benign_preamble(view.before[:start - 2]):
+        heater_cmd = view.before[start - 2:start]
+    elif _benign_preamble(view.before):
+        heater_cmd = view.after(2)
     else:
         return False
     if len(heater_cmd) != 2:
@@ -69,34 +106,34 @@ def valid(text, bed, hotend):
         if not match or float(match.group(1)) != temp:
             return False
     for key, target in [('BED_TEMP', bed), ('EXTRUDER_TEMP', hotend)]:
-        values = re.findall(r'\b' + key + r'=(' + NUM + r')(?=\s|$)', cmd[start])
+        values = re.findall(r'\b' + key + r'=(' + NUM + r')(?=\s|$)', view.start)
         if len(values) != 1 or float(values[0]) != float(target):
             return False
     # A valid leading pair must never mask conflicting post-start declarations.
-    return _heater_run_consistent(cmd[start + 1:], bed, hotend)
+    return _heater_run_consistent(view.after(), bed, hotend)
 
 
 def normalize(text):
     """Insert missing heaters adjacent to START_PRINT after a strict preamble."""
-    cmd = commands(text)
-    starts = [i for i, line in enumerate(cmd) if line.startswith('START_PRINT ')]
-    if not starts:
+    view = _Startup(text)
+    if not view.starts:
         return text
-    if len(starts) != 1:
+    if view.starts != 1:
         raise RuntimeError('native startup requires exactly one START_PRINT')
-    start = starts[0]
     temps = []
     for key in ('BED_TEMP', 'EXTRUDER_TEMP'):
-        values = re.findall(r'\b' + key + r'=(' + NUM + r')(?=\s|$)', cmd[start])
+        values = re.findall(r'\b' + key + r'=(' + NUM + r')(?=\s|$)', view.start)
         if len(values) != 1 or float(values[0]) <= 0:
             raise RuntimeError('native startup missing or conflicting ' + key)
         temps.append(values[0])
-    if not _heater_run_consistent(cmd, *temps) or not _heater_run_consistent(cmd[start + 1:], *temps):
+    whole = itertools.chain(view.before, [view.start], view.after())
+    if not _heater_run_consistent(whole, *temps) or not _heater_run_consistent(view.after(), *temps):
         raise RuntimeError('conflicting or ambiguous native startup heater command')
-    if valid(text, *temps):
+    if _valid(view, *temps):
         return text
     # Never bless a misplaced/partial existing header by adding another pair.
-    if not _benign_preamble(cmd[:start]) or (len(cmd) > start + 1 and re.match(r'M(?:104|109|140|190)\b', cmd[start + 1])):
+    following = view.after(1)
+    if not _benign_preamble(view.before) or (following and re.match(r'M(?:104|109|140|190)\b', following[0])):
         raise RuntimeError('native startup requires contiguous recognized header order')
     lines = text.splitlines(keepends=True)
     index = next(i for i, line in enumerate(lines)

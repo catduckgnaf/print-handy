@@ -19,14 +19,20 @@ _HEATER_CANDIDATES = frozenset('M \t\x1f\xa0\u1680\u2000\u2001\u2002\u2003\u2004
                                '\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000')
 
 
-def _scan_tools(text, pattern, candidates):
-    tools = set()
-    add = tools.add
-    fullmatch = pattern.fullmatch
-    for line in text.splitlines():
-        if line[:1] in candidates and (m := fullmatch(line.strip())):
-            add(int(m.group(1)))
-    return tools
+FILAMENT_TYPE_LINE = re.compile(r'^; filament_type = (.+)$', re.M)
+
+
+def _first_line_match(text, pattern, literal):
+    """pattern.search(text) for a re.M pattern '^<literal>...': the same match, found by trying the
+    pattern only where the literal starts a line instead of at every character (about 1 s on 25 MB)."""
+    pos = text.find(literal)
+    while pos >= 0:
+        if pos == 0 or text[pos - 1] == '\n':
+            found = pattern.match(text, pos)
+            if found is not None:
+                return found
+        pos = text.find(literal, pos + 1)
+    return None
 
 
 def used_tools(text):
@@ -35,12 +41,19 @@ def used_tools(text):
     # go through the exact same fullmatch, everything else is one lookup.
     # (A compiled whole-buffer multiline regex was measured slower than
     # this on the same file, so the pass stays line-based but filtered.)
-    tools = _scan_tools(text, TOOL_LINE, _TOOL_CANDIDATES)
     # Standard Orca single-extruder start code uses T0 only on heater
     # declarations; that still identifies the logical tool for the explicit map.
-    if not tools:
-        tools = _scan_tools(text, HEATER_TOOL_LINE, _HEATER_CANDIDATES)
-    return tools
+    # Both sets come from one pass (a second pass cost 0.4 s on 25 MB, #1392):
+    # the heater set is the answer only when no tool line exists.
+    tools, heater_tools = set(), set()
+    tool_match, heater_match = TOOL_LINE.fullmatch, HEATER_TOOL_LINE.fullmatch
+    for line in text.splitlines():
+        head = line[:1]
+        if head in _TOOL_CANDIDATES and (m := tool_match(line.strip())):
+            tools.add(int(m.group(1)))
+        if not tools and head in _HEATER_CANDIDATES and (m := heater_match(line.strip())):
+            heater_tools.add(int(m.group(1)))
+    return tools or heater_tools
 
 
 def normalize_mapping(mapping, state):
@@ -83,7 +96,7 @@ def normalize_mapping(mapping, state):
     return result
 
 
-def drop_unused_tools(text, mapping):
+def drop_unused_tools(text, mapping, used=None):
     """The map without entries for tools the file never selects.
 
     Only for maps Print Handy built itself, where an unused entry is a
@@ -91,7 +104,8 @@ def drop_unused_tools(text, mapping):
     support, #867); an operator's explicit map is checked, not trimmed, by
     validate_materials. A file that selects no tool at all is left for the
     coverage check to refuse."""
-    used = used_tools(text)
+    if used is None:
+        used = used_tools(text)
     if not used:
         return dict(mapping)
     return {tool: slot for tool, slot in mapping.items() if int(tool) in used}
@@ -122,7 +136,8 @@ def embedded_mapping(text, state):
     return normalize_mapping(raw_mapping, state)
 
 
-def validate_materials(text, material, state, mapping=None):
+def validate_materials(text, material, state, mapping=None, tools=None):
+    """``tools`` is used_tools(text) when the caller already has it (finalize does)."""
     if not isinstance(material, str) or not material.strip():
         raise RuntimeError('missing filament_type metadata')
     from ....core.orca_config import split_config_list
@@ -132,7 +147,8 @@ def validate_materials(text, material, state, mapping=None):
         raise RuntimeError('malformed per-tool filament_type metadata') from exc
     if any(not re.fullmatch(r'[A-Za-z0-9_+ .()-]+', item) for item in materials):
         raise RuntimeError('malformed per-tool filament_type metadata')
-    tools = used_tools(text)
+    if tools is None:
+        tools = used_tools(text)
     # An operator's explicit map is held to "map only the used tools"; a map
     # already embedded in a finalized file is not, so files finalized before
     # #1305 (an unused support tool, a stale T0) keep launching as they did.
@@ -205,18 +221,6 @@ def _mapped_metadata(mapping, state):
     return metadata
 
 
-def _header_metadata(payload):
-    """The map and zmod_color_data lines finalize placed before ``; HEADER_BLOCK_END``, read from the
-    header only (never the toolpaths). None when the file has no header end or no map line."""
-    head_end = payload[:262144].lower().find(b'; header_block_end')
-    if head_end < 0:
-        return None
-    lines = payload[:head_end].decode('utf-8', errors='replace').splitlines(keepends=True)
-    found = [line for line in lines
-             if line.startswith(MAP_PREFIX) or line.strip().lower().startswith('; zmod_color_data =')]
-    return found if any(line.startswith(MAP_PREFIX) for line in found) else None
-
-
 def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     """Idempotent color/map insertion, then MD5 of exact remaining bytes.
 
@@ -231,29 +235,24 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
     path = Path(path)
     raw = path.read_bytes()
     if raw.startswith(b'; MD5:'):
-        original = raw
         first, sep, payload = raw.partition(b'\n')
         if not sep or first.rstrip(b'\r') != b'; MD5:' + hashlib.md5(payload).hexdigest().encode():
             raise RuntimeError('refusing to replace invalid existing ZMod checksum')
         raw = payload
-        if mapping is not None and state is not None and not drop_unused:
-            # Already finalized by this function with exactly this map: the
-            # result would be the same bytes, so skip the whole-file
-            # normalization (about 12 s on a 25 MB G-code). The slice path
-            # finalizes inside slice_model and its callers finalized the same
-            # file again with the same one-slot map (#1392).
-            wanted = _mapped_metadata(normalize_mapping(mapping, state), state)
-            if _header_metadata(payload) == wanted:
-                return hashlib.sha256(original).hexdigest()
+    # No shortcut for a file that already looks finalized: a valid MD5 and Print
+    # Handy's own map lines can be written by anyone, so every call normalizes
+    # and validates in full; an unchanged result is not rewritten (#1392 review).
     from .native_startup import normalize
     text = normalize(raw.decode('utf-8'))
+    normalized = text
+    tools = used_tools(text)
     if mapping is not None:
         if drop_unused:
-            mapping = drop_unused_tools(text, mapping)
+            mapping = drop_unused_tools(text, mapping, used=tools)
         mapping = normalize_mapping(mapping, state)
-        match = re.search(r'^; filament_type = (.+)$', text, re.M)
+        match = _first_line_match(text, FILAMENT_TYPE_LINE, '; filament_type = ')
         if match is None:
-            used = used_tools(text)
+            used = tools
             if not used:
                 raise RuntimeError('missing filament_type metadata and no logical tool was used')
             if used - set(map(int, mapping)):
@@ -266,13 +265,17 @@ def finalize(path, colors, state=None, mapping=None, drop_unused=False):
             material_text = ';'.join(materials)
         else:
             material_text = match.group(1).strip()
-        validate_materials(text, material_text, state, mapping)
-    tools = used_tools(text)
+    if text is not normalized:  # the filament_type line was appended
+        tools = used_tools(text)
+    if mapping is not None:
+        validate_materials(text, material_text, state, mapping, tools=tools)
     if mapping is None and tools - {0}:
         raise RuntimeError('single-spool adapter cannot finalize multiple logical tools')
+    # Both dropped kinds of line contain '_' (no character lowercases to '_'), so the
+    # strip/lower test runs only on those instead of on every line (#1392).
     lines = [line for line in text.splitlines(keepends=True)
-             if not line.strip().lower().startswith('; zmod_color_data =')
-             and not line.startswith(MAP_PREFIX)]
+             if '_' not in line
+             or not (line.strip().lower().startswith('; zmod_color_data =') or line.startswith(MAP_PREFIX))]
     if mapping is not None:
         if state is None:
             raise RuntimeError('mapped finalization requires hardware state')

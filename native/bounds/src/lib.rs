@@ -50,8 +50,11 @@
 //! always takes the Python path. No `unsafe` code.
 
 use pyo3::create_exception;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+
+mod bed_scan;
 
 /// Version handshake between this extension and the Python dispatcher.
 /// Bump on any semantic change; the dispatcher falls back to the Python
@@ -545,10 +548,22 @@ fn parse_bounds(py: Python<'_>, text: &str) -> PyResult<Py<PyDict>> {
     }
 }
 
+/// The first `(x, y)` a G0-G3 move puts off a `bed_x` by `bed_y` mm bed,
+/// or None (#1392; the contract is in `bed_scan.rs`). Any internal error
+/// raises `ValueError`, on which the Python dispatcher falls back.
+#[pyfunction]
+fn first_off_bed(py: Python<'_>, text: &str, bed_x: f64, bed_y: f64) -> PyResult<Option<(f64, f64)>> {
+    let bytes = text.as_bytes();
+    let outcome = py.detach(|| unwind_guard(|| bed_scan::first_off_bed(bytes, bed_x, bed_y)));
+    outcome.map_err(PyValueError::new_err)
+}
+
 #[pymodule]
 fn _bounds_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("API_VERSION", API_VERSION)?;
+    m.add("BED_SCAN_VERSION", bed_scan::BED_SCAN_VERSION)?;
     m.add_function(wrap_pyfunction!(parse_bounds, m)?)?;
+    m.add_function(wrap_pyfunction!(first_off_bed, m)?)?;
     m.add("BoundsRefusal", m.py().get_type::<BoundsRefusal>())?;
     Ok(())
 }

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import settings
+from ..gcode.bed_scan import first_off_bed
 
 @dataclass
 class Result:
@@ -103,8 +104,13 @@ def pre_slice(*, bounds=None, bed=None, profile=None, required_keys=(), before_p
 # "; model printing time: 1h 2m; total estimated time: 1h 5m", plus older "; TIME:123".
 TIME_HEADER=re.compile(r"(?im)^;\s*(?:estimated printing time(?:\s*\([^)]*\))?|estimated time|printing time)\s*=\s*\S"
                        r"|^;.*\b(?:model printing time|total estimated time)\s*:\s*\S|^;\s*time\s*:\s*\S")
-MOVE=re.compile(r"^\s*G[0-3]\b([^;]*)",re.I)
-XY_WORD=re.compile(r"\b([XY])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
+# Slicers write the time estimate in the header block or the footer; searching those first
+# skips a 1 s whole-file scan on a 25 MB G-code (#1392). The whole file is still searched
+# when neither end has it, so the answer never changes.
+TIME_HEADER_SCAN_CHARS = 1 << 18
+# A tool change line, matched per '\n' line: the same set of tools as
+# re.findall(r"(?im)^\s*T(\d+)\s*(?:;.*)?$", text), without scanning every character.
+TOOL_LINE = re.compile(r"\s*T(\d+)\s*(?:;.*)?", re.I)
 HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")
@@ -500,6 +506,35 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0, e
                                         f"X{target['X']:g} Y{target['Y']:g} Z{z:g} ({where}).")
     return problems[:10]
 
+def tool_numbers(text):
+    """The tools of the tool-change lines in text (a line that is only T<n>, maybe with a comment).
+
+    The same set as re.findall(r"(?im)^\\s*T(\\d+)\\s*(?:;.*)?$", text): a match there starts at a
+    '\\n' line whose first non-blank character is the T and ends at that line's end, so checking
+    those lines alone finds every tool; scanning every character cost about 1 s on 25 MB (#1392).
+    """
+    tools = set()
+    for line in text.split('\n'):
+        head = line[:1]
+        if head and (head in 'Tt' or head.isspace()):
+            m = TOOL_LINE.fullmatch(line)
+            if m:
+                tools.add(int(m.group(1)))
+    return tools
+
+
+def has_time_header(text):
+    """True when the G-code carries a print-time estimate (TIME_HEADER anywhere in it).
+
+    A match inside the first or last TIME_HEADER_SCAN_CHARS is a match in the whole text
+    (a search from pos still treats pos as mid-line unless a newline precedes it), so the
+    whole file is only searched when neither end has one.
+    """
+    return bool(TIME_HEADER.search(text, 0, TIME_HEADER_SCAN_CHARS)
+                or TIME_HEADER.search(text, max(0, len(text) - TIME_HEADER_SCAN_CHARS))
+                or TIME_HEADER.search(text))
+
+
 def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_json=None,
                templates=None, profile_paths=(), envelope=None):
     """Check bounds + effective motion/profile settings and capture provenance.
@@ -532,10 +567,12 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
     if not own_filament_ids:
         values = own_settings.get('filament_settings_id', [])
         own_filament_ids.update(str(value).strip().strip('"') for value in (values if isinstance(values, list) else [values]))
-    if re.search(r"(?m)^;\s*filament_settings_id\s*=", text, re.I) and not own_filament_ids:
+    # The whole-file search costs about 1 s on a 25 MB G-code; it only matters without IDs.
+    if not own_filament_ids and re.search(r"(?m)^;\s*filament_settings_id\s*=", text, re.I):
         r.block("Cannot verify filament_settings_id slots: no active template filament IDs are available.")
-    # Every setting pattern below is anchored at a leading ';', so only comment lines can match.
-    comments = [line for line in text.splitlines() if line.startswith(';')]
+    # Every setting pattern below is anchored at a leading ';' and needs an '=', so only
+    # comment lines with an '=' can match (a few hundred of a million lines, #1392).
+    comments = [line for line in text.splitlines() if line.startswith(';') and '=' in line]
     for line in comments:
         match_brim = BRIM_TYPE.match(line)
         if match_brim:
@@ -576,27 +613,21 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         body = toolpath(text)
         if body is None:
             body = text
-    tools={int(n) for n in re.findall(r"(?im)^\s*T(\d+)\s*(?:;.*)?$",body)}
+    tools = tool_numbers(body)
     for n in sorted(tools):
         if n not in tool_slots: r.block(f"G-code uses T{n}, but no physical IFS slot mapping is recorded.")
         elif not 1<=int(tool_slots[n])<=filament_slots: r.block(f"T{n} maps outside the available IFS slots.")
     if tools and max(tools)>=filament_slots: r.block(f"G-code uses tool T{max(tools)} but only {filament_slots} IFS slots are available.")
-    x=y=0.0
     if envelope is not None:
         for problem in toolpath_motion_problems(text, bed, envelope):
             r.block(problem)
-    # The bed check reads only X and Y: parsing every word into a dict of floats
-    # (and keeping a list of every point) cost about 10 s on a 25 MB G-code (#1392).
-    for line in (text.splitlines() if envelope is None else ()):
-        m=MOVE.match(line)
-        if not m: continue
-        moved=False
-        for axis, value in XY_WORD.findall(m.group(1)):
-            if axis in 'Xx': x=float(value)
-            else: y=float(value)
-            moved=True
-        if moved and (x<0 or y<0 or x>bed[0] or y>bed[1]):
-            r.block(f"G-code move goes off the {bed[0]:g}x{bed[1]:g} mm bed at X{x:g} Y{y:g}."); break
+    else:
+        # print_handy.gcode.bed_scan: the Python loop is the contract; a Rust port runs it on
+        # ASCII text (about 5 s to a few hundredths on a 25 MB G-code, #1392).
+        off_bed = first_off_bed(text, bed)
+        if off_bed is not None:
+            x, y = off_bed
+            r.block(f"G-code move goes off the {bed[0]:g}x{bed[1]:g} mm bed at X{x:g} Y{y:g}.")
     effective = {}
     for line in comments:
         match = EFFECTIVE_SETTING.match(line)
@@ -616,7 +647,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         slot_details.append(item)
     effective['filament_slots'] = slot_details
     r.effective_settings = effective
-    if not TIME_HEADER.search(text):
+    if not has_time_header(text):
         r.warn("G-code header has no estimated print-time metadata; estimate is unavailable offline.")
     if result_json:
         try:
@@ -654,7 +685,7 @@ def _effective_config(artifact):
         # The regex is anchored at ";", so only a line starting with ";" can
         # match (an indented comment never could); skipping the rest before the
         # regex changes no answer and spares a match per motion line (#1153).
-        if not line.startswith(";"):
+        if not line.startswith(";") or "=" not in line:  # the regex needs both (#1392)
             continue
         m = re.match(r"^;\s*([A-Za-z0-9_]+)\s*=\s*(.*)$", line)
         if m and m.group(1) in PROTECTED_KEYS: found[m.group(1)] = m.group(2)
