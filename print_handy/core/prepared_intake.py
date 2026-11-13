@@ -1707,6 +1707,31 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     return Path(combined['path'])
 
 
+SPLIT_TURN_SUPPORTS_NOTE = ('Parts the split turned to fit ({names}) keep the supports their new pose needs, '
+                            'whichever supports choice you make here.')
+
+
+def split_turn_supports_note(job):
+    """The Ready-question line naming parts a full-size split turned onto supports, or ''.
+
+    Choosing a split that reorients a part with "needs supports" is the approval
+    for those supports (#221 R1), so a later global "without supports" does not
+    remove them. The question says so instead of contradicting the slice (#1373,
+    found by the corpus on a 23-plate tray project).
+    """
+    plan = (job or {}).get('full_size_split_plan') or {}
+    turned = [str(object_id) for object_id, row in (plan.get('reorientation_by_object') or {}).items()
+              if isinstance(row, dict) and row.get('supports')]
+    if not turned:
+        return ''
+    names = {}
+    for part in ((job or {}).get('color_manifest') or {}).get('parts') or []:
+        names.setdefault(str(part.get('object_id')), part.get('name') or str(part.get('object_id')))
+    shown = [re.sub(r'\.stl$', '', str(names.get(t, f'object {t}')), flags=re.I) for t in turned]
+    listed = ', '.join(shown[:4]) + (f' and {len(shown) - 4} more' if len(shown) > 4 else '')
+    return SPLIT_TURN_SUPPORTS_NOTE.format(names=listed)
+
+
 def _variant_estimate_str(job_data, result):
     if not result or not job_data:
         return 'slicing...'
@@ -2947,6 +2972,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     cdesc = support_clearance.describe(clearance)
                     if cdesc:
                         flag_lines.extend(cdesc)
+                turned = split_turn_supports_note(latest)
+                if turned:
+                    flag_lines.append(turned)
                 summary_extra = '\n' + '\n'.join(flag_lines)
 
                 sup_label = 'Slice and print with supports (bed is clear)' if can_print else 'Slice with supports'

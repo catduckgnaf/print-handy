@@ -947,6 +947,12 @@ def conversation_checks(run):
                 seen.add(value.strip())
         if not seen:
             seen = slice_support_setting(run)
+        told = any("keep the supports their new pose needs" in str(q.get("question") or "")
+                   for q in run.adapter.questions)
+        if told and decided["supports"] is False and seen == {"0", "1"}:
+            # A full-size split that turned parts onto supports keeps them on those plates,
+            # and the Ready question said so (#1373, prepared_intake.split_turn_supports_note).
+            seen = {want}
         if seen and seen != {want}:
             problems.append(f"the operator chose supports={decided['supports']} but the slice has "
                             f"enable_support={sorted(seen)}")
@@ -984,8 +990,12 @@ def path_invariants(run):
     supports = {str(c.get("enable_support") or "").strip() for c in configs} - {""}
     last_support_choice = next((label for label in reversed(picked)
                                 if "with supports" in label or "without supports" in label), None)
+    told = any("keep the supports their new pose needs" in str(q.get("question") or "")
+               for q in run.adapter.questions)
     if last_support_choice and supports and run.starts:
         want = "0" if "without supports" in last_support_choice else "1"
+        if told and want == "0" and supports <= {"0", "1"}:
+            supports = {want}  # split-turned parts keep their supports, and the question said so
         if supports != {want}:
             problems.append(f"pressed {last_support_choice!r} but the started G-code has enable_support={sorted(supports)}")
     for text in run.adapter.sent:
