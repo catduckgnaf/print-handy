@@ -224,6 +224,26 @@ def test_telegram_command_for_another_bot_is_ignored(cfg):
     assert seen == [] and stub.payloads("sendMessage") == []
 
 
+def test_telegram_mention_of_another_bot_is_ignored(cfg):
+    """Every Telegram bot username ends in "bot": "@OtherBot ..." is for a different bot."""
+    seen = []
+    stub, client, _core = telegram_core(seen, cfg)
+    assert run(client.handle_update(telegram_update("@OtherBot spool list"))) is None
+    assert run(client.handle_update(telegram_update("@other_bot, help"))) is None
+    assert seen == [] and stub.payloads("sendMessage") == []
+    run(client.handle_update(telegram_update("@PrintHandyBot spool list")))
+    assert seen == ["/spool list"]
+
+
+def test_telegram_mention_of_a_person_keeps_todays_behavior(cfg):
+    seen = []
+    stub, client, core = telegram_core(seen, cfg)
+    assert core.addressed("@SomePerson spool list") == mention.Addressed("@SomePerson spool list")
+    out = run(client.handle_update(telegram_update("@SomePerson spool list")))
+    assert seen == [] and out == {"action": "skip", "reason": "command list"}
+    assert [p["text"] for p in stub.payloads("sendMessage")] == [core.unmatched]
+
+
 def test_telegram_renamed_bot_and_unrouted_chat(cfg):
     seen = []
     stub, client, core = telegram_core(seen, cfg, username="shopbot", name="Shop Bot")

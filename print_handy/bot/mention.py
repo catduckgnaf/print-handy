@@ -162,6 +162,23 @@ def command_text(text):
     return clean
 
 
+_HANDLE = re.compile(r"@(\w+)[,:;.!?]*")
+
+
+def _other_bot_handle(head, handles):
+    """True when ``head`` is "@somebot", a bot username that is not one of ``handles``.
+
+    Telegram requires every bot username to end in "bot", so a leading
+    "@OtherBot" addresses a different bot; "@SomePerson" is a person and
+    is left alone.
+    """
+    match = _HANDLE.fullmatch(head)
+    if match is None:
+        return False
+    name = match.group(1).casefold()
+    return name.endswith("bot") and name not in {h.casefold() for h in handles}
+
+
 def address(text, identity):
     """Recognise and strip a mention of this bot in ``text``.
 
@@ -186,6 +203,8 @@ def address(text, identity):
         # This bot's own suffix; any suffix while the bot's username is unknown.
         work, suffix = command + space + rest, True
         mentioned = mentioned or bool(identity.handles)
+    elif identity.handles and _other_bot_handle(head, identity.handles):
+        return Addressed(raw, elsewhere=True)
     work, how = _strip_leading_name(work, identity.names)
     mentioned = mentioned or how == "at"
     rest = work.strip()
