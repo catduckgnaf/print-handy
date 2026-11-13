@@ -113,6 +113,31 @@ def _offline_stop_capture(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _close_web_chat_services(monkeypatch):
+    """Every web chat service a test builds is closed at its end.
+
+    Each WebChatService runs its own loop thread (and, with the chat page on,
+    a feed reader). Left running they pile up across the suite, and a test
+    that joins daemon threads waits on every one of them.
+    """
+    from print_handy.bot import web
+
+    built = []
+    original = web.WebChatService.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        built.append(self)
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(web.WebChatService, "__init__", tracking_init)
+    yield
+    for service in built:
+        close = getattr(service, "close", None)
+        if close is not None and hasattr(service, "_loop"):
+            close()
+
+
+@pytest.fixture(autouse=True)
 def _isolated_launch_state(tmp_path, monkeypatch):
     """Printer leases and consumed approvals live in a per-test database, never the profile's."""
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))

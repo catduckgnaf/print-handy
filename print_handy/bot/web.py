@@ -333,6 +333,40 @@ class WebChatService:
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
+        # Only close() stops the loop: cancel what is left and let it unwind.
+        try:
+            pending = asyncio.all_tasks(self._loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                self._loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True))
+            self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+        except Exception:
+            pass
+
+    def close(self, timeout=2.0):
+        """Stop the heartbeat, the feed reader and the chat loop thread.
+
+        Idempotent and never raises. The Web UI process keeps one service
+        for its life, so this is for callers that build short-lived ones
+        (tests), which otherwise leave a loop thread running per service.
+        """
+        loop = self._loop
+        if loop.is_closed():
+            return
+        try:
+            # Queued after anything already scheduled, so those calls start
+            # first; the loop thread then cancels and drains every task.
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            pass
+        self._thread.join(timeout)
+        if not self._thread.is_alive():
+            try:
+                loop.close()
+            except Exception:
+                pass
 
     async def _announce_startup(self):
         """The on_ready notices, for a Web UI process start.
