@@ -313,10 +313,21 @@ def fit_choice_rows(options):
                      **({'shifts_by_plate': split_plan['shifts_by_plate']}
                         if split_plan.get('shifts_by_plate') else {}),
                      **({'reorientation_by_object': split_plan['reorientation_by_object']}
-                        if split_plan.get('reorientation_by_object') else {})})
+                        if split_plan.get('reorientation_by_object') else {}),
+                     **({'turn_reason_by_object': split_plan['turn_reason_by_object']}
+                        if split_plan.get('turn_reason_by_object') else {})})
+        designed = split_plan.get('designer_pose')
+        if designed:
+            # The same split with nothing tipped onto another face (#1380):
+            # smaller, but every part prints the way its designer laid it out.
+            rows.append({'kind': 'split', 'designer_pose': True,
+                         'label': f"{_pct(designed['scale'])} · split {len(designed['plates'])} plates as designed",
+                         'plates': designed['plates'], 'scale': float(designed['scale']),
+                         **({'yaw_by_object': designed['yaw_by_object']}
+                            if designed.get('yaw_by_object') else {})})
     elif options.get('full_size_split') and len(rows) < 2:
         rows.append({'kind': 'split', 'label': 'Split plates at 100%', 'scale': 1.0})
-    full_size_available = any(row['kind'] in ('split', 'rearrange') for row in rows)
+    full_size_available = any(row['kind'] in ('split', 'rearrange') and row['scale'] >= 0.995 for row in rows)
     rotations = options.get('rotations') or []
 
     def rotate_row(alt, label):
@@ -392,8 +403,10 @@ def fit_hint(rows):
         words.append('rearrange')
     if 'split' in kinds:
         words.append('split')
-    if any(row['kind'] in ('rearrange', 'split') or (row['kind'] in ('rotate', 'painted') and row['scale'] >= 0.995)
-           for row in rows):
+    if any(row.get('designer_pose') for row in rows):
+        words.append('as designed')
+    if any((row['kind'] in ('rearrange', 'split') and row['scale'] >= 0.995)
+           or (row['kind'] in ('rotate', 'painted') and row['scale'] >= 0.995) for row in rows):
         words.append('100%')
     if any(row['kind'] == 'scale' or (row['kind'] in ('rotate', 'painted') and row['scale'] < 0.995)
            for row in rows):
@@ -407,27 +420,31 @@ def _fit_choice_reply(text, rows):
     value = _typo_words(str(text or '').strip().casefold())
     if value in {'rearrange', 'rearrange 1 plate', 'rearrange plate', 'pack'}:
         matches = [i for i, row in enumerate(rows) if row['kind'] == 'rearrange']
+    elif value in {'as designed', 'split as designed', 'keep orientation', 'keep the orientation'}:
+        matches = [i for i, row in enumerate(rows) if row.get('designer_pose')]
     elif value in {'split', 'separate', 'split plates'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'split'
+        matches = [i for i, row in enumerate(rows) if (row['kind'] == 'split' and not row.get('designer_pose'))
                    or (row['kind'] == 'painted' and 'split' in row['label'])]
     elif value in {'100%', '100', 'full', 'full size'} or 'full size' in value:
-        matches = [i for i, row in enumerate(rows) if row['kind'] in ('rearrange', 'split')
+        matches = [i for i, row in enumerate(rows) if (row['kind'] in ('rearrange', 'split') and row['scale'] >= 1.0)
                    or (row['kind'] in ('painted', 'rotate') and row['scale'] >= 1.0)]
     elif value in {'cancel', 'stop', "don't print"}:
         matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
     elif value in {'shrink', 'smaller'}:
-        matches = [i for i, row in enumerate(rows) if row['kind'] == 'scale'
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'scale' or row.get('designer_pose')
                    or (row['kind'] in ('painted', 'rotate') and row['scale'] < 0.995)]
         if len(matches) > 1:  # several smaller sizes are offered: "shrink" means the largest
             matches = [max(matches, key=lambda i: rows[i]['scale'])]
     elif re.fullmatch(r'\d+(?:\.\d+)?\s*%', value):
         percent = float(value.rstrip('%').strip())
         matches = [i for i, row in enumerate(rows)
-                   if row['kind'] in ('scale', 'rotate', 'painted') and abs(row['scale'] * 100 - percent) < 0.06]
+                   if (row['kind'] in ('scale', 'rotate', 'painted') or row.get('designer_pose'))
+                   and abs(row['scale'] * 100 - percent) < 0.06]
     elif re.fullmatch(r'\d+(?:\.\d+)?', value):
         percent = float(value)
         matches = [i for i, row in enumerate(rows)
-                   if row['kind'] in ('scale', 'rotate', 'painted') and abs(row['scale'] * 100 - percent) < 0.06]
+                   if (row['kind'] in ('scale', 'rotate', 'painted') or row.get('designer_pose'))
+                   and abs(row['scale'] * 100 - percent) < 0.06]
     else:
         return None
     if len(matches) != 1:

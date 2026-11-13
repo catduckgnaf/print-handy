@@ -1537,6 +1537,19 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                              for oid in entry} - set(key_to_object.values()))
     if unknown_shifts:
         raise RuntimeError(f"full-size split plan records shifts for unknown object(s) {','.join(unknown_shifts)}")
+    # A split that keeps every part as designed (#1380) prints every plate at one
+    # uniform scale through the whole-plate fit. The planner builds it only from
+    # plates that fit can realize, so a scaled plan carrying any record the fit
+    # cannot scale (a reorientation, a placement, shared shifts) is refused.
+    try:
+        plan_scale = float(plan.get('scale', 1.0))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"split plan scale must be numeric, got {plan.get('scale')!r}") from exc
+    if not math.isfinite(plan_scale) or not 0.5 <= plan_scale <= 1.0:
+        raise RuntimeError(f'split plan scale must be between 50% and 100%, got {plan.get("scale")!r}')
+    if plan_scale < 1.0 and (reorientation_by_object or placement_by_object or any(shifts_by_plate)):
+        raise RuntimeError('a scaled split plan may not carry reorientations, placements or shifts; '
+                           'refusing to slice it')
     bed_xy = [float(v) for v in (st.get('bed_mm') or [])[:2]]
     bed_x = bed_xy[0] if bed_xy else float(st['bed_mm'][0])
     bed_y = bed_xy[1] if len(bed_xy) > 1 else bed_x
@@ -1573,7 +1586,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                     raise RuntimeError(f'full-size split plan turn must be between 0 and 90 degrees, got {yaw_deg!r}')
                 rad = math.radians(yaw_deg)
                 c, s = math.cos(rad), math.sin(rad)
-                fit = {'scale': 1.0, 'rotation': [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0]}
+                fit = {'scale': plan_scale, 'rotation': [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0]}
             else:
                 # A turn recorded for a shared plate (#221 R2) is realizable
                 # only as the exporter's per-object fit composed with the
@@ -1714,6 +1727,9 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                     supports = True
                 elif {key_to_object[key] for key in keys} == reoriented:
                     supports = False
+        if fit is None and plan_scale < 1.0:
+            # The plate as authored, its layout kept, at the plan's one scale (#1380).
+            fit = {'scale': plan_scale}
         shifts_entry = shifts_by_plate[index - 1] if shifts_by_plate else None
         item_shifts = None
         if shifts_entry is not None:
@@ -1861,9 +1877,12 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during full-size split slicing')
     job['derived_plates'] = artifacts
-    job['plate_merge'] = {'mode': 'split', 'reason': f"operator chose full-size split into {len(artifacts)} plates",
+    sized = ('full-size' if plan_scale >= 1.0
+             else f'as-designed split at {plan_scale * 100:g}%, no part reoriented,')
+    job['plate_merge'] = {'mode': 'split', 'reason': f"operator chose {sized} split into {len(artifacts)} plates",
                           'plates_in': len(artifacts), 'parts_in': len(expected), 'fits_bed': True,
-                          'bed_mm': int(st['bed_mm'][0]), 'full_size': True}
+                          'bed_mm': int(st['bed_mm'][0]), 'full_size': plan_scale >= 1.0,
+                          **({'scale': plan_scale} if plan_scale < 1.0 else {})}
     job['artifact_binding'] = {**_recipe_binding(job), 'source_sha256': source_sha, 'decisions_sha256': decision_sha,
                                'gcode_sha256': {row['binding_key']: file_sha256(row['gcode']) for row in artifacts}}
     job.update({'gcode': artifacts[0]['gcode'], 'gcode_verified': True,
