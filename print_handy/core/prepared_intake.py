@@ -2876,33 +2876,36 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # floating-regions finding. A slice a test holds back (release
         # cleared) is not waited on: it starts when the flow asks to wait
         # for it after the question, as before.
-        if (
-            early.running()
-            and hasattr(early, 'first_slice_done')
-            and not early.first_slice_done.is_set()
-            and getattr(early, 'release', None) is not None
-            and early.release.is_set()
-        ):
-            await early.first_slice_done.wait()
-        # The with-supports option must show its own time and filament
-        # before it can be chosen (#1373 item 2): a flagged first slice
-        # starts the speculative supports slice, so it is waited out too,
-        # bounded so a very slow slice never holds the question forever.
-        decided = getattr(early, 'flag_decided', None)
-        if (decided is not None and early.running() and early.first_slice_done.is_set()
-                and getattr(early, 'release', None) is not None and early.release.is_set()):
-            # first_slice_done fires before the flagged verdict and the
-            # speculative supports slice exist; wait for those (bounded).
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
-        sup_task = getattr(early, 'supports_task', None)
-        if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
-                and getattr(early, 'release', None) is not None and early.release.is_set()):
-            # A timeout or a failed supports slice leaves the "slicing..." line;
-            # the intake's own cancellation still propagates.
-            with contextlib.suppress(asyncio.TimeoutError, Exception):
-                await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
         while choice is None:
+            # Every time the Ready question is (re)composed, the slices it describes
+            # are waited for: a Reorient or Scale answer restarts them and asks again
+            # (#1373, found by the corpus explorer on witch-ghost).
+            if (
+                early.running()
+                and hasattr(early, 'first_slice_done')
+                and not early.first_slice_done.is_set()
+                and getattr(early, 'release', None) is not None
+                and early.release.is_set()
+            ):
+                await early.first_slice_done.wait()
+            # The with-supports option must show its own time and filament
+            # before it can be chosen (#1373 item 2): a flagged first slice
+            # starts the speculative supports slice, so it is waited out too,
+            # bounded so a very slow slice never holds the question forever.
+            decided = getattr(early, 'flag_decided', None)
+            if (decided is not None and early.running() and early.first_slice_done.is_set()
+                    and getattr(early, 'release', None) is not None and early.release.is_set()):
+                # first_slice_done fires before the flagged verdict and the
+                # speculative supports slice exist; wait for those (bounded).
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
+            sup_task = getattr(early, 'supports_task', None)
+            if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
+                    and getattr(early, 'release', None) is not None and early.release.is_set()):
+                # A timeout or a failed supports slice leaves the "slicing..." line;
+                # the intake's own cancellation still propagates.
+                with contextlib.suppress(asyncio.TimeoutError, Exception):
+                    await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')
             if clearance is None and early.clearance:

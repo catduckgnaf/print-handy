@@ -229,6 +229,43 @@ is gone. Other handler families listed above have no new ordering proof.
 The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
 coverage is the Spoolman bind refusal, not a gateway restart.
 
+## Corpus explorer and conversation checks (#1373)
+
+A hard live intake (a MakerWorld lantern) showed how the flow corpus was blind: every case answered each question
+with its first matching `[[click]]` rule (usually the first button), so each case ran one path, and a case passed
+on its receipt alone (status, scale, colors). On `main` the lantern, `cute-dino-mmu` and the private Duplo
+reproduced a "with supports" option offered while it still read "slicing...", a false clearance risk, and
+"without supports" printing with supports, and all three still reported PASS.
+
+How the corpus is judged now:
+
+- `harness.conversation_checks` runs inside `check_expectations` for **every** case: no "with supports" button
+  while its line reads "slicing..."; a spool shortage shown on the Ready question is not asked again at the start;
+  the operator's recorded supports decision matches the started G-code. A case can opt out only with
+  `conversation_checks = false` in its `[expect]`, which needs a reason in review.
+- New `[expect]` keys: `clearance_codes` (the exact support-clearance finding codes) and `buttons_absent` (labels
+  that must never be offered, for example `"Fix this for my printer"` or `"with supports"` on a designer
+  no-supports project).
+- `harness.explore(case, work)` walks the decision tree one changed answer at a time: the default journey, then a
+  fresh run for every other button at every question it asked (the Ready question first). A question no rule
+  answers takes its first non-cancel button. Every path is held to `harness.path_invariants`: the conversation
+  checks, a cancel starts nothing, at most one start, the pressed support choice is what the G-code says, and
+  nothing posted reads as an internal error.
+- `tests/corpus/test_corpus_explore.py` runs the explorer on a fixed set of committed cases in CI (bounded runs
+  each), plus a short-spool variant (every spool at 5 g). `PRINT_HANDY_CORPUS_EXPLORE=all` walks every committed
+  case without a bound; a comma-separated list walks those cases. The first full walk (56 cases, 768 paths) found
+  the Ready question re-asked with "slicing..." after Reorient or Scale on `witch-ghost-cults3d`.
+- The mock slicer writes `layer_height`, `initial_layer_print_height`, `sparse_infill_density` and
+  `sparse_infill_pattern` into its config block, so settings checks run in the mock tier too.
+- The already-verified shortcut in `_verify_routed` asked the printer even in the mock tier, which made a
+  speculative supports slice of identical bytes fail ("the printer could not be reached"); the harness stubs that
+  live check like the rest of the offline verify.
+
+Private cases: the live lantern and 13 real intakes from the live install archive (multi-plate projects up to 23
+plates, 3.4 M triangles, per-part and three-slot color jobs, shrink-and-turn, a supports STL) are in
+`complex_cases.toml` as private-tier entries (stats only, files never committed). Run them with
+`run_complex_corpus.py --tier private --root <dir>` after copying the files there.
+
 ## Test-suite cleanup accounting (2026-11-07)
 
 A line-by-line audit of every file under `tests/` (per-file inventory,
