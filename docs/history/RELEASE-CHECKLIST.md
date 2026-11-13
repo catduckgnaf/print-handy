@@ -29,7 +29,12 @@ before merging; it fails closed.
   `tests/corpus/timing_baseline.json` and
   `tests/corpus/timing_baseline_real_slicer.json`, give every raised
   entry a `reason`, and merge as its own PR **before** tagging.
-  Never mix proposed savings with shipped ones (audit A11).
+  Never mix proposed savings with shipped ones (audit A11). Check the
+  artifact's runner CPU first: a run on a runner faster or slower than
+  the baseline's is re-run, not recorded (#1347, #1388). Any case that
+  rose gets an entry in
+  [Performance regressions](PERFORMANCE-REGRESSIONS.md) before it is
+  re-recorded, with its cause or "unverified" (#1392).
 - [ ] Pre-release checklist issue exists: dispatch
   `.github/workflows/pre-release-checklist.yml` with the target
   version. No non-nightly release is tagged until every fix-first item
