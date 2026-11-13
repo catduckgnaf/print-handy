@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 
+# The G-code tool map anchor. Frozen format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names. Never rename.
 MAP_PREFIX = '; hermes_tool_slots = '
 # Matched against every line of the plate, so compiled once.
 TOOL_LINE = re.compile(r'T(\d+)(?:\s*;.*)?')

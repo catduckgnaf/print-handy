@@ -380,7 +380,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `orca` | `templates` | the model's folder under `print_handy/templates/orca` | Orca machine, process, and filament JSON |
 | | `command` | Flathub OrcaSlicer | How to start the Orca CLI |
 | `bambu` | `command` | Flathub Bambu Studio, no network | Fallback slicer |
-| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. Called `paths.hermes_home` before 2.3.0 (still read through 2.3.x); an existing `~/.hermes/profiles/3dprinting` is used as a legacy fallback |
+| `paths` | `state_home` | `~/.local/share/print-handy` | The bot's state folder; any folder works. Called `paths.hermes_home` before 2.3.0 (still read through 2.3.x, removed in 2.4.0); an existing `~/.hermes/profiles/3dprinting` is used as a legacy fallback |
 | | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.cache/print-handy` | Job archive, print records, cache |
 | | `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
@@ -567,12 +567,12 @@ bot posting progress notifications.
 * `print_handy/jobs/`: job helpers split out of `core/model_job.py` (#1323): `common.py` (the settings-derived paths and limits and the HTTP helpers the job, G-code and launch code share), `store.py` (JOB.json and the intake folder, the job a G-code file belongs to, the printer and adapter a job targets, the recorded decisions and their digests), `filament.py` (slot selection and filament telemetry), `slice.py` (`slice_job` and its single, merged, per-plate, painted and full-size split paths, the fit searches and the filament fallbacks and warnings a slice enforces), `sources.py` (inventory and download for every supported site and direct links, with the public-address and redirect guards), `audit.py` (the mesh and source audit), `prompts.py` (the questions a job asks before slicing and the spool projection) and `cli.py` (the job command line; `python3 -m print_handy.core.model_job` still runs it). `core/model_job.py` keeps a few helpers other modules use and the re-exports. The intake still offloads a moved step under its old name (`('model_job', 'slice_job')`), so the heavy worker runs it as before.
 * `print_handy/intake/`: the chat intake flows, split out of `core/prepared_intake.py` (#1323): `questions.py` (the ask helper, the color and label confirmations and their recorded acceptances), `support_flow.py` (the supports decision), `fit_flow.py` (the fit status message, the fit, scale and rotation choices, the split plan, the fit failure texts) and `worker.py` (the heavy-step child process and the background slice wait). `prepared_intake.py` keeps the intake conversation itself.
 * `print_handy/launch/`: starting a sliced job, split out of `core/model_job.py` (#1323): `gates.py` (every gate a start passes: the current artifact, bed clear, idle printer, launch checkpoint, filament and mesh readiness, mechanical limits, the yolo waivers) and `print_now.py` (`print_now`, the per-family start paths, start confirmation and start records).
-* `print_handy/runtime/`: Moonraker listener, Discord posts, spool sync, print control, and records. It was `print_handy/hermes/` before 2.3.0; that import path still works through 2.3.x and warns (`DeprecationWarning`).
+* `print_handy/runtime/`: Moonraker listener, Discord posts, spool sync, print control, and records. It was `print_handy/hermes/` before 2.3.0; that import path still works through 2.3.x and warns (`DeprecationWarning`), and is removed in 2.4.0 (see [Scheduled removals in 2.4.0](#scheduled-removals-in-240)).
 * `print_handy/printer_control.py`: the one printer-control service, keyed by printer id. Every stop, pause, resume, reboot, emergency stop and heater-ceiling question from chat, the alert buttons, the Web UI and the CLI goes through it; see [Printer control service](#printer-control-service).
 * `print_handy/printers/`: one package per brand, one file per printer model; see `base.py` for what each one owns.
 * `print_handy/templates/orca/<model folder>/`: Orca machine, process, and filament JSON per printer.
 * `print_handy/bot/handlers/`: the chat command handlers (#1323, proposal 5 of #1160), one module per handler, each with `match(text)` (its dispatch gate: a slash command, or every message for a free-text handler) and `handle(event, gateway)`, plus `common.py` for the code several handlers share. `HANDLERS` in the package is the dispatch order; the Router loads the package, so a wheel install has every chat command.
-* `plugins/print-feedback/`: the old home of the handlers, kept for one release: loading it by path runs the same handler code in one namespace and registers it as before.
+* `plugins/print-feedback/`: the old home of the handlers, kept through 2.3.x and removed in 2.4.0: loading it by path runs the same handler code in one namespace and registers it as before.
 * `print_handy/bot/`: standalone bot. `platform.py` is the chat-platform interface; `adapter.py` is its Discord implementation over discord.py, `telegram.py`/`telegram_rest.py` its Telegram implementation over the standard-library Bot API (long polling, inline keyboards) and `matrix.py`/`matrix_rest.py` its Matrix implementation over the standard-library Client-Server API (/sync long polling with a persisted next_batch token, media repo uploads/downloads, numbered-list prompts, Matrix has no buttons, and auto-join of the print room on invite), selected by `[bot] platform` (default `discord`). The Telegram and Matrix adapters are pure bots (`uses_llm = False`): BotCore never calls the LLM fallback for them. Plus the router, health check and optional LLM; `systemd/` holds its units.
 * `scripts/`: `install-standalone.sh`, `home-update.sh`, and `migrate-names.sh` (one-shot, see `docs/history/RENAME-MIGRATION.md`).
 * `print-handy.cfg`, `install.sh`, `uninstall.sh`, `update.sh`: ZMod plugin macro and lifecycle scripts. The cfg file name must match the plugin name (`print-handy`) or ZMod refuses to enable the plugin, and the three script names are the lifecycle hooks the plugin host looks for, so they stay at the repository root under those names. They are not Print Handy install scripts (those are `scripts/install-standalone.sh` and `scripts/home-update.sh`).
@@ -582,6 +582,31 @@ bot posting progress notifications.
 ## Moved modules and old import paths
 
 `core/model_job.py` and `core/prepared_intake.py` are being split into the packages above (#1323, proposal 4 of #1160). Code moves verbatim; nothing about a gate or a message changes. For one release (until 2.4.0) every moved name is still importable from its old module, and the old module forwards assignments to the new one (`print_handy/_relocated.py`), so `mock.patch.object(model_job, "BOUNDS_CACHE", ...)` still changes what the moved code sees. New code imports from the new module. `tests/test_module_decomposition.py` checks that each moved name is the same object on both paths, that patching the old path reaches the moved code, and that no new module sits in an import cycle or imports the module it was cut from.
+
+## Scheduled removals in 2.4.0
+
+These compatibility paths exist so a 2.3.x install keeps working while it updates. They stay through every 2.3.x release and are removed in 2.4.0. Each one's text and warnings name that release.
+
+| What | Where | Replacement |
+| --- | --- | --- |
+| The `print_handy.hermes` package name, including `python -m print_handy.hermes.<name>` in old service files | `print_handy/hermes/` | `print_handy.runtime` |
+| Old module paths for code moved out of `core/model_job.py`, `core/prepared_intake.py` and the handler plugin, and the assignment forwarding that keeps `mock.patch` on the old path working | `print_handy/_relocated.py` and its `keep_old_path` calls | Import from the new module |
+| The handler plugin loaded by path | `plugins/print-feedback/__init__.py` and its line in `MANIFEST.in` | `print_handy.bot.handlers` |
+| The `paths.hermes_home` setting (`PRINT_HANDY__PATHS__HERMES_HOME`) and the `hermes_home` helpers in `print_handy/runtime/_config.py` | `KEY_ALIASES` in `print_handy/settings.py` | `paths.state_home` |
+
+`tests/test_scheduled_removals.py` fails once the package version reaches 2.4.0 while any of these is still present, so the removal ships with that release. The legacy `/data/hermes` Docker volume and the `~/.hermes/profiles/3dprinting` fallback follow their own deprecation notes and are not on this list. Neither are the frozen names below, which are never removed.
+
+## Frozen Hermes wire names
+
+Print Handy was once installed through Hermes, and a few names from that time are written into G-code, printer state and data other programs read. They are frozen formats: they are permanent, and a rename sweep must never touch them. Changing one would break files and readers that Print Handy does not control: G-code already sliced and stored on printers and in archives, and the Home Assistant integration that reads the printer's Moonraker database. Old and new Print Handy versions also have to read each other's files during an update.
+
+| Name | Where it lives | Who reads it |
+| --- | --- | --- |
+| `; hermes_tool_slots = ` | A header comment in every multi-tool G-code file Print Handy slices (the tool to slot or spool map) | Print Handy's launch, offline verification, spool lifecycle and the ZMod multicolor contract, including on files an earlier version sliced |
+| `Hermes slot <n> <material>` and `Hermes toolhead <n> <material>` | Filament profile names (`name`, `filament_settings_id`) in the G-code Print Handy slices | The slice guard, which recognizes its own generated profiles by this shape |
+| Moonraker database namespace `hermes`, key `current_job` | The printer's Moonraker database | The Home Assistant integration (job card) |
+
+Each definition in the code carries a comment pointing here. A new wire name should not use "hermes"; these stay only because they are already in the field.
 
 ## Printer control service
 
