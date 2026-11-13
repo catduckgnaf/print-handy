@@ -1,4 +1,4 @@
-"""native_startup reads only START_PRINT and its neighbours (#1392), with the old answers.
+"""native_startup reads only START_PRINT and its neighbors (#1392), with the old answers.
 
 The old valid/normalize built commands(text) for the whole file (about 1.2 s on a
 25 MB G-code, twice per slice). The frozen copies below are the old code; the new
