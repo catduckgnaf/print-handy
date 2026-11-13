@@ -136,7 +136,7 @@ The helpers every listener needs live outside the Moonraker listener
 route in `listener_common.py`, start claims and the abandoned-start rule
 in `start_claims.py`, and the camera watch rules and coverage in
 `camera_watch.py`. No other listener imports
-`moonraker_event_listener`; `tests/hermes/test_camera_watch_core.py`
+`moonraker_event_listener`; `tests/runtime/test_camera_watch_core.py`
 enforces it.
 
 - **Launched prints** are claimed by the print path

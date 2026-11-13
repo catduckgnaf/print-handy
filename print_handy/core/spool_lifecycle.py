@@ -570,7 +570,8 @@ def parse_slicer_metadata(gcode_text: str) -> dict[str, Any]:
         except ValueError:
             pass
 
-    # Tool mapping comment if present
+    # Tool mapping comment if present. The hermes_tool_slots anchor is a frozen
+    # format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
     m_map = re.search(r"^;\s*hermes_tool_slots\s*=\s*(.+)$", gcode_text, re.M)
     if m_map:
         try:

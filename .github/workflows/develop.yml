@@ -17,8 +17,10 @@ name: Develop Docker image to GHCR
 # promote-only run) never strands a commit unpublished (P2-97).
 on:
   schedule:
-    # 06:47 UTC daily, offset from nightly's 06:17 so the two channels
-    # do not contend for runners.
+    # 06:47 UTC daily, apart from nightly's 09:17 (#1386) so the two
+    # channels do not contend for runners. GitHub starts scheduled runs
+    # hours late (6 to 10 h measured in #1400), so this is a request, not
+    # a delivery time.
     - cron: "47 6 * * *"
   workflow_dispatch:
     inputs:

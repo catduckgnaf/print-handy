@@ -45,7 +45,8 @@ def pinned_state_home() -> Path:
     return Path(_pinned["paths"]["state_home"])
 
 
-# The old names (paths.hermes_home, #1323), kept through 2.3.x.
+# The old names (paths.hermes_home, #1323), kept through 2.3.x and removed in 2.4.0
+# (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
 hermes_home = state_home
 pinned_hermes_home = pinned_state_home
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace as S
 
 from print_handy.core import prepared_intake
-from tests.hermes.test_print_next import Interaction, load_plugin
+from tests.runtime.test_print_next import Interaction, load_plugin
 
 
 def _fake_discord(monkeypatch):

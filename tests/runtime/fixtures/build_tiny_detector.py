@@ -17,7 +17,7 @@ Dark frame (mean ~0.05) -> conf ~0.0 -> ok.
 Run with the repo venv (needs the ``onnx`` package, a build-time tool
 only — it is not a runtime or test dependency):
 
-    ~/workspace/projects/.venv-print-buddy/bin/python tests/hermes/fixtures/build_tiny_detector.py
+    ~/workspace/projects/.venv-print-buddy/bin/python tests/runtime/fixtures/build_tiny_detector.py
 """
 from pathlib import Path
 

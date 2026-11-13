@@ -6,7 +6,7 @@
 - Bambu uncertain launch leases settle on their own: the Bambu listener's sink feeds every LAN
   status to the same ``family_control.LaunchLeaseSettler`` the polled families use.
 
-The per-family start and alert-button table is tests/hermes/test_printer_family_table.py.
+The per-family start and alert-button table is tests/runtime/test_printer_family_table.py.
 Every printer here is a fake or a profile; nothing opens a socket.
 """
 import json

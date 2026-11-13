@@ -5,4 +5,6 @@ recursive-include print_handy *.json *.toml *.pem *.md *.js
 include LICENSE NOTICE
 # The bot's command handlers live outside the package (plugins/print-feedback)
 # and are loaded by path at startup; the sdist must carry them (#1146).
+# Removed with the plugin file in 2.4.0 (docs/PROJECT-REFERENCE.md,
+# Scheduled removals in 2.4.0).
 include plugins/print-feedback/__init__.py

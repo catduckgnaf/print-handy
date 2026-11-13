@@ -7,7 +7,7 @@ rates produced a 72-second video where about 60 was expected in the
 ffmpeg, builds a video through the real build path, probes the result
 with ffprobe and asserts the total duration. It skips cleanly when
 ffmpeg/ffprobe are absent, following the repo's existing pattern
-(tests/hermes/test_timelapse_encode.py). No fixture media is committed.
+(tests/runtime/test_timelapse_encode.py). No fixture media is committed.
 """
 import shutil
 import subprocess

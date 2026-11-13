@@ -1,0 +1,71 @@
+name: Issue spelling
+
+# US-spelling watch for issue text (catduck, 2026-10-29; enforcement gap found in
+# #1400, L1). The ci.yml spelling job covers added Markdown and PR descriptions;
+# this covers issue titles and bodies, which the ruling's letter names. It reads
+# the title and body through the event payload into a file (never into a
+# command), runs scripts/check_us_spelling.py from the default branch, and keeps
+# one comment on the issue up to date: it lists the words while any remain and
+# is removed once the text is clean. Like the PR job, it is advisory, not a gate.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-spelling-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  issue-spelling:
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: scripts/check_us_spelling.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Save the issue title and body
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = context.payload.issue;
+            fs.writeFileSync(process.env.RUNNER_TEMP + '/issue.txt', (issue.title || '') + '\n' + (issue.body || ''));
+      - name: Check the issue text for British spellings
+        id: scan
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set +e
+          python scripts/check_us_spelling.py --body-file "$RUNNER_TEMP/issue.txt" --source "issue #$ISSUE_NUMBER" > "$RUNNER_TEMP/spelling.out" 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/spelling.out"
+      - name: Keep one spelling comment on the issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SCAN_STATUS: ${{ steps.scan.outputs.status }}
+        with:
+          script: |
+            const fs = require('fs');
+            const number = context.payload.issue.number;
+            const marker = '<!-- issue-spelling -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: number, per_page: 100});
+            const mine = comments.find(c => (c.body || '').startsWith(marker));
+            if (process.env.SCAN_STATUS === '0') {
+              if (mine) await github.rest.issues.deleteComment({...context.repo, comment_id: mine.id});
+              return;
+            }
+            const out = fs.readFileSync(process.env.RUNNER_TEMP + '/spelling.out', 'utf8').trim();
+            const text = marker + '\nThis issue uses British spellings; project text uses American spelling (catduck, 2026-10-29). ' +
+              'Edit the title or body and this comment goes away. Line numbers count the title as line 1.\n\n```\n' + out + '\n```';
+            if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body: text});
+            else await github.rest.issues.createComment({...context.repo, issue_number: number, body: text});

@@ -15,6 +15,8 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[test]"
 ```
 
+A native install floats its Python dependencies: `pyproject.toml` gives lower bounds (and an upper bound only for `discord.py`), and there is no lock file, so two installs a week apart can resolve different versions. The Docker image is the pinned, tested combination. If you need a repeatable native install, record what you got with `.venv/bin/python -m pip freeze > requirements.lock` and reinstall from that file.
+
 Use `.venv/bin/python` wherever this page says `python3` from here on, or activate the environment with `. .venv/bin/activate`. The direct service installer in step 4 uses the system `python3` by default, so pass the virtual environment's interpreter explicitly when running it without activation.
 
 ## 2. OrcaSlicer
@@ -32,7 +34,7 @@ Or install by hand from the OrcaSlicer 2.5.0 release page: download the `x86_64`
 Defaults live in `config/home.yaml`. Put machine-specific overrides in the gitignored `config/local.yaml`; an existing `config/local.toml` remains supported. YAML takes precedence when both formats are present. See [the configuration guide](CONFIGURATION-YAML.md) for precedence, validation and migration details.
 
 - `services.moonraker_url` and `services.spoolman_url`
-- `paths.state_home` (the state folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x), `archive`, `records_vault` and `cache`
+- `paths.state_home` (the state folder; called `paths.hermes_home` before 2.3.0, and the old name is still read through 2.3.x and removed in 2.4.0), `archive`, `records_vault` and `cache`
 - `printer.model` and supported printer-specific overrides
 
 The guided setup (`python3 -m print_handy.bot setup`) writes these with you; see [guided setup and debugging](GUIDED-SETUP-DEBUGGING.md).
@@ -51,6 +53,8 @@ Or install the systemd user services directly:
 scripts/install-standalone.sh --python "$PWD/.venv/bin/python"
 systemctl --user enable --now print-handy-bot.service print-handy-listener.service
 ```
+
+If you turn the Web UI on (it is off on a native install until `webui.port` is set; see [Enable it on a native or manual install](WEBUI.md#enable-it-on-a-native-or-manual-install)), claim it as part of setup: open it and finish the walkthrough's **Login** step before anyone else on the network can reach it.
 
 Put the bot token in the data folder's `.env`; see the [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md) guide. The listener service runs `print_handy.runtime.moonraker_event_listener` (a module name left over from the project's history), and only applies to Moonraker printers.
 

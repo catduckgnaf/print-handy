@@ -2064,6 +2064,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
                 print(f"SLICE TEMPERATURES: toolhead {position} {record['material']} nozzle {temps['nozzle']} °C, "
                       f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
+                # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
                 data.update({'name': f"Hermes toolhead {position} {record['material']}",
                              'filament_settings_id': [f"Hermes toolhead {position} {record['material']}"],
                              'filament_is_support': ['0']})
@@ -2120,6 +2121,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             gate_nozzle_temp = max(gate_nozzle_temp, tool_nozzle)
             print(f"SLICE TEMPERATURES: slot {physical_slot} {record['material']} nozzle {temps['nozzle']} °C, "
                   f"bed {job_bed} °C ({resolution.get('source')})", flush=True)
+            # Frozen profile name: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
             data.update({'name': f"Hermes slot {physical_slot} {record['material']}",
                          'filament_settings_id': [f"Hermes slot {physical_slot} {record['material']}"],
                          'filament_is_support': ['0']})

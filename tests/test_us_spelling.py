@@ -128,6 +128,22 @@ class SpellingTests(unittest.TestCase):
         self.assertIn("'recognises'", output)
         self.assertIn("'recognizes'", output)
 
+    def test_issue_text_is_scanned_alone_under_its_own_name(self):
+        """#1400, L1: issue titles and bodies are checked without a diff."""
+        with tempfile.TemporaryDirectory() as directory:
+            issue = self.write_temp(directory, "issue.txt", "Title\nProposed behaviour\n")
+            code, output = self.run_main(["--body-file", issue, "--source", "issue #12"])
+            clean = self.write_temp(directory, "clean.txt", "Title\nProposed behavior\n")
+            clean_code, _ = self.run_main(["--body-file", clean, "--source", "issue #12"])
+        self.assertEqual(1, code)
+        self.assertIn("issue #12:2", output)
+        self.assertIn("'behavior'", output)
+        self.assertEqual(0, clean_code)
+
+    def test_nothing_to_scan_is_a_usage_error(self):
+        with self.assertRaises(SystemExit):
+            self.run_main([])
+
     def test_word_list_covers_the_named_family(self):
         for british in ("colour", "honour", "behaviour", "favour", "neighbour",
                         "recognise", "organise"):
@@ -153,6 +169,20 @@ class WorkflowTests(unittest.TestCase):
         for name, job in workflow["jobs"].items():
             with self.subTest(job=name):
                 self.assertNotIn("edited", job.get("if", ""))
+
+    def test_issue_text_has_its_own_spelling_workflow(self):
+        """#1400, L1: issues are scanned on open and edit, and their text never reaches a shell command."""
+        path = WORKFLOW_PATH.parent / "issue-spelling.yml"
+        text = path.read_text()
+        workflow = yaml.load(text, Loader=yaml.BaseLoader)
+        self.assertEqual({"opened", "edited", "reopened"}, set(workflow["on"]["issues"]["types"]))
+        steps = workflow["jobs"]["issue-spelling"]["steps"]
+        runs = [step.get("run", "") for step in steps]
+        self.assertTrue(any("check_us_spelling.py" in run and "--body-file" in run for run in runs))
+        for run in runs:
+            self.assertNotIn("github.event.issue.title", run)
+            self.assertNotIn("github.event.issue.body", run)
+        self.assertEqual({"contents": "read", "issues": "write"}, workflow["permissions"])
 
     def test_contribution_checks_still_run_on_description_edits(self):
         path = WORKFLOW_PATH.parent / "contribution.yml"

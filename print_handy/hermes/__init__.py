@@ -7,7 +7,7 @@ now. Importing the old name warns (DeprecationWarning) and still works:
 so ``mock.patch("print_handy.hermes.print_stop.x")`` patches the real code.
 ``python -m print_handy.hermes.<name>`` (service files written before 2.3.0)
 runs ``print_handy.runtime.<name>`` and warns that the service file is stale.
-Remove this package after 2.3.x.
+Removed in 2.4.0 (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
 """
 import importlib
 import importlib.abc
@@ -18,7 +18,7 @@ import warnings
 _OLD = __name__
 _NEW = "print_handy.runtime"
 
-warnings.warn(f"{_OLD} was renamed {_NEW}; the old name is removed after 2.3.x",
+warnings.warn(f"{_OLD} was renamed {_NEW}; the old name is removed in 2.4.0",
               DeprecationWarning, stacklevel=2)
 
 # A package, so the import system looks for submodules here; the finder below answers.
@@ -51,7 +51,7 @@ class _RenamedModules(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     def get_code(self, fullname):
         new = _real_name(fullname)
         warnings.warn(f"python -m {fullname} is deprecated; run python -m {new} instead "
-                      "(re-run the installer to update service files); the old name is removed after 2.3.x",
+                      "(re-run the installer to update service files); the old name is removed in 2.4.0",
                       FutureWarning, stacklevel=2)
         real = importlib.util.find_spec(new)
         return real.loader.get_code(new)

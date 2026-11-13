@@ -9,7 +9,7 @@ tests/strict_xfail_register.json with an owner and an expiry.
 
 Handler families (plugins/print-feedback alert_button_handlers):
   covered elsewhere: clarify pbq (tests/bot/test_runtime.py, test_clarify_ui.py), exclude pick
-                     (tests/hermes/test_exclude_chat.py)
+                     (tests/runtime/test_exclude_chat.py)
   covered here:      plate confirm (pbplate:go), intake Retry, spool-question same / cancel / existing select
                      insertion existing / new, spool-question existing / new, and the picker selection that
                      re-reads Spoolman for the bind confirmation
@@ -25,7 +25,7 @@ import pytest
 
 RID = "a" * 32
 
-from tests.hermes.test_print_next import Interaction, plate_clicks
+from tests.runtime.test_print_next import Interaction, plate_clicks
 
 
 class Order(list):
@@ -77,7 +77,7 @@ def test_plate_confirm_acknowledges_before_print_next_start(tmp_path, monkeypatc
 
 
 def test_intake_retry_acknowledges_before_print_next_start(tmp_path, monkeypatch):
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_stop_button_view import _install
     from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
@@ -102,7 +102,7 @@ def test_intake_retry_acknowledges_before_print_next_start(tmp_path, monkeypatch
 def test_an_unexpected_retry_error_is_uncertain_and_offers_no_retry(tmp_path, monkeypatch):
     # Codex on #182: an exception out of print_next.start may follow an upload or start, so it must not
     # be dressed up as "REFUSED: ... Nothing uploaded or started" with a fresh Retry button.
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_stop_button_view import _install
     from print_handy.runtime import print_alert_buttons as pab, print_next
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
@@ -131,7 +131,7 @@ def test_an_unexpected_retry_error_is_uncertain_and_offers_no_retry(tmp_path, mo
 
 
 def _spool_question_click(tmp_path, monkeypatch, action, slow_name, order):
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_stop_button_view import _install
     from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
@@ -170,7 +170,7 @@ def test_intake_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
     """The walkthrough confirmation creates and binds through Spoolman and
     Moonraker calls that can outlast Discord's 3 s window; the interaction
     must be deferred before the bind starts (P2-191)."""
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_stop_button_view import _install
     from print_handy.runtime import print_alert_buttons as pab
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)
@@ -192,7 +192,7 @@ def test_intake_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
 def test_new_spool_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
     """The #483 prompt's Confirm load binds through spool_sync.bind_slot;
     same 3 s rule as the walkthrough confirmation (P2-191)."""
-    from tests.hermes.test_stop_button_view import _install
+    from tests.runtime.test_stop_button_view import _install
     from print_handy.runtime import print_alert_buttons as pab, spool_sync
     monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
     _sent, on_interaction, plugin = _install(monkeypatch)

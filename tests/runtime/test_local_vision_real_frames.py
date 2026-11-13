@@ -9,7 +9,7 @@ the session must produce no *posted* alert under the weak-detection rules
   the path of the real 202 MB ``obico-failure-detector.onnx``. Without it
   the test skips; nothing is ever downloaded.
 * The plumbing (a plain frame folder as a session, the posted-alert
-  accounting, the ``python -m tests.hermes.vision_eval`` entry point) runs
+  accounting, the ``python -m tests.runtime.vision_eval`` entry point) runs
   always, against the tiny synthetic stand-in model.
 """
 import copy
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 from print_handy.runtime import _config, local_vision as lv
-from tests.hermes.vision_eval import harness
-from tests.hermes.vision_eval import __main__ as vision_eval_cli
+from tests.runtime.vision_eval import harness
+from tests.runtime.vision_eval import __main__ as vision_eval_cli
 
 HERE = Path(__file__).parent
 REAL_FRAMES = HERE / "fixtures" / "timelapse_real"
@@ -117,7 +117,7 @@ def test_the_cli_refuses_a_missing_or_empty_frames_folder_in_one_line(tmp_path, 
     captured = capsys.readouterr()
     assert captured.out == ""
     lines = captured.err.strip().splitlines()
-    assert len(lines) == 1 and lines[0].startswith("python -m tests.hermes.vision_eval: error: ")
+    assert len(lines) == 1 and lines[0].startswith("python -m tests.runtime.vision_eval: error: ")
 
 
 def test_the_cli_refuses_a_missing_model_instead_of_downloading(tmp_path, capsys):

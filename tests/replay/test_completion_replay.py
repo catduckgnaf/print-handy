@@ -9,7 +9,7 @@ the start path only). The synthetic sequences were generated in the
 start recorder's exported-fixture format (``{"recorded": ..., "frames":
 [{"t_s", "result"}]}``, the shape ``start_recorder.export_fixture``
 writes) from the ``print_stats`` event shapes the hermes suites drive
-(``tests/hermes/test_family_event_listener.py``). They are labeled as
+(``tests/runtime/test_family_event_listener.py``). They are labeled as
 synthetic inside each file's ``recorded`` block as well.
 
 Replay seam: each recording's frames are normalized to the status dicts

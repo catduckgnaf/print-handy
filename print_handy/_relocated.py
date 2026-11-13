@@ -20,7 +20,8 @@ two stay one name:
   returns the new home's current value, and writing them writes there.
 
 The forwarding is the only behavior; every function still runs from its
-new home. Remove an entry once its release has passed.
+new home. This module and every ``keep_old_path`` call are removed in
+2.4.0 (docs/PROJECT-REFERENCE.md, Scheduled removals in 2.4.0).
 """
 import sys
 import types

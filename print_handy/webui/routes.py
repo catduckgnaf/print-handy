@@ -118,6 +118,8 @@ ROUTES = (
     _get("/walkthrough", SESSION, "_walkthrough_page"),
     _get("/", SESSION, "_status_page"),
     _get("/api/status", SESSION, "_api_status"),
+    # The cheap printer roster (#1400): configuration only, no doctor run.
+    _get("/api/printers", SESSION, "_api_printers"),
     _get("/data", SESSION, "_data_route", pass_path=True),
     _get("/wrapped", SESSION, "_data_route", pass_path=True),
     _get("/api/data", SESSION, "_data_route", pass_path=True),

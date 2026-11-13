@@ -210,20 +210,24 @@ def format_violation(violation):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group()
     group.add_argument("--base", help="Git ref to diff HEAD against (three-dot), e.g. origin/main")
     group.add_argument("--diff-file", help="Read a unified diff from this file instead of running git")
     parser.add_argument("--body-file", help="Also scan this text file line by line (e.g. a PR description)")
+    parser.add_argument("--source", default="PR description",
+                        help="Name for --body-file in the report, e.g. 'issue #12' (#1400, L1)")
     args = parser.parse_args(argv)
+    if not (args.base or args.diff_file or args.body_file):
+        parser.error("give --base, --diff-file or --body-file")
 
     violations = []
     if args.base:
         violations += diff_violations(git_diff(args.base))
-    else:
+    elif args.diff_file:
         violations += diff_violations(Path(args.diff_file).read_text(encoding="utf-8"))
     if args.body_file:
         violations += text_violations(
-            Path(args.body_file).read_text(encoding="utf-8"), "PR description"
+            Path(args.body_file).read_text(encoding="utf-8"), args.source
         )
 
     for violation in violations:
