@@ -3012,6 +3012,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The trial slice is over: never "slicing..." for a slice that
                     # ended without numbers (#1373). Choosing it slices again.
                     sup_est = 'no estimate (the trial slice with supports did not finish; choosing it slices again)'
+                elif sup_est == 'slicing...' and sup_task_now is not None and not sup_task_now.done():
+                    # Past the two-minute wait (a 23-plate project): say so, and what
+                    # choosing it does, instead of a bare "slicing..." (#1373 corpus).
+                    sup_est = (f'still slicing after {SUPPORTS_ESTIMATE_WAIT_S / 60:g} minutes '
+                               '(choosing it waits for that slice to finish)')
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
                 from .background_slice import _sliced_with_supports
                 if early.result and await asyncio.to_thread(_sliced_with_supports, early.result):
