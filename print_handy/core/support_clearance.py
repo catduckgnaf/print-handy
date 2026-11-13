@@ -455,6 +455,43 @@ def authored_supports(source):
     return str(value).strip().lower() in ('1', 'true')
 
 
+def posed_report(source, matrix=None, scale=None, first_layer_mm=None):
+    """The clearance report for ``source`` in the pose a job prints it (#1373 review).
+
+    ``matrix`` is the job's recorded rotation (None: as authored) and ``scale``
+    its uniform scale (None or 1.0: full size). A scaled model's gaps scale with
+    it (a 1.6 mm gap is 0.8 mm at 50%), and a turned model's undersides are other
+    faces, so the report a job was created with does not describe either. The
+    report records the pose it describes in ``pose``.
+    """
+    factor = float(scale) if scale else 1.0
+    rot = np.asarray(matrix, dtype=float).reshape(3, 3) if matrix is not None else None
+    if rot is None and abs(factor - 1.0) < 1e-9:
+        report = analyze(source, first_layer_mm=first_layer_mm)
+    else:
+        parts = []
+        for p in leaves(source):
+            tris = np.asarray(p['tris'], dtype=float)
+            if rot is not None:
+                tris = tris @ rot.T
+            parts.append({**p, 'tris': tris * factor})
+        if parts:
+            low = min(float(p['tris'][:, :, 2].min()) for p in parts)
+            for p in parts:
+                p['tris'][:, :, 2] -= low
+        report = _analyze_parts(parts, _sha256(source), first_layer_mm=first_layer_mm,
+                                authored_supports=authored_supports(source))
+        report['orientation_applied'] = rot is not None
+    report['pose'] = pose_key(matrix, scale)
+    return report
+
+
+def pose_key(matrix=None, scale=None):
+    """A comparable description of a job pose: rounded rotation and scale."""
+    rot = [round(float(v), 6) for v in matrix] if matrix is not None else None
+    return {'rotation': rot, 'scale': round(float(scale), 6) if scale else 1.0}
+
+
 def rotated_report(source, matrix, first_layer_mm=None):
     """The clearance report for ``source`` after a rotation (#922 gap 7).
 

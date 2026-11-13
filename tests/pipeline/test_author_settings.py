@@ -263,6 +263,15 @@ def test_a_support_type_edit_keeps_manual_placement_and_resets_the_style(tmp_pat
     assert process["support_type"] == "normal(manual)" and process["support_style"] == "default"
 
 
+def test_with_supports_on_a_manual_project_without_painted_enforcers_places_them_automatically(tmp_path):
+    """#1373 review: manual placement only supports painted enforcers; with none, the
+    operator's "with supports" sliced with no supports at all."""
+    process, provenance = sliced_process(tmp_path, bambu_project(tmp_path / "b.3mf", {
+        "enable_support": "0", "support_type": "normal(manual)"}), supports=True)
+    assert process["enable_support"] == "1" and process["support_type"] == "normal(auto)"
+    assert any("automatic placement" in note for note in provenance["author_notes"])
+
+
 # --- 8. designer-lowered speeds ------------------------------------------------------------------------
 
 def test_only_speeds_below_the_profile_are_kept():

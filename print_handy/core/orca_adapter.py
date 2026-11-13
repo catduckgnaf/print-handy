@@ -1684,6 +1684,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     if supports is not None:
         process.update({'enable_support': '1' if supports else '0'})
         _selected('operator', ['enable_support'])
+        if (supports and str(process.get('support_type') or '').endswith('(manual)')
+                and not first_layer and not author_settings.painted_supports(source)):
+            # Manual placement only supports painted enforcers: with none painted, the
+            # operator's "with supports" would slice with no supports at all (#1373 review).
+            process['support_type'] = process['support_type'].replace('(manual)', '(auto)')
+            _selected('operator', ['support_type'])
+            author_notes.append('supports set to automatic placement: the project asked for manual '
+                                'placement but paints no support enforcers')
         if supports and 'support_type' not in process:
             process['support_type'] = 'tree(auto)'
             _selected('operator', ['support_type'])
@@ -2933,16 +2941,25 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
         m_base = json.loads(Path(TEMPLATES / 'machine.json').read_text())
         ppath = TEMPLATES / 'process.json'
         fpath = TEMPLATES / 'filament.json'
-        if supports is None and source.suffix.lower() == '.3mf':
+        probe_author = {}
+        if source.suffix.lower() == '.3mf':
             try:
                 with zipfile.ZipFile(source) as archive:
-                    author = json.loads(archive.read('Metadata/project_settings.config'))
-                supports = str(author.get('enable_support', '0')) == '1'
+                    probe_author = json.loads(archive.read('Metadata/project_settings.config'))
             except (KeyError, OSError, ValueError, zipfile.BadZipFile):
-                supports = False
+                probe_author = {}
+        if supports is None:
+            supports = str(probe_author.get('enable_support', '0')) == '1'
         if supports:
             p_tmpl = json.loads(ppath.read_text())
             p_tmpl['enable_support'] = '1'
+            # The footprint of the supports the job will slice with (#1373 review): the
+            # designer's type and style where Orca accepts them, else the template's.
+            for key in ('support_type', 'support_style'):
+                value = probe_author.get(key)
+                value = value[0] if isinstance(value, list) and value else value
+                if value and not author_settings.invalid_enum(key, value):
+                    p_tmpl[key] = value
             p_tmpl.setdefault('support_type', 'tree(auto)')
             ppath = tmp / 'process_supports.json'
             ppath.write_text(json.dumps(p_tmpl, indent=2))
@@ -3240,6 +3257,26 @@ UP_AXES = {
 SUPPORT_THRESHOLD_NZ = -0.866  # faces within 30° of a horizontal ceiling (process.json threshold 30°)
 
 
+def support_threshold_nz(source=None):
+    """The overhang threshold, as a face normal Z, the job's slice will use (#1373 review).
+
+    The designer's ``support_threshold_angle`` when the project sets one (it is a kept
+    setting, so the slice uses it), else the template's 30 degrees.
+    """
+    try:
+        if source is not None and str(source).lower().endswith('.3mf'):
+            with zipfile.ZipFile(source) as archive:
+                author = json.loads(archive.read('Metadata/project_settings.config'))
+            angle = author.get('support_threshold_angle')
+            angle = angle[0] if isinstance(angle, list) and angle else angle
+            angle = float(str(angle).strip())
+            if 0 < angle < 90:
+                return -math.cos(math.radians(angle))
+    except Exception:  # noqa: BLE001 - an unreadable project uses the template's threshold
+        pass
+    return SUPPORT_THRESHOLD_NZ
+
+
 def _matmul(a, b):
     return [sum(a[r * 3 + k] * b[k * 3 + c] for k in range(3)) for r in range(3) for c in range(3)]
 
@@ -3422,7 +3459,7 @@ def _faces(tris):
     return hit[1]
 
 
-def _surface_stats_indexed(tris, rotation):
+def _surface_stats_indexed(tris, rotation, threshold_nz=SUPPORT_THRESHOLD_NZ):
     """Batched twin of _surface_stats for large indexed meshes.
 
     Mirrors the scalar path exactly in structure: zero-length faces are
@@ -3461,7 +3498,7 @@ def _surface_stats_indexed(tris, rotation):
         safe_length = np.where(kept, length, 1.0)
         rnz = (r6 * (n[0] / safe_length) + r7 * (n[1] / safe_length)
                + r8 * (n[2] / safe_length))
-        facing = kept & (rnz < SUPPORT_THRESHOLD_NZ)
+        facing = kept & (rnz < threshold_nz)
         if not np.any(facing):
             continue
         area = length / 2
@@ -3471,17 +3508,17 @@ def _surface_stats_indexed(tris, rotation):
     return contact, overhang
 
 
-def _surface_stats(tris, rotation):
+def _surface_stats(tris, rotation, threshold_nz=SUPPORT_THRESHOLD_NZ):
     """(bed contact area, unsupported overhang area) in mm² for an orientation."""
     if isinstance(tris, IndexedTriangles) and len(tris) >= 32768:
-        return _surface_stats_indexed(tris, rotation)
+        return _surface_stats_indexed(tris, rotation, threshold_nz)
     r6, r7, r8 = (float(v) for v in rotation[6:9])
     faces = _faces(tris)
     floor = min(r6 * p[0] + r7 * p[1] + r8 * p[2] for f in faces for p in f[4:])
     contact = overhang = 0.0
     for area, nx, ny, nz, a, b, c in faces:
         # Rotating the mesh rotates its normals by the same matrix: only rotated nz matters.
-        if r6 * nx + r7 * ny + r8 * nz < SUPPORT_THRESHOLD_NZ:
+        if r6 * nx + r7 * ny + r8 * nz < threshold_nz:
             top = max(r6 * p[0] + r7 * p[1] + r8 * p[2] for p in (a, b, c))
             if top - floor < 0.3:
                 contact += area
@@ -3576,7 +3613,8 @@ def rotation_alternatives(source: Path, state: dict, authored_max: float = 0.0, 
         return []  # multi-plate projects are split/merged by the planner, never re-oriented
     tris = source_triangles(source)
     points = _unique_points(tris)
-    _, authored_overhang = _surface_stats(tris, IDENTITY_ROT)
+    threshold = support_threshold_nz(source)
+    _, authored_overhang = _surface_stats(tris, IDENTITY_ROT, threshold)
     candidates: list[dict] = []
     # Same model, turned on the bed (yaw only): no new overhangs.
     scale, yaw, dims = _orientation_bound(points, state, IDENTITY_ROT)
@@ -3588,7 +3626,7 @@ def rotation_alternatives(source: Path, state: dict, authored_max: float = 0.0, 
         options = []
         for axis in axis_pair:
             name, up = UP_AXES[axis]
-            contact, overhang = _surface_stats(tris, up)
+            contact, overhang = _surface_stats(tris, up, threshold)
             options.append((contact, -overhang, axis, name, up, overhang))
         contact, _, axis, name, up, overhang = max(options)
         scale, yaw, dims = _orientation_bound(points, state, up)
@@ -3668,7 +3706,7 @@ def authored_needs_brim(source: Path) -> bool:
         points = _unique_points(tris)
         xs = [p[0] for p in points]
         ys = [p[1] for p in points]
-        contact, _ = _surface_stats(tris, IDENTITY_ROT)
+        contact, _ = _surface_stats(tris, IDENTITY_ROT, support_threshold_nz(source))
         return small_contact(contact, (max(xs) - min(xs)) * (max(ys) - min(ys)))
     except Exception:
         return True

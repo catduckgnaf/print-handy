@@ -1735,6 +1735,34 @@ def split_turn_supports_note(job):
     return SPLIT_TURN_SUPPORTS_NOTE.format(names=listed)
 
 
+async def _refresh_posed_clearance(job, path):
+    """Keep ``job['support_clearance']`` describing the pose the job prints (#1373 review).
+
+    The report made at intake is the authored, full-size pose. A fit rotation, a
+    lay-flat turn or a scale changes which faces are undersides and how tall each
+    gap is, so a stale report flagged side walls, missed gaps a shrink created,
+    and aimed extend/sink at the wrong side. Re-analyzed only when the pose
+    changed. Returns the report (or None when the file cannot be analyzed).
+    """
+    from . import support_clearance
+    rotation = (job.get('orientation') or {}).get('rotation')
+    scale = job.get('scale')
+    want = support_clearance.pose_key(rotation, scale)
+    current = job.get('support_clearance')
+    authored = want == support_clearance.pose_key(None, None)
+    if current is not None and (current.get('pose') == want or (authored and 'pose' not in current)):
+        return current
+    try:
+        report = await asyncio.to_thread(
+            support_clearance.posed_report, path, rotation, scale,
+            first_layer_mm=support_clearance.job_first_layer_mm(job))
+    except Exception:  # noqa: BLE001 - an unreadable file is analyzed after slicing instead
+        job.pop('support_clearance', None)
+        return None
+    job['support_clearance'] = report
+    return report
+
+
 def _variant_estimate_str(job_data, result):
     if not result or not job_data:
         return 'slicing...'
@@ -2856,6 +2884,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 receipt.update(status='EDITED', sliced=False, uploaded=False, started=False)
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 return handed
+        # The clearance report follows the pose the fit flow chose (a turn or a
+        # shrink) before anything is sliced or asked from it (#1373 review).
+        await _refresh_posed_clearance(latest, path)
+        mj.write_job(folder, latest)
         # Slice while the confirm question is on screen. Cancel below discards it,
         # so a job that never asked for G-code keeps none.
         early = runner_for(jp)
@@ -2916,32 +2948,46 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # Every time the Ready question is (re)composed, the slices it describes
             # are waited for: a Reorient or Scale answer restarts them and asks again
             # (#1373, found by the corpus explorer on witch-ghost).
-            if (
-                early.running()
-                and hasattr(early, 'first_slice_done')
-                and not early.first_slice_done.is_set()
-                and getattr(early, 'release', None) is not None
-                and early.release.is_set()
-            ):
-                await early.first_slice_done.wait()
-            # The with-supports option must show its own time and filament
-            # before it can be chosen (#1373 item 2): a flagged first slice
-            # starts the speculative supports slice, so it is waited out too,
-            # bounded so a very slow slice never holds the question forever.
-            decided = getattr(early, 'flag_decided', None)
-            if (decided is not None and early.running() and early.first_slice_done.is_set()
-                    and getattr(early, 'release', None) is not None and early.release.is_set()):
-                # first_slice_done fires before the flagged verdict and the
-                # speculative supports slice exist; wait for those (bounded).
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
-            sup_task = getattr(early, 'supports_task', None)
-            if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
-                    and getattr(early, 'release', None) is not None and early.release.is_set()):
-                # A timeout or a failed supports slice leaves the "slicing..." line;
-                # the intake's own cancellation still propagates.
-                with contextlib.suppress(asyncio.TimeoutError, Exception):
-                    await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
+            async def _wait_ready_slices():
+                if (
+                    early.running()
+                    and hasattr(early, 'first_slice_done')
+                    and not early.first_slice_done.is_set()
+                    and getattr(early, 'release', None) is not None
+                    and early.release.is_set()
+                ):
+                    await early.first_slice_done.wait()
+                # The with-supports option must show its own time and filament
+                # before it can be chosen (#1373 item 2): a flagged first slice
+                # starts the speculative supports slice, so it is waited out too,
+                # bounded so a very slow slice never holds the question forever.
+                decided = getattr(early, 'flag_decided', None)
+                if (decided is not None and early.running() and early.first_slice_done.is_set()
+                        and getattr(early, 'release', None) is not None and early.release.is_set()):
+                    # first_slice_done fires before the flagged verdict and the
+                    # speculative supports slice exist; wait for those (bounded).
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
+                sup_task = getattr(early, 'supports_task', None)
+                if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
+                        and getattr(early, 'release', None) is not None and early.release.is_set()):
+                    # A timeout or a failed supports slice leaves the "slicing..." line;
+                    # the intake's own cancellation still propagates.
+                    with contextlib.suppress(asyncio.TimeoutError, Exception):
+                        await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
+            waiting = early.running() and not (
+                getattr(early, 'flag_decided', None) is not None and early.flag_decided.is_set()
+                and not (getattr(early, 'supports_task', None) is not None and not early.supports_task.done()))
+            if waiting and getattr(early, 'release', None) is not None and early.release.is_set():
+                try:
+                    await _with_stop(adapter, source, key, metadata,
+                                     'Slicing to compare with and without supports. Press Stop to cancel.',
+                                     _wait_ready_slices(), allow_stop=True)
+                except Stopped:
+                    await early.discard()
+                    raise
+            else:
+                await _wait_ready_slices()
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')
             if clearance is None and early.clearance:
@@ -3006,6 +3052,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  if can_print else 'Slice with supports, not recommended')
 
                 fix_actions = []
+                # Extend and sink rewrite the authored mesh along its own Z: on a
+                # turned job that is another side of the model, so they are not
+                # offered (#1373 review). Reorient is not offered where its turn
+                # would not reach the slice or would undo a fit: a split or a
+                # rearranged plan slices its own poses, a fit rotation was needed
+                # to fit the bed, and several copies would need a new bed check.
+                turned_job = bool((latest.get('orientation') or {}).get('rotation'))
+                reorient_ok = (offer_reorient and not turned_job and int(chosen_quantity or 1) == 1
+                               and not latest.get('full_size_split_plan')
+                               and not latest.get('full_size_rearrange_plan')
+                               and latest.get('plate_mode') != 'separate')
                 if clearance and support_clearance.risky(clearance):
                     for f in clearance.get('findings') or []:
                         for fix in f.get('fixes') or []:
@@ -3013,19 +3070,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                             # the underside faces the plate (#922 gap 5): over
                             # another part there is no plate to extend to.
                             if fix.get('fix') == 'extend_underside' and f.get('over') == 'plate' \
+                                    and not turned_job \
                                     and not any(a['kind'] == 'extend' for a in fix_actions):
                                 fix_actions.append({'kind': 'extend', 'label': 'Extend underside to plate', 'finding': f})
                                 if fix.get('added_volume_mm3') is not None:
                                     flag_lines.append(
                                         f"- Extend underside to plate adds about "
                                         f"{fix['added_volume_mm3']:.0f} mm3 of material below the underside.")
-                            elif fix.get('fix') == 'sink' and not any(a['kind'] == 'sink' for a in fix_actions):
+                            elif fix.get('fix') == 'sink' and not turned_job \
+                                    and not any(a['kind'] == 'sink' for a in fix_actions):
                                 fix_actions.append({'kind': 'sink', 'label': 'Flatten (sink) to plate', 'finding': f})
                                 if fix.get('removed_volume_mm3') is not None:
                                     flag_lines.append(
                                         f"- Flatten (sink) to plate removes about "
                                         f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
-                            elif fix.get('fix') == 'reorient' and offer_reorient \
+                            elif fix.get('fix') == 'reorient' and reorient_ok \
                                     and not any(a['kind'] == 'reorient' for a in fix_actions):
                                 fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
                     summary_extra = '\n' + '\n'.join(flag_lines)
@@ -3154,7 +3213,6 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # delivers the matching slice_job/_job_fit half (a plain
                     # rotation must not become supports=False decided); this
                     # branch does not duplicate it.
-                    await early.discard()
                     from . import edit_plan
                     try:
                         tris = [tuple(map(tuple, tri)) for p in support_clearance.leaves(path)
@@ -3174,13 +3232,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                     if already_flat else
                                                     'I could not work out a flat reorientation for this model, '
                                                     'so nothing was rotated. The support question is unchanged.'))
-                        binding = slice_binding(latest, decisions['source_sha256'])
-                        recipe_sha = binding_sha256(binding)
-                        await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
-                                          _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
-                                              {'copies': copies} if copies and int(copies) > 1 else {})))
-                        await early.started.wait()
+                        # Nothing turned: the slice already running is still the right one (#1373 review).
                         continue
+                    await early.discard()  # a real turn: the running slice is for the old pose
                     matrix, dims = found
                     # The rotated (unscaled) envelope goes with the rotation,
                     # as every other orientation writer records it: without
@@ -3195,15 +3249,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # replace it with the rotated pose's report, or the old
                     # finding follows the job forever and the repair reads as
                     # if it changed nothing (#922 gap 7 review follow-up).
-                    try:
-                        rotated = await asyncio.to_thread(
-                            support_clearance.rotated_report, path, matrix)
-                        latest['support_clearance'] = rotated
-                        clearance = rotated
+                    rotated = await _refresh_posed_clearance(latest, path)
+                    clearance = rotated
+                    if rotated is not None:
                         early.clearance = rotated
-                    except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
-                        latest.pop('support_clearance', None)
-                        clearance = None
                     mj.write_job(folder, latest)
                     offer_reorient = False
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3418,6 +3467,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                              f'at this size, so the count is now {chosen_quantity}.')
             latest['scale'] = new_scale
             latest['copies'] = chosen_quantity
+            # Gaps scale with the model (#1373 review): a 1.6 mm gap is 0.8 mm at 50%.
+            await _refresh_posed_clearance(latest, path)
             mj.write_job(folder, latest)
             receipt.update(scale=new_scale, copies=chosen_quantity)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
