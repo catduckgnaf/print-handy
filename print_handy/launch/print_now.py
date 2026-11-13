@@ -484,11 +484,19 @@ def _read_claims():
     return claims if isinstance(claims, dict) else {}
 
 
-def claim_start_announcement(remote, now=None):
+def claim_start_announcement(remote, now=None, printer_id=None):
+    from ..runtime.start_claims import PRINTERS_KEY
     now = time.time() if now is None else now
-    claims = {k: v for k, v in _read_claims().items()
+    raw = _read_claims()
+    claims = {k: v for k, v in raw.items()
               if isinstance(v, (int, float)) and now - v < START_CLAIM_TTL_S}
+    old = raw.get(PRINTERS_KEY)
+    printers = {k: p for k, p in old.items() if k in claims and k != remote} if isinstance(old, dict) else {}
     claims[remote] = now
+    if printer_id:
+        printers[remote] = str(printer_id)
+    if printers:
+        claims[PRINTERS_KEY] = printers
     _write_claims(claims)
 
 
@@ -1462,7 +1470,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         checkpoint.write_text(json.dumps(checkpoint_data, indent=2) + '\n')
         # This path posts its own start card, so the listener must not post a second one
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         # #836: the idle guard proved every heater target was 0 before an upload that can take
         # minutes. Re-read the targets after the upload: a preheat tapped on HelixScreen during the
@@ -1936,7 +1944,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
     try:
         remote = client.upload(gcode, remote)
         # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start(remote, temps['bed'], hotend)
     except BaseException as exc:
@@ -2088,7 +2096,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
     try:
         client.upload(package, remote)
         # Claim the start (#460): the Bambu listener's sink must not post a second start for this print.
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote, ams_mapping=ams_map)
     except BaseException as exc:
@@ -2181,7 +2189,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
     try:
         client.upload(gcode, remote)
         # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote)
     except BaseException as exc:
@@ -2268,7 +2276,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
     try:
         client.upload(gcode, remote)
         # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote)
     except BaseException as exc:
@@ -2408,7 +2416,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     try:
         client.upload(gcode, remote)
         # Claim the start (#460): the family listener must not post a second start for this print.
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.print_gcode(remote, bay=bay["mapping"])
     except BaseException as exc:
@@ -2935,7 +2943,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Moonraker verified the SHA256 sent with the upload (mismatch = HTTP 400 = the upload failure above).
         _timing(job_path, 'upload_verified')
         if delivery: _note_delivery_format(job, job_path, delivery)
-        try: claim_start_announcement(remote)
+        try: claim_start_announcement(remote, printer_id=_recorded_printer_id(job))
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)

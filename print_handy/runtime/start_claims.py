@@ -25,6 +25,10 @@ from . import _config
 # a cross-process channel, not one listener's operational state (P1-82).
 START_CLAIMS = _config.state_file("PRINT_HANDY_START_CLAIMS", "print_handy_start_claims.json")
 START_CLAIM_TTL_S = float(_config.cfg()["listener"]["start_claim_ttl_s"])
+# The printer each claim was made for (#1380): {remote: printer_id}, kept in the same file
+# under this key. Claims for the single unnamed printer carry no entry. Every timestamp
+# reader skips it, since its value is not a number.
+PRINTERS_KEY = "_printers"
 
 
 def _path(path):
@@ -73,6 +77,19 @@ def claimed_start_filenames(now=None, *, path=None, ttl_s=None):
         return []
     return [name for name, ts in claims.items()
             if isinstance(ts, (int, float)) and 0 <= now - ts < _ttl(ttl_s)]
+
+
+def claim_printer(filename, *, path=None):
+    """The printer id this start was claimed for, or None (unnamed, unknown or unreadable)."""
+    try:
+        claims = json.loads(_path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    printers = claims.get(PRINTERS_KEY) if isinstance(claims, dict) else None
+    if not isinstance(printers, dict):
+        return None
+    pid = printers.get(str(filename or ""))
+    return str(pid) if pid else None
 
 
 def release_start_claim(filename, *, path=None):

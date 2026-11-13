@@ -315,6 +315,35 @@ START_PROGRESS_POLL_S = 1.0
 # How long the Ready question waits for the speculative with-supports slice,
 # so that option shows its numbers before it can be chosen (#1373).
 SUPPORTS_ESTIMATE_WAIT_S = 120.0
+# Rounding slack between the grams the Ready question showed and the slice's own figure.
+SHORTAGE_PREACCEPT_SLACK_G = 0.5
+
+
+def _preaccepted_shortage(choice, shown_shortages, job_json):
+    """The material acceptance a print button under a shown shortage already gave, or None.
+
+    The Ready question showed this spool as short and the operator pressed a print
+    button under it: that is the answer, so the start does not ask again (#1373).
+    Only for one short spool, only while the slice needs no more than was shown
+    (rounding aside), and never under yolo, whose waiver must be posted at the
+    start (2.3.2 review). A multi-slot job's per-slot grams are only known to the
+    start gate, so it is asked there. Bound to this G-code like any acceptance.
+    """
+    from . import yolo as _yolo
+    if choice != 0 or not shown_shortages or len(shown_shortages) != 1 or _yolo.ACTIVE.get():
+        return None
+    key, shown_g = shown_shortages[0]
+    sliced_g = None
+    with contextlib.suppress(Exception):
+        from print_handy.runtime import discord_print_summary as dps
+        plates = dps.plate_estimates(json.loads(Path(job_json).read_text()))
+        grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
+        sliced_g = float(sum(grams)) if grams else None
+    if sliced_g is None or sliced_g > shown_g + SHORTAGE_PREACCEPT_SLACK_G:
+        return None
+    return [key]
+
+
 PRINT_ANYWAY_RISK_LABEL = 'Print anyway, accept the risk (bed is clear)'
 SLICE_ANYWAY_RISK_LABEL = 'Slice anyway (accept the risk)'
 START_PROGRESS = (
@@ -4495,25 +4524,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
                   'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
-        from . import yolo as _yolo_short
-        if choice == 0 and shown_shortages and len(shown_shortages) == 1 and not _yolo_short.ACTIVE.get():
-            # The Ready question already showed this spool as short and the
-            # operator pressed a print button under it: that is the answer, so
-            # the start does not ask the same thing again (#1373). Only while the
-            # slice needs no more than the shown amount (rounding aside): a slice
-            # that needs more, a multi-slot job whose per-slot grams are only known
-            # to the start gate, or a yolo run (whose waiver must be posted) is
-            # asked or waived at the start as before (2.3.2 review).
-            # Bound to this G-code like any acceptance.
-            key, shown_g = shown_shortages[0]
-            sliced_g = None
-            with contextlib.suppress(Exception):
-                from print_handy.runtime import discord_print_summary as dps
-                plates = dps.plate_estimates(json.loads(jp.read_text()))
-                grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
-                sliced_g = float(sum(grams)) if grams else None
-            if sliced_g is not None and sliced_g <= shown_g + 0.5:
-                target['accept_material'] = [key]
+        accepted = _preaccepted_shortage(choice, shown_shortages, jp)
+        if accepted:
+            target['accept_material'] = accepted
         from . import yolo as _yolo
         if _yolo.ACTIVE.get():
             target['yolo'] = True
