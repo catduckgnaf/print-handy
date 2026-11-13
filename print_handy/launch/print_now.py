@@ -167,6 +167,20 @@ def _record_usage_baseline(st, job, job_path, spool_id):
         logger.warning('could not record the spool usage baseline: %s', exc)
 
 
+def _moonraker_active_spool(st):
+    """Moonraker's active Spoolman spool id, or None when there is none or it cannot be read.
+
+    Read-only and never blocks a launch: a printer without Moonraker's
+    Spoolman component simply has no spool to check at the end.
+    """
+    try:
+        sid = (_mr(st, '/server/spoolman/spool_id').get('result') or {}).get('spool_id')
+    except Exception as exc:
+        logger.warning('could not read the Moonraker active spool: %s', exc)
+        return None
+    return sid if isinstance(sid, int) and not isinstance(sid, bool) else None
+
+
 def _grams(value):
     """A finite, non-negative number of grams, else None (bools are not grams)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -436,9 +450,14 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
         # attributing the usage to whatever spool answers then (P2-155).
         ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
     baseline = (job or {}).get('spool_usage_baseline')
-    if mapped is None and isinstance(baseline, dict) and baseline.get('spool_id') == ctx['active_spool']['id']:
+    from ..runtime import multislot_usage
+    if (multislot_usage.slot_plan(ctx) is None and isinstance(baseline, dict)
+            and baseline.get('spool_id') == ctx['active_spool']['id']):
         # The active spool's used weight before this start (#1374): the
         # listener checks Moonraker's charge against it when the print ends.
+        # Every job Moonraker charges one spool for has it: an unmapped job
+        # and a mapped one whose tools all feed one slot (the slot_plan
+        # rule). Only a job feeding two or more slots charges per slot.
         ctx['spool_usage_baseline'] = baseline
     # #913: risky prints get the early-layer camera watch; the listener reads
     # this back from the context sidecar and the record keeps it.
@@ -2937,6 +2956,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if delivery: _note_delivery_format(job, job_path, delivery)
         try: claim_start_announcement(remote)
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
+        # Moonraker charges its active spool while this print runs, like the
+        # mapped one-slot route: record that spool's used weight first so
+        # the listener can catch a runaway charge at the end (#1374).
+        _record_usage_baseline(st, job, job_path, _moonraker_active_spool(st))
         _announce_print_name(st, job, gcode=g)
         _publish_job_card(st, job, remote, text)
     except BaseException:

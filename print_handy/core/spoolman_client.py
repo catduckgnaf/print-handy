@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -57,11 +58,15 @@ class SpoolmanUnavailable(RuntimeError):
     ``status`` carries the HTTP status when Spoolman answered with one
     (None for a timeout, a refused connection, or "not configured"), so
     callers can tell a 404 — no such record — from an outage (#839).
+    ``unconfirmed`` is True when the request went out but no reply came
+    back (a read timeout, a dropped connection): a write may have landed,
+    so a caller must not blindly send it again.
     """
 
-    def __init__(self, message: str = "", *, status: int | None = None):
+    def __init__(self, message: str = "", *, status: int | None = None, unconfirmed: bool = False):
         super().__init__(message)
         self.status = status
+        self.unconfirmed = unconfirmed
 
 
 def _resolve_base(base_url: str | None) -> str:
@@ -85,6 +90,7 @@ def request(method: str, path: str, body: Any = None, *,
         logger.warning("Spoolman %s %s skipped: services.spoolman_url is not configured",
                        method, path)
         raise SpoolmanUnavailable("Spoolman is not configured (services.spoolman_url)")
+    sent = False
     try:
         # Construction is inside the protected block on purpose (P2-154): a
         # configured URL with a malformed authority (http://[::1) passes the
@@ -95,6 +101,7 @@ def request(method: str, path: str, body: Any = None, *,
         req = urllib.request.Request(base + path, data=data, method=method,
                                      headers={"Content-Type": "application/json",
                                               "Accept": "application/json"})
+        sent = True
         with urllib.request.urlopen(req, timeout=TIMEOUT if timeout is None else timeout) as resp:
             raw = resp.read().decode("utf-8") or "{}"
         return json.loads(raw)
@@ -104,8 +111,12 @@ def request(method: str, path: str, body: Any = None, *,
         from .. import diagnostics
         logger.warning("Spoolman %s %s failed: %s [%s]", method, path, exc,
                        diagnostics.marker("spoolman", diagnostics.classify(exc)))
+        # urllib wraps every failure to connect or send in URLError (an
+        # HTTPError is an answer); anything else after urlopen was called
+        # (a read timeout, a reset while waiting) left the request unanswered.
         raise SpoolmanUnavailable(str(exc) or type(exc).__name__,
-                                  status=getattr(exc, 'code', None)) from exc
+                                  status=getattr(exc, 'code', None),
+                                  unconfirmed=sent and not isinstance(exc, urllib.error.URLError)) from exc
 
 
 def call(method: str, path: str, body: Any = None, *,

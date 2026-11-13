@@ -38,7 +38,18 @@ weight just before the start (``launch_baseline``); at the end
 ``guard_single_slot`` compares Spoolman's growth with what the print
 actually extruded and, when Moonraker charged far more, writes the used
 weight back to baseline plus the print's own grams. Same ledger, so a
-duplicate end event never corrects twice.
+duplicate end event never corrects twice. The check leaves a spool alone
+when someone else already settled its weight: the runout answer marked it
+depleted (archived, 0 g left), the operator set its weight during the print
+(``note_weight_set``), or it is no longer Moonraker's active spool.
+
+A Spoolman charge whose request went out but whose reply never came back
+(a read timeout) may have landed: it is recorded as unconfirmed and never
+retried, so one charge can never land twice.
+
+Every charge first checks the print context is this print's: its start
+falls inside the Moonraker history entry's window (``context_in_window``),
+so a context left by an earlier launch of the same file is never charged.
 
 Spoolman is bookkeeping: nothing here raises into the print lifecycle.
 """
@@ -63,6 +74,10 @@ LEDGER_NAME = "multislot_usage_charges.json"
 LEDGER_KEEP = 200
 
 SUSPENDED_REASON = "filament usage is paused for an open spool question"
+
+WEIGHT_SET_ENV = "PRINT_HANDY_SPOOL_WEIGHT_SET_STATE"
+WEIGHT_SET_NAME = "spool_weight_set.json"
+WEIGHT_SET_KEEP = 100
 
 _lock = threading.Lock()
 
@@ -221,9 +236,15 @@ def _charge_slots(path: Path, ledger: dict[str, Any], key: str, request: Callabl
                     {"use_weight": slot["grams"]}, base_url=base_url, timeout=8)
         except spoolman_client.SpoolmanUnavailable as exc:
             # Spoolman answered with a client error (no such spool, archived):
-            # retrying cannot help. Anything else is an outage: retry later.
+            # retrying cannot help. A request that went out with no reply
+            # (a read timeout) may have landed: unconfirmed, never retried.
+            # Anything else never reached Spoolman: an outage, retry later.
             final = exc.status is not None and 400 <= int(exc.status) < 500
-            slot.update(status="failed" if final else "pending", error=str(exc)[:200])
+            unconfirmed = not final and bool(getattr(exc, "unconfirmed", False))
+            slot.update(status="failed" if final else "unconfirmed" if unconfirmed else "pending",
+                        error=str(exc)[:200])
+        except TimeoutError as exc:
+            slot.update(status="unconfirmed", error=f"{exc!r}"[:200])
         except Exception as exc:  # never raise into the print lifecycle
             slot.update(status="pending", error=f"{exc!r}"[:200])
         else:
@@ -235,6 +256,8 @@ def _charge_slots(path: Path, ledger: dict[str, Any], key: str, request: Callabl
     states = {slot.get("status") for slot in entry["slots"]}
     if "pending" in states:
         entry["status"] = "pending"
+    elif "unconfirmed" in states:
+        entry["status"] = "unconfirmed"
     elif "charged" in states:
         entry["status"] = "charged" if states <= {"charged", "skipped"} else "partial"
     else:
@@ -299,6 +322,57 @@ def _iso_seconds(value: Any) -> float | None:
 _CONTEXT_START_SLACK_S = 3600
 
 
+def context_in_window(context: dict[str, Any] | None, job_start: Any, job_end: Any) -> bool:
+    """Whether the print context is this print's: its start is inside the job's window.
+
+    ``job_start`` and ``job_end`` are the Moonraker history entry's Unix
+    times (``job_end`` is the time now for a print that just ended). The
+    launch records its start up to an hour before Moonraker's job starts;
+    a context started after the job ended belongs to a later launch, and
+    one started before the slack to an earlier one. Unknown is False.
+    """
+    started = _iso_seconds((context or {}).get("started_at"))
+    job_start, job_end = _number(job_start), _number(job_end)
+    if started is None or job_start is None or job_end is None:
+        return False
+    return job_start - _CONTEXT_START_SLACK_S <= started <= job_end
+
+
+def weight_set_path() -> Path:
+    return _config.state_file(WEIGHT_SET_ENV, WEIGHT_SET_NAME)
+
+
+def note_weight_set(spool_id: Any, *, path: Path | None = None) -> None:
+    """Record that the operator set a spool's weight by hand (/spool weight, Web UI).
+
+    The single-slot check never rewrites a weight set after its print's
+    launch: the operator's figure is the truth. Never raises.
+    """
+    sid = _spool_id(spool_id)
+    if sid is None:
+        return
+    path = path or weight_set_path()
+    try:
+        with _lock:
+            marks = _load(path)
+            marks[str(sid)] = {"recorded_at": time.time()}
+            if len(marks) > WEIGHT_SET_KEEP:
+                newest = sorted(marks.items(), key=lambda kv: float((kv[1] or {}).get("recorded_at") or 0))
+                marks = dict(newest[-WEIGHT_SET_KEEP:])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(marks, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+    except Exception as exc:
+        logger.warning("could not record the weight set for spool #%s: %s", sid, exc)
+
+
+def _weight_set_since(spool_id: int, since: float, path: Path | None = None) -> bool:
+    mark = _load(path or weight_set_path()).get(str(int(spool_id)))
+    when = _number((mark or {}).get("recorded_at")) if isinstance(mark, dict) else None
+    return when is not None and when >= since
+
+
 # Moonraker legitimately charges a little the print's own filament_used does
 # not count (an IFS load, a manual purge): a charge is a runaway only past
 # the print's grams plus the larger of these.
@@ -355,6 +429,20 @@ def _baseline_for(context: dict[str, Any]) -> dict[str, Any] | None:
     return baseline
 
 
+def _marked_empty(spool: dict[str, Any], used: float) -> bool:
+    """Whether someone settled the spool as finished: archived, or set to exactly 0 g left.
+
+    The runout answer's depleted disposition archives the spool and sets
+    0 g left, so its used weight is exactly its starting weight. A runaway
+    charge also leaves 0 g left, but by pushing the used weight past the
+    starting weight, which is the case the check exists to correct.
+    """
+    if spool.get("archived") or str(spool.get("location") or "").strip().lower() == "depleted":
+        return True
+    initial = _number(spool.get("initial_weight"))
+    return initial is not None and initial > 0 and abs(used - initial) < 0.01
+
+
 def _expected_grams(context: dict[str, Any], outcome: str, actual_mm: Any) -> float | None:
     grams = grams_from_mm(actual_mm, context) if _number(actual_mm) else None
     if grams is not None or outcome != "complete":
@@ -366,8 +454,9 @@ def _expected_grams(context: dict[str, Any], outcome: str, actual_mm: Any) -> fl
 
 
 def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm: Any = None,
-                      suspended: bool = False, request: Callable[..., Any] | None = None,
-                      base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
+                      active_spool_id: Any = None, suspended: bool = False,
+                      request: Callable[..., Any] | None = None, base_url: str | None = None,
+                      path: Path | None = None) -> dict[str, Any] | None:
     """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
 
     ``actual_mm`` is the filament the print extruded (print_stats or the
@@ -377,6 +466,12 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
     launch baseline plus the print's grams. Returns the ledger entry, or
     None for a print this does not apply to (multi-slot, no baseline).
     Idempotent per print.
+
+    ``active_spool_id`` is Moonraker's active spool at the end (None when
+    unknown). The weight is left alone, never guessed, when the baseline
+    spool is no longer the active one, is archived or was set to 0 g left
+    (the runout answer marked it depleted), or had its weight set by hand
+    after the launch (note_weight_set). Nothing here un-archives a spool.
     """
     context = context or {}
     key = charge_key(context)
@@ -409,6 +504,12 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
                 entry["error"] = str(exc)[:200]
             if now is None:
                 entry.update(status="skipped", reason="Spoolman did not answer at the end of the print")
+            elif _spool_id(active_spool_id) != sid:
+                entry.update(status="skipped", reason="the spool is no longer the active one")
+            elif _marked_empty(spool, now):
+                entry.update(status="skipped", reason="the spool was marked depleted or archived")
+            elif _weight_set_since(sid, float(baseline.get("recorded_at") or 0)):
+                entry.update(status="skipped", reason="the spool's weight was set by hand during the print")
             else:
                 observed = now - before
                 entry["observed_g"] = round(observed, 2)
@@ -433,9 +534,13 @@ def guard_single_slot(context: dict[str, Any] | None, outcome: str, *, actual_mm
         return json.loads(json.dumps(entry))
 
 
+HISTORY_STOPPED = ("cancelled", "error", "klippy_shutdown", "klippy_disconnect")
+
+
 def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | None, *,
-                       suspended: bool | None = None, request: Callable[..., Any] | None = None,
-                       base_url: str | None = None, path: Path | None = None) -> dict[str, Any] | None:
+                       active_spool_id: Any = None, suspended: bool | None = None,
+                       request: Callable[..., Any] | None = None, base_url: str | None = None,
+                       path: Path | None = None) -> dict[str, Any] | None:
     """Charge a multi-slot print that finished while the listener was down.
 
     ``job`` is the Moonraker history entry the announcer's missed-finish
@@ -444,23 +549,21 @@ def charge_history_job(job: dict[str, Any] | None, context: dict[str, Any] | Non
     an hour before the entry's start and the entry's end, so a later
     reprint of the same file is never charged for it. A completed entry
     charges the sliced grams; a cancelled one is scaled by the entry's
-    ``filament_used``. Same ledger as the live end, so whichever comes
-    first charges and the other is a no-op.
+    ``filament_used``; so is an entry that ended in an error. Same ledger
+    as the live end, so whichever comes first charges and the other is a
+    no-op. ``active_spool_id`` is Moonraker's active spool now, for the
+    single-slot check (guard_single_slot).
     """
     job, context = job or {}, context or {}
     status = job.get("status")
-    if status not in ("completed", "cancelled"):
+    if status != "completed" and status not in HISTORY_STOPPED:
         return None
-    started = _iso_seconds(context.get("started_at"))
-    job_start, job_end = _number(job.get("start_time")), _number(job.get("end_time"))
-    if started is None or job_start is None or job_end is None:
-        return None
-    if not (job_start - _CONTEXT_START_SLACK_S <= started <= job_end):
+    if not context_in_window(context, job.get("start_time"), job.get("end_time")):
         return None
     if slot_plan(context) is None:
         return guard_single_slot(
             context, "complete" if status == "completed" else "stopped",
-            actual_mm=job.get("filament_used"),
+            actual_mm=job.get("filament_used"), active_spool_id=active_spool_id,
             suspended=usage_suspended() if suspended is None else suspended,
             request=request, base_url=base_url, path=path)
     planned = ((job.get("metadata") or {}).get("filament_total")
@@ -539,9 +642,10 @@ def summary_line(entry: dict[str, Any] | None) -> str:
         elif status == "pending":
             parts.append(f"{where} spool #{slot['spool_id']} {_grams_text(slot['grams'])} "
                          "(not yet charged: Spoolman did not answer, retried later)")
-        elif status == "charging":
+        elif status in ("charging", "unconfirmed"):
             parts.append(f"{where} spool #{slot['spool_id']} {_grams_text(slot['grams'])} "
-                         "(charge unconfirmed: check the spool in Spoolman)")
+                         "(charge unconfirmed: Spoolman did not reply, so it was not retried; "
+                         "check the spool in Spoolman)")
         elif status == "failed":
             parts.append(f"{where} spool #{slot['spool_id']} not charged ({slot.get('error') or 'Spoolman refused'})")
     if not parts:

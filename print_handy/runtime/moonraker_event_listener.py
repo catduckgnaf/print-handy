@@ -2485,6 +2485,20 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     return True
 
 
+def _log_usage_entry(filename, entry):
+    """One log line for a spool usage charge or check, when there was one."""
+    if not entry:
+        return
+    if entry.get("kind") == "single_slot":
+        log(f"spool usage check file={filename!r} spool=#{entry.get('spool_id')} "
+            f"status={entry.get('status')} expected={entry.get('expected_g')}g "
+            f"observed={entry.get('observed_g')}g reason={entry.get('reason')!r}")
+        return
+    log(f"multi-slot usage file={filename!r} status={entry.get('status')} "
+        + " ".join(f"slot{row.get('slot')}:#{row.get('spool_id')}={row.get('grams')}g/{row.get('status')}"
+                   for row in entry.get("slots") or []))
+
+
 class FilamentInsertionMonitor:
     """Stable native slot presence detector. Sends text only, never edits inventory."""
     # After a reboot or reconnect ZMod can report placeholder presence for a while
@@ -4423,6 +4437,9 @@ class Listener:
             # An unclaimed start gets its own so a mute outlives midnight.
             self.print_identity = identity or f"file:{self.filename}|seen:{time.time()}"
             identity = self.print_identity
+            # When this print started, as seen live (None after a reconnect
+            # mid-print): the end charge's window when history is unavailable.
+            self.print_seen_started_at = time.time() if old is not None else None
             # The firmware-stop alert dedups per print attempt, not per
             # filename for the listener's lifetime: a reprint of the same
             # file must alert again if it stops too (P2-57).
@@ -4479,6 +4496,12 @@ class Listener:
             # The print ended while the listener was down: close its
             # left-open capture before the announcer looks for it.
             await asyncio.to_thread(self._close_left_open_capture, new_state)
+            # It was never charged either: the live end transition did not
+            # happen, and the announcer's missed-finish check sees the same
+            # job key, so neither charges it (#1362). Charge it here from
+            # history, before the announcer builds the finish post; the
+            # ledger makes it a no-op when it was charged already.
+            await self._charge_missed_end()
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
@@ -4630,13 +4653,31 @@ class Listener:
         at launch. A stopped print is scaled by the filament it used. An
         open spool question that pauses usage charges nothing. The ledger
         in multislot_usage makes a second end event or a restart a no-op.
+        The print context is charged only when it is this print's: its
+        start inside the history entry's window (#1362), as the missed-end
+        charge requires, so an earlier launch's context is never charged.
         """
         from . import multislot_usage
         filename = self.filename
         try:
             context = print_records.load_context(filename) if filename else {}
-            if multislot_usage.slot_plan(context) is None:
-                await self._guard_single_slot_usage(context, new_state)
+            plan = multislot_usage.slot_plan(context)
+            if plan is None and not context.get("spool_usage_baseline"):
+                return
+            history = await asyncio.to_thread(self._history_entry, filename)
+            # The print's own window: its history entry, else (a Moonraker
+            # without [history]) the start this listener saw live.
+            job_start = ((history or {}).get("start_time")
+                         or self.__dict__.get("print_seen_started_at"))
+            job_end = (history or {}).get("end_time") or time.time()
+            if not multislot_usage.context_in_window(context, job_start, job_end):
+                log(f"spool usage not checked file={filename!r}: the print context is not this "
+                    f"print's (context started {context.get('started_at')!r}, history "
+                    f"{'unavailable' if history is None else history.get('start_time')})")
+                return
+            finished = history if (history or {}).get("status") not in (None, "in_progress") else None
+            if plan is None:
+                await self._guard_single_slot_usage(context, new_state, finished)
                 return
             outcome = "complete" if new_state == "complete" else "stopped"
             actual = planned = None
@@ -4644,8 +4685,7 @@ class Listener:
                 actual = (self.last_stats or {}).get("filament_used")
                 if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
                     # A job that dropped to standby resets print_stats: ask history.
-                    history = await asyncio.to_thread(announcer._finished_history_job, filename)
-                    actual = (history or {}).get("filament_used")
+                    actual = (finished or {}).get("filament_used")
                 if not context.get("planned_filament_mm"):
                     try:
                         metadata = await asyncio.to_thread(announcer.get_file_metadata, filename)
@@ -4661,19 +4701,70 @@ class Listener:
         except Exception as exc:
             log(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
             return
-        if entry:
-            log(f"multi-slot usage file={filename!r} status={entry.get('status')} "
-                + " ".join(f"slot{row.get('slot')}:#{row.get('spool_id')}={row.get('grams')}g/{row.get('status')}"
-                           for row in entry.get("slots") or []))
+        _log_usage_entry(filename, entry)
 
-    async def _guard_single_slot_usage(self, context, new_state):
+    async def _charge_missed_end(self):
+        """Charge a print that ended while the listener was down and is still the printer's job.
+
+        The listener reconnects to a complete/cancelled/error job: no live
+        end transition ran, and the announcer's missed-finish check sees
+        the same job key, so neither path charged it (#1362). The history
+        entry is the print's own record: multislot_usage.charge_history_job
+        checks the context is this print's and charges through the same
+        ledger, so a print already charged is a no-op. Fail-soft.
+        """
+        from . import multislot_usage
+        filename = self.filename
+        try:
+            context = print_records.load_context(filename) if filename else {}
+            if multislot_usage.slot_plan(context) is None and not context.get("spool_usage_baseline"):
+                return
+            history = await asyncio.to_thread(self._history_entry, filename)
+            if history is None or history.get("status") in (None, "in_progress"):
+                log(f"missed end not charged file={filename!r}: no finished history entry")
+                return
+            active = await asyncio.to_thread(self._active_spool_id)
+            entry = await asyncio.to_thread(
+                multislot_usage.charge_history_job, history, context, active_spool_id=active,
+                base_url=_config.service_url("spoolman_url") or None)
+        except Exception as exc:
+            log(f"missed end usage charge failed file={filename!r}: {exc!r}")
+            return
+        _log_usage_entry(filename, entry)
+
+    @staticmethod
+    def _history_entry(filename):
+        """Moonraker's newest history entry for filename (any status), or None when unknown."""
+        if not filename:
+            return None
+        try:
+            jobs = ((announcer.get_json("/server/history/list?limit=20&order=desc") or {})
+                    .get("result") or {}).get("jobs") or []
+        except Exception:
+            return None
+        for job in jobs:
+            if isinstance(job, dict) and job.get("filename") == filename and job.get("start_time"):
+                return job
+        return None
+
+    @staticmethod
+    def _active_spool_id():
+        """Moonraker's active spool id now, or None when there is none or it cannot be read."""
+        try:
+            result = (announcer.get_json("/server/spoolman/spool_id") or {}).get("result")
+        except Exception:
+            return None
+        return result.get("spool_id") if isinstance(result, dict) else None
+
+    async def _guard_single_slot_usage(self, context, new_state, history=None):
         """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
 
         Moonraker charged the active spool while the print ran. After a
         Moonraker restart its first charge can be everything Klipper has
         extruded since boot; multislot_usage.guard_single_slot compares the
         spool's growth since launch with what this print extruded and
-        writes the used weight back when it is far over.
+        writes the used weight back when it is far over. Moonraker's active
+        spool at the end goes with it: a spool no longer active is left alone.
         """
         from . import multislot_usage
         filename = self.filename
@@ -4681,18 +4772,15 @@ class Listener:
             return
         actual = (self.last_stats or {}).get("filament_used")
         if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
-            history = await asyncio.to_thread(announcer._finished_history_job, filename)
             actual = (history or {}).get("filament_used")
         record = load_runout_pause()
+        active = await asyncio.to_thread(self._active_spool_id)
         entry = await asyncio.to_thread(
             multislot_usage.guard_single_slot, context,
             "complete" if new_state == "complete" else "stopped", actual_mm=actual,
-            suspended=bool(record and record.get("usage_suspended")),
+            active_spool_id=active, suspended=bool(record and record.get("usage_suspended")),
             base_url=_config.service_url("spoolman_url") or None)
-        if entry:
-            log(f"spool usage check file={filename!r} spool=#{entry.get('spool_id')} "
-                f"status={entry.get('status')} expected={entry.get('expected_g')}g "
-                f"observed={entry.get('observed_g')}g")
+        _log_usage_entry(filename, entry)
 
     async def _print_ended(self, new_state):
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""

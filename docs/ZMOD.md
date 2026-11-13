@@ -362,12 +362,20 @@ against any store it has not verified.
 - **The screen's slot colors**: the printer screen (HelixScreen),
   told what Spoolman says through `CHANGE_ZCOLOR` and the
   `lane_data` record Print Handy writes on a bind (#791).
-- **Filament usage charging**: Moonraker's active-spool pointer is
-  the single charger. Print Handy points it at the launching slot's
-  spool at print start (verified readback), clears it for
-  multi-slot jobs, suspends it on an unidentified mid-print swap
-  and resumes it when the spool is named. Print Handy never
-  charges usage by writing `used_weight` itself.
+- **Filament usage charging**: for a one-slot job, Moonraker's
+  active-spool pointer is the charger. Print Handy points it at the
+  launching slot's spool at print start (verified readback),
+  suspends it on an unidentified mid-print swap and resumes it when
+  the spool is named. When the print ends, Print Handy compares the
+  spool's growth with what the print extruded and writes the used
+  weight back only when Moonraker charged far more (a runaway
+  charge after a Moonraker restart); it leaves alone a spool that
+  was marked depleted, had its weight set by hand during the print,
+  or is no longer the active spool. A multi-slot job clears the
+  pointer for the whole print, answering a spool question does not
+  set it again, and each slot's launch spool is charged its share
+  once when the print ends, including a print that ended while the
+  listener was down.
 - **AFC lane assignment**: ZMod's AFC on the printer. Assigning a
   spool goes through its `SET_SPOOL_ID` (the AFC Lite contract);
   each lane tracks its own spool and Moonraker's active spool

@@ -535,11 +535,44 @@ def suspend_usage(mr: Client = moonraker) -> int | None:
     return prior
 
 
-def resume_usage(spool_id: int, mr: Client = moonraker) -> None:
+MULTISLOT_USAGE_NOTE = ("not moved to one spool: this multi-slot print charges each slot's "
+                        "spool when it ends")
+
+
+def running_multislot_print(mr: Client = moonraker) -> bool:
+    """Whether the printer is running (or paused in) a multi-slot print (#1362).
+
+    A multi-slot launch clears Moonraker's active spool and the listener
+    charges each slot's launch spool when the print ends
+    (multislot_usage.slot_plan). An unreadable printer is not one: the
+    caller then behaves as it always did.
+    """
+    try:
+        res = mr("GET", "/printer/objects/query?print_stats=state,filename", None)
+        stats = res["result"]["status"]["print_stats"]
+        if stats.get("state") not in ("printing", "paused") or not stats.get("filename"):
+            return False
+        from . import multislot_usage, print_records
+        return multislot_usage.slot_plan(print_records.load_context(str(stats["filename"]))) is not None
+    except Exception:
+        return False
+
+
+def resume_usage(spool_id: int, mr: Client = moonraker) -> bool:
+    """Point Moonraker's usage at the spool, with verified readback. Returns whether it did.
+
+    Never during a multi-slot print (#1362): Moonraker would charge every
+    tool's filament to that one spool for the rest of the print, and the
+    end charge then charges each slot's launch spool again. The pointer
+    stays cleared and False is returned; the end charge covers the print.
+    """
+    if running_multislot_print(mr):
+        return False
     mr("POST", "/server/spoolman/spool_id", {"spool_id": int(spool_id)})
     back = active_usage_spool(mr)
     if back != int(spool_id):
         raise SpoolError(f"Moonraker active spool readback {back!r} != #{spool_id}")
+    return True
 
 
 # ---------------------------------------------------------------- ph_slot (#798)
@@ -877,8 +910,8 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
     usage = "unchanged"
     try:
         if prior is not None and active_usage_spool(mr) == prior and int(prior) != int(spool_id):
-            resume_usage(int(spool_id), mr)
-            usage = f"now charged to #{spool_id}"
+            usage = (f"now charged to #{spool_id}" if resume_usage(int(spool_id), mr) is not False
+                     else MULTISLOT_USAGE_NOTE)
     except Exception as exc:
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
     lane_data = "not requested"
@@ -1256,6 +1289,10 @@ def set_remaining(spool_id: int, grams: float, *, client: Client = spoolman) -> 
                          f"{grams:g} g left. Nothing changed")
     before = spool.get("remaining_weight")
     client("PATCH", f"/api/v1/spool/{int(spool_id)}", {"remaining_weight": round(float(grams), 2)})
+    # The operator's figure is the truth: the end-of-print usage check
+    # never rewrites a weight set during the print (#1374).
+    from . import multislot_usage
+    multislot_usage.note_weight_set(spool_id)
     filament = spool.get("filament") or {}
     return {"spool_id": int(spool_id), "before": before, "after": round(float(grams), 2),
             "archived": bool(spool.get("archived")),

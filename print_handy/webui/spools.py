@@ -508,6 +508,11 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
             _call(client, "PATCH", f"/api/v1/filament/{int(filament_id)}", filament_patch)
         if spool_patch:
             _call(client, "PATCH", f"/api/v1/spool/{spool_id}", spool_patch)
+            if "remaining_weight" in spool_patch:
+                # The end-of-print usage check never rewrites a weight the
+                # operator set during the print (#1374).
+                from ..runtime import multislot_usage
+                multislot_usage.note_weight_set(spool_id)
         updated = _call(client, "GET", f"/api/v1/spool/{spool_id}", None)
     except SpoolsError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
