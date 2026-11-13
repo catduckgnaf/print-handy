@@ -54,9 +54,10 @@ Newest first. "Guard" is what fails if it comes back; "none" is a known gap.
 
 ### 2.3.2: shrink-question intake +0.27 s (#1378, accepted in #1388)
 - **Seen:** `must-shrink` and `stl-must-shrink` rose from about 0.44 s to 0.71 s (about 1.5x after normalizing for runner speed).
-- **Cause:** unverified; bisected to #1378 across main runs, not isolated inside it.
-- **Guard:** none effective: the rise is under the gate's 0.35 s floor, so only the cumulative drift limit backs it up. Tracked on #1392.
-- **Lesson:** an absolute slack floor hides slowdowns on short flows; normalize per runner to see them.
+- **Cause (isolated in #1396):** timed 5 rounds each on the trees before and after #1378 (must-shrink median 1.10 s to 1.31 s, stl-must-shrink 0.73 s to 0.95 s, all of it between the answer and the slice start) and profiled: #1378 added `_refresh_posed_clearance`, which re-runs the support-clearance analysis (`support_clearance.posed_report`, about 0.28 s on the case) for the pose the job prints. A shrink scales every gap, so the report made at intake for the full-size pose is wrong for it.
+- **Fix:** none; accepted. It is a correctness fix from the #1373 review, it runs only when the pose changed, and the rasterizer is already vectorized.
+- **Guard:** the gate's drift limit; the rise is under its 0.35 s floor.
+- **Lesson:** an absolute slack floor hides slowdowns on short flows; normalize per runner to see them. Not every rise is a defect: name the work that was added and decide.
 
 ### 2.3.1: Discord-flow overhead +50% since 2.2.9 (#1349, cause #1343, fixed by #1352)
 - **Seen:** islands-144 0.87 s to 1.35-1.42 s; witch-ghost 1.43 s to 1.78-1.93 s.
