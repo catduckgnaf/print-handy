@@ -543,6 +543,17 @@ async def spool_dispatch(event, gateway, **kwargs):
                                                          spool_sync, pid, mr_kw)
             else:
                 message = 'No printer chosen, so nothing was changed.'
+        elif verb in ('weight', 'grams'):
+            # #1374: correct a spool's grams left in one line. Global, like
+            # /spool new: a Spoolman record, not a printer-bound slot change.
+            parts = rest.replace('#', ' ').replace('g', ' ').split()
+            try:
+                spool_id, grams = int(parts[0]), float(parts[1])
+            except (IndexError, ValueError):
+                message = ('`/spool weight <spool#> <grams left>`, for example `/spool weight 19 930`. '
+                           'Nothing changed.')
+            else:
+                message = await asyncio.to_thread(spool_sync.set_remaining_text, spool_id, grams)
         elif verb == 'sync':
             if await _spool_printer():
                 # Reconcile first (#798): Spoolman's ph_slot assignments rebuild
@@ -584,7 +595,8 @@ async def spool_dispatch(event, gateway, **kwargs):
                 message = _SPOOL_UNCLEAR
         else:
             message = ('`/spool list` · `/spool change <slot> <spool#>` · '
-                       '`/spool new brand, material, color, grams[, hex]` · `/spool sync`')
+                       '`/spool new brand, material, color, grams[, hex]` · '
+                       '`/spool weight <spool#> <grams left>` · `/spool sync`')
     except Exception as exc:
         logger.exception('/spool failed')
         message = 'That spool change did not work, so nothing was changed. Check the slot and spool number and try again.'

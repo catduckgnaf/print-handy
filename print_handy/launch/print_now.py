@@ -143,6 +143,30 @@ def _sync_active_spool(st, slot, printer_id=None):
     return result
 
 
+def _record_usage_baseline(st, job, job_path, spool_id):
+    """Record the active spool's used weight before a single-slot start (#1374).
+
+    Moonraker charges the active spool while the print runs; after a
+    Moonraker restart its first charge can be everything Klipper has
+    extruded since boot. The listener compares the spool's growth against
+    this baseline when the print ends (multislot_usage.guard_single_slot).
+    A failed read clears any baseline an earlier launch of this job left,
+    so a stale one is never compared. Never blocks the launch.
+    """
+    if not isinstance(job, dict) or job_path is None:
+        return
+    try:
+        from ..runtime import multislot_usage
+        baseline = multislot_usage.launch_baseline(spool_id, base_url=printer_state.spoolman_url(st))
+        if baseline:
+            job['spool_usage_baseline'] = baseline
+        elif job.pop('spool_usage_baseline', None) is None:
+            return
+        write_job(Path(job_path).parent, job)
+    except Exception as exc:
+        logger.warning('could not record the spool usage baseline: %s', exc)
+
+
 def _grams(value):
     """A finite, non-negative number of grams, else None (bools are not grams)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -411,6 +435,11 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
         # so the completion record is marked pending instead of silently
         # attributing the usage to whatever spool answers then (P2-155).
         ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
+    baseline = (job or {}).get('spool_usage_baseline')
+    if mapped is None and isinstance(baseline, dict) and baseline.get('spool_id') == ctx['active_spool']['id']:
+        # The active spool's used weight before this start (#1374): the
+        # listener checks Moonraker's charge against it when the print ends.
+        ctx['spool_usage_baseline'] = baseline
     # #913: risky prints get the early-layer camera watch; the listener reads
     # this back from the context sidecar and the record keeps it.
     try:
@@ -1483,6 +1512,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                     write_job(Path(job_path).parent, job)
                 except Exception as exc:
                     logger.warning('could not record pending Spoolman usage: %s', exc)
+            _record_usage_baseline(st, job, job_path, sync.get('spool_id'))
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, text)  # the text read at the top: the same file, read once
     except BaseException:

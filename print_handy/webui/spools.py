@@ -358,13 +358,16 @@ def add(data, printer_id, body=None, *, client=None, mr=None,
     """(code, body) for POST /api/printers/<id>/spools/add.
 
     Body: ``{"brand": ..., "material": ..., "color": ..., "grams": ...,
-    "hex": ...}`` (brand and hex optional). Creates one spool on the
-    shelf through create_spool, the #512 creation path; loading it into
-    a slot is a separate assign, exactly as after ``/spool new``.
+    "hex": ..., "slot": ...}`` (brand, hex and slot optional). Creates
+    one spool through create_spool, the #512 creation path. With a
+    ``slot`` the new spool is then loaded into it through bind_slot, the
+    assign path (#1374: adding an active spool is one step); without
+    one it stays on the shelf.
     """
     try:
         entry = _resolve_write(data, printer_id)
         body = _body(body)
+        slot = _slot_field(body) if body.get("slot") not in (None, "") else None
         material = str(body.get("material") or "").strip()
         color = str(body.get("color") or "").strip()
         grams = body.get("grams")
@@ -391,12 +394,28 @@ def add(data, printer_id, body=None, *, client=None, mr=None,
         made = _call(spool_sync.create_spool, spec, client=_client(client))
     except SpoolsError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
-    return 200, {"ok": True, "id": entry["id"], "action": "add",
-                 "spool_id": made["spool_id"], "filament_id": made["filament_id"],
-                 "reused_filament": made["reused_filament"],
-                 "detail": f"Created spool #{made['spool_id']} on the shelf"
-                           f"{' (existing filament type reused)' if made['reused_filament'] else ''}. "
-                           f"Load it with an assign to a slot."}
+    reused = " (existing filament type reused)" if made["reused_filament"] else ""
+    reply = {"ok": True, "id": entry["id"], "action": "add",
+             "spool_id": made["spool_id"], "filament_id": made["filament_id"],
+             "reused_filament": made["reused_filament"]}
+    if slot is None:
+        reply["detail"] = (f"Created spool #{made['spool_id']} on the shelf{reused}. "
+                           "Load it with an assign to a slot.")
+        return 200, reply
+    try:
+        bound = _call(spool_sync.bind_slot, slot, made["spool_id"],
+                      client=_client(client), mr=_mr(mr, printer_id),
+                      state_path=state_path, pending_path=pending_path,
+                      printer_id=printer_id, note="Added and loaded from the Web UI spools page")
+    except SpoolsError as refusal:
+        # The spool exists; only the load failed. Say both, never hide the new spool.
+        return refusal.code, {**reply, "ok": False,
+                              "reason": f"Created spool #{made['spool_id']} on the shelf, but "
+                                        f"loading it into slot {slot} failed: {refusal.reason}"}
+    reply["slot"] = slot
+    reply["detail"] = (f"Created spool #{made['spool_id']}{reused} and loaded it into slot {slot}. "
+                       + spool_sync.bind_text(bound))
+    return 200, reply
 
 
 def edit(data, printer_id, body=None, *, client=None, mr=None,
@@ -493,6 +512,8 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
     except SpoolsError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
     detail = f"Spool #{spool_id} updated in Spoolman."
+    if "remaining_weight" in spool_patch:
+        detail = f"Spool #{spool_id} now has {spool_patch['remaining_weight']:g} g left in Spoolman."
     if filament_patch:
         detail += (" The name, material, color and brand live on the filament record, "
                    "so every spool of that filament type shows the change.")
@@ -800,10 +821,76 @@ def render_spools_error(printer_id, code, reason, *, theme=shell.DEFAULT_THEME):
                  f'<p class="error">{_esc(reason)}</p><p>{hint}</p>', theme=theme)
 
 
+def _weight_form(form_token, pid, spool):
+    """One-step remaining-weight correction for one spool (#1374)."""
+    grams = spool.get("remaining_weight")
+    value = f' value="{grams:g}"' if isinstance(grams, (int, float)) else ""
+    return _form(form_token, pid, "edit",
+                 f'<input type="hidden" name="spool_id" value="{_esc(spool["id"])}">'
+                 f'<label>Grams left <input name="remaining_weight" type="number" step="any" '
+                 f'min="0" required{value}></label> '
+                 '<button type="submit" class="secondary">Set</button>', attrs='class="inline"')
+
+
+def _load_form(form_token, pid, spool_id, slot_options, *, label="Load into"):
+    """One-step load of a spool into a slot; a spool already there goes back on the shelf."""
+    return _form(form_token, pid, "assign",
+                 f'<input type="hidden" name="spool_id" value="{_esc(spool_id)}">'
+                 f'<label>{_esc(label)} <select name="slot">{_options(slot_options)}</select></label> '
+                 '<button type="submit" class="secondary">Load</button>', attrs='class="inline"')
+
+
+def _replace_form(form_token, pid, slot, shelf_options, *, label):
+    """One-step swap of what a slot holds for a spool from the shelf."""
+    return _form(form_token, pid, "assign",
+                 f'<input type="hidden" name="slot" value="{_esc(slot)}">'
+                 f'<label>{_esc(label)} <select name="spool_id">{_options(shelf_options)}</select></label> '
+                 '<button type="submit" class="secondary">Load</button>', attrs='class="inline"')
+
+
+def _spool_rows(view, form_token, pid, slot_options, *, show_archived):
+    """The Spools table: every spool, where it is, and its one-step actions."""
+    esc = _esc
+    where = {int(row["spool"]["id"]): row["slot"] for row in view["slots"]
+             if row["spool"] and row["spool"].get("id") is not None}
+    shelf = {spool["id"] for spool in view["shelf"]}
+    rows = []
+    for spool in view["spools"]:
+        if spool["archived"] and not show_archived:
+            continue
+        sid = spool["id"]
+        if sid in where:
+            place = f"Slot {where[sid]}"
+        elif spool["archived"]:
+            place = "Archived"
+        elif sid in shelf:
+            place = "Shelf"
+        else:
+            place = f"Loaded elsewhere ({spool.get('location') or 'another printer'})"
+        actions = _weight_form(form_token, pid, spool)
+        if spool["archived"]:
+            actions += _form(form_token, pid, "edit",
+                             f'<input type="hidden" name="spool_id" value="{esc(sid)}">'
+                             '<input type="hidden" name="unarchive" value="true">'
+                             '<button type="submit" class="secondary">Unarchive</button>',
+                             attrs='class="inline"')
+        elif sid in shelf:
+            actions += _load_form(form_token, pid, sid, slot_options)
+        rows.append(f"<tr><td>{esc(_picker_label(spool))}</td><td>{esc(place)}</td>"
+                    f"<td>{esc(_amount_text(spool))}</td><td>{actions}</td></tr>")
+    return rows
+
+
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
-                       purchase_ready=False, theme=shell.DEFAULT_THEME, printers=None):
-    """The per-printer Spools page: the #744 loaded view, the shelf,
+                       purchase_ready=False, theme=shell.DEFAULT_THEME, printers=None,
+                       show_archived=False):
+    """The per-printer Spools page: the #744 loaded view, the spool list,
     and the assign/swap/unassign/add/edit/sync forms with pickers.
+
+    Each loaded slot and each spool carries its one-step actions (#1374):
+    set the grams left, load a shelf spool into a slot (replacing what is
+    there), and the add form can load the new spool straight into a slot.
+    Archived spools are hidden unless ``show_archived`` (``?archived=1``).
 
     ``printers`` (the configured roster) adds a printer switcher when
     there is more than one printer (#875)."""
@@ -822,31 +909,49 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         parts.append(f'<p class="notice">{esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{esc(error)}</p>')
-    loaded_rows = "".join(
-        f"<tr><th>Slot {row['slot']}</th><td>"
-        + (f"{esc(_picker_label(row['spool']))} — {esc(_amount_text(row['spool']))}"
-           if row["spool"] else "empty")
-        + "</td></tr>" for row in view["slots"])
-    parts.append(f"<h2>Loaded</h2><table>{loaded_rows}</table>")
-    if view["shelf"]:
-        shelf_rows = "".join(
-            f"<tr><td>{esc(_picker_label(spool))}</td><td>{esc(_amount_text(spool))}</td></tr>"
-            for spool in view["shelf"])
-        parts.append(f'<h2>Shelf</h2><div class="table-scroll"><table>{shelf_rows}</table></div>')
-    else:
-        parts.append("<h2>Shelf</h2><p>(nothing on the shelf)</p>")
-    if view.get("conflicts"):
-        items = "".join(f"<li>{esc(conflict)}</li>" for conflict in view["conflicts"])
-        parts.append(f"<h2>Conflicts</h2><ul>{items}</ul>"
-                     "<p>Run the sync below to have the conflict named and the "
-                     "slot state converged from Spoolman.</p>")
     slot_options = [(row["slot"], f"Slot {row['slot']}") for row in view["slots"]]
     loaded_slot_options = [
         (row["slot"], f"Slot {row['slot']}: {_picker_label(row['spool'])}")
         for row in view["slots"] if row["spool"]]
     shelf_options = [(spool["id"], _picker_label(spool)) for spool in view["shelf"]]
     all_options = [(spool["id"], _picker_label(spool) + (" (archived)" if spool["archived"] else ""))
-                   for spool in view["spools"]]
+                   for spool in view["spools"] if show_archived or not spool["archived"]]
+    loaded_rows = []
+    for row in view["slots"]:
+        spool = row["spool"]
+        if spool:
+            cell = f"{esc(_picker_label(spool))} — {esc(_amount_text(spool))}"
+            actions = _weight_form(form_token, pid, spool) if spool.get("id") is not None else ""
+        else:
+            cell, actions = "empty", ""
+        if shelf_options:
+            actions += _replace_form(form_token, pid, row["slot"], shelf_options,
+                                     label="Replace with" if spool else "Load")
+        loaded_rows.append(f"<tr><th>Slot {row['slot']}</th><td>{cell}</td><td>{actions}</td></tr>")
+    parts.append(f'<h2>Loaded</h2><div class="table-scroll"><table>{"".join(loaded_rows)}</table></div>'
+                 '<p class="help">Set corrects the grams left on the spool in Spoolman. '
+                 "Replace with loads a shelf spool into the slot; the spool that was there "
+                 "goes back on the shelf.</p>")
+    archived_count = sum(1 for spool in view["spools"] if spool["archived"])
+    base = f"/spools/{quote(str(pid), safe='')}"
+    if show_archived:
+        toggle = f'<a href="{base}">Hide archived spools</a>'
+    elif archived_count:
+        toggle = f'<a href="{base}?archived=1">Show archived spools ({archived_count})</a>'
+    else:
+        toggle = ""
+    spool_rows = _spool_rows(view, form_token, pid, slot_options, show_archived=show_archived)
+    parts.append("<h2>Spools</h2>" + (f"<p>{toggle}</p>" if toggle else ""))
+    if spool_rows:
+        parts.append('<div class="table-scroll"><table><tr><th>Spool</th><th>Where</th>'
+                     f'<th>Left</th><th>Actions</th></tr>{"".join(spool_rows)}</table></div>')
+    else:
+        parts.append("<p>(no spools yet: add one below)</p>")
+    if view.get("conflicts"):
+        items = "".join(f"<li>{esc(conflict)}</li>" for conflict in view["conflicts"])
+        parts.append(f"<h2>Conflicts</h2><ul>{items}</ul>"
+                     "<p>Run the sync below to have the conflict named and the "
+                     "slot state converged from Spoolman.</p>")
     parts.append("<h2>Assign a spool to a slot</h2>")
     if shelf_options:
         parts.append(_form(form_token, pid, "assign",
@@ -892,7 +997,11 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                        + new_fields +
                        '<label>Grams <input name="grams" type="number" step="any" min="1" required></label> '
                        '<label>Color code (hex, optional) <input name="hex"></label> '
-                       '<button type="submit">Add to the shelf</button>'
+                       f'<label>Load into <select name="slot"><option value="">(the shelf)</option>'
+                       f'{_options(slot_options)}</select></label> '
+                       '<button type="submit">Add spool</button>'
+                       "<p>Pick a slot to load the new spool straight into it; a spool already "
+                       "in that slot goes back on the shelf.</p>"
                        "<p>Material is picked by type, then kind (PLA, PLA+, Silk, Matte). "
                        "A brand or color that is not in the list needs Other, the typed value, "
                        "and the Add new values box ticked.</p>"))
@@ -987,6 +1096,8 @@ def form_body(action, form):
                 "color": _picked(first, "color", "color"), "grams": number("grams")}
         if first("hex"):
             body["hex"] = first("hex")
+        if first("slot"):
+            body["slot"] = number("slot", integer=True)
         return api_action, body
     if api_action == "edit":
         body: dict = {"spool_id": number("spool_id", integer=True)}

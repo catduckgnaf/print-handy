@@ -157,7 +157,9 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   (archived with 0 g left). Nothing is created, bound, archived or zeroed before that flow's
   confirmation, and cancelling or letting a question expire changes nothing. The full typed forms
   (`/spool new <brand, material, color, grams>`, `/spool change <slot> <spool#>`, `/spool list`,
-  `/spool sync`) still work in one shot. Plain requests work too, with no LLM configured: "add new
+  `/spool sync`) still work in one shot. `/spool weight <spool#> <grams left>` corrects a spool's
+  remaining weight in Spoolman in one step (for example `/spool weight 19 930`); a value above the
+  spool's starting weight is refused, and "fix the spool weight" suggests it. Plain requests work too, with no LLM configured: "add new
   filament", "add a new spool", "we need to add new filament" and "change / swap / replace the
   filament" start the same guided flow; ordinary discussion about filament does not.
 * `/print-spools` answers what is loaded, where, and how much is left: a loaded-only,

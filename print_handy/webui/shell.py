@@ -175,6 +175,10 @@ td, th { overflow-wrap: anywhere; }
 form label { display: block; margin: 0 0 0.75rem; font-weight: 500; }
 form label > input:not([type=checkbox]), form label > select { margin-top: 0.375rem; }
 table.rows th { width: 12rem; }
+form.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.25rem 0; }
+form.inline label { display: inline-flex; align-items: center; gap: 0.375rem; margin: 0; }
+form.inline label > input:not([type=checkbox]), form.inline label > select { width: auto; margin-top: 0; }
+form.inline input[type=number] { max-width: 7rem; }
 .field { margin: 0 0 1.25rem; }
 .field > label, .field .flabel { display: block; font-weight: 500; margin-bottom: 0.375rem; }
 .badge {

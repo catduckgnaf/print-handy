@@ -1715,10 +1715,12 @@ class _Handler(BaseHTTPRequestHandler):
         if code != 200:
             self._spools_error_page(printer_id, code, view.get("reason", ""))
             return
-        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
+        query = parse_qs(urlparse(self.path).query)
+        done = (query.get("done") or [""])[0]
         self._send(200, spools_module.render_spools_page(
             view, form_token=self._form_token(), theme=self._theme(),
             notice=done or None,
+            show_archived=(query.get("archived") or [""])[0] == "1",
             purchase_ready=spools_module.purchase_available(),
             printers=settings.printers(self.server.settings_data)),
             "text/html; charset=utf-8")

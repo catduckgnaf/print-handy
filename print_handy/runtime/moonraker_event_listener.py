@@ -4606,6 +4606,7 @@ class Listener:
         try:
             context = print_records.load_context(filename) if filename else {}
             if multislot_usage.slot_plan(context) is None:
+                await self._guard_single_slot_usage(context, new_state)
                 return
             outcome = "complete" if new_state == "complete" else "stopped"
             actual = planned = None
@@ -4634,6 +4635,34 @@ class Listener:
             log(f"multi-slot usage file={filename!r} status={entry.get('status')} "
                 + " ".join(f"slot{row.get('slot')}:#{row.get('spool_id')}={row.get('grams')}g/{row.get('status')}"
                            for row in entry.get("slots") or []))
+
+    async def _guard_single_slot_usage(self, context, new_state):
+        """Undo a runaway Moonraker charge on a finished single-slot print (#1374).
+
+        Moonraker charged the active spool while the print ran. After a
+        Moonraker restart its first charge can be everything Klipper has
+        extruded since boot; multislot_usage.guard_single_slot compares the
+        spool's growth since launch with what this print extruded and
+        writes the used weight back when it is far over.
+        """
+        from . import multislot_usage
+        filename = self.filename
+        if not (context or {}).get("spool_usage_baseline"):
+            return
+        actual = (self.last_stats or {}).get("filament_used")
+        if not isinstance(actual, (int, float)) or isinstance(actual, bool) or actual <= 0:
+            history = await asyncio.to_thread(announcer._finished_history_job, filename)
+            actual = (history or {}).get("filament_used")
+        record = load_runout_pause()
+        entry = await asyncio.to_thread(
+            multislot_usage.guard_single_slot, context,
+            "complete" if new_state == "complete" else "stopped", actual_mm=actual,
+            suspended=bool(record and record.get("usage_suspended")),
+            base_url=_config.service_url("spoolman_url") or None)
+        if entry:
+            log(f"spool usage check file={filename!r} spool=#{entry.get('spool_id')} "
+                f"status={entry.get('status')} expected={entry.get('expected_g')}g "
+                f"observed={entry.get('observed_g')}g")
 
     async def _print_ended(self, new_state):
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
