@@ -200,6 +200,22 @@ def vision_context(adapter) -> str:
             "uncertain means the frame is not clear enough to judge.")
 
 
+def _web_alert(message, kind, filename, **fields):
+    """The shared web chat alert (listener_common._web_alert). Never raises."""
+    from . import listener_common
+    listener_common._web_alert(message, kind, filename, **fields)
+
+
+def _web_scoped(fn):
+    """listener_common._web_scoped, resolved when the function runs."""
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        from . import listener_common
+        return listener_common._web_scoped(fn)(*args, **kwargs)
+    return run
+
+
+@_web_scoped
 def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat_id=None, buttonless=None,
                          identity=None, printer_id=None):
     """Post one watchdog alert with its snapshot, the Moonraker alert's shape (#294 stage 3).
@@ -228,6 +244,7 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
     from . import starter_pings
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     media_text = text + f"\n{path}\nMEDIA:{path}"
+    _web_alert(media_text, "visual", filename, identity=identity, printer_id=printer_id)
     if buttonless:
         delivered = None
         if default_post:
@@ -262,6 +279,7 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
     return path
 
 
+@_web_scoped
 def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, buttonless=None,
                         identity=None, printer_id=None):
     """Post the once-per-print dark-camera notice (#476), the listener's shape.
@@ -280,6 +298,7 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
         token = token if token is not None else mel._bot_token()
         chat_id = chat_id if chat_id is not None else announcer.DISCORD_CHAT_ID
         buttonless = mel._buttonless_standalone() if buttonless is None else buttonless
+    _web_alert(text, "visual-dark", filename, identity=identity, printer_id=printer_id)
     if buttonless:
         post(text)
         return
@@ -294,6 +313,7 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
     post(text)
 
 
+@_web_scoped
 def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_id=None, buttonless=None,
                               identity=None, printer_id=None):
     """Post a watchdog alert with no snapshot: the camera capture itself failed.
@@ -311,6 +331,7 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
         token = token or mel._bot_token()
         chat_id = chat_id if chat_id is not None else announcer.DISCORD_CHAT_ID
         buttonless = mel._buttonless_standalone() if buttonless is None else buttonless
+    _web_alert(text, "visual", filename, identity=identity, printer_id=printer_id)
     from . import starter_pings
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if buttonless:

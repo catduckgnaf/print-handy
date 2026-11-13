@@ -18,8 +18,20 @@ checked the way a person would notice its absence:
 * **Proactive alerts.** The bot heartbeat on Discord, Telegram and
   Matrix runs BotCore's ``check_*`` alert methods; every one of them
   must run in web chat too (``web.HEARTBEAT_CHECKS``) or be exempted
-  below with the reason. The ZMod update alert, the one alert web chat
-  delivers, is driven end to end in tests/bot/test_firmware_alert_transports.py.
+  below with the reason. The ZMod update alert is driven end to end in
+  tests/bot/test_firmware_alert_transports.py.
+* **The listener's print posts.** Started, paused, complete, cancelled
+  and error posts (and the camera checks and emergency stops) are sent
+  by the listener process through the platform REST senders, not
+  BotCore; they reach web chat through the feed file (bot/web_feed.py).
+  Below, each lifecycle kind is posted through the real listener post
+  path on every chat platform, and web chat must show the same core
+  facts (the outcome verb, the model title, the printer name on a
+  multi-printer roster) with no starter mention; an alert must arrive
+  with its actions as buttons that claim once through the alert store;
+  and a source scan fails any listener chat sender that bypasses the
+  path. Each printer family's own sender is driven in
+  tests/bot/test_webui_print_event_families.py.
 
 It runs in the offline-tests job, a required check, so it gates merges.
 CONTRIBUTING.md states the rule beside the fuzzy-equivalent one.
@@ -58,16 +70,35 @@ HEARTBEAT_EXEMPTIONS = {
         "second process ticking it would race the bot's."),
 }
 
-# Proactive posts that do not come from the BotCore heartbeat at all,
-# named so the inventory is complete. Not enumerable from code here, so
-# listed by hand with the reason.
-NON_HEARTBEAT_ALERTS = {
-    "listener print-event posts": (
-        "Print started, paused, complete, cancelled and error posts are sent by the "
-        "listener process through the platform REST senders (bot/rest.py, telegram_rest, "
-        "matrix_rest), not through BotCore. The Web UI shows the same print state live on "
-        "its status page; a web chat delivery for them is not built yet."),
+# What of the listener's chat posts does not reach web chat as it reaches
+# the chat. The listener's print posts themselves do reach it (bot/web_feed.py;
+# proved below for every lifecycle kind, platform and printer family).
+LISTENER_EXEMPTIONS = {
+    "attachments": (
+        "The chat page cannot show files. A timelapse video, a completion snapshot or a "
+        "camera check photo goes to the chat platform with its post; web chat posts the same "
+        "text with one line naming the file and where it went (web_feed.render). Showing the "
+        "file would need a media route the Web UI does not have."),
+    "inventory and next-plate questions on Discord": (
+        "Spool, insertion, new-spool and next-plate picker questions are Discord component "
+        "flows (selects, modals, a multi-step walkthrough) that the gateway plugin resolves, "
+        "so on a Discord install they go to Discord only. On Telegram and Matrix they are plain "
+        "posts through the listener's post(), so they reach web chat there, and the commands "
+        "behind them (/print-next, the spool commands) answer in web chat as in chat."),
+    "a retried alert's fresh buttons": (
+        "When an alert action does not take (#837), handle_click re-posts the alert with fresh "
+        "buttons to the chat (print_alert_buttons._repost_alert). A press from web chat gets "
+        "the same outcome text there, and the fresh buttons are in the chat."),
 }
+
+# The listener's chat button posts that bypass post(): each must hand its
+# alert to web chat (_web_alert) in the same function. The others are the
+# Discord-only component flows exempted above.
+ALERT_BUTTON_POSTS = {"post_with_buttons", "post_visual_alert", "post_visual_text_alert",
+                      "post_visual_dark_notice", "post_telegram_with_buttons",
+                      "post_matrix_with_reactions", "post_plate_confirm"}
+DISCORD_ONLY_BUTTON_POSTS = {"post_plate_picker", "post_insertion_confirmation",
+                             "post_spool_question", "post_new_spool"}
 
 SAFE_LABELS = ("cancel", "not now", "keep", "skip", "no", "later", "done")
 
@@ -245,7 +276,7 @@ def test_every_heartbeat_alert_check_reaches_web_chat():
     assert set(HEARTBEAT_EXEMPTIONS) <= union, "stale heartbeat exemptions"
     for name in web.HEARTBEAT_CHECKS:
         assert inspect.iscoroutinefunction(getattr(runtime.BotCore, name)), name
-    for reason in (*HEARTBEAT_EXEMPTIONS.values(), *NON_HEARTBEAT_ALERTS.values()):
+    for reason in (*HEARTBEAT_EXEMPTIONS.values(), *LISTENER_EXEMPTIONS.values()):
         assert len(reason) > 40
 
 
@@ -267,3 +298,218 @@ def test_web_chat_heartbeat_runs_the_alert_checks(parity_cfg, web_driver):
     calls.clear()
     asyncio.run_coroutine_threadsafe(service.heartbeat_once(), service._loop).result(timeout=10)
     assert calls == []
+
+
+# ------------------------------------------------------------------ the listener's print posts
+
+# Every lifecycle kind the listener's chat senders deliver, with the verb
+# format_event renders. (A resume posts nothing of its own: it retires
+# the pause alert.)
+LIFECYCLE_VERBS = {"started": "Print started", "paused": "Print paused",
+                   "complete": "Print complete", "cancelled": "Print cancelled",
+                   "error": "Print stopped with an error"}
+CHAT_PLATFORMS = ("discord", "telegram", "matrix")
+
+
+@pytest.mark.parametrize("platform", CHAT_PLATFORMS)
+@pytest.mark.parametrize("kind", sorted(LIFECYCLE_VERBS))
+def test_every_lifecycle_post_reaches_web_chat_with_the_same_facts(print_event_rig, platform, kind):
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+    rig.install(platform)
+    text = rig.render(kind)
+    assert mel.post(text, ping_kind=kind, ping_job_key="plate.gcode")
+    sent = [row for row in rig.sent if row[0] == platform]
+    assert sent and sent[-1][1] == text
+    shown = rig.wait_web(lambda body: body.startswith(f"{LIFECYCLE_VERBS[kind]}: Widget"))
+    # The same core facts the chat got: verb, model title, printer name.
+    assert "Printer: Workshop AD5X" in shown
+    # No web post ever carries the starter mention, even where Discord pinged.
+    assert all("<@" not in body for body in rig.web_texts())
+    if platform == "discord" and kind in ("complete", "cancelled", "error"):
+        assert sent[-1][2] == rig.STARTER  # the ping stayed a Discord send-path decision
+    # Exactly once: a print post is a shared post every session sees.
+    other = rig.service.view(web.scope_for("another-session"))
+    assert sum(shown == (e.get("content") or "") for e in other.entries()) == 1
+
+
+@pytest.mark.parametrize("platform", CHAT_PLATFORMS)
+def test_a_pause_alert_reaches_web_chat_with_its_buttons_and_claims_once(print_event_rig,
+                                                                         platform, monkeypatch):
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
+    rig = print_event_rig
+    rig.install(platform)
+    clicks = []
+    monkeypatch.setattr(pab, "handle_click",
+                        lambda action, alert: clicks.append((action, alert)) or "Cancel sent.")
+    assert mel.post_alert(rig.render("paused"), "paused", "plate.gcode")
+    prompt = rig.wait_prompt("Print paused: Widget")
+    assert prompt["choices"] == ["Resume print", "Cancel print"]
+    assert "<@" not in prompt["question"]
+    # The chat got it once, and web chat got it once (never as a second plain post).
+    assert sum(t.startswith("Print paused: Widget") for t in rig.web_texts()) == 1
+    assert rig.view.answer(prompt["clarify_id"], 1) == "Cancel print"
+    rig.wait_web(lambda body: body == "Cancel sent.")
+    assert [action for action, _alert in clicks] == ["cancel"]
+    assert clicks[0][1]["kind"] == "paused" and clicks[0][1]["filename"] == "plate.gcode"
+    # Taken once: the prompt is closed, a second press resolves nothing.
+    assert rig.view.answer(prompt["clarify_id"], 0) is None
+    assert len(clicks) == 1
+
+
+def test_an_alert_retired_at_print_end_closes_its_web_buttons(print_event_rig, monkeypatch):
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
+    rig = print_event_rig
+    monkeypatch.setattr(pab, "handle_click", lambda *a: pytest.fail("nothing may be sent"))
+    mel.post_alert(rig.render("paused"), "paused", "plate.gcode")
+    prompt = rig.wait_prompt("Print paused: Widget")
+    pab.retire_alerts("", "plate.gcode", "Print ended.")
+    deadline = time.time() + 10
+    while rig.service.adapter.registry.is_open(prompt["clarify_id"]) and time.time() < deadline:
+        time.sleep(0.02)
+    assert not rig.service.adapter.registry.is_open(prompt["clarify_id"])
+    assert rig.view.answer(prompt["clarify_id"], 1) is None
+
+
+def test_a_camera_check_reaches_web_chat_with_its_actions_and_names_the_photo(print_event_rig,
+                                                                              monkeypatch):
+    from print_handy.runtime import moonraker_event_listener as mel
+    from print_handy.runtime import print_alert_buttons as pab
+    rig = print_event_rig
+    frame = rig.archive.parent / "frame.jpg"
+    frame.write_bytes(b"\xff\xd8jpeg")
+    monkeypatch.setattr(mel._visual_watch, "write_frame", lambda filename, image: frame)
+    monkeypatch.setattr(mel.print_markers, "record", lambda *a, **k: None)
+    monkeypatch.setattr("print_handy.bot.rest.attachable", lambda path: frame)
+    clicks = []
+    monkeypatch.setattr(pab, "handle_click",
+                        lambda action, alert: clicks.append(action) or "Monitoring continues.")
+    mel._visual_alert("plate.gcode", b"img", "Looks like spaghetti.", identity="job-1")
+    prompt = rig.wait_prompt("Print camera check")
+    assert prompt["choices"] == ["Pause", "It's fine", "Stop asking for this print"]
+    assert "Looks like spaghetti." in prompt["question"]
+    # The photo cannot be shown here: one line says so, and no server path leaks.
+    assert "frame.jpg went to Discord" in prompt["question"]
+    assert str(frame) not in prompt["question"]
+    rig.view.answer(prompt["clarify_id"], 1)
+    rig.wait_web(lambda body: body == "Monitoring continues.")
+    assert clicks == ["acknowledge"]
+
+
+def test_a_completion_with_a_timelapse_names_the_video_in_web_chat(print_event_rig, monkeypatch):
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+    video = rig.archive.parent / "timelapse.mp4"
+    video.write_bytes(b"mp4")
+    monkeypatch.setattr("print_handy.bot.rest.attachable", lambda path: video)
+    assert mel.post(rig.render("complete") + f"\nMEDIA:{video}")
+    shown = rig.wait_web(lambda body: body.startswith("Print complete: Widget"))
+    assert "timelapse.mp4 went to Discord with this post" in shown
+    assert "MEDIA:" not in shown and str(video) not in shown
+
+
+@pytest.mark.parametrize("platform", CHAT_PLATFORMS)
+def test_the_next_plate_offer_reaches_web_chat_naming_the_confirmed_command(print_event_rig,
+                                                                            platform):
+    """The empty-bed plate confirm: on Discord a button post, elsewhere the
+    text the caller posts. Web chat gets the text either way, and it names
+    `/print-next`, which web chat runs through the same confirmed flow."""
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+    rig.install(platform)
+    choice = {"action": "offer", "plan_id": "plan1", "part_id": "p2",
+              "text": "Bed looks clear. Send plate 2?\nUse `/print-next plan1` to start it. "
+                      "Nothing starts until you confirm."}
+    if not mel.post_bed_clear_offer(choice):
+        assert platform != "discord"
+        assert mel.post(choice["text"])
+    rig.wait_web(lambda body: body.startswith("Bed looks clear.") and "/print-next plan1" in body)
+    assert sum(t.startswith("Bed looks clear.") for t in rig.web_texts()) == 1
+
+
+def test_a_failed_web_delivery_never_breaks_the_chat_post(print_event_rig, monkeypatch):
+    from print_handy.bot import web_feed
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(web_feed, "feed_path", broken)
+    monkeypatch.setattr(web_feed, "alert_spec", broken)
+    assert mel.post(rig.render("complete"), ping_kind="complete", ping_job_key="plate.gcode")
+    assert rig.sent and rig.sent[-1][1].startswith("Print complete: Widget")
+    assert mel.post_alert(rig.render("paused"), "paused", "plate.gcode")
+    assert rig.button_posts
+
+
+def test_a_refused_chat_post_is_not_mirrored(print_event_rig, monkeypatch):
+    """Web chat shows what the chat got: a refused completion is retried
+    by the listener later, and is mirrored then, once."""
+    from print_handy.bot import web_feed
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+    monkeypatch.setattr(mel, "_post_rest", lambda message, mention_user_id=None: False)
+    assert not mel.post(rig.render("complete"))
+    assert not [row for row in web_feed.FeedReader(mel._config.state_dir(), since=0).poll()
+                if "Widget" in row.get("text", "")]
+
+
+def test_the_listener_writes_nothing_with_the_chat_page_off(print_event_rig):
+    from print_handy.bot import web_feed
+    from print_handy.runtime import moonraker_event_listener as mel
+    rig = print_event_rig
+    rig.cfg.setdefault("webui", {})["chat_enabled"] = False
+    assert mel.post(rig.render("started"))
+    mel.post_alert(rig.render("paused"), "paused", "plate.gcode")
+    assert not [row for row in web_feed.FeedReader(mel._config.state_dir(), since=0).poll()
+                if "Widget" in row.get("text", "")]
+
+
+# Listener modules whose chat sends the scan below checks.
+_LISTENER_MODULES = ("listener_common", "moonraker_event_listener", "family_control", "family_event_listener",
+                     "bambu_watch", "prusa_watch", "octo_watch", "elegoo_watch", "stock_watch",
+                     "moonraker_discord_announcements")
+_REST_SENDS = {("rest", "send"), ("telegram_rest", "send"), ("matrix_rest", "send")}
+
+
+def _calls(tree):
+    import ast
+    for func in ast.walk(tree):
+        if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names = set()
+            for node in ast.walk(func):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                    owner = node.func.value
+                    names.add((owner.id if isinstance(owner, ast.Name) else "", node.func.attr))
+            yield func, names
+
+
+def test_no_listener_chat_send_bypasses_web_chat():
+    """A new listener sender fails here until its posts reach web chat.
+
+    A REST send is allowed only inside the one post path (post's
+    _post_rest, which mirrors what it delivered); a chat button post must
+    hand its alert to web chat (_web_alert) in the same function, or be
+    one of the Discord-only component flows exempted above."""
+    import ast
+    import importlib
+    for name in _LISTENER_MODULES:
+        module = importlib.import_module(f"print_handy.runtime.{name}")
+        source = inspect.getsource(module)
+        for func, calls in _calls(ast.parse(source)):
+            body = ast.get_source_segment(source, func) or ""
+            rest_sends = calls & _REST_SENDS
+            assert not rest_sends or func.name in ("_post_rest", "_post_rest_discord"), (
+                f"{name}.{func.name} sends to the chat outside post(): {sorted(rest_sends)}")
+            buttons = {attr for _owner, attr in calls} & ALERT_BUTTON_POSTS
+            if buttons:
+                assert "_web_alert(" in body or "_web_publish(" in body, (
+                    f"{name}.{func.name} posts an alert with buttons ({sorted(buttons)}) "
+                    "but never hands it to web chat (_web_alert)")
+            other = {attr for owner, attr in calls if owner == "pab" and attr.startswith("post_")}
+            assert other <= ALERT_BUTTON_POSTS | DISCORD_ONLY_BUTTON_POSTS, (
+                f"{name}.{func.name}: a new button post {sorted(other)} needs web chat "
+                "delivery or a reasoned entry in LISTENER_EXEMPTIONS")

@@ -15,6 +15,8 @@ before the move.
 """
 from __future__ import annotations
 
+import contextvars
+import functools
 import logging
 import re
 import sys
@@ -121,7 +123,64 @@ def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, pi
     if mention_user_id is None and ping_kind:
         mention_user_id = starter_pings.ping_for(
             ping_kind, job_key=ping_job_key, episode=ping_episode) or None
-    return _ns(ns)._post_rest(message, mention_user_id=mention_user_id)
+    delivered = _ns(ns)._post_rest(message, mention_user_id=mention_user_id)
+    if delivered and not _WEB_ALERT_POSTED.get():
+        # Web chat parity: the post the chat got goes to web chat too
+        # (bot/web_feed.py). After the delivery, never instead of it, and
+        # only once it landed, so a retried completion is not repeated.
+        _web_publish(message, ns=ns)
+    return delivered
+
+
+# Set while an alert that already went to web chat (with its buttons,
+# _web_alert) is being delivered to the chat, so its plain-text post or
+# fallback is not sent to web chat a second time. Each alert function
+# runs in its own context (_web_scoped), so the flag never outlives it.
+_WEB_ALERT_POSTED = contextvars.ContextVar("web_alert_posted", default=False)
+
+
+def _web_publish(message, alert=None, ns=None):
+    """Hand one post to web chat's feed (bot/web_feed.py). Never raises."""
+    try:
+        from print_handy.bot import web_feed
+        cfg = _config.cfg()
+        if not web_feed.enabled(cfg):
+            return False
+        return web_feed.publish(message, state_dir=_config.state_dir(),
+                                platform=_ns(ns)._platform_name(), alert=alert)
+    except Exception as exc:
+        _ns(ns).log(f"web chat feed publish failed: {exc!r}")
+        return False
+
+
+def _web_alert(message, kind, filename, *, connection=None, printer_id=None, identity=None,
+               ns=None):
+    """Send one alert to web chat with its buttons, before its chat delivery.
+
+    The line names the alert (print_alert_buttons.alert_fields, the same
+    routing the chat button records), so web chat offers the same actions
+    and claims them through the alert store (bot/web.py). An alert is one
+    post per episode with no retry, so it goes to web chat whether or not
+    the chat post lands. Call it inside a ``_web_scoped`` function: the
+    chat post that follows is then not mirrored again. Never raises.
+    """
+    try:
+        from print_handy.bot import web_feed
+        from . import print_alert_buttons as pab
+        spec = web_feed.alert_spec(kind, filename, pab.alert_fields(
+            connection=connection, printer_id=printer_id, identity=identity))
+        _web_publish(message, alert=spec, ns=ns)
+    except Exception as exc:
+        _ns(ns).log(f"web chat alert publish failed: {exc!r}")
+    _WEB_ALERT_POSTED.set(True)
+
+
+def _web_scoped(fn):
+    """Run an alert function in its own context, so _web_alert's flag stays inside it."""
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        return contextvars.copy_context().run(fn, *args, **kwargs)
+    return run
 
 
 def _post_rest(message, mention_user_id=None, ns=None):

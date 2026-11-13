@@ -309,9 +309,20 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     Moonraker listener's post_alert behaves there; a failed button post
     falls back to plain text the same way.
     """
+    import contextvars
+    # Its own context, so the web chat alert's flag stays inside this call.
+    return contextvars.copy_context().run(
+        _post_pause_alert, filename, connection, printer_id, status)
+
+
+def _post_pause_alert(filename, connection, printer_id, status):
     mel = _mel()
     printer_id = _roster_printer_id(printer_id)
     text = paused_text(filename, status)
+    # Web chat gets the alert with its Resume/Cancel buttons on every
+    # install (moonraker_event_listener._web_alert), routed to this
+    # family's control like the chat button.
+    mel._web_alert(text, "paused", filename, connection=connection, printer_id=printer_id)
     # A pause that needs a person pings the print's starter (#1095), once
     # per episode; the decision is threaded to the delivering transport.
     # The episode is the pause's cause, as on the Moonraker path, so a

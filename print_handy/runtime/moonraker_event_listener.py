@@ -172,9 +172,30 @@ def _matrix_room_id():
 
 
 def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, ping_episode=None):
-    """Deliver physical print lifecycle text to the print chat only, with no agent (listener_common.post)."""
+    """Deliver physical print lifecycle text to the print chat only, with no agent (listener_common.post).
+
+    What the chat got goes to web chat too (bot/web_feed.py).
+    """
     return _listener_common.post(message, mention_user_id=mention_user_id, ping_kind=ping_kind,
                                  ping_job_key=ping_job_key, ping_episode=ping_episode, ns=_SELF)
+
+
+
+# Web chat delivery (bot/web_feed.py) lives in listener_common with the post
+# path; these are the long-standing names every listener calls.
+_WEB_ALERT_POSTED = _listener_common._WEB_ALERT_POSTED
+_web_scoped = _listener_common._web_scoped
+
+
+def _web_publish(message, alert=None):
+    """Hand one post to web chat's feed (listener_common._web_publish). Never raises."""
+    return _listener_common._web_publish(message, alert=alert, ns=_SELF)
+
+
+def _web_alert(message, kind, filename, *, connection=None, printer_id=None, identity=None):
+    """One alert to web chat with its buttons (listener_common._web_alert). Never raises."""
+    return _listener_common._web_alert(message, kind, filename, connection=connection,
+                                       printer_id=printer_id, identity=identity, ns=_SELF)
 
 
 def _post_rest(message, mention_user_id=None):
@@ -187,6 +208,7 @@ def _post_rest_discord(message, mention_user_id=None):
     return _listener_common._post_rest_discord(message, mention_user_id=mention_user_id, ns=_SELF)
 
 
+@_web_scoped
 def post_alert(message, kind, filename, episode=None):
     """Post with Resume/Cancel buttons; fall back to plain text if Discord refuses.
 
@@ -196,8 +218,11 @@ def post_alert(message, kind, filename, episode=None):
     its actions as reactions (#1291): the same recorded alert, the
     alert text names one reaction per action, the bot seeds them on
     its own message, and a reaction returns through the Matrix
-    adapter's /sync ingest.
+    adapter's /sync ingest. Web chat gets the alert with the same
+    actions as buttons on every install (_web_alert).
     """
+    from .. import listeners as _web_listeners
+    _web_alert(message, kind, filename, printer_id=_web_listeners.instance_printer_id())
     # An alert that needs a person pings the print's starter (#1095): the
     # classifier decides from the alert kind and the job behind the
     # filename — once per episode, so a re-posted or refreshed alert the
@@ -324,6 +349,9 @@ def post_bed_clear_offer(choice):
         from . import print_alert_buttons as pab
         if pab.post_plate_confirm(_bot_token(), announcer.DISCORD_CHAT_ID, text, plan_id, part_id):
             log(f"post next-plate offer plan={plan_id} part={part_id}")
+            # Web chat gets the offer's text, which names `/print-next`:
+            # typed there, it runs the same confirmed next-plate flow.
+            _web_publish(text)
             return True
         log(f"next-plate offer button post failed plan={plan_id}; falling back to text")
     except Exception as exc:
@@ -3141,6 +3169,7 @@ def _with_printer_name(text):
     return f"{text}\nPrinter: {name}" if name else text
 
 
+@_web_scoped
 def _visual_alert(filename, image, reason, identity=None, ping=True):
     # #317: a watchdog alert is blooper material; record() never raises.
     print_markers.record(filename, print_markers.WATCHDOG_ALERT, detail=reason)
@@ -3152,6 +3181,7 @@ def _visual_alert(filename, image, reason, identity=None, ping=True):
     # The shared frame folder keeps only the newest frames (visual_watch.prune_frames).
     path = _visual_watch.write_frame(filename, image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    _web_alert(text + f"\nMEDIA:{path}", "visual", filename, identity=identity)
     # A watchdog alert asking for a decision pings the starter (#1095),
     # once per episode: the decision is made once here and threaded to
     # whichever transport delivers, button post or plain fallback.
@@ -3185,6 +3215,7 @@ def _visual_alert(filename, image, reason, identity=None, ping=True):
     return path
 
 
+@_web_scoped
 def _visual_alert_text(filename, reason, identity=None):
     """A watchdog alert with no frame to attach: the snapshot itself failed.
 
@@ -3201,6 +3232,7 @@ def _visual_alert_text(filename, reason, identity=None):
     except Exception:
         pass
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    _web_alert(text, "visual", filename, identity=identity)
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
         delivered = post(text, **({"mention_user_id": mention} if mention else {}))
@@ -3224,6 +3256,7 @@ def _visual_alert_text(filename, reason, identity=None):
         starter_pings.release_ping("watchdog", job_key=filename, episode="watchdog")
 
 
+@_web_scoped
 def _visual_dark_notice(filename, identity=None):
     """The once-per-print dark-camera notice (#476): a camera problem, not a print alert.
 
@@ -3235,6 +3268,7 @@ def _visual_dark_notice(filename, identity=None):
         f"Camera check: {clean(filename)} — the camera image is completely dark, "
         "so I can't check the print. Check the camera or its light. "
         "Monitoring continues; nothing was sent to the printer.")
+    _web_alert(text, "visual-dark", filename, identity=identity)
     if _buttonless_standalone():
         post(text)
         return
