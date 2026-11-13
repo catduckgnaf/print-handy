@@ -804,11 +804,14 @@ def _local_fallback_verdict(image, streak=None):
     try:
         if not local_vision.model_path().is_file():
             return None
-        verdict, detail = local_vision.local_verdict(image, streak=streak)
+        result = local_vision.local_verdict(image, streak=streak)
     except Exception as exc:
         logger.warning("local detector fallback failed: %s: %s", type(exc).__name__, exc)
         return None
-    return verdict, f"local detector fallback: {detail}"[:300]
+    # Keep the structured detection (local_vision.Verdict): the watch
+    # decides on it, never on the prefixed text.
+    return local_vision.Verdict(result[0], f"local detector fallback: {result[1]}"[:300],
+                                local_vision.detection_of(result))
 
 
 # The idle plate-check prompt (auto light-off #516, next-plate offer

@@ -599,6 +599,7 @@ class _BambuWeakRig:
         self.clock = FakeClock()
         self.clock.t = 10_000.0
         self.confidence = 0.12
+        self.changed = True
         streak = lv.FailureStreak()
         monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
         real_settings = vw.watch_settings
@@ -618,7 +619,7 @@ class _BambuWeakRig:
         self.monitor = bambu_watch.BambuPrintMonitor(
             REMOTE, status_fn=scripted([st("complete")]), camera_fn=_noise_jpegs(),
             post=lambda text: None, watch=watch, verdict=verdict or detector, alert=alert,
-            changed=lambda before, after: True,
+            changed=lambda before, after: self.changed,
             event_recorder=lambda **kw: self.events.append((kw["verdict"], kw["action"])),
             auto_pause=lambda filename, identity: self.pauses.append(filename) or "Paused",
             clock=self.clock, wall=self.clock, sleep=self.clock.sleep, poll_s=10)
@@ -670,6 +671,18 @@ def test_bambu_a_single_strong_detection_still_alerts_with_a_ping(monkeypatch):
     rig.check(0.9)
     assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
     assert rig.events == [("spaghetti", "alert")]
+
+
+def test_bambu_a_stall_alert_with_a_weak_detection_keeps_the_ping(monkeypatch):
+    """#1397: the stalled frame also gave a weak detection; the stall alert still pings."""
+    rig = _BambuWeakRig(monkeypatch)
+    rig.check(0.0, reason="layer5", layer=5)
+    rig.changed = False
+    rig.check(0.12, reason="stalled_layers", layer=20)
+    assert len(rig.alerts) == 1
+    text, ping = rig.alerts[0]
+    assert ping is True and "low confidence" not in text
+    assert rig.events[-1] == ("uncertain", "alert")
 
 
 @pytest.mark.parametrize("detail", ["model unsure", "the vision check could not be completed"])

@@ -861,7 +861,12 @@ class BambuPrintMonitor:
             self._last_frame = image
             if _cw.keep_frame(watch, reason, layer, image, self._wall()):
                 return
-            verdict, detail = self._verdict(image, WATCH_PROMPT)
+            result = self._verdict(image, WATCH_PROMPT)
+            verdict, detail = result
+            # The local detector's structured result (local_vision.Verdict);
+            # None for an endpoint answer. The weak-detection rules decide
+            # on it, never on the detail text.
+            detection = local_vision.detection_of(result)
             # Bambu Lab's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy verdict vetoes a stall only where the sensitivity
             # profile allows it, and a supposedly empty idle bed during a
@@ -869,7 +874,7 @@ class BambuPrintMonitor:
             suspicious = _cw.is_suspicious(verdict, reason=reason, changed=changed,
                                            profile=watch.profile,
                                            rules=_cw.FAMILY_RULES["bambulab_lan"],
-                                           detail=detail)
+                                           detection=detection)
             log(f"bambu visual check file={self.filename!r} reason={reason} layer={layer} "
                 f"changed={changed} verdict={verdict} detail={detail!r}")
             if self._abandoned():
@@ -913,11 +918,14 @@ class BambuPrintMonitor:
                     if streak and not pause_now:
                         log(f"bambu auto-pause not sent file={self.filename!r}: {pause_why}")
                     text = _cw.alert_text(reason, layer, verdict, detail,
-                                          pause_why=pause_why if pause_now else "")
+                                          pause_why=pause_why if pause_now else "",
+                                          detection=detection)
                     # A weak local detection that persisted is posted for a
-                    # look but pings nobody, as on Moonraker.
+                    # look but pings nobody, as on Moonraker; a stall alert
+                    # pings as always (camera_watch.alert_pings).
                     self._alert(self.filename, image, text, identity=self._identity,
-                                **({"ping": False} if _cw.below_threshold(verdict, detail) else {}))
+                                **({} if _cw.alert_pings(reason, verdict, detection)
+                                   else {"ping": False}))
                     self._record_watchdog_event(verdict, action="auto_pause" if pause_now else "alert")
                     if pause_now:
                         # The alert's own Pause path: it re-reads the printer
@@ -928,7 +936,7 @@ class BambuPrintMonitor:
                         reply = self._auto_pause(self.filename, self._identity)
                         log(f"bambu auto-pause early layers file={self.filename!r}: {reply}")
                         self._post(f"Auto-pause: {print_summary.safe_label(self.filename, 'print')}\n{reply}")
-            elif _cw.weak_noted(verdict, detail):
+            elif _cw.weak_noted(verdict, detection, reason=reason, changed=changed):
                 # A weak local detection that has not persisted: logged
                 # above and recorded, never posted (camera_watch.weak_noted).
                 log(f"bambu visual check file={self.filename!r} reason={reason}: weak local "

@@ -63,8 +63,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
-import re
 import threading
 import time
 import urllib.request
@@ -667,76 +667,121 @@ def detect(image: bytes, cfg=None):
         raise LocalVisionError(f"local detector outputs could not be read: {exc}") from exc
 
 
-#: The words every weak ("possible failure") detection carries in its
-#: detail; camera_watch keys on them (with :func:`weak_detection`) to note
-#: such a frame, or post it without a ping once it persists.
+#: The words a weak ("possible failure") detection's detail carries.
+#: Display only: callers decide on :class:`Detection`, never on this text.
 BELOW_THRESHOLD = "below the single-frame failure threshold"
-_NOT_COUNTED = ("this frame was not counted (too soon after, or unchanged from, "
-                "the last detection)")
-_WEAK_CONFIDENCE = re.compile(r"possible failure at (\d+)% confidence")
-_WEAK_SEEN = re.compile(r"seen in (\d+) consecutive check")
 
 
-class WeakDetection(NamedTuple):
-    """A weak detection read back from its verdict detail.
+def percent(confidence) -> int:
+    """A confidence in whole percent, rounded down.
 
-    ``confidence`` in whole percent, ``seen`` the independent consecutive
-    checks that saw it (this one included), ``counted`` whether this
-    frame was one of them (a frame too soon after, or unchanged from, the
-    last detection repeats what was already seen).
+    Rounded down so a sub-threshold value never reads as the threshold:
+    0.4999 shows as 49%, not 50%.
     """
-    confidence: int
+    return math.floor(float(confidence) * 100 + 1e-9)
+
+
+class Detection(NamedTuple):
+    """The detector's structured result for one frame with a positive box.
+
+    ``confidence`` is the strongest kept box (0..1), ``seen`` how many
+    independent consecutive checks saw a positive (this one included, 1
+    for a single-frame judgement), ``counted`` whether this frame was one
+    of them (a frame too soon after, or unchanged from, the last counted
+    one is not), and ``verdict`` the verdict it produced.
+    """
+    confidence: float
     seen: int
     counted: bool
+    verdict: str
+
+    @property
+    def weak(self) -> bool:
+        """A weak detection: below FAILURE_AT and not escalated (verdict ``uncertain``)."""
+        return self.verdict == "uncertain" and self.confidence < FAILURE_AT
 
     @property
     def posts(self) -> bool:
-        """Whether this weak detection is posted (no ping) or only noted."""
-        return self.counted and self.seen >= WEAK_ALERT_AFTER
+        """Whether a weak detection is posted (without a ping) rather than only noted.
+
+        False for anything that is not weak: an escalated or strong
+        detection is a failure verdict, not a weak post.
+        """
+        return self.weak and self.counted and self.seen >= WEAK_ALERT_AFTER
 
 
-def weak_detection(detail) -> WeakDetection | None:
-    """The weak detection a verdict detail describes, or None.
+class Verdict(tuple):
+    """A local detector verdict: the ``(verdict, detail)`` pair every route returns.
 
-    The detail is this module's own wording (:func:`_weak_detail`), also
-    when a caller prefixes it (the #913 fallback). A weak detail without
-    a count (an older wording) reads as seen once.
+    It unpacks as the pair, so it passes unchanged through the verdict
+    routes, and carries ``detection`` (a :class:`Detection`, or None when
+    nothing was detected). ``detail`` is display text only.
     """
-    text = str(detail or "")
-    if BELOW_THRESHOLD not in text:
-        return None
-    confidence = _WEAK_CONFIDENCE.search(text)
-    seen = _WEAK_SEEN.search(text)
-    return WeakDetection(confidence=int(confidence.group(1)) if confidence else 0,
-                         seen=int(seen.group(1)) if seen else 1,
-                         counted=_NOT_COUNTED not in text)
+
+    def __new__(cls, verdict, detail, detection=None):
+        self = super().__new__(cls, (verdict, detail))
+        self.detection = detection
+        return self
+
+    @property
+    def verdict(self):
+        return self[0]
+
+    @property
+    def detail(self):
+        return self[1]
+
+    def with_detail(self, detail):
+        """The same verdict and detection with another detail (a caller's prefix)."""
+        return Verdict(self[0], detail, self.detection)
 
 
-def _weak_detail(confidence, seen, *, counted=True) -> str:
-    """The detail of a weak (``uncertain``) detection; :func:`weak_detection` reads it back."""
-    text = (f"local failure detector: possible failure at {confidence:.0%} confidence, "
-            f"{BELOW_THRESHOLD}; seen in {seen} consecutive check{'s' if seen != 1 else ''}")
-    if not counted:
-        return f"{text}; {_NOT_COUNTED}"
+def detection_of(result):
+    """The :class:`Detection` a verdict route's result carries, or None.
+
+    None for anything that is not a local detector :class:`Verdict` (an
+    endpoint answer, a detector failure, a plain tuple).
+    """
+    return getattr(result, "detection", None)
+
+
+def _weak_detail(detection: Detection) -> str:
+    """The display detail of a weak (``uncertain``) detection."""
+    seen = detection.seen
+    text = (f"local failure detector: possible failure at {percent(detection.confidence)}% "
+            f"confidence, {BELOW_THRESHOLD}; seen in {seen} consecutive "
+            f"check{'s' if seen != 1 else ''}")
+    if not detection.counted:
+        return (f"{text}; this frame was not counted (too soon after, or unchanged from, "
+                "the last detection)")
     if seen < WEAK_ALERT_AFTER:
         return f"{text} (noted, not posted: one weak detection is usually nothing)"
     return (f"{text} (posted without a ping; {ESCALATE_AFTER} in a row make it "
             "a failure verdict)")
 
 
-def _single_frame_verdict(kept) -> tuple[str, str]:
+def _strong_detail(kept, positives) -> str:
+    confidence = kept[0][0]
+    areas = len(kept)
+    reason = (f"local failure detector: print failure at {confidence:.0%} "
+              f"confidence ({areas} area{'s' if areas != 1 else ''})")
+    if positives >= 2:
+        reason += f", confirmed across {positives} consecutive checks"
+    return reason
+
+
+def _single_frame_verdict(kept) -> Verdict:
     """One frame's verdict, Stage 1 semantics: the mapping the bands
     above define, with no memory of earlier frames (a weak detection is
     one sighting, so it is noted, never posted)."""
     if kept:
         confidence = kept[0][0]
         if confidence >= FAILURE_AT:
-            areas = len(kept)
-            return "spaghetti", (
-                f"local failure detector: print failure at {confidence:.0%} "
-                f"confidence ({areas} area{'s' if areas != 1 else ''})")
-        return "uncertain", _weak_detail(confidence, 1)
-    return "ok", "local failure detector: no failure detected"
+            return Verdict("spaghetti", _strong_detail(kept, 1),
+                           Detection(confidence, 1, True, "spaghetti"))
+        detection = Detection(confidence, 1, True, "uncertain")
+        return Verdict("uncertain", _weak_detail(detection), detection)
+    return Verdict("ok", "local failure detector: no failure detected")
 
 
 class FailureStreak:
@@ -757,16 +802,18 @@ class FailureStreak:
       single frame always was; when it lands on an existing streak the
       reason says the failure is streak-confirmed, naming the count;
     * a weak frame (``POSITIVE_FLOOR``..``FAILURE_AT``) is ``uncertain``
-      and its detail says how often it was seen (:func:`weak_detection`
-      reads it back): the first sighting is only noted, the
-      ``WEAK_ALERT_AFTER``-th consecutive one is posted as a low
-      confidence "possible failure", and the ``ESCALATE_AFTER``-th
-      escalates to ``spaghetti``. A weak frame that is not independent
-      of the last counted one is noted and counts for nothing.
+      and its :class:`Detection` says how often it was seen: the first
+      sighting is only noted, the ``WEAK_ALERT_AFTER``-th consecutive one
+      is posted as a low confidence "possible failure", and the
+      ``ESCALATE_AFTER``-th escalates to ``spaghetti``. A weak frame that
+      is not independent of the last counted one is noted and counts for
+      nothing.
 
-    A detector failure never reaches this policy (``detect`` raises
-    first and the caller degrades to ``uncertain``), so a broken check
-    neither builds nor clears the streak.
+    Every verdict is a :class:`Verdict`; the decision lives in its
+    ``detection``, the detail is display text. A detector failure never
+    reaches this policy (``detect`` raises first and the caller degrades
+    to ``uncertain``), so a broken check neither builds nor clears the
+    streak.
     """
 
     def __init__(self):
@@ -795,8 +842,8 @@ class FailureStreak:
             return False
         return _vw.frames_differ(self.last_signature, signature) is True
 
-    def note(self, kept, *, now=None, signature=None) -> tuple[str, str]:
-        """Feed one frame's kept detections; returns its verdict.
+    def note(self, kept, *, now=None, signature=None) -> Verdict:
+        """Feed one frame's kept detections; returns its :class:`Verdict`.
 
         ``now`` and ``signature`` (visual_watch.frame_signature) let the
         streak count only independent views; see :meth:`_independent`.
@@ -806,35 +853,31 @@ class FailureStreak:
             self.last_signature = None
             if self.positives:
                 self.positives = 0
-                return "ok", ("local failure detector: no failure detected; "
-                              "the earlier possible failure did not persist")
-            return "ok", "local failure detector: no failure detected"
+                return Verdict("ok", "local failure detector: no failure detected; "
+                                     "the earlier possible failure did not persist")
+            return Verdict("ok", "local failure detector: no failure detected")
         confidence = kept[0][0]
-        if self._independent(now, signature):
+        counted = self._independent(now, signature)
+        if counted:
             self.positives = min(self.positives + 1, STREAK_CAP)
             self.last_at = now
             self.last_signature = signature
-        elif confidence < FAILURE_AT:
-            return "uncertain", _weak_detail(confidence, max(self.positives, 1), counted=False)
+        seen = max(self.positives, 1)
         if confidence >= FAILURE_AT:
-            areas = len(kept)
-            reason = (f"local failure detector: print failure at {confidence:.0%} "
-                      f"confidence ({areas} area{'s' if areas != 1 else ''})")
-            if self.positives >= 2:
-                reason += (f", confirmed across {self.positives} "
-                           "consecutive checks")
-            return "spaghetti", reason
-        if self.positives >= ESCALATE_AFTER:
-            return "spaghetti", (
-                f"local failure detector: possible failure at {confidence:.0%} "
-                "confidence, below the single-frame failure threshold, but "
-                f"now seen in {self.positives} consecutive checks; sustained "
-                "detections escalate to a failure verdict")
-        return "uncertain", _weak_detail(confidence, self.positives)
+            return Verdict("spaghetti", _strong_detail(kept, self.positives),
+                           Detection(confidence, seen, counted, "spaghetti"))
+        if counted and self.positives >= ESCALATE_AFTER:
+            return Verdict("spaghetti", (
+                f"local failure detector: possible failure at {percent(confidence)}% "
+                f"confidence, {BELOW_THRESHOLD}, but now seen in {self.positives} "
+                "consecutive checks; sustained detections escalate to a failure verdict"),
+                Detection(confidence, seen, counted, "spaghetti"))
+        detection = Detection(confidence, seen, counted, "uncertain")
+        return Verdict("uncertain", _weak_detail(detection), detection)
 
 
 def local_verdict(image: bytes, cfg=None, streak: FailureStreak | None = None, *,
-                  now=None) -> tuple[str, str]:
+                  now=None) -> Verdict:
     """The detector's verdict for one frame, in the watchdog's
     vocabulary. Raises :class:`LocalVisionError` when it cannot judge.
 

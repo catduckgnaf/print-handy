@@ -751,37 +751,81 @@ def independent_views(monkeypatch):
 
 def test_streak_weak_positive_is_noted_then_posted_then_escalates_on_the_third_check():
     streak = lv.FailureStreak()
-    verdict, detail = streak.note(_kept(0.35))
-    assert verdict == "uncertain" and "seen in 1 consecutive check " in detail
-    assert lv.weak_detection(detail) == lv.WeakDetection(35, 1, True)
-    assert not lv.weak_detection(detail).posts  # one sighting is only noted
-    verdict, detail = streak.note(_kept(0.35))
-    assert verdict == "uncertain" and "seen in 2 consecutive checks" in detail
-    assert lv.weak_detection(detail).posts  # persisted: posted, still uncertain
-    verdict, detail = streak.note(_kept(0.35))
-    assert verdict == "spaghetti" and "3 consecutive checks" in detail
-    from print_handy.runtime import camera_watch
-    assert camera_watch.weak_detection(verdict, detail) is None  # a failure verdict, not a weak one
+    first = streak.note(_kept(0.35))
+    assert first.verdict == "uncertain"
+    assert first.detection == lv.Detection(0.35, 1, True, "uncertain")
+    assert first.detection.weak and not first.detection.posts  # one sighting is only noted
+    second = streak.note(_kept(0.35))
+    assert second.verdict == "uncertain" and second.detection.seen == 2
+    assert second.detection.posts  # persisted: posted, still uncertain
+    third = streak.note(_kept(0.35))
+    assert third.verdict == "spaghetti"
+    assert third.detection == lv.Detection(0.35, 3, True, "spaghetti")
+    assert not third.detection.weak and not third.detection.posts  # a failure verdict
 
 
-def test_weak_detection_reads_only_the_detectors_weak_wording():
-    assert lv.weak_detection("model unsure") is None
-    assert lv.weak_detection(vw.VISION_FAILED_DETAIL) is None
-    assert lv.weak_detection(None) is None
-    # The #913 fallback prefixes the detail; it still reads back.
-    weak = lv.weak_detection("local detector fallback: " + lv._weak_detail(0.12, 2))
-    assert weak == lv.WeakDetection(12, 2, True) and weak.posts
-    # A frame that repeats the last detection is never posted on its own.
-    repeat = lv.weak_detection(lv._weak_detail(0.12, 2, counted=False))
-    assert repeat == lv.WeakDetection(12, 2, False) and not repeat.posts
-    # An older wording without a count reads as one sighting.
-    assert lv.weak_detection("possible failure at 39% confidence, below the single-frame "
-                             "failure threshold (first consecutive detection)") == \
-        lv.WeakDetection(39, 1, True)
+def test_a_verdict_unpacks_as_the_pair_every_route_returns():
+    result = lv.FailureStreak().note(_kept(0.35))
+    verdict, detail = result
+    assert (verdict, detail) == (result.verdict, result.detail) and len(result) == 2
+    assert lv.detection_of(result) is result.detection
+    assert lv.detection_of(("uncertain", "model unsure")) is None  # an endpoint answer
+    assert lv.FailureStreak().note([]).detection is None
+
+
+@pytest.fixture
+def changed_frames(monkeypatch):
+    """Every frame is visibly new; only the 60 s spacing decides independence."""
+    monkeypatch.setattr(vw, "frames_differ", lambda before, after: True)
+
+
+def test_a_repeat_view_is_not_counted_and_never_posts(changed_frames):
+    streak = lv.FailureStreak()
+    streak.note(_kept(0.2), now=1000.0)
+    streak.note(_kept(0.2), now=1100.0)  # spaced and a new frame: counted
+    repeat = streak.note(_kept(0.2), now=1110.0)  # 10 s later: the same view
+    assert repeat.detection == lv.Detection(0.2, 2, False, "uncertain")
+    assert not repeat.detection.posts and streak.positives == 2
+
+
+def test_the_weak_detail_wording_is_pinned(changed_frames):
+    """The detail is display text only, but it is what the log and an
+    endpoint-less operator read: pin it word for word."""
+    streak = lv.FailureStreak()
+    assert streak.note(_kept(0.12), now=1000.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 1 consecutive check (noted, not posted: one weak "
+        "detection is usually nothing)")
+    assert streak.note(_kept(0.12), now=1010.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 1 consecutive check; this frame was not counted (too "
+        "soon after, or unchanged from, the last detection)")
+    assert streak.note(_kept(0.12), now=1100.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold; seen in 2 consecutive checks (posted without a ping; 3 in a row "
+        "make it a failure verdict)")
+    assert streak.note(_kept(0.12), now=1200.0).detail == (
+        "local failure detector: possible failure at 12% confidence, below the single-frame "
+        "failure threshold, but now seen in 3 consecutive checks; sustained detections "
+        "escalate to a failure verdict")
+
+
+def test_a_sub_threshold_confidence_never_reads_as_the_threshold():
+    assert lv.percent(0.4999) == 49 and lv.percent(0.495) == 49
+    assert lv.percent(0.12) == 12 and lv.percent(0.5) == 50 and lv.percent(0.29) == 29
+    verdict, detail = lv.FailureStreak().note(_kept(0.4999))
+    assert verdict == "uncertain" and "possible failure at 49% confidence" in detail
 
 
 def test_the_weak_and_escalation_counts():
     assert (lv.WEAK_ALERT_AFTER, lv.ESCALATE_AFTER) == (2, 3)
+
+
+def test_the_early_layer_fallback_keeps_the_structured_detection(process_cfg):
+    result = vw._local_fallback_verdict(frame(84), lv.FailureStreak())
+    assert result.verdict == "uncertain" and result.detail.startswith("local detector fallback: ")
+    assert lv.detection_of(result) == lv.Detection(result.detection.confidence, 1, True,
+                                                   "uncertain")
 
 
 def test_streak_clean_frame_clears_and_the_count_restarts():

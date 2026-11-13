@@ -4,6 +4,8 @@ Usage::
 
     python -m tests.hermes.vision_eval
     python -m tests.hermes.vision_eval --model obico-failure-detector.onnx --frames saved-frames/
+    python -m tests.hermes.vision_eval --model obico-failure-detector.onnx \\
+        --frames healthy-print/ --frames failed-print/=spaghetti
 
 With no arguments it replays the shipped fixture set with the local
 detector as the process configuration has it; on the synthetic format
@@ -13,10 +15,13 @@ fixtures the point is the accounting, not accuracy.
 ``obico-failure-detector.onnx``, or any file with its output contract)
 and enables it for this run only; nothing is downloaded. ``--frames``
 replays a plain folder of saved camera frames (``.jpg``/``.png``, in
-file name order) as one session, labeled healthy unless ``--label`` says
-otherwise; repeat it for several folders. The report lists, per session,
-the checks the watch schedule made, their verdicts, and every check whose
-verdict would have been posted as an alert.
+file name order) as one session; repeat it for several folders. A folder
+written ``FOLDER=LABEL`` gets that label (``ok``, ``spaghetti``, ...);
+one without a label gets ``--label`` (default ``ok``, a healthy print).
+The report lists, per session, the checks the watch schedule made, their
+verdicts, and every check whose verdict would have been posted as an
+alert. A missing or empty folder, or a missing model, ends the run with
+one error line and exit code 2.
 """
 from __future__ import annotations
 
@@ -27,17 +32,33 @@ from pathlib import Path
 
 from print_handy.runtime import _config
 from tests.hermes.vision_eval.harness import (
-    SESSION_LABELS, evaluate, folder_session, format_report, local_detector_producer)
+    SESSION_LABELS, EvalSetError, evaluate, folder_session, format_report,
+    local_detector_producer)
+
+PROG = "python -m tests.hermes.vision_eval"
+
+
+def frames_arg(value, default_label):
+    """``(folder, label)`` from a ``--frames`` value: ``FOLDER`` or ``FOLDER=LABEL``."""
+    folder, sep, label = value.rpartition("=")
+    if sep and label in SESSION_LABELS and folder:
+        return folder, label
+    return value, default_label
+
+
+def _fail(message):
+    print(f"{PROG}: error: {message}", file=sys.stderr)
+    return 2
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python -m tests.hermes.vision_eval",
-                                     description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(prog=PROG, description=__doc__.split("\n\n")[0])
     parser.add_argument("--model", help="ONNX detector file to use for this run")
-    parser.add_argument("--frames", action="append", default=[],
-                        help="a folder of saved camera frames, replayed as one session")
+    parser.add_argument("--frames", action="append", default=[], metavar="FOLDER[=LABEL]",
+                        help="a folder of saved camera frames, replayed as one session; "
+                             f"LABEL is one of {', '.join(sorted(SESSION_LABELS))}")
     parser.add_argument("--label", default="ok", choices=sorted(SESSION_LABELS),
-                        help="the label of the --frames sessions (default: ok, a healthy print)")
+                        help="the label of a --frames folder given without one (default: ok)")
     parser.add_argument("--cadence", type=float, default=600.0,
                         help="seconds between the saved frames (default: 600)")
     parser.add_argument("--sensitivity", type=int, default=3, help="watch sensitivity 1-5")
@@ -47,7 +68,12 @@ def main(argv=None):
     if args.model and not Path(args.model).is_file():
         # The detector would start a background download for a missing
         # file; a measurement run must never fetch anything.
-        parser.error(f"--model {args.model}: no such file")
+        return _fail(f"--model {args.model}: no such file")
+    try:
+        sessions = [folder_session(folder, label=label, cadence_s=args.cadence)
+                    for folder, label in (frames_arg(v, args.label) for v in args.frames)]
+    except (EvalSetError, OSError) as exc:
+        return _fail(str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
     previous = None
     if args.model:
         previous = copy.deepcopy(_config.cfg())
@@ -57,9 +83,7 @@ def main(argv=None):
         data["vision"]["local_model_path"] = args.model
         _config.set_override(data)
     try:
-        sessions = ([folder_session(folder, label=args.label, cadence_s=args.cadence)
-                     for folder in args.frames] or None)
-        report = evaluate(local_detector_producer, sessions=sessions,
+        report = evaluate(local_detector_producer, sessions=sessions or None,
                           sensitivity=args.sensitivity, risky=not args.plain)
     finally:
         if previous is not None:

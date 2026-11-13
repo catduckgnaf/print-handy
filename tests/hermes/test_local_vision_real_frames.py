@@ -56,7 +56,8 @@ def test_real_detector_posts_no_alert_on_real_healthy_frames(detector_model, ris
     model = Path(REAL_MODEL).expanduser()
     assert model.is_file(), f"PRINT_HANDY_REAL_DETECTOR={REAL_MODEL}: no such file"
     if model.stat().st_size == lv.MODEL_SIZE_BYTES:
-        digest = hashlib.sha256(model.read_bytes()).hexdigest()
+        with model.open("rb") as handle:  # streamed: never 202 MB in memory at once
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
         assert digest == lv.MODEL_SHA256, "the model file is not the pinned Obico weights"
     detector_model(model)
     report = harness.evaluate(harness.local_detector_producer,
@@ -82,9 +83,11 @@ def test_real_frames_replay_as_a_healthy_session_with_the_stand_in_model(detecto
     assert all("posted" in c for c in row["checks"])
 
 
-def test_folder_session_refuses_an_empty_folder(tmp_path):
+def test_folder_session_refuses_an_empty_or_missing_folder(tmp_path):
     with pytest.raises(harness.EvalSetError, match="no frames"):
         harness.folder_session(tmp_path)
+    with pytest.raises(harness.EvalSetError, match="no such folder"):
+        harness.folder_session(tmp_path / "missing")
 
 
 def test_the_cli_reports_a_frames_folder_with_a_model(detector_model, capsys):
@@ -94,8 +97,30 @@ def test_the_cli_reports_a_frames_folder_with_a_model(detector_model, capsys):
     assert "healthy false alerts:" in out
 
 
+def test_the_cli_labels_each_frames_folder(detector_model, capsys, tmp_path):
+    failed = tmp_path / "failed-print"
+    failed.mkdir()
+    for frame in sorted(REAL_FRAMES.glob("frame-*.jpg"))[:3]:
+        (failed / frame.name).write_bytes(frame.read_bytes())
+    assert vision_eval_cli.main(["--model", str(TINY_MODEL), "--frames", str(REAL_FRAMES),
+                                 "--frames", f"{failed}=spaghetti"]) == 0
+    out = capsys.readouterr().out
+    assert "session timelapse_real (ok):" in out and "session failed-print (spaghetti):" in out
+    assert vision_eval_cli.frames_arg("a=b/folder", "ok") == ("a=b/folder", "ok")
+    assert vision_eval_cli.frames_arg("folder=detached", "ok") == ("folder", "detached")
+
+
+@pytest.mark.parametrize("folder", ["missing", "empty"])
+def test_the_cli_refuses_a_missing_or_empty_frames_folder_in_one_line(tmp_path, capsys, folder):
+    (tmp_path / "empty").mkdir()
+    assert vision_eval_cli.main(["--frames", str(tmp_path / folder)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    lines = captured.err.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("python -m tests.hermes.vision_eval: error: ")
+
+
 def test_the_cli_refuses_a_missing_model_instead_of_downloading(tmp_path, capsys):
-    with pytest.raises(SystemExit):
-        vision_eval_cli.main(["--model", str(tmp_path / "missing.onnx"),
-                              "--frames", str(REAL_FRAMES)])
+    assert vision_eval_cli.main(["--model", str(tmp_path / "missing.onnx"),
+                                 "--frames", str(REAL_FRAMES)]) == 2
     assert "no such file" in capsys.readouterr().err

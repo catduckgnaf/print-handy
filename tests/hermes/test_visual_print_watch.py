@@ -362,11 +362,26 @@ def test_a_single_weak_detection_posts_nothing(monkeypatch):
     assert rig.alerts == [] and rig.listener.local_streak.positives == 0
 
 
-def test_the_live_weak_detail_posts_nothing(monkeypatch):
+def test_weak_looking_text_without_a_detection_is_an_endpoint_answer(monkeypatch):
+    """The decision is the detector's structured result, never its wording:
+    an answer that only reads like a weak detection (an endpoint, a plain
+    tuple) alerts and pings like any uncertain verdict."""
     rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
                    ("uncertain", LIVE_WEAK_DETAIL))
     rig.check(0.12, reason="layer2", layer=2)
-    assert rig.alerts == [] and rig.events == [("uncertain", "noted")]
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+
+
+def test_a_stall_alert_with_a_weak_detection_keeps_the_ping(monkeypatch):
+    """#1397: the stalled frame also gave a weak detection; the stall alert still pings."""
+    rig = _WeakRig(monkeypatch)
+    rig.check(0.0, reason="layer5", layer=5)
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    rig.check(0.12, reason="stalled_layers", layer=20)
+    assert len(rig.alerts) == 1
+    text, ping = rig.alerts[0]
+    assert ping is True and "low confidence" not in text
+    assert rig.events[-1] == ("uncertain", "alert")
 
 
 def test_a_weak_detection_seen_in_two_independent_checks_posts_once_without_a_ping(monkeypatch):

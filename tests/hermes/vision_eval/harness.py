@@ -32,7 +32,9 @@ recorded denser than the cadence still replays honestly.
 Producers are plain callables ``producer(frame_bytes, ctx)`` returning
 ``(verdict, detail, boxes)`` — ``boxes`` is the producer's kept
 detections as ``(confidence, (x1, y1, x2, y2))`` in image pixels (empty
-when the producer exposes none). :func:`local_detector_producer` adapts
+when the producer exposes none), optionally followed by the local
+detector's structured ``local_vision.Detection`` (the weak-detection
+alert rules decide on it). :func:`local_detector_producer` adapts
 the real local route; :func:`box_geometry_producer` wraps any producer
 with the Stage 0 detached heuristic.
 """
@@ -138,8 +140,10 @@ def folder_session(folder, *, label="ok", cadence_s=600, name=None):
     ``label`` (default healthy). The session is marked not synthetic.
     """
     folder = Path(folder)
+    if not folder.is_dir():
+        raise EvalSetError(f"{folder}: no such folder")
     paths = sorted(p for p in folder.iterdir()
-                   if p.is_file() and p.suffix.lower() in FRAME_SUFFIXES) if folder.is_dir() else []
+                   if p.is_file() and p.suffix.lower() in FRAME_SUFFIXES)
     if not paths:
         raise EvalSetError(f"{folder}: no frames ({', '.join(FRAME_SUFFIXES)}) found")
     if label not in SESSION_LABELS:
@@ -232,16 +236,18 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
         ctx = {"session": manifest["session"], "frame_index": index,
                "layer": layer, "reason": reason, "streak": streak,
                "sensitivity": sensitivity, "t": now}
-        verdict, detail, boxes = producer(frame, ctx)
+        answer = producer(frame, ctx)
+        verdict, detail, boxes = answer[:3]
+        detection = answer[3] if len(answer) > 3 else None
         if _is_dark(frame):
             # Mirrors the listeners: on a dark frame the route is skipped
             # and the verdict is reported as dark (visual_watch's own
             # consumer vocabulary), whatever the producer said.
-            verdict, detail = "dark", "frame too dark to judge"
+            verdict, detail, detection = "dark", "frame too dark to judge", None
         watch.note_verdict(verdict, layer)
         checks.append({"frame_index": index, "t": now, "layer": layer,
                        "reason": reason, "verdict": verdict, "detail": detail,
-                       "posted": _posted(verdict, detail)})
+                       "posted": _posted(verdict, detection, reason=reason, changed=changed)})
         geometry.append(box_geometry_step(geometry[-1]["state"] if geometry else None,
                                           boxes, verdict))
         if reason != "layer_progress":
@@ -261,13 +267,16 @@ def replay_session(session, producer, *, sensitivity=3, risky=True):
             "producer_outcome": _session_outcome(manifest["label"], checks, confirmed)}
 
 
-def _posted(verdict, detail):
+def _posted(verdict, detection, *, reason, changed):
     """Whether the watch would post this check's verdict (the alert policy).
 
     An alert verdict posts, except a weak local detection that has not
-    persisted: the watches only note that one (``camera_watch.weak_noted``).
+    persisted: the watches only note that one (``camera_watch.weak_noted``,
+    the rule ``camera_watch.is_suspicious`` applies). A stall-promoted
+    check over an unchanged frame posts even then, as in the watches.
     """
-    return verdict in ALERT_VERDICTS and not camera_watch.weak_noted(verdict, detail)
+    return verdict in ALERT_VERDICTS and not camera_watch.weak_noted(
+        verdict, detection, reason=reason, changed=changed)
 
 
 def _streak_confirmed(checks, watch):
@@ -353,8 +362,7 @@ def box_geometry_producer(base_producer):
     producer's record gains the geometry experiment's trace. The
     heuristic never changes a verdict — Stage 0 measures it."""
     def produce(frame, ctx):
-        verdict, detail, boxes = base_producer(frame, ctx)
-        return verdict, detail, boxes
+        return base_producer(frame, ctx)
     return produce
 
 
@@ -370,34 +378,36 @@ def local_detector_producer(frame, ctx):
     the replay scores the session missed, which is what an install in
     that state would experience."""
     try:
-        verdict, detail = local_vision.local_verdict(frame, streak=ctx["streak"],
-                                                     now=ctx.get("t"))
+        result = local_vision.local_verdict(frame, streak=ctx["streak"], now=ctx.get("t"))
     except local_vision.LocalVisionError as exc:
         return "unavailable", str(exc), []
     try:
         boxes = local_vision.detect(frame)
     except local_vision.LocalVisionError:
         boxes = []
-    return verdict, detail, boxes
+    verdict, detail = result
+    return verdict, detail, boxes, local_vision.detection_of(result)
 
 
 def scripted_producer(verdicts):
     """A producer that answers from a fixed script, for harness tests:
     ``verdicts`` maps *check number* (0 for the first check the schedule
     makes, 1 for the next, ...) -> (verdict, detail), or is a list of
-    (verdict, detail) in check order. Keying by check number keeps a
-    script honest about the schedule: the producer only answers when the
-    watchdog would actually have looked."""
+    (verdict, detail) in check order; an entry may add a third item, the
+    local detector's ``local_vision.Detection``. Keying by check number
+    keeps a script honest about the schedule: the producer only answers
+    when the watchdog would actually have looked."""
     calls = {"n": 0}
 
     def produce(frame, ctx):
         n = calls["n"]
         calls["n"] += 1
         if isinstance(verdicts, dict):
-            verdict, detail = verdicts.get(n, ("ok", "scripted ok"))
+            entry = verdicts.get(n, ("ok", "scripted ok"))
         else:
-            verdict, detail = verdicts[min(n, len(verdicts) - 1)]
-        return verdict, detail, []
+            entry = verdicts[min(n, len(verdicts) - 1)]
+        verdict, detail = entry[:2]
+        return verdict, detail, [], (entry[2] if len(entry) > 2 else None)
     return produce
 
 

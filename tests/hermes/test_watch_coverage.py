@@ -376,9 +376,10 @@ def test_local_escalation_needs_spaced_changed_views():
     a, b, c, d = (vw.frame_signature(_frame(seed)) for seed in (1, 2, 3, 4))
     streak = lv.FailureStreak()
     assert streak.note(weak, now=1000.0, signature=a)[0] == "uncertain"
-    verdict, detail = streak.note(weak, now=1010.0, signature=b)
+    repeat = streak.note(weak, now=1010.0, signature=b)
+    verdict, detail = repeat
     assert verdict == "uncertain" and "not counted" in detail
-    assert not lv.weak_detection(detail).posts  # a repeat view is only noted
+    assert not repeat.detection.counted and not repeat.detection.posts  # only noted
     assert streak.note(weak, now=1100.0, signature=a)[0] == "uncertain"  # frozen frame
     assert streak.positives == 1
     verdict, detail = streak.note(weak, now=1100.0, signature=c)

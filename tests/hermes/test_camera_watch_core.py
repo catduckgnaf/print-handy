@@ -395,42 +395,57 @@ def test_alert_texts_name_no_internal_codes():
     assert "empty_idle" not in cw.alert_text("empty_idle_recheck", 1, "empty_idle", "")
 
 
-def test_a_below_threshold_detection_is_not_a_ping():
-    weak = ("local failure detector: possible failure at 39% confidence, below the "
-            "single-frame failure threshold (first consecutive detection)")
-    assert cw.below_threshold("uncertain", weak)
-    assert not cw.below_threshold("spaghetti", weak)  # escalated: a failure verdict pings
-    assert not cw.below_threshold("uncertain", "model unsure")
-
-
-def _weak(seen, *, counted=True, confidence=0.12):
+def _weak(seen, *, counted=True, confidence=0.12, verdict="uncertain"):
+    """A local detector's structured detection (built with the public type, not its writer)."""
     from print_handy.runtime import local_vision as lv
-    return lv._weak_detail(confidence, seen, counted=counted)
+    return lv.Detection(confidence, seen, counted, verdict)
 
 
 @pytest.mark.parametrize("family", sorted(cw.FAMILY_RULES))
 def test_a_weak_detection_alerts_only_once_it_persisted(family):
     rules = cw.FAMILY_RULES[family]
 
-    def suspicious(detail, reason="periodic", changed=True):
+    def suspicious(detection, reason="periodic", changed=True):
         return cw.is_suspicious("uncertain", reason=reason, changed=changed, profile=NO_VETO,
-                                rules=rules, detail=detail)
+                                rules=rules, detection=detection)
 
     assert not suspicious(_weak(1)) and cw.weak_noted("uncertain", _weak(1))
-    assert not suspicious(_weak(2, counted=False)) and cw.weak_noted("uncertain", _weak(2, counted=False))
+    assert not suspicious(_weak(2, counted=False))
+    assert cw.weak_noted("uncertain", _weak(2, counted=False))
     assert suspicious(_weak(2)) and not cw.weak_noted("uncertain", _weak(2))
-    # Endpoint and detector-error uncertain verdicts keep alerting.
-    assert suspicious("model unsure") and suspicious(vw.VISION_FAILED_DETAIL) and suspicious(None)
-    assert not cw.weak_noted("uncertain", "model unsure")
+    # Endpoint and detector-error uncertain verdicts carry no detection and keep alerting.
+    assert suspicious(None) and not cw.weak_noted("uncertain", None)
     # A stall over an unchanged frame still alerts, whatever the detector saw.
     assert suspicious(_weak(1), reason="stalled_layers", changed=False)
+    assert not cw.weak_noted("uncertain", _weak(1), reason="stalled_layers", changed=False)
+
+
+def test_an_escalated_or_strong_detection_is_never_weak():
+    # The escalated verdict's detection is below FAILURE_AT but is a failure verdict.
+    escalated = _weak(3, verdict="spaghetti")
+    assert cw.weak_detection("spaghetti", escalated) is None
+    assert cw.weak_detection("uncertain", escalated) is None  # guarded on the detection too
+    assert not escalated.weak and not escalated.posts
+    strong = _weak(1, confidence=0.9, verdict="spaghetti")
+    assert cw.weak_detection("spaghetti", strong) is None and not strong.posts
+    assert cw.alert_pings("periodic", "spaghetti", escalated)
+
+
+def test_a_weak_alert_does_not_ping_but_a_stall_alert_does():
+    assert not cw.alert_pings("periodic", "uncertain", _weak(2))
+    assert cw.alert_pings("periodic", "uncertain", None)  # endpoint or detector error
+    # #1397: a stall that coincides with a weak detection keeps the ping.
+    assert cw.alert_pings("stalled_layers", "uncertain", _weak(1))
+    assert cw.alert_pings("stalled_layers", "uncertain", _weak(2))
 
 
 def test_a_posted_weak_detection_says_low_confidence_and_how_often():
-    text = cw.alert_text("layer5", 5, "uncertain", _weak(2))
+    text = cw.alert_text("layer5", 5, "uncertain", "any display text", detection=_weak(2))
     assert text == ("Early check (layer 5) at layer 5: possible failure, low confidence (12%, "
                     "seen in 2 checks in a row). Probably fine; take a look.")
-    fallback = cw.alert_text("periodic", 9, "uncertain", "local detector fallback: " + _weak(2, confidence=0.3))
-    assert "(30%, seen in 2 checks in a row)" in fallback
-    # The endpoint's uncertain keeps its own wording.
-    assert "the check could not tell" in cw.alert_text("periodic", 9, "uncertain", "model unsure")
+    near = cw.alert_text("periodic", 9, "uncertain", "", detection=_weak(2, confidence=0.4999))
+    assert "(49%, seen in 2 checks in a row)" in near  # never "50%" below the threshold
+    # The endpoint's uncertain keeps its own wording, whatever its text says.
+    assert "the check could not tell" in cw.alert_text(
+        "periodic", 9, "uncertain", "possible failure at 39% confidence, below the "
+        "single-frame failure threshold")
