@@ -2,7 +2,35 @@
 
 # Unreleased
 
+# Version 2.3.2
+
+**Release Date:** 2026-11-13
+**Range:** 2.3.1..main (11 PRs, #1372 to #1386 and PR #1388). Driven by a live intake of a pinecone lantern on 2.3.1 (#1373) that questioned scales as defects, forced supports the designer had off and sliced at 0.24 mm over the designer's 0.20 mm, plus a review of everything since 2.3.0 (#1379, #1381, #1382) and the fit-planner report #1380.
+**Live checks performed for this release:** none on hardware. The lantern case came from a live 2.3.1 install's intake and joined the private corpus tier with 13 other real intakes.
+**Not verified live:** a 0.20 mm designer project printed end to end, the runaway-charge correction on a real Moonraker restart, the Stop button during the comparison slice, an as-designed split sliced by real OrcaSlicer and printed, and listener posts and alert buttons in a running Web UI chat. All are covered by offline tests.
+
 - AI is for designing models (#1376): chat AI and AI camera checks are off by default. `discord.chat_llm_enabled` and `webui.chat_llm_enabled` now default to `false`, so unmatched chat gets the short not-understood reply and no `[llm]` or `[agent]` call is made; Telegram and Matrix were already pure bots. New `vision.ai_enabled` (default `false`) keeps every frame and photo away from `PRINT_VISION_URL`, `services.vision_chat_url` and `[ai.small]`: the camera watchdog, idle plate checks, label photo reads and purchase intake treat the endpoint as not configured, while the local failure detector and plate reference keep working under their own switches. `/print-design` and the design-side edit and fix path keep their AI route. Upgrade: an install that used chat AI or AI camera checks sets `discord.chat_llm_enabled`, `webui.chat_llm_enabled` or `vision.ai_enabled` to `true` to keep them.
+- Hard intake fixes (#1373, PR #1378): designer layer heights and first layer within the fitted nozzle's range (0.24 mm only when a project sets none), support gaps paired to layer height, the Arachne print-in-place swap only after a rejected slice, no supports question or repair warning for same-part overhangs in a supports-off project, the with-supports comparison slice priced and stoppable, buttons answerable only by the person asked or an approver. The corpus is judged on the conversation (`harness.conversation_checks`) and walked per button (`harness.explore`, 56 cases, 768 paths).
+- 2.3.2 review fixes (PR #1379): intake, clearance on the model as printed, the chat first-layer edit reaching the slicer, button wording, docs.
+- Spool tracking: a single-slot print can no longer charge a Moonraker-runaway total; the launch baseline corrects it at print end, one-step spool edits in the Web UI and `/spool weight` (#1374, PR #1375); the runaway check armed on real launches and multi-slot charge fixes (PR #1381).
+- Review leftovers (PR #1382): start claims recorded per printer, so `/print-stop` on one printer never names another's start; a cancel the listener missed while down is posted once; a shortage already shown on the Ready screen is pre-accepted at start within 0.5 g.
+- Fit planner (#1380, PR #1383): a pose without supports always beats one with them, every tipped part says why, and the split question offers the same split as designed at one uniform scale (at least 50%), e.g. the 23-plate tray set at 99.8% with every tray flat.
+- Web UI chat gets the listener's print posts (PR #1384): started, paused, complete, cancelled and error posts, the roast and the next-plate offer reach web chat through a shared feed file in the state folder, and pause, error, e-stop and camera-check alerts arrive with their buttons, answered through the same claim and printer re-check path as the other chats. Closes the #1297 parity exemption. Telegram and Matrix still post the non-Klipper pause and camera alerts as plain text.
+- CI: the nightly run moves to 09:17 UTC (PR #1386). Slicing-speed baselines re-recorded from CI run 43464701551's discord-timing re-run on a runner at the 2.3.1 baseline speed (the first attempt and the run on 057bf7a9 landed on runners about 1.5x faster); parts-512 keeps its 2.3.1 values and the reporting-only real-slicer file is unchanged (PR #1388). The four shrink cases rose about 0.27 s with #1378, bisected across main runs normalized per runner; the cause inside #1378 is not isolated.
+
+Merged PRs in the range, one line each:
+
+- test(timing): re-record the 2.3.2 slicing-speed baselines from CI run 43464701551 (PR #1388).
+- ci(nightly): move the scheduled run to 09:17 UTC (PR #1386).
+- Web UI chat gets the listener's print posts, alerts with their buttons (PR #1384).
+- Fit planner prefers the designer's pose for multi-plate splits (#1380) (PR #1383).
+- 2.3.2 review leftovers: per-printer start claims, missed cancel post, shortage tests (PR #1382).
+- fix(spoolman): arm the runaway check on real launches; multi-slot charge fixes (PR #1381).
+- 2.3.2 release review fixes: intake, clearance, slicer handoff, buttons, docs (PR #1379).
+- #1373: hard intake fixes, conversation-judged corpus explorer, designer layer heights and support gaps (PR #1378).
+- AI only for designing models: chat AI and AI camera checks off by default (#1376) (PR #1377).
+- fix(spoolman): undo a runaway Moonraker charge on single-slot prints; one-step spool edits (#1374) (PR #1375).
+- docs(docker): pin the 2.3.1 index digest, roll back to 2.3.0 (#1368) (PR #1372).
 
 # Version 2.3.1
 
