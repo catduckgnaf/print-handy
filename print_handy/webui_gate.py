@@ -114,7 +114,7 @@ def main():
     try:
         enabled, host, port, env_name, require_auth = webui_config()
     except settings.SettingsError as exc:
-        print(f"webui gate: configuration unresolved: {exc}", file=sys.stderr)
+        print(f"webui gate: configuration unresolved: {exc} [PH_GATE_CONFIGURATION]", file=sys.stderr)
         return 2
     warning = settings.unknown_settings_warning()
     if warning:

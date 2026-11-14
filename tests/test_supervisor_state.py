@@ -19,6 +19,10 @@ def _data(tmp):
 
 
 class SupervisorStateTests(unittest.TestCase):
+    def test_marker_is_in_registry_and_documented(self):
+        from print_handy import diagnostics
+        assert "PH_SUPERVISOR_TRANSIENT" in diagnostics.ERROR_CODES
+
     def test_write_read_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = _data(tmp)

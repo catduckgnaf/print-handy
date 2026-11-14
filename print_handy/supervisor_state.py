@@ -95,7 +95,8 @@ def main(argv=None) -> int:
                        window_s=args.window, exhausted=args.exhausted,
                        last_exit_status=args.status)
     except Exception as exc:  # the supervisor treats this as best-effort
-        print(f"supervisor state not recorded for {args.printer}: {exc}", file=sys.stderr)
+        print(f"supervisor state not recorded for {args.printer}: {exc} "
+              "[PH_SUPERVISOR_TRANSIENT]", file=sys.stderr)
         return 1
     print(target)
     return 0

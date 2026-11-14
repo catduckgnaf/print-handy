@@ -132,6 +132,10 @@ MARKER_CODE_CATEGORIES = {
               Category.PROGRAMMING, Category.UNKNOWN),
     "logging": (Category.CONFIGURATION,),
     "listener": (Category.TRANSIENT,),
+    "supervisor": (Category.TRANSIENT,),
+    "crash": (Category.PROGRAMMING,),
+    "webui": (Category.CONFIGURATION,),
+    "gate": (Category.CONFIGURATION,),
 }
 
 #: Every error code with its own section in docs/DIAGNOSTICS.md, mapped
