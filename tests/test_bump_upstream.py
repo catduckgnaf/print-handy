@@ -1728,3 +1728,40 @@ class StepBodyShape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_signing_key_temp_file_that_cannot_be_deleted_is_reported(monkeypatch, capsys):
+    # #1417: the temp file holds the app's private key, so a failed delete is
+    # reported on stderr (path only, never the key) instead of passing silently.
+    from pathlib import Path
+    seen = {}
+
+    def fake_run(cmd, input=None, capture_output=False):
+        seen["path"] = cmd[-1]
+        return bump.subprocess.CompletedProcess(cmd, 0, stdout=b"signature", stderr=b"")
+
+    def refuse(self, missing_ok=False):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(bump.subprocess, "run", fake_run)
+    monkeypatch.setattr(Path, "unlink", refuse)
+    try:
+        assert bump._openssl_sign(b"input", "-----BEGIN PRIVATE KEY-----\nsecret\n") == b"signature"
+    finally:
+        monkeypatch.undo()
+        Path(seen["path"]).unlink(missing_ok=True)
+    err = capsys.readouterr().err
+    assert "could not remove the temporary key file" in err and seen["path"] in err
+    assert "secret" not in err
+
+
+def test_signing_key_temp_file_already_gone_is_not_an_error(monkeypatch, capsys):
+    from pathlib import Path
+
+    def fake_run(cmd, input=None, capture_output=False):
+        Path(cmd[-1]).unlink()  # something else removed it first
+        return bump.subprocess.CompletedProcess(cmd, 0, stdout=b"signature", stderr=b"")
+
+    monkeypatch.setattr(bump.subprocess, "run", fake_run)
+    assert bump._openssl_sign(b"input", "key") == b"signature"
+    assert capsys.readouterr().err == ""
