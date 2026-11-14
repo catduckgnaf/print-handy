@@ -7,6 +7,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 ## Start here
 
 - [Docker](DOCKER.md): the recommended install, with a copy-paste quickstart from nothing to a first print.
+- [Home Assistant OS app](HOME-ASSISTANT-OS.md): install the same image as a Home Assistant app that updates itself with each release.
 - [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
 - [Native installation](INSTALL.md): install Print Handy without Docker (Python + systemd).
 - [Web UI](WEBUI.md): local status, setup and settings interface, on by default. It serves openly on your network until you set a login in its walkthrough.

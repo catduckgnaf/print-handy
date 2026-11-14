@@ -93,6 +93,8 @@ Open `http://<this-machine>:8088` for the Web UI and its first-run walkthrough. 
 
 On Unraid, add `https://github.com/catduckgnaf/catduck-unraid-templates` under **Apps > Settings > Use DockerHub / Custom repositories**, then search for `print-handy` in Apps. The [Docker guide](docs/DOCKER.md) has the Unraid details and the image pin.
 
+On Home Assistant OS, install Print Handy as an app: add `https://github.com/catduckgnaf/print-handy-haos-addon` under **Settings > Apps > App store > Repositories** and install **Print Handy**. The [Home Assistant OS guide](docs/HOME-ASSISTANT-OS.md) has the details.
+
 No Docker? There is a [native install](docs/INSTALL.md) and a [standalone bot](docs/STANDALONE.md). Everything else is indexed in the [documentation home](docs/README.md).
 
 ### What's in the box
