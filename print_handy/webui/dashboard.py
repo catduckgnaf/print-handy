@@ -40,6 +40,7 @@ list. The dashboard never breaks the Status page it rides on.
 from __future__ import annotations
 
 import html
+import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -53,6 +54,8 @@ from . import data as data_module
 from . import spools as spools_module
 from . import status as status_module
 from . import wrapped_video
+
+log = logging.getLogger(__name__)
 
 # Connections whose adapters take their own camera stills (the camera
 # snapshot route's rule), so a camera block is worth rendering even with
@@ -188,8 +191,8 @@ def _camera_capable(entry, view):
     try:
         if go2rtc.camera_source(view) == "none":
             return False
-    except Exception:  # an unreadable pin never hides a camera
-        pass
+    except Exception as exc:  # an unreadable pin never hides a camera
+        log.debug("camera capability check failed: %s", exc)
     if (view.get("services", {}).get("camera_snapshot_url") or "").strip():
         return True
     from .. import healthcheck
@@ -231,8 +234,8 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
         try:
             view = settings.view_for(printer_id, data)
             card["camera"] = _camera_capable(entry, view)
-        except Exception:  # identity facts only; the card still renders
-            pass
+        except Exception as exc:  # identity facts only; the card still renders
+            log.debug("dashboard view failed for %s: %s", printer_id, exc)
         try:
             _code, body = status_for(printer_id)
             live = (body or {}).get("status") or {}
