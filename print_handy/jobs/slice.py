@@ -735,7 +735,7 @@ def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool
             if len(plate_manifest(source).get('plates') or []) > 1:
                 return None  # multi-plate sources slice through the merge planner, which needs decisions
         except RuntimeError:
-            pass
+            logger.debug("Best-effort recovery from RuntimeError", exc_info=True)
     from ..core.geometry_layout import DEFAULT_MARGIN_MM as arrange_edge
     # The same margin the slice will arrange with: layout.arrange_edge_mm plus any brim.
     plan = probe_single_plate_rearrange(source, bed=bed,
@@ -1945,7 +1945,7 @@ def _slice_abrasive_warnings(state, job, decisions, selection=None):
                 nozzle = str(nozzle_type)
             warnings.append(material_accept.abrasive_text(material, nozzle))
         except NozzleError:
-            pass
+            logger.debug("Best-effort recovery from NozzleError", exc_info=True)
     return warnings
 
 

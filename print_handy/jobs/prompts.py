@@ -175,7 +175,7 @@ def unit_question(job):
         try:
             normalize_units(decision.get('units'))
         except ValueError:
-            pass
+            logger.debug("Best-effort recovery from ValueError", exc_info=True)
         else:
             known_sha = ((job.get('color_manifest') or {}).get('source_sha256')
                          or (job.get('audit') or {}).get('sha256'))

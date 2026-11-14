@@ -44,6 +44,9 @@ part, reorient, print anyway). These are screening thresholds, not a promise
 of printability: the post-slice toolpath check consumes ``regions``.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import math
@@ -418,7 +421,7 @@ def job_first_layer_mm(job, printer_id=None):
         if edited is not None and float(edited) > 0:
             return float(edited)
     except (TypeError, ValueError):
-        pass
+        logger.debug("Best-effort recovery from (TypeError, ValueError)", exc_info=True)
     return profile_first_layer_mm(printer_id or (job or {}).get('printer_id'),
                                   source=(job or {}).get('downloaded_file'))
 

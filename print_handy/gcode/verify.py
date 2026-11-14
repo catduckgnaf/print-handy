@@ -3,6 +3,9 @@
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names
 are still importable from there for one release.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib, json, math, re, sys
 
 from .. import printers, settings
@@ -632,7 +635,7 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         try:
             job['gcode_full_verified_sha256'] = _full_verified_marker(GcodeArtifact.of(gcode_path).sha256, facts_state)
         except OSError:
-            pass
+            logger.debug("Best-effort recovery from OSError", exc_info=True)
     if material_accept.used():
         _after_material_accept(gcode_path, adapter, state)
     return result

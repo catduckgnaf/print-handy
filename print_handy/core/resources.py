@@ -13,6 +13,9 @@ no quota is set in that case, but the affinity mask shows the real budget, #952)
 their defaults. The module is standard library only so the container entrypoint can run it
 before anything else (``python3 print_handy/core/resources.py --exports``).
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import errno
 import math
 import os
@@ -86,7 +89,7 @@ def thread_budget(environ=None, root=None):
         try:
             return max(1, int(override))
         except ValueError:
-            pass
+            logger.debug("Best-effort recovery from ValueError", exc_info=True)
     quota = cgroup_cpu_quota(root)
     if quota is None:
         cpus = affinity_cpus()

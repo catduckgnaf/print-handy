@@ -4,6 +4,9 @@ auto-rearrange notice, the split plan and the fit failure texts.
 Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
 importable from there for one release.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import asyncio, contextlib, json, re, time
 from pathlib import Path
 
@@ -280,7 +283,7 @@ def _printer_name(job=None):
             from .. import settings
             return settings.by_id(pid).get("name") or str(pid)
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     try:
         from ..core import model_job as mj
         from .. import printers

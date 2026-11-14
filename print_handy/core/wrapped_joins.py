@@ -13,6 +13,9 @@ the JOB.json that holds the job's title and ``filament_selection``.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime, timezone
@@ -235,7 +238,7 @@ def _save_derived(path, payload):
         partial.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         os.replace(partial, target)
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
 
 
 def build_enrichments(records, *, archive_dir=None, receipts_dir=None, scope=None,
