@@ -477,8 +477,10 @@ def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer
         ok, msg = (rebooter or control.force_reboot)()
     log(f"screen cancel reboot ok={ok}: {msg}")
     if ok and clearer is None and rebooter is None and not _buttonless_standalone():  # real run only; tests inject fakes
-        with contextlib.suppress(Exception):
+        try:
             pab.retire_alerts(_bot_token(), filename, "Cleared after the screen cancel; nothing to do.")
+        except Exception as exc:
+            warn(f"could not retire the alerts after the screen cancel: {exc!r}")
     say(msg)
     return ok, msg
 
@@ -1856,8 +1858,10 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             clip = None
     if stage == "more":
         _post_completion(completion_message, completion_message, job_key=job_key)
-        with contextlib.suppress(Exception):
+        try:
             plan_timelapse.prune()  # abandoned plans never reach a final post
+        except Exception as exc:
+            log(f"plan timelapse prune failed: {exc!r}")
         return
     stored = plan_timelapse.clips(plan)
     expected = plan_timelapse.expected_clips(plan)
@@ -1892,8 +1896,10 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message, job_key=job_key)
     finally:
         plan_timelapse.clear(plan)
-        with contextlib.suppress(Exception):
+        try:
             plan_timelapse.prune()
+        except Exception as exc:
+            log(f"plan timelapse prune failed: {exc!r}")
 
 
 def _timelapse_post(job_key, completion_message):
@@ -5052,7 +5058,7 @@ class Listener:
                     f"{policy.minutes} minutes; light off ({target})")
         except Exception as exc:
             warn(f"auto light idle check failed: {exc!r}")
-            with contextlib.suppress(Exception):
+            try:
                 # A check that could not observe the plate (the camera is
                 # down, say) is an uncertain observation, like a failed
                 # vision verdict: it resets the empty streak instead of
@@ -5060,6 +5066,8 @@ class Listener:
                 # the camera recovers cannot satisfy the sustained-empty
                 # requirement on a pre-outage streak (P2-201).
                 self._auto_light_policy().note_verdict("uncertain", time.time())
+            except Exception as note_exc:
+                warn(f"auto light: could not record the uncertain verdict: {note_exc!r}")
 
     def _schedule_light_idle_tick(self):
         """Run the idle light check as a task, off the receive loop (P2-200).
