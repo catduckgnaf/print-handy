@@ -3,6 +3,9 @@
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib, re, zipfile
 import xml.etree.ElementTree as ET
 
@@ -156,8 +159,10 @@ def audit(path, printer_model=None):
             text=""
             for n in names:
                 if n.endswith(("3dmodel.model","model_settings.config")):
-                    try:text+=z.read(n).decode(errors="ignore")
-                    except:pass
+                    try:
+                        text += z.read(n).decode(errors="ignore")
+                    except Exception:
+                        logger.debug("Unable to read optional 3MF metadata member %s", n, exc_info=True)
             out["objects"]=len(re.findall(r'<(?:\w+:)?object\b',text)); out["components"]=len(re.findall(r'<(?:\w+:)?component\b',text)); out["build_items"]=len(re.findall(r'<(?:\w+:)?item\b',text)); out["named_parts"]=re.findall(r'<metadata key="name" value="([^"]+)',text)[:30]
     from ..core.source_colors import inventory, prompts
     manifest = inventory(path)

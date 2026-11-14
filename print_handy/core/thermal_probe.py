@@ -41,6 +41,9 @@ that printer's hardware record under ``thermal_install`` with provenance
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import datetime
 import re
 import urllib.parse
@@ -310,7 +313,7 @@ def _probe_sdcp(fields, _secrets, timeout_s, factory):
         try:
             client.close()
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
     if _status_code(frame) in _BUSY_CODES:
         return ThermalProbe(False, note="the printer is busy; the thermal probe only runs on an idle printer")
     found = sdcp_findings(frame)

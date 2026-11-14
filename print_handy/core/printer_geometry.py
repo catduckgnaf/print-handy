@@ -6,6 +6,9 @@ is a warning. Nothing here rewrites the profile.
 from __future__ import annotations
 
 
+import logging
+
+logger = logging.getLogger(__name__)
 def _num(section, key):
     if not isinstance(section, dict):
         return None
@@ -61,7 +64,7 @@ def from_configfile(payload) -> dict:
             if max_x > min_x and max_y > min_y:
                 bed_x, bed_y = max_x - min_x, max_y - min_y
         except ValueError:
-            pass
+            logger.debug("Best-effort recovery from ValueError", exc_info=True)
     if bed_x and bed_y:
         found["bed_mm"] = [bed_x, bed_y]
     height = _num(config.get("stepper_z"), "position_max")

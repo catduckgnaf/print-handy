@@ -89,7 +89,7 @@ def _read(path: Path) -> dict[str, Any]:
         if isinstance(value, dict):
             return {**_empty_state(), **value}
     except (OSError, ValueError, TypeError):
-        pass
+        logger.debug("Best-effort recovery from (OSError, ValueError, TypeError)", exc_info=True)
     return _empty_state()
 
 

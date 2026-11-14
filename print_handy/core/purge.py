@@ -19,6 +19,9 @@ mode cannot be read, keeps today's behavior: a prime tower, as before.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import re
 import time
@@ -165,7 +168,7 @@ def _write_cache(printer_id, record, data=None):
         tmp.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
         tmp.replace(path)
     except OSError:
-        pass  # a cache that cannot be written only costs the next call a refresh
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
 
 
 def refresh(state, adapter=None, printer_id=None, data=None, timeout=DETECT_TIMEOUT_S):
@@ -202,7 +205,7 @@ def refresh(state, adapter=None, printer_id=None, data=None, timeout=DETECT_TIME
             plugins = plugins_from_objects(_query(base, '/printer/objects/list', timeout)['result']['objects'])
             how = 'objects list'
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
     record['plugins'], record['plugins_source'] = plugins, how
     if printer_id:
         _write_cache(printer_id, record, data)

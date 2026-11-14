@@ -199,7 +199,7 @@ def _read_bank_optional(name: str) -> Any:
         if isinstance(payload, dict):
             return payload
     except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
-        pass
+        logger.debug("Best-effort recovery from (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError)", exc_info=True)
     return None
 
 
@@ -844,7 +844,7 @@ def _save_state(path: Path | None, state: Mapping[str, Any]) -> None:
         try:
             os.unlink(tmp)
         except OSError:
-            pass
+            logger.debug("Best-effort recovery from OSError", exc_info=True)
         raise
 
 
@@ -1091,7 +1091,7 @@ def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
     try:
         _save_state(state_path, state)
     except OSError:
-        pass  # the line still goes out; only repeat-avoidance memory is lost
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
     return line
 
 

@@ -24,6 +24,9 @@ needs, and whether that is in place, without ever showing a credential.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import base64
 import json
 import os
@@ -360,7 +363,7 @@ def save_token(site, token):
     try:
         os.chmod(path.parent, 0o700)
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
     tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
@@ -372,7 +375,7 @@ def save_token(site, token):
         try:
             tmp.unlink()
         except OSError:
-            pass
+            logger.debug("Best-effort recovery from OSError", exc_info=True)
     return path
 
 
