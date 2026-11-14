@@ -2837,7 +2837,7 @@ def serve(data=None, *, environ=None):
     try:
         server = make_server(data, environ=environ)
     except WebUIServerError as exc:
-        print(str(exc), file=sys.stderr)
+        print(f"{str(exc)} [PH_WEBUI_CONFIGURATION]", file=sys.stderr)
         return 2
     start_web_alerts(server)
     host, port = server.server_address[:2]
@@ -2857,7 +2857,7 @@ def main(argv=None):
     try:
         data = settings.load()
     except settings.SettingsError as exc:
-        print(f"webui: configuration unresolved: {exc}", file=sys.stderr)
+        print(f"webui: configuration unresolved: {exc} [PH_WEBUI_CONFIGURATION]", file=sys.stderr)
         return 2
     return serve(data)
 

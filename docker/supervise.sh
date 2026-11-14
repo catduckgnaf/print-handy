@@ -297,6 +297,6 @@ exited_name="unknown"
 for i in "${!children[@]}"; do
     if ! kill -0 "${children[$i]}" 2>/dev/null; then exited_name="${children_names[$i]:-unknown}"; break; fi
 done
-echo "Required child exited: $exited_name (status $status); stopping container." >&2
+echo "Required child exited: $exited_name (status $status); stopping container. [PH_SUPERVISOR_TRANSIENT]" >&2
 if [ "$status" -eq 0 ]; then status=1; fi
 exit "$status"
