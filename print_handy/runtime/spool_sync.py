@@ -256,7 +256,7 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
         try:
             candidates.remove(root / "printers" / default_id / "printer_hardware.json")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     elif default_id is not None and target == root / "printers" / default_id / "printer_hardware.json":
         # The reverse direction (P2-127): binding the default printer's
         # per-printer record, the root record is that same printer's legacy
@@ -265,7 +265,7 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
         try:
             candidates.remove(root / "printer_hardware.json")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     for candidate in candidates:
         if candidate == target:
             continue
@@ -1283,7 +1283,7 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
         printer_hexes = filament_color.printer_slot_hexes(
             ((reply.get("result") or {}).get("status") or {}).get("zmod_color"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     changes = filament_color.fill_missing_slot_hexes(
         state, spoolman_hexes=spoolman_hexes, printer_hexes=printer_hexes)
     for change in changes:
@@ -1304,7 +1304,7 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
             try:
                 client("PATCH", f"/api/v1/filament/{int(filament['id'])}", {"color_hex": change["hex"]})
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     if state != raw:
         save_state(state, state_path, printer_id=printer_id)
     return changes
@@ -1445,7 +1445,7 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
             try:
                 lock.release()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: Client,
@@ -2089,7 +2089,7 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
         try:
             client("PATCH", f"/api/v1/filament/{match['id']}", {"color_hex": color_hex})
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     if not reused and len(multi_hexes) > 1:
         # A multi-color name also records every color, best effort: the
         # representative swatch above is what slicing and the screen use.
@@ -2097,7 +2097,7 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
             client("PATCH", f"/api/v1/filament/{match['id']}",
                    {"multi_color_hexes": ",".join(multi_hexes), "multi_color_direction": "longitudinal"})
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     # A purchase intake (#801) records what the roll cost and where it was
     # bought: Spoolman's own price field, and the purchase URL appended to
     # the created-spool comment (the watcher reads that comment's head, so

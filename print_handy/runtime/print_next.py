@@ -490,20 +490,20 @@ async def _stop_and_reap(proc, communication=None) -> bool:
         try:
             proc.terminate()
         except (ProcessLookupError, PermissionError, OSError):
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         try:
             await asyncio.wait_for(proc.wait(), STOP_GRACE_S)
         except asyncio.TimeoutError:
             try:
                 proc.kill()
             except (ProcessLookupError, PermissionError, OSError):
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
             try:
                 await asyncio.wait_for(proc.wait(), STOP_REAP_TIMEOUT_S)
             except asyncio.TimeoutError:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     reaped = proc.returncode is not None
     if communication is not None:
         if reaped and not communication.done():
@@ -512,12 +512,12 @@ async def _stop_and_reap(proc, communication=None) -> bool:
             except asyncio.TimeoutError:
                 communication.cancel()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         if communication.done():
             try:
                 communication.result()
             except (asyncio.CancelledError, Exception):
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return reaped
 
 
