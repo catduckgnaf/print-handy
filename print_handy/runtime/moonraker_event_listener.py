@@ -1930,14 +1930,19 @@ def _timelapse_post(job_key, completion_message):
             # The captured video is already assembled under the platform
             # cap by timelapse_encode; it skips the archive + shrink the
             # printer-rendered path needs.
-            completion_message = timelapse_encode.caption_with_number(completion_message, job_key)
-            message = f"{completion_message}\nMEDIA:{captured}"
+            # The caption ("Print #N", a coverage note) is display text only.
+            # The pending notice stays keyed by the original completion text:
+            # acknowledging with the captioned text matched nothing, left the
+            # notice pending, and a later announcer pass re-drove the video leg
+            # and posted "Print complete" a second time.
+            caption = timelapse_encode.caption_with_number(completion_message, job_key)
+            message = f"{caption}\nMEDIA:{captured}"
             short = _vertical_short_attachment(captured, job_key)
             if short is not None:
                 message += f"\nMEDIA:{short}"
             if not _post_completion(message, completion_message, job_key=job_key):
                 log(f"captured timelapse attach failed for {job_key!r}; posting text only")
-                _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, captured.name)}",
+                _post_completion(f"{caption}\n{_timelapse_fallback_text(message, captured.name)}",
                                  completion_message, job_key=job_key)
             return
         if not go2rtc.rendered_active(_config.cfg()):
