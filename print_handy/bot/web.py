@@ -545,11 +545,16 @@ class WebChatService:
         """The page's own switch, read live from the settings mapping."""
         return chat_enabled(self.cfg)
 
-    def submit(self, text, scope=""):
+    def submit(self, text, scope="", media_urls=()):
         """Queue one operator message in ``scope``. False when rate-limited or off.
 
         The rate limit counts every scope together: it guards the bot
-        (and the model budget), which the sessions share."""
+        (and the model budget), which the sessions share. ``media_urls``
+        carries local file paths the way a chat platform's downloaded
+        attachments ride its events (a file dropped in chat): the Web UI
+        workflow page submits an uploaded file this way, so the intake
+        sees exactly the event a file drop produces. With no text, the
+        transcript's operator line names the files instead."""
         if not self._enabled():
             return False
         scope = str(scope or "")
@@ -568,8 +573,13 @@ class WebChatService:
             self._message_count += 1
             count = self._message_count
             self._inflight[scope] = self._inflight.get(scope, 0) + 1
-        self._append({"kind": "operator", "content": str(text or "")}, scope)
-        event = runtime.make_event(self._source(scope), addressed.text, f"web-{count}")
+        shown = str(text or "")
+        if not shown and media_urls:
+            from pathlib import Path as _Path
+            shown = "📎 " + ", ".join(_Path(str(p)).name for p in media_urls)
+        self._append({"kind": "operator", "content": shown}, scope)
+        event = runtime.make_event(self._source(scope), addressed.text, f"web-{count}",
+                                   media_urls=media_urls)
         future = asyncio.run_coroutine_threadsafe(
             self._in_scope(scope, lambda: self.core.process(event)), self._loop)
         future.add_done_callback(lambda done: self._process_done(done, scope))
@@ -682,8 +692,8 @@ class ScopedChat:
         self.service = service
         self.scope = str(scope or "")
 
-    def submit(self, text):
-        return self.service.submit(text, self.scope)
+    def submit(self, text, media_urls=()):
+        return self.service.submit(text, self.scope, media_urls=media_urls)
 
     def answer(self, clarify_id, index):
         return self.service.answer(clarify_id, index, self.scope)

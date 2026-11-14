@@ -156,6 +156,9 @@ ROUTES = (
     _get("/printer-settings", SESSION, "_printer_settings_page"),
     _get("/chat", SESSION, "_chat_page"),
     _get("/chat/state", SESSION, "_chat_state"),
+    _get("/workflow", SESSION, "_workflow_page"),
+    _get("/workflow/state", SESSION, "_workflow_state"),
+    _get("/workflow/download/*", SESSION, "_workflow_download_route", decode=False),
     _get("/upload", SESSION, "_upload_page"),
     _get("/sources", SESSION, "_sources_page"),
     _get("/designs", SESSION, "_designs_page"),
@@ -174,6 +177,10 @@ ROUTES = (
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
     _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
     _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
+    _post("/workflow/link", SESSION_CSRF, "_workflow_link_post", back="/workflow"),
+    _post("/workflow/choice", SESSION_CSRF, "_workflow_choice_post", back="/workflow"),
+    _post("/workflow/start", SESSION_CSRF, "_workflow_start_post", back="/workflow"),
+    _post("/workflow/upload", SESSION_CSRF, "_workflow_upload_post", back="/workflow", multipart=True),
     _post("/upload", SESSION_CSRF, "_upload_post", back="/upload", multipart=True),
     # Ends only the caller's own session: the worst a cross-origin post
     # can do is sign the operator out.

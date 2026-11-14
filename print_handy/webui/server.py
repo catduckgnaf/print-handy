@@ -196,6 +196,7 @@ from . import spools as spools_module
 from . import status as status_module
 from . import upload as upload_module
 from . import walkthrough as walkthrough_module
+from . import workflow as workflow_module
 
 log = logging.getLogger(__name__)
 
@@ -2549,6 +2550,184 @@ class _Handler(BaseHTTPRequestHandler):
                                       "the answer belongs to another step.")
                 return
         self._redirect("/chat")
+
+    # -- workflow (#1450) ---------------------------------------------------
+
+    def _workflow_page(self, notice=None, error=None):
+        if not self._web_chat_enabled():
+            # The workflow runs on the web chat service, which is never
+            # built while the switch is off: a page that says so, like
+            # the chat page's disabled state.
+            self._send(200, workflow_module.render_workflow_disabled_page(
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        view = self._chat_view()
+        receipt = workflow_module.latest_receipt(self.server.settings_data,
+                                                 view.scope)
+        self._send(200, workflow_module.render_workflow_page(
+            view, receipt, form_token=self._form_token(),
+            notice=notice, error=error, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+
+    def _workflow_state(self):
+        self._json(200, chat_module.chat_state(
+            self._chat_view(issue=False) if self._web_chat_enabled() else None))
+
+    def _workflow_busy(self, view):
+        """True while this session's workflow is mid-flight: a turn
+        running or a question open. A second start would queue a second
+        intake behind it in the same conversation, so the start routes
+        refuse and point at the running one."""
+        return bool(view.busy() or view.open_prompt())
+
+    def _workflow_link_post(self, form):
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        url = (form.get("url") or [""])[0].strip()
+        if not url:
+            self._redirect("/workflow")
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+        if not view.submit(url):
+            self._workflow_page(error="Too many messages in the last "
+                                      "minute; give the bot a moment to "
+                                      "catch up.")
+            return
+        self._redirect("/workflow", headers=self._chat_cookie_headers())
+
+    def _workflow_choice_post(self, form):
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            # The chat page's press rules, verbatim: a timed-out or
+            # refused press comes back as the page with an explanation,
+            # never a silent redirect that looks like success.
+            try:
+                label = self._chat_view().answer(clarify_id, index)
+            except Exception:
+                self._workflow_page(error="That answer didn't reach the "
+                                          "bot in time. The question is "
+                                          "still open, try again.")
+                return
+            if label is None:
+                self._workflow_page(error="That answer wasn't accepted, "
+                                          "the question may have closed, "
+                                          "or the answer belongs to "
+                                          "another step.")
+                return
+        self._redirect("/workflow")
+
+    def _workflow_start_post(self, form):
+        """POST /workflow/start: begin the workflow for one inbox file.
+
+        The name is checked against the inbox listing the Upload page
+        shows (upload.list_inbox), so only a file that is really in the
+        inbox can be named; the file stays in the inbox and is submitted
+        to the intake as the upload it is."""
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        name = (form.get("name") or [""])[0]
+        data = self.server.settings_data
+        if name not in {row[0] for row in upload_module.list_inbox(data)}:
+            self._workflow_page(error="That file is no longer in the "
+                                      "inbox, so no workflow was started.")
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+        path = upload_module.inbox_dir(data) / name
+        if not view.submit("", media_urls=[str(path)]):
+            self._workflow_page(error="Too many messages in the last "
+                                      "minute; give the bot a moment to "
+                                      "catch up.")
+            return
+        self._redirect("/workflow", headers=self._chat_cookie_headers())
+
+    def _workflow_upload_post(self, form):
+        """POST /workflow/upload: receive a file and start its workflow.
+
+        The receive is the Upload page's own (_receive_upload: streamed
+        to a spool file, size and quota checked before a byte lands);
+        the save is save_upload into the inbox; then the saved file is
+        submitted to the intake at once, which is the difference from
+        the Upload page: there the file waits for a chat pickup."""
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+
+        def handle(fields, files):
+            if not files:
+                self._html_refusal(400, "no file was attached", "/workflow")
+                return
+            saved, reason = upload_module.save_upload(
+                self.server.settings_data, files[0][0], files[0][1])
+            if saved is None:
+                self._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
+                                   else 400, reason, "/workflow")
+                return
+            if not view.submit("", media_urls=[str(saved)]):
+                self._workflow_page(
+                    notice=f"{saved.name} is in the inbox, but the "
+                           "workflow could not be started (too many "
+                           "messages in the last minute). Start it from "
+                           "the Upload page in a moment.")
+                return
+            self._redirect("/workflow",
+                           headers=self._chat_cookie_headers())
+
+        refused = self._receive_upload(handle)
+        if refused:
+            headers = [("Retry-After", "30")] if refused[0] == 503 else []
+            self._send(refused[0], shell.page(
+                "error", f'<p class="error">{html.escape(refused[1])}</p>'
+                         '<p><a href="/workflow">Back</a></p>',
+                path="/workflow", theme=self._theme()),
+                "text/html; charset=utf-8", headers=headers)
+
+    def _workflow_download_route(self, rest):
+        """GET /workflow/download/<intake id>/<n>: one sliced file.
+
+        ``rest`` is exactly an intake id and a plate position. The file
+        is resolved by print_handy.webui.workflow from this session's
+        own receipt: only a file that receipt names can be served, and
+        an intake id from another session resolves nothing here."""
+        segments = [segment for segment in rest.split("/") if segment != ""]
+        path = None
+        if len(segments) == 2 and self._web_chat_enabled():
+            view = self._chat_view(issue=False)
+            path = workflow_module.download_target(
+                self.server.settings_data, view.scope, segments[0], segments[1])
+        if path is None:
+            self._json(404, {"ok": False, "reason": "no such sliced file"})
+            return
+        self._send(200, path.read_bytes(), workflow_module.content_type(path),
+                   headers=[("Content-Disposition",
+                             f'attachment; filename="{path.name}"')])
 
     # -- uploads ------------------------------------------------------------
 

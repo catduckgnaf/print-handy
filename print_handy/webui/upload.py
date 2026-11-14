@@ -722,9 +722,11 @@ def render_upload_page(data, *, form_token, notice=None, error=None,
         parts.append(f'<p class="error">{esc(error)}</p>')
     parts.append(
         "<p>Upload a model file here and it lands in the inbox. An "
-        "uploaded file is not a print: pick it up in chat and it goes "
-        "through the normal confirm-before-print flow, like a file "
-        "dropped in chat.</p>"
+        "uploaded file is not a print: pick it up in chat, or press "
+        "<strong>Start workflow</strong> on it below and the "
+        "<a href=\"/workflow\">workflow page</a> runs it through the "
+        "normal confirm-before-print flow here in the browser, like a "
+        "file dropped in chat.</p>"
         '<form method="post" action="/upload" enctype="multipart/form-data">'
         f'<input type="hidden" name="_csrf" value="{esc(form_token)}">'
         '<div class="field"><label for="u-file">Model file (.stl or .3mf)</label>'
@@ -737,7 +739,11 @@ def render_upload_page(data, *, form_token, notice=None, error=None,
         body = "".join(
             f"<tr><td>{esc(name)}</td><td>{size} bytes</td>"
             f"<td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime))}</td>"
-            '<td><form method="post" action="/upload">'
+            '<td><form method="post" action="/workflow/start" class="inline">'
+            f'<input type="hidden" name="_csrf" value="{esc(form_token)}">'
+            f'<input type="hidden" name="name" value="{esc(name)}">'
+            '<button type="submit">Start workflow</button></form> '
+            '<form method="post" action="/upload" class="inline">'
             f'<input type="hidden" name="_csrf" value="{esc(form_token)}">'
             '<input type="hidden" name="action" value="delete_file">'
             f'<input type="hidden" name="name" value="{esc(name)}">'

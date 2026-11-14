@@ -50,6 +50,7 @@ DEFAULT_THEME = "dark"
 NAV = (
     ("/", "Status"),
     ("/sliced", "Sliced files"),
+    ("/workflow", "Workflow"),
     ("/printers", "Printers"),
     ("/printer-settings", "Printer settings"),
     ("/spools", "Spools"),
