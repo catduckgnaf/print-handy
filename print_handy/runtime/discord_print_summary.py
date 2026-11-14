@@ -334,7 +334,7 @@ def find_job(filename, archive=None, context_path=None):
     try:
         requested_path = requested_path.resolve()
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     for path, job in _job_files(archive):
         candidates = [(None, job.get("gcode"))] + [(row, row.get("gcode")) for row in job.get("derived_plates") or []]
         for row, gcode in candidates:
@@ -370,7 +370,7 @@ def find_job(filename, archive=None, context_path=None):
                      "seconds": parse_duration(entry.get("estimated_time"))}
             return job, plate
     except (OSError, ValueError, AttributeError):
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return None, None
 
 
@@ -552,7 +552,7 @@ def format_event(kind, filename, now=None, archive=None, context_path=None, extr
             if name:
                 emit_queued(name, message)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     # No mention is appended here, for any kind (#1095): the notify emit
     # above and every chat platform get the same plain text, and whether
     # the Discord post pings the starter is decided by starter_pings at
@@ -901,5 +901,5 @@ def format_slice_summary(job, now=None):
         lines.extend(thermal_lines_for_job(job.get("printer_model"), job_materials(job),
                                            printer_id=job.get("printer_id")))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return scrub("\n".join(lines))

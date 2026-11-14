@@ -827,7 +827,7 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         try:
             return resolve_plate_ref(query, archive)
         except NextPlateError:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     hits = match_printed(query, rows)
     if not hits:
         near = fuzzy_printed(query, rows)
@@ -1690,7 +1690,7 @@ def force_reboot(
             _send("/printer/gcode/script", method="POST", data={"script": "REBOOT"}, timeout=15,
                   printer_id=printer_id)
         except Exception:
-            pass  # the macro drops the connection as it reboots; readback below decides the outcome
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     def default_mr():
         if printer_id:
@@ -1713,6 +1713,6 @@ def force_reboot(
             if isinstance(m, dict) and isinstance(n, dict) and safe_idle(m, n):
                 return True, "Restart complete. The printer is idle with heaters off."
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         time.sleep(poll_s)
     return False, f"Restart sent, but the printer didn't report idle within {wait_grace_s + max_wait_s:.0f}s. Check the printer screen. Not retrying."

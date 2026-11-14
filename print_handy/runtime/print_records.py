@@ -68,7 +68,7 @@ def normalize_utc(value: Any) -> str | None:
         if num > 0:
             return datetime.fromtimestamp(num, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace("z", "+00:00"))
         if dt.tzinfo is None:
@@ -967,7 +967,7 @@ def write_completed_record(data: Mapping[str, Any]) -> dict[str, Any]:
                 try:
                     started.unlink()
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return {
         "record_path": str(target),
         "plan_id": plan_id,

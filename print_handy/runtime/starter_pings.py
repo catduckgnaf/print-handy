@@ -130,7 +130,7 @@ def _save(data):
         tmp.write_text(json.dumps(data))
         os.replace(tmp, path)
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 @contextlib.contextmanager
@@ -166,7 +166,7 @@ def _locked():
                 try:
                     fcntl.flock(fd, fcntl.LOCK_UN)
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
                 os.close(fd)
 
 

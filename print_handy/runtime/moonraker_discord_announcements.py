@@ -499,7 +499,7 @@ def _pending_printer_key():
         if entries:
             return str(entries[0].get("id"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return "default"
 
 
@@ -647,7 +647,7 @@ def roast_facts(job, plate, stats=None, now=None):
                                current_color=str(color or ""))
             facts.update(hf)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     except Exception as exc:
         print(f"Roast facts incomplete: {exc}", file=sys.stderr)
     return facts
@@ -760,7 +760,7 @@ def _finished_history_job(filename, completed_at=None):
                 if abs(float(job.get("end_time")) - reference) <= HISTORY_MATCH_WINDOW_S:
                     return job
             except (TypeError, ValueError):
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
             return None  # the newest finished entry is not this print
     return None
 

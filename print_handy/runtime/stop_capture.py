@@ -58,7 +58,7 @@ def stops_dir(printer_id: str | None = None) -> Path:
             if printer_id != settings.default_printer_id(data):
                 return settings.printer_state_dir(printer_id, data) / "stops"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return _config.state_dir() / "stops"
     return _config.state_file(None, "stops", per_instance=True)
 
@@ -254,6 +254,6 @@ def _log(log: Callable[[str], Any] | None, line: str) -> None:
             log(line)
             return
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     import logging
     logging.getLogger("print_handy.stop_capture").info("%s", line)

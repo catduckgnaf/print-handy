@@ -75,14 +75,14 @@ def force_restart(
     try:
         call("/printer/emergency_stop", method="POST", timeout=15)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     # Step 2: Firmware restart
     steps.append("firmware_restart")
     try:
         call("/printer/firmware_restart", method="POST", timeout=15)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     # Step 3: Poll until klippy is ready
     deadline = time.monotonic() + wait_s
@@ -107,7 +107,7 @@ def force_restart(
     try:
         call("/printer/gcode/script", method="POST", data={"script": "REBOOT"}, timeout=15)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     from print_handy.core.clear_job import safe_idle
 
@@ -141,7 +141,7 @@ def force_restart(
                 idle_ok = True
                 break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         time.sleep(poll_s)
 
     if idle_ok:

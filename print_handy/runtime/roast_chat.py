@@ -334,14 +334,14 @@ def facts_for(row: dict[str, Any], tz=None) -> tuple[dict[str, Any], str]:
         if times >= 2:
             facts["times"] = times
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     finished = record.get("completed_at")
     try:
         if finished:
             when = datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
             facts["finish_hour"] = (when.astimezone(tz) if tz else when).hour
     except ValueError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     # History facts (#1002 Phase 2)
     record_id = str(record.get("record_id") or "")
