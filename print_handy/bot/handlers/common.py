@@ -1374,6 +1374,15 @@ def alert_button_handlers(bot, adapter):
 
     async def send_stop(source, text, clarify_id):
         """Status step: one Stop button, no 'Other (type answer)'. Returns the sent message."""
+        # One job card per job (#1472): when this job has a card, Stop
+        # rides on the card and the returned handle routes the later
+        # retire/refusal edits back onto it — no separate message.
+        from print_handy.bot import job_card as _job_card
+        session = _job_card.active_session_for(source)
+        if session is not None:
+            handle = await session.attach_stop(text, clarify_id)
+            if handle is not None:
+                return handle
         import discord
         target = getattr(source, 'thread_id', None) or getattr(source, 'chat_id', None)
         channel = bot.get_channel(int(target)) if target else None
