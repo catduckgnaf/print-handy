@@ -172,6 +172,7 @@ from . import camera as camera_module
 from . import chat as chat_module
 from . import config as config_api
 from . import controls as controls_module
+from . import dashboard as dashboard_module
 from . import data as data_module
 from . import designs as designs_module
 from . import layers as layers_module
@@ -540,7 +541,7 @@ def _job_block(job):
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
                        unclaimed=False, loopback=False, open_reason="",
-                       credential_ignored=False):
+                       credential_ignored=False, dashboard=None):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -550,7 +551,12 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     job's file, progress and layers. ``walkthrough_pending`` adds the
     slim finish-setup banner under the header. ``error`` (a /debug
     validation refusal re-rendering this page, #840) shows above the
-    card.
+    card. ``dashboard`` (#1445, a dashboard.build_dashboard result)
+    renders the Home Assistant sample's screen — health row, printer
+    cards with camera, progress ring, temperatures and history,
+    filament, latest timelapse, recent prints — between the overall
+    card and the detail tables; without one the page is exactly the
+    pre-dashboard readout.
     """
     esc = html.escape
     bot, listener, spoolman = snap["bot"], snap["listener"], snap["spoolman"]
@@ -672,6 +678,7 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                    '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
+            + (dashboard_module.render_dashboard(dashboard, snap) if dashboard else "")
             + f'<table class="rows">{main_rows}</table>'
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
@@ -1238,6 +1245,10 @@ class _Handler(BaseHTTPRequestHandler):
             credential_ignored=getattr(self.server.access, "credential_ignored", False),
             loopback=is_loopback(self.server.bind_host),
             job=_overall_job(self.server.settings_data),
+            dashboard=dashboard_module.build_dashboard(
+                self.server.settings_data,
+                status_for=self.server.printer_status_func,
+                spools_for=self.server.spools_view_func),
             nav=data_module.nav_for(self.server.settings_data)
             if (data_module.data_enabled(self.server.settings_data)
                 or data_module.wrapped_enabled(self.server.settings_data))
