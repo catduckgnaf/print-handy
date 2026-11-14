@@ -495,7 +495,7 @@ class CaptureSession:
             try:
                 self._write_manifest()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
             return False
         if self.max_bytes and self._bytes + len(image) > self.max_bytes:
             return self._cap(f"byte cap ({self.max_bytes})")
@@ -569,7 +569,7 @@ class CaptureSession:
         try:
             self._write_manifest()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return False
 
     def _layer_changed(self, layer) -> bool:
@@ -606,7 +606,7 @@ class CaptureSession:
         try:
             self._log(message)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None,
@@ -658,14 +658,14 @@ def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None
                 log(f"timelapse capture pruned {len(removed)} expired capture(s): "
                     f"{', '.join(removed)}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return session
     except Exception as exc:  # the listener's print flow must never see this
         if log is not None:
             try:
                 log(f"timelapse capture unavailable for {filename!r}: {exc!r}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return None
 
 
@@ -752,7 +752,7 @@ def resume(directory, *, data=None, fetch=None, log=None, environ=None,
             try:
                 log(f"timelapse capture resume unavailable for {directory}: {exc!r}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return None
 
 

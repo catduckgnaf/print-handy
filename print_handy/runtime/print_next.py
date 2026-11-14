@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import sys
 import time
@@ -489,21 +490,29 @@ async def _stop_and_reap(proc, communication=None) -> bool:
     if proc.returncode is None:
         try:
             proc.terminate()
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        except ProcessLookupError:
+            # The child exited between the returncode check and terminate(): nothing to stop.
+            logging.getLogger(__name__).debug("print-now child already exited before terminate")
+        except (PermissionError, OSError) as exc:
+            logging.getLogger(__name__).warning("print-now child terminate failed: %r", exc)
         try:
             await asyncio.wait_for(proc.wait(), STOP_GRACE_S)
         except asyncio.TimeoutError:
             try:
                 proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            except ProcessLookupError:
+                # Exited after the grace timeout but before kill(): already stopped.
+                logging.getLogger(__name__).debug("print-now child already exited before kill")
+            except (PermissionError, OSError) as exc:
+                logging.getLogger(__name__).warning("print-now child kill failed: %r", exc)
             try:
                 await asyncio.wait_for(proc.wait(), STOP_REAP_TIMEOUT_S)
             except asyncio.TimeoutError:
-                pass
+                # Not reaped after SIGKILL; the caller sees reaped=False and reports it.
+                logging.getLogger(__name__).warning(
+                    "print-now child not reaped %.0fs after kill", STOP_REAP_TIMEOUT_S)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     reaped = proc.returncode is not None
     if communication is not None:
         if reaped and not communication.done():
@@ -512,12 +521,12 @@ async def _stop_and_reap(proc, communication=None) -> bool:
             except asyncio.TimeoutError:
                 communication.cancel()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         if communication.done():
             try:
                 communication.result()
             except (asyncio.CancelledError, Exception):
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return reaped
 
 

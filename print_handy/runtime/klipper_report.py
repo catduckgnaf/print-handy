@@ -94,7 +94,7 @@ def mark_bot_cancel(now: float | None = None, printer_id: str | None = None) -> 
         BOT_CANCEL.write_text(json.dumps({"at": time.time() if now is None else now,
                                           "printer_id": printer_id}))
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 def cancelled_by_bot(now: float | None = None) -> bool:
@@ -262,23 +262,23 @@ def report(filename: str, stop_reason: str = "") -> str:
     try:
         status = (_get(QUERY).get("result") or {}).get("status") or {}
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     job: dict[str, Any] | None = None
     try:
         jobs = (_get("/server/history/list?limit=1&order=desc").get("result") or {}).get("jobs") or []
         job = jobs[0] if jobs else None
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     try:
         store = (_get("/server/gcode_store?count=100").get("result") or {}).get("gcode_store") or []
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     try:
         req = urllib.request.Request(_url("/server/files/klippy.log"), headers={"Range": "bytes=-20000"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             tail = resp.read().decode("utf-8", "replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     text = build(filename, status, store, tail, by_bot=cancelled_by_bot(), job=job, stop_reason=stop_reason)
     if not status:
         text += "\n(Couldn't read live printer state; report is partial.)"
