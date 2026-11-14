@@ -1,4 +1,5 @@
 """Per-job correlation identity stays stable and isolated across concurrent slices."""
+import asyncio
 import contextvars
 
 from print_handy import logs
@@ -17,8 +18,6 @@ def test_intake_id_is_reused_and_random_id_is_path_independent():
 
 
 def test_concurrent_log_contexts_keep_separate_correlation_ids():
-    import asyncio
-
     async def read_id(job):
         token = logs.bind(job_correlation_id=job_correlation.ensure(job))
         try:

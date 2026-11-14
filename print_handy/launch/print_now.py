@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
-from .. import firmware_update, printers, settings
+from .. import firmware_update, logs, printers, settings
 from ..core import (
     _external, filament_color, gcode_3mf, job_correlation, launch_state, material_accept, printer_state, purge,
     spoolman_client,
@@ -357,6 +357,24 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
     the record context so the completion record carries THIS launch's number,
     not the job's first-print number.
     """
+    correlation_token = None
+    try:
+        job = _job_for_gcode(Path(gcode_path).expanduser().resolve())
+        if isinstance(job, dict):
+            correlation_token = logs.bind(job_correlation_id=job_correlation.ensure(job))
+    except Exception:
+        pass
+    try:
+        return _record_start_with_context(gcode_path, moonraker_name, started_at, print_number)
+    finally:
+        if correlation_token is not None:
+            try:
+                logs.unbind(correlation_token)
+            except Exception:
+                pass
+
+
+def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None, print_number=None):
     print_records = _external.load("print_records")
     st=printer_state.load(); g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
     def cfg(key):
