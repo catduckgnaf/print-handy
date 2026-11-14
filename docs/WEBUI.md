@@ -24,7 +24,9 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/printers/<id>/screen/snapshot` | One JPEG of that printer's own display (not the bed camera), discovered through Moonraker's registered `screen` webcam and served without naming the printer's address. A printer with no Moonraker connection or no registered screen is a 404 with the reason; an unreachable printer or screen service is a 502 |
 | `GET /healthz` | The standalone bot heartbeat verdict: `200` when it passes, `503` when it does not |
 | `GET /readyz` | Per-component readiness as JSON: `spoolman`, `slicer` and one `printers.<id>` row each, plus `ready`. `200` when no component is known to be down, `503` when one is. Same access token as `/api/status` |
-| `GET /designs` | The read-only designs catalog: AI design sessions on disk, newest first |
+| `GET /designs` | The design workshop (start and iterate on a design) over the catalog of AI design sessions on disk, newest first |
+| `POST /designs` | The workshop's start and follow-up forms: submit a description or a change through web chat |
+| `POST /designs/choice` | One button of the design's open question (Slice it / Change it / Cancel) |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
 | `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
@@ -73,7 +75,7 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 
 ### Designs page
 
-The designs page is a read-only catalog of the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled, and it has no write actions: nothing there deletes, slices or prints. See [AI design with OpenSCAD](DESIGN.md#browsing-designs-in-the-web-ui).
+The designs page leads with the design workshop: describe a part and the design runs right there, with its preview, the bot's replies, and the Slice it / Change it / Cancel question as page buttons, followed by a form for the next change. The workshop submits through web chat, so it is the same design flow as `/print-design` in chat (same engine, same hand-off into intake, same confirmations), and it needs web chat on; while design is disabled or no design model is configured, the workshop says why instead of showing a form that cannot work. Below it, the catalog lists the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled. See [AI design with OpenSCAD](DESIGN.md#designing-in-the-web-ui).
 
 ### Projects page
 

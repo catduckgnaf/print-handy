@@ -51,10 +51,13 @@ step) serving:
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
   (:mod:`print_handy.webui.pages`), where settings are edited.
-- ``GET /designs`` and ``GET /designs/<id>`` — the read-only catalog of
-  AI design sessions (#388, stage 3;
+- ``GET /designs`` and ``GET /designs/<id>`` — the design workshop over
+  the catalog of AI design sessions (#388, stage 3; #1449;
   :mod:`print_handy.webui.designs`), with per-session file downloads
-  under ``GET /designs/<id>/<scad|stl|preview>``.
+  under ``GET /designs/<id>/<scad|stl|preview>``. ``POST /designs``
+  and ``POST /designs/choice`` are the workshop's forms: they submit
+  through this browser's web chat view, so a design started here runs
+  the chat design dispatch itself, not a page-side pipeline.
 - ``GET /projects`` and ``GET /api/projects`` — the read-only
   multi-part project readout (#1204; :mod:`print_handy.webui.projects`),
   read from each job's ``project_v1`` manifest and the print records.
@@ -1287,10 +1290,73 @@ class _Handler(BaseHTTPRequestHandler):
             theme=self._theme(), nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8")
 
-    def _designs_page(self):
-        rows = designs_module.catalog_rows(self.server.settings_data)
-        self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),
-                   "text/html; charset=utf-8")
+    def _designs_page(self, notice=None, error=None):
+        data = self.server.settings_data
+        rows = designs_module.catalog_rows(data)
+        # The workshop submits through this browser's web chat view, so
+        # it exists only while web chat is on; with it off the page
+        # renders the reason instead of a form (designs_module).
+        view = self._chat_view() if self._web_chat_enabled() else None
+        workshop = designs_module.workshop_model(data, view)
+        self._send(200, designs_module.render_designs_page(
+            rows, theme=self._theme(), nav=data_module.nav_for(data),
+            workshop=workshop, form_token=self._form_token(),
+            notice=notice, error=error),
+            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+
+    def _designs_post(self, form):
+        """POST /designs: the workshop's start and follow-up forms (#1449).
+
+        Both submit one message to this browser's web chat view: a start
+        submits the /print-design command for the description, a follow-up
+        submits its text as-is (the design dispatch routes it: the answer
+        to the open question, or the revision the session waits for).
+        The page itself designs, slices and prints nothing.
+        """
+        if not self._web_chat_enabled():
+            self._designs_page()
+            return
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            self._redirect("/designs")
+            return
+        mode = (form.get("mode") or ["start"])[0]
+        message = designs_module.start_message(text) if mode == "start" else text
+        if not self._chat_view().submit(message):
+            self._designs_page(error="Too many messages in the last minute; "
+                                     "give the bot a moment to catch up.")
+            return
+        self._redirect("/designs", headers=self._chat_cookie_headers())
+
+    def _designs_choice_post(self, form):
+        """POST /designs/choice: one button of the design's open question.
+
+        The same press as /chat/choice (the prompt's own button, resolved
+        through the adapter with the prompt's own approval rules), only
+        landing back on the designs page.
+        """
+        if not self._web_chat_enabled():
+            self._designs_page()
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            try:
+                label = self._chat_view().answer(clarify_id, index)
+            except Exception:
+                self._designs_page(error="That answer didn't reach the bot "
+                                         "in time. The question is still "
+                                         "open — try again.")
+                return
+            if label is None:
+                self._designs_page(error="That answer wasn't accepted — "
+                                         "the question may have closed, or "
+                                         "the answer belongs to another step.")
+                return
+        self._redirect("/designs")
 
     def _projects_route(self, path):
         # The read-only multi-part project readout (#1204 item 5).
@@ -1774,7 +1840,7 @@ class _Handler(BaseHTTPRequestHandler):
                        purchase_ready=spools_module.purchase_available()),
                    "text/html; charset=utf-8")
 
-    # -- designs catalog (read-only, #388 stage 3) --------------------------
+    # -- designs catalog and files (#388 stage 3) ----------------------------
     def _design_route(self, rest):
         """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
 

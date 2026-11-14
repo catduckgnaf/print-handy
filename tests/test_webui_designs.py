@@ -1,4 +1,4 @@
-"""Web UI designs catalog (#388, stage 3): the read-only /designs pages.
+"""Web UI designs catalog (#388, stage 3): the /designs pages and files.
 
 Everything runs offline: settings come from temp YAML files, design
 sessions are fabricated records in a temp cache (the same shape the
@@ -305,11 +305,19 @@ class DesignsRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.seed(tmp)
             port = self.start(tmp)
-            for method in ("POST", "PUT", "DELETE", "PATCH"):
+            for method in ("PUT", "DELETE", "PATCH"):
                 for path in ("/designs", "/designs/create111111",
                              "/designs/create111111/stl"):
                     code, _h, _b = self.request(port, method, path)
                     self.assertEqual(code, 405, (method, path))
+            # POST exists only for the workshop's own forms (#1449):
+            # /designs itself is that route (a tokenless post is the
+            # CSRF refusal, 403), the catalog paths stay 405.
+            for path in ("/designs/create111111", "/designs/create111111/stl"):
+                code, _h, _b = self.request(port, "POST", path)
+                self.assertEqual(code, 405, ("POST", path))
+            code, _h, _b = self.request(port, "POST", "/designs")
+            self.assertEqual(code, 403)
 
 
 if __name__ == "__main__":
