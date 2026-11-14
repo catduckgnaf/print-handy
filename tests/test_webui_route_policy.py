@@ -40,6 +40,8 @@ EXPECTED = [
     ("GET", "/healthz", P),
     ("GET", "/setup", P),
     ("GET", "/login", P),
+    ("GET", "/favicon.ico", P),
+    ("GET", "/static/*", P),
     ("GET", "/u/*", L),
     ("GET", "/theme", S),
     ("GET", "/walkthrough", S),

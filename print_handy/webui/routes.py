@@ -8,7 +8,9 @@ exactly one policy:
 ``public``
     No credential. The health probe, the login form and its POST,
     logout (it ends only the caller's own session), the ``/setup``
-    redirect, and the read-only refusal for unsupported methods.
+    redirect, the favicon and branding icons (a browser asks for them
+    before or without a login), and the read-only refusal for
+    unsupported methods.
 ``session``
     The read rule: access is open, or the ``X-WebUI-Token`` header
     matches, or a live login session. A browser navigation without it
@@ -113,6 +115,13 @@ ROUTES = (
     _get("/healthz", PUBLIC, "_healthz", host_check=False),
     _get("/setup", PUBLIC, "_setup_redirect"),
     _get("/login", PUBLIC, "_login_page"),
+    # The favicon and the branding icons (#1456): a browser asks for
+    # these on every page, the login page included, before it holds any
+    # session, so they answer without one. Only the fixed icon names in
+    # the server's allowlist are served; anything else under /static/
+    # gets the handler's 404.
+    _get("/favicon.ico", PUBLIC, "_favicon_route"),
+    _get("/static/*", PUBLIC, "_static_route", decode=False),
     _get("/u/*", LINK_TOKEN, "_token_upload_page"),
     _get("/theme", SESSION, "_theme_route"),
     _get("/walkthrough", SESSION, "_walkthrough_page"),

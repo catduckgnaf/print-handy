@@ -199,6 +199,22 @@ SECURITY_HEADERS = (
     ("X-Frame-Options", "DENY"),
     ("Content-Security-Policy", "frame-ancestors 'none'"),
 )
+# The favicon and branding icons (#1456), served by the public
+# /favicon.ico and /static/* routes. The files live in webui/static and
+# are byte copies of assets/branding (tests/test_webui_favicon.py pins
+# them equal, so the two sets cannot drift apart). The allowlist is the
+# whole surface: a name that is not a key here is a 404 and is never
+# joined onto a filesystem path.
+STATIC_DIR = Path(__file__).parent / "static"
+ICON_FILES = {
+    "favicon.ico": "image/x-icon",
+    "icon-16.png": "image/png",
+    "icon-32.png": "image/png",
+    "icon-64.png": "image/png",
+    "icon-180.png": "image/png",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+}
 # Per-connection socket timeout (seconds without progress on a read or
 # write) and the most requests handled at once: a slow or stalled
 # client cannot hold a thread forever, nor spawn threads without bound.
@@ -1216,6 +1232,33 @@ class _Handler(BaseHTTPRequestHandler):
     def _healthz(self):
         code, body = healthz(self.server.settings_data)
         self._json(code, body)
+
+    def _favicon_route(self):
+        self._icon_file("favicon.ico")
+
+    def _static_route(self, name):
+        self._icon_file(name)
+
+    def _icon_file(self, name):
+        """One branding icon (#1456), from the ICON_FILES allowlist.
+
+        Public by design (see routes.py): the bytes are the project's
+        own logo, nothing about the install. Icons change only with a
+        release, so a browser may keep one for a day."""
+        content_type = ICON_FILES.get(name)
+        if content_type is None:
+            self._json(404, {"ok": False,
+                             "reason": "no icon by that name. "
+                                       "try /favicon.ico or /static/icon-32.png"})
+            return
+        try:
+            data = (STATIC_DIR / name).read_bytes()
+        except OSError:
+            self._json(404, {"ok": False,
+                             "reason": "that icon could not be read."})
+            return
+        self._send(200, data, content_type,
+                   headers=[("Cache-Control", "public, max-age=86400")])
 
     def _setup_redirect(self):
         self._redirect("/")
