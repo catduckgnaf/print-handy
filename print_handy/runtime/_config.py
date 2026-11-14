@@ -204,7 +204,7 @@ def _env_file_value(path: Path, name: str) -> str:
                 if found:
                     return found
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return ""
 
 

@@ -619,7 +619,7 @@ def caption_with_number(text, job_key, filename=None) -> str:
             if isinstance(number, int) and not isinstance(number, bool) and number > 0:
                 text = f"{text}\nPrint #{number}"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     if job_key and "Timelapse note:" not in text:
         note = capture_coverage_note(job_key)
         if note:

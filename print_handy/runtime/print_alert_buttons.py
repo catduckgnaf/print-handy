@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import threading
+import logging
 import time
 import urllib.request
 from pathlib import Path
@@ -1639,8 +1640,9 @@ def clear_shutdown(wait_s: float = 60, poll_s: float = 2.0, *, caller=None, read
     read = reader or (lambda: pc.status(printer_id))
     try:
         call("/printer/firmware_restart", method="POST", timeout=15)
-    except Exception:
-        pass  # the restart drops the connection; readback decides
+    except Exception as exc:
+        # The restart drops the connection; the readback below decides.
+        logging.getLogger(__name__).info("clear_shutdown firmware_restart ended without a reply: %r", exc)
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         time.sleep(poll_s)

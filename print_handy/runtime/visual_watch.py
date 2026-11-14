@@ -123,10 +123,11 @@ def prune_frames(directory, *, keep=None, max_age_s=None, now=None):
     for index, (mtime, item) in enumerate(frames):
         if index >= keep or now - mtime > max_age_s:
             try:
-                item.unlink()
+                # missing_ok: another process already removing it is the goal, not a failure.
+                item.unlink(missing_ok=True)
                 removed.append(item)
-            except OSError:
-                pass  # another process removed it, or the folder is read only
+            except OSError as exc:
+                logger.warning("could not prune watchdog frame %s: %r", item.name, exc)
     return removed
 
 

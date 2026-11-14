@@ -127,7 +127,7 @@ def record_for_file(filename, *, verdict, streak=None, action="none",
             if isinstance(number, int) and not isinstance(number, bool):
                 print_number = number
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return record_verdict(verdict=verdict, printer=printer,
                           print_number=print_number, job_key=filename,
                           streak=streak, action=action, vault=vault, path=path)

@@ -113,7 +113,7 @@ def release_start_claim(filename, *, path=None):
             tmp.write_text(json.dumps(kept))
             os.replace(tmp, _path(path))
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 # A claimed start that never became a print: print_stats reads standby/error with both heater
