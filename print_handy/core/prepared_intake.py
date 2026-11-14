@@ -211,7 +211,7 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         try:
             await adapter.send(chat_id=str(source.chat_id), content=status, metadata=metadata)
         except Exception:
-            pass  # progress delivery must not block offline work
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
         return await work
     import uuid
     from .prompts import gateway as _prompts
@@ -544,7 +544,7 @@ async def send_preview(adapter, source, job, row, metadata, state=None, voice_ke
         if text:
             await adapter.send(chat_id=source.chat_id, content=text, metadata=metadata)
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
 
 
 
@@ -1086,7 +1086,7 @@ async def _spool_projection_text(mj, job, manifest, state, copies, shortages=Non
                 return ("Filament check skipped: Spoolman didn't answer, so the spool amounts were "
                         "not checked (spool tracking skipped for this job; the print can still start).")
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
         return ''
 
 
@@ -1128,7 +1128,7 @@ def _connect_reply(site):
         try:
             return _saved_reply(text)
         except ValueError:
-            pass
+            logger.debug("Best-effort recovery from ValueError", exc_info=True)
         token, problem = accept_pasted(site, text)
         if problem:
             raise ValueError(chat_safe(problem))
@@ -1551,7 +1551,7 @@ async def _send_source_thumbnail(adapter, source, path, target):
                                content='Source model preview (from the supplied 3MF).\\nMEDIA:' + image_path,
                                metadata={'thread_id': source.thread_id} if source.thread_id else None)
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
 
 
 FILE_LIST_SITES = ('printables', 'thingiverse', 'myminifactory', 'cults3d', 'crealitycloud',
@@ -1843,7 +1843,7 @@ def _variant_estimate_str(job_data, result):
             if parts:
                 return ', '.join(parts)
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     # slice_job returns one Path for a single plate and a list for several (#1373 review:
     # result[0] on a Path raised TypeError and stopped the Ready question).
     if isinstance(result, (str, Path)):
@@ -1856,7 +1856,7 @@ def _variant_estimate_str(job_data, result):
             if sec:
                 return f"~{mj.human_dur(sec)} printing"
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
     return 'slicing...'
 
 
@@ -2258,7 +2258,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 try:
                     fit_kw['scale'] = float(job['scale'])
                 except (TypeError, ValueError):
-                    pass
+                    logger.debug("Best-effort recovery from (TypeError, ValueError)", exc_info=True)
             orientation = job.get('orientation') or {}
             if orientation.get('rotation') is not None:
                 fit_kw['rotation'] = orientation['rotation']
@@ -2270,7 +2270,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 try:
                     fit_kw['copy_limit'] = max(16, int(job['copies']))
                 except (TypeError, ValueError):
-                    pass
+                    logger.debug("Best-effort recovery from (TypeError, ValueError)", exc_info=True)
         fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, fit_state, **fit_kw))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
@@ -4804,7 +4804,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     remote, message_id, chat_id=str(source.chat_id),
                     thread_id=str(source.thread_id) if getattr(source, 'thread_id', None) else None)
             except OSError:
-                pass  # no recorded id: the listener leaves the start post as is
+                logger.debug("Best-effort recovery from OSError", exc_info=True)
         return {'action': 'skip', 'reason': 'sliced and start handled by button flow'}
     except (IntakeCancelled, Stopped) as exc:
         logger.warning('intake stopped by operator: %s', type(exc).__name__)

@@ -1288,7 +1288,7 @@ def _spawn_slicer(command, *, timeout, cwd):
     try:
         timer.start()
     except RuntimeError:  # no thread to spare is itself the PID limit; checked after the failure
-        pass
+        logger.debug("Best-effort recovery from RuntimeError", exc_info=True)
     try:
         return subprocess.run(resources.slicer_command(command), capture_output=True, text=True,
                               timeout=timeout, cwd=cwd, env=resources.child_env())
@@ -1935,7 +1935,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             try:
                 data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
-                pass
+                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
         # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
         # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
         tuning = {} if printer.vendor_material_profiles else material_tuning(material)
@@ -2213,7 +2213,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             bed = (max(p[0] for p in points) - min(p[0] for p in points),
                    max(p[1] for p in points) - min(p[1] for p in points))
     except (TypeError, ValueError):
-        pass
+        logger.debug("Best-effort recovery from (TypeError, ValueError)", exc_info=True)
     # A single-color plate records T0 for provenance only. The pre-slice guard
     # compares map size with filament count, so it must not see that one-tool map.
     guard_mapping = mapping if mapped_profile else None
@@ -2727,12 +2727,12 @@ def _failure_evidence(folder: Path, only: str | None = None) -> dict:
         if isinstance(payload, dict):
             error, code = str(payload.get('error_string') or ''), payload.get('return_code')
     except (OSError, ValueError):
-        pass
+        logger.debug("Best-effort recovery from (OSError, ValueError)", exc_info=True)
     try:
         for log in ([folder / only] if only else sorted(folder.glob('*.log'))):
             text += log.read_text(errors='replace')[-20000:] + '\n'
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
     return slicer_evidence(text, error, code if type(code) is int else None)
 
 
@@ -2756,7 +2756,7 @@ def _orca_failure_details(folder: Path) -> str:
             try:
                 log_text += log.read_text(errors='replace') + '\n'
             except OSError:
-                pass
+                logger.debug("Best-effort recovery from OSError", exc_info=True)
         names = []
         for line in log_text.splitlines():
             match = re.search(r'conflicts? found between\s+(.+?)\s+and\s+(.+?)(?:[.\r\t]|$)', line, re.I)
@@ -3286,7 +3286,7 @@ def support_threshold_nz(source=None):
             if 0 < angle < 90:
                 return -math.cos(math.radians(angle))
     except Exception:  # noqa: BLE001 - an unreadable project uses the template's threshold
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     return SUPPORT_THRESHOLD_NZ
 
 
@@ -3779,7 +3779,7 @@ def fit_options(source: Path, state: dict, brim_override=None) -> dict:
         if rearrange is not None:
             result['rearrange_100'] = rearrange
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     if source.suffix.lower() == '.3mf':
         try:
             from . import color_geometry
