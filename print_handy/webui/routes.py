@@ -172,6 +172,8 @@ ROUTES = (
     _post("/login", PUBLIC, "_login_submit"),
     _post("/chat", SESSION_CSRF, "_chat_post", back="/chat"),
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
+    _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
+    _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
     _post("/upload", SESSION_CSRF, "_upload_post", back="/upload", multipart=True),
     # Ends only the caller's own session: the worst a cross-origin post
     # can do is sign the operator out.

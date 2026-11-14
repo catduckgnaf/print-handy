@@ -263,21 +263,28 @@ keep printing:
   at a time across all printers, because OrcaSlicer runs that overlap can
   fail; a second slice waits for the first and then starts.
 
-## Browsing designs in the Web UI
+## Designing in the Web UI
 
-The [Web UI](WEBUI.md) has a read-only **Designs** page (`/designs`, behind
-the same access token as every other page) listing the design sessions on
-the machine, newest first: what each one is (created from a description, or
-an edit with its source named), its state, how many turns it took, when it
-was made and last changed, and its preview. Opening a design shows its
-final `.scad` source and offers downloads of the `.scad`, the final `.stl`
-and the preview PNG.
+The [Web UI](WEBUI.md) **Designs** page (`/designs`, behind the same
+access token as every other page) leads with the workshop: describe the
+part, and the design runs on the page, with its preview, what the turn
+made and assumed, and the Slice it / Change it / Cancel question as page
+buttons; a follow-up form sends the next change. The workshop is not a
+second design pipeline: its forms submit through web chat, so the same
+`/print-design` dispatch, engine, intake hand-off and confirmations run
+as in Discord, Telegram or Matrix, and it needs web chat on
+(`webui.chat_enabled`). While `[design]` is switched off, or no design
+model is configured, the workshop says why, in the same terms the chat
+handler uses, and shows no form.
 
-The page is a catalog of what exists on disk (the same sessions chat works
-with, kept for the same 14 days), so it lists sessions even while
-`[design]` is switched off. It has no actions: nothing there deletes,
-slices or prints. Slicing a design still happens from chat, through the
-normal confirmation flow.
+Below the workshop, the page is a catalog of the design sessions on the
+machine, newest first: what each one is (created from a description, or
+an edit with its source named), its state, how many turns it took, when
+it was made and last changed, and its preview. Opening a design shows
+its final `.scad` source and offers downloads of the `.scad`, the final
+`.stl` and the preview PNG. The catalog lists what exists on disk (the
+same sessions chat works with, kept for the same 14 days), so it lists
+sessions even while `[design]` is switched off.
 
 ## Multi-part engineering checks
 

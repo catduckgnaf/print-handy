@@ -81,6 +81,8 @@ EXPECTED = [
     ("POST", "/login", P),
     ("POST", "/chat", SC),
     ("POST", "/chat/choice", SC),
+    ("POST", "/designs", SC),
+    ("POST", "/designs/choice", SC),
     ("POST", "/upload", SC),
     ("POST", "/logout", P),
     ("POST", "/walkthrough", SC),
