@@ -42,6 +42,10 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /wrapped/video-file?year=<year>` | The compiled Pasta Wrapped video file: serves only `wrapped-<year>.mp4` from the wrapped outputs, behind the same login and the `wrapped_enabled` gate, so the Pasta Wrapped page can embed it. Streamed in chunks and answers `Range` requests with `206`, so a browser can seek (Safari needs this) |
 | `POST /wrapped/share` | The Pasta Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
+| `GET /manifest.webmanifest` (and `GET /manifest.json`) | The PWA web app manifest (#450 Phase 1): name, stable `id`, standalone display, theme colors and install icons. Public, like the login form, because a browser fetches it before any sign-in; it carries no state |
+| `GET /sw.js` | The PWA service worker: precaches only the install assets and the offline page, and never caches API responses, upload links, the login page, or any non-GET request |
+| `GET /offline` | The offline fallback page the service worker shows when a navigation cannot reach the server |
+| `GET /favicon.ico` and `GET /static/<file>` | The fixed PWA install icons (192, 512, a separate padded 512 maskable, and the 180 Apple touch icon). Public; any other file name is a 404 |
 
 Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
@@ -305,7 +309,7 @@ Form posts (configuration, the walkthrough, spools, printers, uploads, chat, deb
 
 Changing or removing the login in the walkthrough's Login step on a claimed install also asks for the **current password** (or the access token); a wrong entry counts toward the login backoff. HTML pages are sent with `Cache-Control: no-store`, so a browser or proxy cache never keeps a page that embeds a token. Restarting the server, or changing the login, replaces the form secrets, so an old page must be reloaded.
 
-Every route declares exactly one of these policies in one table, `print_handy/webui/routes.py`, and one check in the server enforces it before the route answers: `public` (the health probe, the login form, logout, and the read-only `405` for other methods), `session` (the page and read rule: access open, the header, or a login session), `session+csrf` (the form posts above), `header` (the printer control and spool JSON APIs) and `link-token` (a no-login upload link). The Pasta Wrapped video and share forms still accept the server's start-up form token beside a signed-in session on a claimed install, because the Wrapped page embeds that token; the table marks those two routes. A test enumerates the table and fails when a route is undeclared, changes policy, or checks a credential on its own.
+Every route declares exactly one of these policies in one table, `print_handy/webui/routes.py`, and one check in the server enforces it before the route answers: `public` (the health probe, the login form, logout, the PWA install plumbing, and the read-only `405` for other methods), `session` (the page and read rule: access open, the header, or a login session), `session+csrf` (the form posts above), `header` (the printer control and spool JSON APIs) and `link-token` (a no-login upload link). The Pasta Wrapped video and share forms still accept the server's start-up form token beside a signed-in session on a claimed install, because the Wrapped page embeds that token; the table marks those two routes. A test enumerates the table and fails when a route is undeclared, changes policy, or checks a credential on its own.
 
 ## Where the Web UI may be reached
 
@@ -320,6 +324,60 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 | Router port forward, or the Web UI published directly on the public internet | Possible, and it is your choice to make, but only behind a login you set deliberately first: an access token (`WEBUI_ACCESS_TOKEN`) or a saved password, set before the port is forwarded. An unclaimed or left-open Web UI on the public internet is open to the whole internet; the "no login is set" note is the warning, and plain HTTP also sends that login unencrypted, so the HTTPS reverse proxy row above is the better shape for outside access. | Set `cookie_secure` true when an HTTPS proxy fronts it; on plain public HTTP there is no cookie setting that makes the bind safe. |
 
 `cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
+
+## Progressive Web App (PWA) and HTTPS serving
+
+The Web UI is an installable Progressive Web App (#450 Phase 1): reached over a secure context, it can be installed to a phone home screen or a desktop app dock, runs standalone without browser chrome, and shows a branded offline page when the server cannot be reached. Every page links the manifest (`/manifest.webmanifest`) and the install icons; the service worker (`/sw.js`) precaches only those install assets and the offline page.
+
+### The secure-context gate
+
+Browsers allow service workers, PWA installation, and persistent storage only in a **secure context**:
+
+- any `https://` origin; or
+- loopback: `http://localhost` or `http://127.0.0.1`.
+
+A LAN address over plain HTTP (for example `http://192.0.2.10:8088`) is not a secure context. The Web UI works normally there, but the browser will not register the service worker and will not offer installation. The Web UI has no HTTPS listener of its own, so use one of the supported paths below to put a trusted certificate in front of it.
+
+### Recommended: Tailscale Serve
+
+If the machine and the phone or computer are on the same tailnet, Tailscale Serve gives the Web UI a real trusted certificate under the machine's MagicDNS name, with no public exposure:
+
+```bash
+tailscale serve --https 443 http://127.0.0.1:8088
+```
+
+Open the `https://<host>.<tailnet>.ts.net` address it reports, and set `cookie_secure` true so the session cookie is only sent over HTTPS. Access stays limited to your tailnet.
+
+### Alternative: your own domain with a reverse proxy
+
+Run Caddy, nginx, or Traefik with a certificate for a domain you own (Let's Encrypt with DNS-01 works without exposing the server), terminating TLS and forwarding plain HTTP to the Web UI on the private network:
+
+```caddyfile
+printhandy.example.com {
+    reverse_proxy 127.0.0.1:8088
+}
+```
+
+Set `cookie_secure` true in this shape too, and use split-horizon DNS so the name resolves to the local proxy from the LAN.
+
+### Localhost exception, and what is not recommended
+
+Opening `http://localhost:8088` or `http://127.0.0.1:8088` on the machine itself is already a secure context, so installation and the service worker work there with no certificate at all, which makes it handy for testing.
+
+Public tunnels that publish the Web UI address to the internet are **not recommended**: they put a printer-control page on a public origin. If you need access away from home, the tailnet route above keeps the same trusted origin without public exposure.
+
+### How to install
+
+- **Android and desktop Chrome/Edge:** open the Web UI over its HTTPS address and use the **Install app** button in the header when it appears, or the browser menu's install entry.
+- **iPhone and iPad (Safari):** there is no install prompt. Tap **Share**, then **Add to Home Screen**; the Web UI shows that hint itself on those devices. On iOS, an installed web app keeps its own storage, which the system can evict under pressure or after long disuse. The server stays the source of truth for everything, and nothing is stored only on the device.
+
+### Caching rules
+
+The service worker enforces a narrow caching policy:
+
+- **Never cached:** API responses (`/api/*`), token upload links (`/u/*`), the login and theme routes, and every non-GET request (printer controls included). Cross-origin requests are never intercepted.
+- **Navigations are network-only:** a page is never stored, so stale printer state is never served as if it were live. When a navigation fails because the server is unreachable, the precached `/offline` page is shown instead.
+- **Cached:** only the manifest, the favicon and icons, and the offline page, under a versioned cache name; an updated worker deletes the old caches when it activates.
 
 ## Use the configuration page
 

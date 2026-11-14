@@ -131,8 +131,9 @@ def test_readout_renders_components_plates_quantities_and_attempts(tmp_path, sta
     assert "Resumable: 1 of 2 plates left (82B)" in text
     assert f"/print-next {PLAN_ID}" in text
     assert "Lone widget" not in text
-    # No script beyond the shell's shared form guard, and the CSP header.
-    assert text.count("<script") == 1
+    # No script beyond the shell's two shared scripts (the form guard
+    # and the PWA registration/install script, #450), and the CSP header.
+    assert text.count("<script") == 2
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     assert '<a href="/projects" class="active">Projects</a>' in text
 

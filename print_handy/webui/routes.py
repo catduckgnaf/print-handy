@@ -8,7 +8,9 @@ exactly one policy:
 ``public``
     No credential. The health probe, the login form and its POST,
     logout (it ends only the caller's own session), the ``/setup``
-    redirect, and the read-only refusal for unsupported methods.
+    redirect, the PWA install plumbing (manifest, service worker,
+    offline page and the fixed install icons, #450), and the
+    read-only refusal for unsupported methods.
 ``session``
     The read rule: access is open, or the ``X-WebUI-Token`` header
     matches, or a live login session. A browser navigation without it
@@ -113,6 +115,17 @@ ROUTES = (
     _get("/healthz", PUBLIC, "_healthz", host_check=False),
     _get("/setup", PUBLIC, "_setup_redirect"),
     _get("/login", PUBLIC, "_login_page"),
+    # PWA install plumbing (#450 Phase 1): public by design, like the
+    # login form — a browser fetches the manifest, the service worker
+    # and the icons before any sign-in, and none of them carries state,
+    # a credential, or printer data. Only the fixed install assets are
+    # served; the static handler refuses every other name.
+    _get("/manifest.webmanifest", PUBLIC, "_pwa_manifest"),
+    _get("/manifest.json", PUBLIC, "_pwa_manifest"),
+    _get("/sw.js", PUBLIC, "_pwa_service_worker"),
+    _get("/offline", PUBLIC, "_pwa_offline"),
+    _get("/favicon.ico", PUBLIC, "_pwa_favicon"),
+    _get("/static/*", PUBLIC, "_pwa_static"),
     _get("/u/*", LINK_TOKEN, "_token_upload_page"),
     _get("/theme", SESSION, "_theme_route"),
     _get("/walkthrough", SESSION, "_walkthrough_page"),

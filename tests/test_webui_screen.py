@@ -222,7 +222,12 @@ class ScreenPageRenderTests(unittest.TestCase):
         self.assertIn("read-only", html)
         self.assertIn("/api/printers/bench-ad5x/screen/snapshot", html)
         self.assertNotIn(HOST, html)
-        self.assertNotIn("click", html)
+        # The page's own content carries no click handler: nothing in
+        # <main> can press the screen. (The shared shell's PWA script
+        # outside <main> clicks only its own Install/Dismiss buttons,
+        # #450; it never touches the printer.)
+        main = html.split("<main>", 1)[1].split("</main>", 1)[0]
+        self.assertNotIn("click", main)
 
     def test_page_explains_an_unavailable_screen(self):
         html = screen.render_page("Bench AD5X", "bench-ad5x", ok=False,

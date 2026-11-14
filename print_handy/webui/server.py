@@ -69,6 +69,11 @@ step) serving:
   (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
   and redirects back. A browser preference only, behind the same
   authorization as every other page.
+- ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``,
+  ``GET /favicon.ico`` and ``GET /static/<file>`` — the PWA install
+  plumbing (#450 Phase 1; :mod:`print_handy.webui.pwa`), declared
+  ``public`` in the route table like the login form: a browser fetches
+  them before any sign-in, and they carry no state or printer data.
 
 Every HTML page renders through the one shell
 (:mod:`print_handy.webui.shell`): one inline stylesheet, the header
@@ -178,6 +183,7 @@ from . import layers as layers_module
 from . import pages
 from . import printers_page
 from . import projects as projects_module
+from . import pwa as pwa_module
 from . import routes as routes_module
 from . import screen as screen_module
 from . import shell
@@ -1219,6 +1225,41 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _setup_redirect(self):
         self._redirect("/")
+
+    # -- PWA routes (#450 Phase 1, declared public in routes.py) ----------
+    def _pwa_manifest(self):
+        self._send(200, pwa_module.manifest_json(),
+                   "application/manifest+json; charset=utf-8",
+                   headers=[("Cache-Control", "public, max-age=86400")])
+
+    def _pwa_service_worker(self):
+        # no-cache: a stale worker script would keep an old caching
+        # policy alive; Service-Worker-Allowed grants the root scope
+        # even though the script itself lives at the root already.
+        self._send(200, pwa_module.SW_SCRIPT,
+                   "application/javascript; charset=utf-8",
+                   headers=[("Service-Worker-Allowed", "/"),
+                            ("Cache-Control", "no-cache")])
+
+    def _pwa_offline(self):
+        self._send(200, pwa_module.render_offline_page(theme=self._theme()),
+                   "text/html; charset=utf-8",
+                   headers=[("Cache-Control", "public, max-age=86400")])
+
+    def _pwa_favicon(self):
+        self._pwa_static_file("favicon.ico")
+
+    def _pwa_static(self, name):
+        self._pwa_static_file(name)
+
+    def _pwa_static_file(self, name):
+        res = pwa_module.resolve_static_file(name)
+        if res is None:
+            self._json(404, {"ok": False, "reason": "static file not found"})
+            return
+        content_type, data = res
+        self._send(200, data, content_type,
+                   headers=[("Cache-Control", "public, max-age=86400")])
 
     def _status_page(self):
         if (self._browser_navigation("/")

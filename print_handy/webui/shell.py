@@ -9,9 +9,12 @@ header chrome (brand tile, pill navigation over the real surfaces, the
 Dark/Light theme toggle), and the theme rule.
 
 The stylesheet is inline rather than a served file: the Web UI stays
-single-process and asset-free, with no new route, no cache questions,
-and no external request of any kind — the font stacks name system fonts
-only, exactly as they fall back in the prototype.
+single-process, with no external request of any kind — the font stacks
+name system fonts only, exactly as they fall back in the prototype.
+The one served-asset exception is the PWA foundation (#450):
+PWA_HEAD_TAGS links the manifest and the branding icons the public
+PWA routes serve, and PWA_SCRIPT registers the service worker on
+secure contexts only (see :mod:`print_handy.webui.pwa`).
 
 Theme: dark is the default. The ``ph-theme`` cookie (``dark`` or
 ``light``) is read by the server and stamped on ``<html>`` as
@@ -282,6 +285,68 @@ SUBMIT_SCRIPT = (
     ".forEach(function(h){h.remove();});});"
     "</script>")
 
+# PWA head tags (#450 Phase 1): the manifest link, the theme colors
+# (the shell tokens: #12110f is the dark background, #f3efe6 the light
+# one), and the install icons served by the public PWA routes in
+# routes.py. They ride on every page, bare ones included, so the
+# login page is installable too.
+PWA_HEAD_TAGS = (
+    '<meta name="mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
+    '<meta name="apple-mobile-web-app-title" content="Print Handy">'
+    '<meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">'
+    '<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">'
+    '<link rel="manifest" href="/manifest.webmanifest">'
+    '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
+    '<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">'
+    '<link rel="icon" type="image/png" sizes="16x16" href="/static/icon-16.png">'
+    '<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">'
+)
+
+# The PWA script (#450 Phase 1): progressive enhancement only, like
+# SUBMIT_SCRIPT — every page works exactly as before without it.
+# Registration runs only in a secure context (HTTPS or loopback; a
+# plain-HTTP LAN address never registers, and the page is unaffected),
+# and persistent storage is requested so the precached offline shell
+# is less likely to be evicted. The install affordance appears only
+# when the browser offers one: Chromium fires beforeinstallprompt,
+# which is captured so a discreet "Install app" button can be added
+# to the header; iOS Safari has no prompt API, so on an iPhone or
+# iPad that is not already running standalone the script adds one
+# small, dismissible note naming Share, then Add to Home Screen.
+PWA_SCRIPT = (
+    "<script>"
+    "if(window.isSecureContext&&'serviceWorker' in navigator){"
+    "window.addEventListener('load',function(){"
+    "navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});"
+    "if(navigator.storage&&navigator.storage.persist){"
+    "navigator.storage.persist().catch(function(){});}});}"
+    "var phInstallEvent=null;"
+    "window.addEventListener('beforeinstallprompt',function(e){"
+    "e.preventDefault();phInstallEvent=e;"
+    "var host=document.querySelector('.chrome-right');"
+    "if(!host||document.getElementById('ph-install'))return;"
+    "var b=document.createElement('button');b.type='button';"
+    "b.id='ph-install';b.textContent='Install app';"
+    "b.addEventListener('click',function(){if(!phInstallEvent)return;"
+    "phInstallEvent.prompt();"
+    "phInstallEvent.userChoice.then(function(){phInstallEvent=null;b.remove();});});"
+    "host.appendChild(b);});"
+    "window.addEventListener('DOMContentLoaded',function(){"
+    "var ios=/iphone|ipad|ipod/i.test(navigator.userAgent);"
+    "if(!ios||window.navigator.standalone)return;"
+    "var main=document.querySelector('main .wrap');if(!main)return;"
+    "var note=document.createElement('p');note.className='note';"
+    "note.id='ph-ios-install';"
+    "note.textContent='To install Print Handy on this device, tap Share, "
+    "then Add to Home Screen. ';"
+    "var close=document.createElement('button');close.type='button';"
+    "close.textContent='Dismiss';"
+    "close.addEventListener('click',function(){note.remove();});"
+    "note.appendChild(close);main.insertBefore(note,main.firstChild);});"
+    "</script>")
+
 
 def _esc(value):
     return html.escape(str(value), quote=True)
@@ -348,6 +413,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     theme_attr = ' data-theme="light"' if theme == "light" else ""
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
+             f"{PWA_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
              f"<style>{CSS}</style></head><body>"]
     if chrome:
@@ -372,11 +438,13 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
                  f'<a href="{_esc(SOURCE_URL)}/tree/{_esc(__version__)}" rel="noopener">'
                  'Source for this version</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
+    parts.append(PWA_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
+    "CSS", "DEFAULT_THEME", "NAV", "PWA_HEAD_TAGS", "PWA_SCRIPT",
+    "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]
