@@ -377,9 +377,10 @@ def _prune_bounds_cache():
         return
     for stale in entries[:max(0, len(entries) - BOUNDS_CACHE_MAX_ENTRIES)]:
         try:
-            stale.unlink()
-        except OSError:
-            pass
+            stale.unlink(missing_ok=True)
+        except OSError as exc:
+            # Pruning is best-effort: the folder may be read only or the entry may be busy.
+            logger.debug("could not prune gcode bounds cache entry %s: %s", stale.name, exc)
 
 
 def cached_motion_bounds(raw, text=None):
@@ -398,11 +399,13 @@ def cached_motion_bounds(raw, text=None):
     digest = hashlib.sha256(raw).hexdigest()
     entry = BOUNDS_CACHE/f"{digest}.p{BOUNDS_PARSER_VERSION}.json"
     try:
-        hit = _cached_bounds(json.loads(entry.read_text()))
-        if hit is not None:
-            return hit
-    except (OSError, ValueError):
-        pass
+        hit = _cached_bounds(json.loads(entry.read_text())) if entry.is_file() else None
+    except (OSError, ValueError) as exc:
+        # A corrupt or unreadable entry is a cache miss, not a failure: recompute it.
+        logger.debug("gcode bounds cache entry %s unusable, recomputing: %s", entry.name, exc)
+        hit = None
+    if hit is not None:
+        return hit
     bounds = gcode_motion_bounds(text if text is not None else raw.decode(errors="ignore"))
     try:
         BOUNDS_CACHE.mkdir(parents=True, exist_ok=True)
@@ -411,6 +414,7 @@ def cached_motion_bounds(raw, text=None):
                                    **{axis: list(bounds[axis]) for axis in "xyz"}}))
         tmp.replace(entry)
         _prune_bounds_cache()
-    except OSError:
-        pass
+    except OSError as exc:
+        # Best-effort cache write: the bounds just computed are still correct and returned.
+        logger.warning("could not store gcode bounds cache entry %s: %s", entry.name, exc)
     return bounds

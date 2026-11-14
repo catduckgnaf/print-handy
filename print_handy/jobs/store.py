@@ -40,8 +40,9 @@ def _timing(job_path, stage, **extra):
         logger.debug("TIMING %s", json.dumps(line))  # stdout stays clean in production logs
         if job_path is not None:
             with (Path(job_path).parent/"TIMING.jsonl").open("a") as out: out.write(json.dumps(line)+"\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        # Timing is diagnostics only; it must never take down the launch it measures.
+        logger.debug("launch timing stage %s not recorded: %s", stage, exc)
 
 
 def write_job(folder, job):
@@ -306,8 +307,9 @@ def stamp_job_printer(job, printer_id=None):
         else:
             try:
                 job["printer_id"] = settings.default_printer_id()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Stamping is best-effort; the job stays unstamped and the existing fallback applies.
+                logger.warning("could not stamp the default printer id on the job: %s", exc)
     return job
 
 
