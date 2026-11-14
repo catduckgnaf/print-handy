@@ -47,7 +47,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
                           "coldpull_dispatch", "lookup_dispatch", "source_dispatch", "troubleshoot_dispatch",
                           "macros_dispatch", "firmware_dispatch", "calibration_dispatch",
                           "typed_quantity_dispatch"]
-    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
+    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 32  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204), +print_status_dispatch (#1475)
     assert router.platform_handlers["discord"], "listener button handlers were not registered"
 
 
@@ -195,12 +195,16 @@ def test_a_press_is_acknowledged_before_the_waiting_flow_wakes(cfg):
 
 
 def test_slash_command_runs_as_its_typed_text(cfg):
+    # #1475: one visible response — the interaction is deferred and the
+    # handler's answer arrives as the interaction's own followup; there is
+    # no echoed command line and no separate channel post.
     discord, core = make(cfg)
     interaction = fake_discord.FakeInteraction(discord, discord.operator, channel=discord.channel)
     with mock.patch("print_handy.runtime.spool_sync.list_text", return_value="Slot 1: #7 black PLA"):
-        run(core.run_slash(interaction, "spool", {"args": "list"}))
-    assert interaction.replies[0] == {"content": "`/spool list`", "ephemeral": False}
-    assert discord.sent[-1] == "Slot 1: #7 black PLA"
+        run(core.run_slash(interaction, "spool", {"subcommand": "list"}))
+    assert interaction.acks == [("defer", {"ephemeral": False})]
+    assert interaction.replies == [{"content": "Slot 1: #7 black PLA", "followup": True}]
+    assert "Slot 1: #7 black PLA" not in discord.sent
 
 
 def test_slash_command_from_a_stranger_is_refused(cfg):
@@ -208,7 +212,7 @@ def test_slash_command_from_a_stranger_is_refused(cfg):
     stranger = fake_discord.FakeUser(999, "stranger")
     interaction = fake_discord.FakeInteraction(discord, stranger, channel=discord.channel)
     with mock.patch("print_handy.runtime.spool_sync.list_text") as listing:
-        run(core.run_slash(interaction, "spool", {"args": "list"}))
+        run(core.run_slash(interaction, "spool", {"subcommand": "list"}))
     assert interaction.replies == [{"content": "Not allowed. Nothing changed.", "ephemeral": True}]
     listing.assert_not_called()
 
@@ -302,7 +306,7 @@ def test_dropped_zip_is_saved_for_archive_intake_only(cfg, tmp_path):
 def test_status_has_no_hermes_modules_field(cfg):
     discord, core = make(cfg)
     status = core.status(True)
-    assert status["mode"] == "standalone" and status["handlers"] == 31  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204)
+    assert status["mode"] == "standalone" and status["handlers"] == 32  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455), +upload_collection_dispatch (#1204), +print_status_dispatch (#1475)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
     assert "hermes_modules" not in status
 

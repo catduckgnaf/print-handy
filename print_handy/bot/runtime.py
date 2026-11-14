@@ -787,6 +787,60 @@ class Gateway:
         return session_key(source)
 
 
+class _SlashDelivery:
+    """Where one slash command's answers go: its own interaction (#1475).
+
+    The interaction is deferred first; every ``send`` a handler makes while
+    it runs is delivered as the interaction's followup — the one visible
+    response — instead of a separate channel post next to an echoed
+    command line. Button questions (``send_clarify``) still post through
+    the real adapter: they are prompts with working buttons, recorded the
+    way every typed command's prompts are.
+    """
+
+    def __init__(self, core, interaction, view=None):
+        self.core = core
+        self.interaction = interaction
+        self.view = view
+        self.sent = False
+        self.prompted = False
+
+    async def deliver(self, content, files=None):
+        adapter = self.core.adapter
+        send_followup = getattr(adapter, "send_followup", None)
+        if send_followup is not None:
+            result = await send_followup(self.interaction, content, files=files,
+                                         view=self.view if not self.sent else None)
+        else:  # an adapter with no interaction delivery: the followup itself
+            await self.interaction.followup.send(content)
+            result = platform.SendResult(True)
+        self.sent = True
+        return result
+
+
+class _SlashAdapter:
+    """The platform adapter as a slash flow sees it: sends rerouted, rest delegated."""
+
+    def __init__(self, real, delivery):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_delivery", delivery)
+
+    def __getattr__(self, item):
+        return getattr(object.__getattribute__(self, "_real"), item)
+
+    def __setattr__(self, key, value):
+        setattr(object.__getattribute__(self, "_real"), key, value)
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
+        return await object.__getattribute__(self, "_delivery").deliver(content, files=files)
+
+    async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
+        delivery = object.__getattribute__(self, "_delivery")
+        delivery.prompted = True
+        return await object.__getattribute__(self, "_real").send_clarify(
+            chat_id, question, choices, clarify_id, session_key, metadata=metadata)
+
+
 class BotCore:
     def __init__(self, client, cfg=None, *, router=None, llm_opener=None, agent_opener=None,
                  platform_name=None, adapter=None, chat_id=None, use_llm=None):
@@ -1441,8 +1495,15 @@ class BotCore:
     async def on_interaction(self, interaction):
         await self.adapter.handle_click(interaction)
 
-    async def run_slash(self, interaction, name, values):
-        """A slash command runs as its typed text, after the same channel and user checks."""
+    async def run_slash(self, interaction, name, values, *, view=None):
+        """A slash command runs as its typed text, after the same channel and user checks.
+
+        One visible response (#1475): the interaction is deferred and the
+        handler's answer is delivered as the interaction's own followup —
+        no echoed command line in the channel and no separate answer post.
+        Read-only commands (the table's ``ephemeral`` ones) defer
+        ephemerally, so only the asker sees the answer.
+        """
         user = interaction.user
         chat_id, thread_id = channel_scope(interaction.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
@@ -1452,19 +1513,40 @@ class BotCore:
         if not routed and not self.gateway.setup_only:
             await interaction.response.send_message(f"{self.bot_name} only works in its print channel.", ephemeral=True)
             return None
-        if self.gateway.setup_only:
-            text = commands.as_text(name, values)
-            await interaction.response.send_message(f"`{text}`")
-            return await self.process(make_event(source, text, interaction.id), allow_llm=False)
-        if not self.gateway._is_user_authorized_for_source(source):
+        if not self.gateway.setup_only and not self.gateway._is_user_authorized_for_source(source):
             logger.info("refused slash command from %s user %s in channel %s: %s",
                         self.platform_name, source.user_id, source.chat_id,
                         self.adapter.refusal_reason(source.user_id))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return None
         text = commands.as_text(name, values)
-        await interaction.response.send_message(f"`{text}`")
-        return await self.process(make_event(source, text, interaction.id), allow_llm=False)
+        command = commands.by_name(name)
+        await interaction.response.defer(ephemeral=bool(command and command.ephemeral))
+        delivery = _SlashDelivery(self, interaction, view=view)
+        proxy = _SlashAdapter(self.adapter, delivery)
+        real_adapter, self.adapter = self.adapter, proxy
+        gateway_adapter, self.gateway.adapter = self.gateway.adapter, proxy
+        try:
+            if command is not None and command.name == "print-help":
+                # Slash help is the short form plus the command menu (the
+                # view), never the full wall the typed form still answers.
+                await delivery.deliver(commands.short_help_text(self.bot_name))
+                return {"action": "skip", "reason": "help"}
+            result = await self.process(make_event(source, text, interaction.id), allow_llm=False)
+        except Exception:
+            logger.exception("slash command %s failed", text)
+            if not delivery.sent and not delivery.prompted:
+                await delivery.deliver("That command failed, so nothing was changed by it. "
+                                       "The failure is in the bot log.")
+            return {"action": "skip", "reason": "slash command failed"}
+        finally:
+            self.adapter = real_adapter
+            self.gateway.adapter = gateway_adapter
+        if not delivery.sent and not delivery.prompted:
+            await _SlashDelivery(self, interaction).deliver("Done.")
+        elif not delivery.sent and delivery.prompted:
+            await _SlashDelivery(self, interaction).deliver("Answer the prompt above to continue.")
+        return result
 
     # ------------------------------------------------------------------ status
 
