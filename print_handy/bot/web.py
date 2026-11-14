@@ -343,7 +343,7 @@ class WebChatService:
                     asyncio.gather(*pending, return_exceptions=True))
             self._loop.run_until_complete(self._loop.shutdown_asyncgens())
         except Exception:
-            pass
+            logger.debug("Web chat event-loop cleanup operation failed", exc_info=True)
 
     def close(self, timeout=2.0):
         """Stop the heartbeat, the feed reader and the chat loop thread.
@@ -360,13 +360,13 @@ class WebChatService:
             # first; the loop thread then cancels and drains every task.
             loop.call_soon_threadsafe(loop.stop)
         except RuntimeError:
-            pass
+            logger.debug("Web chat event-loop cleanup operation failed", exc_info=True)
         self._thread.join(timeout)
         if not self._thread.is_alive():
             try:
                 loop.close()
             except Exception:
-                pass
+                logger.debug("Web chat event-loop cleanup operation failed", exc_info=True)
 
     async def _announce_startup(self):
         """The on_ready notices, for a Web UI process start.

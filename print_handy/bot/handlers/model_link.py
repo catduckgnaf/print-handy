@@ -172,7 +172,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
         try:
             source.printer_id = chosen
         except Exception:
-            pass
+            logger.debug("printer selection update failed", exc_info=True)
         # The intake's questions register under a printer-scoped session key
         # so a second intake in this channel can never take their answers.
         event.metadata['live_session_key'] = _live_key_for(source, gateway, chosen)

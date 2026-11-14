@@ -500,7 +500,7 @@ class MatrixClient:
                 rooms.update(routing.channel_map(self.cfg, "matrix"))
                 rooms.update(routing.shared_channel_map(self.cfg, "matrix"))
             except Exception:
-                pass  # BotCore's own map build reports a bad roster loudly at startup
+                logger.debug("Matrix cleanup, room routing, or health report failed", exc_info=True)
         if self.room_id:
             rooms.add(self.room_id)
         return rooms
@@ -738,7 +738,7 @@ class MatrixClient:
                 try:
                     await item.wait_closed()
                 except RuntimeError:
-                    pass  # the health server belonged to a previous loop
+                    logger.debug("Matrix cleanup, room routing, or health report failed", exc_info=True)
         self._background.clear()
         if self._handlers:
             # Event handlers dispatched by poll_once (P1-65): a graceful
@@ -764,7 +764,7 @@ class MatrixClient:
             if self.core is not None:
                 health.write(self.core.status(False))
         except Exception:
-            pass
+            logger.debug("Matrix cleanup, room routing, or health report failed", exc_info=True)
 
 
 def run_bot(cfg):

@@ -93,7 +93,7 @@ async def print_stop_dispatch(event, gateway, **kwargs):
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f"Camera now — {st['filename'] or 'current print'}:\nMEDIA:{st['camera_image_path']}")
             except Exception:
-                pass
+                logger.debug("optional camera notification failed", exc_info=True)
         start = (await asyncio.to_thread(print_stop.start_in_flight, pid, st)
                  if st['state'] not in print_stop.ACTIVE else None)
 
