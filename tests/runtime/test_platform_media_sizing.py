@@ -270,7 +270,7 @@ def test_discord_fallback_post_is_byte_for_byte_unchanged(monkeypatch, tmp_path)
                   PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     video = _video(tmp_path, 2000)  # genuinely over the configured 1000-byte limit
     posted, results = [], [False, True]
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel.announcer, "archive_completed_timelapse",
                         lambda key: mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVED, "/volume1/x/stand.mp4"))
@@ -303,7 +303,7 @@ def test_discord_fallback_post_names_no_cause_when_the_video_fits(monkeypatch, t
                   PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     video = _video(tmp_path, 500)  # under the limit: the failure was something else
     posted, results = [], [False, True]
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel.announcer, "archive_completed_timelapse",
                         lambda key: mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVED, "/volume1/x/stand.mp4"))
@@ -319,7 +319,7 @@ def test_captured_fallback_post_names_no_cause_when_the_video_fits(monkeypatch, 
     _use_settings(monkeypatch, PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     captured = _video(tmp_path, 500, "captured.mp4")
     posted, results = [], [False, True]
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel, "_captured_timelapse", lambda key: captured)
     monkeypatch.setattr(mel, "_vertical_short_attachment", lambda video, key: None)
@@ -332,7 +332,7 @@ def test_combined_fallback_post_names_no_cause_when_the_video_fits(monkeypatch, 
     _use_settings(monkeypatch, PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES="1000")
     combined = _video(tmp_path, 500, "combined.mp4")
     posted, results = [], [False, True]
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel, "_captured_timelapse", lambda key: combined)
     monkeypatch.setattr(mel.plan_timelapse, "add_clip", lambda plan, order, clip: clip)
@@ -364,7 +364,7 @@ class _Response(io.BytesIO):
 
 def _wire_completion(monkeypatch, tmp_path, video):
     """Point the announcer at a finished print whose timelapse is `video`."""
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel.announcer, "STATE_PATH", tmp_path / "announcement.json")
     mel.announcer.save_state({"pending_completion_message": COMPLETE})
     monkeypatch.setattr(mel.announcer, "archive_completed_timelapse",

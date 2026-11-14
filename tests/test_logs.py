@@ -327,19 +327,61 @@ def test_slicer_that_cannot_start_logs_a_traceback_and_raises(caplog):
     assert failure and failure[0].exc_info and "did not complete" in failure[0].getMessage()
 
 
-def test_listener_log_writes_the_legacy_file_and_the_shared_logger(tmp_path, monkeypatch, caplog):
-    monkeypatch.setattr(listener, "LOG", tmp_path / "logs" / "listener.log")
-    with caplog.at_level(logging.INFO, logger=listener.logger.name):
-        listener.log("post ok target=discord:1")
+_LEVELED_MODULES = (
+    "print_handy.runtime.listener_common",
+    "print_handy.runtime.moonraker_event_listener",
+    "print_handy.runtime.family_event_listener",
+    "print_handy.runtime.family_control",
+    "print_handy.runtime.prusa_watch",
+    "print_handy.runtime.stock_watch",
+    "print_handy.runtime.octo_watch",
+    "print_handy.runtime.bambu_watch",
+    "print_handy.runtime.elegoo_watch",
+    "print_handy.printers.bambulab.listener",
+)
+
+
+@pytest.mark.parametrize("name", _LEVELED_MODULES)
+def test_listener_and_watch_logging_uses_explicit_levels_and_redacts(name, caplog):
+    # #1413: log() is INFO and warn() is WARNING, chosen at the call site, not
+    # guessed from the text; both redact, and warn() keeps the live traceback.
+    import importlib
+    module = importlib.import_module(name)
+    with caplog.at_level(logging.INFO, logger=module.logger.name):
+        module.log("post ok target=discord:1 error=0")
         try:
             raise OSError("socket closed")
         except OSError:
-            listener.log(f"connection lost: token=abc12345secret; retry in 5s")
-    written = logs.current_file(tmp_path / "logs" / "listener.log").read_text()
-    assert "post ok target=discord:1" in written and "abc12345secret" not in written
-    ok, lost = caplog.records
-    assert (ok.levelno, lost.levelno) == (logging.INFO, logging.WARNING)
-    assert lost.exc_info and "abc12345secret" not in lost.getMessage()
+            module.warn("connection lost: token=abc12345secret; retry in 5s")
+        module.warn("no handler active")
+    ok, lost, bare = [r for r in caplog.records if r.name == module.logger.name]
+    assert (ok.levelno, lost.levelno, bare.levelno) == (logging.INFO, logging.WARNING, logging.WARNING)
+    assert lost.exc_info and lost.exc_info[0] is OSError and bare.exc_info is None
+    assert "abc12345secret" not in lost.getMessage()
+
+
+def test_bambu_lan_listener_no_longer_prints_unredacted_lines(capsys, caplog, monkeypatch):
+    # #1413: the Bambu LAN listener's wrapper was a raw print() that skipped the
+    # redactor and the shared handlers; it now goes through its module logger,
+    # so the LAN access code (held in BAMBU_LAN_PASSWORD) never reaches a line.
+    from print_handy.printers.bambulab import listener as bambu_listener
+    monkeypatch.setenv("BAMBU_LAN_PASSWORD", "abc12345secret")
+    with caplog.at_level(logging.INFO, logger=bambu_listener.logger.name):
+        bambu_listener.log("session failed: mqtts://bblp:abc12345secret refused")
+    assert capsys.readouterr().out == ""
+    (record,) = [r for r in caplog.records if r.name == bambu_listener.logger.name]
+    assert "abc12345secret" not in record.getMessage() and "bambu listener:" in record.getMessage()
+
+
+def test_no_listener_or_watch_module_logs_with_print():
+    # #1413: listener and watch code logs through the shared logger only.
+    import ast
+    import importlib
+    for name in _LEVELED_MODULES:
+        source = Path(importlib.import_module(name).__file__).read_text()
+        calls = [n for n in ast.walk(ast.parse(source))
+                 if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"]
+        assert not calls, f"{name} still calls print() at line {calls[0].lineno}"
 
 
 def test_redact_hides_telegram_bot_tokens_including_in_api_urls():

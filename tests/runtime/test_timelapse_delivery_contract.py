@@ -149,7 +149,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
 
     monkeypatch.setattr(mel, "post", lambda message: sent.append(message) or True)
-    monkeypatch.setattr(mel, "log", lambda line: logs.append(line))
+    monkeypatch.setattr(mel, "log", lambda line: logs.append(line)); monkeypatch.setattr(mel, "warn", lambda line: logs.append(line))
     return state, sent, logs
 
 

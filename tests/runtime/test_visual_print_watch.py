@@ -809,7 +809,7 @@ def _record_snapshot_requests(monkeypatch, fanout, fail_urls=()):
     monkeypatch.setattr(mel, "_camera_url", lambda: DIRECT_URL)
     monkeypatch.setattr(mel, "_config", type("Cfg", (), {"cfg": staticmethod(lambda: {})})())
     monkeypatch.setattr(mel.go2rtc, "fanout_frame_url", lambda data: fanout)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel.urllib.request, "urlopen", fake_open)
     return seen
 
@@ -938,7 +938,7 @@ def _record_snapshot_frames(monkeypatch, fanout, frames):
     monkeypatch.setattr(mel, "_camera_url", lambda: DIRECT_URL)
     monkeypatch.setattr(mel, "_config", type("Cfg", (), {"cfg": staticmethod(lambda: {})})())
     monkeypatch.setattr(mel.go2rtc, "fanout_frame_url", lambda data: fanout)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel.urllib.request, "urlopen", fake_open)
     return seen
 
@@ -1042,7 +1042,7 @@ def test_print_identity_outlives_the_start_claim(monkeypatch, tmp_path):
                         lambda identity, phase, path=None: claims.append((identity, phase)) or real_claim(identity, phase))
     monkeypatch.setattr(mel, "post", lambda message: True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "retire_alerts", lambda *args, **kwargs: 0)
 
     async def run():
@@ -1070,7 +1070,7 @@ def test_unclaimed_print_gets_a_stable_identity(monkeypatch):
     monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: None)
     monkeypatch.setattr(mel, "post", lambda message: True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
 
     async def run():
         listener = mel.Listener()
@@ -1112,7 +1112,7 @@ def _printing_with_a_due_check(monkeypatch, ready):
     monkeypatch.setattr(mel, "post", lambda message: True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: None)
     monkeypatch.setattr(mel, "_vision_ready", lambda: ready, raising=False)
 
@@ -1205,7 +1205,7 @@ def test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second(monkey
     monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((text, identity)))
     monkeypatch.setattr(mel, "post", posts.append)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
 
     listener = mel.Listener()
@@ -1285,7 +1285,7 @@ def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append(text))
     monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
 
     # 1. Off by default
@@ -1461,7 +1461,7 @@ def test_watch_mode_upgrades_when_start_context_arrives_late(monkeypatch):
     monkeypatch.setattr(mel._config, "cfg", lambda: {
         "visual_watch": {"enabled": True, "sensitivity": 3,
                          "auto_pause_early": True, "early_layers": 10, "early_interval_s": 120}})
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
 
     listener = mel.Listener()
     listener.filename = "late.gcode"
@@ -1492,7 +1492,7 @@ def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
     monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((filename, text)))
     monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: {
         "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,
@@ -1564,7 +1564,7 @@ def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
     monkeypatch.setattr(mel, "_visual_alert", slow_alert)
     monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append(filename) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg: True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: {
         "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,

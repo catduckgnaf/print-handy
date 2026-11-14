@@ -33,7 +33,13 @@ DISCORD_TARGET = f"discord:{announcer.DISCORD_CHAT_ID}"
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def _ns(ns):
@@ -149,7 +155,7 @@ def _web_publish(message, alert=None, ns=None):
         return web_feed.publish(message, state_dir=_config.state_dir(),
                                 platform=_ns(ns)._platform_name(), alert=alert)
     except Exception as exc:
-        _ns(ns).log(f"web chat feed publish failed: {exc!r}")
+        _ns(ns).warn(f"web chat feed publish failed: {exc!r}")
         return False
 
 
@@ -171,7 +177,7 @@ def _web_alert(message, kind, filename, *, connection=None, printer_id=None, ide
             connection=connection, printer_id=printer_id, identity=identity))
         _web_publish(message, alert=spec, ns=ns)
     except Exception as exc:
-        _ns(ns).log(f"web chat alert publish failed: {exc!r}")
+        _ns(ns).warn(f"web chat alert publish failed: {exc!r}")
     _WEB_ALERT_POSTED.set(True)
 
 

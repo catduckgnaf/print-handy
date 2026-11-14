@@ -809,7 +809,7 @@ class CaptureRig:
 @pytest.fixture
 def capture_logs(monkeypatch):
     lines = []
-    monkeypatch.setattr(bambu_watch, "log", lines.append)
+    monkeypatch.setattr(bambu_watch, "log", lines.append); monkeypatch.setattr(bambu_watch, "warn", lines.append)
     return lines
 
 

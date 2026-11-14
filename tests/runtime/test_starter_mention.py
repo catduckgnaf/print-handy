@@ -331,7 +331,7 @@ def _fake_button_post(monkeypatch):
     monkeypatch.setattr(pab, "post_with_buttons", fake_buttons)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     return calls
 
 
@@ -398,7 +398,7 @@ def test_watchdog_visual_alert_releases_a_fully_failed_ping(archive, monkeypatch
                         lambda *args, **kwargs: False)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     seen = []
     monkeypatch.setattr(mel, "post", lambda text, **kw: seen.append(kw) or False)
     mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "spaghetti at layer 3")
@@ -418,7 +418,7 @@ def test_a_fully_failed_alert_delivery_can_ping_on_resend(archive, monkeypatch):
                         lambda token, channel_id, content, kind, filename, **kw: False)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     fallback_kwargs = []
     monkeypatch.setattr(mel, "post",
                         lambda text, **kw: fallback_kwargs.append(kw) or False)
@@ -482,7 +482,7 @@ def test_a_watchdog_alert_without_a_ping_leaves_the_episode_unspent(archive, mon
     monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: seen.append(kwargs) or True)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     mel._visual_alert("plate.gcode", b"\xff\xd8\xff\xd9", "Early check (layer 5) at layer 5: ...",
                       ping=False)
     assert "mention_user_id" not in seen[-1]

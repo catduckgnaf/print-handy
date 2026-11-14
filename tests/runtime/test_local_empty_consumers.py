@@ -66,7 +66,7 @@ def _listener(monkeypatch, tmp_path, *, frame, endpoint_verdict):
     sent = []
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
     monkeypatch.setattr(mel, "_send_light_script", lambda script: sent.append(script))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: frame)
     monkeypatch.setattr(mel._visual_watch, "frame_dark", lambda image: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: _calibrated_cfg(tmp_path))
@@ -120,7 +120,7 @@ def test_next_plate_offer_uses_the_reference_verdict(monkeypatch, tmp_path):
     listener.state = "standby"
     observed = []
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: EMPTY)
     monkeypatch.setattr(mel._visual_watch, "frame_dark", lambda image: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: _calibrated_cfg(tmp_path))
