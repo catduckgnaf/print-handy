@@ -47,6 +47,7 @@ DEFAULT_THEME = "dark"
 NAV = (
     ("/", "Status"),
     ("/layers", "Layers"),
+    ("/workflow", "Workflow"),
     ("/printers", "Printers"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
