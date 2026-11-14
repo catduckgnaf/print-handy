@@ -454,9 +454,12 @@ def _openssl_sign(signing_input, private_key):
         return result.stdout
     finally:
         try:
-            os.unlink(path)
-        except OSError:
-            pass
+            Path(path).unlink(missing_ok=True)  # already gone is the goal of this cleanup
+        except OSError as exc:
+            # The temp file holds the app's private key; a failed delete
+            # must be visible. Its path is named, its contents never are.
+            print(f"bump_upstream: could not remove the temporary key file {path}: {exc}",
+                  file=sys.stderr)
 
 
 def build_app_jwt(identifier, private_key, signer=None, now=None):
