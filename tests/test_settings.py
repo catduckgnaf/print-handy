@@ -997,6 +997,66 @@ class NotifySettingsTests(unittest.TestCase):
         self.assertEqual(data["notify"]["ntfy_topic"], "")
 
 
+class LegacyVendorSectionTests(unittest.TestCase):
+    """The legacy single-printer vendor sections [prusa] and [elegoo_sdcp] (#1461).
+
+    Neither section is in the defaults tree — their keys live only in
+    OPTIONAL_KEYS — so the loader must rescue them the way it rescues a
+    section known only through OPTIONAL_KEYS, or a hand-edited file's
+    values are dropped as an "unknown section".
+    """
+
+    def load_local(self, text, environ=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            local.write_text(text)
+            return settings.load(local=local, environ=environ or {})
+
+    def test_prusa_link_host_loads_from_a_legacy_file(self):
+        data = self.load_local("printer:\n  model: prusa.mk4s\n"
+                               "prusa:\n  link_host: mk4.local\n")
+        self.assertEqual(data["prusa"]["link_host"], "mk4.local")
+        self.assertEqual(settings.unknown_settings(), [])
+
+    def test_prusa_api_key_env_loads_from_a_legacy_file(self):
+        # The sibling [prusa] key: before the fix this one did not even
+        # drop quietly — "api_key" is credential-shaped, so the unknown
+        # section was refused and the whole load failed.
+        data = self.load_local("printer:\n  model: prusa.mk4s\n"
+                               "prusa:\n  api_key_env: MY_PRUSA_KEY\n")
+        self.assertEqual(data["prusa"]["api_key_env"], "MY_PRUSA_KEY")
+        self.assertEqual(settings.unknown_settings(), [])
+
+    def test_elegoo_sdcp_host_loads_from_a_legacy_file(self):
+        data = self.load_local("printer:\n  model: elegoo_sdcp.centauricarbon\n"
+                               "elegoo_sdcp:\n  host: neptune.local\n")
+        self.assertEqual(data["elegoo_sdcp"]["host"], "neptune.local")
+        self.assertEqual(settings.unknown_settings(), [])
+
+    def test_prusa_section_in_the_user_file_loads(self):
+        # The operator's own file goes through the same key check.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = Path(tmp) / "user.yaml"
+            user.write_text("prusa:\n  link_host: mk4.local\n")
+            data = settings.load(local=False, user=user,
+                                 environ={"PRINT_HANDY__PRINTER__MODEL": "prusa.mk4s"})
+        self.assertEqual(data["prusa"]["link_host"], "mk4.local")
+
+    def test_wrong_typed_legacy_value_still_fails(self):
+        with self.assertRaisesRegex(settings.SettingsError, r"\[prusa\] link_host should be str"):
+            self.load_local("printer:\n  model: prusa.mk4s\n"
+                            "prusa:\n  link_host: 42\n")
+
+    def test_an_unknown_key_beside_the_known_ones_still_drops_the_section(self):
+        # The rescue is all-or-nothing, like the [notify] one: a section
+        # carrying a key OPTIONAL_KEYS does not know stays an unknown
+        # section (#1058), warned about and dropped whole.
+        data = self.load_local("printer:\n  model: prusa.mk4s\n"
+                               "prusa:\n  link_host: mk4.local\n  bogus_key: 1\n")
+        self.assertEqual(data["prusa"]["link_host"], "")
+        self.assertIn("unknown section [prusa]", settings.unknown_settings_warning())
+
+
 class LiveStreamSettingsTests(unittest.TestCase):
     """The [live_stream] section (#311 stage 3): off by default, older configs load unchanged."""
 
