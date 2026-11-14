@@ -33,6 +33,7 @@ import copy
 import json
 import logging
 import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -490,7 +491,7 @@ def preview_image(source_path, dest_path) -> str:
         made = render_preview.render(source_path)
         shutil.copyfile(made, dest_path)
         return str(dest_path)
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except (ImportError, OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         # Preview is best-effort; the local rasterizer below is the fallback.
         logger.debug("OpenSCAD preview unavailable; using rasterizer", exc_info=True)
     import io

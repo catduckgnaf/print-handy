@@ -7,6 +7,7 @@ fixtures are written with the repo's own binary STL writer.
 import io
 import json
 import zipfile
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -56,6 +57,23 @@ def _cube_tris(size=10.0, top=True):
 def _write(path, tris):
     support_clearance._write_binary_stl(path, tris)
     return path
+
+
+def test_preview_image_falls_back_when_openscad_times_out(tmp_path, monkeypatch):
+    src = _write(tmp_path / "cube.stl", _cube_tris())
+    dest = tmp_path / "preview.png"
+
+    def timeout(_source):
+        raise subprocess.TimeoutExpired("openscad", 90)
+
+    monkeypatch.setattr("print_handy.core.render_preview.render", timeout)
+    result = ai_fix.preview_image(src, dest)
+
+    assert result == str(dest)
+    assert dest.is_file()
+    from PIL import Image
+    with Image.open(dest) as image:
+        assert image.format == "PNG"
 
 
 def test_mesh_facts_on_a_healthy_cube(tmp_path):
