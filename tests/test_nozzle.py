@@ -206,7 +206,7 @@ def test_toml_backed_nozzle_profiles():
 def test_nozzle_profiles_fall_back_when_config_cannot_be_read(monkeypatch, caplog):
     from print_handy.core import nozzle
 
-    monkeypatch.setattr(nozzle.Path, "is_file", lambda _self: True)
+    monkeypatch.setattr("pathlib.Path.is_file", lambda _self: True)
     monkeypatch.setattr("builtins.open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
     with caplog.at_level("WARNING", logger=nozzle.__name__):
         profiles = nozzle._load_nozzle_profiles()
