@@ -98,7 +98,7 @@ def test_two_slot_print_completed_while_the_listener_was_down_is_charged_once(tm
     watcher.main()
     listener = mel.Listener()
     listener.filename = FILE
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "load_runout_pause", lambda *a, **kw: None)
     asyncio.run(listener._charge_multislot_usage("complete"))
     assert len(_uses(calls)) == 2

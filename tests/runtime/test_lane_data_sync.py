@@ -887,7 +887,7 @@ def test_a_failed_presence_read_this_tick_is_unknown_not_last_ticks_answer(monke
     async def broken():
         raise OSError("printer unreachable")
     monkeypatch.setattr(listener, "read_slots", broken)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     try:
         asyncio.run(listener.poll_native_presence())
     except Exception:

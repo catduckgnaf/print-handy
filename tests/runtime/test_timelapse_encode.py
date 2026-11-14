@@ -446,7 +446,7 @@ def delivery(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "_post_completion",
                         lambda msg, orig, job_key=None: posted.append(msg) or True)
     monkeypatch.setattr(mel, "_vertical_short_attachment", lambda video, key: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     return posted
 
 

@@ -89,6 +89,7 @@ def record(exc_type, exc, tb, *, role, data=None, now=None) -> Path | None:
             "version": __version__,
             "pid": os.getpid(),
             "exception": getattr(exc_type, "__name__", None) or str(exc_type),
+            "reference": "PH_CRASH_PROGRAMMING",
             "message": logs.redact(str(exc)) if exc is not None else "",
             "traceback": logs.redact(formatted)[-TRACEBACK_MAX_CHARS:] if formatted else "",
             "context": context,

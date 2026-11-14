@@ -41,6 +41,10 @@ class RecordTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
+    def test_reference_marker_is_in_registry_and_documented(self):
+        from print_handy import diagnostics
+        assert "PH_CRASH_PROGRAMMING" in diagnostics.ERROR_CODES
+
     def test_record_writes_json_with_the_expected_fields(self):
         exc_type, exc, tb = _raise(ValueError("bad plate"))
         target = crash_report.record(exc_type, exc, tb, role="bot", data=self.data, now=1000.0)
@@ -52,6 +56,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(payload["version"], crash_report.__version__)
         self.assertEqual(payload["pid"], __import__("os").getpid())
         self.assertEqual(payload["exception"], "ValueError")
+        self.assertEqual(payload["reference"], "PH_CRASH_PROGRAMMING")
         self.assertEqual(payload["message"], "bad plate")
         self.assertIn("Traceback", payload["traceback"])
         self.assertIn("ValueError: bad plate", payload["traceback"])

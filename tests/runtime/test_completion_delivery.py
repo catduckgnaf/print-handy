@@ -6,7 +6,7 @@ def test_failed_completion_retries_and_success_survives_restart(monkeypatch, tmp
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand"})
     attempts = []
     results = iter([False, True])
@@ -24,7 +24,7 @@ def test_failed_pending_retry_does_not_attempt_a_second_delivery(monkeypatch, tm
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: print("Print complete: Stand"))
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand"})
     attempts = []
     monkeypatch.setattr(listener, "post", lambda text: attempts.append(text) or False)
@@ -55,7 +55,7 @@ def test_timelapse_leg_pings_by_its_own_job_key_not_the_current_state(monkeypatc
     next print's starter — or nobody — for this print's completion."""
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     # A new print has already taken over the announcer state.
     announcer.save_state({"job_key": "next.gcode"})
     decided = []
@@ -85,7 +85,7 @@ def test_standby_pass_does_not_rerun_a_running_video_leg(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})
     release = threading.Event()
@@ -116,7 +116,7 @@ def test_restart_still_redrives_a_pending_video_leg(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})
     started = []
@@ -150,7 +150,7 @@ def test_restart_retry_keeps_the_persisted_key_until_delivery(monkeypatch, tmp_p
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})
     legs = []
@@ -175,7 +175,7 @@ def test_restart_retry_restores_the_multipart_routing(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     state = {"job_key": "stand", "pending_completion_message": "Print complete: Stand",
              "pending_timelapse_job_key": "stand"}
     announcer.set_pending_timelapse_routing(state, "plan9", ("plan9", "more", 1))
@@ -200,7 +200,7 @@ def test_completion_pass_persists_the_routing_beside_the_key(monkeypatch, tmp_pa
         "Print complete: Stand\n"
         "TIMELAPSE_PLAN:plan9:more:1\n"
         "PLATE_PICKER:plan9"))
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand.gcode"})
     monkeypatch.setattr(listener, "_plan_timelapse_post", lambda key, message, tl_plan: None)
     monkeypatch.setattr(listener, "post_plate_picker", lambda plan_id: None)
@@ -221,7 +221,7 @@ def test_pending_pass_processes_a_new_completions_markers(monkeypatch, tmp_path)
     monkeypatch.setattr(announcer, "main", lambda: print(
         "TIMELAPSE_POSTPROCESS:stand.gcode\n"
         "Print complete: Stand again"))
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"job_key": "stand.gcode",
                           "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})
@@ -242,7 +242,7 @@ def _roast_setup(monkeypatch, tmp_path):
     """A pending completion with a recorded roast subject, and a stub generator."""
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"pending_completion_message": "Print complete: Stand"})
     state = announcer.load_state()
     announcer.set_pending_roast_subject(state, "Stand", "a stand")
@@ -321,7 +321,7 @@ def test_bare_completion_post_keeps_the_roast_inline(monkeypatch, tmp_path):
 def test_completion_roast_failure_leaves_the_post_untouched(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     announcer.save_state({"pending_completion_message": "Print complete: Stand"})
     state = announcer.load_state()
     announcer.set_pending_roast_subject(state, "Stand", "")
@@ -339,7 +339,7 @@ def test_completion_roast_failure_leaves_the_post_untouched(monkeypatch, tmp_pat
 def test_overlapping_completions_never_roast_the_wrong_print(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     monkeypatch.setattr(listener, "generate_roast", lambda title, summary="", **kw: f"roast of {title}")
     state = {}
     announcer.set_pending_completion_message(state, "Print complete: Old")
@@ -361,7 +361,7 @@ def test_a_numbered_timelapse_post_is_delivered_once(monkeypatch, tmp_path):
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     monkeypatch.setattr(listener, "_completion_roast_line", lambda message, completion: "")
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})

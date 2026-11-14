@@ -231,7 +231,7 @@ def test_the_roast_never_goes_through_the_small_tier(monkeypatch, tmp_path):
                                        "small": {"chat_url": LOCAL_URL, "model": "roast-a", "fallback_model": "roast-b"}})
     monkeypatch.setitem(config["services"], "vision_chat_url", "")
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
     endpoint = Endpoint(answer='"A fine stand."')
     patch_urlopen(monkeypatch, endpoint)
@@ -328,7 +328,7 @@ def test_the_vision_call_passes_its_legacy_timeout_as_default(monkeypatch):
     monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m",
                                                                             "timeout_s": 15}})
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "k")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     endpoint = Endpoint(answer='{"verdict": "ok", "reason": "x"}')
     patch_urlopen(monkeypatch, endpoint)

@@ -23,7 +23,7 @@ def _drive(monkeypatch, transitions):
                         lambda message, kind, filename, **kw: alerts.append((kind, message)) or True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: None)
 
     async def _no_reminder():

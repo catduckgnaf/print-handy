@@ -113,7 +113,7 @@ class Rig:
 @pytest.fixture(autouse=True)
 def capture_logs(monkeypatch):
     rigs = []
-    monkeypatch.setattr(prusa_watch, "log", lambda line: rigs.append(str(line)))
+    monkeypatch.setattr(prusa_watch, "log", lambda line: rigs.append(str(line))); monkeypatch.setattr(prusa_watch, "warn", lambda line: rigs.append(str(line)))
     return rigs
 
 

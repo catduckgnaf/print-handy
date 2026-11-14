@@ -682,6 +682,7 @@ class StartupConfigTests(WebServerCase):
                 code = server.serve(data, environ={})
             self.assertEqual(code, 2)
             self.assertIn("could not bind", stderr.getvalue())
+            self.assertIn("[PH_WEBUI_CONFIGURATION]", stderr.getvalue())
 
     def test_serve_configures_shared_logging_and_logs_the_version(self):
         # #1404: serve() joins the shared logging (with crash capture for

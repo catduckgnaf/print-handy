@@ -25,7 +25,7 @@ def delivery(monkeypatch):
     monkeypatch.setattr(mel, "_post_completion",
                         lambda msg, orig, job_key=None: posted.append(msg) or True)
     monkeypatch.setattr(mel, "_vertical_short_attachment", lambda video, key: None)
-    monkeypatch.setattr(mel, "log", lambda line: logs.append(line))
+    monkeypatch.setattr(mel, "log", lambda line: logs.append(line)); monkeypatch.setattr(mel, "warn", lambda line: logs.append(line))
     monkeypatch.setattr(mel, "_captured_timelapse", lambda key: None)
     monkeypatch.setattr(mel, "_dark_capture", lambda key: None)
     return posted, logs

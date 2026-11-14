@@ -368,7 +368,7 @@ def test_hook_accepts_explicit_part_id(tmp_path):
 def run_announcer(monkeypatch, lines):
     from print_handy.runtime import moonraker_event_listener as mel
     sent, pickers = [], []
-    monkeypatch.setattr(mel, 'log', lambda _: None)
+    monkeypatch.setattr(mel, 'log', lambda _: None); monkeypatch.setattr(mel, 'warn', lambda _: None)
     monkeypatch.setattr(mel, 'post', lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel, 'post_plate_picker', lambda plan_id: pickers.append(plan_id) or True)
     monkeypatch.setattr(mel.announcer, 'main', lambda: print(lines))
@@ -387,7 +387,7 @@ def test_completion_posts_picker_not_command_text(monkeypatch):
 def test_picker_follows_timelapse_post(monkeypatch):
     from print_handy.runtime import moonraker_event_listener as mel
     order = []
-    monkeypatch.setattr(mel, 'log', lambda _: None)
+    monkeypatch.setattr(mel, 'log', lambda _: None); monkeypatch.setattr(mel, 'warn', lambda _: None)
     monkeypatch.setattr(mel, 'post', lambda text: order.append('post') or True)
     monkeypatch.setattr(mel, 'post_plate_picker', lambda plan_id: order.append('picker') or True)
     monkeypatch.setattr(mel.announcer, 'main', lambda: print('TIMELAPSE_POSTPROCESS:j.gcode\nDone\nPLATE_PICKER:trio'))
@@ -412,7 +412,7 @@ def test_post_plate_picker_posts_select_then_falls_back_to_command_text(tmp_path
     plans, _rows = three_plate_plan(tmp_path)
     real_load = print_next.load_plan
     monkeypatch.setattr(print_next, 'load_plan', lambda pid: real_load(pid, plans))
-    monkeypatch.setattr(mel, 'log', lambda _: None)
+    monkeypatch.setattr(mel, 'log', lambda _: None); monkeypatch.setattr(mel, 'warn', lambda _: None)
     monkeypatch.setattr(mel, '_profile_env_value', lambda name: 'token')
     monkeypatch.setattr(pab, 'STATE', tmp_path / 'alerts.json')
     bodies, texts = [], []

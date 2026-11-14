@@ -404,7 +404,7 @@ def test_listener_posts_detector_notices_while_the_watch_uses_it(monkeypatch):
             "vision": {"local_detector_enabled": True}}
     monkeypatch.setattr(mel._config, "cfg", lambda: data)
     monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     lv._fail("session:/m.onnx", "the local detector model at /m.onnx could not be loaded: bad")
     listener = mel.Listener()
     listener.state = "standby"
@@ -441,7 +441,7 @@ def _failing_listener(monkeypatch, verdicts):
     monkeypatch.setattr(mel, "_visual_alert",
                         lambda filename, image, text, identity=None: alerts.append(text))
     monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     listener.filename = "watched.gcode"
     listener.state = "printing"
@@ -478,7 +478,7 @@ def test_ten_dead_camera_checks_alert_once(monkeypatch):
     monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
     monkeypatch.setattr(mel, "_visual_alert_text",
                         lambda filename, reason, identity=None: texts.append(reason))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     listener.filename = "deadcam.gcode"
     listener.state = "printing"
@@ -517,7 +517,7 @@ def test_heartbeat_keeps_beating_with_every_camera_worker_blocked(monkeypatch):
 
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", stuck_camera)
     monkeypatch.setattr(mel, "_visual_alert_text", lambda *a, **k: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel.healthcheck, "HEARTBEAT_S", 0.05)
     lags = []
     monkeypatch.setattr(mel.healthcheck, "beat", lambda **kw: lags.append(kw["loop_lag_ms"]))
@@ -585,7 +585,7 @@ def test_writing_an_alert_frame_prunes_the_folder(tmp_path, monkeypatch):
 
 
 def test_listener_keeps_only_the_current_prints_baseline_frame(monkeypatch):
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     listener.filename = "first.gcode"
     listener.visual_frames["first.gcode"] = _frame(1)
@@ -593,16 +593,16 @@ def test_listener_keeps_only_the_current_prints_baseline_frame(monkeypatch):
     assert listener.visual_frames == {}
 
 
-def test_listener_log_is_dated_and_old_days_are_pruned(tmp_path, monkeypatch):
-    from print_handy import logs
-    base = tmp_path / "logs" / "moonraker_event_listener.log"
-    base.parent.mkdir()
-    stale = base.with_name("moonraker_event_listener-2000-01-01.log")
-    stale.write_text("old\n")
-    monkeypatch.setattr(mel, "LOG", base)
-    mel.log("camera watch beat")
-    assert not stale.exists() and not base.exists()
-    assert "camera watch beat" in logs.current_file(base).read_text()
+def test_listener_writes_no_legacy_log_file(tmp_path, monkeypatch, caplog):
+    # #1413: the Moonraker listener's own dated log file is retired; its lines
+    # go only to the shared logger, which owns files, levels and retention.
+    import logging
+    monkeypatch.setattr(mel.announcer, "PROFILE_HOME", tmp_path)
+    with caplog.at_level(logging.INFO, logger=mel.logger.name):
+        mel.log("camera watch beat")
+    assert not hasattr(mel, "LOG") and not hasattr(mel, "_log_file")
+    assert not (tmp_path / "logs").exists()
+    assert [r.getMessage() for r in caplog.records] == ["camera watch beat"]
 
 
 # -- 11. which families are watched: the report and the docs ------------------
@@ -718,7 +718,7 @@ def test_a_failing_camera_never_puts_its_password_in_logs_or_posts(monkeypatch):
     monkeypatch.setattr(mel.urllib.request, "urlopen", refuse)
     monkeypatch.setattr(mel, "_camera_url", lambda: "http://cam:hunter2pass@192.0.2.9/snap")
     monkeypatch.setattr(mel.go2rtc, "camera_source", lambda data=None: "moonraker")
-    monkeypatch.setattr(mel, "log", lines.append)
+    monkeypatch.setattr(mel, "log", lines.append); monkeypatch.setattr(mel, "warn", lines.append)
     monkeypatch.setattr(mel, "_visual_alert_text",
                         lambda filename, reason, identity=None: texts.append(reason))
     listener = mel.Listener()
@@ -739,7 +739,7 @@ def test_one_check_decodes_its_new_frame_once(monkeypatch):
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: frames.pop(0))
     monkeypatch.setattr(mel, "_visual_verdict", lambda *a, **k: ("spaghetti", "mess"))
     monkeypatch.setattr(mel, "_visual_alert", lambda *a, **k: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     listener.filename = "decode.gcode"
     listener.state = "printing"

@@ -543,8 +543,32 @@ def assert_one_clear_message(result, container_path: str):
     assert "pre-2.2.5 name keeps working" not in result.stderr
 
 
+# #1416: the log folder is the one optional data folder. File logging is best
+# effort and falls back to stderr, so an unwritable logs folder must not stop
+# the start; every other folder keeps the #1144 stop-with-one-message rule.
+OPTIONAL_FOLDERS = ["state/logs"]
+REQUIRED_FOLDERS = [rel for rel in DATA_FOLDERS if rel not in OPTIONAL_FOLDERS]
+
+
 @non_root
-@pytest.mark.parametrize("rel", ["", *DATA_FOLDERS])
+@pytest.mark.parametrize("rel", OPTIONAL_FOLDERS)
+def test_an_unwritable_log_folder_still_starts_and_changes_nothing(tmp_path, rel):
+    full_layout(tmp_path)
+    before = snapshot(tmp_path)
+    locked = tmp_path / rel
+    locked.chmod(0o555)
+    try:
+        result = run_entrypoint(tmp_path)
+    finally:
+        locked.chmod(0o755)
+    assert result.returncode == 0, result.stderr
+    assert CANNOT_START not in result.stderr
+    assert (tmp_path / "state" / "record.txt").read_text() == "state\n"
+    assert set(before) <= set(snapshot(tmp_path))
+
+
+@non_root
+@pytest.mark.parametrize("rel", ["", *REQUIRED_FOLDERS])
 def test_an_unwritable_data_folder_stops_with_one_message_and_changes_nothing(tmp_path, rel):
     full_layout(tmp_path)
     before = snapshot(tmp_path)

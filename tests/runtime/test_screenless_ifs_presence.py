@@ -110,14 +110,14 @@ class ScreenlessReadTests(ListenerCase):
         def fake_log(line):
             seen.append((line, sys.exc_info()[0]))
         with mock.patch.object(print_control, "_call", side_effect=OSError("refused")), \
-                mock.patch.object(mel, "log", fake_log):
+                mock.patch.object(mel, "log", fake_log), mock.patch.object(mel, "warn", fake_log):
             for _ in range(5):
                 await lis.poll_native_presence()
         self.assertEqual(len(seen), 1)
         self.assertIn("presence poll failed", seen[0][0])
         self.assertIsNone(seen[0][1])  # logged outside the handler: no traceback attached
         with mock.patch.object(print_control, "_call", return_value=zmod_status()), \
-                mock.patch.object(mel, "log", fake_log):
+                mock.patch.object(mel, "log", fake_log), mock.patch.object(mel, "warn", fake_log):
             await lis.poll_native_presence()
         self.assertIn("recovered", seen[-1][0])
 

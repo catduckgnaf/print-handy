@@ -50,10 +50,10 @@ def test_catalog_size_matches_the_inventory():
     # ERROR_CODES holds both families once failure_report has registered
     # its signature codes (the import at the top of this module).
     marker_count = sum(len(c) for c in diagnostics.MARKER_CODE_CATEGORIES.values())
-    assert marker_count == 24
+    assert marker_count == 28
     assert len(failure_report.SIGNATURE_CODES) == 12
-    assert len(diagnostics.ERROR_CODES) == 36
-    assert len(_catalog_anchors()) == 36
+    assert len(diagnostics.ERROR_CODES) == 40
+    assert len(_catalog_anchors()) == 40
 
 
 def test_every_emittable_marker_pair_is_registered():
