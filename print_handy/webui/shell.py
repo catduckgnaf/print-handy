@@ -12,9 +12,9 @@ The stylesheet is inline rather than a served file: the Web UI stays
 single-process, with no external request of any kind — the font stacks
 name system fonts only, exactly as they fall back in the prototype.
 The one served-asset exception is the PWA foundation (#450):
-PWA_HEAD_TAGS links the manifest and the branding icons the public
-PWA routes serve, and PWA_SCRIPT registers the service worker on
-secure contexts only (see :mod:`print_handy.webui.pwa`).
+PWA_HEAD_TAGS links the manifest the public PWA routes serve, and
+PWA_SCRIPT registers the service worker on secure contexts only
+(see :mod:`print_handy.webui.pwa`).
 
 Theme: dark is the default. The ``ph-theme`` cookie (``dark`` or
 ``light``) is read by the server and stamped on ``<html>`` as
@@ -287,9 +287,10 @@ SUBMIT_SCRIPT = (
 
 # PWA head tags (#450 Phase 1): the manifest link, the theme colors
 # (the shell tokens: #12110f is the dark background, #f3efe6 the light
-# one), and the install icons served by the public PWA routes in
-# routes.py. They ride on every page, bare ones included, so the
-# login page is installable too.
+# one), and the capable metas. They ride on every page, bare ones
+# included, so the login page is installable too. The icon and
+# apple-touch-icon link tags are a separate favicon change's scope
+# and are deliberately not added here.
 PWA_HEAD_TAGS = (
     '<meta name="mobile-web-app-capable" content="yes">'
     '<meta name="apple-mobile-web-app-capable" content="yes">'
@@ -298,10 +299,6 @@ PWA_HEAD_TAGS = (
     '<meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">'
     '<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">'
     '<link rel="manifest" href="/manifest.webmanifest">'
-    '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
-    '<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">'
-    '<link rel="icon" type="image/png" sizes="16x16" href="/static/icon-16.png">'
-    '<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">'
 )
 
 # The PWA script (#450 Phase 1): progressive enhancement only, like

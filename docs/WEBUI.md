@@ -45,7 +45,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /manifest.webmanifest` (and `GET /manifest.json`) | The PWA web app manifest (#450 Phase 1): name, stable `id`, standalone display, theme colors and install icons. Public, like the login form, because a browser fetches it before any sign-in; it carries no state |
 | `GET /sw.js` | The PWA service worker: precaches only the install assets and the offline page, and never caches API responses, upload links, the login page, or any non-GET request |
 | `GET /offline` | The offline fallback page the service worker shows when a navigation cannot reach the server |
-| `GET /favicon.ico` and `GET /static/<file>` | The fixed PWA install icons (192, 512, a separate padded 512 maskable, and the 180 Apple touch icon). Public; any other file name is a 404 |
+| `GET /static/<file>` | The one PWA-only install asset: the separate padded 512 maskable icon the manifest lists. Public; every other file name is a 404. The favicon and the branding icons are served by their own routes, not this one |
 
 Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
@@ -327,7 +327,7 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 
 ## Progressive Web App (PWA) and HTTPS serving
 
-The Web UI is an installable Progressive Web App (#450 Phase 1): reached over a secure context, it can be installed to a phone home screen or a desktop app dock, runs standalone without browser chrome, and shows a branded offline page when the server cannot be reached. Every page links the manifest (`/manifest.webmanifest`) and the install icons; the service worker (`/sw.js`) precaches only those install assets and the offline page.
+The Web UI is an installable Progressive Web App (#450 Phase 1): reached over a secure context, it can be installed to a phone home screen or a desktop app dock, runs standalone without browser chrome, and shows a branded offline page when the server cannot be reached. Every page links the manifest (`/manifest.webmanifest`); the service worker (`/sw.js`) precaches only the manifest, the maskable icon it serves itself, and the offline page.
 
 ### The secure-context gate
 
@@ -377,7 +377,7 @@ The service worker enforces a narrow caching policy:
 
 - **Never cached:** API responses (`/api/*`), token upload links (`/u/*`), the login and theme routes, and every non-GET request (printer controls included). Cross-origin requests are never intercepted.
 - **Navigations are network-only:** a page is never stored, so stale printer state is never served as if it were live. When a navigation fails because the server is unreachable, the precached `/offline` page is shown instead.
-- **Cached:** only the manifest, the favicon and icons, and the offline page, under a versioned cache name; an updated worker deletes the old caches when it activates.
+- **Cached:** only the manifest, the maskable icon, and the offline page are precached, under a versioned cache name; an updated worker deletes the old caches when it activates. The remaining install icons are cached at runtime when the browser fetches them from their own routes.
 
 ## Use the configuration page
 

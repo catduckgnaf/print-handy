@@ -61,7 +61,10 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertNotEqual(any_512[0]["src"], maskable[0]["src"])
 
     def test_maskable_icon_is_a_distinct_padded_png(self):
-        _, regular = pwa.resolve_static_file("icon-512.png")
+        # The regular 512 artwork is read from the branding set for
+        # the comparison only; the PWA static route does not serve it
+        # (it is the favicon change's route).
+        regular = (pwa.REPO_BRANDING_DIR / "icon-512.png").read_bytes()
         _, maskable = pwa.resolve_static_file("icon-512-maskable.png")
         self.assertEqual(png_size(regular), (512, 512))
         self.assertEqual(png_size(maskable), (512, 512))
@@ -74,10 +77,14 @@ class PWAFoundationUnitTests(unittest.TestCase):
             self.assertIn(url, sw)
         self.assertIn("/manifest.webmanifest", sw)
         self.assertIn("/offline", sw)
-        self.assertIn("/favicon.ico", sw)
-        self.assertIn("/static/icon-192.png", sw)
-        self.assertIn("/static/icon-512.png", sw)
         self.assertIn("/static/icon-512-maskable.png", sw)
+        # The precache holds only what this change serves: a precache
+        # entry for the favicon change's icons would 404 until that
+        # change lands and fail the whole worker install.
+        precache = sw.split("PRECACHE_URLS = ", 1)[1].split("];", 1)[0]
+        self.assertNotIn("favicon", precache)
+        self.assertNotIn("icon-192", precache)
+        self.assertNotIn("icon-512.png", precache)
         # Old caches are cleaned up on activate.
         self.assertIn("addEventListener('activate'", sw)
         self.assertIn("caches.delete(key)", sw)
@@ -109,8 +116,10 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertIn('<link rel="manifest" href="/manifest.webmanifest">', html)
         self.assertIn('<meta name="theme-color" content="#12110f"', html)
         self.assertIn('<meta name="theme-color" content="#f3efe6"', html)
-        self.assertIn('<link rel="icon" type="image/x-icon" href="/favicon.ico">', html)
-        self.assertIn('<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">', html)
+        # The icon and apple-touch-icon link tags are the separate
+        # favicon change's scope; this change adds none of them.
+        self.assertNotIn('<link rel="icon"', html)
+        self.assertNotIn('rel="apple-touch-icon"', html)
         self.assertIn('<meta name="apple-mobile-web-app-capable" content="yes">', html)
         self.assertIn('<meta name="mobile-web-app-capable" content="yes">', html)
         # Registration is guarded to secure contexts, requests
@@ -134,7 +143,6 @@ class PWAFoundationUnitTests(unittest.TestCase):
             "/manifest.json": "_pwa_manifest",
             "/sw.js": "_pwa_service_worker",
             "/offline": "_pwa_offline",
-            "/favicon.ico": "_pwa_favicon",
         }
         for path, handler in expected.items():
             route, capture = routes.resolve("GET", path)
@@ -142,33 +150,34 @@ class PWAFoundationUnitTests(unittest.TestCase):
             self.assertEqual(route.policy, routes.PUBLIC, path)
             self.assertEqual(route.handler, handler, path)
             self.assertIsNone(capture, path)
-        route, capture = routes.resolve("GET", "/static/icon-192.png")
+        route, capture = routes.resolve("GET", "/static/icon-512-maskable.png")
         self.assertEqual(route.policy, routes.PUBLIC)
         self.assertEqual(route.handler, "_pwa_static")
-        self.assertEqual(capture, "icon-192.png")
+        self.assertEqual(capture, "icon-512-maskable.png")
+        # /favicon.ico is the favicon change's route, not this one's:
+        # here it still lands on the session-gated catch-all.
+        route, _ = routes.resolve("GET", "/favicon.ico")
+        self.assertEqual(route.handler, "_not_found")
+        self.assertEqual(route.policy, routes.SESSION)
         # A POST to a PWA path is not a PWA route: it lands on the
         # read-only refusal like every other undeclared POST.
         route, _ = routes.resolve("POST", "/sw.js")
         self.assertEqual(route.handler, "_read_only")
 
     def test_static_asset_resolution_and_traversal_guards(self):
-        res = pwa.resolve_static_file("icon-192.png")
-        self.assertIsNotNone(res)
-        ctype, data = res
-        self.assertEqual(ctype, "image/png")
-        self.assertEqual(png_size(data), (192, 192))
-
         res_maskable = pwa.resolve_static_file("icon-512-maskable.png")
         self.assertIsNotNone(res_maskable)
         ctype, data = res_maskable
         self.assertEqual(ctype, "image/png")
-        self.assertTrue(len(data) > 0)
+        self.assertEqual(png_size(data), (512, 512))
 
-        res_ico = pwa.resolve_static_file("favicon.ico")
-        self.assertIsNotNone(res_ico)
-        ctype, data = res_ico
-        self.assertEqual(ctype, "image/x-icon")
-        self.assertTrue(len(data) > 0)
+        # Every other name is refused, including real branding files:
+        # the favicon and the branding icons are the favicon change's
+        # routes, and this route must not duplicate them.
+        self.assertIsNone(pwa.resolve_static_file("icon-192.png"))
+        self.assertIsNone(pwa.resolve_static_file("icon-512.png"))
+        self.assertIsNone(pwa.resolve_static_file("icon-180.png"))
+        self.assertIsNone(pwa.resolve_static_file("favicon.ico"))
 
         # Path traversal and invalid names are refused.
         self.assertIsNone(pwa.resolve_static_file("../pyproject.toml"))
@@ -212,17 +221,21 @@ class PWAFoundationServerIntegrationTests(WebServerCase):
             self.assertIn("Print Handy", body)
             self.assertIn("Offline", body)
 
-            code, headers, raw = self.request(port, "GET", "/favicon.ico")
+            # The one static asset this change serves, without auth.
+            code, headers, raw = self.request(port, "GET", "/static/icon-512-maskable.png")
             self.assertEqual(code, 200)
-            self.assertEqual(headers.get("Content-Type"), "image/x-icon")
+            self.assertEqual(headers.get("Content-Type"), "image/png")
+            self.assertIn("public, max-age=", headers.get("Cache-Control", ""))
             self.assertTrue(len(raw) > 0)
 
-            for icon_name in ("icon-192.png", "icon-512.png", "icon-512-maskable.png", "icon-180.png"):
-                code, headers, raw = self.request(port, "GET", f"/static/{icon_name}")
-                self.assertEqual(code, 200, f"Failed for {icon_name}")
-                self.assertEqual(headers.get("Content-Type"), "image/png")
-                self.assertIn("public, max-age=", headers.get("Cache-Control", ""))
-                self.assertTrue(len(raw) > 0)
+            # The favicon and the branding icons are not served here:
+            # they are the favicon change's routes, not duplicates.
+            code, _, _ = self.request(port, "GET", "/favicon.ico")
+            self.assertNotEqual(code, 200)
+            for icon_name in ("icon-192.png", "icon-512.png", "icon-180.png"):
+                code, _, raw = self.request(port, "GET", f"/static/{icon_name}")
+                self.assertEqual(code, 404, f"Expected 404 for {icon_name}")
+                self.assertFalse(json.loads(raw)["ok"])
 
     def test_static_routes_404_on_missing_or_traversal_attempts(self):
         with tempfile.TemporaryDirectory() as tmp:

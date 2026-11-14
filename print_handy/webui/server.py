@@ -69,11 +69,13 @@ step) serving:
   (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
   and redirects back. A browser preference only, behind the same
   authorization as every other page.
-- ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``,
-  ``GET /favicon.ico`` and ``GET /static/<file>`` — the PWA install
-  plumbing (#450 Phase 1; :mod:`print_handy.webui.pwa`), declared
-  ``public`` in the route table like the login form: a browser fetches
-  them before any sign-in, and they carry no state or printer data.
+- ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``
+  and ``GET /static/<file>`` — the PWA install plumbing (#450
+  Phase 1; :mod:`print_handy.webui.pwa`), declared ``public`` in the
+  route table like the login form: a browser fetches them before any
+  sign-in, and they carry no state or printer data. The static route
+  serves only the PWA maskable icon; the favicon and the branding
+  icons are a separate change's routes.
 
 Every HTML page renders through the one shell
 (:mod:`print_handy.webui.shell`): one inline stylesheet, the header
@@ -1245,9 +1247,6 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, pwa_module.render_offline_page(theme=self._theme()),
                    "text/html; charset=utf-8",
                    headers=[("Cache-Control", "public, max-age=86400")])
-
-    def _pwa_favicon(self):
-        self._pwa_static_file("favicon.ico")
 
     def _pwa_static(self, name):
         self._pwa_static_file(name)

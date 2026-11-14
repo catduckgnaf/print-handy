@@ -44,7 +44,6 @@ EXPECTED = [
     ("GET", "/manifest.json", P),
     ("GET", "/sw.js", P),
     ("GET", "/offline", P),
-    ("GET", "/favicon.ico", P),
     ("GET", "/static/*", P),
     ("GET", "/u/*", L),
     ("GET", "/theme", S),

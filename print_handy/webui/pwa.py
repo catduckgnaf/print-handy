@@ -1,13 +1,21 @@
 """PWA foundation support for the Print Handy Web UI (#450 Phase 1).
 
 Provides the web app manifest, the service worker script, the offline
-fallback page, and static install asset resolution. The routes are
-declared in :mod:`print_handy.webui.routes` with the ``public`` policy
-and answered by handlers in :mod:`print_handy.webui.server`; this
-module only builds the payloads.
+fallback page, and resolution of the one install asset this change
+serves itself: the maskable icon. The routes are declared in
+:mod:`print_handy.webui.routes` with the ``public`` policy and
+answered by handlers in :mod:`print_handy.webui.server`; this module
+only builds the payloads.
 
-Caching is deliberately narrow: only the static install assets and
-the offline page are precached. API responses (``/api/*``), token
+The favicon and the branding icons the manifest lists are a separate
+change's routes and are deliberately not served here, so the two
+changes never duplicate a route. For the same reason the precache
+holds only what this change serves (the manifest, the offline page,
+and the maskable icon): the worker installs cleanly on its own, and
+the remaining icons are runtime-cached when the browser fetches them
+from their own routes.
+
+Caching is deliberately narrow. API responses (``/api/*``), token
 upload links (``/u/*``), the login page, and every non-GET request
 bypass the service worker, and navigation responses are never stored,
 so stale printer state is never served as if it were live.
@@ -28,20 +36,20 @@ REPO_BRANDING_DIR = Path(__file__).resolve().parents[2] / "assets" / "branding"
 # the worker script changes so activate cleans the old cache up.
 CACHE_NAME = "ph-static-v1"
 
-# The precached static install assets: install plumbing only, never a
-# dynamic page or an API response.
+# The precached install assets: only what this change serves, so the
+# worker installs on its own. The other manifest icons live on the
+# favicon change's routes and are runtime-cached when fetched, never
+# precached here (a precache entry that 404s fails the whole install).
 PRECACHE_URLS = [
     "/manifest.webmanifest",
-    "/favicon.ico",
     "/offline",
-    "/static/icon-16.png",
-    "/static/icon-32.png",
-    "/static/icon-64.png",
-    "/static/icon-180.png",
-    "/static/icon-192.png",
-    "/static/icon-512.png",
     "/static/icon-512-maskable.png",
 ]
+
+# The one file the /static route serves: the maskable icon, which is
+# PWA-only artwork. Every other name is refused; the favicon and the
+# branding icons are the favicon change's routes, not duplicates here.
+STATIC_FILES = frozenset({"icon-512-maskable.png"})
 
 MANIFEST = {
     "name": "Print Handy",
@@ -215,13 +223,18 @@ def render_offline_page(theme: str = shell.DEFAULT_THEME) -> str:
 
 
 def resolve_static_file(name: str) -> Optional[Tuple[str, bytes]]:
-    """Resolve a safe static asset file by name.
+    """Resolve the one static asset this change serves, by name.
 
-    Only a simple file name is accepted: no slashes, no leading dot,
-    no traversal. The resolved path must stay inside the package
-    static directory or the repository branding directory.
+    Only the maskable icon in :data:`STATIC_FILES` is served; every
+    other name is refused, including simple names of real branding
+    files (those are the favicon change's routes). The name must be a
+    simple file name: no slashes, no leading dot, no traversal, and
+    the resolved path must stay inside the package static directory
+    or the repository branding directory.
     """
-    if not name or "/" in name or "\\" in name or name.startswith(".") or ".." in name:
+    if name not in STATIC_FILES:
+        return None
+    if "/" in name or "\\" in name or name.startswith(".") or ".." in name:
         return None
 
     for base in (STATIC_DIR, REPO_BRANDING_DIR):
@@ -244,6 +257,6 @@ def resolve_static_file(name: str) -> Optional[Tuple[str, bytes]]:
 
 
 __all__ = [
-    "CACHE_NAME", "MANIFEST", "PRECACHE_URLS", "SW_SCRIPT",
+    "CACHE_NAME", "MANIFEST", "PRECACHE_URLS", "STATIC_FILES", "SW_SCRIPT",
     "manifest_json", "render_offline_page", "resolve_static_file",
 ]
