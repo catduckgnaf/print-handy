@@ -24,7 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 BRANDING = ROOT / "assets" / "branding"
 STATIC = ROOT / "print_handy" / "webui" / "static"
 ICON_NAMES = ("favicon.ico", "icon-16.png", "icon-32.png", "icon-64.png",
-              "icon-180.png", "icon-192.png", "icon-512.png")
+              "icon-180.png", "icon-192.png", "icon-512.png",
+              "icon-512-maskable.png")
 
 FAKE_SNAPSHOT = {
     "version": "0.test", "host": "testhost", "ok": True,

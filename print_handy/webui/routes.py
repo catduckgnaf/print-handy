@@ -9,8 +9,9 @@ exactly one policy:
     No credential. The health probe, the login form and its POST,
     logout (it ends only the caller's own session), the ``/setup``
     redirect, the favicon and branding icons (a browser asks for them
-    before or without a login), and the read-only refusal for
-    unsupported methods.
+    before or without a login), the PWA install plumbing (manifest,
+    service worker, offline page and the fixed install icons, #450),
+    and the read-only refusal for unsupported methods.
 ``session``
     The read rule: access is open, or the ``X-WebUI-Token`` header
     matches, or a live login session. A browser navigation without it
@@ -122,6 +123,15 @@ ROUTES = (
     # gets the handler's 404.
     _get("/favicon.ico", PUBLIC, "_favicon_route"),
     _get("/static/*", PUBLIC, "_static_route", decode=False),
+    # PWA install plumbing (#450 Phase 1): public by design, like the
+    # login form — a browser fetches the manifest, the service worker
+    # and the offline page before any sign-in, and none of them carries
+    # state, a credential, or printer data. The install icons ride the
+    # /static/* row above (the maskable icon is in the same allowlist).
+    _get("/manifest.webmanifest", PUBLIC, "_pwa_manifest"),
+    _get("/manifest.json", PUBLIC, "_pwa_manifest"),
+    _get("/sw.js", PUBLIC, "_pwa_service_worker"),
+    _get("/offline", PUBLIC, "_pwa_offline"),
     _get("/u/*", LINK_TOKEN, "_token_upload_page"),
     _get("/theme", SESSION, "_theme_route"),
     _get("/walkthrough", SESSION, "_walkthrough_page"),
