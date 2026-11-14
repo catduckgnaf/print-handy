@@ -656,7 +656,10 @@ has a temporary **debug log mode** for reproducing a problem:
   written to a dedicated, size-bounded capture file
   (`debug-capture.log`, rotating, in the state folder), delimited by
   `DEBUG_SESSION_START` / `DEBUG_SESSION_END` markers carrying the
-  session id. The capture exists whether or not a `[logging] file` is
+  session id. Session windows are read across the rotation backups
+  too (`.2`, then `.1`, then the main file, in chronological order),
+  so a session that rotated out of the main file is still exported
+  whole instead of reported as missing. The capture exists whether or not a `[logging] file` is
   configured, so a Docker (stderr-only) install still produces logs.
   **Listener processes are covered**: the mode is shared state, not a
   per-process switch; every process applies it when it configures
@@ -771,6 +774,29 @@ What the bundle carries beyond versions and the redacted config summary:
   heartbeat that stays fresh while the lag grows past 90 seconds reads
   as "listener event loop blocked or stalled" in the healthcheck, which
   is what the watchdog and the outage notices key on.
+- **Crashes**: every process that configures logging with a role (the
+  bot, the listeners, the heavy worker, the monitor worker, the Web UI
+  and the live-activity server) installs crash capture for that role.
+  An unhandled exception (an operator interrupt or a clean exit is
+  not one) is written as a structured record to
+  `state/crashes/<role>.json` (one file per role, newest crash wins):
+  the time, the role, the Print Handy version, the pid, the exception
+  type, the message and a bounded traceback, redacted with
+  `logs.redact` before it is written, plus the log context bound at
+  crash time. Nothing is uploaded anywhere: the records leave the
+  machine only inside a bundle the operator attaches, and the bundle
+  carries them under a **Crashes** section, sanitized a second time
+  by the export pass on the way out. The bundle header also states
+  whether debug mode is on, its runtime section shows each
+  supervisor record's last listener exit status when one was recorded,
+  and a heartbeat file that exists but cannot be read is reported as
+  unreadable rather than as missing.
+- **Log tail fallback**: with no `[logging]` file configured, the
+  bundle's log section falls back to the debug capture file's tail
+  (labeled as such) when a capture exists: the Docker/stderr installs
+  that have no log file are exactly the ones the capture covers. With
+  neither, the bundle names the remaining routes: attach the container
+  or systemd log, or run a debug session and build the bundle again.
 - **Printer logs** (`--printer-logs`): for each Moonraker printer, the
   console history from Moonraker's `gcode_store`, plus the `klippy.log`,
   ZMod console and screen logs the printer serves. Each source's clock

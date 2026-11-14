@@ -267,16 +267,35 @@ def poll(data=None, *, now=None) -> bool:
 
 # -------------------------------------------------------------------- export
 
+def _capture_lines(data=None) -> list[str]:
+    """Every capture line on disk, oldest first (#1404).
+
+    The capture rotates (``RotatingFileHandler``, ``CAPTURE_BACKUPS``
+    backups), so the main file alone can miss a session that rotated:
+    the backups are read in chronological order — ``.2`` (oldest), then
+    ``.1``, then the main file — and concatenated. Missing files are
+    simply absent from the result.
+    """
+    base = capture_path(data)
+    lines: list[str] = []
+    for candidate in (Path(f"{base}.2"), Path(f"{base}.1"), base):
+        try:
+            lines.extend(candidate.read_text(errors="replace").splitlines())
+        except OSError:
+            continue
+    return lines
+
+
 def session_window(data=None, *, session=None) -> str | None:
     """The capture lines between one session's markers, or None.
 
     With ``session`` None the most recent completed-or-live session in the
-    capture file is used. Rotation backups are not searched: a window that
-    rotated away is reported as missing rather than silently partial.
+    capture file is used. Rotation backups are searched too (oldest
+    first, see :func:`_capture_lines`): a window that rotated into a
+    backup is still found whole rather than reported as missing.
     """
-    try:
-        lines = capture_path(data).read_text(errors="replace").splitlines()
-    except OSError:
+    lines = _capture_lines(data)
+    if not lines:
         return None
     starts = [i for i, line in enumerate(lines)
               if "DEBUG_SESSION_START" in line and (session is None or f"session={session}" in line)]
@@ -304,10 +323,10 @@ def latest_session(data=None, *, unexported_only: bool = False) -> str | None:
     ``unexported_only`` skips a session an `off` already exported (it carries
     a DEBUG_SESSION_EXPORTED marker), so a finished session is not recovered
     again; an auto-expired one has no such marker and still is (2.2.5 review).
+    Rotation backups are searched too (#1404), in chronological order.
     """
-    try:
-        lines = capture_path(data).read_text(errors="replace").splitlines()
-    except OSError:
+    lines = _capture_lines(data)
+    if not lines:
         return None
     for line in reversed(lines):
         if "DEBUG_SESSION_START" in line and "session=" in line:

@@ -42,6 +42,29 @@ class IssuePolicyTests(unittest.TestCase):
         body = GOOD.replace("https://github.com/user-attachments/files/1/diagnostics-bundle.md", "_No response_")
         self.assertEqual([], policy.check(body, ["bug"]))
 
+    def test_pasted_doctor_output_in_the_bundle_section_passes(self):
+        # #1404 / the #442 shape: no attachment and no word "doctor", just
+        # the Doctor rows pasted into the bundle section (>= 2 rows).
+        body = GOOD.replace(
+            "https://github.com/user-attachments/files/1/diagnostics-bundle.md",
+            "ok    settings: Flashforge AD5X, bed 220x220 mm, 4 slot(s), 0.4 mm nozzle\n"
+            "ok    printer model: flashforge.ad5x (Flashforge AD5X (ZMod)), 4 slots\n"
+            "ok    core: 39 modules import").replace(
+            "Sanitization report: removed 3 IP addresses. Verification pass found nothing further.",
+            "_No response_")
+        self.assertNotIn("doctor", body.lower().split("### diagnostics bundle")[1])
+        self.assertEqual([], policy.check(body, ["bug"]))
+
+    def test_a_single_doctor_row_is_not_a_bundle(self):
+        body = GOOD.replace(
+            "https://github.com/user-attachments/files/1/diagnostics-bundle.md",
+            "ok    settings: Flashforge AD5X, bed 220x220 mm, 4 slot(s), 0.4 mm nozzle, all fine here"
+            ).replace(
+            "Sanitization report: removed 3 IP addresses. Verification pass found nothing further.",
+            "_No response_")
+        errors = policy.check(body, ["bug"])
+        self.assertTrue(any("sanitized diagnostics bundle" in e for e in errors))
+
     def test_non_bug_is_ignored(self):
         self.assertEqual([], policy.check("### Idea\nA feature.", ["enhancement"]))
 

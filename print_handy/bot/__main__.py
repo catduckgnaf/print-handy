@@ -384,7 +384,7 @@ def check(out=None):
 
 
 def run():
-    logs.configure()
+    logs.configure(role="bot")
     logger.info("standalone bot starting (Print Handy %s)", __version__)
     try:
         cfg = settings.current()

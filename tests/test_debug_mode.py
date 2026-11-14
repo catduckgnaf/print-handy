@@ -108,6 +108,36 @@ class DebugModeTests(unittest.TestCase):
         self.assertFalse(debug_mode.poll(self.data, now=T0 + 6))
         self.assertEqual(logging.getLogger("print_handy").level, logging.NOTSET)
 
+    # ------------------------------------------------- rotation backups
+    def test_window_found_when_the_session_lives_only_in_a_rotation_backup(self):
+        # #1404: a session whose lines rotated into the .1 backup is still
+        # a findable window, read across the backups in order.
+        main = debug_mode.capture_path(self.data)
+        main.parent.mkdir(parents=True, exist_ok=True)
+        main.write_text("unrelated later line\n")
+        backup = Path(f"{main}.1")
+        backup.write_text(
+            "2026-01-01T00:00:00 INFO print_handy.debug_mode: DEBUG_SESSION_START session=rot123\n"
+            "inside the rotated window\n"
+            "2026-01-01T00:01:00 INFO print_handy.debug_mode: DEBUG_SESSION_END session=rot123\n")
+        window = debug_mode.session_window(self.data, session="rot123")
+        self.assertIsNotNone(window)
+        self.assertIn("inside the rotated window", window)
+        self.assertTrue(window.startswith(
+            next(line for line in window.splitlines() if "DEBUG_SESSION_START" in line)))
+
+    def test_latest_session_found_when_its_start_is_only_in_a_backup(self):
+        main = debug_mode.capture_path(self.data)
+        main.parent.mkdir(parents=True, exist_ok=True)
+        main.write_text("a line with no marker\n")
+        backup = Path(f"{main}.2")
+        backup.write_text(
+            "2026-01-01T00:00:00 INFO print_handy.debug_mode: DEBUG_SESSION_START session=old456\n")
+        self.assertEqual(debug_mode.latest_session(self.data), "old456")
+        window = debug_mode.session_window(self.data)
+        self.assertIsNotNone(window)
+        self.assertIn("session=old456", window)
+
     # ---------------------------------------------------------------- export
     def test_export_is_sanitized_named_and_carries_the_report(self):
         state = debug_mode.start(self.data, now=T0)

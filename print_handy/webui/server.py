@@ -165,7 +165,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from .. import settings
+from .. import __version__, logs, settings
 from ..bot import health as bot_health
 from . import access as access_module
 from . import camera as camera_module
@@ -2827,6 +2827,13 @@ def _printer_control(data, printer_id, verb, body):
 
 def serve(data=None, *, environ=None):
     """Run the server until interrupted; returns a process exit code."""
+    # The Web UI is a Print Handy process too (#1404): join the shared
+    # logging (and crash capture, role "webui") before serving, so its
+    # failures land in the same log and crash record as every other
+    # process instead of only on this process's stderr.
+    logs.configure((data or {}).get("logging") if isinstance(data, dict) else None,
+                   role="webui")
+    log.info("webui starting (Print Handy %s)", __version__)
     try:
         server = make_server(data, environ=environ)
     except WebUIServerError as exc:

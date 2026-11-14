@@ -8,9 +8,9 @@ import time
 
 from .common import _coldpull_workflow, _control_preamble, _decide_printer, _live_key_for, _pkw, _seen
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.bot.handlers")
+# Per-module logger (#1404): records name the handler module that
+# made them, so [logging] levels rules can target one handler.
+logger = logging.getLogger(__name__)
 
 
 async def coldpull_dispatch(event, gateway, **kwargs):

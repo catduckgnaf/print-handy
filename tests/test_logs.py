@@ -366,6 +366,56 @@ def test_redact_hides_matrix_access_tokens_and_leaves_user_ids_alone():
     assert logs.redact(ordinary) == ordinary
 
 
+def test_configure_with_a_role_installs_the_crash_hooks():
+    # #1404: a process that names its role gets crash capture; the hooks
+    # are process-global, so the test saves and restores them and frees
+    # the role again afterwards.
+    import sys
+    import threading
+
+    from print_handy import crash_report
+
+    sys_hook, thread_hook = sys.excepthook, threading.excepthook
+    try:
+        logs.configure({}, stream=io.StringIO(), role="test-role-1404")
+        assert "test-role-1404" in crash_report._installed_roles
+        assert sys.excepthook is not sys_hook
+        assert threading.excepthook is not thread_hook
+    finally:
+        sys.excepthook, threading.excepthook = sys_hook, thread_hook
+        crash_report._installed_roles.discard("test-role-1404")
+
+
+def test_configure_without_a_role_leaves_the_crash_hooks_alone():
+    import sys
+
+    before = sys.excepthook
+    logs.configure({}, stream=io.StringIO())
+    assert sys.excepthook is before
+
+
+def test_configure_reports_a_crash_install_failure_to_stderr(monkeypatch, capsys):
+    from print_handy import crash_report
+
+    def broken_install(role, data=None):
+        raise RuntimeError("no hooks today")
+
+    monkeypatch.setattr(crash_report, "install", broken_install)
+    logs.configure({}, stream=io.StringIO(), role="bot")
+    assert "logging: crash reporting not installed: no hooks today" in capsys.readouterr().err
+
+
+def test_configure_reports_a_debug_apply_failure_to_stderr(monkeypatch, capsys):
+    from print_handy import debug_mode
+
+    def broken_apply(data=None, **kwargs):
+        raise RuntimeError("state file is stuck")
+
+    monkeypatch.setattr(debug_mode, "apply", broken_apply)
+    logs.configure({}, stream=io.StringIO())
+    assert "logging: debug mode not applied: state file is stuck" in capsys.readouterr().err
+
+
 def test_process_binding_reaches_worker_threads_and_task_bind_still_wins():
     """P2-161: a plain threading.Thread does not inherit the ContextVar
     binding, so listener worker-thread lines lost their printer_id. The

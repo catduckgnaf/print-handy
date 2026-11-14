@@ -130,7 +130,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     from print_handy import logs
 
-    logs.configure()
+    logs.configure(role="monitor-worker")
     try:
         return run(args.watch, args.filename, args.printer)
     except Exception as exc:  # a monitor must never look like a print failure

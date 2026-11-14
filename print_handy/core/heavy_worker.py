@@ -58,7 +58,7 @@ def main(argv=None):
     # carry the same identity and settings as every other process (P2-55).
     # The parent re-emits whatever lands on stderr into its own log.
     from print_handy import logs
-    logs.configure()
+    logs.configure(role="heavy-worker")
     context = request.get('log_context')
     if isinstance(context, dict):
         logs.bind(**{str(key): value for key, value in context.items()})

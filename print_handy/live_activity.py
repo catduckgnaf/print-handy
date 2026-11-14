@@ -98,6 +98,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import select
 import socket
@@ -112,6 +113,8 @@ from pathlib import Path
 from typing import Mapping, Protocol
 
 from .live_stream import GO2RTC_STREAM_NAME, feed_stream_name
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ACTIVITY_PAGE",
@@ -1035,7 +1038,7 @@ def main(argv=None) -> int:
     clean serve, 3 when the feature is not enabled and configured
     (nothing to serve), 2 when the configuration cannot be resolved.
     """
-    from . import live_gate, settings
+    from . import __version__, live_gate, logs, settings
     from .live_stream import session_file_path
 
     try:
@@ -1057,6 +1060,12 @@ def main(argv=None) -> int:
               "([discord] approval_user_id / allowed_user_ids); not serving",
               file=sys.stderr)
         return 2
+    # The gates pass and this process will serve: join the shared logging
+    # (and crash capture, role "live-activity") like every other Print
+    # Handy process (#1404). The refusal paths above keep their plain
+    # prints and exit codes, before any of this runs.
+    logs.configure(data.get("logging") if isinstance(data, dict) else None,
+                   role="live-activity")
     presence = SessionPresence(session_file_path(data), data["live_stream"])
     stop = threading.Event()
 
@@ -1076,8 +1085,9 @@ def main(argv=None) -> int:
         session_active=presence.is_live,
         stream_name=stream_name,
         client_id=config.client_id)
-    print(f"live activity: serving on 127.0.0.1:{config.port} "
-          f"for {config.activity_origin} (stream {stream_name})")
+    log.info(f"live activity: serving on 127.0.0.1:{config.port} "
+             f"for {config.activity_origin} (stream {stream_name}) "
+             f"(Print Handy {__version__})")
     ticker = threading.Thread(target=_tick, daemon=True)
     ticker.start()
     try:

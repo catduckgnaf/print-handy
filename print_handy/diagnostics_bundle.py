@@ -18,6 +18,10 @@ Assembles, in one Markdown document:
   environment variable that holds it (env-name indirection only), and
   every assembled line passes through ``print_handy.logs.redact``;
 * the printer roster (id, model, connection — no hosts, no credentials);
+* a **crashes** section (#1404): the per-role crash records
+  (:mod:`print_handy.crash_report`) — an unhandled exception in any
+  Print Handy process lands there as a redacted structured record, so
+  the bundle can carry the crash itself, not just its log shadow;
 * the doctor's output;
 * the debug session's captured log window when one exists (#478),
   otherwise a bounded tail of the configured log file, plus each
@@ -108,17 +112,42 @@ def roster_summary(data) -> str:
 
 
 def log_tail(data, lines: int = DEFAULT_LOG_LINES) -> str:
-    """The bounded, redacted tail of the configured log file, or why there is none."""
+    """The bounded, redacted tail of the configured log file, or why there is none.
+
+    With no ``[logging]`` file configured, the debug capture file is the
+    fallback (#1404): it exists on exactly the installs the old answer
+    left with nothing (Docker/stderr, where the mode in #478 writes its
+    capture whether or not a log file is set). With neither, the answer
+    names both remaining routes instead of only the container log.
+    """
+    count = max(0, min(lines, MAX_LOG_LINES))
     path = str((data.get("logging") or {}).get("file") or "").strip()
     if not path:
+        from . import debug_mode
+
+        capture_text = ""
+        try:
+            capture = debug_mode.capture_path(data)
+            if capture.is_file():
+                capture_text = capture.read_text(errors="replace")
+        except Exception:
+            capture_text = ""
+        if capture_text.strip():
+            if count == 0:
+                return "(no log lines included: the requested line count is 0)"
+            tail = capture_text.splitlines()[-count:]
+            return ("(no [logging] file is configured; the lines below are from the "
+                    "debug capture file instead)\n"
+                    + "\n".join(logs.redact(line) for line in tail))
         return ("(no [logging] file is configured; attach the container or systemd log "
-                "for the same time window instead)")
+                "for the same time window instead. A second route: run a debug session "
+                "(`/print-handy debug on`, reproduce the problem, `/print-handy debug off`) "
+                "and then build the bundle again, or set a [logging] file)")
     target = logs.current_file(path)  # daily files: the newest is the one being written
     try:
         text = target.read_text(errors="replace")
     except OSError as exc:
         return f"(log file {target} could not be read: {exc})"
-    count = max(0, min(lines, MAX_LOG_LINES))
     if count == 0:
         # [-0:] is the whole file, so a zero request needs its own answer.
         return "(no log lines included: the requested line count is 0)"
@@ -161,26 +190,39 @@ def runtime_section(data, *, now=None) -> str:
     for entry in settings.printers(data):
         printer_id = entry.get("id")
         beat_text = "no heartbeat file"
+        record = None
         try:
             record = _json.loads(healthcheck.heartbeat_path(data, printer_id).read_text())
-            age = now - float(record["time"])
-            beat_text = f"heartbeat age {age:.0f}s"
-            lag = record.get("loop_lag_ms")
-            if isinstance(lag, (int, float)):
-                beat_text += f", loop lag {lag / 1000:.1f}s"
-            # The camera watch's coverage as the listener reported it (#1320).
-            from .runtime import camera_watch
-            watch_text = camera_watch.coverage_text(record.get("camera_watch"))
-            if watch_text:
-                beat_text += f", camera watch {watch_text}"
-        except Exception:
-            pass
+        except FileNotFoundError:
+            record = None  # no heartbeat file yet: the default text above
+        except Exception as exc:
+            # A heartbeat that exists but cannot be read or parsed is a
+            # different fact from no heartbeat at all (#1404): the old
+            # bare swallow reported both as "no heartbeat file".
+            record = None
+            beat_text = f"heartbeat file unreadable ({type(exc).__name__})"
+        if record is not None:
+            try:
+                age = now - float(record["time"])
+                beat_text = f"heartbeat age {age:.0f}s"
+                lag = record.get("loop_lag_ms")
+                if isinstance(lag, (int, float)):
+                    beat_text += f", loop lag {lag / 1000:.1f}s"
+                # The camera watch's coverage as the listener reported it (#1320).
+                from .runtime import camera_watch
+                watch_text = camera_watch.coverage_text(record.get("camera_watch"))
+                if watch_text:
+                    beat_text += f", camera watch {watch_text}"
+            except Exception as exc:
+                beat_text = f"heartbeat file unreadable ({type(exc).__name__})"
         sup = records.get(printer_id)
         if sup is None:
             sup_text = "supervisor restarts not recorded"
         else:
             sup_text = (f"supervisor restarts {sup.get('restarts')} of budget "
                         f"{sup.get('budget')} in {sup.get('window_s')}s")
+            if sup.get("last_exit_status") is not None:
+                sup_text += f", last exit status {sup.get('last_exit_status')}"
             if sup.get("exhausted"):
                 sup_text += " — BUDGET EXHAUSTED, listener left down"
         lines.append(f"- {printer_id}: {beat_text}; {sup_text}")
@@ -418,6 +460,8 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
               include_printer_logs: bool = False) -> str:
     digest = next((os.environ[name] for name in _DIGEST_ENVS if os.environ.get(name)),
                   "not recorded in this environment (standalone install or unset)")
+    from . import crash_report, debug_mode
+
     if load_error is not None:
         failure = f"{type(load_error).__name__}: {load_error}"
         config_text = f"(configuration could not be loaded: {failure})"
@@ -427,7 +471,6 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
     else:
         config_text = config_summary(data)
         roster_text = roster_summary(data)
-        from . import debug_mode
         window = debug_mode.session_window(data)
         if window is not None:
             log_title = "Debug session log (sanitized; see docs/DIAGNOSTICS.md)"
@@ -443,6 +486,7 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
         f"- Python: {platform.python_version()}",
         f"- Platform: {platform.platform()}",
         f"- Image digest: {digest}",
+        f"- Debug mode: {_section(debug_mode.status_text, data)}",
         "",
         "## Sanitization",
         "",
@@ -459,6 +503,10 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
         "## Runtime status",
         "",
         _section(runtime_section, data) if load_error is None else "(unavailable: the configuration did not load)",
+        "",
+        "## Crashes",
+        "",
+        _section(crash_report.section, data),
         "",
         "## Doctor",
         "",

@@ -9,9 +9,9 @@ from pathlib import Path
 
 from .common import _confirm, _control_gate, _seen, _spool_timeout
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.bot.handlers")
+# Per-module logger (#1404): records name the handler module that
+# made them, so [logging] levels rules can target one handler.
+logger = logging.getLogger(__name__)
 
 
 def _purchase_ai_call():
