@@ -2,6 +2,32 @@
 
 # Unreleased
 
+# Version 2.3.3
+
+**Release Date:** 2026-11-13
+**Range:** 2.3.2..main (8 PRs, #1390 to #1401, plus the baselines PR to come; checklist #1402). Driven by the live 2.3.2 install: a 25 MB lantern G-code that took 26 s to reach Ready (#1392), a camera alert on a healthy print from one 12% local detection, a pasted message link that got "I didn't understand that", plus mention support, the review follow-ups in #1397 and the whole-repository review #1400.
+**Live checks performed for this release:** none on hardware. The timing came from a copy of the live job profiled inside the running 2.3.2 container; the camera and message-link cases came from the live 2.3.2 logs.
+**Not verified live:** mentions on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, and ha-print-handy reading the new server fields. All are covered by offline tests.
+
+- Mentions (PR #1394): "@bot command" runs the command on Discord, Telegram, Matrix and web chat; the bot's names come from its own account at run time plus `bot_name`; Telegram `/cmd@OtherBot` is no longer run here. Review follow-ups from #1397 (punctuation and no-space mentions, newline split, help under 2000 characters for names up to 32, Matrix own posts, linked message for another bot) landed on the same PR.
+- Discord message links (PR #1391): a pasted link to an earlier print-channel message re-runs that message's model link or file as the person who pasted it.
+- Design concurrency (PR #1398): links and files during a design turn or at its questions start a normal intake; button waits no longer park default-pool threads, so open questions cannot starve a print start on a small container.
+- Camera (PR #1395): a lone weak local detection is logged, 2 independent weak checks post one low-confidence alert without a ping, 3 make a failure verdict; Moonraker and Bambu behave the same; a stall alert keeps its ping (`camera_watch.alert_pings`); the real-weights test hashes with `hashlib.file_digest`.
+- Slice speed (#1392, PRs #1393 and #1396): post-slice passes 15 s to 3.6 s on the 25 MB lantern; the bed check runs in Rust through the bounds extension with the Python loop as contract and fallback; the ZMod finalize early return from #1393 is removed (a crafted file could skip heater, material and used-tools checks) and the full pass is cheap instead; the performance regression ledger and procedure.
+- Review #1400 findings (PR #1401): Home Assistant server fields (`temperature_limits_c`, `controls_enabled`, `instance_id`, `GET /api/printers`), the Web UI claim as a setup step, docker.yaml/docker.toml parity test, issue spelling check, 2.3.x shims scheduled for removal in 2.4.0, `tests/hermes/` renamed `tests/runtime/`.
+- Docs: the 2.3.2 index digest pinned in docs/DOCKER.md (PR #1390).
+
+Merged PRs in the range, one line each:
+
+- fix(review): #1400 findings: Home Assistant fields, claim step, config parity, issue spelling, shims dated, tests/runtime (PR #1401).
+- feat(bot): mention the bot instead of typing a slash command (PR #1394).
+- fix(design): keep printing while a design runs (PR #1398).
+- fix(camera): a lone weak local detection is noted, not posted (PR #1395).
+- perf(slice): post-slice passes 15 s to 3.6 s on 25 MB; finalize runs in full again (#1392) (PR #1396).
+- perf(slice): finalize a G-code once; narrow the bed check; a regression ledger (#1392) (PR #1393).
+- fix(discord): a pasted message link re-runs that message's model link or file (PR #1391).
+- docs(docker): pin the 2.3.2 index digest, roll back to 2.3.1 (#1387) (PR #1390).
+
 # Version 2.3.2
 
 **Release Date:** 2026-11-13
