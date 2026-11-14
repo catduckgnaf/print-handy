@@ -31,6 +31,14 @@ name: Post-release surfaces check
 # auto-sync workflow opens a sync PR for the release. Without the secret
 # the step records the skip (and the manual dispatch link) on the
 # checklist issue instead — a missing optional secret never fails a run.
+# A third step does the same for the Home Assistant OS app
+# (catduckgnaf/print-handy-haos-addon): a repository_dispatch
+# `print-handy-release` starts its Upstream workflow, which pins the new
+# image, builds and publishes the app and only then offers the update.
+# It uses the HAOS_APP_DISPATCH_TOKEN secret, else DOCS_SYNC_TOKEN when
+# that token also reaches the app repository. Without either, or when the
+# dispatch is refused, the app still picks the release up on its own
+# schedule; the step records which happened and never fails a run.
 
 on:
   release:
@@ -264,6 +272,62 @@ jobs:
               | jq -r --arg t "Release checklist: $tag" \
                 '[.[] | select(.title == $t) | .number] | first // empty')"
           fi
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$repo" --body "$note" \
+              || echo "$note" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$note" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Trigger the Home Assistant OS app update (or record why it was skipped)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAOS_APP_DISPATCH_TOKEN: ${{ secrets.HAOS_APP_DISPATCH_TOKEN }}
+          DOCS_SYNC_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -uo pipefail
+          repo="${{ github.repository }}"
+          app_repo="catduckgnaf/print-handy-haos-addon"
+
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "$repo" --json tagName --jq .tagName)"
+          fi
+
+          # The dedicated token first; then the docs token, when it also
+          # reaches the app repository (a token scoped to print-handy-docs
+          # only is refused, and the dispatch is recorded as not sent).
+          workflow_link="https://github.com/$app_repo/actions/workflows/upstream.yaml"
+          sent=""
+          for name in HAOS_APP_DISPATCH_TOKEN DOCS_SYNC_TOKEN; do
+            token="${!name:-}"
+            [ -n "$token" ] || continue
+            if printf '{"event_type":"print-handy-release","client_payload":{"ref":"%s"}}' "$tag" \
+                | GH_TOKEN="$token" gh api "repos/$app_repo/dispatches" --input - > /dev/null 2>&1; then
+              sent="$name"
+              break
+            fi
+          done
+
+          if [ -n "$sent" ]; then
+            note="Home Assistant OS app update for $tag was **dispatched** to $app_repo (repository_dispatch \`print-handy-release\`, token \`$sent\`). Its [Upstream workflow]($workflow_link) pins the $tag image, builds and smoke-tests the app, publishes it, and only then offers the update in Home Assistant."
+          else
+            note="Home Assistant OS app update for $tag was **not dispatched**: neither \`HAOS_APP_DISPATCH_TOKEN\` nor \`DOCS_SYNC_TOKEN\` is configured with access to $app_repo. The app still picks the release up on its own scheduled check (every 30 minutes, though GitHub may run it hours later), or run its [Upstream workflow]($workflow_link) by hand. To make it immediate, save a fine-grained token with Contents read and write on $app_repo as the \`HAOS_APP_DISPATCH_TOKEN\` secret on this repo."
+          fi
+
+          # Record it where the docs step does: this release's surfaces
+          # issue, or the pre-release checklist issue (#657); else the
+          # step summary. Never fails the run.
+          existing=""
+          for title in "Post-release surfaces check: $tag" "Release checklist: $tag"; do
+            existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+              --search "in:title \"$title\"" --json number,title \
+              | jq -r --arg t "$title" '[.[] | select(.title == $t) | .number] | first // empty')"
+            [ -n "$existing" ] && break
+          done
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --repo "$repo" --body "$note" \
               || echo "$note" >> "$GITHUB_STEP_SUMMARY"
