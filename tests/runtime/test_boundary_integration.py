@@ -127,6 +127,11 @@ def listener(monkeypatch):
         monkeypatch.setattr(lst, name, nothing)
     monkeypatch.setattr(lst, "_sync_printer_clock", lambda *a, **k: None)
     monkeypatch.setattr(lst, "_schedule_capture", lambda *a, **k: None)
+    # forever() starts the daemon heartbeat writer, which outlives the test and
+    # keeps calling healthcheck.beat every HEARTBEAT_S (30 s). A later test that
+    # patches beat then records this listener's stale loop lag (30054 ms seen in
+    # CI run 43533231887), so the writer is never started here.
+    monkeypatch.setattr(lst, "_start_heartbeat_writer", lambda: None)
     return lst
 
 
@@ -167,6 +172,16 @@ def drive_moonraker(lst, monkeypatch, behaviors, done):
             await run_forever_until(lst, fake, monkeypatch, done, delays)
     asyncio.run(flow())
     return fake, delays
+
+
+def _heartbeat_writers():
+    return [t for t in threading.enumerate() if t.name == "listener-heartbeat"]
+
+
+def test_driving_the_listener_leaves_no_heartbeat_writer_running(listener, monkeypatch):
+    before = len(_heartbeat_writers())
+    drive_moonraker(listener, monkeypatch, ["idle"], lambda f, d: listener.state == "standby")
+    assert len(_heartbeat_writers()) == before
 
 
 def test_listener_reconnects_and_resubscribes_after_the_server_drops(listener, monkeypatch):
