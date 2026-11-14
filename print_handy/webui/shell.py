@@ -282,6 +282,19 @@ SUBMIT_SCRIPT = (
     ".forEach(function(h){h.remove();});});"
     "</script>")
 
+# The favicon and touch icon links, in every page head (#1456). The
+# files are the branding icons in webui/static (byte copies of
+# assets/branding, pinned equal by tests/test_webui_favicon.py), served
+# by the public /favicon.ico and /static/* routes in routes.py, so the
+# browser can fetch them before or without a login, the login page
+# included.
+ICON_HEAD_TAGS = (
+    '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
+    '<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">'
+    '<link rel="icon" type="image/png" sizes="16x16" href="/static/icon-16.png">'
+    '<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">'
+)
+
 
 def _esc(value):
     return html.escape(str(value), quote=True)
@@ -348,6 +361,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     theme_attr = ' data-theme="light"' if theme == "light" else ""
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
+             f"{ICON_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
              f"<style>{CSS}</style></head><body>"]
     if chrome:
@@ -377,6 +391,6 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
-    "page", "theme_cookie_header", "theme_from_cookies",
+    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "SUBMIT_SCRIPT",
+    "THEME_COOKIE", "THEMES", "page", "theme_cookie_header", "theme_from_cookies",
 ]
