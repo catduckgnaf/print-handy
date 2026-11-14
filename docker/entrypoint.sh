@@ -256,7 +256,11 @@ fi
 if [ -n "${PRINT_HANDY_STATE_MIGRATE_ONLY:-}" ]; then
     exit 0
 fi
-mkdir -p "$state_home/state" "$state_home/logs" "$data_root/archive" "$data_root/records" "$data_root/cache"
+mkdir -p "$state_home/state" "$data_root/archive" "$data_root/records" "$data_root/cache"
+# The log folder is best effort (#1416): file logging falls back to stderr, so
+# a log folder that cannot be created must never stop the container starting.
+mkdir -p "$state_home/logs" 2>/dev/null \
+    || echo "Print Handy: cannot create $state_home/logs; file logging falls back to stderr" >&2
 # Container timezone: TZ names an IANA zone (image default America/New_York).
 # Consumers read TZ directly, so there is nothing to relink here — the
 # entrypoint runs unprivileged and cannot rewrite /etc/localtime, which the
