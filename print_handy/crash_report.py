@@ -76,7 +76,10 @@ def record(exc_type, exc, tb, *, role, data=None, now=None) -> Path | None:
             except Exception:
                 formatted = ""
         try:
-            context = {str(key): value for key, value in logs.bound_context().items()}
+            # Redacted like the message and traceback: a secret bound into
+            # the log context (by key name or by value) must not reach disk.
+            context = logs._redact_value(
+                {str(key): value for key, value in logs.bound_context().items()})
         except Exception:
             context = {}
         payload = {
@@ -93,10 +96,19 @@ def record(exc_type, exc, tb, *, role, data=None, now=None) -> Path | None:
         directory = crash_dir(data)
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{payload['role']}.json"
-        tmp = directory / f".{payload['role']}.tmp"
-        tmp.write_text(json.dumps(payload, indent=1, sort_keys=True, default=str),
-                       encoding="utf-8")
-        os.replace(tmp, target)
+        # One temp file per writer (pid + thread), so two processes or
+        # threads of one role crashing at once cannot clobber each other's
+        # temp file before os.replace; the last replace wins whole.
+        tmp = directory / f".{payload['role']}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            tmp.write_text(json.dumps(payload, indent=1, sort_keys=True, default=str),
+                           encoding="utf-8")
+            os.replace(tmp, target)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
         return target
     except Exception:
         return None

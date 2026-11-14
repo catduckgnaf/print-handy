@@ -66,6 +66,45 @@ class RecordTests(unittest.TestCase):
         self.assertNotIn(DISCORD_TOKEN, payload["message"])
         self.assertNotIn(DISCORD_TOKEN, payload["traceback"])
 
+    def test_record_redacts_secrets_from_the_bound_context(self):
+        # Review on #1409: bound log context reached the crash file unredacted.
+        from print_handy import logs
+        token = logs.bind(api_key="plain-value-under-a-secret-key",
+                          detail=f"auth {DISCORD_TOKEN}", intake="iid-7")
+        try:
+            exc_type, exc, tb = _raise(RuntimeError("boom"))
+            target = crash_report.record(exc_type, exc, tb, role="bot", data=self.data, now=1.0)
+        finally:
+            logs.unbind(token)
+        text = target.read_text()
+        self.assertNotIn("plain-value-under-a-secret-key", text)
+        self.assertNotIn(DISCORD_TOKEN, text)
+        context = json.loads(text)["context"]
+        self.assertEqual(context["api_key"], logs.REDACTED)
+        self.assertEqual(context["intake"], "iid-7")
+
+    def test_concurrent_records_for_one_role_never_lose_the_record(self):
+        # Review on #1409: a shared temp name let one writer's os.replace
+        # move the other's temp file away, losing a crash record.
+        exc_type, exc, tb = _raise(ValueError("race"))
+        results, start = [], threading.Barrier(8)
+
+        def crash():
+            start.wait()
+            results.append(crash_report.record(exc_type, exc, tb, role="listener",
+                                               data=self.data, now=2.0))
+
+        threads = [threading.Thread(target=crash) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(results), 8)
+        self.assertTrue(all(path is not None for path in results), results)
+        folder = crash_report.crash_dir(self.data)
+        self.assertEqual(json.loads((folder / "listener.json").read_text())["message"], "race")
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["listener.json"])
+
     def test_record_sanitizes_the_role_into_a_filename(self):
         exc_type, exc, tb = _raise(ValueError("x"))
         target = crash_report.record(exc_type, exc, tb, role="Bot Main!", data=self.data, now=1.0)
