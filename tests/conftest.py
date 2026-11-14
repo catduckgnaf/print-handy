@@ -26,6 +26,23 @@ os.environ.setdefault("PRINT_HANDY__LAYOUT__SPACING", "medium")
 for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
     os.environ.setdefault(f"PRINT_HANDY__NOZZLE_TEMP_OFFSETS__{_steel}", "0")
 
+# The credentials Print Handy reads from the environment (#1428). A key set on the
+# machine running the tests (a developer shell, a service manager, a CI secret) would
+# otherwise reach every test that does not set its own: with CLIPROXY_API_KEY present the
+# vision chat route counts as configured, so the local-detector tests asked the fake
+# vision.test host instead and failed only on hosts that export the key. Tests that need
+# a credential set it themselves with monkeypatch.setenv. Removed at import, before any
+# module reads one; tests/test_conftest_credentials.py pins this list against the code.
+CREDENTIAL_ENV = (
+    "AGENT_API_KEY", "API_KEY", "BAMBU_LAN_PASSWORD", "CLIPROXY_API_KEY", "CULTS3D_TOKEN",
+    "DISCORD_BOT_TOKEN", "DISCORD_CLIENT_SECRET", "LIVE_STREAM_SESSION_SECRET", "LLM_API_KEY",
+    "MAKERWORLD_TOKEN", "MATRIX_ACCESS_TOKEN", "MOONRAKER_API_KEY", "MQTT_PASSWORD",
+    "MYMINIFACTORY_OAUTH_TOKEN", "NTFY_ACCESS_TOKEN", "OCTOPRINT_API_KEY", "PRINT_TIMELAPSE_SSH_KEY",
+    "PRUSA_LINK_API_KEY", "TELEGRAM_BOT_TOKEN", "THINGIVERSE_TOKEN", "WEBUI_ACCESS_TOKEN",
+)
+for _name in CREDENTIAL_ENV:
+    os.environ.pop(_name, None)
+
 from print_handy import settings  # noqa: E402
 from print_handy.runtime import _config
 
