@@ -357,21 +357,23 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
     the record context so the completion record carries THIS launch's number,
     not the job's first-print number.
     """
+    # #1414: bind this job's correlation id for every line logged while the
+    # start is recorded. bind/unbind only set a ContextVar and cannot raise.
     correlation_token = None
     try:
-        job = _job_for_gcode(Path(gcode_path).expanduser().resolve())
-        if isinstance(job, dict):
-            correlation_token = logs.bind(job_correlation_id=job_correlation.ensure(job))
-    except Exception:
-        pass
+        job, job_json = _job_record_for_gcode(Path(gcode_path).expanduser().resolve())
+    except OSError:
+        logger.warning("start record: job lookup for the correlation id failed", exc_info=True)
+        job, job_json = None, None
+    if isinstance(job, dict):
+        correlation_id = job_correlation.ensure(job)
+        job_correlation.persist(job_json, correlation_id)
+        correlation_token = logs.bind(job_correlation_id=correlation_id)
     try:
         return _record_start_with_context(gcode_path, moonraker_name, started_at, print_number)
     finally:
         if correlation_token is not None:
-            try:
-                logs.unbind(correlation_token)
-            except Exception:
-                pass
+            logs.unbind(correlation_token)
 
 
 def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None, print_number=None):
@@ -382,10 +384,7 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
     job=_job_for_gcode(g)
     key=moonraker_name or g.name
     src=(job or {}).get("selected_source") or {}
-    try:
-        correlation_id = job_correlation.ensure(job) if isinstance(job, dict) else None
-    except Exception:
-        correlation_id = None
+    correlation_id = job_correlation.ensure(job) if isinstance(job, dict) else None
     ctx={"job_key":key,"title":(job or {}).get("title") or g.stem,"source_url":(job or {}).get("url"),
          "source_platform":(job or {}).get("site"),"started_at":started_at or print_records.utc_now(),
          "hardware":st.get("printer", "Klipper") + ", "+printer_state.summary(st),
@@ -397,13 +396,9 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
          "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
     if correlation_id:
+        # Persisted by record_start with a one-field merge; never rewrite the
+        # whole JOB.json here, or a stale copy drops the plate's project claim.
         ctx["job_correlation_id"] = correlation_id
-        job_path = _job_record_for_gcode(g)[1]
-        if job_path:
-            try:
-                write_job(job_path.parent, job)
-            except Exception:
-                pass
     if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
         ctx["print_number"] = print_number
     plan = (job or {}).get('multipart_plan') or {}

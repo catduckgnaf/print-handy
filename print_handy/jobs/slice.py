@@ -4,7 +4,7 @@ the fit and painted-scale searches, the filament fallbacks and warnings the slic
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
-import json, math, re, time, zipfile
+import json, logging, math, re, time, zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -23,6 +23,8 @@ from .store import (
     _job_adapter, _recipe_binding, _recipe_changed, _recorded_printer_id, _timing, decisions_digest,
     gcode_estimate_s, human_dur, stamp_job_printer, write_job,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def finalize_multicolor(*args, **kwargs):
@@ -1950,38 +1952,32 @@ def _slice_abrasive_warnings(state, job, decisions, selection=None):
 def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     """Slice one job; an accepted abrasive warning lets the pre-slice guard warn instead of refusing (#1336)."""
     from .. import logs
+    from ..core import job_correlation
+    # #1414: bind this job's correlation id for the whole slice. Diagnostics
+    # only: an unreadable JOB.json is left for _slice_job to report as before.
     token = None
     try:
         job = json.loads(Path(job_path).read_text())
-        from ..core import job_correlation
-        token = logs.bind(job_correlation_id=job_correlation.ensure(job))
-        write_job(Path(job_path).parent, job)
-    except Exception:
-        # Correlation metadata is best effort; it must never block slicing.
-        pass
+    except (OSError, ValueError):
+        logger.warning("slice: JOB.json unreadable for the correlation id", exc_info=True)
+        job = None
+    if isinstance(job, dict):
+        correlation_id = job_correlation.ensure(job)
+        job_correlation.persist(job_path, correlation_id)
+        token = logs.bind(job_correlation_id=correlation_id)
     try:
         with material_accept.accepting(_accepted_slice_abrasive(job_path)):
             return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
                               recipe_sha256=recipe_sha256)
     finally:
         if token is not None:
-            try:
-                logs.unbind(token)
-            except Exception:
-                pass
+            logs.unbind(token)
 
 
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
     job = json.loads(Path(job_path).read_text())
-    # Mint/reuse an opaque local ID before any slice work; diagnostics are best-effort.
-    try:
-        from ..core import job_correlation
-        job_correlation.ensure(job)
-        write_job(Path(job_path).parent, job)
-    except Exception:
-        pass
     # A filament warning acceptance authorizes one slicing run: an
     # acceptance an earlier slice_job run already used is consumed here,
     # before any gate reads it, so a reslice presents the warnings again

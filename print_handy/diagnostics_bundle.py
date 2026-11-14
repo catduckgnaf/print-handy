@@ -467,8 +467,8 @@ def job_correlation_section(data) -> str:
                 rows.append(f"- `{value}`")
                 if len(rows) == 10:
                     break
-    except Exception:
-        return "(unavailable)"
+    except OSError:
+        return "(unavailable: the job archive could not be read)"
     return "\n".join(rows) or "(no recorded job correlation IDs)"
 
 
