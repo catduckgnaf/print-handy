@@ -24,11 +24,10 @@ import os
 import re
 import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import printers
+from .. import moonraker, printers
 from ..core import filament_color, spool_canon, spoolman_client
 from . import _config
 
@@ -58,14 +57,11 @@ def _http(base: str, method: str, path: str, body: Any = None, timeout: float = 
     if not base:
         raise SpoolError("the service for this request is not configured "
                          "(services.moonraker_url / services.spoolman_url in config/local.yaml or config/local.toml)")
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(base + path, data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
-    if method == "POST" and data is None:
-        req.data = b"{}"
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode() or "{}"
-    return json.loads(raw)
+    # Through the one Moonraker transport (#1466), key included. A POST
+    # with no body still sends "{}" exactly as before.
+    data = {} if (method == "POST" and body is None) else body
+    return moonraker.moonraker_json(base, path, method=method, data=data, timeout=timeout,
+                                    headers={"Content-Type": "application/json"})
 
 
 _SPOOL_GET = re.compile(r"/api/v1/spool/(\d+)")

@@ -9,11 +9,10 @@ behind "Stopped". Nothing is sent to turn it off; the operator decides.
 
 from __future__ import annotations
 
-import json
 import time
-import urllib.request
 from typing import Any
 
+from .. import moonraker
 from . import _config
 
 BASE = _config.moonraker_url()
@@ -34,9 +33,9 @@ def _base_for(printer_id: str | None) -> str:
 
 
 def _call(path: str, method: str = "GET", timeout: float = 10, base: str | None = None) -> dict[str, Any]:
-    req = urllib.request.Request(_config.require(BASE if base is None else base, "services.moonraker_url") + path, method=method, data=b"" if method == "POST" else None)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read() or b"{}")
+    return moonraker.moonraker_json(
+        _config.require(BASE if base is None else base, "services.moonraker_url"),
+        path, method=method, data=b"" if method == "POST" else None, timeout=timeout)
 
 
 def _send(path: str, method: str = "GET", timeout: float = 10, printer_id: str | None = None) -> dict[str, Any]:
@@ -349,7 +348,10 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             return control.cancel(expected_filename, wait_s=wait_s, poll_s=poll_s)
         if family_adapter is not None:
             return False, _unconnected_text(family_adapter)
-    before = status(printer_id)
+    try:
+        before = status(printer_id)
+    except moonraker.MoonrakerAuthError as exc:
+        return False, f"{exc} Nothing sent."
     if before["state"] not in ACTIVE:
         return False, nothing_to_stop_text(before, start_in_flight(printer_id, before))
     if expected_filename and before["filename"] != expected_filename:
@@ -366,7 +368,10 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         # Moonraker holds the reply until the cancel macro finishes; a reply that times out
         # after the request went out means "sent, waiting for the printer", not failure.
-        replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
+        try:
+            replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)
+        except moonraker.MoonrakerAuthError as exc:
+            return False, f"{exc} The cancel was not sent."
         if not replied:
             wait_s = max(wait_s, NO_REPLY_WAIT_S)
     after = read_back(lambda: status(printer_id), lambda st: st["state"] not in ACTIVE,

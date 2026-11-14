@@ -684,8 +684,8 @@ def _fetch_remote_gcode_sha256(moonraker_url, remote_name, timeout=60):
     escaped = urllib.parse.quote(remote_name)
     url = f"{moonraker_url}/server/files/gcodes/{escaped}"
     hasher = hashlib.sha256()
-    req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    from .. import moonraker as _moonraker
+    with _moonraker.open_url(url, timeout=timeout, moonraker=True) as resp:
         total_read = 0
         while True:
             chunk = resp.read(65536)

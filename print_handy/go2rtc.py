@@ -48,7 +48,6 @@ import json
 import os
 import shlex
 import sys
-import urllib.request
 from pathlib import Path
 
 from . import settings
@@ -385,7 +384,8 @@ def gate(data=None) -> int:
 def check(url=API_URL, timeout=3) -> tuple[bool, str]:
     """Health probe for the docker healthcheck: go2rtc's API on loopback."""
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        from . import moonraker
+        with moonraker.open_url(url, timeout=timeout) as response:
             return response.status == 200, f"HTTP {response.status}"
     except Exception as exc:  # the healthcheck reports, never raises
         return False, str(exc)

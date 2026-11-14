@@ -64,16 +64,12 @@ def _poll_moonraker_state(entry):
     about. Any failure (no URL, unreachable, odd payload) reads as None —
     no notice, no exception.
     """
-    import json as _json
-    import urllib.request
-
     base = str((entry or {}).get("moonraker_url") or "").rstrip("/")
     if not base:
         return None
     try:
-        with urllib.request.urlopen(f"{base}/printer/objects/query?print_stats",
-                                    timeout=5) as resp:
-            payload = _json.loads(resp.read())
+        from .. import moonraker
+        payload = moonraker.moonraker_json(base, "/printer/objects/query?print_stats", timeout=5)
         stats = ((payload.get("result") or {}).get("status") or {}).get("print_stats") or {}
         state = stats.get("state")
         if not isinstance(state, str):

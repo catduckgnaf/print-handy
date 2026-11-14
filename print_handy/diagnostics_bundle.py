@@ -270,11 +270,10 @@ def process_logs_section(data, *, log_lines: int = DEFAULT_LOG_LINES) -> str:
 
 def _fetch_bytes(url, timeout=10):
     """(bytes) for a Moonraker GET, or None on any failure. Never raises."""
-    import urllib.request
+    from . import moonraker
 
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.read()
+        return moonraker.url_bytes(url, timeout=timeout, moonraker=True)
     except Exception:
         return None
 
