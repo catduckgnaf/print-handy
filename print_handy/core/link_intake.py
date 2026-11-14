@@ -243,6 +243,21 @@ class PromptExpired(RuntimeError):
 CANCEL_LABEL = "Cancel"
 
 
+_NOT_PARSED = object()
+
+
+def _parse_typed(parser, answer):
+    """``parser(answer)``, or ``_NOT_PARSED`` when the parser rejects the text (#1417).
+
+    Parsers signal "this text is not an answer" with ValueError; that is the
+    expected outcome for most replies, so it is a value here, not a silent pass.
+    """
+    try:
+        return parser(answer)
+    except ValueError:
+        return _NOT_PARSED
+
+
 async def ask(adapter, source, session_key, question, choices, timeout=None, allow_other=False, parser=None,
               live_key=None, approval=False):
     """Ask a button question. With ``parser``, a typed reply in the same chat is also accepted;
@@ -286,13 +301,11 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             if answer in choices:
                 return choices.index(answer)
             if isinstance(answer, str) and parser is not None:
-                try:
-                    parsed = parser(answer)
-                    if parsed is not None:
-                        return parsed
-                except ValueError:
-                    # Ignore non-answers and keep the prompt available.
-                    continue
+                # A reply the parser rejects is not an answer to the typed form;
+                # it still falls through to the button-label and cancel checks below.
+                parsed = _parse_typed(parser, answer)
+                if parsed is not _NOT_PARSED and parsed is not None:
+                    return parsed
             if answer is None:
                 raise PromptExpired('this question expired before a button was pressed; no decision saved')
             if answer == cm.CANCELLED:
@@ -302,11 +315,12 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
                 if picked is not None:
                     return picked
                 if parser is not None:
-                    try:
-                        return parser(answer)
-                    except ValueError:
-                        # Keep the prompt open instead of treating request context as a bad reply.
-                        continue
+                    # A live session may replay the original request text (for example,
+                    # a URL plus a duration question) into the first typed prompt. A reply
+                    # the parser rejects keeps the prompt open with the hint below.
+                    parsed = _parse_typed(parser, answer)
+                    if parsed is not _NOT_PARSED:
+                        return parsed
             if attempt == 0:
                 question += '\nPick a button or type split / 100% / shrink / cancel.'
         raise RuntimeError('clarification requires a valid button choice; no decision saved')
