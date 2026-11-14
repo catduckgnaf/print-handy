@@ -76,6 +76,22 @@ def vision_ai_on(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_prompt_registry(monkeypatch):
+    """Each test gets an empty prompt registry and approval-mark table.
+
+    ``print_handy.core.prompts`` keeps every open prompt in one process-wide
+    dict. A test that registers a prompt and never answers it (a rendering
+    check, a cancelled waiter) left it open for every later test, so
+    ``prompts.open_count() == 0`` assertions failed only after particular
+    neighbors ran. Swapping in fresh containers keeps each test's prompts its
+    own; tests/test_prompt_registry_isolation.py pins this.
+    """
+    from print_handy.core import prompts
+    monkeypatch.setattr(prompts, "_prompts", {})
+    monkeypatch.setattr(prompts, "_approval_marks", {})
+
+
+@pytest.fixture(autouse=True)
 def _quiet_status_voice(request, monkeypatch):
     """Status quips are random by design, so suites that assert exact progress text see none.
 
