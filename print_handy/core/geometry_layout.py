@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import re
 import struct
@@ -29,6 +30,8 @@ from .orca_adapter import _hull, _printed_faces, _prusa_printed_ranges, read_stl
 from .painted_geometry import paint_census
 from .source_colors import cutter_ids, inventory as color_inventory, prusa_volume_layout
 from .threemf_canonical import UNIT_TO_MM
+
+logger = logging.getLogger(__name__)
 
 NS = {'c': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
 
@@ -309,8 +312,8 @@ def _load_3mf_parts(path: Path, input_unit: str | None = None):
                     for meta in obj_el.findall('metadata'):
                         if meta.get('key') == 'name' and meta.get('value'):
                             object_names[oid] = meta.get('value')
-            except ET.ParseError:
-                pass
+            except ET.ParseError as exc:
+                logger.debug("ignoring malformed 3MF model settings metadata: %s", exc)
 
         def get_model(model_path):
             if model_path not in models:
@@ -852,8 +855,8 @@ def preserve_3mf_package_layout(source: Path, placed, target: Path, bed=DEFAULT_
                 payload['Metadata/model_settings.config'],
                 set(placement_by_oid),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("could not collapse 3MF model settings metadata: %s", exc)
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
         for name, data in payload.items():
             out.writestr(name, data)

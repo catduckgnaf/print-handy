@@ -1,6 +1,4 @@
 """Per-domain connection probes for candidate printer settings (#537).
-
-One question, answered before anything is saved: *does a printer answer at
 the address just typed, with the credentials the operator says are stored?*
 Guided printer onboarding runs a probe against the candidate roster fields
 (not against any configured printer), reports what answered, and loops back
@@ -43,9 +41,12 @@ result, a summary, or an exception it raises.
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field as _dc_field
+
+logger = logging.getLogger(__name__)
 
 CATEGORIES = ("unreachable", "auth", "missing_secret", "protocol", "config")
 
@@ -207,7 +208,7 @@ def _probe_sdcp(fields, secrets, timeout_s, client_factory):
         try:
             client.close()
         except Exception:
-            pass
+            logger.debug("SDCP client close failed", exc_info=True)
     detail = {}
     if getattr(client, "mainboard_id", ""):
         detail["mainboard_id"] = str(client.mainboard_id)

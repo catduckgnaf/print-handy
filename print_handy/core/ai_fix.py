@@ -490,8 +490,9 @@ def preview_image(source_path, dest_path) -> str:
         made = render_preview.render(source_path)
         shutil.copyfile(made, dest_path)
         return str(dest_path)
-    except Exception:  # noqa: BLE001 - fall back to the rasterizer below
-        pass
+    except (ImportError, OSError, RuntimeError, ValueError):
+        # Preview is best-effort; the local rasterizer below is the fallback.
+        logger.debug("OpenSCAD preview unavailable; using rasterizer", exc_info=True)
     import io
 
     import numpy as np
