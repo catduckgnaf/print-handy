@@ -19,6 +19,9 @@ Transports are injectable (``ws_factory``, ``opener``, ``udp``) so tests run ful
 Mutations are never auto-retried; a start must be confirmed by a status poll, and an
 unconfirmed start is reported uncertain by the caller, never resubmitted.
 """
+
+import logging
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import re
@@ -156,7 +159,7 @@ class SdcpClient:
             try:
                 self._ws.close()
             except Exception:
-                pass
+                logger.debug("Elegoo SDCP WebSocket close failed", exc_info=True)
             self._ws = None
 
     def request(self, cmd, data=None, timeout=None):

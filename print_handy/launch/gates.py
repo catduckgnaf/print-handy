@@ -4,6 +4,9 @@ checkpoint, filament and mesh readiness, mechanical limits, and the yolo waivers
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
+
+import logging
+logger = logging.getLogger(__name__)
 import contextvars, hashlib, json, math, re, time
 import urllib.request
 from pathlib import Path
@@ -300,13 +303,13 @@ def mesh_readiness(st):
         files=_mr(st,"/server/files/list?root=config",timeout=8)["result"]
         m=[f.get("modified") for f in files if f.get("path")=="printer.cfg"]
         if m and isinstance(m[0],(int,float)): info["saved_at"]=m[0]
-    except Exception: pass
+    except Exception: logger.warning("saved printer configuration metadata unavailable", exc_info=True)
     try:
         inst=(st.get("nozzle") or {}).get("installed")
         if inst and info["saved_at"]:
             from datetime import datetime
             info["stale"]=datetime.fromisoformat(inst).timestamp() > info["saved_at"]
-    except (ValueError, TypeError, AttributeError): pass
+    except (ValueError, TypeError, AttributeError): logger.warning("installed nozzle metadata unavailable", exc_info=True)
     return info
 
 

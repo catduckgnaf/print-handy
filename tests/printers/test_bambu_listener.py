@@ -495,3 +495,46 @@ def test_main_builds_the_listener_for_a_bambu_lan_adapter(monkeypatch):
     monkeypatch.setattr(listener_mod, "BambuListener", FakeListener)
     assert listener_mod.main() == 7
     assert seen["adapter"] is adapter and seen["printer_id"] is None
+
+
+def test_a_failing_debug_mode_poll_is_logged_and_the_session_keeps_running(monkeypatch, caplog):
+    # #1417: the poll's handler logs a WARNING naming the poll (it used to pass
+    # silently) and the healthy session keeps serving.
+    import logging
+    from print_handy import debug_mode
+    clock_holder = {}
+
+    def tick():
+        clock_holder["clock"].t += 10.0
+
+    fake = FakeMqtt([full("IDLE"), full("IDLE"), full("IDLE"), full("IDLE")],
+                    tick=tick, stop_on_empty=True)
+    listener, clock, _beats = make_listener(monkeypatch, [fake])
+    clock_holder["clock"] = clock
+
+    def broken():
+        raise RuntimeError("debug state unreadable")
+
+    monkeypatch.setattr(debug_mode, "poll", broken)
+    with caplog.at_level(logging.WARNING, logger="print_handy.printers.bambulab.listener"):
+        listener.run_forever()
+    polls = [r for r in caplog.records if "debug-mode poll failed" in r.getMessage()]
+    assert polls and polls[0].exc_info and polls[0].exc_info[0] is RuntimeError
+    assert fake.disconnected  # the session ran to its normal end
+
+
+def test_a_failing_client_disconnect_is_logged_not_raised(monkeypatch, caplog):
+    # #1417: disconnect runs in the session's finally; its failure is logged
+    # with the cause and never escapes into the reconnect loop.
+    import logging
+    fake = FakeMqtt([full("IDLE")], stop_on_empty=True)
+
+    def broken_disconnect():
+        raise OSError("socket already closed")
+
+    monkeypatch.setattr(fake, "disconnect", broken_disconnect)
+    listener, _clock, _beats = make_listener(monkeypatch, [fake])
+    with caplog.at_level(logging.WARNING, logger="print_handy.printers.bambulab.listener"):
+        listener.run_forever()
+    hits = [r for r in caplog.records if "client disconnect failed" in r.getMessage()]
+    assert hits and hits[0].exc_info and hits[0].exc_info[0] is OSError

@@ -332,8 +332,8 @@ class BambuListener:
             self._connected = False
             try:
                 client.disconnect()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - the session is over either way; the reconnect loop decides
+                warn("client disconnect failed")
 
     # Terminal states for the idle-observation hook; mirrors the set the
     # family event sink feeds the auto-light policy (family_control).
@@ -426,8 +426,8 @@ class BambuListener:
         try:
             from ... import debug_mode
             debug_mode.poll()
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - debug mode is advisory; the session keeps running
+            warn("debug-mode poll failed")
 
     def run_forever(self):
         """Serve until stop() — reconnecting forever, never exiting on printer errors."""

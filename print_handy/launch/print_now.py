@@ -549,7 +549,7 @@ def release_start_announcement(remote):
     claims = _read_claims()
     if claims.pop(remote, None) is not None:
         try: _write_claims(claims)
-        except OSError: pass
+        except OSError: logger.warning("could not persist launch claims", exc_info=True)
 
 
 Z_OFFSET_NOTICE = ("Z offset: no explicit START_PRINT Z_OFFSET; effective offset depends on the "
@@ -606,7 +606,7 @@ def _maintenance_detail_line():
         try:
             data = _call("status")
             hours = data.get("print_hours") if isinstance(data, dict) else None
-        except Exception: pass
+        except Exception: logger.warning("maintenance history unavailable", exc_info=True)
         full = next((r for r in reversed(runs) if r.get("kind") == "full"), None)
         if full is None: return "- Maintenance: history unavailable"
         try:
@@ -847,7 +847,7 @@ def _baseline_heats(baseline):
             if float(((baseline or {}).get(name) or {}).get("target")) > 0:
                 return True
         except (TypeError, ValueError, AttributeError):
-            pass
+            logger.warning("heater baseline unavailable", exc_info=True)
     return False
 
 
@@ -887,7 +887,7 @@ def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
                 if prep is True: prep_seen=True
                 elif start_truth.moonraker_abandoned(prep, prep_seen, state, fn, leftover):
                     return start_truth.ABANDONED  # prep ended, never printed
-            except Exception: pass
+            except Exception: logger.warning("Moonraker preparation check failed", exc_info=True)
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
     return "busy" if state == "printing" else state  # printing some other file is not this start
@@ -900,18 +900,18 @@ def live_snapshot(st):
         q=_mr(st,"/printer/objects/query?extruder&heater_bed")["result"]["status"]
         snap["nozzle_c"]=q.get("extruder",{}).get("temperature")
         snap["bed_c"]=q.get("heater_bed",{}).get("temperature")
-    except Exception: pass
+    except Exception: logger.warning("printer temperature snapshot unavailable", exc_info=True)
     if not _native(): return snap
     try:
         tel=read_filament_telemetry(st); palette=tel.get("configured_palette")
         presence={}
         try: presence=read_stock_filament_slots(st)
-        except Exception: pass
+        except Exception: logger.warning("stock filament presence unavailable", exc_info=True)
         if isinstance(palette,list):
             snap["slots"]=[{"slot":p.get("ID"),"color":p.get("Color"),"material":p.get("Material"),
                             "loaded":presence.get(int(p["ID"])) if str(p.get("ID")).isdigit() else None}
                            for p in palette]
-    except Exception: pass
+    except Exception: logger.warning("optional filament snapshot enrichment failed", exc_info=True)
     return snap
 
 
@@ -996,7 +996,7 @@ def _start_rejection(exc):
         error = body.get("error") if isinstance(body, dict) else None
         detail = error.get("message") if isinstance(error, dict) else (error if isinstance(error, str) else "")
     except Exception:
-        pass
+        logger.warning("unable to read HTTP error details", exc_info=True)
     return f"HTTP {exc.code}: {' '.join(str(detail or exc.reason or 'rejected').split())}"[:300]
 
 
@@ -1882,7 +1882,7 @@ def remap_slot(target, new_slot, tool=None, state=None):
                     for t, v in data.items():
                         raw_tools[str(t)] = v.get("physical_slot") if isinstance(v, dict) else v
                 except Exception:
-                    pass
+                    logger.warning("tool mapping metadata unavailable", exc_info=True)
                 break
     used_names = ", ".join(f"T{t}" for t in sorted(used))
     if tool is None:

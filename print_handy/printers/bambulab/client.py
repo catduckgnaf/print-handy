@@ -26,7 +26,11 @@ Both transports are injectable (``mqtt_factory`` / ``ftp_factory``) so tests run
 offline with fakes, following the OctoPrint client's injectable-opener pattern. Error
 messages never include the access code or a payload body.
 """
+
 from __future__ import annotations
+
+import logging
+logger = logging.getLogger(__name__)
 
 import copy
 import ftplib
@@ -448,7 +452,7 @@ class BambuLanClient:
             try:
                 client.disconnect()
             except Exception:
-                pass
+                logger.debug("Bambu MQTT disconnect failed", exc_info=True)
 
     def upload(self, local_path, remote_name=None):
         """Upload one `.gcode.3mf` package to the printer's storage root via FTPS; return its remote name.
@@ -478,7 +482,7 @@ class BambuLanClient:
             try:
                 ftp.quit()
             except Exception:
-                pass
+                logger.debug("Bambu FTPS quit failed", exc_info=True)
         if remote_size != size:
             raise BambuLanError(f"FTPS upload of {name} could not be verified: the printer reports "
                                 f"{remote_size!r} bytes, the local package is {size} bytes; do not start "
@@ -538,7 +542,7 @@ class BambuLanClient:
             try:
                 client.disconnect()
             except Exception:
-                pass
+                logger.debug("Bambu MQTT disconnect failed", exc_info=True)
 
     def start_print(self, remote_name, plate="Metadata/plate_1.gcode", *, ams_mapping=None,
                     nozzle_mapping=None, submission_id=None):
