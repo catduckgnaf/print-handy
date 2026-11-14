@@ -109,6 +109,21 @@ def _isolated_prompt_registry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_color_mappings(tmp_path, monkeypatch):
+    """Each test gets an empty remembered-color-mapping store (#1473).
+
+    The store lives in the install's state dir in production, keyed by
+    source hash + loaded-spool set. Without isolation, one test's accepted
+    mapping would be offered to the next test that posts the same fixture
+    file with the same spools, and question sequences would depend on
+    which tests ran before."""
+    from print_handy.core import source_colors
+    store = tmp_path / "color_mappings.json"
+    monkeypatch.setattr(source_colors, "_mapping_store_path",
+                        lambda path=None: Path(path) if path is not None else store)
+
+
+@pytest.fixture(autouse=True)
 def _quiet_status_voice(request, monkeypatch):
     """Status quips are random by design, so suites that assert exact progress text see none.
 
