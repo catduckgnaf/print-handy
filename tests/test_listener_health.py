@@ -62,6 +62,8 @@ class ListenerHealthTests(unittest.TestCase):
 
             listener.heartbeat = heartbeat
             listener.session = session
+            # Never start the daemon writer thread: it outlives the test (#1403 CI).
+            listener._start_heartbeat_writer = lambda: None
             task = asyncio.create_task(listener.forever())
             await started.wait()
             task.cancel()
@@ -114,6 +116,15 @@ class ListenerHealthTests(unittest.TestCase):
             installed = health.install_stack_dump_handler()
         self.addCleanup(signal.signal, signal.SIGUSR1, signal.SIG_DFL)
         self.assertEqual(target, installed)
+        # A second live thread, so the dump must cover every thread ("Thread
+        # 0x..." headers) rather than only the current one. Before, a heartbeat
+        # writer leaked by an earlier test supplied that thread by accident.
+        import threading
+        stop = threading.Event()
+        other = threading.Thread(target=stop.wait, args=(10,), name="stack-dump-peer", daemon=True)
+        other.start()
+        self.addCleanup(other.join, 5)
+        self.addCleanup(stop.set)
         os.kill(os.getpid(), signal.SIGUSR1)
         deadline = time_module.time() + 3
         while time_module.time() < deadline:
