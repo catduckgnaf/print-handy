@@ -34,7 +34,7 @@ from pathlib import Path
 import websockets
 
 from .. import __version__, ai_routes, camera_url, debug_mode, go2rtc, healthcheck, logs, printers, settings
-from ..core import delivery, filament_color, launch_state, printer_clock, spool_canon, spoolman_client
+from ..core import delivery, filament_color, job_correlation, launch_state, printer_clock, spool_canon, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
@@ -4463,6 +4463,23 @@ class Listener:
             # An unclaimed start gets its own so a mute outlives midnight.
             self.print_identity = identity or f"file:{self.filename}|seen:{time.time()}"
             identity = self.print_identity
+            # Bind the ID from the durable start context, when this is a Print Handy job.
+            # load_context already treats a missing or malformed sidecar as
+            # absent; only the archive scan can still raise (OSError).
+            from . import print_records
+            correlation_id = job_correlation.from_context(print_records.load_context(self.filename))
+            if not correlation_id:
+                from ..jobs.store import _job_for_gcode
+                try:
+                    correlation_id = job_correlation.from_context(_job_for_gcode(Path(self.filename)))
+                except OSError:
+                    logger.warning("print start: job lookup for the correlation id failed", exc_info=True)
+            # Process-wide: one listener process follows one printer, and its
+            # worker threads (camera, timelapse) must carry the id too, which a
+            # task-level ContextVar never reaches (P2-161).
+            logs.unbind_process("job_correlation_id")
+            if correlation_id:
+                logs.bind_process(job_correlation_id=correlation_id)
             # When this print started, as seen live (None after a reconnect
             # mid-print): the end charge's window when history is unavailable.
             self.print_seen_started_at = time.time() if old is not None else None
@@ -4812,6 +4829,7 @@ class Listener:
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
         self.visual_watch.reset()
         self.local_streak.reset()
+        logs.unbind_process("job_correlation_id")
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
         self.print_identity = None

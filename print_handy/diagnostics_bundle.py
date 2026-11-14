@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import platform
 import sys
@@ -448,6 +449,29 @@ def build_bundle(data=None, *, log_lines: int = DEFAULT_LOG_LINES,
                      load_error=load_error, include_printer_logs=include_printer_logs)
 
 
+def job_correlation_section(data) -> str:
+    """Recent opaque job IDs from local archive metadata; fail closed and never expose paths."""
+    from .jobs.common import ARCHIVE
+    from .core import job_correlation
+
+    rows = []
+    try:
+        jobs = sorted(ARCHIVE.glob("*/JOB.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+        for path in jobs[:50]:
+            try:
+                job = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            value = job_correlation.from_context(job if isinstance(job, dict) else None)
+            if value:
+                rows.append(f"- `{value}`")
+                if len(rows) == 10:
+                    break
+    except OSError:
+        return "(unavailable: the job archive could not be read)"
+    return "\n".join(rows) or "(no recorded job correlation IDs)"
+
+
 def _section(fn, *args, **kwargs) -> str:
     """One bundle section, degrading to a note instead of raising."""
     try:
@@ -503,6 +527,12 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
         "## Runtime status",
         "",
         _section(runtime_section, data) if load_error is None else "(unavailable: the configuration did not load)",
+        "",
+        "## Job correlation",
+        "",
+        "Correlation IDs are opaque, local-only identifiers. Match lines containing `job_correlation_id=` to follow one job; no source paths or credentials are used.",
+        "",
+        "- Latest recorded job correlation IDs:\n" + _section(job_correlation_section, data),
         "",
         "## Crashes",
         "",

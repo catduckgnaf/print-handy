@@ -93,6 +93,12 @@ def bind_process(**fields) -> None:
     _process_context.update({k: v for k, v in fields.items() if v is not None})
 
 
+def unbind_process(*names: str) -> None:
+    """Remove process-wide fields bound with ``bind_process`` (a print's job id at its end)."""
+    for name in names:
+        _process_context.pop(name, None)
+
+
 def bound_context() -> dict:
     """A copy of the fields currently bound to every log line."""
     return {**_process_context, **_context.get()}
