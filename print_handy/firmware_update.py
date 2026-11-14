@@ -37,12 +37,15 @@ taking ``(method, path, body=None)`` and returning the parsed JSON body.
 """
 from __future__ import annotations
 
+import logging
 import inspect
 import re
 import time
 import urllib.error
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 UPDATE_STATUS_PATH = "/machine/update/status"
 UPDATE_REFRESH_PATH = "/machine/update/refresh"
@@ -399,8 +402,9 @@ def fetch_status(transport, *, refresh=False) -> UpdateStatus:
     if refresh:
         try:
             refreshed = parse_update_status(transport("POST", UPDATE_REFRESH_PATH))
-        except Exception:
-            pass  # fall through to the plain read below
+        except Exception:  # noqa: BLE001 - the refresh is optional; the plain read below decides
+            logger.info("firmware update: the refresh request failed; using the plain status read",
+                        exc_info=True)
         else:
             # The refresh response gets the same ZMod OS-info enrichment
             # as the plain read; the live /print-firmware handler always

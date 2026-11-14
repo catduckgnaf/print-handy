@@ -21,6 +21,7 @@ wizard cannot round-trip is left byte-for-byte unchanged with instructions (see 
 """
 from __future__ import annotations
 
+import logging
 import argparse
 import difflib
 import io
@@ -32,6 +33,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parents[1]
 REPO_URL = "https://github.com/catduckgnaf/print-handy"
@@ -233,11 +236,11 @@ def _ids(value):
 
 def _positive(value):
     try:
-        if float(value) > 0:
-            return None
+        number = float(value)
     except ValueError:
-        pass
-    return "must be a positive number"
+        return "must be a positive number"
+    # NaN compares false, so it is refused here too.
+    return None if number > 0 else "must be a positive number"
 
 
 def registry():
@@ -686,7 +689,8 @@ def detect_timezone():
         if out:
             return out
     except (OSError, subprocess.SubprocessError):
-        pass
+        # No systemd (containers, macOS): /etc/timezone below is the fallback.
+        logger.debug("setup: timedatectl is unavailable; reading /etc/timezone", exc_info=True)
     try:
         return Path("/etc/timezone").read_text().strip() or "UTC"
     except OSError:

@@ -26,11 +26,14 @@ walkthrough state file already uses.
 """
 from __future__ import annotations
 
+import logging
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import settings
+
+logger = logging.getLogger(__name__)
 
 COMPLETION_FILE = "setup_completion.json"
 WALKTHROUGH_FILE = "webui_walkthrough.json"
@@ -143,8 +146,8 @@ def clear_completion(data):
     """Forget a recorded completion, so setup can deliberately run again."""
     try:
         completion_path(data).unlink(missing_ok=True)
-    except Exception:  # settings too broken to locate the state folder
-        pass
+    except Exception:  # noqa: BLE001 - settings too broken to locate the state folder
+        logger.warning("setup: could not clear the recorded completion", exc_info=True)
 
 
 def describe(record):

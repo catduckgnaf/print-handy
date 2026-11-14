@@ -108,11 +108,26 @@ def record(exc_type, exc, tb, *, role, data=None, now=None) -> Path | None:
         finally:
             try:
                 tmp.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - never turn a written record into None
+                # missing_ok covers "already gone"; this is a real leftover.
+                _stderr_note(f"could not remove the temp file {tmp.name}", exc)
         return target
     except Exception:
         return None
+
+
+def _stderr_note(what: str, exc: BaseException) -> None:
+    """One line on stderr for a failure inside the crash machinery itself.
+
+    Not ``logging``: these run from ``sys.excepthook`` / ``threading.excepthook``
+    and the crash-record writer, where a logging handler may be the thing that
+    failed, or the interpreter may be shutting down. A stderr that cannot be
+    written either leaves nothing else to try.
+    """
+    try:
+        sys.stderr.write(f"print-handy crash_report: {what}: {type(exc).__name__}: {exc}\n")
+    except Exception:  # noqa: BLE001 - stderr itself is gone; nothing else to try
+        return
 
 
 def install(role, data=None) -> bool:
@@ -138,8 +153,8 @@ def install(role, data=None) -> bool:
                 record(exc_type, exc, tb, role=name, data=data)
             try:
                 previous_sys(exc_type, exc, tb)
-            except Exception:
-                pass
+            except Exception as hook_exc:  # noqa: BLE001 - any failure of a foreign hook
+                _stderr_note("the previous sys.excepthook failed", hook_exc)
 
         def _thread_hook(args):
             exc_type = getattr(args, "exc_type", None)
@@ -148,8 +163,8 @@ def install(role, data=None) -> bool:
                        getattr(args, "exc_traceback", None), role=name, data=data)
             try:
                 previous_thread(args)
-            except Exception:
-                pass
+            except Exception as hook_exc:  # noqa: BLE001 - any failure of a foreign hook
+                _stderr_note("the previous threading.excepthook failed", hook_exc)
 
         sys.excepthook = _sys_hook
         threading.excepthook = _thread_hook
