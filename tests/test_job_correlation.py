@@ -17,16 +17,18 @@ def test_intake_id_is_reused_and_random_id_is_path_independent():
 
 
 def test_concurrent_log_contexts_keep_separate_correlation_ids():
-    left, right = "a" * 32, "b" * 32
-    context = contextvars.ContextVar("test_correlation", default="")
-    token_a = context.set(left)
-    try:
-        assert context.get() == left
-        token_b = context.set(right)
+    import asyncio
+
+    async def read_id(job):
+        token = logs.bind(job_correlation_id=job_correlation.ensure(job))
         try:
-            assert context.get() == right
+            await asyncio.sleep(0)
+            return logs.bound_context()["job_correlation_id"]
         finally:
-            context.reset(token_b)
-        assert context.get() == left
-    finally:
-        context.reset(token_a)
+            logs.unbind(token)
+
+    async def run():
+        left, right = {"intake_id": "a" * 32}, {"intake_id": "b" * 32}
+        return await asyncio.gather(read_id(left), read_id(right))
+
+    assert asyncio.run(run()) == ["a" * 32, "b" * 32]

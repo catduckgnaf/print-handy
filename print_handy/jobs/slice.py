@@ -1949,9 +1949,26 @@ def _slice_abrasive_warnings(state, job, decisions, selection=None):
 
 def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     """Slice one job; an accepted abrasive warning lets the pre-slice guard warn instead of refusing (#1336)."""
-    with material_accept.accepting(_accepted_slice_abrasive(job_path)):
-        return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
-                          recipe_sha256=recipe_sha256)
+    from .. import logs
+    token = None
+    try:
+        job = json.loads(Path(job_path).read_text())
+        from ..core import job_correlation
+        token = logs.bind(job_correlation_id=job_correlation.ensure(job))
+        write_job(Path(job_path).parent, job)
+    except Exception:
+        # Correlation metadata is best effort; it must never block slicing.
+        pass
+    try:
+        with material_accept.accepting(_accepted_slice_abrasive(job_path)):
+            return _slice_job(job_path, brim_override=brim_override, copies=copies, scale=scale,
+                              recipe_sha256=recipe_sha256)
+    finally:
+        if token is not None:
+            try:
+                logs.unbind(token)
+            except Exception:
+                pass
 
 
 def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
