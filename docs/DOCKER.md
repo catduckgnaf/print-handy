@@ -513,17 +513,17 @@ volume:
 - **Where:** `/data/state/logs/print-handy-YYYY-MM-DD.log`, one file per day
   (local time, `TZ`), on the `/data/state` mount. On Unraid that is
   `/mnt/user/appdata/print-handy/state/logs/`; with Compose,
-  `${PRINT_HANDY_DATA:-./data}/state/logs/`. (On an install that has not
-  renamed its pre-2.2.5 `hermes` folder yet, the same files are in that
-  folder. The container reads them through `/data/state`.) Every process in the container
-  (bot, listeners, workers) appends to the same daily file. Stdout logging is
-  unchanged, so `docker logs` still works.
+  `${PRINT_HANDY_DATA:-./data}/state/logs/`. The Docker image enables this
+  path by default; explicit `[logging] file` configuration overrides it.
 - **Retention:** 14 days by default (today counts as one), set with
   `logging.retention_days` or `PRINT_HANDY__LOGGING__RETENTION_DAYS`. Older
   dated files are deleted when a process starts and at each midnight.
 - **Turning it off or moving it:** `PRINT_HANDY__LOGGING__FILE` names the base
-  path (`/data/state/logs/print-handy.log` in the image); set it empty for
-  stdout only. See `logging.*` in [SETTINGS.md](SETTINGS.md).
+  path by default; an explicit `[logging] file` takes precedence over this
+  environment default. Set it empty for stderr only, or set a different path
+  to move the file. Logging is best effort: if the volume cannot be written,
+  the application warns to stderr and continues. See `logging.*` in
+  [SETTINGS.md](SETTINGS.md).
 - **Reading it:** `tail -f /mnt/user/appdata/print-handy/state/logs/print-handy-$(date +%F).log`,
   or `grep -h "stop reason" /mnt/user/appdata/print-handy/state/logs/*.log`.
   `print-handy diagnostics` includes the newest file's tail.

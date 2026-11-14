@@ -196,7 +196,9 @@ def test_docker_default_writes_logs_to_the_persistent_state_volume():
         cfg = settings.load(local=root / "config" / f"docker.{suffix}", user=False, environ={})
         assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
         assert cfg["logging"]["retention_days"] == 14
-    assert '"$state_home/logs"' in (root / "docker" / "entrypoint.sh").read_text()
+    entrypoint = (root / "docker" / "entrypoint.sh").read_text()
+    assert '"$state_home/logs"' not in entrypoint
+    assert '_check_data_folders' in entrypoint and '"$state_home/state"' in entrypoint
 
 
 class _FixedDatetime(datetime):
@@ -214,7 +216,7 @@ def test_unwritable_file_falls_back_to_stderr_only(tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("x")
     logs.configure({"file": str(blocker / "sub" / "x.log")}, stream=io.StringIO())
-    assert "logging to stderr only" in capsys.readouterr().err
+    assert "logging: cannot write" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("secret_line", [
