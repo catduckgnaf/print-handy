@@ -15,6 +15,9 @@ Enforces:
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import argparse
 import copy
 import json
@@ -275,7 +278,7 @@ def reconcile_four_slot_state(
             if slot_int in VALID_FILAMENT_SLOTS:
                 continue
         except (ValueError, TypeError):
-            pass
+            logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
         sid = raw_cfg.get("spoolman_id") if isinstance(raw_cfg, dict) else None
         drift = {
             "category": "out_of_range_slot_definition",
@@ -568,7 +571,7 @@ def parse_slicer_metadata(gcode_text: str) -> dict[str, Any]:
         try:
             meta["filament_used_g_list"] = [float(x.strip()) for x in m_g_list.group(1).split(",") if x.strip()]
         except ValueError:
-            pass
+            logger.debug("Best-effort recovery from ValueError", exc_info=True)
 
     # Tool mapping comment if present. The hermes_tool_slots anchor is a frozen
     # format: see docs/PROJECT-REFERENCE.md, Frozen Hermes wire names.
@@ -581,7 +584,7 @@ def parse_slicer_metadata(gcode_text: str) -> dict[str, Any]:
             meta["tool_spool_ids"] = {str(tool): value['spoolman_id'] for tool, value in parsed_map.items()
                                       if isinstance(value, dict) and value.get('spoolman_id') is not None}
         except (ValueError, TypeError, AttributeError):
-            pass
+            logger.debug("Best-effort recovery from (ValueError, TypeError, AttributeError)", exc_info=True)
 
     return meta
 
@@ -653,7 +656,7 @@ def generate_job_accounting_receipt(
             vol_mm3 = math.pi * ((diam / 2.0) ** 2) * mm
             actual_total_g = round(vol_mm3 * (density / 1000.0), 2)
         except (ValueError, TypeError):
-            pass
+            logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
 
     # Build per-slot accounting entries
     slot_entries: list[dict[str, Any]] = []
@@ -832,12 +835,12 @@ def fetch_all_spoolman_spools(
                     try:
                         spools[int(item["id"])] = item
                     except (ValueError, TypeError):
-                        pass
+                        logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
             return spools
         if isinstance(data, dict):
             return {int(k): v for k, v in data.items() if str(k).isdigit() and isinstance(v, dict)}
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     return None
 
 
@@ -855,7 +858,7 @@ def collect_reconciliation_sources(
         try:
             detail_data = detail_reader(state)
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
     else:
         detail_data = fetch_native_detail(state, timeout=timeout)
 

@@ -20,6 +20,9 @@ marked verified just because a config number was readable.
   python3 -m print_handy.core.printer_state set --z-offset N -> record a measured user offset; does not write Klipper
   python3 -m print_handy.core.printer_state set --sync-z   -> record live probe.z_offset as the probe store only
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import argparse, contextlib, datetime, json, os, re, sys, threading, urllib.request
 from pathlib import Path
 
@@ -770,7 +773,7 @@ def atomic_write_json(target, data):
         try:
             os.unlink(tmp)
         except OSError:
-            pass
+            logger.debug("Best-effort recovery from OSError", exc_info=True)
         raise
 
 
@@ -1199,7 +1202,7 @@ def check(st=None, printer_id=None, adapter=None, *, live=True):
                 entry = settings.printers()[0]
                 facts["printer_id"], facts["printer_name"] = entry["id"], entry["name"]
             except Exception:
-                pass
+                logger.debug("Best-effort recovery from Exception", exc_info=True)
     elif printer_id is not None:
         facts["printer_id"] = printer_id
     if getattr(adapter, 'transport', None) == 'octoprint':
@@ -1459,7 +1462,7 @@ def main():
             supported_sizes = cur_p.supported_nozzle_sizes
             supported_types = cur_p.supported_nozzle_types
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
 
         try:
             dia, norm_type = validate_nozzle_setting(

@@ -30,6 +30,9 @@ Rules this module owns:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import os
@@ -234,7 +237,7 @@ def restore(scope: str, row, now=None) -> bool:
     try:
         (_files_root() / row['collection_id'] / 'collection.json').unlink(missing_ok=True)
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
     return True
 
 
@@ -245,7 +248,7 @@ def _write_closed_marker(row) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'collection.json').write_text(json.dumps(row, indent=1), encoding='utf-8')
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
 
 
 def cancel(scope: str, now=None) -> dict | None:
@@ -273,7 +276,7 @@ def sweep(now=None) -> None:
             if now - folder.stat().st_mtime > TTL_S:
                 _remove_folder(folder.name)
     except OSError:
-        pass
+        logger.debug("Best-effort recovery from OSError", exc_info=True)
 
 
 def listing(row) -> str:
