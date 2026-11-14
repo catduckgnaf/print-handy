@@ -103,8 +103,8 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
             '<div class="card printer-card">'
             f'<h3>{esc(entry.get("name") or entry["id"])}{default}</h3>'
             f'<p class="mono">{esc(entry["id"])} · {esc(entry.get("model") or "")}</p>'
-            f'<p><a class="button" href="/spools/{pid}">Open spools</a> '
-            f'<a class="button" href="/layers">Layers</a>{screen_link}</p></div>')
+            f'<p><a class="button" href="/spools/{pid}">Open spools</a>'
+            f'{screen_link}</p></div>')
     parts.append("<h2>Printers</h2>" + ("".join(cards) or "<p>No printers configured.</p>"))
     options = "".join(
         f'<option value="{esc(key)}">{esc(model.label)}</option>'

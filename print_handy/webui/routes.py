@@ -142,8 +142,6 @@ ROUTES = (
     _get("/designs/*", SESSION, "_design_route", decode=False),
     _get("/projects", SESSION, "_projects_route", pass_path=True),
     _get("/api/projects", SESSION, "_projects_route", pass_path=True),
-    _get("/layers", SESSION, "_layers_route"),
-    _get("/layers/*", SESSION, "_layers_route", decode=False),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),

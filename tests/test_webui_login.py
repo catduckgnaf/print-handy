@@ -122,7 +122,7 @@ class LoginTests(unittest.TestCase):
             _httpd, port, _local, _environ = self.start(
                 tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
             browser = {"Accept": "text/html,application/xhtml+xml"}
-            for path in ("/", "/config", "/designs", "/layers"):
+            for path in ("/", "/config", "/designs"):
                 with self.subTest(path=path):
                     code, headers, _body = self.request(port, "GET", path, headers=browser)
                     self.assertEqual(code, 303)
