@@ -2390,7 +2390,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 from .link_intake import ask_batch
                 picks = await ask_batch(
                     adapter, source, key, 'Choose the color/material for each color:',
-                    [{'label': unit['label'], 'choices': labels} for unit in units], timeout)
+                    [{'label': unit['label'], 'question': unit['question'], 'choices': labels}
+                     for unit in units], timeout)
                 for unit, pick in zip(units, picks):
                     for decision_key in unit['keys']:
                         choices[decision_key] = selections[pick]

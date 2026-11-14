@@ -5,6 +5,18 @@ license = "owner-approved incident file, see #711"
 description = "Witch Ghost: six author-colored core parts get answerable per-part questions"
 
 [[click]]
+question = "Use these colors?"
+button = "Change colors"
+
+[[click]]
+question = "pick the rest?"
+button = "Pick every color"
+
+[[click]]
+question = "Same colors as last time"
+button = "Change colors"
+
+[[click]]
 question = "Choose colors for these parts"
 button = "Choose colors"
 

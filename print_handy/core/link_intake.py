@@ -357,7 +357,8 @@ async def ask_batch(adapter, source, session_key, question, groups, timeout=None
         for cid, group, labels in zip(cids, groups, truncated):
             cm.register(cid, session_key, question, labels)
         result = await send_batch(chat_id=str(source.chat_id), question=question,
-            groups=[{'label': group['label'], 'choices': labels, 'clarify_id': cid}
+            groups=[{'label': group['label'], 'question': group.get('question'),
+                     'choices': labels, 'clarify_id': cid}
                     for group, labels, cid in zip(groups, truncated, cids)],
             session_key=session_key,
             metadata={'thread_id': source.thread_id} if source.thread_id else None)

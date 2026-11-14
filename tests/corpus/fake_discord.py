@@ -42,7 +42,18 @@ class FakeMessage:
         self.edits = []
 
     def buttons(self):
-        return [(item.label, item.custom_id) for item in (self.view.children if self.view else [])]
+        return [(item.label, item.custom_id) for item in (self.view.children if self.view else [])
+                if getattr(item, "label", None) is not None]
+
+    def selects(self):
+        """(placeholder, custom_id, [option labels]) per select menu in the view (#1473)."""
+        found = []
+        for item in (self.view.children if self.view else []):
+            options = getattr(item, "options", None)
+            if options:
+                found.append((getattr(item, "placeholder", None) or "", item.custom_id,
+                              [str(option.label) for option in options]))
+        return found
 
     async def edit(self, content=None, view=None, **kwargs):
         self.edits.append({"content": content, "view": view})
@@ -161,7 +172,9 @@ class FakeDiscord:
     ``clicks`` are corpus rules: {"question": text in the question, "button": text in a label}. A question
     with prompt buttons and no matching rule is recorded in ``unanswered`` and cancelled, so the flow ends
     instead of waiting out its timeout. Stop-only progress buttons are never pressed. ``auto=False``
-    presses nothing.
+    presses nothing. A batch message's select menus (#1473) are answered by the same rules, matched
+    against each menu's placeholder question; an unmatched menu is recorded in ``unanswered`` and left
+    unanswered, since a select has no Cancel.
     """
 
     def __init__(self, clicks=(), *, chat_id=100000000000000001, operator_id=200000000000000002,
@@ -195,8 +208,29 @@ class FakeDiscord:
         self.messages.append(message)
         buttons = self.prompt_buttons(message)
         if not buttons:
-            if not message.view:
-                self.sent.append(message.content)
+            selects = message.selects()
+            if not selects:
+                if not message.view:
+                    self.sent.append(message.content)
+                return
+            # A batch question (#1473): one select menu per color group in a
+            # single message. Each menu is answered by the same click rules,
+            # matched against the menu's own question (its placeholder).
+            self.events.append(("prompt", message.content))
+            for placeholder, custom_id, labels in selects:
+                if not self.auto:
+                    self.questions.append({"question": placeholder, "choices": labels, "picked": None})
+                    continue
+                try:
+                    index = self.pick(placeholder, labels)
+                except UnansweredQuestion as exc:
+                    # No Cancel exists on a select; leave it unanswered so the
+                    # flow expires and the test reports the recorded question.
+                    self.unanswered.append(str(exc))
+                    continue
+                self.questions.append({"question": placeholder, "choices": labels,
+                                       "picked": labels[index]})
+                self.press_soon(message, custom_id, values=[labels[index]])
             return
         labels = [label for label, _ in buttons]
         self.events.append(("prompt", message.content))
@@ -225,14 +259,15 @@ class FakeDiscord:
         raise UnansweredQuestion("no [[click]] rule answers this question; add one to case.toml\n"
                                  f"question: {question}\nbuttons: {labels}")
 
-    def press_soon(self, message, custom_id, user=None):
+    def press_soon(self, message, custom_id, user=None, values=None):
         """Click after the send returns, as Discord would: the adapter must already be waiting."""
-        task = asyncio.get_running_loop().create_task(self.press(message, custom_id, user))
+        task = asyncio.get_running_loop().create_task(self.press(message, custom_id, user, values=values))
         self.pending.add(task)
         task.add_done_callback(self.pending.discard)
 
-    async def press(self, message, custom_id, user=None):
-        interaction = FakeInteraction(self, user or self.operator, custom_id=custom_id, message=message)
+    async def press(self, message, custom_id, user=None, values=None):
+        interaction = FakeInteraction(self, user or self.operator, custom_id=custom_id,
+                                      message=message, values=values)
         try:
             await self.client.dispatch_interaction(interaction)
         except Exception as exc:  # surfaced by the test, never swallowed silently

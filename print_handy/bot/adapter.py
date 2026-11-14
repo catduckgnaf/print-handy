@@ -186,7 +186,7 @@ class StandaloneAdapter(BasePlatformAdapter):
                     batch["pending"].add(group["clarify_id"])
                     batch["labels"][group["clarify_id"]] = str(group["label"])
                     view.add_item(discord.ui.Select(
-                        placeholder=str(group["label"])[:150],
+                        placeholder=str(group.get("question") or group["label"])[:150],
                         options=[discord.SelectOption(label=label, value=label) for label in labels],
                         custom_id=custom_id(group["clarify_id"], 0)))
                 message = await channel.send(pieces[-1], view=view,
