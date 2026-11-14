@@ -12,7 +12,7 @@ from typing import NamedTuple
 
 from .. import firmware_update, printers, settings
 from ..core import (
-    _external, filament_color, gcode_3mf, launch_state, material_accept, printer_state, purge,
+    _external, filament_color, gcode_3mf, job_correlation, launch_state, material_accept, printer_state, purge,
     spoolman_client,
     start_recorder, start_truth,
 )
@@ -364,6 +364,10 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
     job=_job_for_gcode(g)
     key=moonraker_name or g.name
     src=(job or {}).get("selected_source") or {}
+    try:
+        correlation_id = job_correlation.ensure(job) if isinstance(job, dict) else None
+    except Exception:
+        correlation_id = None
     ctx={"job_key":key,"title":(job or {}).get("title") or g.stem,"source_url":(job or {}).get("url"),
          "source_platform":(job or {}).get("site"),"started_at":started_at or print_records.utc_now(),
          "hardware":st.get("printer", "Klipper") + ", "+printer_state.summary(st),
@@ -374,6 +378,14 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
                             **_per_tool_filament_settings(text),
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
          "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
+    if correlation_id:
+        ctx["job_correlation_id"] = correlation_id
+        job_path = _job_record_for_gcode(g)[1]
+        if job_path:
+            try:
+                write_job(job_path.parent, job)
+            except Exception:
+                pass
     if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
         ctx["print_number"] = print_number
     plan = (job or {}).get('multipart_plan') or {}

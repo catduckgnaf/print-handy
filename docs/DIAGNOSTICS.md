@@ -778,6 +778,8 @@ critical below) attaches the bundle automatically.
 
 What the bundle carries beyond versions and the redacted config summary:
 
+- **Job correlation**: the ten most recent valid, opaque job correlation IDs from local archive metadata. They contain no source path or credential and are included only in an explicitly generated bundle.
+
 - **Runtime status**: the image tag and commit SHA
   (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the release,
   develop and nightly images have both stamped in by the workflow that

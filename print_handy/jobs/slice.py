@@ -1958,6 +1958,13 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
     job = json.loads(Path(job_path).read_text())
+    # Mint/reuse an opaque local ID before any slice work; diagnostics are best-effort.
+    try:
+        from ..core import job_correlation
+        job_correlation.ensure(job)
+        write_job(Path(job_path).parent, job)
+    except Exception:
+        pass
     # A filament warning acceptance authorizes one slicing run: an
     # acceptance an earlier slice_job run already used is consumed here,
     # before any gate reads it, so a reslice presents the warnings again

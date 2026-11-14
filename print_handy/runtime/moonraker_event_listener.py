@@ -34,7 +34,7 @@ from pathlib import Path
 import websockets
 
 from .. import __version__, ai_routes, camera_url, debug_mode, go2rtc, healthcheck, logs, printers, settings
-from ..core import delivery, filament_color, launch_state, printer_clock, spool_canon, spoolman_client
+from ..core import delivery, filament_color, job_correlation, launch_state, printer_clock, spool_canon, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
@@ -4463,6 +4463,21 @@ class Listener:
             # An unclaimed start gets its own so a mute outlives midnight.
             self.print_identity = identity or f"file:{self.filename}|seen:{time.time()}"
             identity = self.print_identity
+            # Bind the ID from the durable start context, when this is a Print Handy job.
+            try:
+                from . import print_records
+                correlation_id = job_correlation.from_context(print_records.load_context(self.filename))
+                if not correlation_id:
+                    try:
+                        from ..jobs.store import _job_for_gcode
+                        job = _job_for_gcode(Path(self.filename))
+                        correlation_id = job_correlation.from_context(job)
+                    except Exception:
+                        correlation_id = None
+                if correlation_id:
+                    self._correlation_log_token = logs.bind(job_correlation_id=correlation_id)
+            except Exception:
+                pass
             # When this print started, as seen live (None after a reconnect
             # mid-print): the end charge's window when history is unavailable.
             self.print_seen_started_at = time.time() if old is not None else None
@@ -4812,6 +4827,13 @@ class Listener:
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
         self.visual_watch.reset()
         self.local_streak.reset()
+        try:
+            token = getattr(self, "_correlation_log_token", None)
+            if token is not None:
+                logs.unbind(token)
+                self._correlation_log_token = None
+        except Exception:
+            pass
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
         self.print_identity = None

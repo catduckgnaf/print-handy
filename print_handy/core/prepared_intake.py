@@ -23,6 +23,7 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .. import diagnostics, logs, printers, settings
+from . import job_correlation
 from . import _external, delivery, failure_report, owned_worker, plate_merge, purge, split_fit
 
 from ..intake.fit_flow import (  # moved in 2.3.0 (#1323); old path kept for one release
@@ -2057,7 +2058,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     key = 'model-link:' + iid
     event_metadata = getattr(event, 'metadata', None) or {}
     live_token = _LIVE_KEY.set(event_metadata.get('live_session_key') or key)
-    log_token = logs.bind(intake=iid)
+    log_token = logs.bind(intake=iid, job_correlation_id=iid)
     logger.info('intake started origin=%s', logs.redact(str(origin)))
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     jp = None
