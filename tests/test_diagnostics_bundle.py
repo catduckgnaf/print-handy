@@ -118,6 +118,94 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class CrashAndFallbackTests(unittest.TestCase):
+    """#1404: the bundle's Crashes section, debug header, capture tail
+    fallback, and the runtime section's exit status / heartbeat honesty."""
+
+    def _data(self, tmp, extra_toml=""):
+        path = Path(tmp) / "local.toml"
+        path.write_text(f'[paths]\nstate_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
+                        + extra_toml)
+        return settings.load(local=path, environ={})
+
+    def _record_crash(self, data, message="kaput in the worker"):
+        import sys
+
+        from print_handy import crash_report
+
+        try:
+            raise ValueError(message)
+        except ValueError:
+            return crash_report.record(*sys.exc_info(), role="bot", data=data, now=1000.0)
+
+    def test_bundle_carries_a_planted_crash_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            self._record_crash(data)
+            text = diagnostics_bundle.build_bundle(data, include_doctor=False)
+        self.assertIn("## Crashes", text)
+        self.assertIn("ValueError", text)
+        self.assertIn("kaput in the worker", text)
+
+    def test_bundle_without_crashes_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            text = diagnostics_bundle.build_bundle(data, include_doctor=False)
+        self.assertIn("## Crashes", text)
+        self.assertIn("(no crashes recorded)", text)
+
+    def test_bundle_header_shows_the_debug_mode_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            text = diagnostics_bundle.build_bundle(data, include_doctor=False)
+        self.assertIn("- Debug mode:", text)
+
+    def test_runtime_section_shows_the_last_exit_status(self):
+        from print_handy import supervisor_state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            printer_id = settings.default_printer_id(data)
+            supervisor_state.write(printer_id, restarts=1, budget=5, window_s=600,
+                                   last_exit_status=1, data=data)
+            section = diagnostics_bundle.runtime_section(data, now=1000.0)
+        self.assertIn("last exit status 1", section)
+
+    def test_runtime_section_names_an_unreadable_heartbeat(self):
+        from print_handy import healthcheck
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            printer_id = settings.default_printer_id(data)
+            beat_path = healthcheck.heartbeat_path(data, printer_id)
+            beat_path.parent.mkdir(parents=True, exist_ok=True)
+            beat_path.write_text("{not json")
+            section = diagnostics_bundle.runtime_section(data, now=1000.0)
+        self.assertIn("heartbeat file unreadable", section)
+        self.assertNotIn("no heartbeat file", section)
+
+    def test_log_tail_falls_back_to_the_debug_capture_file(self):
+        from print_handy import debug_mode
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            capture = debug_mode.capture_path(data)
+            capture.parent.mkdir(parents=True, exist_ok=True)
+            capture.write_text("capture line one\ncapture line two\n")
+            tail = diagnostics_bundle.log_tail(data)
+        self.assertIn("debug capture file", tail)
+        self.assertIn("capture line one", tail)
+        self.assertIn("capture line two", tail)
+
+    def test_log_tail_without_a_capture_names_the_debug_session_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            tail = diagnostics_bundle.log_tail(data)
+        self.assertIn("no [logging] file is configured", tail)
+        self.assertIn("/print-handy debug on", tail)
+        self.assertIn("build the bundle again", tail)
+
+
 class RuntimeAndPrinterLogsTests(unittest.TestCase):
     """#1020 C1/C2: runtime status in the bundle, and --printer-logs."""
 

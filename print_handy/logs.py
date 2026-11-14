@@ -298,12 +298,17 @@ def _logging_settings() -> dict:
         return {}
 
 
-def configure(cfg: dict | None = None, *, stream=None) -> logging.Logger:
+def configure(cfg: dict | None = None, *, stream=None, role: str | None = None) -> logging.Logger:
     """Install the Print Handy handlers on the root logger. Calling it again replaces them.
 
     ``cfg`` is the ``[logging]`` settings section (level, format, file); None reads it from the settings.
     Output goes to ``stream`` (default stderr, which systemd and Docker capture) and, when ``file`` is set,
     to daily files beside that path as well, kept for ``retention_days`` (default 14).
+
+    ``role`` names this process (bot, listener, webui, ...): when given, crash
+    capture is installed for that role (#1404, :mod:`print_handy.crash_report`),
+    so an unhandled exception also lands as a structured record the diagnostics
+    bundle can carry. Callers that pass no role keep the old behavior exactly.
     """
     cfg = _logging_settings() if cfg is None else cfg
     level = str(cfg.get("level") or "INFO").upper()
@@ -352,8 +357,20 @@ def configure(cfg: dict | None = None, *, stream=None) -> logging.Logger:
     try:
         from . import debug_mode
         debug_mode.apply()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Not silent (#1404): a state file that cannot be applied is
+        # exactly the kind of failure the operator needs to see.
+        print(f"logging: debug mode not applied: {exc}", file=sys.stderr)
+    # Crash capture (#1404): with a role named, an unhandled exception in
+    # this process also lands as a structured record under the state
+    # folder's crashes/ folder, which the diagnostics bundle carries.
+    # Best-effort like the debug mode above, but never silent.
+    if role:
+        try:
+            from . import crash_report
+            crash_report.install(role)
+        except Exception as exc:
+            print(f"logging: crash reporting not installed: {exc}", file=sys.stderr)
     return root
 
 

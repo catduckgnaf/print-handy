@@ -350,7 +350,7 @@ class FamilyListener:
 def main():
     from .. import logs as _logs, printers
 
-    _logs.configure()
+    _logs.configure(role="listener")
     adapter = printers.current()
     connection = family_control.connection_of(adapter)
     if connection not in RUNTIMES:

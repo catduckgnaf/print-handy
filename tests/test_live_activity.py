@@ -739,3 +739,47 @@ def test_presence_updates_wait_for_the_shared_session_lock(tmp_path):
     worker.join(timeout=5)
     assert done.is_set()
     assert live_stream.read_session_file(path).viewers == 1
+
+
+# --------------------------------------------------------------------- #1404: main joins shared logging
+
+def test_main_configures_shared_logging_and_logs_the_version(monkeypatch, tmp_path):
+    # #1404: once the gates pass, main() configures the shared logging
+    # (crash capture for the live-activity role) and logs its serving
+    # line — with the version — through the module logger instead of a
+    # bare print. The refusal paths stay untouched (covered by the gate
+    # suites).
+    from types import SimpleNamespace
+    from unittest import mock
+
+    from print_handy import __version__, live_gate, live_stream, logs, settings
+
+    data = {"live_stream": {}, "logging": {"level": "INFO"}}
+    config = SimpleNamespace(ready=True, enabled=True, missing=[], port=0,
+                             activity_origin="https://activity.example",
+                             client_id="123")
+    fake_server = SimpleNamespace(serve_forever=lambda: None,
+                                  server_close=lambda: None)
+    monkeypatch.setattr(settings, "load", lambda: data)
+    monkeypatch.setattr(live_gate, "live_config", lambda cfg: config)
+    monkeypatch.setattr(live_stream, "session_file_path",
+                        lambda cfg: tmp_path / "live_session.json")
+    monkeypatch.setattr(la, "allowlist_from_settings", lambda cfg: ("42",))
+    monkeypatch.setattr(la, "SessionPresence",
+                        lambda *a, **k: SimpleNamespace(
+                            tick=lambda: None, note_viewer=lambda *a: None,
+                            note_leave=lambda *a: None, is_live=lambda: False))
+    monkeypatch.setattr(la, "make_server", lambda *a, **k: fake_server)
+    configure = mock.Mock()
+    monkeypatch.setattr(logs, "configure", configure)
+    fake_log = mock.Mock()
+    monkeypatch.setattr(la, "log", fake_log)
+
+    assert la.main([]) == 0
+    configure.assert_called_once_with({"level": "INFO"}, role="live-activity")
+    serving = [call.args[0] for call in fake_log.info.call_args_list
+               if call.args and "serving on" in str(call.args[0])]
+    assert serving, "the serving line was not logged"
+    assert "127.0.0.1:0" in serving[0]
+    assert "https://activity.example" in serving[0]
+    assert f"Print Handy {__version__}" in serving[0]

@@ -20,14 +20,24 @@ HANDLERS = sorted((ROOT / "print_handy" / "bot" / "handlers").glob("*.py"))
 
 
 def _module_logger_names(path):
-    """The literal names a module passes to ``logging.getLogger`` for its module-level ``logger``."""
+    """The names a module passes to ``logging.getLogger`` for its module-level ``logger``.
+
+    A ``__name__`` argument resolves to the module's own dotted path
+    (#1404: the chat handlers log per module, ``print_handy.bot.handlers.<x>``,
+    which sits under the tree exactly like a literal name). The listeners
+    keep literal names on purpose: run as ``__main__`` their ``__name__``
+    would resolve to ``__main__``, outside the tree.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     names = []
     for node in tree.body:
         if (isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "logger" for t in node.targets)
                 and isinstance(node.value, ast.Call) and getattr(node.value.func, "attr", None) == "getLogger"):
             arg = node.value.args[0] if node.value.args else None
-            names.append(arg.value if isinstance(arg, ast.Constant) else ast.unparse(arg) if arg else "")
+            if isinstance(arg, ast.Name) and arg.id == "__name__":
+                names.append(".".join(path.relative_to(ROOT).with_suffix("").parts))
+            else:
+                names.append(arg.value if isinstance(arg, ast.Constant) else ast.unparse(arg) if arg else "")
     return names
 
 

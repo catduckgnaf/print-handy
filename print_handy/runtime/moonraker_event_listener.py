@@ -5895,7 +5895,7 @@ def main():
         raise SystemExit("services.moonraker_url is not configured (or services.moonraker_ws_url). "
                          "Set it in config/local.yaml or config/local.toml; the listener has nothing to connect to.")
     route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
-    logs.configure()
+    logs.configure(role="listener")
     _install_stack_dump_handler()
     # The local detector's model is fetched now, in the background, so the
     # first print's first camera check never waits on a 202 MB download.

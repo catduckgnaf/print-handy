@@ -683,6 +683,34 @@ class StartupConfigTests(WebServerCase):
             self.assertEqual(code, 2)
             self.assertIn("could not bind", stderr.getvalue())
 
+    def test_serve_configures_shared_logging_and_logs_the_version(self):
+        # #1404: serve() joins the shared logging (with crash capture for
+        # the webui role) and logs its startup line with the version,
+        # like every other Print Handy process.
+        from types import SimpleNamespace
+
+        from print_handy import __version__
+
+        fake = SimpleNamespace(server_address=("127.0.0.1", 8765),
+                               serve_forever=lambda: None,
+                               server_close=lambda: None)
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(
+                tmp, "webui:\n  enabled: true\n  port: 8765\n")
+            with mock.patch.object(server, "make_server", return_value=fake), \
+                    mock.patch.object(server, "start_web_alerts", lambda srv: None), \
+                    mock.patch.object(server.logs, "configure") as configure, \
+                    mock.patch.object(server, "log") as log:
+                code = server.serve(data, environ={})
+        self.assertEqual(code, 0)
+        configure.assert_called_once()
+        self.assertEqual(configure.call_args.kwargs.get("role"), "webui")
+        self.assertEqual(configure.call_args.args[0], data.get("logging"))
+        startup = [call for call in log.info.call_args_list
+                   if call.args and "webui starting" in str(call.args[0])]
+        self.assertTrue(startup)
+        self.assertIn(__version__, startup[0].args)
+
     def test_custom_access_token_env_name_is_honored(self):
         environ = {"MY_WEBUI_TOKEN": TOKEN, "WEBUI_ACCESS_TOKEN": WRONG_TOKEN}
         with tempfile.TemporaryDirectory() as tmp:

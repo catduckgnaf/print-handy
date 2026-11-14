@@ -448,7 +448,7 @@ class BambuListener:
 def main():
     from ... import logs, printers
 
-    logs.configure()
+    logs.configure(role="listener")
     adapter = printers.current()
     # Adapters have no ``vendor`` attribute: the connection is the
     # adapter's ``connection`` property (the vendor profile's connection,

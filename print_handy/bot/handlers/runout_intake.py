@@ -11,9 +11,9 @@ from .common import (
     _is_hosting_profile, _routed_printer_id,
 )
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.bot.handlers")
+# Per-module logger (#1404): records name the handler module that
+# made them, so [logging] levels rules can target one handler.
+logger = logging.getLogger(__name__)
 
 
 def _discord_operator(event, gateway):

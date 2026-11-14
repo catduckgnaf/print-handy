@@ -9,9 +9,9 @@ import asyncio
 from .common import _control_gate
 from ...runtime import _config
 
-# The logger name stays the one the code had before the move, so log
-# routing and filters see the same records.
-logger = logging.getLogger("print_handy.bot.handlers")
+# Per-module logger (#1404): records name the handler module that
+# made them, so [logging] levels rules can target one handler.
+logger = logging.getLogger(__name__)
 
 
 async def roast_dispatch(event, gateway, **kwargs):
