@@ -5,9 +5,18 @@ hardened steel, ruby, tungsten carbide, diamond PCD).
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Sequence
 from dataclasses import dataclass
+from pathlib import Path
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 CANONICAL_NOZZLE_SIZES: tuple[float, ...] = (0.2, 0.25, 0.4, 0.6, 0.8)
 
@@ -166,12 +175,6 @@ TUNED_NOZZLE_PROFILES: dict[float, NozzleProfile] = {
 
 
 def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
-    from pathlib import Path
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib  # type: ignore
-
     toml_path = Path(__file__).resolve().parent.parent / "data" / "nozzles.toml"
     profiles: dict[float, NozzleProfile] = {}
     if toml_path.is_file():
@@ -194,8 +197,8 @@ def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
                     )
                 except (ValueError, KeyError):
                     continue
-        except Exception:
-            pass
+        except (OSError, tomllib.TOMLDecodeError):
+            logger.warning("could not load nozzle profiles from %s", toml_path, exc_info=True)
     if not profiles:
         profiles = TUNED_NOZZLE_PROFILES
     return profiles

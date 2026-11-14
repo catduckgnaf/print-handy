@@ -203,6 +203,17 @@ def test_toml_backed_nozzle_profiles():
     assert prof_08.prime_tower_width == 75
 
 
+def test_nozzle_profiles_fall_back_when_config_cannot_be_read(monkeypatch, caplog):
+    from print_handy.core import nozzle
+
+    monkeypatch.setattr("pathlib.Path.is_file", lambda _self: True)
+    monkeypatch.setattr("builtins.open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    with caplog.at_level("WARNING", logger=nozzle.__name__):
+        profiles = nozzle._load_nozzle_profiles()
+    assert profiles == nozzle.TUNED_NOZZLE_PROFILES
+    assert any("could not load nozzle profiles" in rec.message for rec in caplog.records)
+
+
 def test_tuned_nozzle_profiles_configured(tmp_path, monkeypatch):
     import json
     from pathlib import Path
