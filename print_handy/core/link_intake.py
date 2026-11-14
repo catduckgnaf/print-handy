@@ -291,9 +291,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
                     if parsed is not None:
                         return parsed
                 except ValueError:
-                    # The live gateway can replay the original request text into an
-                    # active prompt. Ignore non-answers and keep the prompt available.
-                    pass
+                    # Ignore non-answers and keep the prompt available.
+                    continue
             if answer is None:
                 raise PromptExpired('this question expired before a button was pressed; no decision saved')
             if answer == cm.CANCELLED:
@@ -306,10 +305,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
                     try:
                         return parser(answer)
                     except ValueError:
-                        # A live session may replay the original request text (for example,
-                        # a URL plus a duration question) into the first typed prompt. Keep
-                        # the prompt open instead of treating that context as a bad reply.
-                        pass
+                        # Keep the prompt open instead of treating request context as a bad reply.
+                        continue
             if attempt == 0:
                 question += '\nPick a button or type split / 100% / shrink / cancel.'
         raise RuntimeError('clarification requires a valid button choice; no decision saved')

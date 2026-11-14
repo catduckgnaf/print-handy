@@ -22,6 +22,7 @@ printer reports that exact file, now or in its job history since the lease, or b
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import socket
@@ -34,6 +35,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import settings
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS approvals (job_json TEXT NOT NULL, gcode_sha256 TEXT NOT NULL, "
@@ -74,8 +77,8 @@ def _adoption_lock(target, timeout=30.0):
         finally:
             try:
                 fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("could not release legacy adoption lock: %s", exc)
             os.close(fd)
     finally:
         _ADOPT_THREAD_LOCK.release()

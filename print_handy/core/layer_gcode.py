@@ -14,10 +14,13 @@ them into pauses for a single-extruder job whose operator chose to swap the
 filament by hand. Pauses and custom G-code are reported, never carried as
 tool changes.
 """
+import logging
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 MEMBER = 'Metadata/custom_gcode_per_layer.xml'
 
@@ -127,7 +130,8 @@ def _rewrite(xml_bytes, convert, z_scale=1.0):
                     try:
                         node.set('top_z', f"{float(node.get('top_z')) * z_scale:g}")
                     except ValueError:
-                        pass
+                        # Preserve the layer with its original slicer value when it is malformed.
+                        logger.debug("invalid layer top_z %r", node.get('top_z'), exc_info=True)
                 kept += 1
             else:
                 plate.remove(node)

@@ -72,6 +72,16 @@ def test_z_scale_moves_the_change_heights_with_the_geometry():
     assert sorted(row['top_z'] for row in layer_gcode.parse(data)) == [8.0, 16.0]
 
 
+def test_z_scale_malformed_height_is_preserved_and_diagnosed(caplog):
+    xml = ('<custom_gcodes_per_layer><plate><layer top_z="bad" type="0" '
+           'extruder="2" gcode="tool_change"/></plate></custom_gcodes_per_layer>')
+    with caplog.at_level("DEBUG", logger=layer_gcode.__name__):
+        data, report = layer_gcode.remap(xml.encode(), {2: 1}, z_scale=2.0)
+    assert report["kept"] == 1
+    assert 'top_z="bad"' in data.decode()
+    assert any("invalid layer top_z" in rec.message for rec in caplog.records)
+
+
 def test_read_from_a_3mf(tmp_path):
     path = tmp_path / "x.3mf"
     with zipfile.ZipFile(path, "w") as archive:
