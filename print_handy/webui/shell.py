@@ -242,6 +242,43 @@ img { max-width: 100%; }
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
 }
+/* Pasta Wrapped (#1446): the Wrapped page is a scrolling story of
+   full-screen sections. Every rule is scoped to .wrapped (or, for
+   the scroll behavior, to a document containing one, via :has), so
+   no other page's layout or scrolling changes. */
+html:has(.wrapped) { scroll-behavior: smooth; }
+@media (min-height: 30rem) {
+  html:has(.wrapped) { scroll-snap-type: y proximity; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:has(.wrapped) { scroll-behavior: auto; scroll-snap-type: none; }
+}
+.wrapped-screen {
+  min-height: 100vh; min-height: 100svh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 2rem 0; scroll-snap-align: start;
+}
+.wrapped > section:nth-of-type(even) {
+  background: var(--color-surface); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); padding-left: 1.5rem; padding-right: 1.5rem;
+}
+.wrapped-screen > h2 { font-size: 1.5rem; margin-top: 0; }
+.wrapped-screen > .eyebrow { color: var(--color-accent); }
+.wrapped-big {
+  font-size: clamp(3rem, 16vw, 8.5rem); font-weight: 700;
+  line-height: 1.02; letter-spacing: -0.02em; margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+.wrapped-big-text { font-size: clamp(2rem, 9vw, 4.5rem); }
+.wrapped-caption { font-size: 1.125rem; color: var(--color-muted); margin: 0.25rem 0 0; }
+.wrapped-lede { font-size: 1.25rem; }
+.wrapped-hero h1 { font-size: clamp(2.25rem, 8vw, 4rem); }
+.wrapped-cue { color: var(--color-muted); font-size: 1.5rem; margin-top: 2rem; }
+.wrapped figure { margin: 1rem 0; }
+.wrapped svg { max-width: 100%; height: auto; }
+.wrapped video { width: 100%; height: auto; border-radius: var(--radius-card); background: #000; }
+.wrapped-sharecard { text-align: center; align-items: center; }
+.wrapped-finale { padding-top: 1rem; }
 """.strip()
 
 
