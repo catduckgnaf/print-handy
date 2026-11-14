@@ -17,7 +17,7 @@ def plan(*states):
 def world(tmp_path, monkeypatch):
     sent, pickers, ffmpeg = [], [], []
     monkeypatch.setattr(plan_timelapse, "_root", lambda: tmp_path / "plans")
-    monkeypatch.setattr(mel, "log", lambda _: None)
+    monkeypatch.setattr(mel, "log", lambda _: None); monkeypatch.setattr(mel, "warn", lambda _: None)
     monkeypatch.setattr(mel, "post", lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel, "post_plate_picker", lambda plan_id: pickers.append(plan_id) or True)
 

@@ -44,6 +44,7 @@ lifecycle is testable offline with fakes.
 from __future__ import annotations
 
 import logging
+import sys
 import subprocess
 import threading
 import time
@@ -65,7 +66,13 @@ _TERMINAL = {"complete": "complete", "cancelled": "cancelled", "error": "error",
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def encode_frames(frames_dir, target, *, fps=None, ffmpeg_bin=None, encoder=None, run=None):
@@ -107,7 +114,7 @@ def encode_frames(frames_dir, target, *, fps=None, ffmpeg_bin=None, encoder=None
     except Exception:
         if encoder == "cpu":
             raise
-        log(f"timelapse {encoder} encode failed for {target.name}; retrying with the CPU encoder")
+        warn(f"timelapse {encoder} encode failed for {target.name}; retrying with the CPU encoder")
         attempt("cpu")
     if not partial.is_file() or partial.stat().st_size <= 0:
         raise RuntimeError(f"ffmpeg produced no video at {partial}")
@@ -154,7 +161,7 @@ def _default_encode(session):
     try:
         return delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
-        log(f"stock timelapse sizing failed for {session.filename!r}: {exc!r}")
+        warn(f"stock timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
 
 
@@ -215,7 +222,7 @@ class StockPrintMonitor:
             # fires without layer changes.
             interval = timelapse_capture.capture_settings()["capture_interval_s"]
             session.trigger = timelapse_capture.IntervalTrigger(interval)
-            log(f"stock capture for {self.filename!r}: the layer trigger cannot "
+            warn(f"stock capture for {self.filename!r}: the layer trigger cannot "
                 f"fire without layer status; capturing every {interval:g}s instead")
         return session
 
@@ -230,7 +237,7 @@ class StockPrintMonitor:
         try:
             url = self._camera_url_fn()
         except Exception as exc:
-            log(f"stock camera source could not be read for {self.filename!r}: {exc!r}; "
+            warn(f"stock camera source could not be read for {self.filename!r}: {exc!r}; "
                 "no timelapse for this print")
             return None
         if not url:
@@ -247,10 +254,10 @@ class StockPrintMonitor:
         try:
             session = self._begin_fn(url)
         except Exception as exc:
-            log(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
+            warn(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
             return None
         if session is None:
-            log(f"timelapse capture unavailable for {self.filename!r} "
+            warn(f"timelapse capture unavailable for {self.filename!r} "
                 "(capture disabled or refused); the print continues without it")
             return None
         try:
@@ -259,7 +266,7 @@ class StockPrintMonitor:
         except Exception as exc:
             # The stream may already be open (or the firmware may serve it
             # without the control); capture proceeds and the fetch decides.
-            log(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
+            warn(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
                 "trying to capture anyway")
         return session
 
@@ -270,13 +277,13 @@ class StockPrintMonitor:
             try:
                 session.stop(state)
             except Exception as exc:
-                log(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
+                warn(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
         if self._stream_open:
             self._stream_open = False
             try:
                 self._stream_fn("close")
             except Exception as exc:
-                log(f"stock camera stream close failed for {self.filename!r}: {exc!r}")
+                warn(f"stock camera stream close failed for {self.filename!r}: {exc!r}")
         return session
 
     # -- terminal post -------------------------------------------------------
@@ -301,7 +308,7 @@ class StockPrintMonitor:
                 video = self._encode_fn(session)
                 undeliverable = video is None
             except Exception as exc:
-                log(f"stock timelapse encode failed for {self.filename!r}: {exc!r}; "
+                warn(f"stock timelapse encode failed for {self.filename!r}: {exc!r}; "
                     "posting the completion without it")
         elif session is not None:
             dark_frames = getattr(session, "dark_frames", 0)
@@ -313,7 +320,7 @@ class StockPrintMonitor:
                     f"all {dark_frames} frame(s) were completely dark; "
                     "posting the completion without it")
             else:
-                log(f"stock timelapse for {self.filename!r} has no frames "
+                warn(f"stock timelapse for {self.filename!r} has no frames "
                     f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
             text = _caption_number(text, self.filename)
@@ -323,10 +330,10 @@ class StockPrintMonitor:
                 # only an explicit False means undelivered.
                 if self._send(f"{text}\nMEDIA:{video}") is not False:
                     return kind
-                log(f"stock completion post with timelapse was refused for {self.filename!r}; "
+                warn(f"stock completion post with timelapse was refused for {self.filename!r}; "
                     "posting the text only")
             except Exception as exc:
-                log(f"stock completion post with timelapse failed for {self.filename!r}: {exc!r}; "
+                warn(f"stock completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")
         if undeliverable:
             text = f"{text}\n{_too_big_text()}"
@@ -347,7 +354,7 @@ class StockPrintMonitor:
                 # A reconnect or a refused read costs one poll, never the
                 # session: capture state lives in this monitor, and the
                 # session's own tick retries its fetches the same way.
-                log(f"stock monitor status read failed for {self.filename!r}: {exc!r}")
+                warn(f"stock monitor status read failed for {self.filename!r}: {exc!r}")
                 self._sleep(self._poll_s)
                 continue
             state = str(st.get("state") or "unknown")
@@ -431,5 +438,5 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_
         thread.start()
         return thread
     except Exception as exc:
-        log(f"stock monitor could not start for {filename!r}: {exc!r}")
+        warn(f"stock monitor could not start for {filename!r}: {exc!r}")
         return None

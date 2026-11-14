@@ -90,45 +90,18 @@ class _ModuleSeams:
 
 _SELF = _ModuleSeams(globals())  # the lookup namespace listener_common resolves this listener's seams through
 TICK_SECONDS = float(_LISTENER["tick_s"])
-LOG = announcer.PROFILE_HOME / "logs" / "moonraker_event_listener.log"
 TERMINAL = {"cancelled": "Print cancelled", "error": "Print stopped with an error"}
 
 
 logger = logging.getLogger("print_handy.runtime.moonraker_event_listener")  # fixed: runpy runs this as __main__
-_PROBLEM = re.compile(r"\b(failed|failure|error|lost|refused|could not|cannot|unreachable|timed out)\b", re.I)
-
-
-_log_day = {}
-
-
-def _log_file():
-    """Today's legacy listener log file, ``<LOG stem>-YYYY-MM-DD.log``.
-
-    The file used to grow for ever. It now follows the shared log files'
-    rule (logs.DailyFileHandler): one dated file per day beside LOG, never
-    renamed (several listener processes can share the folder), and dated
-    files older than logs.FILE_RETENTION_DAYS are pruned once a day.
-    """
-    day = datetime.now().strftime("%Y-%m-%d")
-    path = LOG.with_name(f"{LOG.stem}-{day}{LOG.suffix or '.log'}")
-    if _log_day.get(LOG) != day:
-        LOG.parent.mkdir(parents=True, exist_ok=True)
-        logs.prune(LOG, logs.FILE_RETENTION_DAYS, today=day)
-        _log_day[LOG] = day
-    return path
-
-
 def log(line):
-    """Record one listener event: the legacy log file, and the shared logger (stderr, journald, docker logs).
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
+    logger.info("%s", logs.redact(str(line)))
 
-    A line that reports a failure is logged as a warning, and the traceback of the exception being handled
-    when it is called, if any, is kept. Credentials are redacted in both places.
-    """
-    line = logs.redact(str(line))
-    with _log_file().open("a") as fh:
-        fh.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {line}\n")
-    logger.log(logging.WARNING if _PROBLEM.search(line) else logging.INFO, "%s", line,
-               exc_info=sys.exc_info() if sys.exc_info()[0] else None)
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def _platform_name():
@@ -251,9 +224,9 @@ def post_alert(message, kind, filename, episode=None):
                                               message, kind, filename, **kwargs):
                 log(f"post telegram buttons kind={kind} {message.splitlines()[0][:120]!r}")
                 return True
-            log("telegram button post failed; falling back to plain text")
+            warn("telegram button post failed; falling back to plain text")
         except Exception as exc:
-            log(f"telegram button post error: {exc!r}")
+            warn(f"telegram button post error: {exc!r}")
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     elif _matrix_standalone():
         try:
@@ -267,9 +240,9 @@ def post_alert(message, kind, filename, episode=None):
                                               _matrix_room_id(), message, kind, filename, **kwargs):
                 log(f"post matrix reactions kind={kind} {message.splitlines()[0][:120]!r}")
                 return True
-            log("matrix reaction post failed; falling back to plain text")
+            warn("matrix reaction post failed; falling back to plain text")
         except Exception as exc:
-            log(f"matrix reaction post error: {exc!r}")
+            warn(f"matrix reaction post error: {exc!r}")
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     elif _buttonless_standalone():
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
@@ -286,9 +259,9 @@ def post_alert(message, kind, filename, episode=None):
                                      message, kind, filename, **kwargs):
                 log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
                 return True
-            log("button post failed; falling back to plain text")
+            warn("button post failed; falling back to plain text")
         except Exception as exc:
-            log(f"button post error: {exc!r}")
+            warn(f"button post error: {exc!r}")
         delivered = post(message, **({"mention_user_id": mention} if mention else {}))
     if not delivered and mention:
         # Every delivery attempt failed, so the recorded ping never
@@ -309,7 +282,7 @@ def post_plate_picker(plan_id):
             from . import next_plate_offer
             next_plate_offer.remember(plan_id)
         except Exception as exc:
-            log(f"next-plate offer registration failed plan={plan_id}: {exc!r}")
+            warn(f"next-plate offer registration failed plan={plan_id}: {exc!r}")
         return post(f"To start the next plate, type `/print-next {plan_id}`.")
     try:
         from . import print_alert_buttons as pab
@@ -326,9 +299,9 @@ def post_plate_picker(plan_id):
                                  "Which plate is next? Clear the bed, then choose a plate.", plan_id, options):
             log(f"post plate picker plan={plan_id} plates={len(options)}")
             return True
-        log(f"plate picker post failed plan={plan_id}; falling back to text")
+        warn(f"plate picker post failed plan={plan_id}; falling back to text")
     except Exception as exc:
-        log(f"plate picker post error plan={plan_id}: {exc!r}")
+        warn(f"plate picker post error plan={plan_id}: {exc!r}")
     return post(f"To start the next plate, type `/print-next {plan_id}`.")
 
 
@@ -353,9 +326,9 @@ def post_bed_clear_offer(choice):
             # typed there, it runs the same confirmed next-plate flow.
             _web_publish(text)
             return True
-        log(f"next-plate offer button post failed plan={plan_id}; falling back to text")
+        warn(f"next-plate offer button post failed plan={plan_id}; falling back to text")
     except Exception as exc:
-        log(f"next-plate offer button post error plan={plan_id}: {exc!r}")
+        warn(f"next-plate offer button post error plan={plan_id}: {exc!r}")
     return False
 
 
@@ -370,9 +343,9 @@ def post_insertion_confirmation(slot):
                                            text, slot):
             log(f"post insertion confirmation slot={slot}")
             return True
-        log(f"insertion confirmation button post failed slot={slot}; falling back to text")
+        warn(f"insertion confirmation button post failed slot={slot}; falling back to text")
     except Exception as exc:
-        log(f"insertion confirmation button post error slot={slot}: {exc!r}")
+        warn(f"insertion confirmation button post error slot={slot}: {exc!r}")
     return post(insertion_prompt(slot))
 
 
@@ -397,13 +370,13 @@ def post_spool_question(record, nag=False):
             atomic_write_json(RUNOUT_PAUSE_STATE, record)
             log(f"spool question {'refreshed' if previous else 'posted'} message={message_id}")
             return True
-        log("spool question component post failed")
+        warn("spool question component post failed")
     except Exception as exc:
-        log(f"spool question component post error: {exc!r}")
+        warn(f"spool question component post error: {exc!r}")
     if nag:
         log("spool question nag left unchanged to avoid stacking messages")
         return False
-    log("spool question component post failed; falling back to text")
+    warn("spool question component post failed; falling back to text")
     return post(spool_question_text(record))
 
 
@@ -424,7 +397,7 @@ def capture_stop(filename, trigger):
         from . import stop_capture
         return stop_capture.capture(filename, trigger, log=log).get("stop_reason") or ""
     except Exception as exc:
-        log(f"stop capture failed ({trigger}): {exc!r}")
+        warn(f"stop capture failed ({trigger}): {exc!r}")
         return ""
 
 
@@ -458,7 +431,7 @@ def post_cancel_report(filename, reason=None, *, operator_cancel=False):
             report_text = klipper_report.report(filename)
         text = print_summary.format_event("cancelled", filename) + "\n" + report_text
     except Exception as exc:
-        log(f"klipper report failed: {exc!r}")
+        warn(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
     return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"),
                 **({"mention_user_id": mention} if mention else {}))
@@ -669,10 +642,10 @@ def post_exclude_objects(filename, archive=None, context_path=None):
             if exclude_chat.post_picker(_bot_token(), announcer.DISCORD_CHAT_ID, content, aid, names):
                 log(f"post exclude menu file={filename!r} objects={len(names)}")
                 return True
-            log(f"exclude menu post failed file={filename!r}; falling back to text")
+            warn(f"exclude menu post failed file={filename!r}; falling back to text")
         return post(content)
     except Exception as exc:
-        log(f"exclude object post error file={filename!r}: {exc!r}")
+        warn(f"exclude object post error file={filename!r}: {exc!r}")
         return False
 
 
@@ -752,7 +725,7 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
         from . import print_stop
         where = print_stop.where_text(print_stop.status())
     except Exception as exc:
-        log(f"paused status read failed: {exc!r}")
+        warn(f"paused status read failed: {exc!r}")
     if runout:
         which = filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "The active slot"
         into = filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "the active slot"
@@ -861,7 +834,7 @@ def list_spools():
         return []
     payload = spoolman_client.list_spools(base_url=base, timeout=8)
     if payload is None:
-        log("spool inventory read failed: Spoolman did not answer")
+        warn("spool inventory read failed: Spoolman did not answer")
         return []
     return payload
 
@@ -1077,7 +1050,7 @@ def read_head_sensor():
         single = not any(isinstance(o, str) and re.fullmatch(r"extruder\d+", o) for o in objects)
         return head_sensor_from_status(status, single_extruder=single)
     except Exception as exc:
-        log(f"head filament sensor read failed: {exc!r}")
+        warn(f"head filament sensor read failed: {exc!r}")
         return None
 
 
@@ -1493,9 +1466,9 @@ def _post_completion(message, completion_message, job_key=None):
         if roast:
             try:
                 if not post(roast):
-                    log("completion roast follow-up post failed; the timelapse post stands")
+                    warn("completion roast follow-up post failed; the timelapse post stands")
             except Exception as exc:
-                log(f"completion roast follow-up post failed: {exc!r}; the timelapse post stands")
+                warn(f"completion roast follow-up post failed: {exc!r}; the timelapse post stands")
         return delivered
     delivered = post(_with_completion_roast(message, completion_message), **mention_kwargs)
     if delivered:
@@ -1515,7 +1488,7 @@ def _persist_timelapse_routing(plan_id, tl_plan):
         announcer.set_pending_timelapse_routing(state, plan_id, tl_plan)
         announcer.save_state(state)
     except Exception as exc:
-        log(f"could not persist timelapse routing: {exc!r}")
+        warn(f"could not persist timelapse routing: {exc!r}")
 
 
 def _run_announcer_main(reason):
@@ -1525,7 +1498,7 @@ def _run_announcer_main(reason):
         with contextlib.redirect_stdout(out):
             announcer.main()
     except Exception as exc:  # never let one bad pass kill the listener
-        log(f"announcer error ({reason}): {exc!r}")
+        warn(f"announcer error ({reason}): {exc!r}")
         return ""
     return out.getvalue()
 
@@ -1721,7 +1694,7 @@ def _vertical_short_attachment(video, job_key):
             return None
         return Path(str(short))
     except Exception as exc:
-        log(f"vertical short for {job_key!r} failed; posting timelapse only: {exc!r}")
+        warn(f"vertical short for {job_key!r} failed; posting timelapse only: {exc!r}")
         return None
 
 
@@ -1738,7 +1711,7 @@ def _captured_timelapse(job_key):
         return timelapse_encode.captured_video(
             job_key, data=_config.cfg(), max_bytes=_media_upload_limit(), log=log)
     except Exception as exc:
-        log(f"captured timelapse lookup failed for {job_key!r}: {exc!r}")
+        warn(f"captured timelapse lookup failed for {job_key!r}: {exc!r}")
         return None
 
 
@@ -1757,7 +1730,7 @@ def _dark_capture(job_key):
             return None
         return timelapse_encode.dark_capture(job_key, data=data)
     except Exception as exc:
-        log(f"dark capture lookup failed for {job_key!r}: {exc!r}")
+        warn(f"dark capture lookup failed for {job_key!r}: {exc!r}")
         return None
 
 
@@ -1874,7 +1847,7 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
                             "archive is off (timelapse.archive_host / archive_dir not configured), "
                             "lookup skipped")
                     elif outcome.state == announcer.ARCHIVE_FAILED:
-                        log(f"plan timelapse clip for {job_key!r} unavailable: printer-rendered "
+                        warn(f"plan timelapse clip for {job_key!r} unavailable: printer-rendered "
                             f"archive failed: {outcome.detail}")
                     else:
                         log(f"timelapse not rendered for {job_key!r} within the wait")
@@ -1898,24 +1871,24 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
         try:
             combined = plan_timelapse.combine(plan)
         except Exception as exc:
-            log(f"timelapse combine failed for plan {plan!r}: {exc!r}")
+            warn(f"timelapse combine failed for plan {plan!r}: {exc!r}")
             _post_completion(completion_message, completion_message, job_key=job_key)
             return
         try:
             announcer.archive_local_timelapse(plan, combined)
         except Exception as exc:
-            log(f"combined timelapse archive failed for plan {plan!r}: {exc!r}")
+            warn(f"combined timelapse archive failed for plan {plan!r}: {exc!r}")
         video = combined
         try:
             video = platform_sized_video(combined)
         except Exception as exc:
-            log(f"combined timelapse shrink failed for plan {plan!r}: {exc!r}")
+            warn(f"combined timelapse shrink failed for plan {plan!r}: {exc!r}")
         message = f"{note}\nMEDIA:{video}"
         short = _vertical_short_attachment(video, job_key or plan)
         if short is not None:
             message += f"\nMEDIA:{short}"
         if not _post_completion(message, completion_message, job_key=job_key):
-            log(f"combined timelapse attach failed for plan {plan!r}; posting text only")
+            warn(f"combined timelapse attach failed for plan {plan!r}; posting text only")
             _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message, job_key=job_key)
     finally:
         plan_timelapse.clear(plan)
@@ -1941,7 +1914,7 @@ def _timelapse_post(job_key, completion_message):
             if short is not None:
                 message += f"\nMEDIA:{short}"
             if not _post_completion(message, completion_message, job_key=job_key):
-                log(f"captured timelapse attach failed for {job_key!r}; posting text only")
+                warn(f"captured timelapse attach failed for {job_key!r}; posting text only")
                 _post_completion(f"{caption}\n{_timelapse_fallback_text(message, captured.name)}",
                                  completion_message, job_key=job_key)
             return
@@ -1991,7 +1964,7 @@ def _timelapse_post(job_key, completion_message):
                     "is off (timelapse.archive_host / archive_dir not configured), lookup skipped")
                 _post_completion(completion_message, completion_message, job_key=job_key)
             elif outcome.state == announcer.ARCHIVE_FAILED:
-                log(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
+                warn(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
                     f"failed: {outcome.detail}")
                 _post_completion(f"{completion_message}\nTimelapse not attached: the printer's "
                                  "rendered video was found, but archiving it failed "
@@ -2007,17 +1980,17 @@ def _timelapse_post(job_key, completion_message):
         try:
             local_video = platform_sized_video(local_video)
         except Exception as exc:  # oversize source still gets a try; the text fallback covers a refusal
-            log(f"timelapse shrink failed for {job_key!r}: {exc!r}")
+            warn(f"timelapse shrink failed for {job_key!r}: {exc!r}")
         message = f"{completion_message}\nMEDIA:{local_video}"
         short = _vertical_short_attachment(local_video, job_key)
         if short is not None:
             message += f"\nMEDIA:{short}"
         if not _post_completion(message, completion_message, job_key=job_key):
             # Never lose the completion notice because the platform refused the attachment.
-            log(f"timelapse attach failed for {job_key!r}; posting text only")
+            warn(f"timelapse attach failed for {job_key!r}; posting text only")
             _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, Path(str(archived)).name)}", completion_message, job_key=job_key)
     except Exception as exc:
-        log(f"timelapse postprocess failed for {job_key!r}: {exc!r}")
+        warn(f"timelapse postprocess failed for {job_key!r}: {exc!r}")
         _post_completion(completion_message, completion_message, job_key=job_key)
 
 
@@ -2180,7 +2153,7 @@ def platform_sized_video(path, max_bytes=None):
             except Exception:
                 if encoder == "cpu":
                     raise
-                log(f"timelapse {encoder} encode failed for {source.name}; retrying with the CPU encoder")
+                warn(f"timelapse {encoder} encode failed for {source.name}; retrying with the CPU encoder")
                 used = "cpu"
                 _encode_sized(source, partial, attempt_kbps, "cpu")
         except BaseException:
@@ -2368,9 +2341,9 @@ def post_new_spool_prompt(spool):
                               new_spool_prompt_text(spool), int(spool["id"]), spool_display_label(spool)):
             log(f"post new spool prompt spool={spool.get('id')}")
             return True
-        log(f"new spool button post failed spool={spool.get('id')}; falling back to text")
+        warn(f"new spool button post failed spool={spool.get('id')}; falling back to text")
     except Exception as exc:
-        log(f"new spool button post error: {exc!r}")
+        warn(f"new spool button post error: {exc!r}")
     return post(new_spool_plain_text(spool))
 
 
@@ -2713,7 +2686,7 @@ def announce_start_abandoned(filename):
         from . import print_next
         message_id, channel_id = print_next.take_start_message_target(filename)
     except Exception as exc:
-        log(f"start message lookup failed file={filename!r}: {exc!r}")
+        warn(f"start message lookup failed file={filename!r}: {exc!r}")
     if not message_id:
         log(f"no recorded start message; abandoned start not edited file={filename!r}")
         return False
@@ -2729,8 +2702,8 @@ def announce_start_abandoned(filename):
             log(f"start message edited (abandoned) id={message_id} file={filename!r}")
             return True
     except Exception as exc:
-        log(f"start message edit error id={message_id}: {exc!r}")
-    log(f"start message edit failed id={message_id}; leaving the start post as is")
+        warn(f"start message edit error id={message_id}: {exc!r}")
+    warn(f"start message edit failed id={message_id}; leaving the start post as is")
     return False
 
 
@@ -2758,7 +2731,7 @@ def announce_warmup_done(filename):
         from . import print_next
         message_id, channel_id = print_next.take_start_message_target(filename)
     except Exception as exc:
-        log(f"start message lookup failed file={filename!r}: {exc!r}")
+        warn(f"start message lookup failed file={filename!r}: {exc!r}")
     if not message_id:
         # The intake already posted the one "Print started" message; a second line after it is noise.
         # Expected, not a fault (#1282): only a Discord intake whose start was still warming
@@ -2778,8 +2751,8 @@ def announce_warmup_done(filename):
                 log(f"start message edited id={message_id} file={filename!r}")
                 return True
         except Exception as exc:
-            log(f"start message edit error id={message_id}: {exc!r}")
-        log(f"start message edit failed id={message_id}; leaving the start post as is")
+            warn(f"start message edit error id={message_id}: {exc!r}")
+        warn(f"start message edit failed id={message_id}; leaving the start post as is")
     return False
 
 
@@ -2944,7 +2917,7 @@ def _camera_snapshot_bytes():
             log("visual watch: go2rtc fan-out snapshot is completely dark; "
                 "falling back to the direct camera snapshot")
         except Exception:
-            log("visual watch: go2rtc fan-out snapshot failed; "
+            warn("visual watch: go2rtc fan-out snapshot failed; "
                 "falling back to the direct camera snapshot")
     return _fetch_snapshot(direct)
 
@@ -3006,7 +2979,7 @@ def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
         return recorder(filename=filename, verdict=verdict, streak=streak,
                         action=action)
     except Exception as exc:
-        log(f"watchdog event record failed file={filename!r}: {exc!r}")
+        warn(f"watchdog event record failed file={filename!r}: {exc!r}")
         return False
 
 
@@ -3108,7 +3081,7 @@ def _light_object_names():
     try:
         listing = print_control._call("/printer/objects/list")
     except Exception as exc:
-        log(f"auto light: Moonraker object list failed: {exc!r}")
+        warn(f"auto light: Moonraker object list failed: {exc!r}")
         return None
     objects = ((listing.get("result") or {}).get("objects")
                if isinstance(listing, dict) else None)
@@ -3207,9 +3180,9 @@ def _visual_alert(filename, image, reason, identity=None, ping=True):
                                  text, filename, path, identity=identity, **kwargs):
             log(f"post visual alert {clean(filename)!r}")
             return path
-        log("visual button post failed; falling back to text")
+        warn("visual button post failed; falling back to text")
     except Exception as exc:
-        log(f"visual button post error: {exc!r}")
+        warn(f"visual button post error: {exc!r}")
     delivered = post(text + f"\n{path}\nMEDIA:{path}",
                      **({"mention_user_id": mention} if mention else {}))
     if mention and not delivered:
@@ -3251,9 +3224,9 @@ def _visual_alert_text(filename, reason, identity=None):
                                       text, filename, identity=identity, **kwargs):
             log(f"post visual text alert {clean(filename)!r}")
             return
-        log("visual text alert button post failed; falling back to text")
+        warn("visual text alert button post failed; falling back to text")
     except Exception as exc:
-        log(f"visual text alert post error: {exc!r}")
+        warn(f"visual text alert post error: {exc!r}")
     delivered = post(text, **({"mention_user_id": mention} if mention else {}))
     if mention and not delivered:
         # Every delivery attempt failed: release the recorded ping, as
@@ -3283,9 +3256,9 @@ def _visual_dark_notice(filename, identity=None):
                                        text, filename, identity=identity):
             log(f"post visual dark notice {clean(filename)!r}")
             return
-        log("visual dark button post failed; falling back to text")
+        warn("visual dark button post failed; falling back to text")
     except Exception as exc:
-        log(f"visual dark notice post error: {exc!r}")
+        warn(f"visual dark notice post error: {exc!r}")
     post(text)
 
 
@@ -3451,7 +3424,7 @@ async def maintenance_reminder_tick(listener):
                     state['last_reminder'] = signature
                     maintenance.save(state)
     except Exception as exc:
-        log(f"maintenance reminder check failed: {exc!r}")
+        warn(f"maintenance reminder check failed: {exc!r}")
 
 
 async def maintenance_cancel_reminder():
@@ -3460,7 +3433,7 @@ async def maintenance_cancel_reminder():
         if st.get('state') == 'standby':
             await asyncio.to_thread(post, 'A print was cancelled. When the printer is idle, check the filament path and consider a maintenance quick check.')
     except Exception as exc:
-        log(f"cancel maintenance reminder failed: {exc!r}")
+        warn(f"cancel maintenance reminder failed: {exc!r}")
 
 
 NATIVE_ERROR_HINTS = {
@@ -3498,7 +3471,7 @@ def save_native_error_alerted(key):
     try:
         atomic_write_json(NATIVE_ERROR_STATE, {"key": list(key) if key else None})
     except OSError as exc:
-        log(f"native error state not saved: {exc!r}")
+        warn(f"native error state not saved: {exc!r}")
 
 
 def zmod_display_off(status):
@@ -3653,7 +3626,7 @@ class Listener:
             note = ""
         except Exception as exc:
             suspended, note = None, f"\n⚠️ Could not pause filament usage ({exc}); the old spool may keep being charged."
-            log(f"usage suspend failed: {exc!r}")
+            warn(f"usage suspend failed: {exc!r}")
         record = open_spool_question(self.filename, slot, _mapped_spool(slot) if slot else None,
                                      cause, suspended)
         log(f"spool question opened: cause={cause} slot={slot} suspended_spool={suspended}")
@@ -3700,7 +3673,7 @@ class Listener:
                     print_control._call, "/printer/objects/query?print_stats&extruder&heater_bed")
                 status = (reply.get("result") or {}).get("status") or {}
             except Exception as exc:
-                log(f"abandoned start poll failed file={filename!r}: {exc!r}")
+                warn(f"abandoned start poll failed file={filename!r}: {exc!r}")
                 continue
             stats = status.get("print_stats") or {}
             reported = stats.get("filename") or ""
@@ -3726,7 +3699,7 @@ class Listener:
             if row:
                 log(f"launch lease released: the printer abandoned {filename!r} without printing")
         except Exception as exc:
-            log(f"abandoned launch lease release failed file={filename!r}: {exc!r}")
+            warn(f"abandoned launch lease release failed file={filename!r}: {exc!r}")
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).
@@ -3741,7 +3714,7 @@ class Listener:
                 await asyncio.to_thread(self.spoolman_watcher.delivered, spool["id"])
                 log(f"spoolman watcher prompted for new spool #{spool.get('id')}")
             else:
-                log(f"spoolman watcher could not deliver the prompt for spool #{spool.get('id')}; will retry")
+                warn(f"spoolman watcher could not deliver the prompt for spool #{spool.get('id')}; will retry")
 
     async def poll_lane_data(self):
         """Announce and converge HelixScreen-initiated spool changes (#791).
@@ -3765,7 +3738,7 @@ class Listener:
                 await asyncio.to_thread(self.lane_watcher.delivered, event["key"])
                 log(f"lane_data watcher announced {event.get('kind')} for slot {event.get('slot')}")
             else:
-                log(f"lane_data watcher could not deliver the {event.get('kind')} announcement "
+                warn(f"lane_data watcher could not deliver the {event.get('kind')} announcement "
                     f"for slot {event.get('slot')}; will retry")
 
     async def nag_if_due(self):
@@ -3800,7 +3773,7 @@ class Listener:
             try:
                 _detail, slots = await self.read_slots()
             except Exception as exc:
-                log(f"spool question slot read failed: {exc!r}")
+                warn(f"spool question slot read failed: {exc!r}")
                 return None
             self.note_slot_presence(slots)
         value = (slots or {}).get(slot) if isinstance(slots, dict) else None
@@ -3844,7 +3817,7 @@ class Listener:
                         functools.partial(feed_screen_runout_load, slot, bound, record,
                                           **({"mr": mr} if mr is not None else {})))
             except Exception as exc:
-                log(f"spool question refeed settle failed: {exc!r}")
+                warn(f"spool question refeed settle failed: {exc!r}")
             else:
                 log(f"spool question closed as a refeed: slot {slot} is back on spool #{bound}")
                 await asyncio.to_thread(post, refeed_settled_text(record))
@@ -3885,7 +3858,7 @@ class Listener:
                 if key and key != self.native_error_alerted:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
-                    log(f"native screen error {key} file={self.filename!r}")
+                    warn(f"native screen error {key} file={self.filename!r}")
                     episode = f"native-error:{key[0]}:{key[1]}"
                     mention = starter_pings.ping_for(
                         "alert", job_key=self.filename, episode=episode) or None
@@ -3931,7 +3904,7 @@ class Listener:
         # One line per distinct failure (and one on recovery), logged outside the handler so no
         # traceback rides along: this poll runs every NATIVE_POLL_SECONDS.
         if failure and failure != self.presence_failure:
-            log(f"native filament presence poll failed: {failure}")
+            warn(f"native filament presence poll failed: {failure}")
         elif not failure and self.presence_failure:
             log("native filament presence poll recovered")
         self.presence_failure = failure
@@ -3957,7 +3930,7 @@ class Listener:
         try:
             charged = await asyncio.to_thread(spool_sync.active_usage_spool)
         except Exception as exc:
-            log(f"failover: active spool read failed, retrying on a later poll: {exc!r}")
+            warn(f"failover: active spool read failed, retrying on a later poll: {exc!r}")
             self.failover_retry(change)
             return
         target = failover_usage_target(old, new, charged, _mapped_spool)
@@ -3967,7 +3940,7 @@ class Listener:
         try:
             await asyncio.to_thread(spool_sync.resume_usage, target)
         except Exception as exc:
-            log(f"failover: usage repoint failed, retrying on a later poll: {exc!r}")
+            warn(f"failover: usage repoint failed, retrying on a later poll: {exc!r}")
             self.failover_retry(change)
             if change in self.failover_failures_posted:
                 return
@@ -4003,7 +3976,7 @@ class Listener:
                 self.note_slot_presence(slots)
                 self.slot_tracker.observe(slots)
             except Exception as exc:
-                log(f"pause slot read failed: {exc!r}")
+                warn(f"pause slot read failed: {exc!r}")
             empty = self.slot_tracker.empty_slots(slots)
             present = _slot_bools(slots)
             slot = attribute_runout_slot(self.slot_tracker.emptied, empty,
@@ -4034,7 +4007,7 @@ class Listener:
                 facts["next_cmd_delay"] = ifs.get("next_cmd_delay")
                 facts["detection_length"] = ifs.get("detection_length")
         except Exception as exc:
-            log(f"jam facts zmod_ifs read failed: {exc!r}")
+            warn(f"jam facts zmod_ifs read failed: {exc!r}")
         try:
             listing = print_control._call("/printer/objects/list")
             objects = ((listing.get("result") or {}).get("objects")
@@ -4043,7 +4016,7 @@ class Listener:
             facts["head_sensor"] = any(
                 name.startswith("filament_switch_sensor ") for name in names)
         except Exception as exc:
-            log(f"jam facts sensor read failed: {exc!r}")
+            warn(f"jam facts sensor read failed: {exc!r}")
         return facts
 
     def _slot_agreement(self):
@@ -4063,13 +4036,13 @@ class Listener:
             ffm_channel = ffm if type(ffm) is int and 1 <= ffm <= 4 else None
             ifs_chan = ifs if type(ifs) is int and 1 <= ifs <= 4 else None
         except Exception as exc:
-            log(f"slot self-check object read failed: {exc!r}")
+            warn(f"slot self-check object read failed: {exc!r}")
         helix_slot = None
         try:
             lanes = lane_data_sync.parse_lane_data(spool_sync.read_lane_data())
             helix_slot = lane_data_sync.helix_seated_slot(lanes, spool_id)
         except Exception as exc:
-            log(f"slot self-check lane read failed: {exc!r}")
+            warn(f"slot self-check lane read failed: {exc!r}")
         return lane_data_sync.slot_agreement_warning(
             job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
             helix_slot=helix_slot, filename=clean(self.filename or "this print"))
@@ -4085,7 +4058,7 @@ class Listener:
             if warning:
                 await asyncio.to_thread(post, warning)
         except Exception as exc:
-            log(f"slot self-check failed: {exc!r}")
+            warn(f"slot self-check failed: {exc!r}")
 
     def _runout_repause(self, slot):
         """True when this runout pause is the last runout pausing again on the same slot."""
@@ -4104,7 +4077,7 @@ class Listener:
             from . import print_alert_buttons as pab
             return pab.latest_alert_message(kind, self.filename)
         except Exception as exc:
-            log(f"alert message lookup failed file={self.filename!r}: {exc!r}")
+            warn(f"alert message lookup failed file={self.filename!r}: {exc!r}")
             return None
 
     def _post_runout_repause(self):
@@ -4128,7 +4101,7 @@ class Listener:
                                    printer_id=_listeners.instance_printer_id() or None):
                     return True
             except Exception as exc:
-                log(f"runout alert rewrite failed file={self.filename!r}: {exc!r}")
+                warn(f"runout alert rewrite failed file={self.filename!r}: {exc!r}")
         delivered = post_alert(text, "paused", self.filename, episode="paused:runout")
         episode["message"] = self._alert_message("paused") or target
         return delivered
@@ -4202,7 +4175,7 @@ class Listener:
             await asyncio.wait_for(self._visual_check_once(reason, layer), VISUAL_CHECK_DEADLINE_S)
         except asyncio.TimeoutError:
             self.visual_timeouts = getattr(self, "visual_timeouts", 0) + 1
-            log(f"visual check timed out file={self.filename!r} reason={reason} after "
+            warn(f"visual check timed out file={self.filename!r} reason={reason} after "
                 f"{VISUAL_CHECK_DEADLINE_S:.0f}s (timeouts so far: {self.visual_timeouts}); "
                 "the camera or the vision endpoint did not answer")
             # Do not send an old print's timeout to a replacement print.
@@ -4222,7 +4195,7 @@ class Listener:
                 await asyncio.to_thread(
                     _visual_alert_text, filename, _visual_watch.TIMEOUT_ALERT_TEXT, identity=identity)
             except Exception as alert_exc:
-                log(f"visual timeout alert failed file={filename!r}: {alert_exc!r}")
+                warn(f"visual timeout alert failed file={filename!r}: {alert_exc!r}")
 
     async def _note_watch_failure(self, filename, identity):
         """Count one failed check for this print. True when its alert should go out now.
@@ -4230,7 +4203,7 @@ class Listener:
         Muted prints still count (so their episode ends normally), but never alert.
         """
         if not self.visual_watch.failure_alert_due(_watch_now()):
-            log(f"visual failure alert suppressed for {filename!r}: "
+            warn(f"visual failure alert suppressed for {filename!r}: "
                 "already alerted within the periodic interval")
             return False
         from . import print_alert_buttons as pab
@@ -4375,7 +4348,7 @@ class Listener:
                     log(f"visual alert suppressed for muted print {filename!r}")
                     event_action = "suppressed"
                 elif watch_failed and not self.visual_watch.failure_alert_due(_watch_now()):
-                    log(f"visual failure alert suppressed for {filename!r}: "
+                    warn(f"visual failure alert suppressed for {filename!r}: "
                         "already alerted within the periodic interval")
                     event_action = "suppressed"
                 elif stale():
@@ -4435,7 +4408,7 @@ class Listener:
                     _record_watchdog_event, filename, verdict,
                     streak=streak, action=event_action)
         except Exception as exc:
-            log(f"visual check failed file={filename!r} reason={reason}: {exc!r}")
+            warn(f"visual check failed file={filename!r} reason={reason}: {exc!r}")
             if image is not None:
                 try:
                     if await self._note_watch_failure(filename, identity):
@@ -4444,7 +4417,7 @@ class Listener:
                             _camera_watch.vision_failed_text(reason, layer),
                             identity=identity)
                 except Exception as alert_exc:
-                    log(f"visual alert failed file={filename!r}: {alert_exc!r}")
+                    warn(f"visual alert failed file={filename!r}: {alert_exc!r}")
             else:
                 # The snapshot itself failed, so there is no image to
                 # attach — but the operator still gets an alert: a dead
@@ -4461,7 +4434,7 @@ class Listener:
                             _camera_watch.camera_failed_text(reason, layer),
                             identity=identity)
                 except Exception as alert_exc:
-                    log(f"visual alert failed file={filename!r}: {alert_exc!r}")
+                    warn(f"visual alert failed file={filename!r}: {alert_exc!r}")
 
     async def on_status(self, print_stats, reason):
         self.last_stats.update(print_stats)
@@ -4597,7 +4570,7 @@ class Listener:
                             state=new_state, filename=self.filename, new_print=True,
                             printing=True, start_notice=True)
                     except Exception as exc:
-                        log(f"spool question check at print start failed: {exc!r}")
+                        warn(f"spool question check at print start failed: {exc!r}")
                 # The live view's auto-start trigger (#311 stage 4):
                 # fail-soft, and a no-op unless auto_start_on_print is on.
                 await asyncio.to_thread(_live_auto_on_print_start)
@@ -4685,7 +4658,7 @@ class Listener:
                     record["print_over"] = True
                     atomic_write_json(RUNOUT_PAUSE_STATE, record)
             except Exception as exc:
-                log(f"spool question print-over mark failed: {exc!r}")
+                warn(f"spool question print-over mark failed: {exc!r}")
             # A multi-slot print charged no spool while it ran: charge each
             # slot's spool now, before the announcer builds the finish post
             # that names the charge.
@@ -4752,7 +4725,7 @@ class Listener:
                 actual_mm=actual, planned_mm=planned, suspended=suspended,
                 base_url=_config.service_url("spoolman_url") or None)
         except Exception as exc:
-            log(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
+            warn(f"multi-slot usage charge failed file={filename!r}: {exc!r}")
             return
         _log_usage_entry(filename, entry)
 
@@ -4781,7 +4754,7 @@ class Listener:
                 multislot_usage.charge_history_job, history, context, active_spool_id=active,
                 base_url=_config.service_url("spoolman_url") or None)
         except Exception as exc:
-            log(f"missed end usage charge failed file={filename!r}: {exc!r}")
+            warn(f"missed end usage charge failed file={filename!r}: {exc!r}")
             return
         _log_usage_entry(filename, entry)
 
@@ -4874,7 +4847,7 @@ class Listener:
                 "This paused prompt is closed; its buttons no longer act on a live job.",
                 ("paused",), headline=headline)
         except Exception as exc:
-            log(f"retire paused prompt failed file={self.filename!r}: {exc!r}")
+            warn(f"retire paused prompt failed file={self.filename!r}: {exc!r}")
 
     def start_screen_cancel_reboot(self, why):
         """Fire once per cancel, in the background, and only when the bot did not cancel it."""
@@ -4912,7 +4885,7 @@ class Listener:
             if flushed:
                 log(f"deferred screen sync applied to slots {flushed}")
         except Exception as exc:
-            log(f"deferred screen sync failed: {exc!r}")
+            warn(f"deferred screen sync failed: {exc!r}")
         if new_state == "complete":
             from . import print_control
             # Reprint queues are per printer (P2-135): a listener instance
@@ -5004,14 +4977,14 @@ class Listener:
         except Exception as exc:
             # Best-effort: a failed light command logs once per start and
             # never blocks or fails the print flow.
-            log(f"auto light: light-on at print start failed: {exc!r}")
+            warn(f"auto light: light-on at print start failed: {exc!r}")
 
     async def light_print_finished(self):
         """Terminal print-end transition: open the idle window."""
         try:
             self._auto_light_policy().print_finished(time.time())
         except Exception as exc:
-            log(f"auto light: opening the idle window failed: {exc!r}")
+            warn(f"auto light: opening the idle window failed: {exc!r}")
 
     async def light_idle_tick(self):
         """One idle plate check when the policy says one is due. Never raises.
@@ -5060,7 +5033,7 @@ class Listener:
                 log(f"auto light: plate seen empty for "
                     f"{policy.minutes} minutes; light off ({target})")
         except Exception as exc:
-            log(f"auto light idle check failed: {exc!r}")
+            warn(f"auto light idle check failed: {exc!r}")
             with contextlib.suppress(Exception):
                 # A check that could not observe the plate (the camera is
                 # down, say) is an uncertain observation, like a failed
@@ -5101,7 +5074,7 @@ class Listener:
         try:
             await self.offer_next_plate_if_clear()
         except Exception as exc:
-            log(f"next plate offer failed: {exc!r}")
+            warn(f"next plate offer failed: {exc!r}")
 
     async def offer_next_plate_if_clear(self):
         """One empty-bed look for a queued plate. Posts an offer. Starts nothing.
@@ -5195,7 +5168,7 @@ class Listener:
             return timelapse_capture.begin(
                 job_key, self.filename, data=_config.cfg(), log=log)
         except Exception as exc:  # begin() already fails soft; belt and braces
-            log(f"timelapse capture begin failed file={self.filename!r}: {exc!r}")
+            warn(f"timelapse capture begin failed file={self.filename!r}: {exc!r}")
             return None
 
     async def _begin_capture(self, job_key, resume=False):
@@ -5215,7 +5188,7 @@ class Listener:
             session = await asyncio.wait_for(asyncio.shield(worker), CAPTURE_BEGIN_TIMEOUT_S)
         except asyncio.TimeoutError:
             worker.add_done_callback(self._dispose_late_capture)
-            log(f"timelapse capture begin timed out after {CAPTURE_BEGIN_TIMEOUT_S}s; this print runs without a capture")
+            warn(f"timelapse capture begin timed out after {CAPTURE_BEGIN_TIMEOUT_S}s; this print runs without a capture")
             return
         except asyncio.CancelledError:
             worker.add_done_callback(self._dispose_late_capture)
@@ -5241,7 +5214,7 @@ class Listener:
             if session is not None:
                 session.stop(state)
         except Exception as exc:
-            log(f"timelapse capture close after restart failed file={self.filename!r}: {exc!r}")
+            warn(f"timelapse capture close after restart failed file={self.filename!r}: {exc!r}")
 
     def _close_capture_session(self, session):
         """Close a session that was opened but never installed. Never raises."""
@@ -5250,7 +5223,7 @@ class Listener:
         try:
             session.stop("superseded")
         except Exception as exc:  # stop() already fails soft; belt and braces
-            log(f"timelapse capture close of an uninstalled session failed file={self.filename!r}: {exc!r}")
+            warn(f"timelapse capture close of an uninstalled session failed file={self.filename!r}: {exc!r}")
 
     def _dispose_late_capture(self, worker):
         """Close a capture session whose start was abandoned (a timeout).
@@ -5272,7 +5245,7 @@ class Listener:
             try:
                 session.stop(state)
             except Exception as exc:  # stop() already fails soft; belt and braces
-                log(f"timelapse capture end failed file={self.filename!r}: {exc!r}")
+                warn(f"timelapse capture end failed file={self.filename!r}: {exc!r}")
 
     async def _capture_due(self, layer):
         """Store a frame when the active session's trigger is due.
@@ -5287,7 +5260,7 @@ class Listener:
             if session.due(layer=layer):
                 await asyncio.to_thread(session.tick, layer)
         except Exception as exc:
-            log(f"timelapse capture tick failed file={self.filename!r}: {exc!r}")
+            warn(f"timelapse capture tick failed file={self.filename!r}: {exc!r}")
 
     def _schedule_capture(self, layer):
         """Run one due capture as a task, off the websocket receive loop (P2-133).
@@ -5340,7 +5313,7 @@ class Listener:
             self._watch_context_seen = bool(context)
             why = _visual_watch.risky_job(context)
         except Exception as exc:
-            log(f"camera watch mode lookup failed file={self.filename!r}: {exc!r}")
+            warn(f"camera watch mode lookup failed file={self.filename!r}: {exc!r}")
             self._watch_context_seen = False
             why = ""
         mode = _visual_watch.WATCH_MODE_EARLY if why else _visual_watch.WATCH_MODE_NORMAL
@@ -5401,7 +5374,7 @@ class Listener:
                 self.background_tasks.add(task)
                 task.add_done_callback(self.background_tasks.discard)
         except Exception as exc:
-            log(f"local detector notice failed: {exc!r}")
+            warn(f"local detector notice failed: {exc!r}")
 
     def _watch_ready(self):
         """The listener's camera-check gate: a camera exists and a frame can be judged.
@@ -5449,7 +5422,7 @@ class Listener:
             task.add_done_callback(self.background_tasks.discard)
             return reason
         except Exception as exc:
-            log(f"camera watch status notice failed: {exc!r}")
+            warn(f"camera watch status notice failed: {exc!r}")
             return None
 
     def _note_layerless_watch(self, now=None):
@@ -5489,7 +5462,7 @@ class Listener:
             try:
                 self._visual_timer_tick()
             except Exception as exc:
-                log(f"camera watch timer failed: {exc!r}")
+                warn(f"camera watch timer failed: {exc!r}")
 
     async def _capture_timer(self, sleep=None):
         """Run capture beats every capture_interval_s until cancelled (disconnect)."""
@@ -5503,7 +5476,7 @@ class Listener:
             try:
                 self._capture_timer_tick()
             except Exception as exc:
-                log(f"timelapse capture timer failed: {exc!r}")
+                warn(f"timelapse capture timer failed: {exc!r}")
 
     def _settle_launch_lease(self):
         """The printer runs this file: clear a launch lease left uncertain for it (lost start response)."""
@@ -5514,7 +5487,7 @@ class Listener:
                 log(f"launch lease settled: the printer reports {self.filename!r}, so the earlier "
                     f"{row['phase']} start reached it")
         except Exception as exc:
-            log(f"launch lease settle failed: {exc!r}")
+            warn(f"launch lease settle failed: {exc!r}")
 
     @staticmethod
     def _clock_adapter():
@@ -5544,7 +5517,7 @@ class Listener:
                 log(f"printer clock sync ({why}): {res}")
         except Exception as exc:
             self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
-            log(f"printer clock sync ({why}) failed: {exc!r}")
+            warn(f"printer clock sync ({why}) failed: {exc!r}")
 
     async def session(self):
         self.ifs_monitor.reset_baseline(warmup=True)
@@ -5573,7 +5546,7 @@ class Listener:
                     method = msg.get("method")
                     if msg.get("id") == 1:
                         if "error" in msg:  # klippy not ready yet; notify_klippy_ready resubscribes
-                            log(f"subscribe refused: {msg['error']}")
+                            warn(f"subscribe refused: {msg['error']}")
                         else:
                             status = ((msg.get("result") or {}).get("status") or {}).get("print_stats") or {}
                             await self.on_status(status, "subscribe")
@@ -5617,11 +5590,11 @@ class Listener:
                     try:
                         await self.poll_abandoned_starts()
                     except Exception as exc:
-                        log(f"abandoned start poll failed: {exc!r}")
+                        warn(f"abandoned start poll failed: {exc!r}")
                     try:
                         await self.poll_spoolman_new_spools()
                     except Exception as exc:
-                        log(f"spoolman new-spool poll failed: {exc!r}")
+                        warn(f"spoolman new-spool poll failed: {exc!r}")
                     if time.monotonic() - self.last_clock_check >= printer_clock.CHECK_INTERVAL_S:
                         self.last_clock_check = time.monotonic()
                         # Fix the clock first, so the watch below warns only about a clock
@@ -5632,23 +5605,23 @@ class Listener:
                         try:
                             await self.poll_printer_clock()
                         except Exception as exc:
-                            log(f"printer clock poll failed: {exc!r}")
+                            warn(f"printer clock poll failed: {exc!r}")
                     try:
                         await self.poll_lane_data()
                     except Exception as exc:
-                        log(f"lane_data poll failed: {exc!r}")
+                        warn(f"lane_data poll failed: {exc!r}")
                     try:
                         await self.nag_if_due()
                     except Exception as exc:
-                        log(f"spool nag failed: {exc!r}")
+                        warn(f"spool nag failed: {exc!r}")
                     try:
                         self._schedule_light_idle_tick()
                     except Exception as exc:
-                        log(f"auto light idle tick failed: {exc!r}")
+                        warn(f"auto light idle tick failed: {exc!r}")
                     try:
                         self._schedule_next_plate_offer()
                     except Exception as exc:
-                        log(f"next plate offer failed: {exc!r}")
+                        warn(f"next plate offer failed: {exc!r}")
                 if time.monotonic() - self.maintenance_last_check >= 3600:
                     self.maintenance_last_check = time.monotonic()
                     await maintenance_reminder_tick(self)
@@ -5673,7 +5646,7 @@ class Listener:
             try:
                 self._beat_once()
             except Exception as exc:
-                log(f"heartbeat write failed: {exc!r}")
+                warn(f"heartbeat write failed: {exc!r}")
             time.sleep(healthcheck.HEARTBEAT_S)
 
     def _start_heartbeat_writer(self):
@@ -5815,7 +5788,7 @@ class Listener:
             if retried:
                 log(f"multi-slot usage retried for {retried}")
         except Exception as exc:
-            log(f"multi-slot usage retry failed: {exc!r}")
+            warn(f"multi-slot usage retry failed: {exc!r}")
         try:
             from ..core import model_job
             from .. import listeners as _listeners
@@ -5858,7 +5831,7 @@ class Listener:
                     # fresh one, not the next step of an outage.
                     delay = RECONNECT_MIN_S
                 if lost is not None:
-                    log(f"connection lost: {lost!r}; retry in {delay}s")
+                    warn(f"connection lost: {lost!r}; retry in {delay}s")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, RECONNECT_MAX_S)
         finally:

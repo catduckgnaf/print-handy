@@ -85,7 +85,7 @@ def test_issue_1282_a_zmod_print_that_completed_is_never_reported_as_abandoned(m
     monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
     monkeypatch.setattr(mel, "release_start_claim", lambda filename: released.append(filename))
     monkeypatch.setattr(listener, "_release_abandoned_lease", lambda filename: released.append(filename))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
 
     def read(state, filename, extruder=0.0, bed=0.0):
         return {"result": {"status": {"print_stats": {"state": state, "filename": filename},
@@ -131,7 +131,7 @@ def _claimed_card(monkeypatch, tmp_path, message_id="777"):
     monkeypatch.setattr(mel, "_bot_token", lambda: "token")
     monkeypatch.setattr(mel, "_objects_line", lambda filename: "")
     monkeypatch.setattr(mel.print_summary, "format_event", lambda event, filename: f"Print started: {filename}")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     return edits
 
 
@@ -169,7 +169,7 @@ def test_poll_announces_and_releases_once_the_cold_window_is_met(monkeypatch):
         "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0}}}})
     monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
     monkeypatch.setattr(mel, "release_start_claim", lambda filename: released.append(filename))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     asyncio.run(listener.poll_abandoned_starts())
     assert announced == [FILE] and released == [FILE]
     asyncio.run(listener.poll_abandoned_starts())  # the claim is gone: nothing fires twice
@@ -230,7 +230,7 @@ def test_poll_reports_two_outstanding_claims_from_the_same_cold_reads(monkeypatc
         "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0}}}})
     monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
     monkeypatch.setattr(mel, "release_start_claim", lambda filename: released.append(filename))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     asyncio.run(listener.poll_abandoned_starts())
     assert announced == [FILE, OTHER] and released == [FILE, OTHER]
 
@@ -243,7 +243,7 @@ def test_poll_stays_quiet_while_the_claimed_start_is_heating(monkeypatch):
         "print_stats": {"state": "standby", "filename": ""},
         "extruder": {"target": 220.0}, "heater_bed": {"target": 60.0}}}})
     monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     asyncio.run(listener.poll_abandoned_starts())
     assert announced == []
 
@@ -265,7 +265,7 @@ def test_an_abandoned_start_releases_its_launch_lease_for_the_next_print(monkeyp
         "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0}}}})
     monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: True)
     monkeypatch.setattr(mel, "release_start_claim", lambda filename: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     from print_handy import listeners
     monkeypatch.setattr(listeners, "instance_printer_id", lambda: key)
     asyncio.run(listener.poll_abandoned_starts())

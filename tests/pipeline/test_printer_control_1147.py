@@ -221,7 +221,7 @@ def test_item5_the_listener_passes_its_own_printer_to_the_clock_sync(monkeypatch
     klipper = printers.get("klipper.generic", settings.current())
     monkeypatch.setattr(mel.Listener, "_clock_adapter", staticmethod(lambda: klipper))
     logged = []
-    monkeypatch.setattr(mel, "log", logged.append)
+    monkeypatch.setattr(mel, "log", logged.append); monkeypatch.setattr(mel, "warn", logged.append)
     holder = mock.Mock(clock_sync_retry_at=0.0, _clock_adapter=lambda: klipper)
     mel.Listener._sync_printer_clock(holder, "poll")
     assert seen["adapter"] is klipper and logged == [] and holder.clock_sync_retry_at == 0.0

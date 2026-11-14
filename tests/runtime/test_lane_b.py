@@ -7,7 +7,7 @@ from print_handy.runtime import moonraker_event_listener as mel
 
 def test_completion_with_video_is_one_combined_discord_post(monkeypatch):
     sent=[]
-    monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
+    monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"warn",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel.announcer,"main",lambda: print("TIMELAPSE_POSTPROCESS:job.gcode\nPrint complete: Job"))
     monkeypatch.setattr(mel.announcer,"_timelapse_job_key",lambda token:"job.gcode")
     monkeypatch.setattr(mel.announcer,"archive_completed_timelapse",lambda key:mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVED,"/archive/job.mp4"))
@@ -20,7 +20,7 @@ def test_completion_with_video_is_one_combined_discord_post(monkeypatch):
     assert sent == ["Print complete: Job\nMEDIA:/cache/job.mp4"]
 
 def test_completion_without_video_is_one_text_post(monkeypatch):
-    sent=[]; monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
+    sent=[]; monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"warn",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel.announcer,"main",lambda: print("TIMELAPSE_POSTPROCESS:job.gcode\nPrint complete: Job"))
     monkeypatch.setattr(mel.announcer,"_timelapse_job_key",lambda token:"job.gcode")
     monkeypatch.setattr(mel.announcer,"archive_completed_timelapse",lambda key:mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVE_NOT_RENDERED))
@@ -36,7 +36,7 @@ def test_completion_without_video_is_one_text_post(monkeypatch):
                     "didn't arrive within the wait (see the listener log)."]
 
 def test_repeated_completion_event_does_not_duplicate_post(monkeypatch):
-    sent=[]; monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
+    sent=[]; monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"warn",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel.announcer,"main",lambda: print("Print complete: Job"))
     mel.run_announcer("completion"); mel.run_announcer("repeated status completion")
     assert sent == ["Print complete: Job", "Print complete: Job"]  # mocked announcer emits two independent messages
@@ -58,7 +58,7 @@ def test_missing_lifecycle_identity_never_drops_notice_claim():
 
 def test_completion_video_post_is_coalesced(monkeypatch):
     sent=[]
-    monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
+    monkeypatch.setattr(mel,"log",lambda _:None); monkeypatch.setattr(mel,"warn",lambda _:None); monkeypatch.setattr(mel,"post",lambda text: sent.append(text) or True)
     monkeypatch.setattr(mel.announcer,"main",lambda: print("TIMELAPSE_POSTPROCESS:job.gcode\nPrint complete: Job"))
     monkeypatch.setattr(mel.announcer,"_timelapse_job_key",lambda token:"job.gcode")
     monkeypatch.setattr(mel.announcer,"archive_completed_timelapse",lambda key:mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVED,"/archive/job.mp4"))

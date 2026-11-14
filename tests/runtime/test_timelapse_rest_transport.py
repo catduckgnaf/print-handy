@@ -20,7 +20,7 @@ def _wire_rest(monkeypatch, result):
     sent = []
     monkeypatch.setattr(listener.announcer, "DISCORD_CHAT_ID", "channel-42")
     monkeypatch.setattr(listener, "_bot_token", lambda: "tok-1")
-    monkeypatch.setattr(listener, "log", lambda _line: None)
+    monkeypatch.setattr(listener, "log", lambda _line: None); monkeypatch.setattr(listener, "warn", lambda _line: None)
 
     def fake_send(token, chat, text):
         sent.append((token, chat, text))
@@ -52,7 +52,7 @@ def test_post_without_a_bot_token_fails_honestly_and_never_falls_back(monkeypatc
     logs = []
     monkeypatch.setattr(listener.announcer, "DISCORD_CHAT_ID", "channel-42")
     monkeypatch.setattr(listener, "_bot_token", lambda: "")
-    monkeypatch.setattr(listener, "log", logs.append)
+    monkeypatch.setattr(listener, "log", logs.append); monkeypatch.setattr(listener, "warn", logs.append)
     _no_subprocess(monkeypatch)
 
     assert listener.post("Print complete: Stand") is False
@@ -63,7 +63,7 @@ def test_post_without_a_chat_id_fails_honestly_and_never_falls_back(monkeypatch)
     logs = []
     monkeypatch.setattr(listener.announcer, "DISCORD_CHAT_ID", "")
     monkeypatch.setattr(listener, "_bot_token", lambda: "tok-1")
-    monkeypatch.setattr(listener, "log", logs.append)
+    monkeypatch.setattr(listener, "log", logs.append); monkeypatch.setattr(listener, "warn", logs.append)
     _no_subprocess(monkeypatch)
 
     assert listener.post("Print complete: Stand") is False

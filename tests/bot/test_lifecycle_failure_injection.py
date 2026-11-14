@@ -230,7 +230,7 @@ def test_failed_terminal_post_stays_pending_and_is_retried_next_pass(tmp_path, m
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(announcer, "main", lambda: None)
-    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "log", lambda text: None); monkeypatch.setattr(listener, "warn", lambda text: None)
     monkeypatch.setattr(listener, "_bot_token", lambda: "token")
     announcer.save_state({"job_key": "benchy.gcode",
                           "pending_completion_message": "Print complete: Benchy"})

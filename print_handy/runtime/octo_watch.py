@@ -44,6 +44,7 @@ video_fn, post) so the whole lifecycle is testable offline with fakes.
 from __future__ import annotations
 
 import logging
+import sys
 import tempfile
 import threading
 import time
@@ -62,7 +63,13 @@ RENDER_WAIT_S = 300.0  # how long a completion waits for this job's queued timel
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def movie_for_job(movies, filename):
@@ -114,7 +121,7 @@ def _fetch_and_size(client, movie):
     try:
         return mel.platform_sized_video(raw)
     except Exception as exc:
-        log(f"octoprint timelapse sizing failed for {name!r}: {exc!r}")
+        warn(f"octoprint timelapse sizing failed for {name!r}: {exc!r}")
         return None
 
 
@@ -179,7 +186,7 @@ class OctoPrintMonitor:
             try:
                 movie = movie_for_job(self._movies_fn(), self.filename)
             except Exception as exc:
-                log(f"octoprint timelapse list failed for {self.filename!r}: {exc!r}")
+                warn(f"octoprint timelapse list failed for {self.filename!r}: {exc!r}")
                 return None, True
             if movie is not None:
                 return movie, False
@@ -227,7 +234,7 @@ class OctoPrintMonitor:
         try:
             video = self._video_fn(movie)
         except Exception as exc:
-            log(f"octoprint timelapse fetch failed for {self.filename!r}: {exc!r}; "
+            warn(f"octoprint timelapse fetch failed for {self.filename!r}: {exc!r}; "
                 "posting the completion without it")
             self._send(f"{text}\nTimelapse not attached: the rendered video "
                        "couldn't be downloaded (see the monitor log).")
@@ -240,11 +247,11 @@ class OctoPrintMonitor:
             # not an exception (the P2-169/P2-173 contract): only an
             # explicit False means undelivered.
             if self._send(f"{text}\nMEDIA:{video}") is False:
-                log(f"octoprint completion post with timelapse was refused for "
+                warn(f"octoprint completion post with timelapse was refused for "
                     f"{self.filename!r}; posting the text only")
                 self._send(text)
         except Exception as exc:
-            log(f"octoprint completion post with timelapse failed for {self.filename!r}: {exc!r}; "
+            warn(f"octoprint completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                 "posting the text only")
             self._send(text)
         return kind
@@ -261,7 +268,7 @@ class OctoPrintMonitor:
                 st = self._status_fn()
             except Exception as exc:
                 # A reconnect or a refused read costs one poll, never the monitor.
-                log(f"octoprint monitor status read failed for {self.filename!r}: {exc!r}")
+                warn(f"octoprint monitor status read failed for {self.filename!r}: {exc!r}")
                 self._sleep(self._poll_s)
                 continue
             state = str(st.get("state") or "unknown")
@@ -295,7 +302,7 @@ class OctoPrintMonitor:
                 # for two days.
                 unknown_streak += 1
                 if unknown_streak >= _UNKNOWN_STREAK_TERMINAL:
-                    log(f"octoprint monitor: {self.filename!r} unreadable for "
+                    warn(f"octoprint monitor: {self.filename!r} unreadable for "
                         f"{unknown_streak} polls after printing; posting the error outcome")
                     if self._pause_alerts:
                         self._pause_alerts.note("error", st)
@@ -352,5 +359,5 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_
         thread.start()
         return thread
     except Exception as exc:
-        log(f"octoprint monitor could not start for {filename!r}: {exc!r}")
+        warn(f"octoprint monitor could not start for {filename!r}: {exc!r}")
         return None

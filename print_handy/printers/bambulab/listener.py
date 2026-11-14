@@ -55,9 +55,11 @@ injectable and every behaviour above is pinned by offline fake-MQTT tests.
 from __future__ import annotations
 
 import json
+import logging
+import sys
 import time
 
-from ... import __version__, healthcheck, listeners
+from ... import __version__, healthcheck, listeners, logs
 from .client import (GET_VERSION, MQTT_PORT, PUSHALL, BambuLanError,
                      merge_print)
 
@@ -71,8 +73,17 @@ LOOP_TICK_S = 0.5
 _EVENTS_KEPT = 200
 
 
+logger = logging.getLogger(__name__)
+
+
 def log(line):
-    print(f"bambu listener: {line}", flush=True)
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
+    logger.info("bambu listener: %s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("bambu listener: %s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 class _StaleConnection(Exception):
@@ -387,7 +398,7 @@ class BambuListener:
         try:
             self._beat_fn(printer_connected=fresh, state=state, **details)
         except Exception as exc:
-            log(f"heartbeat write failed: {exc!r}")
+            warn(f"heartbeat write failed: {exc!r}")
 
     def _maybe_beat(self):
         if self._last_beat_at is None or self._clock() - self._last_beat_at >= healthcheck.HEARTBEAT_S:
@@ -435,9 +446,9 @@ class BambuListener:
             except _StaleConnection as exc:
                 log(f"session stale ({exc}); hard-reset reconnect after cooldown")
             except BambuLanError as exc:
-                log(f"session failed: {exc}; reconnect after cooldown")
+                warn(f"session failed: {exc}; reconnect after cooldown")
             except Exception as exc:  # transport surprises must not kill the listener
-                log(f"session failed unexpectedly: {exc!r}; reconnect after cooldown")
+                warn(f"session failed unexpectedly: {exc!r}; reconnect after cooldown")
             if self._stopped:
                 break
             self._poll_debug_mode()
@@ -479,7 +490,7 @@ def main():
         # e.g. host/serial set but the access-code secret is missing: the
         # client cannot even be built. Idle like the unconfigured case
         # rather than crash-looping the container; the log names the fix.
-        log(f"LAN client cannot be built: {exc}; listener idling with heartbeat")
+        warn(f"LAN client cannot be built: {exc}; listener idling with heartbeat")
         listener = BambuListener(adapter, lan_client=None, emit=emit, printer_id=printer_id)
     return listener.run_forever()
 

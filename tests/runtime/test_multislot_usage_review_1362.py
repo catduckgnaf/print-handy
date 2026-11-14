@@ -158,7 +158,7 @@ def _listener(monkeypatch, history):
     monkeypatch.setattr(mel, "post_alert", lambda *a, **kw: True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: False)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_buttonless_standalone", lambda: None)
     monkeypatch.setattr(mel, "load_runout_pause", lambda *a, **kw: None)
 

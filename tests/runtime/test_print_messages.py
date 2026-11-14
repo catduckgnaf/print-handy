@@ -85,7 +85,7 @@ def _drive_listener(monkeypatch, filename, transitions, *, claimed=False):
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     monkeypatch.setattr(mel, "start_claimed", lambda name: claimed)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     from print_handy.runtime import klipper_report
     monkeypatch.setattr(klipper_report, "report", lambda filename: "Klipper report stub")
     listener = mel.Listener()
@@ -179,7 +179,7 @@ def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeyp
     no LLM call is made, endpoint or not; off means no roast at all."""
     calls = []
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: calls.append(a) or None)
     assert mel.roast_enabled() is True
     line = mel.generate_roast(TITLE)
@@ -541,7 +541,7 @@ class _InlineThread:
 
 def test_listener_attaches_local_timelapse_only_when_available(monkeypatch):
     posted = []
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))
     monkeypatch.setattr(mel.announcer, "_timelapse_job_key", lambda token: "stand.gcode" if token == "stand.gcode" else "")
@@ -565,7 +565,7 @@ def test_listener_attaches_local_timelapse_only_when_available(monkeypatch):
 
 def test_listener_combines_completion_and_timelapse(monkeypatch):
     posted = []
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))
     monkeypatch.setattr(mel.announcer, "_timelapse_job_key", lambda token: "stand.gcode" if token == "stand.gcode" else "")
@@ -579,7 +579,7 @@ def test_listener_combines_completion_and_timelapse(monkeypatch):
 
 def test_listener_shrinks_video_and_never_drops_completion_on_rejected_upload(monkeypatch):
     posted, results = [], [False, True]
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))
     monkeypatch.setattr(mel.announcer, "_timelapse_job_key", lambda token: "stand.gcode")
@@ -891,7 +891,7 @@ def _exploding_network(monkeypatch):
 
 def test_generate_roast_refuses_an_empty_title(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     _exploding_network(monkeypatch)
     assert mel.generate_roast("") == ""
     assert mel.generate_roast("   ") == ""
@@ -900,7 +900,7 @@ def test_generate_roast_refuses_an_empty_title(monkeypatch, tmp_path):
 
 def test_generate_roast_needs_no_key_and_no_endpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "")
     monkeypatch.setattr(mel._config, "service_url", lambda name: "")
     _exploding_network(monkeypatch)
@@ -909,7 +909,7 @@ def test_generate_roast_needs_no_key_and_no_endpoint(monkeypatch, tmp_path):
 
 def test_generate_roast_with_a_configured_endpoint_still_never_calls_it(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
     monkeypatch.setattr(mel._config, "service_url", lambda name: "http://llm.test/chat")
     _exploding_network(monkeypatch)
@@ -920,14 +920,14 @@ def test_generate_roast_survives_a_broken_state_file(monkeypatch, tmp_path):
     state = tmp_path / "roast.json"
     state.write_text("{not json")
     monkeypatch.setattr(mel, "ROAST_STATE", state)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     assert mel.generate_roast(TITLE)
 
 
 def test_generate_roast_same_key_same_line(monkeypatch, tmp_path):
     """A retried or replayed delivery of one print repeats its line."""
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     first = mel.generate_roast(TITLE, facts={"duration_s": 3600}, key="job@1")
     assert first and all(mel.generate_roast(TITLE, key="job@1") == first for _ in range(5))
 
@@ -950,7 +950,7 @@ def _bank_lines(bank, title, facts=None):
 
 def test_cancel_report_carries_a_cancelled_bank_roast(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "capture_stop", lambda filename, trigger: None)
     posted = []
     monkeypatch.setattr(mel, "post", lambda text: posted.append(text) or True)
@@ -965,7 +965,7 @@ def test_cancel_report_carries_a_cancelled_bank_roast(monkeypatch, tmp_path):
 
 def test_failure_and_pasta_status_roasts_draw_from_their_own_banks(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     failed = mel._with_status_roast("FAILED POST", "Dragon.gcode", "failed", "failed:dragon")
     assert failed.startswith("FAILED POST\n\n")
     assert failed.rsplit("\n\n", 1)[-1] in _bank_lines("failed", "Dragon")
@@ -977,7 +977,7 @@ def test_failure_and_pasta_status_roasts_draw_from_their_own_banks(monkeypatch, 
 
 def test_status_roast_leaves_the_post_unchanged_when_the_switch_is_off(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setitem(mel._config.cfg()["vision"], "roast_enabled", False)
     assert mel._with_status_roast("POST", "Dragon.gcode", "failed", "failed:dragon") == "POST"
     assert mel._with_status_roast("POST", "Dragon.gcode", "cancelled", "cancelled:dragon") == "POST"
