@@ -24,11 +24,9 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 - The server now reports `temperature_limits_c`, `controls_enabled`, a persistent random `instance_id`, and `GET /api/printers` (config and state only) for the ha-print-handy integration. (#1401)
 
 ## Fixes
-- Release metadata now includes the 2.3.3 version-bump merge (#1403).
-- The Home Assistant OS install guide now explains installation through the add-on store. (#1405)
-- Print completion is posted only once when the listener catches a completed print. (#1406)
-- The camera-worker heartbeat test now cleans up its blocked worker threads. (#1407)
-- The internal release records now include every merged PR in the 2.3.3 range. (#1408)
+- New guide: install Print Handy on Home Assistant OS as an app from **Settings > Apps > App store**, and it updates with each release. (#1405)
+- A finished print with a numbered timelapse posts "Print complete" once. On 2.3.2 the same completion could post a second time a few minutes later. (#1406)
+- Release housekeeping, no change to what Print Handy does: the version bump (#1403), a test that leaked a background thread into later tests (#1407), and release-notes corrections (#1408, #1410, #1411).
 - A single weak camera detection (one box at 12% on a healthy print) no longer posts an alert. A lone weak detection is logged; two in a row post one plainly worded, low-confidence alert with no ping; three make it a failure, as two did before. Strong detections behave exactly as before, on Moonraker and Bambu Lab alike. (#1395)
 - A stall alert keeps its starter ping even when a weak detection shows up on the same frame. (#1395)
 - Open questions (design, colors, Stop buttons, approvals) no longer hold the bot's worker threads, so a few of them can't stall a print start on a small container anymore. (#1398)
@@ -51,4 +49,4 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 
 ## Verification and known limitations
 - Offline suites and CI on every merged head.
-- Not seen live yet: a mention on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, and the Home Assistant integration reading the new fields.
+- Not seen live yet: a mention on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, the Home Assistant integration reading the new fields, and a single "Print complete" for a finished print with a numbered timelapse.
