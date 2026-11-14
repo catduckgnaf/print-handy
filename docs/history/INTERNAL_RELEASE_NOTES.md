@@ -5,7 +5,7 @@
 # Version 2.3.3
 
 **Release Date:** 2026-11-13
-**Range:** 2.3.2..main (9 PRs, #1390 to #1403, including the release bump; plus the baselines PR to come; checklist #1402). Driven by the live 2.3.2 install: a 25 MB lantern G-code that took 26 s to reach Ready (#1392), a camera alert on a healthy print from one 12% local detection, a pasted message link that got "I didn't understand that", plus mention support, the review follow-ups in #1397 and the whole-repository review #1400.
+**Range:** 2.3.2..main (13 PRs, #1390 to #1408, including the release bump and the PRs merged after it; plus the baselines PR to come; checklist #1402). Driven by the live 2.3.2 install: a 25 MB lantern G-code that took 26 s to reach Ready (#1392), a camera alert on a healthy print from one 12% local detection, a pasted message link that got "I didn't understand that", plus mention support, the review follow-ups in #1397 and the whole-repository review #1400.
 **Live checks performed for this release:** none on hardware. The timing came from a copy of the live job profiled inside the running 2.3.2 container; the camera and message-link cases came from the live 2.3.2 logs.
 **Not verified live:** mentions on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, and ha-print-handy reading the new server fields. All are covered by offline tests.
 
@@ -16,10 +16,17 @@
 - Camera (PR #1395): a lone weak local detection is logged, 2 independent weak checks post one low-confidence alert without a ping, 3 make a failure verdict; Moonraker and Bambu behave the same; a stall alert keeps its ping (`camera_watch.alert_pings`); the real-weights test hashes with `hashlib.file_digest`.
 - Slice speed (#1392, PRs #1393 and #1396): post-slice passes 15 s to 3.6 s on the 25 MB lantern; the bed check runs in Rust through the bounds extension with the Python loop as contract and fallback; the ZMod finalize early return from #1393 is removed (a crafted file could skip heater, material and used-tools checks) and the full pass is cheap instead; the performance regression ledger and procedure.
 - Review #1400 findings (PR #1401): Home Assistant server fields (`temperature_limits_c`, `controls_enabled`, `instance_id`, `GET /api/printers`), the Web UI claim as a setup step, docker.yaml/docker.toml parity test, issue spelling check, 2.3.x shims scheduled for removal in 2.4.0, `tests/hermes/` renamed `tests/runtime/`.
-- Docs: the 2.3.2 index digest pinned in docs/DOCKER.md (PR #1390).
+- Docs: the 2.3.2 index digest pinned in docs/DOCKER.md (PR #1390); the Home Assistant OS app install path, docs/HOME-ASSISTANT-OS.md (PR #1405).
+- Timelapse (PR #1406): "Print complete" is posted once when the timelapse video carries a print number.
+- Tests (PR #1407): the listener fixtures stub the heartbeat writer so no `listener-heartbeat` thread leaks into later tests; the stack-dump test starts its own peer thread.
+- Release metadata (PR #1408): the notes cover #1403 and every PR merged after it.
 
 Merged PRs in the range, one line each:
 
+- docs(release): include PR 1403 in 2.3.3 notes (PR #1408).
+- fix(timelapse): post "Print complete" once when the video carries a print number (PR #1406).
+- test(listener): stop leaking the heartbeat writer thread into later tests (PR #1407).
+- docs: Home Assistant OS app install path (PR #1405).
 - fix(review): #1400 findings: Home Assistant fields, claim step, config parity, issue spelling, shims dated, tests/runtime (PR #1401).
 - feat(bot): mention the bot instead of typing a slash command (PR #1394).
 - fix(design): keep printing while a design runs (PR #1398).

@@ -20,11 +20,15 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 ### Ready sooner on big jobs
 - A large job reaches its Ready question about 11 seconds sooner: on a 25 MB, 1.16 million line G-code the passes after OrcaSlicer take 3.6 s instead of about 15 s, with the same verdicts. The bed check runs in Rust now, with the Python version kept as the fallback. (#1393, #1396)
 
+### Install on Home Assistant OS
+- Print Handy installs as a Home Assistant OS app: add `https://github.com/catduckgnaf/print-handy-haos-addon` under Settings > Apps > App store > Repositories and install Print Handy. It runs this same image, keeps its settings file and data in Home Assistant backups, and offers each new Print Handy release as an app update on its own. Guide: docs/HOME-ASSISTANT-OS.md. (#1405)
+
 ### Home Assistant gets its fields
 - The server now reports `temperature_limits_c`, `controls_enabled`, a persistent random `instance_id`, and `GET /api/printers` (config and state only) for the ha-print-handy integration. (#1401)
 
 ## Fixes
-- Release metadata now includes the 2.3.3 version-bump merge (#1403).
+- Release metadata now includes the 2.3.3 version-bump merge and the PRs merged after it (#1403, #1408).
+- A finished print with a timelapse no longer posts "Print complete" twice when the video carries a print number. (#1406)
 - A single weak camera detection (one box at 12% on a healthy print) no longer posts an alert. A lone weak detection is logged; two in a row post one plainly worded, low-confidence alert with no ping; three make it a failure, as two did before. Strong detections behave exactly as before, on Moonraker and Bambu Lab alike. (#1395)
 - A stall alert keeps its starter ping even when a weak detection shows up on the same frame. (#1395)
 - Open questions (design, colors, Stop buttons, approvals) no longer hold the bot's worker threads, so a few of them can't stall a print start on a small container anymore. (#1398)
@@ -43,6 +47,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 - `tests/hermes/` is now `tests/runtime/`. The 2.3.x compatibility shims (`print_handy.hermes` and friends) are scheduled for removal in 2.4.0, and a test fails at 2.4.0 if any remain. (#1401)
 - `config/docker.yaml` and `config/docker.toml` are held to identical settings by a test; issue text is spell-checked like PR text. (#1401)
 - The 2.3.2 image digest is pinned in docs/DOCKER.md. (#1390)
+- A listener heartbeat thread leaked by earlier tests no longer makes the heartbeat test fail intermittently. (#1407)
 - Slicing-speed baselines re-recorded from the release commit's CI run.
 
 ## Verification and known limitations
