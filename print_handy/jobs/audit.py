@@ -155,9 +155,10 @@ def audit(path, printer_model=None):
             out["plates"]=len(plate_ids); out["plate_ids"]=sorted(plate_ids)
             text=""
             for n in names:
-                if n.endswith(("3dmodel.model","model_settings.config")):
-                    try:text+=z.read(n).decode(errors="ignore")
-                    except:pass
+                if n.endswith(("3dmodel.model", "model_settings.config")):
+                    # Archive membership is authoritative; avoid a speculative read
+                    # that could silently omit model metadata from the audit.
+                    text += z.read(n).decode(errors="ignore")
             out["objects"]=len(re.findall(r'<(?:\w+:)?object\b',text)); out["components"]=len(re.findall(r'<(?:\w+:)?component\b',text)); out["build_items"]=len(re.findall(r'<(?:\w+:)?item\b',text)); out["named_parts"]=re.findall(r'<metadata key="name" value="([^"]+)',text)[:30]
     from ..core.source_colors import inventory, prompts
     manifest = inventory(path)

@@ -174,9 +174,10 @@ def unit_question(job):
     if isinstance(decision, dict):
         try:
             normalize_units(decision.get('units'))
+            valid_units = True
         except ValueError:
-            pass
-        else:
+            valid_units = False
+        if valid_units:
             known_sha = ((job.get('color_manifest') or {}).get('source_sha256')
                          or (job.get('audit') or {}).get('sha256'))
             if not decision.get('source_sha256') or not known_sha or decision['source_sha256'] == known_sha:
