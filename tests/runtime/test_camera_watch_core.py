@@ -105,7 +105,7 @@ def test_moonraker_seams_still_steer_the_shared_post_path(monkeypatch):
     sent = []
     monkeypatch.setattr(mel, "_platform_name", lambda: "telegram")
     monkeypatch.setattr(mel, "_telegram_chat_id", lambda: "")
-    monkeypatch.setattr(mel, "log", sent.append)
+    monkeypatch.setattr(mel, "log", sent.append); monkeypatch.setattr(mel, "warn", sent.append)
     assert mel.post("hello") is False
     assert sent == ["post skipped: telegram.chat_id is not configured"]
 

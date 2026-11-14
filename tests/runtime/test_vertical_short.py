@@ -195,7 +195,7 @@ def _wire_post(monkeypatch, tmp_path):
     video.write_bytes(b"v" * 100)
     monkeypatch.setattr(announcer, "materialize_archived_timelapse", lambda path: str(video))
     monkeypatch.setattr(mel, "platform_sized_video", lambda path, max_bytes=None: path)
-    monkeypatch.setattr(mel, "log", lambda text: None)
+    monkeypatch.setattr(mel, "log", lambda text: None); monkeypatch.setattr(mel, "warn", lambda text: None)
     posted = []
     monkeypatch.setattr(mel, "post", lambda text: posted.append(text) or True)
     return posted

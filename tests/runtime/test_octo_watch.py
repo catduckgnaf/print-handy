@@ -55,7 +55,7 @@ class Harness:
 @pytest.fixture(autouse=True)
 def _capture_logs(monkeypatch):
     Harness.logs = []
-    monkeypatch.setattr(octo_watch, "log", lambda line: Harness.logs.append(line))
+    monkeypatch.setattr(octo_watch, "log", lambda line: Harness.logs.append(line)); monkeypatch.setattr(octo_watch, "warn", lambda line: Harness.logs.append(line))
 
 
 COMPLETE_SEQ = [_status("printing", 0.5), _status("standby", 1.0)]

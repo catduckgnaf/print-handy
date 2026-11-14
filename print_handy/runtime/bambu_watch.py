@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import sys
 import threading
 import time
 from pathlib import Path
@@ -68,7 +69,13 @@ _TERMINAL = {"complete": "complete", "cancelled": "cancelled", "error": "error",
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def _default_encode(session):
@@ -87,7 +94,7 @@ def _default_encode(session):
     try:
         return stock_watch.delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
-        log(f"bambu timelapse sizing failed for {session.filename!r}: {exc!r}")
+        warn(f"bambu timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
 
 
@@ -266,9 +273,9 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
             kwargs["printer_id"] = printer_id
         if pab.post_visual_alert(token, chat_id, text, filename, path, identity=identity, **kwargs):
             return path
-        log("bambu visual button post failed; falling back to text")
+        warn("bambu visual button post failed; falling back to text")
     except Exception as exc:
-        log(f"bambu visual button post error: {exc!r}")
+        warn(f"bambu visual button post error: {exc!r}")
     delivered = None
     if default_post:
         delivered = post(media_text, **({"mention_user_id": mention} if mention else {}))
@@ -312,9 +319,9 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
         if pab.post_visual_dark_notice(token, chat_id, text, filename, identity=identity,
                                        **({"printer_id": printer_id} if printer_id else {})):
             return
-        log("bambu visual dark button post failed; falling back to text")
+        warn("bambu visual dark button post failed; falling back to text")
     except Exception as exc:
-        log(f"bambu visual dark notice post error: {exc!r}")
+        warn(f"bambu visual dark notice post error: {exc!r}")
     post(text)
 
 
@@ -355,9 +362,9 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
             kwargs["printer_id"] = printer_id
         if pab.post_visual_text_alert(token, chat_id, text, filename, identity=identity, **kwargs):
             return
-        log("bambu visual text button post failed; falling back to text")
+        warn("bambu visual text button post failed; falling back to text")
     except Exception as exc:
-        log(f"bambu visual text alert post error: {exc!r}")
+        warn(f"bambu visual text alert post error: {exc!r}")
     delivered = None
     if default_post:
         delivered = post(text, **({"mention_user_id": mention} if mention else {}))
@@ -469,7 +476,7 @@ class BambuPrintMonitor:
         try:
             url, fetch = self._camera_source_fn()
         except Exception as exc:
-            log(f"bambu camera source could not be read for {self.filename!r}: {exc!r}; "
+            warn(f"bambu camera source could not be read for {self.filename!r}: {exc!r}; "
                 "no timelapse for this print")
             return None
         if not url:
@@ -479,10 +486,10 @@ class BambuPrintMonitor:
         try:
             session = self._begin_fn(url, fetch)
         except Exception as exc:
-            log(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
+            warn(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
             return None
         if session is None:
-            log(f"timelapse capture unavailable for {self.filename!r} "
+            warn(f"timelapse capture unavailable for {self.filename!r} "
                 "(capture disabled or refused); the print continues without it")
         return session
 
@@ -498,7 +505,7 @@ class BambuPrintMonitor:
             try:
                 session.stop(state)
             except Exception as exc:
-                log(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
+                warn(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
         return session
 
     # -- terminal post ---------------------------------------------------------
@@ -523,7 +530,7 @@ class BambuPrintMonitor:
                 video = self._encode_fn(session)
                 undeliverable = video is None
             except Exception as exc:
-                log(f"bambu timelapse encode failed for {self.filename!r}: {exc!r}; "
+                warn(f"bambu timelapse encode failed for {self.filename!r}: {exc!r}; "
                     "posting the completion without it")
         elif session is not None:
             dark_frames = getattr(session, "dark_frames", 0)
@@ -535,7 +542,7 @@ class BambuPrintMonitor:
                     f"all {dark_frames} frame(s) were completely dark; "
                     "posting the completion without it")
             else:
-                log(f"bambu timelapse for {self.filename!r} has no frames "
+                warn(f"bambu timelapse for {self.filename!r} has no frames "
                     f"({session.failures} failed fetch(es)); posting the completion without it")
         try:
             image = self._camera_fn()
@@ -556,21 +563,21 @@ class BambuPrintMonitor:
                 # None delivered fine.
                 if self._send(message) is not False:
                     return kind
-                log(f"bambu completion post with timelapse was refused for {self.filename!r}; "
+                warn(f"bambu completion post with timelapse was refused for {self.filename!r}; "
                     "posting without the video")
             except Exception as exc:
-                log(f"bambu completion post with timelapse failed for {self.filename!r}: {exc!r}; "
+                warn(f"bambu completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting without the video")
         if undeliverable:
             text = f"{text}\n{_too_big_text()}"
         if path is not None:
             try:
                 if self._send(text + f"\n{path}\nMEDIA:{path}") is False:
-                    log(f"bambu completion post with the snapshot was refused for "
+                    warn(f"bambu completion post with the snapshot was refused for "
                         f"{self.filename!r}; posting the text only")
                     self._send(text)
             except Exception as exc:
-                log(f"bambu completion post with the snapshot failed for {self.filename!r}: {exc!r}; "
+                warn(f"bambu completion post with the snapshot failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")
                 self._send(text)
         else:
@@ -589,7 +596,7 @@ class BambuPrintMonitor:
                 # A reconnect or a refused read costs one poll, never the
                 # session: capture state lives in this monitor, and the
                 # session's own tick retries its fetches the same way.
-                log(f"bambu monitor status read failed for {self.filename!r}: {exc!r}")
+                warn(f"bambu monitor status read failed for {self.filename!r}: {exc!r}")
                 self._sleep(self._poll_s)
                 continue
             state = str(st.get("state") or "unknown")
@@ -709,7 +716,7 @@ class BambuPrintMonitor:
         try:
             mode, settled = self._watch_mode_fn()
         except Exception as exc:
-            log(f"bambu camera watch mode lookup failed file={self.filename!r}: {exc!r}")
+            warn(f"bambu camera watch mode lookup failed file={self.filename!r}: {exc!r}")
             return
         self._watch.set_mode(mode)
         self._watch_mode_settled = bool(settled)
@@ -730,7 +737,7 @@ class BambuPrintMonitor:
         try:
             self._post(text)
         except Exception as exc:
-            log(f"bambu layerless notice failed for {self.filename!r}: {exc!r}")
+            warn(f"bambu layerless notice failed for {self.filename!r}: {exc!r}")
 
     def _post_detector_notices(self):
         """Post the local detector's pending failure and recovery notices. Never raises."""
@@ -741,7 +748,7 @@ class BambuPrintMonitor:
                 log(f"bambu camera watch: {text}")
                 self._post(text)
         except Exception as exc:
-            log(f"bambu local detector notice failed: {exc!r}")
+            warn(f"bambu local detector notice failed: {exc!r}")
 
     def _check_slot_free(self):
         """True when no earlier check is still running (single flight).
@@ -795,7 +802,7 @@ class BambuPrintMonitor:
     def _check_timed_out(self):
         """The current check overran its deadline: log it and alert (throttled). Never raises."""
         self.check_timeouts = getattr(self, "check_timeouts", 0) + 1
-        log(f"bambu visual check timed out file={self.filename!r} after {self._check_deadline_s:.0f}s "
+        warn(f"bambu visual check timed out file={self.filename!r} after {self._check_deadline_s:.0f}s "
             f"(timeouts so far: {self.check_timeouts}); the camera or the vision endpoint did not answer")
         try:
             if not self._watch.failure_alert_due(self._wall()):
@@ -806,7 +813,7 @@ class BambuPrintMonitor:
             elif self._text_alert is not None:
                 self._text_alert(self.filename, _vw.TIMEOUT_ALERT_TEXT, identity=self._identity)
         except Exception as exc:
-            log(f"bambu visual timeout alert failed file={self.filename!r}: {exc!r}")
+            warn(f"bambu visual timeout alert failed file={self.filename!r}: {exc!r}")
 
     def _record_watchdog_event(self, verdict, *, action):
         """Best-effort #981 event recording beside this print watch.
@@ -823,7 +830,7 @@ class BambuPrintMonitor:
                 recorder = watchdog_events.record_for_file
             recorder(filename=self.filename, verdict=verdict, action=action)
         except Exception as exc:
-            log(f"bambu watchdog event record failed file={self.filename!r}: {exc!r}")
+            warn(f"bambu watchdog event record failed file={self.filename!r}: {exc!r}")
 
     def visual_check(self, reason, layer):
         """Capture and classify one frame; notify humans only, never actuate.
@@ -903,7 +910,7 @@ class BambuPrintMonitor:
                     log(f"bambu visual alert suppressed for muted print {self.filename!r}")
                     self._record_watchdog_event(verdict, action="suppressed")
                 elif watch_failed and not watch.failure_alert_due(self._wall()):
-                    log(f"bambu visual failure alert suppressed for {self.filename!r}: "
+                    warn(f"bambu visual failure alert suppressed for {self.filename!r}: "
                         "already alerted within the periodic interval")
                     self._record_watchdog_event(verdict, action="suppressed")
                 else:
@@ -945,13 +952,13 @@ class BambuPrintMonitor:
             else:
                 self._record_watchdog_event(verdict, action="none")
         except Exception as exc:
-            log(f"bambu visual check failed file={self.filename!r} reason={reason}: {exc!r}")
+            warn(f"bambu visual check failed file={self.filename!r} reason={reason}: {exc!r}")
             if self._abandoned():
                 return  # the timeout already told the operator
             if image is not None:
                 try:
                     if self._watch is not None and not self._watch.failure_alert_due(self._wall()):
-                        log(f"bambu visual failure alert suppressed for {self.filename!r}: "
+                        warn(f"bambu visual failure alert suppressed for {self.filename!r}: "
                             "already alerted within the periodic interval")
                     elif self._visual_muted():
                         log(f"bambu visual alert suppressed for muted print {self.filename!r}")
@@ -959,7 +966,7 @@ class BambuPrintMonitor:
                         self._alert(self.filename, image, _cw.vision_failed_text(reason, layer),
                                     identity=self._identity)
                 except Exception as alert_exc:
-                    log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
+                    warn(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
             elif self._text_alert is not None:
                 # The snapshot itself failed, so there is no image to
                 # attach — but the operator still gets an alert: a dead
@@ -975,7 +982,7 @@ class BambuPrintMonitor:
                 # picked up on the next poll.
                 try:
                     if self._watch is not None and not self._watch.failure_alert_due(self._wall()):
-                        log(f"bambu visual camera-failure alert suppressed for {self.filename!r}: "
+                        warn(f"bambu visual camera-failure alert suppressed for {self.filename!r}: "
                             "already alerted within the periodic interval")
                     elif self._visual_muted():
                         log(f"bambu visual alert suppressed for muted print {self.filename!r}")
@@ -983,7 +990,7 @@ class BambuPrintMonitor:
                         self._text_alert(self.filename, _cw.camera_failed_text(reason, layer),
                                          identity=self._identity)
                 except Exception as alert_exc:
-                    log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
+                    warn(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
 
     def _visual_muted(self):
         """True when this print's watchdog posts were muted (#476). Never raises."""
@@ -1089,7 +1096,7 @@ def _post_watch_not_running(filename, post):
              f"{print_summary.safe_label(filename, 'print')}: {reason}. This print is not "
              "being watched; nothing was sent to the printer.")
     except Exception as exc:
-        log(f"bambu camera watch status notice failed: {exc!r}")
+        warn(f"bambu camera watch status notice failed: {exc!r}")
 
 
 def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=None,
@@ -1151,5 +1158,5 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
         thread.start()
         return thread
     except Exception as exc:
-        log(f"bambu monitor could not start for {filename!r}: {exc!r}")
+        warn(f"bambu monitor could not start for {filename!r}: {exc!r}")
         return None

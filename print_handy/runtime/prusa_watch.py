@@ -45,6 +45,7 @@ testable offline with fakes.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 
@@ -63,7 +64,13 @@ _TERMINAL = {"complete": "complete", "cancelled": "cancelled", "error": "error",
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def _caption_number(text, filename):
@@ -92,7 +99,7 @@ def _default_encode(session):
     try:
         return stock_watch.delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
-        log(f"prusa timelapse sizing failed for {session.filename!r}: {exc!r}")
+        warn(f"prusa timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
 
 
@@ -149,7 +156,7 @@ class PrusaPrintMonitor:
             # floor.
             interval = timelapse_capture.capture_settings()["capture_interval_s"]
             session.trigger = timelapse_capture.IntervalTrigger(interval)
-            log(f"prusa capture for {self.filename!r}: the layer trigger cannot "
+            warn(f"prusa capture for {self.filename!r}: the layer trigger cannot "
                 f"fire without layer status; capturing every {interval:g}s instead")
         return session
 
@@ -164,7 +171,7 @@ class PrusaPrintMonitor:
         try:
             url, fetch = self._camera_source_fn()
         except Exception as exc:
-            log(f"prusa camera source could not be read for {self.filename!r}: {exc!r}; "
+            warn(f"prusa camera source could not be read for {self.filename!r}: {exc!r}; "
                 "no timelapse for this print")
             return None
         if not url:
@@ -175,10 +182,10 @@ class PrusaPrintMonitor:
         try:
             session = self._begin_fn(url, fetch)
         except Exception as exc:
-            log(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
+            warn(f"timelapse capture could not begin for {self.filename!r}: {exc!r}")
             return None
         if session is None:
-            log(f"timelapse capture unavailable for {self.filename!r} "
+            warn(f"timelapse capture unavailable for {self.filename!r} "
                 "(capture disabled or refused); the print continues without it")
         return session
 
@@ -189,7 +196,7 @@ class PrusaPrintMonitor:
             try:
                 session.stop(state)
             except Exception as exc:
-                log(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
+                warn(f"timelapse capture stop failed for {self.filename!r}: {exc!r}")
         return session
 
     # -- terminal post -------------------------------------------------------
@@ -214,10 +221,10 @@ class PrusaPrintMonitor:
                 video = self._encode_fn(session)
                 undeliverable = video is None
             except Exception as exc:
-                log(f"prusa timelapse encode failed for {self.filename!r}: {exc!r}; "
+                warn(f"prusa timelapse encode failed for {self.filename!r}: {exc!r}; "
                     "posting the completion without it")
         elif session is not None:
-            log(f"prusa timelapse for {self.filename!r} has no frames "
+            warn(f"prusa timelapse for {self.filename!r} has no frames "
                 f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
             text = _caption_number(text, self.filename)
@@ -228,10 +235,10 @@ class PrusaPrintMonitor:
                 # None delivered fine.
                 if self._send(f"{text}\nMEDIA:{video}") is not False:
                     return kind
-                log(f"prusa completion post with timelapse was refused for {self.filename!r}; "
+                warn(f"prusa completion post with timelapse was refused for {self.filename!r}; "
                     "posting the text only")
             except Exception as exc:
-                log(f"prusa completion post with timelapse failed for {self.filename!r}: {exc!r}; "
+                warn(f"prusa completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")
         if undeliverable:
             text = f"{text}\n{_too_big_text()}"
@@ -252,7 +259,7 @@ class PrusaPrintMonitor:
                 # A reconnect or a refused read costs one poll, never the
                 # session: capture state lives in this monitor, and the
                 # session's own tick retries its fetches the same way.
-                log(f"prusa monitor status read failed for {self.filename!r}: {exc!r}")
+                warn(f"prusa monitor status read failed for {self.filename!r}: {exc!r}")
                 self._sleep(self._poll_s)
                 continue
             state = str(st.get("state") or "unknown")
@@ -343,5 +350,5 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_
         thread.start()
         return thread
     except Exception as exc:
-        log(f"prusa monitor could not start for {filename!r}: {exc!r}")
+        warn(f"prusa monitor could not start for {filename!r}: {exc!r}")
         return None

@@ -72,7 +72,7 @@ def test_listener_runs_layerless_checks_and_posts_one_notice(monkeypatch):
     launched = []
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
     monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {"enabled": True, "sensitivity": 3}})
 
     listener = mel.Listener()
@@ -106,7 +106,7 @@ def test_listener_runs_layerless_checks_and_posts_one_notice(monkeypatch):
 def _timer_listener(monkeypatch, posts, launched):
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
     monkeypatch.setattr(mel, "post", lambda text, **kw: posts.append(text) or True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {"enabled": True, "sensitivity": 3}})
     listener = mel.Listener()
     listener.filename = "sliced.gcode"
@@ -306,7 +306,7 @@ def _auto_pause_listener(monkeypatch, frames, clock):
     monkeypatch.setattr(mel, "_auto_pause_early",
                         lambda filename, identity: pauses.append(filename) or "Paused")
     monkeypatch.setattr(mel, "post", lambda msg, **kw: True)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_visual_verdict", lambda *a, **k: ("spaghetti", "spaghetti found"))
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
     monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {
@@ -401,7 +401,7 @@ def _start_print(monkeypatch, *, ready, reason="the local failure detector is no
     monkeypatch.setattr(mel, "start_claimed", lambda name: True)
     monkeypatch.setattr(mel, "announce_warmup_done", lambda name: None)
     monkeypatch.setattr(mel, "post_exclude_objects", lambda name: None)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_vision_ready", lambda: ready)
     monkeypatch.setattr(vw, "watch_unavailable_reason", lambda api_key: reason)
     listener = mel.Listener()
@@ -456,7 +456,7 @@ def test_moonraker_camera_failure_alerts_are_throttled(monkeypatch):
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", no_snapshot)
     monkeypatch.setattr(mel, "_watch_now", lambda: clock[0])
     monkeypatch.setattr(mel, "_visual_alert_text", lambda filename, reason, identity=None: texts.append(reason))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
     listener = mel.Listener()
     listener.filename = "deadcam.gcode"
@@ -522,7 +522,7 @@ def test_a_hung_check_times_out_and_frees_the_timer(monkeypatch):
 
     monkeypatch.setattr(mel, "VISUAL_CHECK_DEADLINE_S", 0.2)
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", hung_camera)
-    monkeypatch.setattr(mel, "log", lines.append)
+    monkeypatch.setattr(mel, "log", lines.append); monkeypatch.setattr(mel, "warn", lines.append)
     monkeypatch.setattr(pab, "visual_muted", lambda *args: False)
     monkeypatch.setattr(mel, "_visual_alert_text", lambda *args, **kwargs: alerts.append(args))
     listener = mel.Listener()
@@ -554,7 +554,7 @@ def test_camera_io_never_runs_on_the_default_pool(monkeypatch):
         raise OSError("no camera")
 
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", snapshot)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_visual_alert_text", lambda *a, **k: None)
     monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
     listener = mel.Listener()
@@ -636,7 +636,7 @@ def _next_plate_listener(monkeypatch, verdict_fn):
     monkeypatch.setattr(mel, "_camera_missing_reason", lambda: "")
     monkeypatch.setattr(mel, "_camera_snapshot_bytes", _frame_for_plate)
     monkeypatch.setattr(mel, "_visual_verdict", verdict_fn)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     listener.state = "complete"
     listener.filename = "done.gcode"
@@ -713,7 +713,7 @@ def test_reconnect_backoff_resets_after_a_healthy_session(monkeypatch):
         await asyncio.Event().wait()
 
     monkeypatch.setattr(mel, "time", types.SimpleNamespace(monotonic=lambda: clock[0], time=_time.time))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     listener = mel.Listener()
     monkeypatch.setattr(listener, "session", session)
     monkeypatch.setattr(listener, "backfill_slot_colors", idle)

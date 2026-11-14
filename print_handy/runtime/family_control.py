@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import threading
 import time
 from typing import Any
@@ -92,7 +93,13 @@ _RETIRE_HEADLINES = {
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def connection_of(adapter) -> str | None:
@@ -343,9 +350,9 @@ def _post_pause_alert(filename, connection, printer_id, status):
                                      connection=connection, printer_id=printer_id, **kwargs):
                 log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
                 return True
-            log("family button post failed; falling back to plain text")
+            warn("family button post failed; falling back to plain text")
         except Exception as exc:
-            log(f"family button post error: {exc!r}")
+            warn(f"family button post error: {exc!r}")
         delivered = mel.post(text, mention_user_id=mention)
     if not delivered and mention:
         # Every delivery attempt failed, so the recorded ping never
@@ -374,7 +381,7 @@ def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",
             "This paused prompt is closed; its buttons no longer act on a live job.",
             ("paused",), headline=headline, printer_id=printer_id)
     except Exception as exc:
-        log(f"retire family paused prompt failed file={filename!r}: {exc!r}")
+        warn(f"retire family paused prompt failed file={filename!r}: {exc!r}")
         return 0
 
 
@@ -439,7 +446,7 @@ class PauseAlerts:
             try:
                 self._poster(self.filename, self.connection, self.printer_id, status)
             except Exception as exc:
-                log(f"pause alert post failed file={self.filename!r}: {exc!r}")
+                warn(f"pause alert post failed file={self.filename!r}: {exc!r}")
         elif state == "printing" and prev == "paused":
             # A resume ends the pause: its starter-ping episodes stop
             # suppressing, so a later pause is a new problem (#1095).
@@ -447,12 +454,12 @@ class PauseAlerts:
                 from . import starter_pings
                 starter_pings.clear_pause_episodes(job_key=self.filename)
             except Exception as exc:
-                log(f"pause episode clear failed file={self.filename!r}: {exc!r}")
+                warn(f"pause episode clear failed file={self.filename!r}: {exc!r}")
         elif prev in ACTIVE and state in TERMINAL_STATES:
             try:
                 self._retirer(self.filename, retire_headline(state))
             except Exception as exc:
-                log(f"pause alert retire failed file={self.filename!r}: {exc!r}")
+                warn(f"pause alert retire failed file={self.filename!r}: {exc!r}")
 
 
 def pause_alerts_for(adapter, filename, printer_id=None) -> PauseAlerts | None:
@@ -622,14 +629,14 @@ class FamilyAutoLight:
         except Exception as exc:
             # Best-effort: a failed light command logs once per start and
             # never blocks or fails the print flow.
-            log(f"auto light: light-on at print start failed ({self.connection}): {exc!r}")
+            warn(f"auto light: light-on at print start failed ({self.connection}): {exc!r}")
 
     def print_finished(self):
         """Terminal print-end transition: open the idle window."""
         try:
             self._policy.print_finished(self._clock())
         except Exception as exc:
-            log(f"auto light: opening the idle window failed ({self.connection}): {exc!r}")
+            warn(f"auto light: opening the idle window failed ({self.connection}): {exc!r}")
 
     def idle_tick(self, state):
         """An idle observation: run one plate check when the policy says one is due."""
@@ -652,7 +659,7 @@ class FamilyAutoLight:
             self._runner(leg)
         except Exception as exc:
             self._check_inflight = False
-            log(f"auto light idle tick failed ({self.connection}): {exc!r}")
+            warn(f"auto light idle tick failed ({self.connection}): {exc!r}")
 
     def _idle_check(self):
         """One idle plate check. Never raises.
@@ -694,7 +701,7 @@ class FamilyAutoLight:
             if image is None:
                 if not self._no_frame_logged:
                     self._no_frame_logged = True
-                    log(f"auto light: no camera frame is available for {self.connection} "
+                    warn(f"auto light: no camera frame is available for {self.connection} "
                         "idle checks, so the plate cannot be judged and the light stays on")
                 policy.note_check(self._clock())
                 return
@@ -709,7 +716,7 @@ class FamilyAutoLight:
                 log(f"auto light: plate seen empty for {policy.minutes} minutes; "
                     f"light off ({self.connection})")
         except Exception as exc:
-            log(f"auto light idle check failed ({self.connection}): {exc!r}")
+            warn(f"auto light idle check failed ({self.connection}): {exc!r}")
             with contextlib.suppress(Exception):
                 # An unobservable plate is an uncertain observation: it
                 # resets the empty streak (the Moonraker listener's
@@ -772,7 +779,7 @@ def auto_light_for(adapter, printer_id=None) -> FamilyAutoLight | None:
                 available=probe,
                 vision_ready=lambda: _mel()._vision_ready())
     except Exception as exc:
-        log(f"auto light: driver for connection {connection!r} could not be built: {exc!r}")
+        warn(f"auto light: driver for connection {connection!r} could not be built: {exc!r}")
     return None
 
 
@@ -926,7 +933,7 @@ class BambuEventSink:
         try:
             return self._settler.observe(state, filename, status, now=at if now is None else now)
         except Exception as exc:
-            log(f"bambu launch lease settle failed file={filename!r}: {exc!r}")
+            warn(f"bambu launch lease settle failed file={filename!r}: {exc!r}")
             return None
 
     def _claimed(self, filename) -> bool:
@@ -968,7 +975,7 @@ class BambuEventSink:
             elif kind == "error" and filename:
                 self._terminal(filename, "error")
         except Exception as exc:
-            log(f"bambu event sink failed kind={kind} file={filename!r}: {exc!r}")
+            warn(f"bambu event sink failed kind={kind} file={filename!r}: {exc!r}")
         if kind == "status":
             self._settle_lease(state, filename, status)
 
@@ -990,5 +997,5 @@ def bambu_event_sink(printer_id=None) -> BambuEventSink:
     try:
         light = auto_light_for(adapter_for(printer_id))
     except Exception as exc:
-        log(f"auto light: Bambu driver could not be built: {exc!r}")
+        warn(f"auto light: Bambu driver could not be built: {exc!r}")
     return BambuEventSink(printer_id=printer_id, light=light)

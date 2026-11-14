@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -81,7 +82,13 @@ _TERMINAL = family_control.TERMINAL_STATES
 
 
 def log(line):
+    """Record one routine event at INFO, redacted (#1413: the level is explicit)."""
     logger.info("%s", logs.redact(str(line)))
+
+
+def warn(line):
+    """Record one failure at WARNING, redacted, with the in-flight traceback if any (#1413)."""
+    logger.warning("%s", logs.redact(str(line)), exc_info=sys.exc_info() if sys.exc_info()[0] else None)
 
 
 def runtime_for(connection: str) -> str | None:
@@ -152,7 +159,7 @@ class FamilyListener:
                     {"filename": self._current["filename"],
                      "external": self._current["external"]}, sort_keys=True))
         except Exception as exc:
-            log(f"family listener state write failed: {exc!r}")
+            warn(f"family listener state write failed: {exc!r}")
 
     # -- classification -------------------------------------------------------
 
@@ -174,7 +181,7 @@ class FamilyListener:
             try:
                 self._start_poster("started", filename)
             except Exception as exc:
-                log(f"family start post failed file={filename!r}: {exc!r}")
+                warn(f"family start post failed file={filename!r}: {exc!r}")
         return record
 
     def _end(self, state, filename, progress=None):
@@ -197,11 +204,11 @@ class FamilyListener:
             try:
                 self._terminal_poster(kind, name)
             except Exception as exc:
-                log(f"family terminal post failed file={name!r}: {exc!r}")
+                warn(f"family terminal post failed file={name!r}: {exc!r}")
         try:
             self._retirer(name, family_control.retire_headline(state))
         except Exception as exc:
-            log(f"family pause retire failed file={name!r}: {exc!r}")
+            warn(f"family pause retire failed file={name!r}: {exc!r}")
         # #516: a tracked print ended — open the auto light-off idle
         # window (external and claimed prints alike; the light follows
         # the printer, not the announcement split).
@@ -209,7 +216,7 @@ class FamilyListener:
             try:
                 self._light.print_finished()
             except Exception as exc:
-                log(f"auto light print-finished hook failed: {exc!r}")
+                warn(f"auto light print-finished hook failed: {exc!r}")
 
     # -- one poll ---------------------------------------------------------------
 
@@ -220,7 +227,7 @@ class FamilyListener:
         except Exception as exc:
             self._failures += 1
             if self._failures == 1 or self._failures % 20 == 0:
-                log(f"family listener ({self.connection}) status read failed "
+                warn(f"family listener ({self.connection}) status read failed "
                     f"({self._failures} in a row): {exc!r}")
             self._beat(False, "unknown")
             return
@@ -230,11 +237,11 @@ class FamilyListener:
         try:
             self._process(state, filename, status or {})
         except Exception as exc:
-            log(f"family listener ({self.connection}) transition handling failed: {exc!r}")
+            warn(f"family listener ({self.connection}) transition handling failed: {exc!r}")
         try:
             self._settle_lease(state, filename, status or {})
         except Exception as exc:
-            log(f"family listener ({self.connection}) launch lease settle failed: {exc!r}")
+            warn(f"family listener ({self.connection}) launch lease settle failed: {exc!r}")
         self._beat(True, state)
 
     # -- uncertain launch leases (#1147) ---------------------------------------
@@ -272,7 +279,7 @@ class FamilyListener:
                         try:
                             self._light.print_started()
                         except Exception as exc:
-                            log(f"auto light print-started hook failed: {exc!r}")
+                            warn(f"auto light print-started hook failed: {exc!r}")
                 else:
                     self._current = self._begin(filename, witnessed=False)
             if prev == "printing" and state == "paused" \
@@ -281,7 +288,7 @@ class FamilyListener:
                     self._pause_poster(self._current["filename"] or filename,
                                        self.connection, self._printer_id, status)
                 except Exception as exc:
-                    log(f"family pause post failed file={filename!r}: {exc!r}")
+                    warn(f"family pause post failed file={filename!r}: {exc!r}")
             if prev == "paused" and state == "printing" and self._current is not None:
                 # A resume ends the pause: its starter-ping episodes
                 # stop suppressing, so a later pause is a new problem
@@ -291,7 +298,7 @@ class FamilyListener:
                     starter_pings.clear_pause_episodes(
                         job_key=self._current["filename"] or filename)
                 except Exception as exc:
-                    log(f"family pause episode clear failed file={filename!r}: {exc!r}")
+                    warn(f"family pause episode clear failed file={filename!r}: {exc!r}")
         elif state in _TERMINAL:
             if self._current is not None:
                 # prev is active for the direct transition; an unknown
@@ -305,7 +312,7 @@ class FamilyListener:
                 try:
                     self._light.idle_tick(state)
                 except Exception as exc:
-                    log(f"auto light idle tick hook failed: {exc!r}")
+                    warn(f"auto light idle tick hook failed: {exc!r}")
         else:
             # An unreadable/unknown state is not an ending: a tracked
             # print stays tracked (its next active read resumes the
@@ -327,7 +334,7 @@ class FamilyListener:
                 details["printer_id"] = self._printer_id
             self._beat_fn(**details)
         except Exception as exc:
-            log(f"family listener heartbeat write failed: {exc!r}")
+            warn(f"family listener heartbeat write failed: {exc!r}")
 
     def stop(self):
         self._stopped = True

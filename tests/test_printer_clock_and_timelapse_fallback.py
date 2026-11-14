@@ -282,7 +282,7 @@ def test_listener_retries_a_busy_printer_and_backs_off_after_a_failure(monkeypat
     tried = []
     monkeypatch.setattr(mel.launch_state, "sync_printer_clock",
                         lambda *a, **k: tried.append(1) or next(outcomes))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     clock = [1000.0]
     monkeypatch.setattr(mel.time, "monotonic", lambda: clock[0])
     listener._sync_printer_clock("poll")   # busy: no backoff

@@ -23,7 +23,7 @@ def _listener(monkeypatch, *, verdict=("empty_idle", "clear"), snapshot=b"frame"
     sent = []
     monkeypatch.setattr(mel, "_vision_ready", lambda: True)
     monkeypatch.setattr(mel, "_send_light_script", lambda script: sent.append(script))
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     if isinstance(snapshot, Exception):
         def _raise():
             raise snapshot

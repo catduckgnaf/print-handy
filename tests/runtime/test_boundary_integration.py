@@ -114,7 +114,7 @@ def listener(monkeypatch):
     """A real Listener with every printer, chat and disk side effect stubbed and all polls disabled."""
     monkeypatch.setattr(mel, "NATIVE_POLL_SECONDS", 10 ** 9)
     monkeypatch.setattr(mel, "TICK_SECONDS", 10 ** 9)
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "run_announcer", lambda reason: None)
     lst = mel.Listener()
     now = __import__("time").monotonic()
@@ -298,7 +298,7 @@ def standalone(monkeypatch, platform):
     monkeypatch.setattr(mel.announcer, "DISCORD_CHAT_ID", "chan-1")
     monkeypatch.setitem(_config.cfg()["telegram"], "chat_id", "555")
     monkeypatch.setitem(_config.cfg()["matrix"], "room_id", "!room:test")
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: TOKEN)
 
 
@@ -418,7 +418,7 @@ class FakeCamera:
 @pytest.fixture
 def camera(monkeypatch):
     fake = FakeCamera()
-    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setitem(_config.cfg()["services"], "camera_source", "auto")
     yield fake
     fake.close()
