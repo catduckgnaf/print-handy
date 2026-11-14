@@ -17,6 +17,8 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 |---|---|
 | `GET /` | The status page |
 | `GET /config` | The picker configuration page |
+| `GET /printer-settings` | The Printer settings tab: one printer's own settings (name, connection, chat channel, delivery), with a `?printer=<id>` picker on multi-printer installs |
+| `POST /printer-settings` | Save the Printer settings tab's form through the same validated write as `/config` |
 | `GET /api/status` | The same status snapshot as JSON |
 | `GET /api/printers` | The configured printers as JSON, read from configuration only: each printer's id, name, model, vendor, connection, `default`, `controls_enabled` and `temperature_limits_c`, plus `instance_id`, `version` and the global `controls_enabled`. It runs no doctor check and contacts no printer or service, so it is cheap to poll. Same access token as `/api/status` |
 | `GET /api/printers/<id>/status` | One roster printer's live status as JSON: its identity plus the adapter's normalized status (`state`, `filename`, `progress`, temperatures, and any target/ETA/layer fields that printer's adapter reports). An unknown id is a 404; a printer that cannot be reached answers with `state: "unavailable"` instead of an error |
@@ -328,6 +330,14 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 | Router port forward, or the Web UI published directly on the public internet | Possible, and it is your choice to make, but only behind a login you set deliberately first: an access token (`WEBUI_ACCESS_TOKEN`) or a saved password, set before the port is forwarded. An unclaimed or left-open Web UI on the public internet is open to the whole internet; the "no login is set" note is the warning, and plain HTTP also sends that login unencrypted, so the HTTPS reverse proxy row above is the better shape for outside access. | Set `cookie_secure` true when an HTTPS proxy fronts it; on plain public HTTP there is no cookie setting that makes the bind safe. |
 
 `cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
+
+## Printer settings tab
+
+Open `/printer-settings`, or follow the **Printer settings** tab in the nav. Where the configuration page shows every setting on the install, this tab shows one printer at a time, in plain language: its name and model, the connection fields its vendor uses (a Moonraker URL, a Bambu Lab LAN host and serial, a PrusaLink host, a stock Flashforge or Elegoo SDCP host), its chat channel, and its slicing and delivery options, including the ZMod delivery format on Flashforge printers. On an install with more than one printer, a picker at the top switches printers (`/printer-settings?printer=<id>`); delivery methods are shared by every printer on the install and are labeled as such.
+
+Every field shows its effective value and where that value comes from (model default, home config, settings file, your own settings file, or the environment). A value set by an environment variable is shown locked, with the variable named, and cannot be edited here, exactly as on the configuration page. Secrets are never shown: connection fields name environment variables for credentials, never the credentials themselves.
+
+Saving writes through the same machinery as the configuration page, so a value this tab saves is a value the settings loader accepts, and an invalid value is refused in place with the loader's own reason, with the rest of the form kept as submitted. On an install with a declared printer roster, the tab edits that printer's roster entry (name, model, chat channel, connection) in place; moving a credentialed service to a new host asks for the same confirmation the configuration page asks for before the credential follows it. Like every Web UI save, changes take effect after a restart.
 
 ## Progressive Web App (PWA) and HTTPS serving
 

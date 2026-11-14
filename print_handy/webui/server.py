@@ -180,6 +180,7 @@ from . import dashboard as dashboard_module
 from . import data as data_module
 from . import designs as designs_module
 from . import pages
+from . import printer_settings as printer_settings_module
 from . import printers_page
 from . import projects as projects_module
 from . import pwa as pwa_module
@@ -1354,6 +1355,53 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, self._config_html(self._field_values(), theme=self._theme(),
                                           section=section, reveal=reveal),
                    "text/html; charset=utf-8")
+
+    def _printer_settings_page(self):
+        """GET /printer-settings (?printer=<id>): one printer's settings (#1448)."""
+        query = parse_qs(urlparse(self.path).query)
+        data = self.server.settings_data
+        printer_id = (query.get("printer") or [None])[0] \
+            or settings.default_printer_id(data)
+        try:
+            settings.by_id(printer_id, data)
+        except settings.SettingsError:
+            self._json(404, {"ok": False, "reason": "no such printer"})
+            return
+        model = printer_settings_module.build_model(
+            data, printer_id, environ=self.server.webui_environ)
+        self._send(200, printer_settings_module.render_page(
+            model, form_token=self._form_token(), theme=self._theme(),
+            nav=data_module.nav_for(data)), "text/html; charset=utf-8")
+
+    def _printer_settings_save(self, form):
+        """POST /printer-settings: validate and save one printer's settings (#1448).
+
+        All validation and writing live in
+        :mod:`print_handy.webui.printer_settings`; a refusal re-renders
+        the page with the submitted values and the refusal in place.
+        """
+        data = self.server.settings_data
+        printer_id = (form.get("printer") or [""])[0]
+        try:
+            settings.by_id(printer_id, data)
+        except settings.SettingsError:
+            self._json(404, {"ok": False, "reason": "no such printer"})
+            return
+        outcome = printer_settings_module.save(
+            data, printer_id, form, environ=self.server.webui_environ,
+            confirmed=tuple(form.get(pages.REBIND_FIELD) or ()))
+        if outcome[0] == "result":
+            _kind, changed, warnings = outcome
+            self._send(200, printer_settings_module.render_result(
+                changed, printer_id=printer_id, warnings=warnings,
+                theme=self._theme(), nav=data_module.nav_for(data)),
+                "text/html; charset=utf-8")
+            return
+        _kind, model, submitted, errors, moves = outcome
+        self._send(400 if errors else 200, printer_settings_module.render_page(
+            model, form_token=self._form_token(), theme=self._theme(),
+            nav=data_module.nav_for(data), errors=errors,
+            submitted=submitted, rebinds=moves), "text/html; charset=utf-8")
 
     def _chat_state(self):
         self._json(200, chat_module.chat_state(
