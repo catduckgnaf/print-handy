@@ -182,6 +182,10 @@ def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
             with open(toml_path, "rb") as f:
                 data = tomllib.load(f)
             for k, v in data.items():
+                if not isinstance(v, dict):
+                    # A non-table entry (``"0.4" = 5``) is not a profile; skip it
+                    # instead of letting ``v.get`` raise and drop every profile.
+                    continue
                 try:
                     d = float(k)
                     profiles[d] = NozzleProfile(
@@ -195,7 +199,9 @@ def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
                         initial_layer_line_width=float(v["initial_layer_line_width"]),
                         prime_tower_width=int(v.get("prime_tower_width", 45)),
                     )
-                except (ValueError, KeyError):
+                except (ValueError, KeyError, TypeError):
+                    # One malformed profile (missing key, non-number such as a
+                    # list) is skipped; the rest of the file still loads.
                     continue
         except (OSError, tomllib.TOMLDecodeError):
             logger.warning("could not load nozzle profiles from %s", toml_path, exc_info=True)

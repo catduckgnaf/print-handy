@@ -537,3 +537,28 @@ def test_material_tuning_operator_file_wins_and_bad_values_are_refused(tmp_path)
         local.write_text(f"material_tuning:\n  {bad}\n")
         with pytest.raises(settings.SettingsError, match=r"\[material_tuning\]"):
             settings.load(local=local, environ={})
+
+
+def test_malformed_nozzle_entries_are_skipped_and_the_rest_still_load(tmp_path, monkeypatch):
+    # #1421 review: a non-table entry or a list-valued field used to raise
+    # AttributeError/TypeError past the narrowed handler; now each bad entry is
+    # skipped and the well-formed profile beside it still loads.
+    from pathlib import Path as _P
+    from print_handy.core import nozzle
+    good = nozzle.TUNED_NOZZLE_PROFILES[0.4]
+    fields = {k: getattr(good, k) for k in (
+        "min_layer_height", "max_layer_height", "default_layer_height",
+        "default_initial_layer_height", "retraction_length", "line_width",
+        "initial_layer_line_width")}
+    body = "".join(f"{k} = {v}\n" for k, v in fields.items())
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_text(
+        '"0.2" = 5\n'
+        f'["0.6"]\n{body}line_width = [1, 2]\n'.replace(f"line_width = {fields['line_width']}\n", "", 1)
+        + f'["0.4"]\n{body}')
+    fake_module_file = tmp_path / "core" / "nozzle.py"
+    monkeypatch.setattr(nozzle, "__file__", str(fake_module_file))
+    profiles = nozzle._load_nozzle_profiles()
+    assert set(profiles) == {0.4}
+    assert profiles[0.4].line_width == good.line_width
