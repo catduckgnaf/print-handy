@@ -31,8 +31,6 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
 | `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
 | `GET /api/projects` | The same project readout as JSON |
-| `GET /layers` | Read-only list of sliced plates already in the archive |
-| `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
 | `GET /walkthrough` | The first-run walkthrough, while it is pending for this install |
 | `POST /walkthrough` | One walkthrough step's action (continue, skip, back, finish) |
 | `GET /data` | The Data tab: print-record statistics. Only while `timelapse.data_enabled` is on (it follows `wrapped_enabled` until set); otherwise a named 403 refusal |
@@ -49,7 +47,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /offline` | The offline fallback page the service worker shows when a navigation cannot reach the server |
 | `GET /static/<file>` | The one PWA-only install asset: the separate padded 512 maskable icon the manifest lists. Public; every other file name is a 404. The favicon and the branding icons are served by their own routes, not this one |
 
-Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
+Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
 ### Chat page
 
@@ -92,12 +90,6 @@ The designs page is a read-only catalog of the AI design sessions kept on the ma
 - the **completion state**: complete, printing, or resumable with the plates still left and the chat command that continues it.
 
 The page keeps no store of its own and changes nothing: continuing or reprinting a project still happens in chat, where every plate asks for its own bed-clear confirmation. It is served under the same access rules as every other page (behind the login on a claimed install) and adds no script of its own.
-
-### Sliced layers
-
-`/layers` lists plates whose G-code is already in the archive (the `JOB.json` next to each plate names the file). Opening one draws that plate one layer at a time. Extrusion is colored by role: perimeter, infill, support, and anything else. Travel is drawn faint. Previous and next links stay inside the file's layer range, and the drawing can be panned. A job sliced into several plates (a multicolor split, for example) lists every plate. A file that is not G-code, or that has no extrusion, shows an error and no drawing. A file over 8 MB, or one with more than 200,000 moves, shows "too large to draw here" and no drawing. The page has no print, pause, or exclude control. It does not start a job and it does not change the confirm card in chat. With the Web UI disabled, the route is not served.
-
-Paths stay inside the archive: the address is a job folder plus the plate's position in that job's own `JOB.json` (`gcode` first, then each derived plate), because every plate file has the same name. Older `/layers/<job>/plate_1.gcode` links no longer open. A path outside that plate is not opened.
 
 ### Status page
 

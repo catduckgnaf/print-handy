@@ -102,6 +102,20 @@ def _vault(data, records_vault):
     return Path(((data or {}).get("paths") or {}).get("records_vault") or ".")
 
 
+def archive_root(data) -> Path:
+    """The job archive for these settings, or a folder under the home dir.
+
+    Moved here from the removed Layers page module (#1447): the Projects
+    readout reads archived jobs through it, and it belongs with the other
+    settings-path resolvers.
+    """
+    paths = (data or {}).get("paths") or {}
+    archive = paths.get("archive")
+    if archive:
+        return Path(str(archive)).expanduser()
+    return Path(str(paths.get("state_home") or ".")) / "archive"
+
+
 # ------------------------------------------------------------------ cache
 #
 # Every Data or Wrapped load used to read and parse every record, rebuild
@@ -1204,7 +1218,7 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
 
 
 __all__ = ["DATA_OFF_REASON", "VIDEO_OFF_REASON",
-           "WRAPPED_OFF_REASON", "ai_video_enabled", "data_enabled", "data_view",
+           "WRAPPED_OFF_REASON", "ai_video_enabled", "archive_root", "data_enabled", "data_view",
            "export_share", "make_video", "nav_for", "parse_byte_range", "render_data_page",
            "render_share_result", "render_wrapped_page", "video_status",
            "wrapped_enabled", "wrapped_video_path", "wrapped_view"]

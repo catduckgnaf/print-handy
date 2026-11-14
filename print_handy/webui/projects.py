@@ -27,7 +27,6 @@ from pathlib import Path
 
 from ..core import print_stats, projects
 from . import data as data_module
-from . import layers as layers_module
 from . import shell
 
 _esc = shell._esc
@@ -324,7 +323,7 @@ def _jsonable(views):
 def respond(data, path, *, theme=shell.DEFAULT_THEME, nav=None):
     """(code, body, content type) for GET /projects and GET /api/projects,
     in the order the server's ``_send`` takes them."""
-    views = project_views(layers_module.archive_root(data), data_module._vault(data, None))
+    views = project_views(data_module.archive_root(data), data_module._vault(data, None))
     if path == "/api/projects":
         return 200, json.dumps({"ok": True, "projects": _jsonable(views)},
                                indent=1, sort_keys=True, default=str), "application/json"

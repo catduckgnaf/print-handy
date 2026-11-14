@@ -58,9 +58,6 @@ step) serving:
 - ``GET /projects`` and ``GET /api/projects`` — the read-only
   multi-part project readout (#1204; :mod:`print_handy.webui.projects`),
   read from each job's ``project_v1`` manifest and the print records.
-- ``GET /layers`` and ``GET /layers/<job>/<file>`` — a read-only view of
-  one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
-  pause, or exclude control, and nothing here changes chat confirm.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
@@ -181,7 +178,6 @@ from . import config as config_api
 from . import controls as controls_module
 from . import data as data_module
 from . import designs as designs_module
-from . import layers as layers_module
 from . import pages
 from . import printers_page
 from . import projects as projects_module
@@ -1370,16 +1366,6 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.settings_data, path, theme=self._theme(),
             nav=data_module.nav_for(self.server.settings_data)))
 
-    def _layers_route(self, rest=""):
-        archive = layers_module.archive_root(self.server.settings_data)
-        layer = (parse_qs(urlparse(self.path).query).get("layer") or ["0"])[0]
-        code, content_type, body = layers_module.respond(
-            archive, rest, layer, theme=self._theme())
-        if content_type.startswith("text/html"):
-            self._send(code, body, content_type)
-        else:
-            self._json(code, body)
-
     def _not_found(self, path):
         if self._browser_navigation(path):
             # A browser navigation to a path that does not exist gets the
@@ -1390,7 +1376,7 @@ class _Handler(BaseHTTPRequestHandler):
                          "reason": "try /, /api/status, /api/printers/<id>/status, "
                                    "/api/printers/<id>/camera/snapshot, "
                                    "/api/printers/<id>/spools, "
-                                   "/healthz, /readyz, /config, /designs, /layers, /spools, "
+                                   "/healthz, /readyz, /config, /designs, /spools, "
                                    "/walkthrough or /login"})
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
