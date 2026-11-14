@@ -48,6 +48,7 @@ NAV = (
     ("/", "Status"),
     ("/layers", "Layers"),
     ("/printers", "Printers"),
+    ("/printer-settings", "Printer settings"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
     ("/projects", "Projects"),

@@ -537,18 +537,25 @@ class PrinterNameState:
     env_var: str = ""  # the indexed override variable, when shape is "environment"
 
 
-def _printer_name_env_var(environ, printer_id):
-    """The PRINT_HANDY__PRINTERS__<ID>__NAME variable overriding this entry's
-    name, or "" — parsed with the loader's own rule (the name is lowercased
-    and split on "__"; entry ids are lowercase slugs)."""
+def _printer_entry_env_var(environ, printer_id, key):
+    """The PRINT_HANDY__PRINTERS__<ID>__<KEY> variable overriding this
+    entry key, or "" — parsed with the loader's own rule (the name is
+    lowercased and split on "__"; entry ids are lowercase slugs)."""
     for raw_name, raw in environ.items():
         if not raw_name.startswith("PRINT_HANDY__") or not raw:
             continue
         parts = raw_name[len("PRINT_HANDY__"):].lower().split("__")
         if len(parts) == 3 and parts[0] == "printers" and parts[1] == printer_id \
-                and parts[2] == "name":
+                and parts[2] == key:
             return raw_name
     return ""
+
+
+def _printer_name_env_var(environ, printer_id):
+    """The PRINT_HANDY__PRINTERS__<ID>__NAME variable overriding this entry's
+    name, or "" — parsed with the loader's own rule (the name is lowercased
+    and split on "__"; entry ids are lowercase slugs)."""
+    return _printer_entry_env_var(environ, printer_id, "name")
 
 
 def _raw_layer(path):
@@ -678,6 +685,210 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     _write_settings_file(target, text)
     _note_tolerated(target, tolerated)
     return [("printers", printer_id)]
+
+
+# ------------------------------------------------------- whole roster entries
+#
+# The Printer settings tab (#1448) edits one declared [[printers]] entry's
+# plain keys in place, under exactly the discipline write_printer_name
+# applies to the name alone: the entry lives in the one file layer that
+# declares the roster, and it is written only when that layer is the
+# settings file the Web UI writes (YAML, not TOML); an indexed
+# environment override for a key refuses that key's write with the
+# variable named; a roster declared in the operator's own file or the
+# home configuration is read-only here. The candidate runs through the
+# real settings loader before anything lands, so a value the loader
+# would refuse (an unknown model, a host key on the wrong vendor, a bad
+# chat_id type) refuses the whole write with the loader's own message.
+
+# The entry keys the Printer settings tab edits: the identity, the chat
+# channel and the connection keys, one per vendor connection. Every one
+# is a plain string in the entry (settings.PRINTER_ENTRY_STR_KEYS, plus
+# model and chat_id); geometry, accessories and the *_env name keys stay
+# file-only, as do the integer keys.
+ENTRY_EDITABLE_KEYS = ("name", "model", "chat_id", "moonraker_url",
+                       "octoprint_url", "lan_host", "lan_serial",
+                       "link_host", "host")
+
+
+@dataclass(frozen=True)
+class EntryKeyState:
+    """One editable entry key: its effective value and where it came from."""
+
+    key: str
+    value: str  # the effective value ("" when the entry sets none)
+    source: str  # a provenance constant: ENVIRONMENT, USER_FILE, SETTINGS_FILE, HOME_CONFIG or DEFAULT
+    env_var: str = ""  # the indexed override variable, when source is ENVIRONMENT
+
+    @property
+    def env_overridden(self):
+        return self.source == ENVIRONMENT
+
+
+@dataclass(frozen=True)
+class PrinterEntryState:
+    """Where one roster entry is declared and whether the Web UI may write it."""
+
+    shape: str  # "legacy" | "settings_file" | "roster_toml" | "user_file" | "home"
+    printer_id: str
+    keys: dict  # ENTRY_EDITABLE_KEYS -> EntryKeyState
+
+    @property
+    def writable(self):
+        return self.shape == "settings_file"
+
+
+def printer_entry_state(data, printer_id, *, home=None, local=None, environ=None):
+    """The PrinterEntryState for one printer of loaded settings ``data``.
+
+    Layer resolution mirrors printer_name_state: the roster the loader
+    sees is declared by the highest layer carrying a ``printers`` list
+    (the operator's own file over the settings file over the home
+    configuration), and an indexed environment variable overrides any
+    declared entry key. ``shape`` is "legacy" when no layer declares a
+    roster at all: the printer's settings then live in the legacy
+    sections and the catalog machinery owns them.
+    """
+    environ = os.environ if environ is None else environ
+    try:
+        entry = settings.by_id(printer_id, data)
+    except settings.SettingsError:
+        entry = {}
+    file_path = _file_path(local, environ)
+    layers = (("user_file", _raw_layer(settings.user_config_path(environ))),
+              ("file", _raw_layer(file_path)),
+              ("home", _raw_layer(_home_path(home))))
+    shape, declared, declared_source = "legacy", {}, DEFAULT
+    for layer_name, layer in layers:
+        entries = layer.get("printers")
+        if not isinstance(entries, list):
+            continue
+        found = next((item for item in entries
+                      if isinstance(item, dict) and item.get("id") == printer_id), None)
+        declared = found if isinstance(found, dict) else {}
+        declared_source = {"user_file": USER_FILE, "file": SETTINGS_FILE,
+                           "home": HOME_CONFIG}[layer_name]
+        if layer_name == "user_file":
+            shape = "user_file"
+        elif layer_name == "home":
+            shape = "home"
+        elif file_path is not None and file_path.suffix.lower() == ".toml":
+            shape = "roster_toml"
+        else:
+            shape = "settings_file"
+        break
+    keys = {}
+    for key in ENTRY_EDITABLE_KEYS:
+        env_var = _printer_entry_env_var(environ, printer_id, key)
+        effective = entry.get(key)
+        effective = "" if effective is None else str(effective)
+        if env_var:
+            keys[key] = EntryKeyState(key, effective, ENVIRONMENT, env_var)
+        elif key in declared:
+            # The model picker works in resolved registry keys; every
+            # other key shows the value the declaring layer wrote.
+            value = effective if key == "model" else str(declared[key])
+            keys[key] = EntryKeyState(key, value, declared_source)
+        else:
+            keys[key] = EntryKeyState(key, effective, DEFAULT)
+    return PrinterEntryState(shape, printer_id, keys)
+
+
+def _prepare_printer_entry(printer_id, changes, *, config_path, home, environ):
+    """(target, validated_text, tolerated) for a roster-entry edit, or
+    None when the entry already carries every submitted value. Raises
+    WebUIConfigError — writing nothing — for every shape the writer
+    refuses, exactly as _prepare_printer_name refuses for the name."""
+    cleaned = {}
+    for key, value in dict(changes or {}).items():
+        if key not in ENTRY_EDITABLE_KEYS:
+            raise WebUIConfigError(f"printers entry {key!r} is not an editable "
+                                   "printer setting; nothing was written")
+        if not isinstance(value, str):
+            raise WebUIConfigError(f"printers entry {key}: the value must be text")
+        value = value.strip()
+        if "\n" in value or "\r" in value:
+            raise WebUIConfigError(f"printers entry {key}: the value must fit on one line")
+        cleaned[key] = value
+    if "model" in cleaned and not cleaned["model"]:
+        raise WebUIConfigError("printers entry model: a printer must keep a model; "
+                               "the value was not written")
+    target = Path(config_path) if config_path is not None else settings_file_path(environ)
+    if target.suffix.lower() == ".toml":
+        raise WebUIConfigError(f"{target}: the Web UI writes YAML settings files; "
+                               "point PRINT_HANDY_CONFIG at a .yaml file or edit the TOML file by hand")
+    for key in cleaned:
+        env_var = _printer_entry_env_var(environ, printer_id, key)
+        if env_var:
+            raise WebUIConfigError(
+                f"printers entry {key} is overridden by the environment (${env_var}); "
+                "change or unset that variable instead — the value was not written to the file")
+    user_path = settings.user_config_path(environ)
+    if user_path is not None and user_path.is_file():
+        if isinstance(_raw_layer(user_path).get("printers"), list):
+            raise WebUIConfigError(
+                f"the printer roster is declared in your own settings file ({user_path}), "
+                "which overrides this one; change the printer there — the value was not "
+                "written to the file")
+    current = settings._read(target) if target.is_file() else {}
+    if not isinstance(current, dict):  # pragma: no cover - settings._read enforces this
+        raise WebUIConfigError(f"{target}: top-level config must be a mapping")
+    if not isinstance(current.get("printers"), list):
+        raise WebUIConfigError(f"{target}: no [[printers]] roster is declared in this "
+                               "file, so there is no roster entry to write")
+    candidate = copy.deepcopy(current)
+    entry = next((item for item in candidate["printers"]
+                  if isinstance(item, dict) and item.get("id") == printer_id), None)
+    if entry is None:
+        raise WebUIConfigError(f"{target}: no [[printers]] entry with id {printer_id!r} "
+                               "is declared in this file")
+    changed = False
+    for key, value in cleaned.items():
+        if value:
+            if entry.get(key) != value:
+                entry[key] = value
+                changed = True
+        elif key in entry:
+            del entry[key]  # a blank value clears the key back to its default
+            changed = True
+    if not changed:
+        return None
+    text, tolerated = _validate_candidate(candidate, target, home=home, environ=environ)
+    return target, text, tolerated
+
+
+def check_printer_entry(printer_id, changes, *, config_path=None, home=None, environ=None):
+    """Every refusal write_printer_entry would raise, without writing."""
+    environ = os.environ if environ is None else environ
+    _prepare_printer_entry(printer_id, changes, config_path=config_path,
+                           home=home, environ=environ)
+
+
+def write_printer_entry(printer_id, changes, *, config_path=None, home=None,
+                        environ=None, timestamp=None):
+    """Apply ``{entry key: value}`` changes to one declared roster entry
+    in the settings file, under the write_printer_name discipline.
+
+    Surgical: only the named keys of the one entry change; the entry's
+    ``id`` and every other key are untouched, no legacy section is added,
+    and the previous file is kept as a timestamped backup. Returns the
+    ``(printer_id, key)`` pairs written, [] when the entry already
+    carried the submitted values.
+    """
+    environ = os.environ if environ is None else environ
+    prepared = _prepare_printer_entry(printer_id, changes, config_path=config_path,
+                                      home=home, environ=environ)
+    if prepared is None:
+        target = Path(config_path) if config_path is not None else settings_file_path(environ)
+        _note_noop_write(target, home=home, environ=environ)
+        return []
+    target, text, tolerated = prepared
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    _backup(target, stamp)
+    _write_settings_file(target, text)
+    _note_tolerated(target, tolerated)
+    return [(printer_id, key) for key in changes]
 
 
 def _old_values(target, *, home, environ):
