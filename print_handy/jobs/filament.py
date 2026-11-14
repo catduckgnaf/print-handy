@@ -3,12 +3,15 @@
 Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are still
 importable from there for one release.
 """
+import logging
 import time
 import urllib.request
 
 from .. import printers
 from ..core import filament_color
 from .common import FILAMENT_SLOTS, request_json
+
+logger = logging.getLogger("print_handy.jobs.filament")
 
 
 FILAMENT_SENSOR_OBJECTS = ("filament_switch_sensor head_switch_sensor", "zmod_color", "zmod_ifs", "print_stats", "save_variables")
@@ -25,8 +28,9 @@ def position_limit(adapter=None):
     limit = FILAMENT_SLOTS
     try:
         limit = max(limit, int((adapter or printers.current()).slot_count or 1))
-    except Exception:
-        pass
+    except Exception as exc:
+        # The configured bound stays the floor when the adapter cannot report its toolheads.
+        logger.warning("could not read the printer's slot count; keeping filament_slots=%s: %s", limit, exc)
     return limit
 
 

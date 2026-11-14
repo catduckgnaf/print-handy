@@ -203,6 +203,17 @@ def test_toml_backed_nozzle_profiles():
     assert prof_08.prime_tower_width == 75
 
 
+def test_nozzle_profiles_fall_back_when_config_cannot_be_read(monkeypatch, caplog):
+    from print_handy.core import nozzle
+
+    monkeypatch.setattr("pathlib.Path.is_file", lambda _self: True)
+    monkeypatch.setattr("builtins.open", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    with caplog.at_level("WARNING", logger=nozzle.__name__):
+        profiles = nozzle._load_nozzle_profiles()
+    assert profiles == nozzle.TUNED_NOZZLE_PROFILES
+    assert any("could not load nozzle profiles" in rec.message for rec in caplog.records)
+
+
 def test_tuned_nozzle_profiles_configured(tmp_path, monkeypatch):
     import json
     from pathlib import Path
@@ -526,3 +537,72 @@ def test_material_tuning_operator_file_wins_and_bad_values_are_refused(tmp_path)
         local.write_text(f"material_tuning:\n  {bad}\n")
         with pytest.raises(settings.SettingsError, match=r"\[material_tuning\]"):
             settings.load(local=local, environ={})
+
+
+def test_malformed_nozzle_entries_are_skipped_and_the_rest_still_load(tmp_path, monkeypatch):
+    # #1421 review: a non-table entry or a list-valued field used to raise
+    # AttributeError/TypeError past the narrowed handler; now each bad entry is
+    # skipped and the well-formed profile beside it still loads.
+    from pathlib import Path as _P
+    from print_handy.core import nozzle
+    good = nozzle.TUNED_NOZZLE_PROFILES[0.4]
+    fields = {k: getattr(good, k) for k in (
+        "min_layer_height", "max_layer_height", "default_layer_height",
+        "default_initial_layer_height", "retraction_length", "line_width",
+        "initial_layer_line_width")}
+    body = "".join(f"{k} = {v}\n" for k, v in fields.items())
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_text(
+        '"0.2" = 5\n'
+        f'["0.6"]\n{body}line_width = [1, 2]\n'.replace(f"line_width = {fields['line_width']}\n", "", 1)
+        + f'["0.4"]\n{body}')
+    fake_module_file = tmp_path / "core" / "nozzle.py"
+    monkeypatch.setattr(nozzle, "__file__", str(fake_module_file))
+    profiles = nozzle._load_nozzle_profiles()
+    assert set(profiles) == {0.4}
+    assert profiles[0.4].line_width == good.line_width
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("bad_line", [
+    "line_width = " + "9" * 400,          # int too large for float() -> OverflowError
+    "prime_tower_width = inf",            # int(inf) -> OverflowError
+])
+def test_overflowing_nozzle_entry_is_skipped_and_the_rest_still_load(tmp_path, monkeypatch, bad_line):
+    # #1421 review round 2: an OverflowError in one profile must skip only that
+    # profile, not abort the loader and fall back for every diameter.
+    from print_handy.core import nozzle
+    good = nozzle.TUNED_NOZZLE_PROFILES[0.4]
+    fields = {k: getattr(good, k) for k in (
+        "min_layer_height", "max_layer_height", "default_layer_height",
+        "default_initial_layer_height", "retraction_length", "line_width",
+        "initial_layer_line_width")}
+    body = "".join(f"{k} = {v}\n" for k, v in fields.items())
+    key = bad_line.split(" =")[0]
+    bad_body = "".join(f"{k} = {v}\n" for k, v in fields.items() if k != key) + bad_line + "\n"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_text(f'["0.6"]\n{bad_body}["0.4"]\n{body}')
+    monkeypatch.setattr(nozzle, "__file__", str(tmp_path / "core" / "nozzle.py"))
+    profiles = nozzle._load_nozzle_profiles()
+    assert set(profiles) == {0.4}
+    assert profiles[0.4].line_width == good.line_width
+
+
+@_pytest.mark.parametrize("raw", [b'["0.4"]\nline_width = 0.4\n# \xff\xfe\n', b"[[[ not toml"])
+def test_unreadable_nozzles_file_falls_back_to_tuned_profiles(tmp_path, monkeypatch, caplog, raw):
+    # #1421 review round 3: invalid UTF-8 (UnicodeDecodeError) and invalid TOML
+    # both fall back to the tuned built-ins with a warning instead of crashing.
+    import logging
+    from print_handy.core import nozzle
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_bytes(raw)
+    monkeypatch.setattr(nozzle, "__file__", str(tmp_path / "core" / "nozzle.py"))
+    with caplog.at_level(logging.WARNING, logger=nozzle.logger.name):
+        profiles = nozzle._load_nozzle_profiles()
+    assert profiles is nozzle.TUNED_NOZZLE_PROFILES
+    assert any("could not load nozzle profiles" in r.getMessage() for r in caplog.records)
