@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import logging
 import time
 from typing import Any
 
@@ -81,8 +82,9 @@ def force_restart(
     steps.append("firmware_restart")
     try:
         call("/printer/firmware_restart", method="POST", timeout=15)
-    except Exception:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+    except Exception as exc:
+        # The restart normally drops the connection; the klippy poll below decides.
+        logging.getLogger(__name__).info("firmware_restart call ended without a reply: %r", exc)
 
     # Step 3: Poll until klippy is ready
     deadline = time.monotonic() + wait_s
@@ -106,8 +108,9 @@ def force_restart(
     steps.append("reboot_macro")
     try:
         call("/printer/gcode/script", method="POST", data={"script": "REBOOT"}, timeout=15)
-    except Exception:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+    except Exception as exc:
+        # The printer reboots and drops the connection; safe_idle below decides.
+        logging.getLogger(__name__).info("REBOOT macro call ended without a reply: %r", exc)
 
     from print_handy.core.clear_job import safe_idle
 
