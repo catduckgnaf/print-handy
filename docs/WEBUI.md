@@ -31,6 +31,8 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/projects` | The same project readout as JSON |
 | `GET /layers` | Read-only list of sliced plates already in the archive |
 | `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
+| `GET /sliced` | Read-only list of sliced jobs in the archive, with a download per plate file |
+| `GET /sliced/<job>/<n>` | Download of plate number `n` of that job (`.gcode` or `.gcode.3mf`), as an attachment |
 | `GET /walkthrough` | The first-run walkthrough, while it is pending for this install |
 | `POST /walkthrough` | One walkthrough step's action (continue, skip, back, finish) |
 | `GET /data` | The Data tab: print-record statistics. Only while `timelapse.data_enabled` is on (it follows `wrapped_enabled` until set); otherwise a named 403 refusal |
@@ -69,7 +71,9 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 
 ### Model sources page
 
-`/sources` lists every place a model link can be dropped from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. It is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top.
+`/sources` lists every place a model link can be dropped from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. The registry table is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top.
+
+The page's one action is the **Slice a link** form (#1443): paste a model link and it is handed to web chat, which runs the same intake as a link dropped in any chat — slice for the configured printer, confirm before anything prints. Choose **Slice only** there and the finished file waits on the [Sliced files](#sliced-files-page) page to download. The form is offered only while web chat is enabled; with web chat off, the page says so and a link pasted in Discord, Telegram, or Matrix lands its slice on the same Sliced files page.
 
 ### Designs page
 
@@ -92,6 +96,10 @@ The page keeps no store of its own and changes nothing: continuing or reprinting
 `/layers` lists plates whose G-code is already in the archive (the `JOB.json` next to each plate names the file). Opening one draws that plate one layer at a time. Extrusion is colored by role: perimeter, infill, support, and anything else. Travel is drawn faint. Previous and next links stay inside the file's layer range, and the drawing can be panned. A job sliced into several plates (a multicolor split, for example) lists every plate. A file that is not G-code, or that has no extrusion, shows an error and no drawing. A file over 8 MB, or one with more than 200,000 moves, shows "too large to draw here" and no drawing. The page has no print, pause, or exclude control. It does not start a job and it does not change the confirm card in chat. With the Web UI disabled, the route is not served.
 
 Paths stay inside the archive: the address is a job folder plus the plate's position in that job's own `JOB.json` (`gcode` first, then each derived plate), because every plate file has the same name. Older `/layers/<job>/plate_1.gcode` links no longer open. A path outside that plate is not opened.
+
+### Sliced files page
+
+`/sliced` is where a slice becomes a file you take away (#1443): every sliced job in the archive, newest first, with a download link per plate file — plain `.gcode` and ZMod `.gcode.3mf` packages alike. This is the flow for printing by other means (a USB stick, an SD card, the printer's own screen), and the browser half of the link → slice → download flow: paste a model link into the **Slice a link** form on the Sources page (or drop it in chat), choose **Slice only**, and the finished file waits here. Files sliced from AI-made designs land here the same way. Downloads resolve exactly like the Layers page's plates — only files the job's own `JOB.json` names, inside that job's archive folder — and are served as attachments behind the same login. The page slices nothing, uploads nothing, and starts nothing.
 
 ### Status page
 

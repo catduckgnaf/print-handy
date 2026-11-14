@@ -662,9 +662,12 @@ def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
     monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
 
-    # picks: one color (1), slot 1 (0), "Slice with supports" (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
-    assert adapter.questions[-1]['choices'][0] == 'Slice with supports'
+    # picks: one color (1), slot 1 (0), "Slice with supports" (0), then the
+    # slice-only delivery menu's "Done, don't print" (1) — Slice only offers
+    # the file download even with no print method (#1443).
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    flagged = [q for q in adapter.questions if q['choices'] and q['choices'][0] == 'Slice with supports']
+    assert flagged and adapter.questions[-1]['choices'] == ['Send the files here', "Done, don't print"]
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'bed_clear_approval' not in receipt
     assert env.starts == []

@@ -185,8 +185,13 @@ class WebAdapter(BasePlatformAdapter):
                                      "content": body[start:start + self.message_limit]},
                                     scope)
         for path in files:
-            self._outbox.append({"kind": "message",
-                                 "content": f"📎 {path.name}"}, scope)
+            # A sliced print file is downloadable from the Web UI's Sliced
+            # files page (#1443); say so, since the note stands in for the
+            # attachment the other platforms receive.
+            note = f"📎 {path.name}"
+            if path.name.endswith((".gcode", ".gcode.3mf")):
+                note += " — download it from the Web UI's Sliced files page."
+            self._outbox.append({"kind": "message", "content": note}, scope)
         return SendResult(True, message_id="web")
 
     async def send_clarify(self, chat_id, question, choices, clarify_id,

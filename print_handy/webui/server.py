@@ -181,6 +181,7 @@ from . import projects as projects_module
 from . import routes as routes_module
 from . import screen as screen_module
 from . import shell
+from . import sliced as sliced_module
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
@@ -1284,7 +1285,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _sources_page(self):
         self._send(200, sources_module.render_sources_page(
-            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data)),
+            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data),
+            form_token=self._form_token(),
+            chat_enabled=self._web_chat_enabled()),
             "text/html; charset=utf-8")
 
     def _designs_page(self):
@@ -1307,6 +1310,31 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(code, body, content_type)
         else:
             self._json(code, body)
+
+    def _sliced_route(self, rest=""):
+        """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).
+
+        The file itself is resolved by :mod:`print_handy.webui.sliced` from
+        the job's own JOB.json inside the archive — the request names a job
+        and a plate position, never a path — and is sent as an attachment,
+        the way the designs route sends a session's files.
+        """
+        data = self.server.settings_data
+        archive = layers_module.archive_root(data)
+        if not rest:
+            self._send(200, sliced_module.render_sliced_page(
+                sliced_module.list_sliced(archive), theme=self._theme(),
+                nav=data_module.nav_for(data)), "text/html; charset=utf-8")
+            return
+        segments = [segment for segment in rest.split("/") if segment != ""]
+        path = (sliced_module.resolve_download(archive, segments[0], segments[1])
+                if len(segments) == 2 else None)
+        if path is None:
+            self._json(404, {"ok": False, "reason": "no such sliced file"})
+            return
+        self._send(200, path.read_bytes(), sliced_module.content_type(path),
+                   headers=[("Content-Disposition",
+                             f'attachment; filename="{path.name}"')])
 
     def _not_found(self, path):
         if self._browser_navigation(path):

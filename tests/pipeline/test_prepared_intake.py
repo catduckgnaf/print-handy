@@ -239,13 +239,16 @@ def test_one_click_slice_and_print_needs_no_typed_approval(env):
 
 
 def test_slice_only_posts_start_button_bound_to_exact_plate(env):
+    # #1443: the slice-only question is the delivery menu; its Start button is
+    # the same per-job bed-clear button, bound to the exact plate.
+    from print_handy.core import delivery
     adapter, result, receipt = run_flow(env, [1, 0, 1, 0])  # slice only, then START button
-    assert adapter.questions[-1]['choices'] == [print_next.START_LABEL, print_next.CANCEL_LABEL]
+    assert adapter.questions[-1]['choices'] == [print_next.START_LABEL, 'Send the files here', delivery.DONE_LABEL]
     assert len(env.starts) == 1 and receipt['status'] == 'STARTED'
 
 
-def test_slice_only_then_cancel_never_starts(env):
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+def test_slice_only_then_done_never_starts(env):
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 2])  # slice only, then Done on the delivery menu
     assert env.starts == [] and receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
 
 
@@ -683,7 +686,10 @@ def test_failed_slice_retry_needs_fresh_approval_and_start_button(env, monkeypat
     adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='retry-approved')
 
     retry = [q for q in adapter.questions if q['choices'][0] == 'Retry slice once (no print)']
-    starts = [q for q in adapter.questions if q['choices'] == [print_next.START_LABEL, print_next.CANCEL_LABEL]]
+    # #1443: after the retry the fresh start button sits on the slice-only delivery menu.
+    from print_handy.core import delivery
+    starts = [q for q in adapter.questions
+              if q['choices'] == [print_next.START_LABEL, 'Send the files here', delivery.DONE_LABEL]]
     assert len(calls) == 2 and len(retry) == 1 and len(starts) == 1
     assert receipt['slice_attempt'] == receipt['slice_approval']['attempt'] == 2
     assert receipt['status'] == 'STARTED' and receipt['started'] is True
@@ -1441,8 +1447,8 @@ def test_capacity_zero_offers_rotation_alternative(env, monkeypatch):
                         lambda path, st: {'scales': [0.89, 0.75, 0.5], 'rotations': [rot]})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-rot', text='https://www.printables.com/model/1-ghost')
-    # One color, slot 1, pick choice 0 (the rotated alternative), slice only, decline start.
-    adapter = Adapter([1, 0, 0, 1, 1])
+    # One color, slot 1, pick choice 0 (the rotated alternative), slice only, Done (no start).
+    adapter = Adapter([1, 0, 0, 1, 2])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     scale_prompt = next(q for q in adapter.questions if 'does not fit the' in q['question'])
     assert scale_prompt['choices'][0] == '100% + supports'
@@ -1861,10 +1867,13 @@ def test_split_print_now_first_plate_default_order(env, monkeypatch):
 
 def test_split_slice_only_starts_nothing_until_pick_and_one_confirm(env, monkeypatch):
     event = _split_env(env, monkeypatch, 'slice-only-split')
-    adapter = Adapter([1, 0, 0, 1, 1, 1])  # slice only, plate 2, then Cancel at the single confirm
+    adapter = Adapter([1, 0, 0, 1, 1, 2])  # slice only, plate 2, then Done at the single confirm
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert env.starts == [] and result['reason'] == 'operator did not start the sliced plate'
-    confirms = [q for q in adapter.questions if q['choices'] == [print_next.START_LABEL, print_next.CANCEL_LABEL]]
+    # #1443: the single confirm is the slice-only delivery menu; its question still names the plate.
+    from print_handy.core import delivery
+    confirms = [q for q in adapter.questions
+                if q['choices'] == [print_next.START_LABEL, 'Send the files here', delivery.DONE_LABEL]]
     assert len(confirms) == 1 and 'plate 2 of 2' in confirms[0]['question']
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['first_plate'] == 'plate2'
@@ -2024,8 +2033,8 @@ def _run_small_stl_upload(env, monkeypatch, unit_pick):
     _box_stl(drop, 5, 2, 2)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='m-unit', text='', media_urls=[str(drop)])
-    # picks: unit answer, filament slot, slice only, then Cancel on the start button
-    adapter = Adapter([unit_pick, 0, 1, 1])
+    # picks: unit answer, filament slot, slice only, then Done on the delivery menu
+    adapter = Adapter([unit_pick, 0, 1, 2])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -2376,8 +2385,11 @@ def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, mon
     # start question when the material needs an enclosure; a job that names no
     # registered model shows none.
     _slice_for_creator5_pro(monkeypatch, material='ABS')
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])  # slice only, then cancel
-    start_question = adapter.questions[-1]['question']
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 2])  # slice only, then Done on the delivery menu
+    # #1443: the thermal facts ride the slice-only delivery menu's question (the
+    # breakdown plus the start question), not the menu's "Anything else" repeat.
+    start_question = next(q['question'] for q in adapter.questions
+                          if 'Start this exact plate?' in q['question'])
     assert 'Thermal: enclosure enclosed' in start_question
     # #740: chamber control is verified for the Creator 5 Pro ZMod record.
     assert 'active control supported' in start_question
@@ -2428,7 +2440,7 @@ def test_inch_fit_search_is_a_serialized_slicer_worker_step():
 
 
 def test_oversize_inch_answer_offers_mm_scale_and_cancel(env, monkeypatch):
-    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 0, 0, 1, 1])
+    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 0, 0, 1, 2])
     question = adapter.questions[1]
     assert '228.6' in question['question'] and '220 x 220' in question['question']
     assert question['choices'] == ['Use mm instead', 'Scale to 86%', 'Cancel']
@@ -2439,7 +2451,7 @@ def test_oversize_inch_answer_offers_mm_scale_and_cancel(env, monkeypatch):
 
 
 def test_oversize_inch_scale_choice_records_the_converted_scale(env, monkeypatch):
-    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 1, 0, 1, 1])
+    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 1, 0, 1, 2])
     assert job['unit_decision']['units'] == 'inch'
     assert job['scale'] == round(25.4 * 0.86, 6)  # the fitted fraction of the inch size
     assert receipt['scale'] == job['scale']

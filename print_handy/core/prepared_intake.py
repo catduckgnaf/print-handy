@@ -4592,13 +4592,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 question = breakdown + '\n' + question
             if slot_lines:
                 question = slot_lines + '\n' + question
-            if delivery.only_printer(enabled):
+            # An explicit Slice only is a request for the file itself (#1443): the menu
+            # offers the chat download whenever the vendor profile offers it at all,
+            # not only when [delivery] methods kept it — a default Flashforge install
+            # (printer-only default) must still hand over the file it sliced.
+            menu_enabled = delivery.slice_only_methods()
+            if delivery.only_printer(menu_enabled):
                 go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
                                 approval=True)
             else:
                 if not can_print:
                     question = breakdown + '\nSliced and validated. What should I do with the files?'
-                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, enabled,
+                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, menu_enabled,
                                           receipt, receipt_path, jp, gcodes)
             if go != 0:
                 receipt['status'] = 'SLICED_NOT_STARTED'

@@ -54,6 +54,28 @@ def methods(config=None):
     return tuple(m for m in model.vendor.delivery if m in enabled)
 
 
+def slice_only_methods(config=None):
+    """Delivery methods offered after an explicit Slice only (#1443).
+
+    The configured methods, plus the chat download (``discord``) whenever the
+    configured printer's vendor profile offers it at all — even when
+    [delivery] methods was narrowed to printer only, and on a default
+    Flashforge install, whose vendor default is printer only. Choosing Slice
+    only is itself the request for the file: without this, the slice-only
+    question ends at Start / Cancel and the sliced file stays on the Print
+    Handy host with no way to download it. The added offer grants no print
+    authorization (Start still goes through the per-job bed-clear button),
+    and a vendor that does not offer chat delivery gets nothing new.
+    """
+    # Called the way every existing call site calls methods() — bare when no
+    # config is passed — so a doubled methods() in tests keeps working.
+    enabled = list(methods() if config is None else methods(config))
+    model = current_model() if config is None else current_model(config)
+    if DISCORD in model.vendor.delivery and DISCORD not in enabled:
+        enabled.append(DISCORD)
+    return tuple(m for m in model.vendor.delivery if m in enabled)
+
+
 def only_printer(enabled):
     """True when the profile offers nothing but printing: the post-slice question stays the Start button."""
     return tuple(enabled) == (PRINTER,)
