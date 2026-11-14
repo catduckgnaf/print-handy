@@ -278,10 +278,12 @@ def prune(path: str | Path, retention_days: int, today: str | None = None) -> li
             continue
         if age >= max(1, int(retention_days)):
             try:
-                item.unlink()
+                item.unlink(missing_ok=True)  # another process may have removed it first
                 removed.append(item)
-            except OSError:
-                pass  # another process got there first, or the folder is read only
+            except OSError as exc:
+                # The folder is read only, for example. Not logging: prune runs
+                # while configure() is still setting the handlers up.
+                print(f"logging: cannot remove old log {item.name}: {exc}", file=sys.stderr)
     return removed
 
 

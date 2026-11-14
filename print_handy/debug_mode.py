@@ -41,6 +41,8 @@ from pathlib import Path
 
 from . import logs, sanitize_logs, settings
 
+logger = logging.getLogger(__name__)
+
 STATE_NAME = "debug-state.json"
 CAPTURE_NAME = "debug-capture.log"
 EXPORT_DIR_NAME = "debug-exports"
@@ -84,10 +86,11 @@ def _write_state(state, data=None) -> Path:
 
 
 def _clear_state(data=None) -> None:
+    # Prevented: a session that is already cleared is not an error.
     try:
-        state_path(data).unlink()
+        state_path(data).unlink(missing_ok=True)
     except OSError:
-        pass
+        logger.warning("debug mode: could not remove the session state file", exc_info=True)
 
 
 def _remaining(state, now) -> float:
@@ -194,7 +197,8 @@ def _write_marker(state, word, data=None) -> None:
         with target.open("a", encoding="utf-8") as handle:
             handle.write(f"{stamp} INFO print_handy.debug_mode: {word} session={state['session']}\n")
     except OSError:
-        pass
+        # The marker is advisory; the capture file may be on a full or read-only volume.
+        logger.warning("debug mode: could not write the %s marker to the capture file", word, exc_info=True)
 
 
 def _end_capture_marker(state, data=None) -> None:
@@ -232,7 +236,9 @@ def apply(data=None, *, now=None) -> bool:
         try:
             root.addHandler(_capture_handler(data))
         except OSError:
-            pass  # capture is best-effort; the level change still applies
+            # Capture is best-effort; the level change below still applies.
+            logger.warning("debug mode: could not open the capture file; DEBUG logging still applies",
+                           exc_info=True)
     if state["session"] not in _sync_cache["started"]:
         _write_marker(state, "DEBUG_SESSION_START", data)
         _sync_cache["started"].add(state["session"])

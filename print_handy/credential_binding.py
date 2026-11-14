@@ -159,7 +159,7 @@ def _write(bindings) -> None:
         try:
             os.chmod(tmp, 0o600)
         except OSError:  # pragma: no cover - a filesystem without modes
-            pass
+            log.debug("credential bindings: the filesystem refused chmod 0600 on the temp file", exc_info=True)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
         os.replace(tmp, target)

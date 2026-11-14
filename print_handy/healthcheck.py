@@ -7,6 +7,7 @@ restarting a healthy listener cannot fix an offline printer. No network probe.
 """
 from __future__ import annotations
 
+import logging
 import json
 import math
 import os
@@ -16,6 +17,8 @@ import time
 from pathlib import Path
 
 from . import listeners, printers, settings
+
+logger = logging.getLogger(__name__)
 
 HEARTBEAT_S = 30
 
@@ -155,6 +158,14 @@ def stack_dump_path(data=None, printer_id=None):
 _STACK_DUMP_FILE = None
 
 
+def _signal_note(what: str, exc: BaseException) -> None:
+    """One stderr line from inside a signal handler, where logging is unsafe."""
+    try:
+        os.write(2, f"print-handy healthcheck: {what}: {type(exc).__name__}: {exc}\n".encode())
+    except Exception:  # noqa: BLE001 - stderr itself is gone; nothing else to try
+        return
+
+
 def install_stack_dump_handler(data=None, printer_id=None):
     """Dump every thread's stack on SIGUSR1, to a state file and stderr (#1020 A4).
 
@@ -191,14 +202,16 @@ def install_stack_dump_handler(data=None, printer_id=None):
                      "faulthandler writes each dump below ---\n")
 
         def _stamp(signum, frame):
+            # A signal handler: no logging here (it can deadlock on a lock the
+            # interrupted thread holds), so a failure is one stderr line.
             try:
                 handle.write(f"--- SIGUSR1 stack dump at {time.time():.0f} (above) ---\n")
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - nothing may escape a signal handler
+                _signal_note("could not stamp the stack-dump file", exc)
             try:
                 faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - nothing may escape a signal handler
+                _signal_note("could not dump the stack to stderr", exc)
 
         # A re-arm must not leave an earlier registration in place: for an
         # already-registered signal faulthandler only swaps the file, so the
@@ -210,8 +223,8 @@ def install_stack_dump_handler(data=None, printer_id=None):
         if previous is not None and previous is not handle:
             try:
                 previous.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - the new handler is already armed; never undo that
+                logger.debug("health check: closing the previous stack-dump file failed", exc_info=True)
         return target
     except (ImportError, AttributeError, ValueError, OSError):
         return None

@@ -473,10 +473,9 @@ def classify(exc: BaseException, *, category: Category | None = None) -> Categor
     if declared is not None:
         # A boundary's own exception type knows what it is (#390): e.g. a
         # deterministic slice refusal is configuration, never *_UNKNOWN.
-        try:
+        # Prevented: an undeclared value falls through to the generic rules below.
+        if declared in Category._value2member_map_:
             return Category(declared)
-        except ValueError:
-            pass
     from . import settings  # lazy: settings is imported by nearly everything
     if isinstance(exc, settings.SettingsError):
         return Category.CONFIGURATION
