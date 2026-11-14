@@ -66,5 +66,9 @@ jobs:
         with:
           script: |
             await github.rest.issues.removeLabel({...context.repo, issue_number: context.payload.issue.number, name: 'needs-info'}).catch(() => {});
+            const marker = '<!-- issue-policy -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: context.payload.issue.number, per_page: 100});
+            const mine = comments.find(c => (c.body || '').startsWith(marker));
+            if (mine) await github.rest.issues.deleteComment({...context.repo, comment_id: mine.id}).catch(() => {});
       - name: Regression tests
         run: python -B -m unittest discover -s tests -p test_issue_policy.py

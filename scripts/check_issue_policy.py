@@ -13,6 +13,9 @@ from pathlib import Path
 
 EMPTY = {"", "_no response_", "no response", "n/a", "none", "todo", "tbd"}
 ATTACHMENT = re.compile(r"https://github\.com/(?:user-attachments|[^/\s]+/[^/\s]+/files)/\S+")
+# One pasted Doctor row: the doctor prints "ok" / "FAIL" / "WARN", two or
+# more spaces, then a label ending in a colon ("ok    settings: ...").
+DOCTOR_ROW = re.compile(r"(?m)^(ok|FAIL|WARN)\s{2,}\S[^:]*:")
 
 
 def sections(body):
@@ -39,7 +42,13 @@ def check(body, labels=()):
             errors.append(f"Fill in '{name}' with real content.")
     bundle = found.get("diagnostics bundle", "")
     report = found.get("sanitization report", "")
-    has_bundle = bool(ATTACHMENT.search(bundle)) or "doctor" in bundle.lower() and filled(bundle, 80)
+    # A bundle counts as present as an attachment, as pasted content that
+    # names the Doctor, or — the #442 shape (#1404) — as pasted Doctor
+    # output itself: at least two Doctor rows in a filled section, with
+    # no attachment and no "doctor" word anywhere in it.
+    has_bundle = (bool(ATTACHMENT.search(bundle))
+                  or ("doctor" in bundle.lower() and filled(bundle, 80))
+                  or (len(DOCTOR_ROW.findall(bundle)) >= 2 and filled(bundle, 80)))
     has_report = report.lower().lstrip().startswith("sanitization report")
     if not (has_bundle or has_report):
         errors.append("Attach the sanitized diagnostics bundle (`/print-handy bundle`, upload the file or paste its "

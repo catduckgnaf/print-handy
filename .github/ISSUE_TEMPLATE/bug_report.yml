@@ -62,7 +62,7 @@ body:
       label: Printer and firmware
       description: Printer model and firmware or mod (for example "Sovol SV06 on stock Klipper" or "Flashforge AD5X with ZMod"). Write "Not applicable" for purely offline problems.
     validations:
-      required: false
+      required: true
   - type: input
     id: profile
     attributes:
@@ -81,9 +81,9 @@ body:
     id: diagnostics_bundle
     attributes:
       label: Diagnostics bundle
-      description: Run `/print-handy bundle` in Discord (or `python3 -m print_handy.diagnostics_bundle` on the host) and attach the generated diagnostics-bundle.md file to this issue, or paste its Doctor section here. The bundle is redacted — it contains versions, a configuration summary with secret values removed, the printer roster, doctor output and a bounded log tail. Review it before attaching. Required for bug reports: the Issue policy check labels a report `needs-info` until a bundle or sanitization report is present. Do not paste local paths, host names, private addresses or accounts; the Public text policy check flags them.
+      description: Run `/print-handy bundle` in Discord (or `python3 -m print_handy.diagnostics_bundle` on the host) and attach the generated diagnostics-bundle.md file to this issue, or paste its Doctor section here. The bundle is redacted — it contains versions, a configuration summary with secret values removed, the printer roster, doctor output and a bounded log tail. Review it before attaching. Required for bug reports: the Issue policy check labels a report `needs-info` until a bundle or sanitization report is present. Do not paste local paths, host names, private addresses or accounts; the Public text policy check flags them. If you cannot collect a bundle, write what stopped you — the field must not be left blank.
     validations:
-      required: false
+      required: true
   - type: input
     id: debug_session
     attributes:
