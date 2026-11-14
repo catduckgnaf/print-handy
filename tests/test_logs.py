@@ -196,7 +196,35 @@ def test_docker_default_writes_logs_to_the_persistent_state_volume():
         cfg = settings.load(local=root / "config" / f"docker.{suffix}", user=False, environ={})
         assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
         assert cfg["logging"]["retention_days"] == 14
-    assert '"$state_home/logs"' in (root / "docker" / "entrypoint.sh").read_text()
+    entrypoint = (root / "docker" / "entrypoint.sh").read_text()
+    # #1416: the log folder is optional. It is not in the fatal writability
+    # check, and it is created by a best-effort mkdir that cannot abort startup
+    # under `set -e`; every other mkdir of it would be fatal.
+    check = entrypoint[entrypoint.index("_check_data_folders() {"):]
+    check = check[:check.index("\n}\n")]
+    assert '"$state_home/state"' in check and '"$state_home/logs"' not in check
+    log_mkdirs = [line for line in entrypoint.splitlines()
+                  if line.lstrip().startswith("mkdir") and '"$state_home/logs"' in line]
+    assert log_mkdirs == ['mkdir -p "$state_home/logs" 2>/dev/null \\']
+    assert "|| echo \"Print Handy: cannot create $state_home/logs" in entrypoint
+
+
+def test_entrypoint_starts_when_the_log_folder_cannot_be_created(tmp_path):
+    # #1416: run the entrypoint's folder setup for real with `logs` blocked by a
+    # plain file; the script must get past it (set -euo pipefail) and warn.
+    import subprocess
+    root = Path(__file__).resolve().parents[1]
+    entrypoint = (root / "docker" / "entrypoint.sh").read_text()
+    start = entrypoint.index('mkdir -p "$state_home/state"')
+    end = entrypoint.index("\n", entrypoint.index("|| echo \"Print Handy: cannot create")) + 1
+    state_home, data_root = tmp_path / "state", tmp_path / "data"
+    state_home.mkdir()
+    (state_home / "logs").write_text("not a folder")
+    script = (f"set -euo pipefail\nstate_home={state_home}\ndata_root={data_root}\n"
+              + entrypoint[start:end] + "echo reached-start\n")
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0 and result.stdout.strip() == "reached-start"
+    assert "cannot create" in result.stderr and (state_home / "state").is_dir()
 
 
 class _FixedDatetime(datetime):
@@ -214,7 +242,7 @@ def test_unwritable_file_falls_back_to_stderr_only(tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("x")
     logs.configure({"file": str(blocker / "sub" / "x.log")}, stream=io.StringIO())
-    assert "logging to stderr only" in capsys.readouterr().err
+    assert "logging: cannot write" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("secret_line", [
