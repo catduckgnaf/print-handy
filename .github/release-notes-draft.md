@@ -24,6 +24,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 - The server now reports `temperature_limits_c`, `controls_enabled`, a persistent random `instance_id`, and `GET /api/printers` (config and state only) for the ha-print-handy integration. (#1401)
 
 ## Fixes
+- Release metadata now includes the 2.3.3 version-bump merge (#1403).
 - A single weak camera detection (one box at 12% on a healthy print) no longer posts an alert. A lone weak detection is logged; two in a row post one plainly worded, low-confidence alert with no ping; three make it a failure, as two did before. Strong detections behave exactly as before, on Moonraker and Bambu Lab alike. (#1395)
 - A stall alert keeps its starter ping even when a weak detection shows up on the same frame. (#1395)
 - Open questions (design, colors, Stop buttons, approvals) no longer hold the bot's worker threads, so a few of them can't stall a print start on a small container anymore. (#1398)
