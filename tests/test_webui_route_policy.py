@@ -73,6 +73,8 @@ EXPECTED = [
     ("GET", "/designs/*", S),
     ("GET", "/projects", S),
     ("GET", "/api/projects", S),
+    ("GET", "/sliced", S),
+    ("GET", "/sliced/*", S),
     ("GET", "*", S),
     ("POST", "/u/*", L),
     ("POST", "/login", P),

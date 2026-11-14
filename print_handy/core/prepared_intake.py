@@ -3190,7 +3190,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # supports" records it.
                     menu_options.append({'kind': 'print_anyway',
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
-                menu_options.append({'kind': 'slice_only', 'label': 'Slice only'})
+                menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
@@ -3198,7 +3198,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 summary_extra = ''
                 menu_options = [
                     {'kind': 'print', 'label': print_label},
-                    {'kind': 'slice_only', 'label': 'Slice only'},
+                    {'kind': 'slice_only', 'label': 'Slice and Download'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
@@ -3576,7 +3576,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'operator cancelled print request'}
         if is_flagged and hasattr(early, 'settle'):
-            # A flagged menu answered with Slice only reaches this guard with
+            # A flagged menu answered with Slice and Download reaches this guard with
             # no recorded decision to settle for; the speculative slice must
             # still be finished before JOB.json is compared to the binding.
             await early.settle()
@@ -4584,7 +4584,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         later = (f" Plate {picked_plate + 1} of {len(parts)} only; a picker for the rest follows when it finishes."
                  if split else '')
         if choice == 1:
-            # Slice only never confirmed the bed. One start button for the exact plate, same machinery as /print-next.
+            # Slice and Download never confirmed the bed. One start button for the exact plate, same machinery as /print-next.
             question = (f"Start plate {picked_plate + 1} of {len(gcodes)} ({parts[picked_plate]['label']}) now? "
                         'Starting uploads and prints immediately.'
                         if split else 'Start this exact plate? Starting uploads and prints immediately.')
@@ -4592,13 +4592,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 question = breakdown + '\n' + question
             if slot_lines:
                 question = slot_lines + '\n' + question
-            if delivery.only_printer(enabled):
+            # An explicit Slice and Download is a request for the file itself (#1443): the menu
+            # offers the chat download whenever the vendor profile offers it at all,
+            # not only when [delivery] methods kept it — a default Flashforge install
+            # (printer-only default) must still hand over the file it sliced.
+            menu_enabled = delivery.slice_only_methods()
+            if delivery.only_printer(menu_enabled):
                 go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
                                 approval=True)
             else:
                 if not can_print:
                     question = breakdown + '\nSliced and validated. What should I do with the files?'
-                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, enabled,
+                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, menu_enabled,
                                           receipt, receipt_path, jp, gcodes)
             if go != 0:
                 receipt['status'] = 'SLICED_NOT_STARTED'

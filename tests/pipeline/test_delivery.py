@@ -57,6 +57,19 @@ def test_methods_follow_the_vendor_profile(bambu_model):
         assert "bambu_handoff" not in printers.MODELS[key].vendor.delivery
 
 
+def test_slice_only_methods_adds_the_chat_download_the_vendor_offers(bambu_model):  # noqa: F811
+    """#1443: Slice and Download is a request for the file, so the chat download is offered
+    whenever the vendor profile offers it — a default Flashforge install (printer
+    only) included — while print stays exactly as configured."""
+    assert delivery.slice_only_methods(config_for("flashforge.ad5x")) == ("printer", "discord")
+    assert delivery.slice_only_methods(config_for("flashforge.ad5x", ["printer"])) == ("printer", "discord")
+    assert delivery.slice_only_methods(config_for("klipper.generic", ["printer"])) == ("printer", "discord")
+    # Already-configured downloads are unchanged, and printer is never added by the offer.
+    assert delivery.slice_only_methods(config_for(BAMBU_KEY)) == ("discord", "bambu_handoff")
+    assert delivery.slice_only_methods(config_for("prusa.mk4s", ["discord"])) == ("discord",)
+    assert delivery.methods(config_for("flashforge.ad5x")) == ("printer",)  # the general rule is untouched
+
+
 # ----------------------------------------------------------------------------- binding
 
 def _job_with(tmp_path, *texts):
@@ -215,15 +228,18 @@ def _delivery_menu(adapter):
     return [q for q in adapter.questions if delivery.DONE_LABEL in q["choices"]]
 
 
-def test_default_profile_keeps_the_exact_start_question(env):  # noqa: F811
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
-    assert adapter.questions[-1]["choices"] == [print_next.START_LABEL, print_next.CANCEL_LABEL]
+def test_default_profile_slice_only_offers_the_files(env):  # noqa: F811
+    """#1443: the default profile is a Flashforge with [delivery] printer only, yet an
+    explicit Slice and Download still offers the download — Done ends it with no delivery."""
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 2])
+    assert adapter.questions[-1]["choices"] == [print_next.START_LABEL, "Send the files here", delivery.DONE_LABEL]
     assert "deliveries" not in receipt and env.starts == []
+    assert receipt["status"] == "SLICED_NOT_STARTED"
 
 
 def test_send_files_then_done_never_starts_or_authorizes(env, monkeypatch):  # noqa: F811
     use_config(monkeypatch, config_for("flashforge.ad5x", ["printer", "discord"]))
-    # one color, slot 1, Slice only, Send the files here, Done
+    # one color, slot 1, Slice and Download, Send the files here, Done
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 1])
     menus = _delivery_menu(adapter)
     assert menus[0]["choices"] == [print_next.START_LABEL, "Send the files here", delivery.DONE_LABEL]
@@ -238,6 +254,32 @@ def test_send_files_then_done_never_starts_or_authorizes(env, monkeypatch):  # n
     assert entry["files"][0]["source"] == env.sliced[0] and entry["files"][0]["ok"] is True
 
 
+def test_slice_only_on_the_default_flashforge_profile_sends_the_file(env):  # noqa: F811
+    """#1443 regression: no [delivery] override at all — the shipped default is a
+    Flashforge with methods ["printer"], and Slice and Download must still hand over the file.
+    Fails on the base (the flow ended at a Start / Cancel question and no file was sent)."""
+    # one color, slot 1, Slice and Download, Send the files here, Done
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 1])
+    menus = _delivery_menu(adapter)
+    assert menus[0]["choices"] == [print_next.START_LABEL, "Send the files here", delivery.DONE_LABEL]
+    attached = [m for m in adapter.sent if "MEDIA:" in m]
+    assert len(attached) == 1 and attached[0].endswith(f"MEDIA:{env.sliced[0]}")
+    assert env.starts == [] and "bed_clear_approval" not in receipt
+    assert receipt["status"] == "SLICED_NOT_STARTED" and receipt["started"] is False
+    [entry] = receipt["deliveries"]
+    assert entry["method"] == "discord" and entry["complete"] is True
+
+
+def test_slice_only_with_printer_only_methods_still_sends_the_file(env, monkeypatch):  # noqa: F811
+    """#1443: an install that explicitly narrowed [delivery] methods to ["printer"]
+    gets the same offer — the Slice and Download choice itself asks for the file."""
+    use_config(monkeypatch, config_for("flashforge.ad5x", ["printer"]))
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 1])
+    attached = [m for m in adapter.sent if "MEDIA:" in m]
+    assert len(attached) == 1 and attached[0].endswith(f"MEDIA:{env.sliced[0]}")
+    assert env.starts == [] and receipt["status"] == "SLICED_NOT_STARTED"
+
+
 def test_send_files_then_start_uses_the_same_bed_clear_button(env, monkeypatch):  # noqa: F811
     use_config(monkeypatch, config_for("klipper.generic", ["printer", "discord"]))
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 0])
@@ -249,7 +291,7 @@ def test_send_files_then_start_uses_the_same_bed_clear_button(env, monkeypatch):
 def test_too_big_for_discord_is_said_up_front_and_the_send_is_not_offered(env, monkeypatch):  # noqa: F811
     """#272: a file over the limit gets its size, the limit and its host path in the menu, not a button that fails."""
     use_config(monkeypatch, config_for("flashforge.ad5x", ["printer", "discord"], upload_max_bytes=10))
-    # one color, slot 1, Slice only, Done (the send button is absent)
+    # one color, slot 1, Slice and Download, Done (the send button is absent)
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
     [menu] = _delivery_menu(adapter)
     assert menu["choices"] == [print_next.START_LABEL, delivery.DONE_LABEL]
@@ -339,10 +381,10 @@ def _bambu_job(monkeypatch):
 def test_bambu_printer_offers_no_print_and_hands_off_a_package(env, monkeypatch, bambu_model):  # noqa: F811
     use_config(monkeypatch, config_for(BAMBU_KEY))
     _bambu_job(monkeypatch)
-    # one color, slot 1, "Slice only" (first button: no print button exists), package, send, (menu ends)
+    # one color, slot 1, "Slice and Download" (first button: no print button exists), package, send, (menu ends)
     adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
-    first = [q for q in adapter.questions if "Slice only" in q["choices"]][0]
-    assert first["choices"] == ["Slice only", "Scale the model", "Cancel print request"]
+    first = [q for q in adapter.questions if "Slice and Download" in q["choices"]][0]
+    assert first["choices"] == ["Slice and Download", "Scale the model", "Cancel print request"]
     assert not any(print_next.START_LABEL in q["choices"] or any("print now" in c for c in q["choices"])
                    for q in adapter.questions)
     menus = _delivery_menu(adapter)
@@ -374,7 +416,7 @@ def test_bambu_package_over_the_limit_is_never_offered_for_download(env, monkeyp
                                          f"E{rng.uniform(0, 1):.5f}\n" for _ in range(20000)))
         return out
     monkeypatch.setattr(model_job, "slice_job", bambu_slice)
-    # one color, slot 1, "Slice only", package (the menu then ends: nothing is left to offer)
+    # one color, slot 1, "Slice and Download", package (the menu then ends: nothing is left to offer)
     adapter, result, receipt = run_flow(env, [1, 0, 0, 0])
     gcode = Path(env.sliced[0])
     package = delivery.package_target(gcode)

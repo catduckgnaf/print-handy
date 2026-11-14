@@ -8,8 +8,12 @@ show their saved-credential state through
 :func:`print_handy.core.site_accounts.credential_state`, which reports
 a state word only; a credential itself is never rendered.
 
-The page is read-only: connecting a site still happens by dropping a
-link in chat and following the walkthrough there.
+The registry table is read-only: connecting a site still happens by
+dropping a link in chat and following the walkthrough there. The one
+action the page offers is the Slice a link form (#1443), which hands a
+pasted link to web chat — the same intake as dropping the link in chat —
+so a link can be sliced from the browser and the finished file taken
+from the Sliced files page.
 """
 from __future__ import annotations
 
@@ -58,7 +62,8 @@ def sources_rows():
     return rows
 
 
-def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None):
+def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None, form_token: str = "",
+                        chat_enabled: bool = True):
     """The GET /sources page: every place a model link can come from."""
     parts = [
         "<p>Drop a link to a model on any of these sites in chat and "
@@ -66,6 +71,32 @@ def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None):
         "This list is the same registry the bot's link intake reads, "
         "so what is listed here is what works.</p>",
     ]
+    # Slice a link (#1443): the ForgeBridge-shaped flow — a link in, a
+    # printer-ready file out. The form hands the link to web chat, which runs
+    # the same intake as any chat link; choosing Slice and Download there puts the
+    # finished file on the Sliced files page to download, and nothing prints
+    # without the usual confirmation. Offered only while web chat can take it.
+    if chat_enabled:
+        parts.append(
+            "<h2>Slice a link</h2>"
+            "<p>Paste a link to a model below. Print Handy slices it for "
+            "your printer; choose <strong>Slice and Download</strong> in chat and "
+            "the file waits on the <a href=\"/sliced\">Sliced files</a> "
+            "page to download — for a USB stick, an SD card, or the "
+            "printer's own screen.</p>"
+            "<form method=\"post\" action=\"/chat\">"
+            f"<input type=\"hidden\" name=\"_csrf\" value=\"{_esc(form_token)}\">"
+            "<p><label>Model link "
+            "<input name=\"text\" type=\"url\" required "
+            "placeholder=\"https://…\"></label> "
+            "<button type=\"submit\">Slice this link</button></p></form>")
+    else:
+        parts.append(
+            "<h2>Slice a link</h2>"
+            "<p>Web chat is not enabled on this install, so a link cannot "
+            "be sliced from this page. Paste the link in Discord, Telegram "
+            "or Matrix instead; the sliced file still lands on the "
+            "<a href=\"/sliced\">Sliced files</a> page.</p>")
     body = []
     for label, hosts, kind, status, note in sources_rows():
         body.append(

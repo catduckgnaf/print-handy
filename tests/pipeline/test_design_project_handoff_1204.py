@@ -131,6 +131,25 @@ def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path):
     assert not env.starts
 
 
+def test_a_design_slice_only_sends_the_sliced_file(env, tmp_path):
+    """#1443: an AI-made design answered with Slice and Download hands over the file, like a
+    dropped link — the design handoff runs the same intake, so the same delivery
+    menu offers "Send the files here" on the default (printer-only) profile."""
+    cfg, result = _designed(tmp_path, THREE_PART)
+    # Print all 3, color, slot, Slice and Download, Send the files here, Done
+    adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 1, 0, 1, 1, 1])
+    assert job["project"]["source_kind"] == "ai_design"
+    menus = [q for q in adapter.questions if "Send the files here" in q["choices"]]
+    assert menus and menus[0]["choices"][-1] == "Done, don't print"
+    attached = [m for m in adapter.sent if "MEDIA:" in m]
+    assert len(attached) == 1 and attached[0].endswith(f"MEDIA:{env.sliced[0]}")
+    assert not env.starts
+    receipt = json.loads(next(env.root.glob("*.json")).read_text())
+    assert receipt["status"] == "SLICED_NOT_STARTED" and "bed_clear_approval" not in receipt
+    [entry] = receipt["deliveries"]
+    assert entry["method"] == "discord" and entry["complete"] is True
+
+
 def _split(env, job, plan_id):
     """Record the job as the slicer's three-plate split, the way intake does."""
     jp = Path(job["downloaded_file"]).parents[1] / "JOB.json"

@@ -49,6 +49,7 @@ DEFAULT_THEME = "dark"
 # header picked it up on the rebase rather than inventing it early.)
 NAV = (
     ("/", "Status"),
+    ("/sliced", "Sliced files"),
     ("/printers", "Printers"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
