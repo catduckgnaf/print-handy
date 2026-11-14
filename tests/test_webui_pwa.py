@@ -117,9 +117,10 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertIn('<meta name="theme-color" content="#12110f"', html)
         self.assertIn('<meta name="theme-color" content="#f3efe6"', html)
         # The icon and apple-touch-icon link tags are the separate
-        # favicon change's scope; this change adds none of them.
-        self.assertNotIn('<link rel="icon"', html)
-        self.assertNotIn('rel="apple-touch-icon"', html)
+        # favicon change's scope (#1456), folded into the same combined
+        # PR: they ride in the same head, from that change's tags.
+        self.assertIn('<link rel="icon"', html)
+        self.assertIn('rel="apple-touch-icon"', html)
         self.assertIn('<meta name="apple-mobile-web-app-capable" content="yes">', html)
         self.assertIn('<meta name="mobile-web-app-capable" content="yes">', html)
         # Registration is guarded to secure contexts, requests
@@ -154,11 +155,12 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertEqual(route.policy, routes.PUBLIC)
         self.assertEqual(route.handler, "_static_route")
         self.assertEqual(capture, "icon-512-maskable.png")
-        # /favicon.ico is the favicon change's route, not this one's:
-        # here it still lands on the session-gated catch-all.
+        # /favicon.ico is the favicon change's route (#1456), folded
+        # into the same combined PR: it resolves to that change's
+        # public handler, not to this change's table additions.
         route, _ = routes.resolve("GET", "/favicon.ico")
-        self.assertEqual(route.handler, "_not_found")
-        self.assertEqual(route.policy, routes.SESSION)
+        self.assertEqual(route.handler, "_favicon_route")
+        self.assertEqual(route.policy, routes.PUBLIC)
         # A POST to a PWA path is not a PWA route: it lands on the
         # read-only refusal like every other undeclared POST.
         route, _ = routes.resolve("POST", "/sw.js")
@@ -228,14 +230,17 @@ class PWAFoundationServerIntegrationTests(WebServerCase):
             self.assertIn("public, max-age=", headers.get("Cache-Control", ""))
             self.assertTrue(len(raw) > 0)
 
-            # The favicon and the branding icons are not served here:
-            # they are the favicon change's routes, not duplicates.
-            code, _, _ = self.request(port, "GET", "/favicon.ico")
-            self.assertNotEqual(code, 200)
+            # The favicon and the branding icons are the favicon
+            # change's routes (#1456), folded into the same combined
+            # PR: the same public allowlist route serves them too.
+            code, headers, _ = self.request(port, "GET", "/favicon.ico")
+            self.assertEqual(code, 200)
+            self.assertEqual(headers.get("Content-Type"), "image/x-icon")
             for icon_name in ("icon-192.png", "icon-512.png", "icon-180.png"):
-                code, _, raw = self.request(port, "GET", f"/static/{icon_name}")
-                self.assertEqual(code, 404, f"Expected 404 for {icon_name}")
-                self.assertFalse(json.loads(raw)["ok"])
+                code, headers, raw = self.request(port, "GET", f"/static/{icon_name}")
+                self.assertEqual(code, 200, f"Expected 200 for {icon_name}")
+                self.assertEqual(headers.get("Content-Type"), "image/png")
+                self.assertTrue(len(raw) > 0)
 
     def test_static_routes_404_on_missing_or_traversal_attempts(self):
         with tempfile.TemporaryDirectory() as tmp:

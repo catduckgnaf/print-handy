@@ -80,11 +80,14 @@ def test_page_lists_downloads_and_the_empty_state(tmp_path):
     assert "No sliced files are in the archive yet" in empty
 
 
-def test_sources_page_offers_the_slice_a_link_form_only_when_chat_can_take_it():
+def test_sources_page_offers_the_start_with_a_link_form_only_when_chat_can_take_it():
+    # #1443's Slice a link form handed the link to web chat; the #1450
+    # workflow page supersedes it in the combined PR, so the Sources
+    # form now starts the workflow, which ends in the same download.
     page = sources.render_sources_page(form_token="tok123", chat_enabled=True)
-    assert '<form method="post" action="/chat">' in page
-    assert 'name="_csrf" value="tok123"' in page and 'name="text"' in page
-    assert "Slice and Download" in page and 'href="/sliced"' in page
+    assert '<form method="post" action="/workflow/link">' in page
+    assert 'name="_csrf" value="tok123"' in page and 'name="url"' in page
+    assert "Start with a link" in page and 'href="/workflow"' in page
     page = sources.render_sources_page(form_token="tok123", chat_enabled=False)
     assert "<form" not in page
     assert "Web chat is not enabled" in page
@@ -164,7 +167,7 @@ def test_server_lists_and_downloads_sliced_files(tmp_path):
         status, _headers, _body = _get(port, "/sliced/../secret.gcode")
         assert status == 404
         status, _headers, body = _get(port, "/sources")
-        assert status == 200 and b"Slice a link" in body and b'action="/chat"' in body
+        assert status == 200 and b"Start with a link" in body and b'action="/workflow/link"' in body
     finally:
         httpd.shutdown()
         httpd.server_close()
