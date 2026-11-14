@@ -3,6 +3,9 @@
 Source extruders are one based. Physical IFS slots are separate identifiers.
 Never infer a slot from RGB or flatten a painted project without consent.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 import contextlib
 import contextvars
 import copy
@@ -498,7 +501,7 @@ def _annotate_parts(archive, names, parts, filaments):
                     part['author_color'] = color
         _core_material_colors(root, objects, parts)
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
 
 
 def _core_material_colors(root, objects, parts):
@@ -1968,7 +1971,7 @@ def _append_filament_stats(path, manifest):
                 if manifest.get('filaments'):
                     stats['extruders'][1] = {'g': stats['total_g'], 'm': stats['total_m']}
         except Exception:
-            pass
+            logger.debug("Best-effort recovery from Exception", exc_info=True)
     stats['total_g'] = round(stats['total_g'], 1)
     stats['total_m'] = round(stats['total_m'], 1)
     if path.suffix.lower() == '.3mf' and not has_slice_usage:
@@ -2382,7 +2385,7 @@ def _family_noun(key, count):
         from . import part_translator
         head = part_translator.translate_name(head).split(' (', 1)[0].lower()
     except Exception:
-        pass
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     return head if head.endswith('s') or count == 1 else head + 's'
 
 

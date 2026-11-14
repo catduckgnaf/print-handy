@@ -21,6 +21,9 @@ Consolidation only: no rule here is looser than the copy it replaced.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Callable, NamedTuple
 
 from . import launch_state
@@ -204,13 +207,13 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
                 if float(filament_used) > 0:
                     extrusion_confirmed = True
             except (ValueError, TypeError):
-                pass
+                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
         if extruder_delta is not None:
             try:
                 if float(extruder_delta) > 0:
                     extrusion_confirmed = True
             except (ValueError, TypeError):
-                pass
+                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
 
         msg = "printing" if extrusion_confirmed else "printing (extrusion not yet confirmed)"
         evidence = {
@@ -242,14 +245,14 @@ def classify_start_readback(status_snapshot, baseline=None) -> StartReadback:
                 if float(t) > 0:
                     heater_targets[name] = float(t)
             except (ValueError, TypeError):
-                pass
+                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
     for name, key in (("extruder", "extruder_target"), ("heater_bed", "heater_bed_target")):
         if key in status and proven_off(name):
             try:
                 if float(status[key]) > 0:
                     heater_targets[name] = float(status[key])
             except (ValueError, TypeError):
-                pass
+                logger.debug("Best-effort recovery from (ValueError, TypeError)", exc_info=True)
     if heater_targets:
         prep_evidence["heating"] = heater_targets
 
