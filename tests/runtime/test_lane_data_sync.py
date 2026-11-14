@@ -288,6 +288,68 @@ def _pending_key(tmp_path):
     return next(iter(state["pending"]))
 
 
+def test_flip_flopping_slot_coalesces_to_the_settled_state(tmp_path):
+    """#1474: a slot the screen flip-flops between two states inside the
+    coalesce window produces one post for the burst after the first
+    announcement, carrying the settled state — not one post per flip.
+    Another slot's change in the same window is announced as usual and
+    is not reposted alongside."""
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF"),
+                           spool(25, "Red", "PLA", "FF0000"), spool(31, "Blue", "PLA", "0000FF")])
+    clock = [1000.0]
+    watcher, _applied = make_watcher(tmp_path, mr, client, clock=lambda: clock[0])
+    seed(watcher, mr, {"lane1": lane(11), "lane2": lane(31, slot=2, color="0000FF", name="Blue PLA")})
+    # First change announces at once, as always.
+    mr.lanes = {"lane1": lane(19, color="FFFFFF", scan_time=200, name="White PLA"),
+                "lane2": lane(31, slot=2, color="0000FF", name="Blue PLA")}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("loaded", 1)]
+    watcher.delivered(events[0]["key"])
+    # Flip back, then to a third state, inside the window: nothing posts yet.
+    clock[0] += 30
+    mr.lanes = {"lane1": lane(11, scan_time=300),
+                "lane2": lane(31, slot=2, color="0000FF", name="Blue PLA")}
+    assert watcher.poll() == []
+    clock[0] += 30
+    mr.lanes = {"lane1": lane(25, color="FF0000", scan_time=400, name="Red PLA"),
+                "lane2": lane(19, slot=2, color="FFFFFF", scan_time=400, name="White PLA")}
+    events = watcher.poll()
+    # Slot 2's own first change announces immediately; slot 1 is still held.
+    assert [(e["kind"], e["slot"], e["spool_id"]) for e in events] == [("loaded", 2, 19)]
+    watcher.delivered(events[0]["key"])
+    # Once slot 1 has been settled for the whole window, its settled state
+    # posts — once — and slot 2's unchanged state is not reposted with it.
+    clock[0] += lane_data_sync.LANE_COALESCE_S
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"], e["spool_id"]) for e in events] == [("loaded", 1, 25)]
+    assert "#25" in events[0]["text"]
+    watcher.delivered(events[0]["key"])
+    assert watcher.poll() == []
+
+
+def test_flip_back_to_the_announced_state_posts_nothing(tmp_path):
+    """#1474: a slot that flips away and back to exactly what the channel
+    already heard, inside the window, posts nothing for the excursion."""
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF")])
+    clock = [1000.0]
+    watcher, _applied = make_watcher(tmp_path, mr, client, clock=lambda: clock[0])
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(19, color="FFFFFF", scan_time=200, name="White PLA")}
+    events = watcher.poll()
+    assert len(events) == 1
+    watcher.delivered(events[0]["key"])
+    clock[0] += 30
+    mr.lanes = {"lane1": lane(11, scan_time=300)}
+    assert watcher.poll() == []
+    clock[0] += 30
+    mr.lanes = {"lane1": lane(19, color="FFFFFF", scan_time=400, name="White PLA")}
+    assert watcher.poll() == []
+    clock[0] += lane_data_sync.LANE_COALESCE_S + 60
+    assert watcher.poll() == []
+
+
 # --------------------------------------------------------------------- watcher: prompts, no overwrite
 
 def test_locked_lane_with_a_differing_value_prompts_and_overwrites_nothing(tmp_path):

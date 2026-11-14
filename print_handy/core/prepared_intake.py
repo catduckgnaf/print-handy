@@ -1860,6 +1860,40 @@ def _variant_estimate_str(job_data, result):
     return 'slicing...'
 
 
+def multi_file_fix_note(job):
+    """Why no AI fix is offered on a job built from several files, or ''.
+
+    The file count is known before any fix button is drawn (#1474): a
+    geometry or mesh fix rewrites one file and would drop the others, so
+    ``ai_fix.check_file_fix`` refuses it after the fact. Offering the
+    button first — and letting the operator press it to learn that — is
+    channel noise; the warning text carries the reason instead. Plan-only
+    fixes would be safe, but which kind the AI proposes is only known
+    after the press, so the button is not drawn at all.
+    """
+    from . import ai_fix
+    files = ai_fix.source_files(job)
+    if len(files) <= 1:
+        return ''
+    return (f'No AI fix is offered for this job: it is built from {len(files)} files; '
+            'a geometry or mesh fix changes one file and would drop the others, '
+            'so it is refused. Fix the file on its own first.')
+
+
+def recorded_fix_failure(job, source_sha256):
+    """True when an AI fix already failed for this job's current source (#1474).
+
+    The failure is recorded on the job (``ai_fix_failed``) by the intake
+    whose fix failed, keyed by the source it failed on: the identical fix
+    on the same slice fails the same way, so no later intake of the same
+    job offers it again. A changed source (a fixed file, a new upload) is
+    a different slice and may be offered a fix again.
+    """
+    failed = (job or {}).get('ai_fix_failed')
+    return (isinstance(failed, dict) and bool(source_sha256)
+            and failed.get('source_sha256') == source_sha256)
+
+
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
     """The chat intake for one model link, upload or reprint (see the module docstring).
@@ -3620,6 +3654,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             """
             nonlocal path, clearance, validated, binding, recipe_sha, latest, ai_fix_failed
             from . import ai_fix, edit_plan
+
+            def _record_fix_failed():
+                """This intake's fix failed: withdraw the offer here, and record
+                the failure on the job so a later intake of the same slice does
+                not offer the identical fix again (#1474)."""
+                nonlocal ai_fix_failed
+                ai_fix_failed = True
+                try:
+                    current = json.loads(jp.read_text())
+                    current['ai_fix_failed'] = {
+                        'source_sha256': decisions['source_sha256'],
+                        'problem': str(problem)[:300],
+                        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+                    mj.write_job(folder, current)
+                except (OSError, ValueError) as exc:
+                    logger.warning('could not record the AI fix failure on the job: %r', exc)
+
             allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''))
             if not allowed:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3655,7 +3706,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 logger.warning('AI fix proposal failed: %r', exc)
                 # An endpoint that did not answer may answer next time; a
                 # refused proposal is refused again.
-                ai_fix_failed = ai_fix_failed or isinstance(exc, ai_fix.FixError)
+                if isinstance(exc, ai_fix.FixError):
+                    _record_fix_failed()
                 detail = (ai_fix.reason(exc) if isinstance(exc, ai_fix.FixError)
                           else 'the AI endpoint did not answer')
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3668,7 +3720,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                   path if Path(path).is_file() else None)
                             for plan in proposal.plans]
             except (edit_plan.PlanError, ai_fix.FixError) as exc:
-                ai_fix_failed = True
+                _record_fix_failed()
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f'The AI proposed a fix that cannot be applied '
                                            f'({ai_fix.reason(exc)}), so nothing was changed.')
@@ -3682,7 +3734,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       measured_gap_mm=measured_gap)
                 except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
                     logger.warning('AI fix could not be built: %r', exc)
-                    ai_fix_failed = True
+                    _record_fix_failed()
                     detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f'That fix could not be built{detail}, so nothing '
@@ -3749,7 +3801,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         proposal.filament_map,
                         lambda sel: mj.resolve_filament_selection(state, sel))
                 except ai_fix.FixError as exc:
-                    ai_fix_failed = True
+                    _record_fix_failed()
                     ai_fix.discard_fixed_copy(fixed_path)
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f'{ai_fix.reason(exc)}, so nothing was changed.')
@@ -3797,6 +3849,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
                     latest.pop('support_clearance', None)
                     clearance = None
+            latest.pop('ai_fix_failed', None)  # an applied fix clears the recorded failure
             mj.write_job(folder, latest)
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)
@@ -3810,21 +3863,43 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             return proposal
 
+        def _fix_failed_before():
+            """A fix failed in this intake, or on an earlier intake of this
+            same source (recorded on the job, #1474)."""
+            if ai_fix_failed:
+                return True
+            try:
+                return recorded_fix_failure(json.loads(jp.read_text()),
+                                            decisions['source_sha256'])
+            except (OSError, ValueError):
+                return False
+
         def _no_fix_left_note():
-            """Why the heavy tier offers no fix: one failed here, or the budget is spent."""
+            """Why the heavy tier offers no fix: one failed, or the budget is spent."""
             from . import ai_fix
-            return ai_fix.FAILED_NOTE if ai_fix_failed else ai_fix.out_of_attempts_message()
+            return ai_fix.FAILED_NOTE if _fix_failed_before() else ai_fix.out_of_attempts_message()
 
         def _fix_budget_left():
             """AI fix attempts this job may still use (0 when none, or unreadable,
-            or once a fix failed in this intake)."""
+            or once a fix failed for this job's current source)."""
             from . import ai_fix
             if ai_fix_failed:
                 return 0
             try:
-                return ai_fix.attempts_left(json.loads(jp.read_text()))
+                job_now = json.loads(jp.read_text())
             except (OSError, ValueError):
                 return 0
+            if recorded_fix_failure(job_now, decisions['source_sha256']):
+                return 0
+            return ai_fix.attempts_left(job_now)
+
+        def _multi_file_fix_note():
+            """The multi-file reason no fix is offered for this job, or ''
+            (#1474: the count is known before the button is drawn)."""
+            try:
+                return multi_file_fix_note(json.loads(jp.read_text()))
+            except (OSError, ValueError):
+                return ''
 
 
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
@@ -3961,9 +4036,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # would have been offered.
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
-            fix_ready = heavy and _fix_budget_left() > 0
+            multi_note = _multi_file_fix_note()
+            fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             # No AI-fix note at all when the intake does not offer one (#1373).
-            no_fix_note = _no_fix_left_note() if heavy else ''
+            # A multi-file job's reason is its own (#1474): the button is not
+            # drawn, and the warning text says why.
+            no_fix_note = (multi_note or _no_fix_left_note()) if heavy else ''
             if refusal is not None and not refusal.fix and not fix_ready:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=diagnostics.plain_post(
                     'Stage: slice. ' + refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
@@ -4085,7 +4163,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # the same per-question cap and the job's fix budget,
                     # instead of a dead end.
                     if (_ai_fix.intake_fix_offered() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
-                            and _fix_budget_left() > 0):
+                            and _fix_budget_left() > 0 and not _multi_file_fix_note()):
                         picked = await _ask(adapter, source, key, failure_post,
                                             [_ai_fix.FIX_LABEL, 'Cancel'], timeout)
                         if picked == 0:
@@ -4110,7 +4188,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         return {'action': 'skip', 'reason': 'slice retry failed'}
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=failure_post + (
-                                           '\n' + _no_fix_left_note() if _ai_fix.intake_fix_offered()
+                                           '\n' + (_multi_file_fix_note() or _no_fix_left_note())
+                                           if _ai_fix.intake_fix_offered()
                                            else ''))
                     return {'action': 'skip', 'reason': 'slice retry failed'}
         mj._timing(jp, 'intake_slice_returned')
@@ -4207,7 +4286,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             nonlocal gcodes, sliced, clearance_ack_pending
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
-            fix_ready = heavy and _fix_budget_left() > 0
+            multi_note = _multi_file_fix_note()
+            fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             fix_attempts = 0
             while True:
                 unverified = (unverified_result or {}).get('unverified') or []
@@ -4226,7 +4306,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  'supports cannot fix.')
                 lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
                              'repair the geometry (extend or sink).')
-                if heavy and not fix_ready and _fix_budget_left() <= 0:
+                if heavy and not fix_ready and multi_note:
+                    lines.append(multi_note)
+                elif heavy and not fix_ready and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
                 choices = [PRINT_ANYWAY_LABEL]
                 if fix_ready:

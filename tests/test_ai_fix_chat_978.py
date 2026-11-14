@@ -230,6 +230,12 @@ def test_noop_geometry_fix_is_refused_in_the_upload_flow(fix_env, monkeypatch):
                     "mesh_repair": False, "summary": "extend the underside"}), "heavy-model"))
     result = asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
     assert result["reason"] == "repair could not be built"
-    assert any("would not change the model" in (m or "") for m in fix_env.adapter.sent)
+    # #1474: the exact sentence shape seen in the channel — the detail
+    # already ends "so nothing was changed", so the wrapper must not say
+    # it again: the phrase appears exactly once, at the very end.
+    built = [m for m in fix_env.adapter.sent if m and "could not be built" in m]
+    assert built == ["That fix could not be built (that fix would not change the model "
+                     "(the proposed extend moves nothing on it)), so nothing was changed."]
+    assert built[0].count("nothing was changed") == 1
     assert fix_env.confirms == [] and fix_env.reentered == []
     assert not list(fix_env.folder.glob(ai_fix.STAGING_PREFIX + "*"))

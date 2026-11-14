@@ -88,6 +88,18 @@ def _slot(slot: int) -> str:
 # An undelivered lane announcement is retried this often (the #483 cadence).
 LANE_RETRY_S = 300.0
 
+# Change notices for one slot are coalesced inside this window (#1474): a
+# screen that flip-flops a slot between two states poll after poll (six
+# "HelixScreen change" posts in four minutes, live) produced one post per
+# flip. The first change announces at once, as always; a further change
+# for the same slot inside the window is held until the slot has been
+# settled for the whole window, and then only the settled state posts —
+# once. A flip back to the state the channel already heard about posts
+# nothing at all. Only the plain change notices coalesce; the "needs
+# attention" prompts are a different kind of news and are never held.
+LANE_COALESCE_S = 90.0
+_CHANGE_KINDS = frozenset({"loaded", "unloaded", "unresolved", "runout_load"})
+
 Client = Callable[..., Any]
 
 
@@ -750,11 +762,32 @@ class LaneDataWatcher:
 
     # -- event plumbing ----------------------------------------------------
 
-    @staticmethod
-    def _queue(pending: dict[str, Any], noted: dict[str, Any], slot: int, kind: str,
+    def _queue(self, pending: dict[str, Any], noted: dict[str, Any], slot: int, kind: str,
                text: str, action: str, *, spool_id: int | None = None) -> str:
         key = f"{slot}:{kind}:{action}"
-        pending[key] = {"since": 0.0, "tried": 0.0,
+        if kind in _CHANGE_KINDS:
+            # A newer change notice for this slot supersedes any undelivered
+            # one for the same slot (other slots' entries are untouched):
+            # posting the stale state after the settled one would repost a
+            # state the slot no longer holds (#1474).
+            for stale in [k for k, entry in pending.items()
+                          if isinstance(entry, dict)
+                          and (entry.get("event") or {}).get("slot") == slot
+                          and (entry.get("event") or {}).get("kind") in _CHANGE_KINDS]:
+                del pending[stale]
+            announced = getattr(self, "_announced", {}).get(str(slot))
+            if isinstance(announced, dict) \
+                    and self.clock() - float(announced.get("at") or 0) < LANE_COALESCE_S:
+                if announced.get("action") == action:
+                    return ""  # flipped back to the announced state: nothing new to post
+                # Held until the slot settles (poll() releases it once the
+                # entry is a full window old with no newer change).
+                pending[key] = {"since": self.clock(), "tried": 0.0, "held": True,
+                                "action": action,
+                                "event": {"key": key, "slot": slot, "kind": kind,
+                                          "spool_id": spool_id, "text": text}}
+                return key
+        pending[key] = {"since": 0.0, "tried": 0.0, "action": action,
                         "event": {"key": key, "slot": slot, "kind": kind,
                                   "spool_id": spool_id, "text": text}}
         return key
@@ -799,6 +832,9 @@ class LaneDataWatcher:
                          "lanes": {str(slot): fp for slot, fp in sorted(fingerprints.items())},
                          "pending": {}, "noted": {}, "colliding_author": self._colliding})
             return []
+        # What the channel last heard per slot, for the #1474 coalescing in
+        # _queue: {slot: {"at": clock time, "action": action key}}.
+        self._announced = state.get("announced") if isinstance(state.get("announced"), dict) else {}
         seen: dict[int, dict[str, Any]] = {}
         for key, value in state["lanes"].items():
             if str(key).isdigit() and isinstance(value, dict):
@@ -836,13 +872,33 @@ class LaneDataWatcher:
                 continue
             if not entry.get("since"):
                 entry["since"] = now
+            if entry.get("held"):
+                # A coalesced change (#1474): released once the slot has
+                # been settled for the whole window — a newer change for
+                # the slot would have replaced this entry in _queue and
+                # restarted its clock, so reaching this age means settled.
+                if now - float(entry["since"]) < LANE_COALESCE_S:
+                    continue
+                entry.pop("held", None)
+                entry["tried"] = now
+                due.append(entry["event"])
+                dirty = True
+                continue
             if now - float(entry.get("tried") or 0) >= LANE_RETRY_S:
                 entry["tried"] = now
                 due.append(entry["event"])
                 dirty = True
+        for event in due:
+            if event.get("kind") in _CHANGE_KINDS:
+                entry = pending.get(str(event.get("key") or "")) or {}
+                action = entry.get("action")
+                if not action:  # an entry queued before actions were recorded
+                    action = str(event.get("key") or "").split(":", 2)[-1]
+                self._announced[str(event.get("slot"))] = {"at": now, "action": action}
         updated = {"seeded": True,
                    "lanes": {str(slot): fp for slot, fp in sorted(seen.items())},
-                   "pending": pending, "noted": noted, "colliding_author": self._colliding}
+                   "pending": pending, "noted": noted, "colliding_author": self._colliding,
+                   "announced": self._announced}
         if dirty or updated != state:
             _write_json(self.state_path, updated)
         return due

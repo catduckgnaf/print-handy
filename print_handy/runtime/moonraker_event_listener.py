@@ -16,6 +16,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import functools
+import hashlib
 import io
 import json
 import logging
@@ -1431,7 +1432,94 @@ def _acknowledge_completion(completion_message):
         announcer.save_state(state)
 
 
+# One completion post per print, enforced at the point of posting (#1474).
+# Two earlier fixes each closed one route to a doubled "Print complete"
+# (the _POSTPROCESS_ACTIVE guard for a second render, and the caption
+# acknowledgement that left a notice pending) — and a third route still
+# produced two identical posts minutes apart. So the guard no longer
+# lives at each cause: _post_completion claims an idempotency key keyed
+# by the print before it posts, and a key that was delivered once is
+# never posted again, whichever route asks. A failed post does not spend
+# the key, so the callers' text-only fallbacks and later retry passes
+# still deliver a completion whose first attempt never landed.
+_COMPLETION_POSTED_STATE_KEY = "posted_completion_keys"
+_COMPLETION_POST_LOCK = threading.Lock()
+_COMPLETION_POSTS_IN_FLIGHT = set()
+
+
+def _completion_post_key(job_key, completion_message):
+    """The idempotency key of one print's completion post.
+
+    Keyed by the print (its job key) and the completion text it
+    produced: the routes for one completion all carry the same text,
+    while a multi-plate plan's plates share a job key with a different
+    completion text per plate, and each plate's post is its own.
+    """
+    digest = hashlib.sha256(str(completion_message or "").encode("utf-8")).hexdigest()[:16]
+    if job_key:
+        return f"job:{job_key}:{digest}"
+    return f"msg:{digest}"
+
+
+def _completion_already_posted(key):
+    try:
+        keys = announcer.load_state().get(_COMPLETION_POSTED_STATE_KEY) or []
+    except Exception as exc:
+        warn(f"completion post guard could not read its state: {exc!r}")
+        return False
+    return key in keys
+
+
+def _record_completion_posted(key):
+    try:
+        state = announcer.load_state()
+        keys = [k for k in state.get(_COMPLETION_POSTED_STATE_KEY) or []
+                if isinstance(k, str)]
+        if key not in keys:
+            keys.append(key)
+        state[_COMPLETION_POSTED_STATE_KEY] = keys[-50:]
+        announcer.save_state(state)
+    except Exception as exc:
+        warn(f"completion post guard could not record its key: {exc!r}")
+
+
 def _post_completion(message, completion_message, job_key=None):
+    """Post one print's completion exactly once, whichever route asks (#1474).
+
+    The key is claimed before posting (an in-flight claim makes a
+    concurrent route stand down) and recorded in the announcer state on
+    delivery, so a later announcer pass — or a restarted listener whose
+    acknowledgement of the first delivery was lost — sees the delivery
+    and posts nothing. Returns True when the completion is delivered
+    (including by the earlier post this call stood down for), False when
+    the post itself failed and a fallback or retry may still try.
+    """
+    if not job_key:
+        try:
+            job_key = announcer.load_state().get("job_key")
+        except Exception:
+            job_key = None
+    key = _completion_post_key(job_key, completion_message)
+    with _COMPLETION_POST_LOCK:
+        if key in _COMPLETION_POSTS_IN_FLIGHT:
+            log(f"completion post for {key!r} already in flight; not posting it twice")
+            return True
+        if _completion_already_posted(key):
+            log(f"completion post for {key!r} already delivered; not posting it twice")
+            _acknowledge_completion(completion_message)
+            return True
+        _COMPLETION_POSTS_IN_FLIGHT.add(key)
+    try:
+        delivered = _deliver_completion(message, completion_message, job_key=job_key)
+    finally:
+        with _COMPLETION_POST_LOCK:
+            _COMPLETION_POSTS_IN_FLIGHT.discard(key)
+    if delivered:
+        _record_completion_posted(key)
+    return delivered
+
+
+def _deliver_completion(message, completion_message, job_key=None):
     """Acknowledge only a matching pending notice after transport success.
 
     A post carrying a timelapse (a MEDIA: attachment) delivers its roast
@@ -3530,6 +3618,9 @@ class Listener:
         # #455: this printer's local-detector temporal escalation state;
         # reset wherever visual_watch is (new file, fresh start, print end).
         self.local_streak = _local_vision.FailureStreak()
+        # #1474: this print's streak of inconclusive (endpoint "uncertain")
+        # camera checks; reset at the same places as the local streak.
+        self.inconclusive_streak = _camera_watch.InconclusiveStreak()
         self.last_stats = {}
         self.last_visual_task = None
         self.visual_frames = {}
@@ -4303,6 +4394,16 @@ class Listener:
             if verdict in _visual_watch.AUTO_PAUSE_VERDICTS and early and not frame_counted:
                 log(f"visual check file={filename!r} reason={reason}: suspicious frame not counted "
                     f"toward auto-pause: {self.visual_watch.last_evidence}")
+            # A verdict call that could not judge the frame is a watch
+            # failure, not an inconclusive judgement (#1474): computed here
+            # because the suspicious decision below needs the distinction.
+            watch_failed = _camera_watch.watch_failed(verdict, detail)
+            # This print's inconclusive streak (#1474): an endpoint
+            # "uncertain" (no local detection behind it) is only noted
+            # until it persists. An unchanged frame is not independent
+            # evidence and does not build the streak.
+            uncertain_seen = (self.inconclusive_streak.note(
+                verdict, counted=changed is not False) if detection is None else None)
             # Moonraker's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy vision verdict outranks the pixel diff at every
             # sensitivity, and an empty bed while printing alerts on its
@@ -4310,7 +4411,7 @@ class Listener:
             suspicious = _camera_watch.is_suspicious(
                 verdict, reason=reason, changed=changed, profile=self.visual_watch.profile,
                 rules=_camera_watch.FAMILY_RULES["moonraker"], printing=self.state == "printing",
-                detection=detection)
+                detection=detection, failed=watch_failed, uncertain_seen=uncertain_seen)
             log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
@@ -4324,10 +4425,9 @@ class Listener:
                     self.visual_frames[filename] = prior
                 await self._dark_frame_check(reason, layer)
                 return
-            # A verdict call that could not judge the frame is a watch
-            # failure (one episode with failed snapshots and timeouts, one
-            # throttle); any real judgement ends the episode.
-            watch_failed = _camera_watch.watch_failed(verdict, detail)
+            # A watch failure (computed above, before the suspicious
+            # decision) runs as one episode with failed snapshots and
+            # timeouts, one throttle; any real judgement ends the episode.
             if not watch_failed:
                 await self._note_watch_working(filename, identity)
             # #981: what the watch did with this verdict, for the
@@ -4340,6 +4440,14 @@ class Listener:
                 # A weak local detection that has not persisted: logged
                 # above and recorded, never posted (camera_watch.weak_noted).
                 log(f"visual check file={filename!r} reason={reason}: weak local detection "
+                    "noted, not posted")
+                event_action = "noted"
+            if not suspicious and _camera_watch.inconclusive_noted(
+                    verdict, detection, reason=reason, changed=changed,
+                    failed=watch_failed, uncertain_seen=uncertain_seen):
+                # An inconclusive check that is not yet a streak (#1474):
+                # logged above and recorded, never posted.
+                log(f"visual check file={filename!r} reason={reason}: inconclusive check "
                     "noted, not posted")
                 event_action = "noted"
             if suspicious and image is not None:
@@ -4369,7 +4477,8 @@ class Listener:
                         log(f"auto-pause not sent file={filename!r}: {pause_why}")
                     text = _camera_watch.alert_text(reason, layer, verdict, detail,
                                                     pause_why=pause_why if pause_now else "",
-                                                    detection=detection)
+                                                    detection=detection,
+                                                    uncertain_seen=uncertain_seen)
                     if verdict == "spaghetti":
                         # The confirmed-pasta post (#1017 batch 2): a
                         # spaghetti verdict itself — never a mere risk
@@ -4381,7 +4490,9 @@ class Listener:
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity,
                                             **({} if _camera_watch.alert_pings(
-                                                reason, verdict, detection) else {"ping": False}))
+                                                reason, verdict, detection,
+                                                uncertain_seen=uncertain_seen,
+                                                failed=watch_failed) else {"ping": False}))
                     if pause_now and (stale() or self.state != "printing"):
                         # The alert took time; the printer must still be
                         # printing this print when the PAUSE goes out.
@@ -4445,6 +4556,7 @@ class Listener:
                 self.filename = filename
                 self.visual_watch.reset()
                 self.local_streak.reset()
+                self.inconclusive_streak.reset()
                 # Only the current print's baseline frame is kept: the old
                 # pop of the new name left one frame per past print behind.
                 self.visual_frames.clear()
@@ -4522,6 +4634,7 @@ class Listener:
             # #913: pick this print's watch schedule before the first check.
             self.visual_watch.reset()
             self.local_streak.reset()
+            self.inconclusive_streak.reset()
             self._apply_watch_mode()
             self._note_watch_not_running()
             # #516: auto light-on at a fresh print start (a resume is not
@@ -4569,6 +4682,7 @@ class Listener:
                 self.failover_watch.reset()
                 self.visual_watch.reset()
                 self.local_streak.reset()
+                self.inconclusive_streak.reset()
                 self._apply_watch_mode()
                 if duplicate_start:
                     log(f"start already announced; no second start post: {self.filename!r}")
@@ -4829,6 +4943,7 @@ class Listener:
         """End-of-print cleanup, for a terminal transition or a Klipper shutdown."""
         self.visual_watch.reset()
         self.local_streak.reset()
+        self.inconclusive_streak.reset()
         logs.unbind_process("job_correlation_id")
         self.visual_frames.pop(self.filename, None)
         self._capture_end(new_state)
