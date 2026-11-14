@@ -522,6 +522,45 @@ def write_lane_record(slot: int, spool: dict[str, Any], *, mr: Client = moonrake
     return record
 
 
+def build_cleared_lane_record(slot: int, *, now: float | None = None) -> dict[str, Any]:
+    """The ``lane_data`` record Print Handy writes for a slot it emptied.
+
+    An explicit empty record, not a deleted key: the watcher reads a
+    vanished key beside ZMod's colliding ``orca_lanes`` writer as unknown
+    (#852), while an empty screen-shaped record is an unambiguous clear.
+    """
+    return {"spool_id": None, "lane": lane_index0(slot), "material": "", "color": "",
+            "name": "", "scan_time": int(time.time() if now is None else now),
+            "helix_locked_color": False, "helix_locked_material": False}
+
+
+def write_lane_side(slot: int, spool: dict[str, Any] | None, *, mr: Client = moonraker,
+                    printer_id: str | None = None, name: str | None = None) -> str:
+    """Bring one slot's ``lane_data`` record in step with a Print Handy slot write.
+
+    Every Print Handy write that changes what a slot holds (bind, swap,
+    unbind) rewrites the slot's record too, so the namespace never keeps
+    naming the spool that left. A record left behind is not harmless: the
+    screen rewrites it in place when the next CHANGE_ZCOLOR arrives,
+    keeping the old ``spool_id``, and the lane_data watcher then reads it
+    as a screen-side load and moves that spool back. Best effort, like the
+    screen push: returns "written", "unsupported" (the Creator toolhead
+    family keys the namespace T0..T3, #1304) or a named "not updated".
+    """
+    if _toolhead_lane_namespace(printer_id):
+        return "unsupported"
+    try:
+        if spool is None:
+            mr("POST", "/server/database/item",
+               {"namespace": LANE_DATA_NAMESPACE, "key": f"lane{int(slot)}",
+                "value": build_cleared_lane_record(int(slot))})
+        else:
+            write_lane_record(slot, spool, mr=mr, name=name)
+    except Exception:
+        return "not updated — run `/spool sync` to try again"
+    return "written"
+
+
 def active_usage_spool(mr: Client = moonraker) -> int | None:
     return (mr("GET", "/server/spoolman/spool_id", None).get("result") or {}).get("spool_id")
 
@@ -916,26 +955,13 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
     lane_data = "not requested"
     if push_screen_update:
-        if _toolhead_lane_namespace(printer_id):
-            # The Creator toolhead family keys its lane_data namespace
-            # T0..T3, not laneN: an IFS-shaped lane record would sit there
-            # as a foreign record, and writers that find entries by their
-            # lane field could act on it as another toolhead's (#1304).
-            # Every other family keeps the #791 record, single-slot
-            # Klipper printers running HelixScreen included. The bind's
-            # Spoolman side above stands; only the record is skipped.
-            lane_data = "unsupported"
-        else:
-            # The lane_data side of the screen converge (#791): write this
-            # slot's record beside the CHANGE_ZCOLOR push_screen sends below
-            # (the gcode itself is not duplicated here). Best effort, like
-            # the screen push: a Moonraker database failure names itself
-            # and never fails the bind.
-            try:
-                write_lane_record(slot, spool, mr=mr, name=record["name"])
-                lane_data = "written"
-            except Exception:
-                lane_data = "not updated — run `/spool sync` to try again"
+        # The lane_data side of the screen converge (#791): write this
+        # slot's record before the CHANGE_ZCOLOR push_screen sends below
+        # (the gcode itself is not duplicated here). The Creator toolhead
+        # family is skipped (its namespace is keyed T0..T3, #1304); a
+        # Moonraker database failure names itself and never fails the bind.
+        lane_data = write_lane_side(slot, spool, mr=mr, printer_id=printer_id,
+                                    name=record["name"])
         try:
             if printer_id:
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr,
@@ -1044,8 +1070,12 @@ def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
             usage = ("not updated — the unassign itself is saved; run `/spool sync` "
                      "to fix the charging")
     save_state(state, state_path, printer_id=printer_id)
+    # The slot's lane record is cleared with it: left naming the removed
+    # spool, the next screen rewrite of that record would read to the
+    # lane_data watcher as the spool being loaded back into this slot.
+    lane_data = write_lane_side(slot, None, mr=mr, printer_id=printer_id)
     return {"slot": slot, "spool_id": spool_id, "record": old or None,
-            "usage": usage, "note": note}
+            "usage": usage, "note": note, "lane_data": lane_data}
 
 
 def unbind_text(result: dict[str, Any]) -> str:
@@ -1163,6 +1193,16 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
         slots[str(new_slot)] = record
         records[new_slot] = record
     save_state(state, state_path, printer_id=printer_id)
+    # Both lane records move with the spools, before either screen push:
+    # the screen rewrites a slot's record in place on CHANGE_ZCOLOR, and a
+    # record still naming the spool that left would read to the lane_data
+    # watcher as a screen-side load of that spool, undoing the swap.
+    lane_data: dict[int, str] = {}
+    for new_slot, spool_id, _old in moves:
+        lane_data[new_slot] = write_lane_side(
+            new_slot, spools[int(spool_id)] if spool_id is not None else None, mr=mr,
+            printer_id=printer_id,
+            name=(records[new_slot] or {}).get("name"))
     screens: dict[int, str] = {}
     for new_slot, record in records.items():
         if record is None:
@@ -1182,7 +1222,7 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
     return {"slot_a": slot_a, "slot_b": slot_b,
             "spool_in_a": int(id_b) if id_b is not None else None,
             "spool_in_b": int(id_a) if id_a is not None else None,
-            "records": records, "screens": screens}
+            "records": records, "screens": screens, "lane_data": lane_data}
 
 
 def swap_text(result: dict[str, Any]) -> str:

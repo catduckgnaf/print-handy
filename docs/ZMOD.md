@@ -361,7 +361,10 @@ against any store it has not verified.
   assignment.
 - **The screen's slot colors**: the printer screen (HelixScreen),
   told what Spoolman says through `CHANGE_ZCOLOR` and the
-  `lane_data` record Print Handy writes on a bind (#791).
+  `lane_data` record Print Handy writes on a bind (#791). A swap
+  rewrites both slots' records and an unassign clears the slot's
+  record, before any screen push, so the namespace never keeps
+  naming a spool that left the slot.
 - **Filament usage charging**: for a one-slot job, Moonraker's
   active-spool pointer is the charger. Print Handy points it at the
   launching slot's spool at print start (verified readback),
@@ -487,7 +490,21 @@ place:
   converge with the previous claim kept, and a reconcile that
   settles a different spool than the screen's is refused and
   retried on a later poll. The echo of Print Handy's own bind is
-  adopted silently; it is not a screen-side change.
+  adopted silently; it is not a screen-side change. So is the
+  screen's answer to Print Handy's own `CHANGE_ZCOLOR`: HelixScreen
+  rewrites the slot's record in its own shape, sometimes without the
+  `spool_id`, and a spool-less record matching the slot's bound
+  spool's material and color is not announced as unresolved; a
+  clear of a slot Spoolman and the cache already have empty is not
+  announced as an unload.
+- A lane naming a spool that Spoolman binds to another slot of the
+  same printer moves that spool only when the screen shows it
+  leaving the other slot (that slot's lane is gone, cleared, or
+  names another spool). Otherwise the record is stale and is named
+  as needing attention, never converged: on 2026-11-14 a Web UI
+  swap on an AD5X left the old records in place, the screen
+  recolored them on the next push, and the watcher moved the
+  swapped spool back.
 - Double counting: there is exactly one charger (above). Two
   writers can move its pointer; Print Handy at a launch, AFC as
   lanes load. For a Print Handy print, the operator-confirmed

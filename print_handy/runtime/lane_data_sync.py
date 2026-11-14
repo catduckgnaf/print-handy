@@ -573,6 +573,7 @@ class LaneDataWatcher:
         self._print_state: str | None = None
         self._presence: dict[int, bool | None] | None = None
         self._colliding = False
+        self._lanes: dict[int, dict[str, Any]] | None = None
 
     # -- injected helpers ------------------------------------------------
 
@@ -651,6 +652,92 @@ class LaneDataWatcher:
             return False
         return spool_sync.spool_ph_slot(spool) == (printer, int(slot))
 
+    def _slot_claimants(self, slot: int) -> list[dict[str, Any]] | None:
+        """The live Spoolman spools claiming (this printer, slot) through ``ph_slot``.
+
+        None when it cannot be known (no derivable printer, Spoolman silent):
+        the caller then treats the lane as before, never as converged.
+        """
+        printer = self.printer_id or spool_sync._default_printer_id()
+        if not printer:
+            return None
+        try:
+            rows = spool_sync._call_client(self.client, "GET",
+                                           "/api/v1/spool?allow_archived=true", None)
+        except Exception:
+            return None
+        if not isinstance(rows, list):
+            return None
+        return [row for row in rows if isinstance(row, dict) and not row.get("archived")
+                and spool_sync.spool_ph_slot(row) == (printer, int(slot))]
+
+    def _slot_already_empty(self, slot: int) -> bool:
+        """True when no Spoolman ``ph_slot`` claim and no slot-cache record holds the slot.
+
+        Both are required: a printer not yet migrated to ``ph_slot`` has no
+        claims at all while its cache still loads the slot. Anything that
+        cannot be read counts as not empty, so the unload converges as before.
+        """
+        if self._slot_claimants(slot) != []:
+            return False
+        try:
+            state = spool_sync.load_state(self.state_file, printer_id=self.printer_id)
+        except Exception:
+            return False
+        record = (state.get("filament_slots") or {}).get(str(int(slot))) or {}
+        return record.get("spoolman_id") is None
+
+    def _echoes_bound_spool(self, slot: int, lane: dict[str, Any]) -> bool:
+        """True when a spool-less lane only repeats what the slot's bound spool already says.
+
+        HelixScreen answers Print Handy's CHANGE_ZCOLOR by rewriting the
+        slot's record in its own shape, sometimes without the ``spool_id``.
+        Such a record names nothing new: the slot's one ``ph_slot``
+        claimant has that material and color, so there is nothing to
+        resolve and nothing to announce.
+        """
+        claimants = self._slot_claimants(slot)
+        if not claimants or len(claimants) != 1:
+            return False
+        spool = claimants[0]
+        filament = spool.get("filament") or {}
+        if lane.get("material"):
+            vendor = ((filament.get("vendor") or {}).get("name")
+                      if isinstance(filament.get("vendor"), dict) else None)
+            if not lane_matches_spool_material(lane["material"], filament.get("material"),
+                                               vendor):
+                return False
+        if lane.get("color") and not _color_agrees(str(lane["color"]), spool):
+            return False
+        return bool(lane.get("material") or lane.get("color"))
+
+    def _claimed_elsewhere(self, slot: int, spool_id: int,
+                           spool: dict[str, Any]) -> int | None:
+        """The other slot of this printer the spool still holds, when the screen does not release it.
+
+        A lane naming a spool that Spoolman binds to another slot of the
+        same printer is either a real screen-side move or a stale record
+        (one Print Handy's own move left behind, recolored by the screen).
+        It is a move only when the screen shows the spool leaving: the
+        other slot's lane is gone, cleared, or names a different spool. A
+        spool-less or still-matching record there proves nothing, and the
+        lane must not pull the spool back (the 2026-11-14 AD5X swap).
+        """
+        printer = self.printer_id or spool_sync._default_printer_id()
+        claim = spool_sync.spool_ph_slot(spool)
+        if not printer or claim is None or claim[0] != printer or claim[1] == int(slot):
+            return None
+        other_slot = claim[1]
+        other = (self._lanes or {}).get(other_slot)
+        if other is None:
+            return None
+        if other.get("spool_id") is None and not other.get("material") \
+                and not other.get("color"):
+            return None
+        if other.get("spool_id") is not None and other["spool_id"] != spool_id:
+            return None
+        return other_slot
+
     def _apply(self, slot: int, spool_id: int | None) -> None:
         if self.apply_fn is not None:
             self.apply_fn(slot, spool_id)
@@ -699,6 +786,7 @@ class LaneDataWatcher:
         lanes = parse_lane_data(raw)
         if lanes is None:
             return []  # unknown, never empty: change nothing at all
+        self._lanes = lanes
         state = _read_json(self.state_path)
         fingerprints = {slot: lane_fingerprint(lane) for slot, lane in lanes.items()}
         foreign = foreign_lane_slots(raw)
@@ -824,6 +912,15 @@ class LaneDataWatcher:
                 # untrusted record nothing converged from (#1304): a silent clear.
                 adopt()
                 return True
+            if self._slot_already_empty(slot):
+                # Spoolman and the slot cache already have the slot empty:
+                # the clear is Print Handy's own unassign (unbind_slot
+                # clears the record with the claim and the cache), or a
+                # screen unload already converged. Nothing to write and
+                # nothing to announce.
+                self._drop_noted(pending, noted, slot)
+                adopt()
+                return True
             if lane is None and self._colliding:
                 blocked = self._vanished_unload_blocked(slot, old_fp, pending, noted)
                 if blocked is not None:
@@ -848,6 +945,9 @@ class LaneDataWatcher:
 
         # -- no Spoolman id: never guess a spool ---------------------------
         if spool_id is None:
+            if self._echoes_bound_spool(slot, lane):
+                adopt()  # the screen echoing Print Handy's own push
+                return True
             what = " / ".join(part for part in (lane["material"], lane["color"]) if part) or "filament"
             self._queue(pending, noted, slot, "unresolved",
                         f"**HelixScreen change:** {_slot(slot)} shows {what} loaded at the "
@@ -912,6 +1012,21 @@ class LaneDataWatcher:
             # bookkeeping that already happened, and never attribute the
             # change to a separate screen action.
             self._drop_noted(pending, noted, slot)
+            adopt()
+            return True
+
+        # -- a stale record naming a spool another slot still holds ---------
+        other_slot = self._claimed_elsewhere(slot, spool_id, spool)
+        if other_slot is not None:
+            self._drop_noted(pending, noted, slot)
+            self._queue(pending, noted, slot, "claimed_elsewhere",
+                        f"**HelixScreen lane needs attention:** the lane record for "
+                        f"{_slot(slot)} names spool #{spool_id}, but Print Handy has spool "
+                        f"#{spool_id} in {_slot(other_slot)} and the screen does not show it "
+                        f"leaving {_slot(other_slot)}. Nothing was rebound. If the spool "
+                        f"really moved, swap the two slots or unassign {_slot(other_slot)} "
+                        f"first, then relink it with `/spool change {slot} {spool_id}`.",
+                        action, spool_id=spool_id)
             adopt()
             return True
 
