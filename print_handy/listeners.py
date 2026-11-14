@@ -48,11 +48,14 @@ listener is implemented for the configured connection.
 """
 from __future__ import annotations
 
+import logging
 import runpy
 import sys
 from dataclasses import dataclass
 
 from . import instance as _instance
+
+logger = logging.getLogger(__name__)
 
 IMPLEMENTED = "implemented"
 PLANNED = "planned"
@@ -294,7 +297,7 @@ def main(argv=None):
 
         healthcheck.install_stack_dump_handler(printer_id=printer_id)
     except Exception:
-        pass
+        logger.debug("Failed to install listener stack-dump handler", exc_info=True)
     try:
         return launch(printer_id=printer_id)
     except Exception as exc:  # settings errors name themselves; keep the code 2 contract

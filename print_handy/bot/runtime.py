@@ -1413,7 +1413,7 @@ class BotCore:
                 if now - old.stat().st_mtime > UPLOAD_KEEP_S:
                     old.unlink()
             except OSError:
-                pass
+                logger.debug("Failed to remove expired upload %s", old, exc_info=True)
 
     async def save_attachments(self, message):
         """Save dropped .3mf/.stl/.gcode/.zip (and .scad, for design) files where readers look. Others are ignored."""

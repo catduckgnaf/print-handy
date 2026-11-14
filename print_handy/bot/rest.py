@@ -62,7 +62,7 @@ def _output_roots():
         paths = settings.current().get("paths") or {}
         roots += [paths.get(key) for key in ("state_home", "archive", "cache", "records_vault")]
     except Exception:
-        pass
+        logger.debug("Failed to load configured storage roots", exc_info=True)
     out = []
     for root in roots:
         if root:

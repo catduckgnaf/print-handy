@@ -306,13 +306,14 @@ def _split_url(url, *, context="camera URL"):
     chain if the ValueError rode along as context. Raise a sanitized
     LiveStreamError instead, with the chain suppressed.
     """
+    failed = False
     try:
         return urlsplit(url)
     except ValueError:
-        pass  # fall through: raise only once the except block has exited,
-        # so the ValueError is neither the cause nor the context of the
-        # LiveStreamError and no traceback of it can disclose the authority.
-    raise LiveStreamError(f"{context}: unparseable URL {redact_url(url)!r}")
+        # Raise outside the handler so parser details cannot escape in context.
+        failed = True
+    if failed:
+        raise LiveStreamError(f"{context}: unparseable URL {redact_url(url)!r}")
 
 
 def _clean(value):

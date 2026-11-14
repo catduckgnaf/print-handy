@@ -24,9 +24,12 @@ that itself reports a pause, error or stop.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 #: Seconds a required listener must stay unhealthy before the first notice.
 DOWN_AFTER_S = 180
@@ -186,7 +189,7 @@ def tick(statuses, state_dir, send, *, now=None, channel_for=None, exhausted=Non
                 try:
                     pin(printer_id)
                 except Exception:
-                    pass
+                    logger.debug("Failed to pin printer outage alert", exc_info=True)
             continue
         if kind == "up":
             new_state[printer_id] = state[printer_id]

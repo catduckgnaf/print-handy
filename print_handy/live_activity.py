@@ -648,13 +648,13 @@ def _pump(client, upstream, should_close=None):
                 activity["last"] = time.monotonic()
                 target.sendall(chunk)
         except OSError:
-            pass
+            log.debug("Live activity socket forwarding stopped", exc_info=True)
         finally:
             for sock in (client, upstream):
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
                 except OSError:
-                    pass
+                    log.debug("Failed to shut down live activity socket", exc_info=True)
 
     thread = threading.Thread(target=forward, args=(upstream, client), daemon=True)
     thread.start()
@@ -730,7 +730,7 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
         try:
             callback(str(user_id))
         except Exception:
-            pass
+            log.debug("Live activity callback failed", exc_info=True)
 
     class ActivityHandler(BaseHTTPRequestHandler):
         server_version = "PrintHandyLive/1"
@@ -848,7 +848,7 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
                 try:
                     upstream.close()
                 except OSError:
-                    pass
+                    log.debug("Failed to close live activity upstream socket", exc_info=True)
 
         # ---------------------------------------------------------- routes
 
@@ -1074,7 +1074,7 @@ def main(argv=None) -> int:
             try:
                 presence.tick()
             except Exception:
-                pass  # enforcement is bookkeeping; the feed keeps serving
+                log.debug("Live activity presence bookkeeping failed; feed continues", exc_info=True)
 
     stream_name = feed_stream_name(data["live_stream"])
     server = make_server(
@@ -1093,7 +1093,7 @@ def main(argv=None) -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        log.debug("Live activity server interrupted")
     finally:
         stop.set()
         server.server_close()

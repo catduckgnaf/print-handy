@@ -546,7 +546,7 @@ class TelegramClient:
             if self.core is not None:
                 health.write(self.core.status(False))
         except Exception:
-            pass
+            logger.debug("Failed to write Telegram bot health status", exc_info=True)
 
 
 def run_bot(cfg):

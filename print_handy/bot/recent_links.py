@@ -5,11 +5,14 @@ Replaces the Hermes state.db messages lookup: Print Handy keeps its own small st
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
 
 from ..runtime import _config
+
+logger = logging.getLogger(__name__)
 
 LIMIT = 50
 TTL_S = 7 * 24 * 3600
@@ -75,7 +78,7 @@ def remember(chat_id, url, thread_id=None, now=None, user_id=None, printer_id=No
             tmp.write_text(json.dumps(data, indent=1))
             os.replace(tmp, path)
         except OSError:
-            pass
+            logger.debug("Failed to persist recent links", exc_info=True)
 
 
 def recall(chat_id, thread_id=None, now=None):
