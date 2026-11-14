@@ -333,7 +333,7 @@ class BambuListener:
             try:
                 client.disconnect()
             except Exception:
-                pass
+                warn("Bambu listener debug-mode poll failed", exc_info=True)
 
     # Terminal states for the idle-observation hook; mirrors the set the
     # family event sink feeds the auto-light policy (family_control).
@@ -427,7 +427,7 @@ class BambuListener:
             from ... import debug_mode
             debug_mode.poll()
         except Exception:
-            pass
+            warn("Bambu listener client disconnect failed", exc_info=True)
 
     def run_forever(self):
         """Serve until stop() — reconnecting forever, never exiting on printer errors."""

@@ -30,7 +30,11 @@ so tests run fully offline with fakes, following the MQTT/FTPS factories in
 client.py. Error messages never include the access code or any payload bytes:
 the code is a secret, and a payload could be anything the network sent back.
 """
+
 from __future__ import annotations
+
+import logging
+logger = logging.getLogger(__name__)
 
 import socket
 import struct
@@ -122,7 +126,7 @@ class _SocketTransport:
         try:
             self._sock.close()
         except OSError:
-            pass
+            logger.debug("camera socket close failed", exc_info=True)
 
 
 def _socket_transport_factory(host, port, timeout_s):
@@ -182,7 +186,7 @@ class BambuCameraClient:
             try:
                 transport.close()
             except Exception:
-                pass
+                logger.debug("camera transport close failed", exc_info=True)
 
 
 # -- X1 family: stills through the go2rtc fan-out (#246, #294) ------------
