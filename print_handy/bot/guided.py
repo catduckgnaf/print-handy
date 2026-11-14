@@ -2463,7 +2463,7 @@ def run_diagnostics(*, loader=None, token_getter=None, probe=None, login_probe=N
                     findings.append(Finding("bot heartbeat", "skip",
                                             "no standalone heartbeat found (the bot is not running)", ""))
             except Exception:
-                pass
+                logger.debug("optional heartbeat diagnostic failed", exc_info=True)
     return findings
 
 

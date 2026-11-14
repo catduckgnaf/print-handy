@@ -160,7 +160,7 @@ def _build_volume(job, source, gateway):
         bed = list(state.get('bed_mm') or bed)[:2]
         height = state.get('max_print_height_mm') or height
     except Exception:
-        pass  # no saved printer state here: the configured printer stands
+        logger.debug("optional printer dimension lookup failed", exc_info=True)
     return bed + ([height] if height else [])
 
 

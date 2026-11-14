@@ -234,7 +234,7 @@ class PrintHandyBot(ext_commands.Bot):
                 from .. import debug_mode
                 await asyncio.to_thread(debug_mode.poll)
             except Exception:
-                pass
+                logger.debug("bot heartbeat or health-report operation failed", exc_info=True)
             await asyncio.sleep(HEARTBEAT_S)
 
     async def on_disconnect(self):
@@ -306,5 +306,5 @@ class PrintHandyBot(ext_commands.Bot):
             if self.core is not None:
                 health.write(self.core.status(False))
         except Exception:
-            pass
+            logger.debug("bot heartbeat or health-report operation failed", exc_info=True)
         await super().close()

@@ -130,7 +130,7 @@ def _routed_printer_id(source, gateway=None):
         if str(pid) == str(settings.default_printer_id(_config.cfg())):
             return None
     except Exception:
-        pass
+        logger.debug("optional printer routing/annotation operation failed", exc_info=True)
     return str(pid)
 
 
@@ -179,7 +179,7 @@ def _routed_form(printer_id):
         if str(printer_id) == str(settings.default_printer_id(_config.cfg())):
             return None
     except Exception:
-        pass
+        logger.debug("optional printer routing/annotation operation failed", exc_info=True)
     return str(printer_id)
 
 
@@ -1039,7 +1039,7 @@ def _photo_intake_ready():
         if listener._vision_ready():
             return True
     except Exception:
-        pass
+        logger.debug("optional printer routing/annotation operation failed", exc_info=True)
     try:
         from print_handy.runtime import spool_codes, spool_label
         return bool(spool_codes.codes_available() or spool_label.tesseract_available())
@@ -1085,7 +1085,7 @@ def _spool_label_routes(state):
             call = _spool_label_vision_call()
             routes.append(('vision', lambda image: spool_label.extract_spool_spec(image, call)))
     except Exception:
-        pass
+        logger.debug("optional printer routing/annotation operation failed", exc_info=True)
     if spool_label.tesseract_available():
         routes.append(('ocr', lambda image: spool_label.extract_via_ocr(image, known)))
     return routes
@@ -1203,7 +1203,7 @@ async def live_dispatch(event, gateway, **kwargs):
                 try:
                     live_stream.write_session_file(session, shared_path)
                 except Exception:
-                    pass  # the record is bookkeeping; the reply still stands
+                    logger.debug("optional printer routing/annotation operation failed", exc_info=True)
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
     return {'action': 'skip', 'reason': reason}
 
@@ -1336,7 +1336,7 @@ async def _delete_secret_message(event, source, adapter, label='Token'):
             await adapter.send(chat_id=source.chat_id, content=note,
                                metadata={'thread_id': source.thread_id} if source.thread_id else None)
         except Exception:
-            pass
+            logger.debug("optional printer routing/annotation operation failed", exc_info=True)
 
 
 def _recent_model_link(source):

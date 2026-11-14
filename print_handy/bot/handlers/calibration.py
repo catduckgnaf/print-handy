@@ -94,7 +94,7 @@ async def calibration_dispatch(event, gateway, **kwargs):
             calibration.append_record(
                 records_path, calibration.make_record(printer=label, **kwargs))
         except Exception:
-            pass  # the record is bookkeeping; the flow's answer still stands
+            logger.debug("optional calibration record write failed", exc_info=True)
 
     verb = args[0].casefold() if args else ''
     if verb == 'records':
