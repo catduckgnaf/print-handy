@@ -634,7 +634,8 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
         except OSError:
             # Verification succeeded; failure to record its optional marker must not
             # change the print decision. Leave the marker absent for this run.
-            job.pop('gcode_full_verified_sha256', None)
+            if isinstance(job, dict):
+                job.pop('gcode_full_verified_sha256', None)
     if material_accept.used():
         _after_material_accept(gcode_path, adapter, state)
     return result
