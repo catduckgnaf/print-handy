@@ -126,7 +126,7 @@ def prune_frames(directory, *, keep=None, max_age_s=None, now=None):
                 item.unlink()
                 removed.append(item)
             except OSError:
-                pass  # another process removed it, or the folder is read only
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return removed
 
 

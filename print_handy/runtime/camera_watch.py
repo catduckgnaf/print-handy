@@ -380,7 +380,7 @@ class CoverageReporter:
             try:
                 self._record = self._compute()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return self._record
 
 

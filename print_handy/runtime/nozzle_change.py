@@ -276,7 +276,7 @@ def heat_for_loosen(*, confirmed_at: float, temp_c: int = LOOSEN_TEMP_C,
         try:
             _heaters_off(printer_id, gcode_sender, names)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         return False, (f"Hotend did not reach {temp_c} °C within {wait_timeout_s:.0f}s "
                        f"(last readback {last!r}). Heater turned off. Check the printer screen.")
     finally:

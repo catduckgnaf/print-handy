@@ -363,7 +363,7 @@ def cancel(expected_filename: str, wait_s: float = 20, poll_s: float = 1.0,
             from . import klipper_report
             klipper_report.mark_bot_cancel(printer_id=printer_id)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
         # Moonraker holds the reply until the cancel macro finishes; a reply that times out
         # after the request went out means "sent, waiting for the printer", not failure.
         replied = post_print_command(_send, "/printer/print/cancel", printer_id=printer_id)

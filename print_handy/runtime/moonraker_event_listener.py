@@ -444,7 +444,7 @@ def _cancel_title(filename):
         if (job or {}).get("title"):
             return job["title"]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return print_summary.safe_label(filename) if filename else "the print"
 
 
@@ -686,7 +686,7 @@ def _live_auto_on_print_start():
         if posted:
             post(posted[0])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 def _live_auto_on_print_end():
@@ -715,7 +715,7 @@ def _live_auto_on_print_end():
         # be overwritten by its stale live snapshot.
         live_stream.transact_session_file(path, update)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
 
 def paused_message(filename, runout=False, slot=None, spool_id=None):
@@ -1756,7 +1756,7 @@ def _capture_outcome_text():
         if not go2rtc.capture_enabled(data):
             return "in-container capture is disabled (timelapse.capture_enabled is off)"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return "in-container capture produced no video for this job"
 
 
@@ -2332,7 +2332,7 @@ def post_new_spool_prompt(spool):
         from ..notify import emit_queued
         emit_queued("spool_added", new_spool_plain_text(spool).splitlines()[0])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     if _buttonless_standalone():
         return post(new_spool_plain_text(spool))
     try:
@@ -3155,7 +3155,7 @@ def _visual_alert(filename, image, reason, identity=None, ping=True):
         from ..notify import emit_queued
         emit_queued("watchdog_offer", reason)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     # The shared frame folder keeps only the newest frames (visual_watch.prune_frames).
     path = _visual_watch.write_frame(filename, image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
@@ -3208,7 +3208,7 @@ def _visual_alert_text(filename, reason, identity=None):
         from ..notify import emit_queued
         emit_queued("watchdog_offer", reason)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
     _web_alert(text, "visual", filename, identity=identity)
     mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None

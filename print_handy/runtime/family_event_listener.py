@@ -347,7 +347,7 @@ class FamilyListener:
             try:
                 debug_mode.poll()  # #478: observe the shared debug-mode state
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
             if self._stopped:
                 break
             self._sleep(self._poll_s)
