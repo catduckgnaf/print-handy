@@ -186,7 +186,7 @@ _unwritable_exit() {
 }
 _check_data_folders() {
     local folder
-    local folders=("$data_root" "$state_home" "$state_home/state" "$state_home/logs"
+    local folders=("$data_root" "$state_home" "$state_home/state"
                    "$data_root/archive" "$data_root/records" "$data_root/cache")
     if [ "${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}" = true ]; then
         folders+=("$data_root/spoolman" "$data_root/spoolman/config"

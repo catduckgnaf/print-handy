@@ -157,6 +157,7 @@ visual_watch:
 logging:
   # Daily app log files on the state volume, so they survive a container recreate
   # (docker logs does not). Override with PRINT_HANDY__LOGGING__FILE (empty: stderr only)
-  # and PRINT_HANDY__LOGGING__RETENTION_DAYS.
+  # Logging failure is best effort: a volume write error warns to stderr and
+  # never prevents startup or the print path.
   file: /data/state/logs/print-handy.log
   retention_days: 14
