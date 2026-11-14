@@ -862,11 +862,13 @@ def _preparation_evidence(st):
     return any(v > 0 for v in targets)
 
 
-def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
+def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None, job_path=None):
     """Wait until print_stats is printing, or the start sequence settles without printing.
 
     prep_check (native mapped starts): heater targets set by the printer's own preparation prove
-    acceptance only provisionally (#836). Once seen, keep watching: preparation that ends with
+    acceptance only provisionally (#836). The first sighting is written to the job's TIMING.jsonl
+    as the `preparation_seen` stage (#1471), which is what lets chat answer "accepted, preparing"
+    seconds in instead of waiting out this loop. Once seen, keep watching: preparation that ends with
     the heaters cold and print_stats still standby was a start the printer abandoned (an IFS load
     fault, say), so return "abandoned" then instead of reporting the early heat as a started print.
 
@@ -884,7 +886,9 @@ def _wait_printing(st, remote, wait_s, prep_check=None, baseline=None):
         if prep_check and time.monotonic()-t0 > 2:
             try:
                 prep = prep_check(st)
-                if prep is True: prep_seen=True
+                if prep is True and not prep_seen:
+                    prep_seen=True
+                    _timing(job_path, 'preparation_seen')
                 elif start_truth.moonraker_abandoned(prep, prep_seen, state, fn, leftover):
                     return start_truth.ABANDONED  # prep ended, never printed
             except Exception: logger.warning("Moonraker preparation check failed", exc_info=True)
@@ -1367,6 +1371,34 @@ def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(
           f"(T{tool}); {reason}, so the launch continues.", flush=True)
 
 
+# The mapped native start request (SET_ZCOLOR) is answered only when the printer's own
+# preparation macro returns, which can take minutes, so it is sent fire-and-readback with
+# this short timeout (#1471): a read timeout is the held-open shape of a healthy start on
+# this family, not a lost response. The request still goes out exactly once and is never
+# resent; the readback loop after it decides what the printer actually did.
+BLOCKING_START_POST_TIMEOUT_S = 5.0
+
+
+def _is_read_timeout(exc):
+    """Whether a start request failure is a read timeout: the request went out and the
+    printer simply has not answered yet. An HTTP answer, a refused connection and a reset
+    are not timeouts and keep the lost-response treatment."""
+    if isinstance(exc, TimeoutError):
+        return True
+    return isinstance(getattr(exc, "reason", None), TimeoutError)
+
+
+def _blocking_start_timeout():
+    """The held-open start timeout: BLOCKING_START_POST_TIMEOUT_S, or the transport's own
+    default when that is smaller (the replay harness scales _mr's default down with its
+    printer clock, and the scaled default must stay the binding one there)."""
+    try:
+        default = float((_mr.__defaults__ or (None, 0))[-1])
+    except Exception:
+        default = 0
+    return min(BLOCKING_START_POST_TIMEOUT_S, default) if default > 0 else BLOCKING_START_POST_TIMEOUT_S
+
+
 def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     """Native explicit mapping route; exactly one SET_ZCOLOR submission, no fallback."""
     adapter = _job_adapter(job)
@@ -1598,37 +1630,52 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                                     store_after=_entries_after_watermark, baseline=status)
     recorder.watch_lease(lease)
     recorder.note('post_sent', path='/printer/gcode/script', command=command)
+    held_open = False
     try:
-        receipt = _mr(st, '/printer/gcode/script', data={'script': command})
+        receipt = _mr(st, '/printer/gcode/script', data={'script': command},
+                      timeout=_blocking_start_timeout())
     except Exception as exc:
-        recorder.note('receipt', http_status=getattr(exc, 'code', None), error=f'{type(exc).__name__}: {exc}'[:300])
-        _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
-        # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
-        # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
-        # are never attribution evidence. heaters_were_off is the re-read taken immediately before
-        # this POST above, not the idle guard's pre-upload proof (#836).
-        out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data,
-                                            heaters_were_off=heaters_were_off, baseline=start_baseline)
-        if out is None:
-            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
-            recorder.finish('refused', rejection=rejection)
-            raise SystemExit(_rejected_start_message(rejection)) from exc
-        if out['accepted']:
-            # The POST response was lost: preserve the duplicate guard until
-            # explicit reconciliation, even if a matching readback is active.
+        if _is_read_timeout(exc):
+            # #1471: SET_ZCOLOR holds this request open through the printer's own preparation,
+            # so the short timeout expiring is the normal shape of a healthy start here, not a
+            # lost response: no start_response_lost, no reconcile-and-stop. The request went out
+            # exactly once and is never resent; fall through to the same receipt-error check and
+            # readback confirmation as an answered start, with the held-open guards there (heater
+            # evidence counts only from the proven-off baseline, and the lease keeps its
+            # duplicate guard until the printer's history settles it).
+            held_open = True
+            receipt = None
+            recorder.note('receipt', held_open=True, error=f'{type(exc).__name__}: {exc}'[:300])
+        else:
+            recorder.note('receipt', http_status=getattr(exc, 'code', None), error=f'{type(exc).__name__}: {exc}'[:300])
+            _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
+            # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
+            # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
+            # are never attribution evidence. heaters_were_off is the re-read taken immediately before
+            # this POST above, not the idle guard's pre-upload proof (#836).
+            out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data,
+                                                heaters_were_off=heaters_were_off, baseline=start_baseline)
+            if out is None:
+                _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
+                recorder.finish('refused', rejection=rejection)
+                raise SystemExit(_rejected_start_message(rejection)) from exc
+            if out['accepted']:
+                # The POST response was lost: preserve the duplicate guard until
+                # explicit reconciliation, even if a matching readback is active.
+                _write_checkpoint(checkpoint, out)
+                if out.get('print_number') is None:
+                    try: out['print_number'] = _assign_print_number(job_path, artifact=g)
+                    except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
+                try:
+                    out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
+                except Exception as record_exc:
+                    logger.warning('start record failed after reconciled submission: %s', record_exc)
             _write_checkpoint(checkpoint, out)
-            if out.get('print_number') is None:
-                try: out['print_number'] = _assign_print_number(job_path, artifact=g)
-                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
-            try:
-                out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
-            except Exception as record_exc:
-                logger.warning('start record failed after reconciled submission: %s', record_exc)
-        _write_checkpoint(checkpoint, out)
-        _emit_mapped_outcome(out)
-        recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
-        return out
-    recorder.note('receipt', http_status=200, receipt=receipt)
+            _emit_mapped_outcome(out)
+            recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
+            return out
+    if not held_open:
+        recorder.note('receipt', http_status=200, receipt=receipt)
     # Klipper can answer the POST with HTTP 200 while the macro itself failed: the receipt (or the
     # gcode store readback, past the pre-POST watermark) carries a `!!` line. That is a refusal,
     # not a pending start (#836).
@@ -1652,9 +1699,12 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
            'gcode_sha256': sha, 'upload_sha256': upload_sha, 'mapping': mapping,
            'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
            'lease_token': lease.token}
+    if held_open:
+        out['start_response'] = 'held_open'
     try:
         return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                                     recorder=recorder, baseline=start_baseline)
+                                     recorder=recorder, baseline=start_baseline, held_open=held_open,
+                                     heating_counts=heaters_were_off if held_open else True)
     except Exception as exc:
         # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
         # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
@@ -1667,11 +1717,19 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
 
 
 def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
-                          recorder=start_recorder.NULL, baseline=None):
+                          recorder=start_recorder.NULL, baseline=None, held_open=False,
+                          heating_counts=True):
     """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle.
 
     `baseline` is the status read just before the request (_start_baseline): a readback equal to it is
-    the previous run's leftover, never this start's evidence."""
+    the previous run's leftover, never this start's evidence.
+
+    `held_open` (#1471): the request's response never arrived (the macro held it open past the
+    short timeout), so this start keeps the lost-response guards even though the readback
+    confirms it: heater targets count as its preparation only from the proven-off baseline
+    (`heating_counts`, which the caller binds to that proof on this route), and a confirmed
+    start keeps the lease uncertain — the duplicate guard — until the printer's history
+    settles it, instead of releasing the lease in-process."""
     # Number at submission, not at "printing": native preparation can outlast the readback
     # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
     try:
@@ -1687,7 +1745,8 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
-    state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence, baseline=baseline)
+    state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence, baseline=baseline,
+                           job_path=job_path)
 
     def read_readback():
         try:
@@ -1697,8 +1756,10 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
 
     # The request was answered, and the native route heats for its own start, so set heater targets
     # are this start's preparation here (#836: provisional; the lease stays uncertain until printing).
+    # On the held-open route the request was NOT answered, so targets count only from the proven-off
+    # baseline (#1471, the same rule the lost-response reconcile has always used).
     truth = start_truth.moonraker(read_readback, waited=state, heating=lambda: _preparation_evidence(st),
-                                  heating_counts=True)
+                                  heating_counts=heating_counts)
     if truth.verdict == start_truth.NOT_STARTED and truth.source == 'abandoned':
         # #848 review: the printer heated for this start (targets proven off just before the POST),
         # then went back to standby cold without ever printing it. Nothing is printing, so the
@@ -1713,7 +1774,13 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     out.update(start_truth.mapped_fields(truth))
     _write_checkpoint(checkpoint, out)
     if truth.verdict == start_truth.STARTED:
-        lease.release()  # printing; the busy printer now refuses another start
+        if held_open:
+            # The response never arrived: preserve the duplicate guard until explicit
+            # reconciliation, even though the readback shows this file printing — the
+            # same rule the lost-response path has always applied.
+            lease.uncertain(out['message'])
+        else:
+            lease.release()  # printing; the busy printer now refuses another start
     elif truth.verdict == start_truth.PREPARING:
         # #836: preparation evidence is provisional. The printer may still abandon this start
         # (heat, fail the IFS load, drop back to standby), so the lease stays uncertain until
