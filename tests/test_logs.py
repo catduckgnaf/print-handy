@@ -197,7 +197,7 @@ def test_docker_default_writes_logs_to_the_persistent_state_volume():
         assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
         assert cfg["logging"]["retention_days"] == 14
     entrypoint = (root / "docker" / "entrypoint.sh").read_text()
-    assert '"$state_home/logs"' not in entrypoint
+    assert '"$state_home/logs" "$data_root/archive"' not in entrypoint
     assert '_check_data_folders' in entrypoint and '"$state_home/state"' in entrypoint
 
 
