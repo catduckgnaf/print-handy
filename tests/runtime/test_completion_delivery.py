@@ -351,3 +351,34 @@ def test_overlapping_completions_never_roast_the_wrong_print(monkeypatch, tmp_pa
     newer = listener._with_completion_roast("Print complete: New", "Print complete: New")
     assert older == "Print complete: Old"
     assert newer == "Print complete: New\n\nroast of New"
+
+
+def test_a_numbered_timelapse_post_is_delivered_once(monkeypatch, tmp_path):
+    """Live 2.3.2: the captured leg posted "Print complete" with "Print #N"
+    added, then acknowledged the pending notice with that captioned text.
+    Nothing matched, the notice stayed pending, and the next announcer pass
+    re-drove the video leg and posted the completion a second time."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: None)
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "_completion_roast_line", lambda message, completion: "")
+    announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
+                          "pending_timelapse_job_key": "stand"})
+    monkeypatch.setattr(listener.timelapse_encode, "caption_with_number",
+                        lambda text, job_key, filename=None: f"{text}\nPrint #57")
+    monkeypatch.setattr(listener, "_captured_timelapse", lambda key: "/cache/stand.mp4")
+    monkeypatch.setattr(listener, "_vertical_short_attachment", lambda video, key: None)
+    posts = []
+    monkeypatch.setattr(listener, "post", lambda text, **kw: posts.append(text) or True)
+    listener._timelapse_post("stand", "Print complete: Stand")
+    assert posts == ["Print complete: Stand\nPrint #57\nMEDIA:/cache/stand.mp4"]
+    state = announcer.load_state()
+    assert not announcer.pending_completion_message(state)
+    assert not announcer.pending_timelapse_job_key(state)
+    assert state["announced_completion"] is True
+    listener.run_announcer("standby")
+    for thread in __import__("threading").enumerate():
+        if thread.name == "timelapse-postprocess-retry":
+            thread.join(5)
+    assert len(posts) == 1
