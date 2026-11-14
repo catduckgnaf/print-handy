@@ -48,7 +48,7 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 - `config/docker.yaml` and `config/docker.toml` are held to identical settings by a test; issue text is spell-checked like PR text. (#1401)
 - The 2.3.2 image digest is pinned in docs/DOCKER.md. (#1390)
 - A listener heartbeat thread leaked by earlier tests no longer makes the heartbeat test fail intermittently. (#1407)
-- Slicing-speed baselines re-recorded from the release commit's CI run.
+- Slicing speed checked against 2.3.2 on the same CI runner class: no case is slower (median 1.01x across 24 cases, largest rise 0.05 s), so the 2.3.2 baselines stand.
 
 ## Verification and known limitations
 - Offline suites and CI on every merged head.
