@@ -55,7 +55,7 @@ def methods(config=None):
 
 
 def slice_only_methods(config=None):
-    """Delivery methods offered after an explicit Slice only (#1443).
+    """Delivery methods offered after an explicit Slice and Download (#1443).
 
     The configured methods, plus the chat download (``discord``) whenever the
     configured printer's vendor profile offers it at all — even when

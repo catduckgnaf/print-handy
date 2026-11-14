@@ -84,7 +84,7 @@ def test_sources_page_offers_the_slice_a_link_form_only_when_chat_can_take_it():
     page = sources.render_sources_page(form_token="tok123", chat_enabled=True)
     assert '<form method="post" action="/chat">' in page
     assert 'name="_csrf" value="tok123"' in page and 'name="text"' in page
-    assert "Slice only" in page and 'href="/sliced"' in page
+    assert "Slice and Download" in page and 'href="/sliced"' in page
     page = sources.render_sources_page(form_token="tok123", chat_enabled=False)
     assert "<form" not in page
     assert "Web chat is not enabled" in page

@@ -73,14 +73,14 @@ def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None, form_token: str 
     ]
     # Slice a link (#1443): the ForgeBridge-shaped flow — a link in, a
     # printer-ready file out. The form hands the link to web chat, which runs
-    # the same intake as any chat link; choosing Slice only there puts the
+    # the same intake as any chat link; choosing Slice and Download there puts the
     # finished file on the Sliced files page to download, and nothing prints
     # without the usual confirmation. Offered only while web chat can take it.
     if chat_enabled:
         parts.append(
             "<h2>Slice a link</h2>"
             "<p>Paste a link to a model below. Print Handy slices it for "
-            "your printer; choose <strong>Slice only</strong> in chat and "
+            "your printer; choose <strong>Slice and Download</strong> in chat and "
             "the file waits on the <a href=\"/sliced\">Sliced files</a> "
             "page to download — for a USB stick, an SD card, or the "
             "printer's own screen.</p>"

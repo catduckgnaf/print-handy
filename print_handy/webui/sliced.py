@@ -157,7 +157,7 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
              "print by other means — a USB stick, an SD card, the printer's own "
              "screen. To slice something new, paste a model link on the "
              "<a href=\"/sources\">Sources</a> page or drop it in "
-             "<a href=\"/chat\">chat</a> and choose <strong>Slice only</strong>; "
+             "<a href=\"/chat\">chat</a> and choose <strong>Slice and Download</strong>; "
              "the file lands here. Nothing on this page starts a print.</p>"]
     if not rows:
         parts.append("<p>No sliced files are in the archive yet.</p>")

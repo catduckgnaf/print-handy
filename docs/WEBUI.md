@@ -73,7 +73,7 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 
 `/sources` lists every place a model link can be dropped from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. The registry table is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top.
 
-The page's one action is the **Slice a link** form (#1443): paste a model link and it is handed to web chat, which runs the same intake as a link dropped in any chat — slice for the configured printer, confirm before anything prints. Choose **Slice only** there and the finished file waits on the [Sliced files](#sliced-files-page) page to download. The form is offered only while web chat is enabled; with web chat off, the page says so and a link pasted in Discord, Telegram, or Matrix lands its slice on the same Sliced files page.
+The page's one action is the **Slice a link** form (#1443): paste a model link and it is handed to web chat, which runs the same intake as a link dropped in any chat: slice for the configured printer, confirm before anything prints. Choose **Slice and Download** there and the finished file waits on the [Sliced files](#sliced-files-page) page to download. The form is offered only while web chat is enabled; with web chat off, the page says so and a link pasted in Discord, Telegram, or Matrix lands its slice on the same Sliced files page.
 
 ### Designs page
 
@@ -99,7 +99,7 @@ Paths stay inside the archive: the address is a job folder plus the plate's posi
 
 ### Sliced files page
 
-`/sliced` is where a slice becomes a file you take away (#1443): every sliced job in the archive, newest first, with a download link per plate file — plain `.gcode` and ZMod `.gcode.3mf` packages alike. This is the flow for printing by other means (a USB stick, an SD card, the printer's own screen), and the browser half of the link → slice → download flow: paste a model link into the **Slice a link** form on the Sources page (or drop it in chat), choose **Slice only**, and the finished file waits here. Files sliced from AI-made designs land here the same way. Downloads resolve exactly like the Layers page's plates — only files the job's own `JOB.json` names, inside that job's archive folder — and are served as attachments behind the same login. The page slices nothing, uploads nothing, and starts nothing.
+`/sliced` is where a slice becomes a file you take away (#1443): every sliced job in the archive, newest first, with a download link per plate file, plain `.gcode` and ZMod `.gcode.3mf` packages alike. This is the flow for printing by other means (a USB stick, an SD card, the printer's own screen), and the browser half of the link → slice → download flow: paste a model link into the **Slice a link** form on the Sources page (or drop it in chat), choose **Slice and Download**, and the finished file waits here. Files sliced from AI-made designs land here the same way. Downloads resolve exactly like the Layers page's plates (only files the job's own `JOB.json` names, inside that job's archive folder) and are served as attachments behind the same login. The page slices nothing, uploads nothing, and starts nothing.
 
 ### Status page
 

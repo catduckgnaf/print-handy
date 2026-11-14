@@ -132,11 +132,11 @@ def test_a_multi_part_design_becomes_one_project_v1_project(env, tmp_path):
 
 
 def test_a_design_slice_only_sends_the_sliced_file(env, tmp_path):
-    """#1443: an AI-made design answered with Slice only hands over the file, like a
+    """#1443: an AI-made design answered with Slice and Download hands over the file, like a
     dropped link — the design handoff runs the same intake, so the same delivery
     menu offers "Send the files here" on the default (printer-only) profile."""
     cfg, result = _designed(tmp_path, THREE_PART)
-    # Print all 3, color, slot, Slice only, Send the files here, Done
+    # Print all 3, color, slot, Slice and Download, Send the files here, Done
     adapter, _out, job, _jobs = _hand_off(env, cfg, result, [0, 1, 0, 1, 1, 1])
     assert job["project"]["source_kind"] == "ai_design"
     menus = [q for q in adapter.questions if "Send the files here" in q["choices"]]

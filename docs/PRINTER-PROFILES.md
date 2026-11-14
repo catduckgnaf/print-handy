@@ -328,7 +328,7 @@ delivery:
   methods: [printer, discord]  # a subset of the vendor's delivery options; default is the vendor default
 ```
 
-Combinations the vendor does not offer stop startup and name the setting. Examples are a vendor that disagrees with a full model key, `slicer: bambu_studio` on a Klipper printer, and `bambu_handoff` on a Flashforge printer. Every existing vendor defaults to `methods: [printer]`, so its print flow is exactly what it was. Add `discord` to get a "Send the files here" button in the post-slice print menu as well. Either way, choosing **Slice only** always offers "Send the files here" when the vendor offers `discord` at all — Slice only is a request for the file, including on a default Flashforge install (#1443).
+Combinations the vendor does not offer stop startup and name the setting. Examples are a vendor that disagrees with a full model key, `slicer: bambu_studio` on a Klipper printer, and `bambu_handoff` on a Flashforge printer. Every existing vendor defaults to `methods: [printer]`, so its print flow is exactly what it was. Add `discord` to get a "Send the files here" button in the post-slice print menu as well. Either way, choosing **Slice and Download** always offers "Send the files here" when the vendor offers `discord` at all: Slice and Download is a request for the file, including on a default Flashforge install (#1443).
 
 ## Adding a printer
 
@@ -359,12 +359,12 @@ A new vendor is a package with an `__init__.py` defining `VENDOR = VendorProfile
 
 ## After a slice
 
-The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice only", "Scale the model" and "Cancel print request". "Scale the model" asks bigger or smaller, then 1%, 5% or 10%, and repeats the confirmation at the new size; a size that does not fit the bed is refused, and the bot offers the biggest size that does fit instead. The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
+The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice and Download", "Scale the model" and "Cancel print request". "Scale the model" asks bigger or smaller, then 1%, 5% or 10%, and repeats the confirmation at the new size; a size that does not fit the bed is refused, and the bot offers the biggest size that does fit instead. The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
 
-After **Slice only**: one menu with the options the profile enables, plus the download the Slice only choice itself asks for:
+After **Slice and Download**: one menu with the options the profile enables, plus the download the Slice and Download choice itself asks for:
 
   - **Start next plate · bed is clear** (`printer`): the same per-job bed-clear button, and still the only way to print. It runs every existing print-now gate.
-  - **Send the files here** (`discord`): attaches each plate's file to the thread. Offered whenever the vendor profile offers `discord` at all — a default `methods: [printer]` install included — because Slice only is a request for the file (#1443). A vendor that does not offer chat delivery gets no new option.
+  - **Send the files here** (`discord`): attaches each plate's file to the thread. Offered whenever the vendor profile offers `discord` at all (a default `methods: [printer]` install included), because Slice and Download is a request for the file (#1443). A vendor that does not offer chat delivery gets no new option.
   - **Package for Bambu (no upload)** (`bambu_handoff`): builds a `.gcode.3mf` per plate, with the plate preview PNGs the printer and the Bambu apps show.
   - **Done, don't print**
 

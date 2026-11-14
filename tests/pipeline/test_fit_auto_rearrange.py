@@ -363,7 +363,7 @@ def test_duplo_shaped_per_part_job_is_rearranged_without_asking_and_slices(env, 
                         lambda path, st: pytest.fail('the option search ran after a one-plate fit'))
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='duplo-shaped', text='https://www.printables.com/model/1-ghost')
-    # Every part individually, alternating White / Black, then Slice only and Cancel.
+    # Every part individually, alternating White / Black, then Slice and Download and Cancel.
     adapter = Adapter([2, 0, 1, 0, 1, 0, 1, 1, 1, 1])
     intake_state = state()
     # The mirrored live case ran the stock 0.4 mm nozzle (the fake G-code

@@ -221,7 +221,7 @@ def test_one_click_slice_and_print_needs_no_typed_approval(env):
     adapter, result, receipt = run_flow(env, [1, 0, 0])
     last = adapter.questions[-1]['choices']
     assert last[0].startswith('Slice and print') and 'bed is clear' in last[0]
-    assert last[1] == 'Slice only' and last[2] == 'Scale the model' and last[3] == 'Cancel print request'
+    assert last[1] == 'Slice and Download' and last[2] == 'Scale the model' and last[3] == 'Cancel print request'
     assert 'does not authorize printing' not in adapter.questions[-1]['question']
     assert len(env.sliced) == 1 and len(env.starts) == 1
     assert receipt['status'] == 'STARTED' and receipt['started'] is True
