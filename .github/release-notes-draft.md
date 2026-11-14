@@ -25,6 +25,10 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 
 ## Fixes
 - Release metadata now includes the 2.3.3 version-bump merge (#1403).
+- The Home Assistant OS install guide now explains installation through the add-on store. (#1405)
+- Print completion is posted only once when the listener catches a completed print. (#1406)
+- The camera-worker heartbeat test now cleans up its blocked worker threads. (#1407)
+- The internal release records now include every merged PR in the 2.3.3 range. (#1408)
 - A single weak camera detection (one box at 12% on a healthy print) no longer posts an alert. A lone weak detection is logged; two in a row post one plainly worded, low-confidence alert with no ping; three make it a failure, as two did before. Strong detections behave exactly as before, on Moonraker and Bambu Lab alike. (#1395)
 - A stall alert keeps its starter ping even when a weak detection shows up on the same frame. (#1395)
 - Open questions (design, colors, Stop buttons, approvals) no longer hold the bot's worker threads, so a few of them can't stall a print start on a small container anymore. (#1398)
