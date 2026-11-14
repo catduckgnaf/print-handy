@@ -7,8 +7,10 @@ release notes get an explicit updated / verified-no-change decision per
 release. These tests pin that contract: the workflow fires only on a
 published release (or a manual dispatch), holds least-privilege
 GITHUB_TOKEN permissions, and can never edit code, docs or settings.
-The one deliberate secret is DOCS_SYNC_TOKEN, used only by the optional
-docs auto-sync dispatch step, which degrades gracefully without it.
+The deliberate secrets are DOCS_SYNC_TOKEN, used by the optional docs
+auto-sync dispatch step, and HAOS_APP_DISPATCH_TOKEN, used (with
+DOCS_SYNC_TOKEN as its fallback) by the optional Home Assistant OS app
+dispatch step. Both steps degrade gracefully without them.
 """
 
 import pathlib
@@ -50,16 +52,18 @@ class PostReleaseSurfacesWorkflowContract(unittest.TestCase):
             self.assertNotIn("permissions", job)
         text = WORKFLOW_PATH.read_text()
         self.assertIn("${{ github.token }}", text)
-        # The checklist itself uses only the GITHUB_TOKEN above. The single
-        # deliberate exception is DOCS_SYNC_TOKEN, read only by the
-        # auto-sync dispatch step; no other secret may appear.
+        # The checklist itself uses only the GITHUB_TOKEN above. The
+        # deliberate exceptions are the two optional dispatch tokens, read
+        # only by the dispatch steps; no other secret may appear.
         secrets_used = set(re.findall(r"secrets\.([A-Z_]+)", text))
-        self.assertEqual(secrets_used, {"DOCS_SYNC_TOKEN"})
+        self.assertEqual(secrets_used, {"DOCS_SYNC_TOKEN", "HAOS_APP_DISPATCH_TOKEN"})
+        steps = workflow["jobs"]["surfaces"]["steps"]
+        self.assertNotIn("secrets.", str(steps[0]))
 
     def test_docs_auto_sync_dispatch_is_optional_and_never_fails(self):
         workflow = load_workflow()
         steps = workflow["jobs"]["surfaces"]["steps"]
-        self.assertEqual(len(steps), 2)
+        self.assertEqual(len(steps), 3)
         dispatch = steps[1]
         # The dispatch runs after the checklist issue step, so its outcome
         # can be recorded on that issue.
@@ -72,6 +76,24 @@ class PostReleaseSurfacesWorkflowContract(unittest.TestCase):
         self.assertIn("DOCS_SYNC_TOKEN", run)
         self.assertIn("docs-auto-sync.yml", run)
         # Graceful degradation: the step always exits 0.
+        self.assertTrue(run.rstrip().endswith("exit 0"))
+
+    def test_haos_app_dispatch_is_optional_and_never_fails(self):
+        steps = load_workflow()["jobs"]["surfaces"]["steps"]
+        dispatch = steps[2]
+        env, run = dispatch["env"], dispatch["run"]
+        self.assertEqual(env["HAOS_APP_DISPATCH_TOKEN"],
+                         "${{ secrets.HAOS_APP_DISPATCH_TOKEN }}")
+        self.assertEqual(env["DOCS_SYNC_TOKEN"], "${{ secrets.DOCS_SYNC_TOKEN }}")
+        self.assertIn('app_repo="catduckgnaf/print-handy-haos-addon"', run)
+        self.assertIn('"repos/$app_repo/dispatches"', run)
+        self.assertIn("print-handy-release", run)
+        # The dedicated token is tried before the docs token.
+        self.assertIn("for name in HAOS_APP_DISPATCH_TOKEN DOCS_SYNC_TOKEN", run)
+        # Not sent: the fallback schedule and the manual remedy are recorded
+        # on the release's checklist issue, like the docs step.
+        self.assertIn("upstream.yaml", run)
+        self.assertIn('"Release checklist: $tag"', run)
         self.assertTrue(run.rstrip().endswith("exit 0"))
 
     def test_single_checklist_issue_per_release(self):

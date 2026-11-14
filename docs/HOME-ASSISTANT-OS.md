@@ -21,7 +21,7 @@ Secrets and overrides that a Docker install keeps in `.env` go in the app's **Ex
 
 Everything Print Handy keeps (state, print archive, records, the bundled Spoolman database and the account tokens under `.config`) lives in the app's data folder and is part of Home Assistant backups. The download cache is left out of backups.
 
-Each app version runs the Print Handy release of the same number. A new Print Handy release reaches the app automatically, usually within half an hour, and Home Assistant offers it as an update under **Settings > Apps**.
+Each app version runs the Print Handy release of the same number. A new Print Handy release reaches the app automatically: publishing the release starts the app's own build, and Home Assistant offers the update under **Settings > Apps** once the app image is published, usually within minutes. The app also checks for new releases on a schedule, as a fallback.
 
 ## Network
 
