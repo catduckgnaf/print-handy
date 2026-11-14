@@ -211,7 +211,40 @@ loopback and is never exposed raw). An MJPEG or snapshot camera is transcoded to
 for that page even when the live feed values are left at their defaults; an RTSP or
 WebRTC camera is relayed as it arrives until one of those values is changed.
 
-> **Honest status, read this first.** The Stage 0 live Discord spike has **not run yet**:
+### How the stream reaches the voice channel (the final design)
+
+This is the settled design, not a fallback waiting on a native bot video path:
+
+1. The camera (Moonraker, including Fluidd and Mainsail households, or OctoPrint) is
+   pulled exactly once by go2rtc on loopback. Watchdog stills and timelapse capture read
+   the same fan-out; nothing opens a second connection to the camera.
+2. If the source is one the Activity player cannot open (MJPEG or snapshot), or the
+   operator changed a live feed value, go2rtc publishes a second stream, `camera-live`,
+   transcoded to H.264 at the configured height, frame rate and bitrate cap. An RTSP or
+   WebRTC source at the default feed values is relayed as it arrives.
+3. The Activity server (loopback only) serves the page and proxies that stream. It admits
+   only the allowlist, checked server-side from a Discord sign-in, and it serves the feed
+   only while a viewing session is live.
+4. A named tunnel carries that one origin to Discord. The viewer joins the configured
+   voice channel and launches the Print Handy Activity there; the picture they watch is
+   inside that voice channel, in the channel's Activity screen.
+5. The bot's part is the session, not the picture: `/print-live start`, `stop` and
+   `status` (plus the optional auto-start on a print) open and close the viewing session
+   and post the pointer in chat. The bot joins no voice channel, sends no video track and
+   captures no audio.
+
+Native bot video is closed, for three recorded reasons. Discord's official bot API
+exposes audio only: there is no bot video track, no bot camera tile and no bot Go Live.
+Every library that appears to give a bot video is built on a user token and a selfbot
+client, which Discord's terms ban and this project rules out absolutely (bot token only,
+ever). And since 1 March 2026 every Discord call, bots and apps included, requires the
+DAVE end-to-end encryption protocol, with the unencrypted fallback removed, so a custom
+sender built on the pre-DAVE voice protocol could not produce viewable video in a
+current channel even if the gateway accepted its frames. The Activity is therefore the
+one supported way to put the camera inside a voice channel, and it is the design the
+remaining live acceptance is checked against.
+
+> **Honest status, read this first.** The first live Discord sitting has **not run yet**:
 > everything below is built and covered by offline contract tests, but none of it has been
 > exercised live against Discord, a real tunnel or a real camera. Portal screens and labels
 > may differ from the current Developer Portal. Treat the feature as **unverified** until
@@ -336,7 +369,7 @@ household, exactly as you would for print approvals.
 | Snapshot-only cameras | Valid live source of kind `snapshot` (still-image sequence, labelled as such); **not live-verified** |
 | Bambu / Prusa / SDCP / stock-Flashforge cameras | Not in v1; they join through the same camera-source seam once their stills/stream sources are verified (see #294/#295) |
 | Encoder plan (VAAPI / QSV / NVENC / CPU) | Command construction pinned by offline tests per vendor; **no GPU path verified on real hardware** |
-| The Activity in Discord (desktop / mobile) | **Unverified**; the Stage 0 live spike has not run; the first live result belongs on, not in this table's wording |
+| The Activity in Discord (desktop / mobile) | **Unverified**; the first live sitting has not run; the first live result belongs on, not in this table's wording |
 
 ## What a print looks like in Discord
 
