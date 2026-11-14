@@ -826,8 +826,10 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         # a model can legitimately be named like one.
         try:
             return resolve_plate_ref(query, archive)
-        except NextPlateError:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except NextPlateError as exc:
+            # Expected fall-through, not a fault (duckcatgnaf #1432).
+            __import__("logging").getLogger(__name__).debug(
+                "no project plate carries alias %r, trying titles: %s", query, exc)
     hits = match_printed(query, rows)
     if not hits:
         near = fuzzy_printed(query, rows)
@@ -1689,8 +1691,10 @@ def force_reboot(
         try:
             _send("/printer/gcode/script", method="POST", data={"script": "REBOOT"}, timeout=15,
                   printer_id=printer_id)
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except Exception as exc:
+            # REBOOT drops the connection by design; the safe-idle wait below
+            # decides success (duckcatgnaf #1432).
+            __import__("logging").getLogger(__name__).info("REBOOT macro call ended without a reply: %r", exc)
 
     def default_mr():
         if printer_id:
