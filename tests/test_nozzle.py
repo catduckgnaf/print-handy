@@ -590,3 +590,19 @@ def test_overflowing_nozzle_entry_is_skipped_and_the_rest_still_load(tmp_path, m
     profiles = nozzle._load_nozzle_profiles()
     assert set(profiles) == {0.4}
     assert profiles[0.4].line_width == good.line_width
+
+
+@_pytest.mark.parametrize("raw", [b'["0.4"]\nline_width = 0.4\n# \xff\xfe\n', b"[[[ not toml"])
+def test_unreadable_nozzles_file_falls_back_to_tuned_profiles(tmp_path, monkeypatch, caplog, raw):
+    # #1421 review round 3: invalid UTF-8 (UnicodeDecodeError) and invalid TOML
+    # both fall back to the tuned built-ins with a warning instead of crashing.
+    import logging
+    from print_handy.core import nozzle
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_bytes(raw)
+    monkeypatch.setattr(nozzle, "__file__", str(tmp_path / "core" / "nozzle.py"))
+    with caplog.at_level(logging.WARNING, logger=nozzle.logger.name):
+        profiles = nozzle._load_nozzle_profiles()
+    assert profiles is nozzle.TUNED_NOZZLE_PROFILES
+    assert any("could not load nozzle profiles" in r.getMessage() for r in caplog.records)

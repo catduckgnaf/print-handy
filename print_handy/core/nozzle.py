@@ -204,7 +204,8 @@ def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
                     # list, an integer too large for float, or an infinite
                     # prime_tower_width) is skipped; the rest of the file still loads.
                     continue
-        except (OSError, tomllib.TOMLDecodeError):
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            # Unreadable, not UTF-8, or not TOML: keep the tuned built-ins below.
             logger.warning("could not load nozzle profiles from %s", toml_path, exc_info=True)
     if not profiles:
         profiles = TUNED_NOZZLE_PROFILES
