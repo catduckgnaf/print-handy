@@ -978,9 +978,46 @@ def _video_progress(year, job):
         "setTimeout(poll,2000);})();</script>")
 
 
+def _wrapped_screen(label, value, caption="", *, heading=None, extra="",
+                    big_text=False):
+    """One full-screen section of the Wrapped story (#1446).
+
+    The presentation unit of the rebuilt page: an eyebrow ``label``,
+    one giant ``value`` (a headline number, or a name when
+    ``big_text``), and a short ``caption``, with supporting detail
+    (facts, charts) in ``extra`` under the headline. ``heading``
+    carries the section's <h2> when the screen opens a named part of
+    the story; the order those headings appear in is pinned by the
+    scroll-first test from #981. A screen whose ``value`` is None
+    renders its heading and ``extra`` only. ``value`` and ``caption``
+    arrive escaped from the caller, as the rest of this module's
+    markup does.
+    """
+    head = f"<h2>{_esc(heading)}</h2>" if heading else ""
+    eyebrow = f'<p class="eyebrow">{_esc(label)}</p>' if label else ""
+    big = ""
+    if value is not None:
+        big = ('<p class="wrapped-big wrapped-big-text">' if big_text
+               else '<p class="wrapped-big">') + f"{value}</p>"
+    cap = f'<p class="wrapped-caption">{caption}</p>' if caption else ""
+    return (f'<section class="wrapped-screen">{head}{eyebrow}{big}{cap}'
+            f"{extra}</section>")
+
+
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
                         theme=shell.DEFAULT_THEME):
-    """GET /wrapped as HTML, from a :func:`wrapped_view` success payload."""
+    """GET /wrapped as HTML, from a :func:`wrapped_view` success payload.
+
+    Presentation (#1446, on the scroll-first verdict of #981): the
+    page is one Wrapped story of full-screen sections — hero, the
+    headline numbers one screen each, colors and materials, time
+    patterns, repeats, personality, pasta/failure, and commentary —
+    with the tools (year picker, the video compile and player, the
+    share panel) together in a finale section and the share card
+    last. The same payload and the same words as before; only the
+    arrangement and the styling changed. The tappable story is not
+    the lead presentation and no story player is built here.
+    """
     year = payload["year"]
     headline = payload["headline"]
     highlights = payload["highlights"]
@@ -989,19 +1026,12 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         f'<option value="{y}"{" selected" if y == year else ""}>{y}</option>' for y in years)
     stats = payload.get("stats") or {}
     breakdowns = stats.get("breakdowns") or {}
-    # Scroll-first (#981, catduck's verdict in comment 6702782262):
-    # the Wrapped page is one continuous scrolling page — hero,
-    # volume, colors/materials, time patterns (with charts), repeats,
-    # personality, pasta/failure, and the finale share card last.
-    # The tappable story is not the lead presentation and no story
-    # player is built here; the video is a section of the page.
-    parts = [
-        f'<section class="wrapped-hero"><p class="eyebrow">Pasta Wrapped</p>'
+    parts = ['<div class="wrapped">']
+    parts.append(
+        f'<section class="wrapped-hero wrapped-screen"><p class="eyebrow">Pasta Wrapped</p>'
         f"<h1>Your {year} in printing</h1>"
-        f"<p>{print_stats.plural(headline['total_prints'], 'print')}. Scroll the year.</p></section>",
-        f'<form method="get" action="/wrapped"><label>Year '
-        f'<select name="year">{options}</select></label> '
-        '<button type="submit">Show</button></form>']
+        f"<p>{print_stats.plural(headline['total_prints'], 'print')}. Scroll the year.</p>"
+        '<p class="wrapped-cue" aria-hidden="true">↓</p></section>')
     undated = headline.get("undated_prints") or 0
     if undated:
         parts.append(f'<p class="note">{_undated_text(undated)}</p>')
@@ -1009,22 +1039,44 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
-    parts.append("<h2>By the numbers</h2>" + _cards([
-        ("Prints", headline["total_prints"]),
-        ("Hours printing", f"{headline['total_hours']:g}"),
-        ("Filament used", f"{headline['total_filament_used_kg']:g} kg"),
-        ("Success rate", _rate(headline["success_rate"])),
-    ]))
+    # By the numbers: one screen per headline stat.
+    parts.append(_wrapped_screen(
+        "Prints", f"{headline['total_prints']}", heading="By the numbers",
+        caption=(f"{headline.get('completed', 0)} completed · "
+                 f"{headline.get('failed', 0)} failed · "
+                 f"{headline.get('stopped', headline.get('canceled', 0))} stopped")))
+    parts.append(_wrapped_screen(
+        "Hours printing", f"{headline['total_hours']:g}"))
+    parts.append(_wrapped_screen(
+        "Filament used", f"{headline['total_filament_used_kg']:g} kg"))
+    parts.append(_wrapped_screen(
+        "Success rate", _rate(headline["success_rate"])))
+    longest = highlights.get("longest_print") or {}
+    if longest.get("seconds"):
+        parts.append(_wrapped_screen(
+            "Longest print", print_stats.hours_text(longest["seconds"] / 3600),
+            caption=_esc(longest.get("title") or "untitled")))
+    biggest = highlights.get("biggest_by_filament") or {}
+    if biggest.get("filament_used_g"):
+        parts.append(_wrapped_screen(
+            "Biggest print by filament", f"{biggest['filament_used_g']:g} g",
+            caption=_esc(biggest.get("title") or "untitled")))
     color_facts = []
     for label, key in (("Top color", "top_color"), ("Top material", "top_material"),
                        ("Busiest printer (by prints)", "top_printer"), ("Top vendor", "top_vendor")):
         if highlights.get(key):
             color_facts.append(f"<li>{label}: {_esc(highlights[key])}</li>")
-    parts.append(f"<h2>Colors and materials</h2><ul>{''.join(color_facts)}</ul>"
-                 + _bar_chart("Top colors", [(label, row["count"]) for label, row in
-                                             list((breakdowns.get("by_color") or {}).items())[:5]])
-                 + _bar_chart("Top materials", [(label, row["count"]) for label, row in
-                                                list((breakdowns.get("by_material") or {}).items())[:5]]))
+    color_extra = (f"<ul>{''.join(color_facts)}</ul>"
+                   + _bar_chart("Top colors", [(label, row["count"]) for label, row in
+                                               list((breakdowns.get("by_color") or {}).items())[:5]])
+                   + _bar_chart("Top materials", [(label, row["count"]) for label, row in
+                                                  list((breakdowns.get("by_material") or {}).items())[:5]]))
+    parts.append(_wrapped_screen(
+        "Top material",
+        _esc(highlights["top_material"]) if highlights.get("top_material") else None,
+        caption=(f"Top color: {_esc(highlights['top_color'])}"
+                 if highlights.get("top_color") else ""),
+        heading="Colors and materials", extra=color_extra, big_text=True))
     time_facts = []
     if highlights.get("busiest_month"):
         time_facts.append(f"<li>Busiest month: {_esc(highlights['busiest_month'])} "
@@ -1036,23 +1088,33 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     time_facts.append(f"<li>Late-night prints (midnight to 5 a.m. local): "
                       f"{highlights['night_prints']}</li>")
     by_hour = stats.get("by_hour") or {}
-    parts.append(f"<h2>Time patterns</h2><ul>{''.join(time_facts)}</ul>"
-                 + _bar_chart("Prints per month", list((stats.get("monthly") or {}).items()))
-                 + _bar_chart("Hour of day", [(f"{hour:02d}:00", by_hour.get(f"{hour:02d}", 0))
-                                              for hour in range(24)]))
+    parts.append(_wrapped_screen(
+        "Busiest month",
+        _esc(highlights["busiest_month"]) if highlights.get("busiest_month") else None,
+        caption=(print_stats.plural(highlights["busiest_month_prints"], "print")
+                 if highlights.get("busiest_month") else ""),
+        heading="Time patterns", big_text=True))
+    parts.append(
+        '<section class="wrapped-screen">'
+        f"<ul>{''.join(time_facts)}</ul>"
+        + _bar_chart("Prints per month", list((stats.get("monthly") or {}).items()))
+        + _bar_chart("Hour of day", [(f"{hour:02d}:00", by_hour.get(f"{hour:02d}", 0))
+                                     for hour in range(24)])
+        + "</section>")
     most_reprinted = highlights.get("most_reprinted")
     repeat_text = ("(no print was repeated this year)"
                    if not most_reprinted else
                    f"Most reprinted: {_esc(most_reprinted['title'])} — printed "
                    f"{most_reprinted['count']} times. "
                    f"Reprints this year: {highlights.get('reprint_count', 0)}.")
-    parts.append(f"<h2>Repeats</h2><p>{repeat_text}</p>")
+    parts.append(f'<section class="wrapped-screen"><h2>Repeats</h2>'
+                 f'<p class="wrapped-lede">{repeat_text}</p></section>')
     archetype = payload.get("archetype") or highlights.get("archetype") or {}
     if archetype.get("name"):
-        parts.append(
-            f"<h2>Your printing personality</h2>"
-            f"<p><strong>{_esc(archetype['name'])}</strong> — "
-            f"{_esc(archetype.get('fact') or '')}</p>")
+        parts.append(_wrapped_screen(
+            "", _esc(archetype["name"]),
+            caption=_esc(archetype.get("fact") or ""),
+            heading="Your printing personality", big_text=True))
     if headline.get("pasta_state") == "recorded" or (
             (stats.get("outcomes") or {}).get("pasta_state") == "recorded"):
         outcomes = stats.get("outcomes") or {}
@@ -1085,7 +1147,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         failure_detail = (" Worst failure: "
                           + _esc(worst_failure.get("title") or "untitled")
                           + " (" + ", ".join(b for b in bits if b) + ").")
-    parts.append(
+    pasta_part = (
         "<h2>Pasta, failures and stops</h2><p>"
         f"Failed prints: {highlights['failed']}. "
         f"Stopped prints: {headline.get('stopped', headline.get('canceled', 0))}. "
@@ -1094,38 +1156,51 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         f"Worst failure run: {highlights['worst_failure_streak']}."
         f"{failure_detail}</p>")
     if payload.get("longest_print_clip"):
-        parts.append(f"<p>Your longest print has a timelapse clip by name: "
-                     f"{_esc(payload['longest_print_clip'])}.</p>")
+        pasta_part += (f"<p>Your longest print has a timelapse clip by name: "
+                       f"{_esc(payload['longest_print_clip'])}.</p>")
+    parts.append(f'<section class="wrapped-screen">{pasta_part}</section>')
     almost = ((stats.get("enrichments") or {}).get("almost_made") or {})
     if almost.get("count"):
         parts.append(
+            '<section class="wrapped-screen">'
             f"<h2>Prints you almost made</h2><p>{almost['count']} sliced "
             "intakes never started"
             + (f": {_esc(', '.join(almost.get('titles') or []))}"
                if almost.get("titles") else "")
             + ". From intake receipts on file; receipts carry no creation "
-            "date, so this list is not split by year.</p>")
+            "date, so this list is not split by year.</p></section>")
     per_color = stats.get("per_color_grams") or {}
     if per_color:
         color_bits = ", ".join(f"{_esc(color)}: {grams:g} g"
                                for color, grams in list(per_color.items())[:5])
-        parts.append(f"<h2>Filament per color</h2><p>{color_bits}. "
-                     "From each print's per-tool filament split, where "
-                     "recorded.</p>")
+        parts.append(
+            '<section class="wrapped-screen">'
+            f"<h2>Filament per color</h2><p>{color_bits}. "
+            "From each print's per-tool filament split, where "
+            "recorded.</p></section>")
     lines = "".join(f'<p class="card">{_esc(line)}</p>' for line in payload["script"])
-    parts.append(f"<h2>Commentary</h2>{lines}")
+    parts.append(f'<section class="wrapped-screen wrapped-commentary">'
+                 f"<h2>Commentary</h2>{lines}</section>")
+    # Finale: the tools live together at the end of the story — the
+    # year picker, the video compile and player, and the share panel —
+    # with only the share card after them.
+    finale = ['<section class="wrapped-finale">']
+    finale.append(
+        f'<form method="get" action="/wrapped"><label>Year '
+        f'<select name="year">{options}</select></label> '
+        '<button type="submit">Show</button></form>')
     job = payload.get("video_job") or {}
     compiling = job.get("state") in ("queued", "running")
     if payload.get("ai_video_enabled"):
-        parts.append("<h2>Make my Wrapped video</h2>")
+        finale.append("<h2>Make my Wrapped video</h2>")
         if compiling:
-            parts.append(_video_progress(year, job))
+            finale.append(_video_progress(year, job))
         else:
             if job.get("state") == "failed":
-                parts.append(
+                finale.append(
                     '<p class="error">The last video compile failed: '
                     f"{_esc(job.get('reason') or 'unknown reason')}</p>")
-            parts.append(
+            finale.append(
                 f'<form method="post" action="/wrapped/video">'
                 f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
                 f'<input type="hidden" name="year" value="{year}">'
@@ -1133,7 +1208,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
                 "Export silent (no music, no narration — add music in the "
                 "app you post to)</label> "
                 '<button type="submit">Make my Wrapped video</button></form>')
-        parts.append(
+        finale.append(
             "<p>Compiling runs on this machine, in the background, on demand, "
             "from stat cards, this commentary as on-screen text, and the "
             "year's timelapses where they are found. You can leave this page "
@@ -1145,25 +1220,27 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "sent anywhere; with none (the default) there is no spoken "
             "narration.</p>")
     else:
-        parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
-                     "[timelapse] wrapped_video = true to turn on the "
-                     "on-demand video compile.</p>")
+        finale.append("<h2>Wrapped video</h2><p>The video step is off: set "
+                      "[timelapse] wrapped_video = true to turn on the "
+                      "on-demand video compile.</p>")
     if payload.get("video_available"):
         # The video is an embed inside the scrolling page (#981
         # comment 6702782262), served by GET /wrapped/video-file.
-        parts.append(
+        finale.append(
             "<h2>Your Wrapped video</h2>"
             f'<video controls preload="metadata" '
             f'src="/wrapped/video-file?year={year}"></video>')
-    parts.append(_share_panel(year, form_token, payload.get("share_exports") or [],
-                              payload.get("share_registry_note"),
-                              payload.get("share_preview"),
-                              bool(payload.get("video_available"))))
-    # Finale: the share card is the last section of the scroll.
+    finale.append(_share_panel(year, form_token, payload.get("share_exports") or [],
+                               payload.get("share_registry_note"),
+                               payload.get("share_preview"),
+                               bool(payload.get("video_available"))))
+    finale.append("</section>")
+    parts.append("".join(finale))
+    # Finale card: the share card is the last section of the scroll.
     if archetype.get("name"):
         share_top = _esc(highlights.get("top_color") or "unknown")
         parts.append(
-            '<section class="card share-card"><p class="eyebrow">'
+            '<section class="card share-card wrapped-screen wrapped-sharecard"><p class="eyebrow">'
             f"Pasta Wrapped {year}</p>"
             f"<h2>{_esc(archetype['name'])}</h2>"
             f"<p>{print_stats.plural(headline['total_prints'], 'print')} · "
@@ -1174,8 +1251,8 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     if payload.get("skipped_records"):
         named = ", ".join(_esc(name) for name in payload["skipped_records"])
         parts.append(f'<p class="note">Skipped records that could not be read: {named}.</p>')
+    parts.append("</div>")
     return _page(data, "wrapped", "".join(parts), path="/wrapped", theme=theme)
-
 
 def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     """The POST /wrapped/share result page: where the bundle landed."""
