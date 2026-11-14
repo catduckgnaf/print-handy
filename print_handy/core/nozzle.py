@@ -199,9 +199,10 @@ def _load_nozzle_profiles() -> dict[float, NozzleProfile]:
                         initial_layer_line_width=float(v["initial_layer_line_width"]),
                         prime_tower_width=int(v.get("prime_tower_width", 45)),
                     )
-                except (ValueError, KeyError, TypeError):
+                except (ValueError, KeyError, TypeError, OverflowError):
                     # One malformed profile (missing key, non-number such as a
-                    # list) is skipped; the rest of the file still loads.
+                    # list, an integer too large for float, or an infinite
+                    # prime_tower_width) is skipped; the rest of the file still loads.
                     continue
         except (OSError, tomllib.TOMLDecodeError):
             logger.warning("could not load nozzle profiles from %s", toml_path, exc_info=True)

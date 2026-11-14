@@ -562,3 +562,31 @@ def test_malformed_nozzle_entries_are_skipped_and_the_rest_still_load(tmp_path, 
     profiles = nozzle._load_nozzle_profiles()
     assert set(profiles) == {0.4}
     assert profiles[0.4].line_width == good.line_width
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("bad_line", [
+    "line_width = " + "9" * 400,          # int too large for float() -> OverflowError
+    "prime_tower_width = inf",            # int(inf) -> OverflowError
+])
+def test_overflowing_nozzle_entry_is_skipped_and_the_rest_still_load(tmp_path, monkeypatch, bad_line):
+    # #1421 review round 2: an OverflowError in one profile must skip only that
+    # profile, not abort the loader and fall back for every diameter.
+    from print_handy.core import nozzle
+    good = nozzle.TUNED_NOZZLE_PROFILES[0.4]
+    fields = {k: getattr(good, k) for k in (
+        "min_layer_height", "max_layer_height", "default_layer_height",
+        "default_initial_layer_height", "retraction_length", "line_width",
+        "initial_layer_line_width")}
+    body = "".join(f"{k} = {v}\n" for k, v in fields.items())
+    key = bad_line.split(" =")[0]
+    bad_body = "".join(f"{k} = {v}\n" for k, v in fields.items() if k != key) + bad_line + "\n"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "nozzles.toml").write_text(f'["0.6"]\n{bad_body}["0.4"]\n{body}')
+    monkeypatch.setattr(nozzle, "__file__", str(tmp_path / "core" / "nozzle.py"))
+    profiles = nozzle._load_nozzle_profiles()
+    assert set(profiles) == {0.4}
+    assert profiles[0.4].line_width == good.line_width
