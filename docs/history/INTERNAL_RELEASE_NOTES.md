@@ -7,7 +7,7 @@
 **Release Date:** 2026-11-13
 **Range:** 2.3.2..main (13 PRs, #1390 to #1408, including the release bump and the PRs merged after it; plus the baselines PR to come; checklist #1402). Driven by the live 2.3.2 install: a 25 MB lantern G-code that took 26 s to reach Ready (#1392), a camera alert on a healthy print from one 12% local detection, a pasted message link that got "I didn't understand that", plus mention support, the review follow-ups in #1397 and the whole-repository review #1400.
 **Live checks performed for this release:** none on hardware. The timing came from a copy of the live job profiled inside the running 2.3.2 container; the camera and message-link cases came from the live 2.3.2 logs.
-**Not verified live:** mentions on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, and ha-print-handy reading the new server fields. All are covered by offline tests.
+**Not verified live:** mentions on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, a numbered timelapse posting "Print complete" once, and ha-print-handy reading the new server fields. All are covered by offline tests.
 
 - Release bump (PR #1403): records the 2.3.3 version and release documentation.
 - Mentions (PR #1394): "@bot command" runs the command on Discord, Telegram, Matrix and web chat; the bot's names come from its own account at run time plus `bot_name`; Telegram `/cmd@OtherBot` is no longer run here. Review follow-ups from #1397 (punctuation and no-space mentions, newline split, help under 2000 characters for names up to 32, Matrix own posts, linked message for another bot) landed on the same PR.

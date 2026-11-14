@@ -52,4 +52,4 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also 
 
 ## Verification and known limitations
 - Offline suites and CI on every merged head.
-- Not seen live yet: a mention on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, and the Home Assistant integration reading the new fields.
+- Not seen live yet: a mention on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, a numbered timelapse posting "Print complete" once, and the Home Assistant integration reading the new fields.
