@@ -14,6 +14,7 @@ sees as a new instance.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import tempfile
@@ -22,6 +23,8 @@ import uuid
 from pathlib import Path
 
 from .. import settings
+
+logger = logging.getLogger(__name__)
 
 INSTANCE_FILE = "instance_id"
 _VALID = re.compile(r"[0-9a-f]{32}")
@@ -69,8 +72,8 @@ def _mint(path):
     finally:
         try:
             os.unlink(tmp)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("could not remove temporary instance id file [PH_INSTANCE_ID]: %s", exc)
 
 
 def instance_id(data):
