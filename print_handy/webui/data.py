@@ -34,15 +34,19 @@ Each handler returns ``(http_code, body)`` in the Web UI's
 from __future__ import annotations
 
 import html
+import logging
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
 from . import share_export
 from . import shell
 from . import wrapped_video as video_module
+
+logger = logging.getLogger(__name__)
 
 DATA_OFF_REASON = ("the Data tab is off: set "
                    "[timelapse] data_enabled = true to allow it. Nothing shown.")
@@ -170,8 +174,10 @@ def _records_fingerprint(vault):
                     count += 1
                     newest = max(newest, stat.st_mtime_ns)
                     size += stat.st_size
-    except OSError:
-        pass
+    except OSError as exc:
+        # Partial directory scans must not become a shared, stale cache key.
+        logger.debug("could not enumerate print records [PH_WRAPPED_RECORDS]: %s", exc)
+        return (count, newest, size, uuid.uuid4().hex)
     return (count, newest, size)
 
 
@@ -290,12 +296,14 @@ def _display_tz(data):
     if name:
         try:
             return ZoneInfo(name)
-        except (ZoneInfoNotFoundError, ValueError):
-            pass
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            logger.debug("invalid configured display timezone; using fallback [PH_WRAPPED_TIMEZONE]: %s", exc)
+            name = ""
     try:
         from ..runtime import _config
         return _config.tz()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Could not load configured display timezone [PH_WRAPPED_TIMEZONE]: %s", exc)
         from datetime import timezone
         return timezone.utc
 

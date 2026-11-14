@@ -754,8 +754,8 @@ class _Handler(BaseHTTPRequestHandler):
     timeout = REQUEST_TIMEOUT_S
 
     # -- plumbing ---------------------------------------------------------
-    def log_message(self, *args):  # keep stdout clean; errors still surface as 500s
-        pass
+    def log_message(self, *args):  # stdlib access logs are intentionally disabled
+        log.debug("Web UI HTTP access log suppressed [PH_WEBUI_ACCESS]")
 
     def finish(self):
         # A refused body (_refuse_body) is drained after the answer is
@@ -766,8 +766,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.flush()
                 _drain(self.connection, self.rfile, unread)
-            except (OSError, ValueError):
-                pass  # the client went away or stalled; close as before
+            except (OSError, ValueError) as exc:
+                log.debug("client disconnected while draining refused request body [PH_WEBUI_DRAIN]: %s", exc)
         super().finish()
 
     def _content_length(self):
@@ -1065,8 +1065,8 @@ class _Handler(BaseHTTPRequestHandler):
         route's declared policy (_policy), then call its handler.
 
         A failure anywhere is a 500 with a request id, never a dropped
-        connection or the exception text (log_message is silenced; the
-        log keeps the traceback under the id the response names). A
+        connection or the exception text (the log keeps the traceback
+        under the id the response names). A
         method without its own routes gets the read-only refusal with no
         screens, as it always has."""
         path = urlparse(self.path).path
@@ -2846,7 +2846,7 @@ def serve(data=None, *, environ=None):
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        log.info("Web UI shutdown requested [PH_WEBUI_SHUTDOWN]")
     finally:
         server.server_close()
     return 0

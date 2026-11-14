@@ -52,6 +52,8 @@ the same provenance discipline as every other field.
 from __future__ import annotations
 
 import json
+import logging
+import tempfile
 from pathlib import Path
 
 from .. import settings, setup_state
@@ -62,6 +64,8 @@ from . import config as config_api
 from . import pages
 from . import shell
 from .catalog import config_page_visible
+
+logger = logging.getLogger(__name__)
 
 STATE_FILE = "webui_walkthrough.json"
 
@@ -220,8 +224,8 @@ def _mark_done(data, state, **extra):
     save_state(data, {**state, "done": True, **extra})
     try:
         setup_state.record_completion(data, "webui", skipped=bool(extra.get("skipped")))
-    except Exception:  # the shared record must never break the walkthrough
-        pass
+    except Exception as exc:  # the shared record must never break the walkthrough
+        logger.warning("could not record Web UI setup completion [PH_SETUP_COMPLETION]: %s", exc)
 
 
 def restart(data):
@@ -246,8 +250,8 @@ def reopen_at_login(data):
     if state.get("done") or not state.get("reopened"):
         try:
             save_state(data, {"step": _LOGIN_INDEX, "offered": True, "reopened": True})
-        except OSError:  # an unwritable state folder still renders a step
-            pass
+        except OSError as exc:  # an unwritable state folder still renders a step
+            logger.warning("could not reopen walkthrough state at login [PH_WALKTHROUGH_STATE]: %s", exc)
 
 
 def _step_index(state):

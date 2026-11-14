@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
 import re
 import shutil
@@ -56,6 +57,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..core import print_stats
+
+logger = logging.getLogger(__name__)
 
 MAX_CLIPS = 6
 # Of the MAX_CLIPS slots, up to this many are reserved for clips of
@@ -239,8 +242,11 @@ def _clip_roots(data):
     try:
         from .. import settings as _settings
         roots.append(_settings.state_dir(data) / "timelapse_plans")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(
+            "could not resolve configured state folder for Wrapped clips [PH_WRAPPED_CLIPS]: %s",
+            exc)
+        return roots
     return roots
 
 
@@ -841,6 +847,15 @@ def _sweep_stale_work(out_dir):
             continue
 
 
+def _notify_progress(progress, done_steps, total_steps):
+    if progress is None:
+        return
+    try:
+        progress(done_steps, total_steps)
+    except Exception as exc:
+        logger.debug("Wrapped video progress callback failed [PH_WRAPPED_PROGRESS]: %s", exc)
+
+
 def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
              runner, clips, slides, data, export_silent, tts_call, progress):
     labeled_rest = sum(1 + (1 if clip_label(entry, wrapped) else 0) for entry in clips[1:])
@@ -853,11 +868,7 @@ def _compile(year, wrapped, out_dir, work, notes, script, script_path, resolved,
     def step():
         nonlocal done_steps
         done_steps += 1
-        if progress is not None:
-            try:
-                progress(done_steps, total_steps)
-            except Exception:
-                pass
+        _notify_progress(progress, done_steps, total_steps)
 
     files = TextFiles(work)
     run = functools.partial(_run, runner, cwd=work)
