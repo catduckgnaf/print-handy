@@ -356,6 +356,28 @@ it loudly).
 container it restarts on its own. The row is a warning, not a doctor
 failure; the container healthcheck owns failing on a dead listener.
 
+### Marker codes: supervisor, crash, Web UI, and gate CLIs
+
+#### PH_SUPERVISOR_TRANSIENT {#ph-supervisor-transient}
+
+**What failed:** a supervised listener exited, is being restarted, or its restart state could not be recorded. The supervisor continues its existing restart policy; this marker does not change print behavior.
+**What to do:** check the named listener's log and the diagnostics bundle for its exit status and restart budget. No printer action is taken automatically by this marker.
+
+#### PH_CRASH_PROGRAMMING {#ph-crash-programming}
+
+**What failed:** Print Handy recorded an unhandled process exception. The record includes a redacted traceback and context when available.
+**What to do:** attach the locally generated diagnostics bundle to a report. Nothing is uploaded automatically.
+
+#### PH_GATE_CONFIGURATION {#ph-gate-configuration}
+
+**What failed:** a startup or health gate could not resolve Print Handy configuration and therefore could not make its start decision.
+**What to do:** correct the named configuration issue and rerun the relevant gate or `python3 -m print_handy.doctor`. Optional components and filament status are not converted into hard print blocks by this marker.
+
+#### PH_WEBUI_CONFIGURATION {#ph-webui-configuration}
+
+**What failed:** the Web UI could not resolve its configuration or bind its configured server endpoint.
+**What to do:** follow the configuration error, then check `[webui]` settings and the configured host and port. The Web UI failure does not stop unrelated print processes.
+
 ### Signature codes: parse
 
 A signature code means `failure_report.py` recognized the failure's

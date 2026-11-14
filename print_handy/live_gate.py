@@ -105,7 +105,7 @@ def main() -> int:
     try:
         config = live_config()
     except settings.SettingsError as exc:
-        print(f"live gate: configuration unresolved: {exc}", file=sys.stderr)
+        print(f"live gate: configuration unresolved: {exc} [PH_GATE_CONFIGURATION]", file=sys.stderr)
         return 2
     warning = settings.unknown_settings_warning()
     if warning:
