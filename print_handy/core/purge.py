@@ -143,7 +143,9 @@ def printer_id_for(state=None, data=None):
                 if str(entry.get('moonraker_url') or '').rstrip('/') == url:
                     return entry['id']
         return settings.default_printer_id(data)
-    except Exception:
+    except Exception as exc:
+        logger.warning("could not resolve the printer id for a purge record (%s: %s)",
+                       type(exc).__name__, exc)
         return None
 
 
@@ -156,7 +158,14 @@ def read_cache(printer_id, data=None):
     try:
         record = json.loads(_cache_path(printer_id, data).read_text())
         return record if isinstance(record, dict) else {}
-    except Exception:
+    except FileNotFoundError:
+        return {}  # no detection was ever taken: the documented empty case, not a failure
+    except (OSError, ValueError) as exc:
+        # A cache that exists but cannot be read or parsed (#1467): settings
+        # failures arrive as SettingsError, a ValueError. Anything else is a
+        # programming error and still raises.
+        logger.warning("could not read the cached purge detection for %s (%s: %s); "
+                       "treating it as no detection", printer_id, type(exc).__name__, exc)
         return {}
 
 
@@ -216,7 +225,9 @@ def refresh_best_effort(state, adapter=None, printer_id=None, data=None):
     """``refresh`` for intake: any failure leaves today's behavior in place."""
     try:
         return refresh(state, adapter, printer_id, data)
-    except Exception:
+    except Exception as exc:
+        logger.warning("purge detection refresh failed (%s: %s); keeping the previous behavior",
+                       type(exc).__name__, exc)
         return {}
 
 
@@ -359,7 +370,9 @@ def status_row(printer_id, data=None, adapter=None):
     """One printer's purge facts for the doctor and the Web UI (cached detection only), or None."""
     try:
         plan = resolve(printer_id, data, adapter=adapter)
-    except Exception:
+    except Exception as exc:
+        logger.warning("could not resolve the purge plan for %s (%s: %s); no status row",
+                       printer_id, type(exc).__name__, exc)
         return None
     if not plan.zmod:
         return None
