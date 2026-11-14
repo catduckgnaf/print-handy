@@ -13,6 +13,8 @@ import copy
 import json
 from unittest import mock
 
+import pytest
+
 from print_handy.runtime import lane_data_sync
 from print_handy.runtime import moonraker_event_listener as mel
 from print_handy.runtime import spool_sync
@@ -1302,3 +1304,182 @@ def test_a_vendor_name_in_a_material_label_is_tracking_not_identity(tmp_path):
     assert same("PLA", "Acme PLA+", "Acme") and not same("PLA", "Acme PLA+")
     assert "identity_conflict" not in _identity_events(tmp_path, "PLA", "eSUN PLA+")
 
+
+
+# --------------------------------------------------------------------- Print Handy's own moves vs the watcher
+
+WEB_PID = "flashforge-ad5x"
+
+
+def _web_data(tmp_path):
+    from print_handy import settings
+    local = tmp_path / "local.yaml"
+    local.write_text(f"paths:\n  state_home: {tmp_path}/hermes\n"
+                     "webui:\n  controls_enabled: true\n")
+    return settings.load(local=local, environ={})
+
+
+def _helix_echo(mr, pushes, *, keep_spool):
+    """What HelixScreen does with each CHANGE_ZCOLOR Print Handy sends.
+
+    The screen rewrites that slot's ``lane_data`` record in its own shape
+    (string inner ``lane``, ISO ``scan_time``) with the pushed material and
+    color. Seen on the AD5X: it keeps the record's ``spool_id`` on some
+    lanes and drops it on others, so both are modeled.
+    """
+    for slot, material, hex_code in pushes:
+        key = f"lane{slot}"
+        old = (mr.lanes or {}).get(key) or {}
+        record = {"lane": str(slot - 1), "material": material, "color": f"#{hex_code}",
+                  "scan_time": f"2026-11-14T15:5{slot}:35Z"}
+        if keep_spool and old.get("spool_id") is not None:
+            record["spool_id"] = old["spool_id"]
+        mr.lanes[key] = record
+    pushes.clear()
+
+
+def _ifs_scenario(tmp_path, monkeypatch):
+    """Spool #16 (White PLA) in slot 1 and #19 (Bronze PLA+) in slot 2, in step everywhere.
+
+    Returns (data, client, mr, state, watcher, pushes). The watcher runs
+    with the real converge (apply_screen_assignment through reconcile),
+    and every screen push is recorded for ``_helix_echo``.
+    """
+    white = spool(16, "White", "PLA", "FFFFFF", ph_slot=f"{WEB_PID}:1")
+    bronze = spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{WEB_PID}:2")
+    white["location"], bronze["location"] = "IFS Slot 1", "IFS Slot 2"
+    client = FakeSpoolman([white, bronze], fields=[{"key": "ph_slot"}])
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"spool": {}, "ph_slot_migrated": True, "filament_slots": {}}))
+    mr = FakeMoonraker(lanes={})
+    pushes = []
+    monkeypatch.setattr(spool_sync, "_printer_adapter", lambda pid: None)
+    monkeypatch.setattr(spool_sync, "push_screen",
+                        lambda slot, material, hex_code, **kw:
+                        pushes.append((slot, material, hex_code)) or "pushed")
+    pending = tmp_path / "pending.json"
+    result = spool_sync.reconcile(WEB_PID, client=client, mr=mr, state_path=state,
+                                  pending_path=pending)
+    assert result["ok"] and result["assignments"] == {1: 16, 2: 19}
+    for slot, sid in ((1, 16), (2, 19)):
+        spool_sync.write_lane_record(slot, client.spools[sid], mr=mr)
+    pushes.clear()
+    watcher = lane_data_sync.LaneDataWatcher(
+        tmp_path / "lane_watch.json", mr=mr, client=client, printer_id=WEB_PID,
+        printer_state_fn=lambda _mr: "standby", state_file=state, pending_file=pending)
+    assert watcher.poll() == []  # seeds the baseline
+    return _web_data(tmp_path), client, mr, state, watcher, pushes
+
+
+def _view_slots(data, client, state):
+    from print_handy.webui import spools as web_spools
+    code, view = web_spools.spools_view(data, WEB_PID, client=client, state_path=state)
+    assert code == 200, view
+    return {row["slot"]: (row["spool"] or {}).get("id") for row in view["slots"]}
+
+
+def _locations(client):
+    return {int(row["location"].rsplit(" ", 1)[1]): sid for sid, row in client.spools.items()
+            if str(row.get("location") or "").startswith("IFS Slot ")}
+
+
+def _route(data, name, client, mr, state, tmp_path, body):
+    from print_handy.webui import spools as web_spools
+    code, answer = getattr(web_spools, name)(data, WEB_PID, body, client=client, mr=mr,
+                                             state_path=state,
+                                             pending_path=tmp_path / "pending.json")
+    assert code == 200, answer
+    return answer
+
+
+@pytest.mark.parametrize("keep_spool", [True, False],
+                         ids=["screen-keeps-spool", "screen-drops-spool"])
+def test_api_swap_survives_the_screen_echo_and_the_watcher(tmp_path, monkeypatch, keep_spool):
+    data, client, mr, state, watcher, pushes = _ifs_scenario(tmp_path, monkeypatch)
+    _route(data, "swap", client, mr, state, tmp_path, {"slot_a": 1, "slot_b": 2})
+    _helix_echo(mr, pushes, keep_spool=keep_spool)
+    events = watcher.poll()
+    assert _locations(client) == {1: 19, 2: 16}
+    # The 2026-11-14 AD5X failure: slot 1 empty, slot 2 back on #19.
+    assert _view_slots(data, client, state) == {1: 19, 2: 16, 3: None, 4: None}
+    assert events == []  # Print Handy's own move is not a "HelixScreen change"
+    assert watcher.poll() == []
+    assert _view_slots(data, client, state) == {1: 19, 2: 16, 3: None, 4: None}
+    if keep_spool:
+        # The swap rewrote both lane records before the screen push.
+        assert mr.lanes["lane1"]["spool_id"] == 19 and mr.lanes["lane2"]["spool_id"] == 16
+
+
+@pytest.mark.parametrize("keep_spool", [True, False],
+                         ids=["screen-keeps-spool", "screen-drops-spool"])
+def test_unassign_both_then_reassign_crosswise_survives_the_watcher(tmp_path, monkeypatch,
+                                                                    keep_spool):
+    data, client, mr, state, watcher, pushes = _ifs_scenario(tmp_path, monkeypatch)
+    steps = (("unassign", {"slot": 1}), ("unassign", {"slot": 2}),
+             ("assign", {"slot": 1, "spool_id": 19}), ("assign", {"slot": 2, "spool_id": 16}))
+    for name, body in steps:
+        # The listener may poll between any two calls the card makes.
+        _route(data, name, client, mr, state, tmp_path, body)
+        _helix_echo(mr, pushes, keep_spool=keep_spool)
+        assert watcher.poll() == [], name
+    assert _locations(client) == {1: 19, 2: 16}
+    assert _view_slots(data, client, state) == {1: 19, 2: 16, 3: None, 4: None}
+
+
+def test_unassign_clears_the_slots_lane_record(tmp_path, monkeypatch):
+    data, client, mr, state, watcher, pushes = _ifs_scenario(tmp_path, monkeypatch)
+    _route(data, "unassign", client, mr, state, tmp_path, {"slot": 2})
+    record = mr.lanes["lane2"]
+    assert record.get("spool_id") is None and not record.get("material")
+    assert record["lane"] == 1
+    assert watcher.poll() == []
+    assert _view_slots(data, client, state) == {1: 16, 2: None, 3: None, 4: None}
+
+
+def test_stale_lane_naming_a_spool_bound_to_another_slot_is_named_not_rebound(tmp_path):
+    # #19 claims slot 1 in Spoolman. lane2 still names #19 (an old record the
+    # screen recolored) while lane1 is a spool-less screen record: nothing
+    # says #19 left slot 1, so the watcher must not move it back to slot 2.
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:1"),
+                           spool(16, "White", "PLA", "FFFFFF", ph_slot=f"{PID}:2")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32"),
+                       "lane2": lane(19, slot=2, material="PLA+", color="CD7F32")})
+    mr.lanes = {"lane1": {"lane": "0", "material": "PLA+", "color": "#CD7F32",
+                          "scan_time": "2026-11-14T15:56:35Z"},
+                "lane2": lane(19, slot=2, material="PLA", color="FFFFFF", scan_time=300)}
+    events = watcher.poll()
+    assert applied == []
+    assert [(e["kind"], e["slot"]) for e in events] == [("claimed_elsewhere", 2)]
+    assert "#19" in events[0]["text"] and "slot 1" in events[0]["text"]
+    assert watcher.poll() == []  # named once
+
+
+def test_screen_side_exchange_of_two_bound_spools_still_converges(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:1"),
+                           spool(16, "White", "PLA", "FFFFFF", ph_slot=f"{PID}:2")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32"),
+                       "lane2": lane(16, slot=2, material="PLA", color="FFFFFF")})
+    mr.lanes = {"lane1": lane(16, slot=1, material="PLA", color="FFFFFF", scan_time=300),
+                "lane2": lane(19, slot=2, material="PLA+", color="CD7F32", scan_time=300)}
+    events = watcher.poll()
+    assert applied == [(1, 16), (2, 19)]
+    assert [(e["kind"], e["slot"]) for e in events] == [("loaded", 1), ("loaded", 2)]
+
+
+def test_spool_less_screen_echo_matching_the_bound_spool_is_silent(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(19, "Bronze", "PLA+", "CD7F32", ph_slot=f"{PID}:1")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(19, slot=1, material="PLA+", color="CD7F32")})
+    mr.lanes = {"lane1": {"lane": "0", "material": "PLA+", "color": "#CD7F32",
+                          "scan_time": "2026-11-14T15:56:35Z"}}
+    assert watcher.poll() == []
+    assert applied == []
+    # A spool-less record that does not match the bound spool is still named.
+    mr.lanes = {"lane1": {"lane": "0", "material": "PETG", "color": "#00FF00",
+                          "scan_time": "2026-11-14T15:58:35Z"}}
+    assert [e["kind"] for e in watcher.poll()] == ["unresolved"]
