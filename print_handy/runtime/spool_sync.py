@@ -27,7 +27,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import moonraker, printers
+from .. import moonraker as _moonraker_transport
+from .. import printers
 from ..core import filament_color, spool_canon, spoolman_client
 from . import _config
 
@@ -60,7 +61,7 @@ def _http(base: str, method: str, path: str, body: Any = None, timeout: float = 
     # Through the one Moonraker transport (#1466), key included. A POST
     # with no body still sends "{}" exactly as before.
     data = {} if (method == "POST" and body is None) else body
-    return moonraker.moonraker_json(base, path, method=method, data=data, timeout=timeout,
+    return _moonraker_transport.moonraker_json(base, path, method=method, data=data, timeout=timeout,
                                     headers={"Content-Type": "application/json"})
 
 

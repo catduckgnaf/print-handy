@@ -57,7 +57,7 @@ class FakeMoonraker:
         self.print_state = print_state
         self.started = None
 
-    def __call__(self, url, *, data=None, headers=None, timeout=25):
+    def __call__(self, url, *, data=None, headers=None, timeout=25, moonraker_url=False):
         path = url.split("7125", 1)[1]
         self.requests.append({"path": path, "body": data})
         if path == "/printer/print/start":
