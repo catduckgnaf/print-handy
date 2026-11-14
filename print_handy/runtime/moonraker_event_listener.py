@@ -1442,6 +1442,17 @@ def _acknowledge_completion(completion_message):
 # never posted again, whichever route asks. A failed post does not spend
 # the key, so the callers' text-only fallbacks and later retry passes
 # still deliver a completion whose first attempt never landed.
+#
+# The durable record is scoped to the announcer's own delivery episode:
+# a key is recorded only when the completion being delivered is the
+# pending completion the announcer armed for this print (the pending
+# route, a retry after a lost acknowledgement, and the timelapse legs
+# all deliver that armed message). A post with no armed pending behind
+# it is a separate episode the announcer never armed — a fresh announcer
+# decision, whose own one-shot gates already applied, or a hand-driven
+# leg — and is not recorded, so a later print of the same file with the
+# same completion text still posts. The announcer's fresh state for a
+# new job drops the record with the rest of the episode's fields.
 _COMPLETION_POSTED_STATE_KEY = "posted_completion_keys"
 _COMPLETION_POST_LOCK = threading.Lock()
 _COMPLETION_POSTS_IN_FLIGHT = set()
@@ -1494,11 +1505,17 @@ def _post_completion(message, completion_message, job_key=None):
     (including by the earlier post this call stood down for), False when
     the post itself failed and a fallback or retry may still try.
     """
+    state = {}
+    try:
+        state = announcer.load_state()
+    except Exception:
+        state = {}
     if not job_key:
-        try:
-            job_key = announcer.load_state().get("job_key")
-        except Exception:
-            job_key = None
+        job_key = state.get("job_key")
+    # Only a delivery of the pending completion the announcer armed is
+    # recorded (see the note above): every duplicate route re-delivers
+    # that armed message, while unarmed posts are separate episodes.
+    pending_backed = announcer.pending_completion_message(state) == completion_message
     key = _completion_post_key(job_key, completion_message)
     with _COMPLETION_POST_LOCK:
         if key in _COMPLETION_POSTS_IN_FLIGHT:
@@ -1514,7 +1531,7 @@ def _post_completion(message, completion_message, job_key=None):
     finally:
         with _COMPLETION_POST_LOCK:
             _COMPLETION_POSTS_IN_FLIGHT.discard(key)
-    if delivered:
+    if delivered and pending_backed:
         _record_completion_posted(key)
     return delivered
 
