@@ -454,21 +454,30 @@ def job_correlation_section(data) -> str:
     from .jobs.common import ARCHIVE
     from .core import job_correlation
 
-    rows = []
     try:
-        jobs = sorted(ARCHIVE.glob("*/JOB.json"), key=lambda path: path.stat().st_mtime, reverse=True)
-        for path in jobs[:50]:
-            try:
-                job = json.loads(path.read_text())
-            except (OSError, ValueError):
-                continue
-            value = job_correlation.from_context(job if isinstance(job, dict) else None)
-            if value:
-                rows.append(f"- `{value}`")
-                if len(rows) == 10:
-                    break
+        found = list(ARCHIVE.glob("*/JOB.json"))
     except OSError:
         return "(unavailable: the job archive could not be read)"
+    # Newest first, over the whole archive: a fixed window of the newest files
+    # would report nothing when those jobs predate correlation ids (#1424
+    # review). A job removed between the listing and its stat is skipped.
+    dated = []
+    for path in found:
+        try:
+            dated.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    rows = []
+    for _mtime, path in sorted(dated, key=lambda item: item[0], reverse=True):
+        try:
+            job = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        value = job_correlation.from_context(job if isinstance(job, dict) else None)
+        if value:
+            rows.append(f"- `{value}`")
+            if len(rows) == 10:
+                break
     return "\n".join(rows) or "(no recorded job correlation IDs)"
 
 

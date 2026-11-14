@@ -75,3 +75,36 @@ def test_listener_binds_the_id_process_wide_and_clears_it(monkeypatch):
     assert seen == ["e" * 32]
     logs.unbind_process("job_correlation_id")
     assert "job_correlation_id" not in logs.bound_context()
+
+
+def test_bundle_finds_ids_older_than_the_newest_fifty_jobs(tmp_path, monkeypatch):
+    # #1424 review: 60 newer jobs without an id must not hide older ones with ids.
+    import os
+    from print_handy import diagnostics_bundle
+    from print_handy.jobs import common
+    archive = tmp_path / "archive"
+    for i in range(70):
+        folder = archive / f"job{i:02d}"
+        folder.mkdir(parents=True)
+        job = {"title": f"job{i}"}
+        if i < 3:
+            job["job_correlation_id"] = f"{i:x}" * 32
+        (folder / "JOB.json").write_text(json.dumps(job))
+        os.utime(folder / "JOB.json", (1_000_000 + i, 1_000_000 + i))  # job69 newest
+    monkeypatch.setattr(common, "ARCHIVE", archive)
+    section = diagnostics_bundle.job_correlation_section(None)
+    assert section.splitlines() == ["- `" + "2" * 32 + "`", "- `" + "1" * 32 + "`", "- `" + "0" * 32 + "`"]
+
+
+def test_bundle_skips_a_job_removed_mid_scan(tmp_path, monkeypatch):
+    from print_handy import diagnostics_bundle
+    from print_handy.jobs import common
+    archive = tmp_path / "archive"
+    (archive / "kept").mkdir(parents=True)
+    (archive / "kept" / "JOB.json").write_text(json.dumps({"job_correlation_id": "f" * 32}))
+    gone = archive / "gone" / "JOB.json"
+    real_glob = type(archive).glob
+    monkeypatch.setattr(common, "ARCHIVE", archive)
+    monkeypatch.setattr(type(archive), "glob",
+                        lambda self, pattern: [gone, *real_glob(self, pattern)] if self == archive else real_glob(self, pattern))
+    assert diagnostics_bundle.job_correlation_section(None) == "- `" + "f" * 32 + "`"
