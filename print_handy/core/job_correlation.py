@@ -5,7 +5,7 @@ import re
 import uuid
 
 _FIELD = "job_correlation_id"
-_PATTERN = re.compile(r"[0-9a-f]{32}")
+_PATTERN = re.compile(r"[0-9a-f]{32,64}")
 
 
 def ensure(job: dict) -> str:
