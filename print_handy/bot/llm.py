@@ -10,12 +10,15 @@ from __future__ import annotations
 import collections
 import contextlib
 import json
+import logging
 import re
 import threading
 import time
 
 from .. import ai_routes
 from ..runtime import _config
+
+logger = logging.getLogger(__name__)
 
 # Conversation is intentionally short-lived and process-local.  It makes a
 # normal back-and-forth useful without turning the chat lane into another
@@ -115,7 +118,7 @@ def _parse(content):
             if isinstance(data, dict):
                 return str(data.get("reply") or "").strip(), data.get("command")
         except ValueError:
-            pass
+            logger.debug("Failed to parse model JSON reply", exc_info=True)
     return text, None
 
 

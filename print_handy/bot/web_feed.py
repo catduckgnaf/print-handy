@@ -119,7 +119,7 @@ def publish(message, *, state_dir, platform="", alert=None, now=None) -> bool:
             try:
                 os.replace(path, _old_path(path))
             except OSError:
-                pass  # another listener rotated it first
+                logger.debug("Failed to rotate web feed; another listener may have rotated it first", exc_info=True)
         # One write of one whole line in append mode: listeners for
         # several printers can append at once without interleaving.
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)

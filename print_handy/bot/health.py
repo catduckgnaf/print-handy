@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import socket
 import math
@@ -15,6 +16,8 @@ import sys
 import time
 
 from ..runtime import _config
+
+logger = logging.getLogger(__name__)
 
 def path():
     return _config.state_file(None, "bot_health.json")
@@ -115,7 +118,7 @@ async def serve(port, status_func, host="0.0.0.0"):
                          f"Content-Length: {len(data)}\r\nConnection: close\r\n\r\n".encode() + data)
             await writer.drain()
         except Exception:
-            pass
+            logger.debug("Failed to write health response", exc_info=True)
         finally:
             writer.close()
 
