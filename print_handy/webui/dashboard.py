@@ -440,10 +440,10 @@ def _filament(card):
             _grams(spool.get("remaining_weight")),
             f"{round(percent)}%" if isinstance(percent, (int, float)) else "") if bit)
         loaded.append(
-            f'<div class="slot">{_disc(spool)}'
+            f'<a class="slot slot-link" href="/spools/{printer_id}" aria-label="Manage spool in slot {int(row.get("slot") or 0)}">{_disc(spool)}'
             f'<div>{_esc(spool.get("name") or "")}</div>'
             f'<div class="muted">{_esc(spool.get("material") or "")}</div>'
-            f'<div class="muted">{_esc(meta)}</div></div>')
+            f'<div class="muted">{_esc(meta)}</div><span class="slot-action">Manage spool →</span></a>')
     parts = ['<h3>Filament</h3>', f'<div class="slots">{"".join(loaded)}</div>']
     if shelf:
         groups = {}

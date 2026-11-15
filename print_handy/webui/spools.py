@@ -932,6 +932,18 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         if shelf_options:
             actions += _replace_form(form_token, pid, row["slot"], shelf_options,
                                      label="Replace with" if spool else "Load")
+        if spool:
+            actions += _form(form_token, pid, "edit",
+                f'<input type="hidden" name="spool_id" value="{esc(spool["id"])}">'
+                '<label>Rename <input name="name" required></label> '
+                '<button type="submit" class="secondary">Rename</button>', attrs='class="inline"')
+            actions += _form(form_token, pid, "unassign",
+                f'<input type="hidden" name="slot" value="{row["slot"]}">'
+                '<button type="submit" class="secondary">Put back on shelf</button>', attrs='class="inline"')
+            actions += _form(form_token, pid, "edit",
+                f'<input type="hidden" name="spool_id" value="{esc(spool["id"])}">'
+                '<input type="hidden" name="archived" value="true">'
+                '<button type="submit" class="secondary">Archive</button>', attrs='class="inline"')
         loaded_rows.append(f"<tr><th>Slot {row['slot']}</th><td>{cell}</td><td>{actions}</td></tr>")
     parts.append(f'<h2>Loaded</h2><div class="table-scroll"><table>{"".join(loaded_rows)}</table></div>'
                  '<p class="help">Set corrects the grams left on the spool in Spoolman. '
