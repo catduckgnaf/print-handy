@@ -2552,10 +2552,7 @@ def color_groups(manifest, selected_plate_ids=None, *, rows=None):
     ``rows`` lets a caller that already built the grouped prompts hand them
     over instead of paying for the per-part grouping again. They must come
     from ``grouped_prompts`` for the same manifest and ``selected_plate_ids``
-    as this call; nothing checks that: on a several-hundred-part source one pass is a visible
-    slice of the time to the first color question, and the intake ask path
-    used to run it three times (its own grouping, this one, and the one
-    inside propose_mapping)."""
+    as this call; nothing checks that."""
     if rows is None:
         rows = grouped_prompts(manifest, selected_plate_ids=selected_plate_ids)
     parts = {p['key']: p for p in manifest.get('parts') or []}
@@ -2632,9 +2629,9 @@ def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=Non
     'matched': int}. Pure: applies nothing.
 
     ``groups`` lets a caller that already grouped the source's colors hand
-    the groups over; regrouping here cost a second full per-part pass on
-    every color-plan ask. They must come from ``color_groups`` for the same
-    manifest and ``selected_plate_ids`` as this call; nothing checks that."""
+    the groups over instead of regrouping. They must come from ``color_groups``
+    for the same manifest and ``selected_plate_ids`` as this call; nothing
+    checks that."""
     from . import filament_color
     if groups is None:
         groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)

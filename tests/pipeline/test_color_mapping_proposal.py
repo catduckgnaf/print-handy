@@ -367,11 +367,6 @@ def test_discord_color_flow_groups_once_before_the_first_question(tmp_path, monk
     so the remembered lookup really groups when it is not handed the groups."""
     p = plaque(tmp_path)
     jp = _job(tmp_path, p)
-    asyncio.run(collect(jp, plaque_state(), Adapter([0]), 'offline', 'colors-count-seed', timeout=1))
-    jp2 = tmp_path / 'repost' / 'JOB.json'
-    jp2.parent.mkdir()
-    jp2.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
-                               'color_manifest': source_colors.inventory(p)}))
     counts = _count_grouping(monkeypatch)
     seen = {}
 
@@ -380,9 +375,23 @@ def test_discord_color_flow_groups_once_before_the_first_question(tmp_path, monk
             seen.setdefault('first', dict(counts))
             return await super().send_clarify(**kwargs)
 
-    adapter = Counting([0])  # Same colors as last time
-    asyncio.run(collect(jp2, plaque_state(), adapter, 'offline', 'colors-count', timeout=1))
-    assert adapter.questions[0]['choices'][0] == 'Same colors as last time'
+    # First-use path exercises propose_mapping(groups=groups).
+    first = Counting([0])
+    asyncio.run(collect(jp, plaque_state(), first, 'offline', 'colors-count-first', timeout=1))
+    assert first.questions[0]['choices'][0] == 'Use these colors'
+    assert seen['first']['color_groups'] == 1, seen['first']
+    assert seen['first']['grouped_prompts'] == 1, seen['first']
+
+    # Repost path exercises remembered_color_mapping(groups=groups).
+    counts.update(grouped_prompts=0, color_groups=0)
+    seen.clear()
+    jp2 = tmp_path / 'repost' / 'JOB.json'
+    jp2.parent.mkdir()
+    jp2.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                               'color_manifest': source_colors.inventory(p)}))
+    repost = Counting([0])
+    asyncio.run(collect(jp2, plaque_state(), repost, 'offline', 'colors-count-repost', timeout=1))
+    assert repost.questions[0]['choices'][0] == 'Same colors as last time'
     assert seen['first']['color_groups'] == 1, seen['first']
     assert seen['first']['grouped_prompts'] == 1, seen['first']
 
