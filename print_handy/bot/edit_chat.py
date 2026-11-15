@@ -5,7 +5,6 @@ plugin's gate, confirm, state and design helpers without importing the
 plugin file.
 """
 import asyncio
-import contextlib
 import contextvars
 import copy
 import json
@@ -646,11 +645,13 @@ async def _repair_flow(event, gateway, source, adapter):
         # slots, as the intake fix does (#985); an unresolvable mapping, or
         # one matching no filament in this job, changes nothing.
         resolver = None
-        with contextlib.suppress(Exception):
+        try:
             from print_handy.core import printer_state
             pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
             fix_state = printer_state.load(**_h()._pkw(pid))
             resolver = lambda sel: mj.resolve_filament_selection(fix_state, sel)  # noqa: E731
+        except Exception:
+            logger.warning("could not resolve filament mapping against printer state", exc_info=True)
         if resolver is None:
             ai_fix.discard_fixed_copy(fixed_path)
             await say('That filament mapping cannot be applied here (the printer state is '

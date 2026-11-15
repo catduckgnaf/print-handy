@@ -43,12 +43,15 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import logging
 import json
 import os
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from .. import live_stream
 from . import _config, timelapse_capture, vertical_short
@@ -350,8 +353,10 @@ def render_lock(target):
             yield
         finally:
             if handle is not None:
-                with contextlib.suppress(OSError):
+                try:
                     fcntl.flock(handle, fcntl.LOCK_UN)
+                except OSError:
+                    logger.debug("could not release timelapse lock", exc_info=True)
                 handle.close()
 
 
