@@ -180,14 +180,54 @@ it reads the same two facts through Moonraker: ZMod's `start.sh` writes the
 OS name as `zmod <USB version> -> <current version>`, which
 `/machine/system_info` reports, and the release names the target.
 
-Only ZMod printers get alerts in this release: the AD5X, AD5M, AD5M Pro,
-Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`), and only for the
-ZMod component. Generic Klipper printers, other Moonraker components
+Only ZMod printers get this alert, with its Update button: the AD5X, AD5M,
+AD5M Pro, Creator 5 and Creator 5 Pro under ZMod (`flashforge.*`), and only
+for the ZMod component. Every other firmware Print Handy follows gets a
+plain release notice instead (next section). Generic Klipper printers, other Moonraker components
 (Klipper, Moonraker, Fluidd/Mainsail, plugins) and every other family are
 #1294: vendor Klipper forks (Elegoo Neptune 4, Creality, QIDI, Anycubic,
 Snapmaker) are never apply-eligible, and Bambu Lab, PrusaLink, OctoPrint,
 SDCP and stock Flashforge have no update-availability state Print Handy can
 read (the matrix below).
+
+## Release notices for every other firmware
+
+Print Handy follows the releases of the firmware its printers run through
+the [firmware feed](FIRMWARE-FEED.md): one public file, rebuilt by GitHub
+Actions every six hours, with the newest release of each firmware and the
+printer models it belongs to. For each printer on the roster whose model
+the feed covers, Print Handy posts one notice in that printer's chat when
+a newer release appears:
+
+> **New OpenCreator release for Shop Creator:** 0.0.7.4.
+> OpenCreator updates itself from its own updater, or from Fluidd or
+> Mainsail; an update can flash the printer's boards, so never start one
+> during a print. Print Handy reports OpenCreator updates and does not
+> apply them.
+> Release notes: the release's page on GitHub
+
+- **No button, and no claim about your printer.** The notice says a release
+  was published and how that firmware is updated. It does not say the
+  printer is out of date: for these firmware lines Print Handy has no
+  trustworthy installed version to compare. `/print-firmware` shows what
+  the printer itself reports.
+- **Which firmware.** Forge-X (AD5M, AD5M Pro), OpenCreator (Creator 5,
+  Creator 5 Pro), Klipper and Moonraker (generic Klipper, Sovol SV06),
+  OctoPrint and Marlin, Prusa Buddy per printer line, and QIDI per model.
+  The list is `docs/firmware-feed.toml`. Firmware published only through
+  a vendor's cloud or download page (Bambu Lab, stock Flashforge, Creality
+  and Anycubic stock firmware, Elegoo) has no release feed to follow and
+  gets no notice.
+- **One notice per release**, remembered in the printer's state folder so a
+  restart does not repeat it. The first time a firmware line is seen its
+  current release is recorded without a notice. A ZMod printer gets the
+  ZMod alert above, not a second notice for ZMod.
+- **Same switch, same interval** as the ZMod alerts (`[firmware]
+  update_alerts`, `update_check_hours`). The check reads the feed and
+  nothing from the printer, and fails soft: an unreachable feed sends
+  nothing and is read again later.
+- **In the Web UI**, the Firmware page (`/firmware`) shows the same
+  releases per printer at any time, with the audited version beside each.
 
 ## What "update ZMod from Print Handy" covers and does not cover
 
