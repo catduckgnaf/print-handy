@@ -2,9 +2,12 @@
 (printers.flashforge.zmod); the single-extruder adapter below shares only the
 ZMod start code and Moonraker transport, with every IFS behaviour off; the
 multi-tool adapter models the Creator toolheads as tools, not IFS slots."""
+import logging
 import re
 
 from ..base import MultiColorUnsupported, PrinterAdapter, basic_status
+
+logger = logging.getLogger(__name__)
 
 # Heater ceilings from the printer profile (#1147), read through fact() by
 # core.heater_ceiling. Flashforge's published AD5X specification gives a 300 C
@@ -198,7 +201,21 @@ class ZmodMultiToolAdapter(ZmodSingleExtruderAdapter):
                 problems.append(f"toolhead {tool + 1} ({name}) is not reporting")
         color = status.get("zmod_color")
         if not isinstance(color, dict):
-            problems.append("zmod_color is not reporting (the active tool is unknown)")
+            objects = kw.get("objects_list")
+            if objects is None and callable(kw.get("probe_objects")):
+                try:
+                    objects = kw["probe_objects"]()
+                except Exception as exc:
+                    logger.debug("Moonraker objects probe failed during readiness check: %s", exc)
+                    objects = None
+            mismatch = None
+            if objects is not None:
+                from .opencreator_detect import (
+                    detect_creator_firmware,
+                    zmod_opencreator_mismatch_message,
+                )
+                mismatch = zmod_opencreator_mismatch_message(detect_creator_firmware(objects))
+            problems.append(mismatch or "zmod_color is not reporting (the active tool is unknown)")
         elif color.get("active_tool_id") is None:
             problems.append("zmod_color does not report an active tool")
         else:

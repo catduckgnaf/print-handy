@@ -184,6 +184,47 @@ def check_zmod_version(data):
     return "unknown (not reported by Moonraker)"
 
 
+def check_firmware_identity(data):
+    """Detected firmware vs configured model for every Creator roster entry (#1490)."""
+    from .printers.flashforge.opencreator_detect import (
+        CREATOR_ZMOD_MODELS,
+        detect_creator_firmware,
+        zmod_opencreator_mismatch_message,
+    )
+
+    entries = [e for e in settings.printers(data) if e.get("model") in CREATOR_ZMOD_MODELS]
+    if not entries:
+        return None
+    parts = []
+    mismatches = []
+    for entry in entries:
+        pid = entry["id"]
+        model = entry["model"]
+        view = settings.view_for(pid, data)
+        url = (view.get("services") or {}).get("moonraker_url", "").strip()
+        if not url:
+            parts.append(f"{pid}: {model} (no moonraker_url)")
+            continue
+        try:
+            reply = moonraker.moonraker_json(url.rstrip("/"), "/printer/objects/list", timeout=5)
+        except Exception as exc:
+            parts.append(f"{pid}: {model} (Moonraker unreachable: {exc})")
+            continue
+        objects = ((reply or {}).get("result") or {}).get("objects")
+        if not isinstance(objects, list):
+            parts.append(f"{pid}: {model} (objects list unavailable)")
+            continue
+        detection = detect_creator_firmware(objects)
+        mismatch = zmod_opencreator_mismatch_message(detection)
+        if mismatch:
+            mismatches.append(f"{pid}: {mismatch}")
+        else:
+            parts.append(f"{pid}: {model} -> {detection.firmware}")
+    if mismatches:
+        raise RuntimeError("; ".join([*mismatches, *parts]))
+    return " | ".join(parts)
+
+
 def check_purge(data):
     """Where each ZMod printer's color-change purge goes, and which ZMod plugins are enabled (#832).
 
@@ -355,6 +396,7 @@ def run(out=sys.stdout):
     for key in SERVICE_PATHS:
         report(key.replace("_url", ""), check_service, data, key)
     report("zmod version", check_zmod_version, data)
+    report("firmware identity", check_firmware_identity, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
     report("logging", check_logging, data)

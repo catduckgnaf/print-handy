@@ -10,6 +10,8 @@ Flashforge printers running [ZMod](https://zmod.link) are Print Handy's home pla
 | Flashforge Creator 5 | `flashforge.creator5` | 256 × 256 × 256 mm | 4 independent toolheads | Supported |
 | Flashforge Creator 5 Pro | `flashforge.creator5_pro` | 256 × 256 × 256 mm | 4 independent toolheads | Supported |
 
+> **ZMod vs OpenCreator on Creator 5 / 5 Pro:** `flashforge.creator5` and `flashforge.creator5_pro` require ZMod firmware (`zmod_color`). If the printer is running [OpenCreator](https://opencreator.readthedocs.io/en/latest/) (`creator5_toolchanger` present and `zmod_color` absent), print readiness and `python3 -m print_handy.doctor` fail closed and report the firmware mismatch ([#1490](https://github.com/catduckgnaf/print-handy/issues/1490)).
+
 Every profile in this table is offline-verified. The only live checks so far
 are on one AD5X (ZMod 1.7.5-2, screenless): Z offset sync, a full mesh run
 and IFS slot presence, listed in [DEVICE-AD5X.md](DEVICE-AD5X.md#verified-on-hardware).

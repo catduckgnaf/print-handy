@@ -46,7 +46,7 @@ The generic model refuses multi-color and multi-plate sources. It slices with th
 
 **Marlin behind OctoPrint.** Select `octoprint.marlin`, set `services.octoprint_url`, supply the OctoPrint API key as a secret, and override the placeholder dimensions the same way. Four Enders already have presets with real dimensions. See [OctoPrint + Marlin](OCTOPRINT-MARLIN.md).
 
-**Anything else** (a vendor LAN protocol, a cloud-only printer) needs a new adapter, which is a larger contribution. Open a request first so the approach is agreed before code is written.
+**Anything else** (a vendor LAN protocol, a cloud-only printer, or an alternate custom firmware such as OpenCreator on the Creator 5 / 5 Pro, tracked in [#1490](https://github.com/catduckgnaf/print-handy/issues/1490)) needs a new adapter, which is a larger contribution. Open a request first so the approach is agreed before code is written. (Pointing a ZMod Creator profile at an OpenCreator printer fails readiness and `python3 -m print_handy.doctor` with a firmware mismatch message.)
 
 Before the first print on any generic setup, run `python3 -m print_handy.doctor` (it contacts the services you configured), slice a small test part with the bed clear, and read the start G-code in the output. If it homes, heats and levels the way your own slicer's start code does, you are in good shape. If anything looks wrong, stop and file a request.
 

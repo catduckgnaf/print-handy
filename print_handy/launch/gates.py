@@ -139,7 +139,10 @@ def _verify_readiness_adapter(adapter, state, selection=None):
     try:
         objects = urllib.parse.quote("&".join(adapter.moonraker_objects()), safe="&")
         status = request_json(f"{state['moonraker_url']}/printer/objects/query?{objects}")["result"]["status"]
-        problems = adapter.readiness_problems(state, status, selection)
+        def _probe_objects():
+            reply = request_json(f"{state['moonraker_url']}/printer/objects/list")
+            return (reply.get("result") or {}).get("objects")
+        problems = adapter.readiness_problems(state, status, selection, probe_objects=_probe_objects)
         if problems:
             raise RuntimeError("; ".join(problems))
     except Exception as exc:
