@@ -47,6 +47,7 @@ def harness(tmp_path, monkeypatch):
     from print_handy.runtime import _config
 
     data = load_settings(tmp_path)
+    data["paths"]["archive"] = str(tmp_path / "model-link-intakes")
     monkeypatch.setattr(_config, "_override", data)
     seen = {"answers": [], "starts": [], "events": []}
 
@@ -301,9 +302,8 @@ def _write_receipt(tmp_path, scope, iid="abc", gcode=None):
 
 def test_receipt_lookup_is_scope_bound(tmp_path):
     data = load_settings(tmp_path)
-    job = tmp_path / "job"
-    job.mkdir()
-    gcode = job / "plate_1.gcode"
+    gcode = workflow.intake_root(data) / "job" / "plate_1.gcode"
+    gcode.parent.mkdir(parents=True)
     gcode.write_text(GCODE, encoding="utf-8")
     _write_receipt(tmp_path, "scope-a", gcode=gcode)
     assert workflow.latest_receipt(data, "scope-a")["intake_id"] == "abc"
@@ -354,7 +354,24 @@ def test_download_target_serves_only_plate_files(tmp_path):
     plate = tmp_path / "plate_1.gcode"
     plate.write_text("G28")
     receipt = {"intake_id": "abc", "gcodes": [str(secret), str(plate)]}
-    with mock.patch.object(workflow, "receipt_for", return_value=receipt):
-        assert workflow.download_target({}, "scope", "abc", "0") is None
-        assert workflow.download_target({}, "scope", "abc", "1") == plate.resolve()
-        assert workflow.download_target({}, "scope", "abc", "²") is None
+    data = {"paths": {"state_home": tmp_path}}
+    with mock.patch.object(workflow, "intake_root", return_value=tmp_path):
+        with mock.patch.object(workflow, "receipt_for", return_value=receipt):
+            assert workflow.download_target(data, "scope", "abc", "0") is None
+            assert workflow.download_target(data, "scope", "abc", "1") == plate.resolve()
+            assert workflow.download_target(data, "scope", "abc", "²") is None
+
+
+def test_download_target_rejects_plate_outside_archive(tmp_path):
+    """A receipt cannot expose a plate path outside the configured archive."""
+    from print_handy.webui import workflow
+
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    external = tmp_path / "plate_1.gcode"
+    external.write_text("G28")
+    receipt = {"intake_id": "abc", "gcodes": [str(external)]}
+    data = {"paths": {"state_home": tmp_path}}
+    with mock.patch.object(workflow, "intake_root", return_value=archive):
+        with mock.patch.object(workflow, "receipt_for", return_value=receipt):
+            assert workflow.download_target(data, "scope", "abc", "0") is None
