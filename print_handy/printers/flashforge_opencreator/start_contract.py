@@ -178,6 +178,34 @@ def synthesize_start(text):
         used_tools=used_tools, hotends=hotends, idles=idles)
 
 
+OPTION_DEFAULTS = {
+    "flow_calibration": 0,
+    "purge": 1,
+    "purge_line": 1,
+    "purge_line_all_tools": 0,
+    "bed_leveling": 1,
+    "host_pressure_advance": 0,
+}
+
+
+def option_params(options=None):
+    """Render explicit OpenCreator switches for a C5_PRINT_START line.
+
+    Values default to the modeled firmware settings and accept only boolean
+    values; unknown or malformed inputs fail closed instead of entering G-code.
+    """
+    options = options if isinstance(options, dict) else {}
+    params = {"FLOW_CALIBRATION": 0, "PURGE": 1, "PURGE_LINE": 1,
+              "PURGE_LINE_ALL_TOOLS": 0, "BED_LEVELING": 1,
+              "HOST_PRESSURE_ADVANCE": 0, "BUILDPLATE_CHECK": 0}
+    for key, default in OPTION_DEFAULTS.items():
+        value = options.get(f"opencreator_{key}", bool(default))
+        if type(value) is not bool:
+            raise ValueError(f"opencreator_{key} must be a boolean")
+        params[key.upper()] = int(value)
+    return params
+
+
 def first_selected_tool(text):
     """The first tool the file's header selects (T0 to T3 or AFC_SELECT_TOOL), or None."""
     text = text if isinstance(text, str) else ""
