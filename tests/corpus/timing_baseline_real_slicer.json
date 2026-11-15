@@ -1,4 +1,71 @@
 {
+ "by_cpu": {
+  "AMD EPYC 9V74 80-Core Processor": {
+   "cases": {
+    "plates-multicolor/direct": {
+     "first_prompt_s": 0.24,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.24,
+      "fit_check_s": 0.01,
+      "wall_s": 1.54
+     },
+     "wall_s": 1.54
+    },
+    "rotation-fit/direct": {
+     "first_prompt_s": 0.11,
+     "fit_check_s": 3.35,
+     "original": {
+      "first_prompt_s": 0.11,
+      "fit_check_s": 3.35,
+      "wall_s": 5.99
+     },
+     "wall_s": 5.99
+    },
+    "single-part/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 4.96,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 4.96,
+      "wall_s": 5.46
+     },
+     "wall_s": 5.46
+    },
+    "stl-large-plate/direct": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 0.61,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 0.61,
+      "wall_s": 18.54
+     },
+     "wall_s": 18.54
+    },
+    "stl-single-part/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 4.83,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 4.83,
+      "wall_s": 5.38
+     },
+     "wall_s": 5.38
+    },
+    "witch-ghost-cults3d/direct": {
+     "first_prompt_s": 0.39,
+     "fit_check_s": 5.67,
+     "original": {
+      "first_prompt_s": 0.39,
+      "fit_check_s": 5.67,
+      "wall_s": 12.97
+     },
+     "wall_s": 12.97
+    }
+   },
+   "recorded_from": "CI run 43685401435 (595ef054ddd0b333a28071e354bf26e298e0e2d4), artifact slicer-timing-real, median of 3, 2.3.4 release, runner CPU AMD EPYC 9V74 80-Core Processor"
+  }
+ },
  "cases": {
   "plates-multicolor/direct": {
    "first_prompt_s": 0.3,
