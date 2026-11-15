@@ -86,7 +86,7 @@ Print Handy knows 84 printer models, grouped by how they connect. Any Klipper pr
 
 | Connects by | What you get | Printers |
 |---|---|---|
-| **Moonraker (Klipper)** | The full flow: slicing, gated print start, progress, alerts, timelapses | Flashforge AD5X, AD5M and Creator 5 lines on [ZMod](docs/ZMOD.md), Creator 5 lines on [OpenCreator](docs/OPENCREATOR.md), [Elegoo](docs/ELEGOO.md) Neptune 4, [Qidi](docs/QIDI.md), [Creality](docs/CREALITY.md) K1 and Ender-3 V3, [Anycubic](docs/ANYCUBIC.md) Kobra 2, [Sovol](docs/SOVOL.md), [Snapmaker](docs/SNAPMAKER.md) U1, and any other Klipper printer |
+| **Moonraker (Klipper)** | The full flow: slicing, gated print start, progress, alerts, timelapses | Flashforge AD5X, AD5M and Creator 5 lines on [ZMod](docs/ZMOD.md), AD5M lines on [Forge-X](docs/FORGEX.md), Creator 5 lines on [OpenCreator](docs/OPENCREATOR.md), [Elegoo](docs/ELEGOO.md) Neptune 4, [Qidi](docs/QIDI.md), [Creality](docs/CREALITY.md) K1 and Ender-3 V3, [Anycubic](docs/ANYCUBIC.md) Kobra 2, [Sovol](docs/SOVOL.md), [Snapmaker](docs/SNAPMAKER.md) U1, and any other Klipper printer |
 | **Bambu Lab LAN** | Slicing and packaging, with opt-in LAN status, upload and gated start | A1, P1, P2S, X1, H2 and X2D lines. See [Bambu Lab printers](docs/BAMBU-LAB.md) |
 | **PrusaLink** | Slicing, with opt-in LAN status, upload and gated start | MK4S, CORE One, XL, MINI+. See [Prusa printers](docs/PRUSA.md) |
 | **Flashforge stock LAN** | The printer's own LAN API, no ZMod needed | AD5X. See [Stock Flashforge printers](docs/FLASHFORGE-STOCK.md) |

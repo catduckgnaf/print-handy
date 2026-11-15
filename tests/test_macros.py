@@ -208,6 +208,21 @@ def test_opencreator_macro_scope_is_exactly_set_print_stats_info(registry):
             assert "flashforge_opencreator.creator5_pro" in entry.printers
 
 
+def test_forgex_macro_scope_is_exactly_set_print_stats_info(registry):
+    # The exact assertion for the #1506 scope widening of
+    # klipper.set-print-stats-info, on the #1490 pattern: the Forge-X
+    # AD5M models gain exactly that entry and nothing else, because
+    # their documented start form emits SET_PRINT_STATS_INFO and no
+    # other scoped macro entry names a macro their files use (their
+    # START_PRINT is Forge-X's own, not the ZMod entry of that name).
+    for key in ("flashforge_forgex.ad5m", "flashforge_forgex.ad5m_pro"):
+        assert _applicable_macro_ids(registry, key) == {"klipper.set-print-stats-info"}, key
+    for entry in registry.firmware_entries:
+        if entry.id == "klipper.set-print-stats-info":
+            assert "flashforge_forgex.ad5m" in entry.printers
+            assert "flashforge_forgex.ad5m_pro" in entry.printers
+
+
 def test_snapmaker_u1_macro_scope_is_exactly_the_print_start_pair(registry):
     # The exact assertion for the klipper.print-start / print-end scope
     # widening (the two entries sit in the widened set in

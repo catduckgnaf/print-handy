@@ -37,7 +37,8 @@ ARTIFACT_KEYS = ("machine_start_gcode", "machine_end_gcode", "post_process",
 # Models whose baseline ships, approved from model_artifact(key, adapter=True) (#868).
 SHIPPED = ("flashforge.ad5m", "flashforge.ad5m_pro", "flashforge.creator5", "flashforge.creator5_pro",
            "flashforge_stock.ad5x",
-           "flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro")
+           "flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro",
+           "flashforge_forgex.ad5m", "flashforge_forgex.ad5m_pro")
 
 
 def config_for(key):

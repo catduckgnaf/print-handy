@@ -127,6 +127,7 @@ class ContractTests(unittest.TestCase):
                                        "flashforge.ad5m", "flashforge.ad5m_pro",
                                        "flashforge.creator5", "flashforge.creator5_pro",
                                        "flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro",
+                                       "flashforge_forgex.ad5m", "flashforge_forgex.ad5m_pro",
                                        "bambulab.a1mini", "bambulab.p1p", "bambulab.x1", "bambulab.x1c",
                                        "bambulab.x1e", "bambulab.p2s", "bambulab.h2s", "bambulab.h2d",
                                        "bambulab.h2dpro", "bambulab.x2d", "bambulab.h2c", "bambulab.a2l",

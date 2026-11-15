@@ -25,7 +25,11 @@ The ZMod profiles are covered in [ZMod printers](ZMOD.md). The Creator 5
 and Creator 5 Pro also run a second custom firmware, OpenCreator, with
 its own profiles (`flashforge_opencreator.creator5`,
 `flashforge_opencreator.creator5_pro`); see
-[OpenCreator printers](OPENCREATOR.md). Nothing on this page claims stock-firmware support for a model without a stock profile.
+[OpenCreator printers](OPENCREATOR.md). The Adventurer 5M and
+Adventurer 5M Pro also run a second custom firmware, Forge-X, with
+its own profiles (`flashforge_forgex.ad5m`,
+`flashforge_forgex.ad5m_pro`); see [Forge-X printers](FORGEX.md).
+Nothing on this page claims stock-firmware support for a model without a stock profile.
 
 ## How Print Handy talks to it
 
