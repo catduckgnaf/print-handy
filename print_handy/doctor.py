@@ -12,11 +12,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
+import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from pathlib import Path
 
-from . import diagnostics, settings, state_files, state_volume
+from . import diagnostics, moonraker, settings, state_files, state_volume
 from .core import resources, spoolman_client
+from .jobs import timing_report
 
 # Moonraker and Spoolman endpoints that answer without auth when the service is up.
 SERVICE_PATHS = {"moonraker_url": "/printer/info", "spoolman_url": "/api/v1/health"}
@@ -35,6 +36,20 @@ def check_state_volume(data):
     whether the legacy /data/hermes volume is the one actually holding the
     data (entrypoint symlink, an explicit legacy path, or both present)."""
     return state_volume.describe_state_volume(data["paths"]["state_home"])
+
+
+def check_timing(data):
+    """The real user-facing waits from the archive's TIMING.jsonl files
+    (#1476): the same report the diagnostics bundle and the Web UI
+    Timing page show. Returns (text, over_budget) or None when the
+    archive holds no timing data yet."""
+    archive = (data.get("paths") or {}).get("archive")
+    if not archive:
+        return None
+    report = timing_report.build_report(archive)
+    if not report["jobs_used"]:
+        return None
+    return timing_report.render_text(report), bool(timing_report.check_budgets(report))
 
 
 def check_model(data):
@@ -135,20 +150,20 @@ def check_service(data, key):
         if not ok:
             raise RuntimeError(f"{url} Spoolman health check failed: {detail}")
         return url
-    with urllib.request.urlopen(url.rstrip("/") + SERVICE_PATHS[key], timeout=5) as resp:
+    # Moonraker through the one transport (#1466): the API key goes out,
+    # and a 401/403 surfaces as an auth failure naming MOONRAKER_API_KEY.
+    with moonraker.open_url(url.rstrip("/") + SERVICE_PATHS[key], timeout=5, moonraker=True) as resp:
         if resp.status != 200:
             raise RuntimeError(f"{url} answered {resp.status}")
     return url
 
 
 def _moonraker_transport(base_url):
-    """The firmware reader's transport shape over plain urllib, as check_service does it."""
+    """The firmware reader's transport shape over the one Moonraker transport, as check_service does it."""
     def call(method, path, body=None):
-        payload = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(base_url.rstrip("/") + path, data=payload, method=method,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return json.loads(resp.read().decode() or "{}")
+        return moonraker.moonraker_json(base_url.rstrip("/"), path, method=method,
+                                        data=body, timeout=5,
+                                        headers={"Content-Type": "application/json"})
     return call
 
 
@@ -393,6 +408,17 @@ def run(out=sys.stdout):
     except Exception as exc:  # a state problem is reported, never a failed check
         debug_row = f"could not check: {exc}"
     print(f"WARN  debug mode: {debug_row}" if debug_row else "ok    debug mode: off", file=out)
+    try:
+        timing_row = check_timing(data)
+    except Exception as exc:  # a reporting problem is a warning, never a failed check
+        timing_row = (f"could not check: {exc}", True)
+    if timing_row is None:
+        print("skip  timing: no TIMING.jsonl data in the archive yet", file=out)
+    else:
+        text, over_budget = timing_row
+        print(f"{'WARN' if over_budget else 'ok  '}  timing:", file=out)
+        for line in text.splitlines():
+            print(f"      {line}", file=out)
     return 1 if failed else 0
 
 
