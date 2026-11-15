@@ -142,7 +142,16 @@ def _verify_readiness_adapter(adapter, state, selection=None):
         def _probe_objects():
             reply = request_json(f"{state['moonraker_url']}/printer/objects/list")
             return (reply.get("result") or {}).get("objects")
-        problems = adapter.readiness_problems(state, status, selection, probe_objects=_probe_objects)
+        import inspect
+        sig = inspect.signature(adapter.readiness_problems)
+        accepts_probe = (
+            "probe_objects" in sig.parameters
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        )
+        if accepts_probe:
+            problems = adapter.readiness_problems(state, status, selection, probe_objects=_probe_objects)
+        else:
+            problems = adapter.readiness_problems(state, status, selection)
         if problems:
             raise RuntimeError("; ".join(problems))
     except Exception as exc:
