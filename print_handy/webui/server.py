@@ -2520,9 +2520,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         ft = self._form_token()
         view = self._chat_view()
+        prefill = (parse_qs(urlparse(self.path).query).get("text") or [""])[0]
         self._send(200, chat_module.render_chat_page(
             view, form_token=ft, notice=notice, error=error,
-            theme=self._theme(),
+            theme=self._theme(), prefill=prefill,
             nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8", headers=self._chat_cookie_headers())
 

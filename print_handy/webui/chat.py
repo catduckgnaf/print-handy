@@ -68,8 +68,20 @@ def render_chat_disabled_page(*, theme=shell.DEFAULT_THEME, nav=None):
                       heading="Chat", nav=nav)
 
 
+# Slash commands another page may hand the chat as a starting message
+# (``/chat?text=...``). The text is only typed into the box, never sent:
+# the operator still presses Send, so a link cannot start a flow.
+PREFILL_COMMANDS = ("/nozzle change",)
+
+
+def prefill_text(raw):
+    """The allowed prefill for a ``text`` query value, or ""."""
+    text = " ".join(str(raw or "").split())
+    return text if text in PREFILL_COMMANDS else ""
+
+
 def render_chat_page(service, *, form_token, notice=None, error=None,
-                     theme=shell.DEFAULT_THEME, nav=None):
+                     theme=shell.DEFAULT_THEME, nav=None, prefill=""):
     """The GET /chat page for a WebChatService."""
     # The refresh exists so asynchronously arriving replies show up,
     # but a timed reload also wipes a half-typed message. It is emitted
@@ -132,7 +144,8 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
         f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
         '<div class="field"><label for="c-text">Message</label>'
         '<input id="c-text" name="text" autocomplete="off" '
-        'placeholder="A model link, /print-help, or describe a design"></div>'
+        + (f'value="{_esc(prefill_text(prefill))}" autofocus ' if prefill_text(prefill) else "")
+        + 'placeholder="A model link, /print-help, or describe a design"></div>'
         '<button type="submit" class="accent">Send</button></form>')
     return shell.page("chat", "".join(parts), path="/chat", theme=theme,
                       heading="Chat", nav=nav)

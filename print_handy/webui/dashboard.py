@@ -30,7 +30,18 @@ Temperature history is the one fact nothing records today. The Web UI
 keeps a small bounded in-process sample history instead: one sample per
 printer per dashboard build, throttled and capped, held only in memory.
 It starts empty when the Web UI starts and says so on the page; nothing
-is persisted and nothing is backfilled or faked.
+is persisted and nothing is backfilled or faked. Each sample carries the
+heater targets too, so the graph draws current against target per
+heater (#1515), with the scale and time span written on it.
+
+The nozzle and bed panels (#1515) read the printer's hardware record
+(the one ``/nozzle change`` and ``printer_state set`` write) and the
+resolved settings: the fitted nozzle size and material, its recorded Z
+offset and whether it is verified, the nozzle material's temperature
+offset, and the per-material nozzle and bed defaults that offset
+composes onto. Nothing here writes: the swap button opens the existing
+guided ``/nozzle change`` flow in the Web UI chat, which keeps its own
+confirmations.
 
 Every section fails soft: a printer that cannot be read renders an
 unavailable card, a Spoolman that does not answer renders a note in
@@ -85,10 +96,13 @@ class TempHistory:
         self._clock = clock or time.time
         self._series = {}
 
-    def sample(self, printer_id, hotend_c, bed_c):
-        """Record one sample when due; a sample with no reading at all is skipped."""
-        hotend = hotend_c if isinstance(hotend_c, (int, float)) and not isinstance(hotend_c, bool) else None
-        bed = bed_c if isinstance(bed_c, (int, float)) and not isinstance(bed_c, bool) else None
+    def sample(self, printer_id, hotend_c, bed_c, hotend_target_c=None, bed_target_c=None):
+        """Record one sample when due; a sample with no reading at all is skipped.
+
+        Targets are kept alongside the readings (None when unknown); a
+        target alone, with no reading, is not a sample.
+        """
+        hotend, bed = _number(hotend_c), _number(bed_c)
         if hotend is None and bed is None:
             return
         now = self._clock()
@@ -96,11 +110,19 @@ class TempHistory:
             printer_id, deque(maxlen=self.MAX_SAMPLES))
         if series and now - series[-1][0] < self.MIN_INTERVAL_S:
             return
-        series.append((now, hotend, bed))
+        series.append((now, hotend, bed, _number(hotend_target_c), _number(bed_target_c)))
 
     def samples(self, printer_id):
-        """[(epoch, hotend_c|None, bed_c|None)] oldest first."""
+        """[(epoch, hotend_c, bed_c, hotend_target_c, bed_target_c)] oldest
+        first; any value may be None."""
         return list(self._series.get(printer_id) or ())
+
+
+def _number(value):
+    """A real number, or None (bools are not temperatures)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 HISTORY = TempHistory()
@@ -215,7 +237,56 @@ def _camera_capable(entry, view):
     return healthcheck.listener_connection(view) in _ADAPTER_CAMERA_CONNECTIONS
 
 
-def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
+def _nozzle_label(kind):
+    return str(kind or "").replace("_", " ").strip() or "unknown"
+
+
+def hardware_facts(view, record):
+    """The nozzle and bed panel facts for one printer, from its resolved
+    settings ``view`` and hardware ``record`` (None when unreadable).
+
+    Every fact names where it came from; a missing record falls back to
+    the configured nozzle and says so. Never raises.
+    """
+    from ..core import nozzle as nozzle_module
+    printer = (view or {}).get("printer") or {}
+    record = record if isinstance(record, dict) else None
+    fitted = (record or {}).get("nozzle") or {}
+    facts = {"source": "hardware record" if fitted else "settings",
+             "diameter_mm": _number(fitted.get("diameter_mm"))
+             or _number(printer.get("nozzle_diameter_mm")),
+             "type": None, "type_note": "", "installed": fitted.get("installed") or "",
+             "z_offset_mm": _number((record or {}).get("z_offset_mm")),
+             "z_offset_verified": bool((record or {}).get("z_offset_verified")),
+             "temp_offset_c": None, "pending": [], "mesh_stale": False, "materials": []}
+    try:
+        raw = nozzle_module.recorded_nozzle_type(fitted.get("type"), printer.get("nozzle_type"))
+        facts["type"] = nozzle_module.normalize_nozzle_type(raw)
+        defaults = nozzle_module._nozzle_type_defaults()[facts["type"]]
+        override = ((view or {}).get("nozzle_temp_offsets") or {}).get(facts["type"])
+        facts["temp_offset_c"] = (_number(override) if _number(override) is not None
+                                  else defaults["temp_offset_c"])
+        facts["max_c"] = defaults["max_temperature_c"]
+    except Exception as exc:  # an unknown type is shown as such, never guessed
+        log.debug("dashboard nozzle type unresolved: %s", exc)
+        facts["type_note"] = "type not recognized"
+    pending = (record or {}).get("calibration_pending") or []
+    facts["pending"] = [str(item) for item in pending if isinstance(item, str)]
+    facts["mesh_stale"] = bool((record or {}).get("bed_mesh_stale"))
+    offset = facts["temp_offset_c"] or 0.0
+    for family, temps in sorted(((view or {}).get("material_temps") or {}).items()):
+        if not isinstance(temps, dict):
+            continue
+        nozzle_c, bed_c = _number(temps.get("nozzle")), _number(temps.get("bed"))
+        if nozzle_c is None or bed_c is None:
+            continue
+        facts["materials"].append({"family": str(family), "nozzle_c": nozzle_c + offset,
+                                   "base_nozzle_c": nozzle_c, "bed_c": bed_c})
+    return facts
+
+
+def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
+                    hardware_for=None):
     """The dashboard's data: one card per roster printer, plus the
     install-wide recent prints and latest timelapse.
 
@@ -223,7 +294,9 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
     functions (``printer_id -> (code, body)``); the defaults call
     ``status.printer_status`` and ``spools.spools_view`` directly.
     ``history`` is the temperature history to sample into and read;
-    the module's shared one by default. Never raises.
+    the module's shared one by default. ``hardware_for`` reads one
+    printer's hardware record (``printer_id -> dict | None``); the
+    default reads the record ``/nozzle change`` writes. Never raises.
     """
     history = HISTORY if history is None else history
     if status_for is None:
@@ -241,6 +314,8 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
     except Exception:
         log.warning("dashboard could not read the default printer", exc_info=True)
         default_id = None
+    if hardware_for is None:
+        hardware_for = controls_module._hardware_record
     controls_on = controls_module.controls_enabled(data)
     for entry in entries:
         printer_id = entry["id"]
@@ -248,12 +323,17 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
                 "model": entry.get("model") or "", "default": printer_id == default_id,
                 "live": {}, "state": "unavailable", "detail": "",
                 "camera": False, "controls_enabled": controls_on,
-                "spools": None, "spools_note": "", "history": []}
+                "spools": None, "spools_note": "", "history": [], "hardware": None}
+        view = None
         try:
             view = settings.view_for(printer_id, data)
             card["camera"] = _camera_capable(entry, view)
         except Exception as exc:  # identity facts only; the card still renders
             log.debug("dashboard view failed for %s: %s", printer_id, exc)
+        try:
+            card["hardware"] = hardware_facts(view, hardware_for(printer_id))
+        except Exception as exc:  # no panel facts is a note, never a broken card
+            log.warning("dashboard hardware read failed for %s: %s", printer_id, exc)
         try:
             _code, body = status_for(printer_id)
             live = (body or {}).get("status") or {}
@@ -262,7 +342,8 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
             card["detail"] = str(live.get("detail") or "")
             card["name"] = (body or {}).get("name") or card["name"]
             card["model"] = (body or {}).get("model") or card["model"]
-            history.sample(printer_id, live.get("hotend_c"), live.get("bed_c"))
+            history.sample(printer_id, live.get("hotend_c"), live.get("bed_c"),
+                           live.get("hotend_target_c"), live.get("bed_target_c"))
         except Exception as exc:  # a dead read is an unavailable card
             log.warning("dashboard status read failed for %s: %s", printer_id, exc)
             card["detail"] = f"{type(exc).__name__}: {exc}"
@@ -367,43 +448,76 @@ def _ring(card):
         f'<span class="muted">{_esc(state_word)}</span></div></div>')
 
 
+def _span_text(seconds):
+    minutes = max(1, round(seconds / 60))
+    return f"{minutes} min" if minutes < 90 else f"{minutes / 60:.1f} h"
+
+
 def _temp_chart(card):
-    """The temperature history as an inline SVG, or the collecting note."""
+    """Current against target per heater as an inline SVG, or the collecting note.
+
+    Solid lines are readings, dashed lines are targets (a target of 0 is
+    a heater that is off, drawn at 0 only when the scale reaches it).
+    The scale's top and bottom and the time span are written on the
+    graph, so it reads without hovering.
+    """
     samples = card["history"]
     live = card["live"]
-    legend = (f'<p class="muted">Nozzle {_temp(live.get("hotend_c"))} · '
-              f'Bed {_temp(live.get("bed_c"))}</p>')
+
+    def pair(label, current, target):
+        text = f"{label} {_temp(current)}"
+        if _number(target):
+            text += f" → {_temp(target)}"
+        return text
+
+    legend = ('<p class="muted temp-legend">'
+              f'<span class="key nozzle"></span>{_esc(pair("Nozzle", live.get("hotend_c"), live.get("hotend_target_c")))} · '
+              f'<span class="key bed"></span>{_esc(pair("Bed", live.get("bed_c"), live.get("bed_target_c")))}</p>')
     if len(samples) < 2:
         return (legend + '<p class="muted">Temperature history collects while the '
                 "Web UI runs and starts empty each time it restarts; "
                 "check back in a few minutes.</p>")
     width, height = 600, 120
     times = [row[0] for row in samples]
-    values = [value for row in samples for value in row[1:] if value is not None]
+    values = [value for row in samples for value in row[1:]
+              if value is not None and value > 0]
+    if not values:
+        values = [0.0]
     low, high = min(values), max(values)
     span = max(10.0, high - low)
     low -= (span - (high - low)) / 2
     high = low + span
+    low = max(0.0, low) if min(values) >= 0 else low
+    high = max(high, low + 10.0)
     t0, t1 = times[0], max(times[-1], times[0] + 1)
 
     def points(index):
         coords = []
         for row in samples:
-            if row[index] is None:
-                continue
+            value = row[index] if index < len(row) else None
+            if value is None or (index >= 3 and value <= 0):
+                continue  # an off heater has no target line
             x = (row[0] - t0) / (t1 - t0) * width
-            y = height - (row[index] - low) / (high - low) * height
+            y = height - (value - low) / (high - low) * height
             coords.append(f"{x:.1f},{y:.1f}")
         return " ".join(coords)
 
+    lines = []
+    for index, kind in ((3, "nozzle target"), (4, "bed target"), (1, "nozzle"), (2, "bed")):
+        pts = points(index)
+        if pts:
+            lines.append(f'<polyline class="{kind}" points="{pts}"></polyline>')
     return (
         legend
-        + f'<svg class="temp-chart" viewBox="0 0 {width} {height}" '
-          'preserveAspectRatio="none" role="img" aria-label="Temperature history">'
-        f'<polyline class="nozzle" points="{points(1)}"></polyline>'
-        f'<polyline class="bed" points="{points(2)}"></polyline></svg>'
-        + '<p class="muted">Temperature history since the Web UI started '
-          '(orange: nozzle, yellow: bed).</p>')
+        + '<div class="temp-plot">'
+        f'<span class="temp-axis top">{_temp(high)}</span>'
+        f'<span class="temp-axis bottom">{_temp(low)}</span>'
+        f'<svg class="temp-chart" viewBox="0 0 {width} {height}" '
+        'preserveAspectRatio="none" role="img" '
+        f'aria-label="Nozzle and bed temperature, current and target, last {_span_text(t1 - t0)}">'
+        + "".join(lines) + '</svg></div>'
+        + f'<p class="muted">Last {_span_text(t1 - t0)}, since the Web UI started. '
+          'Solid: current; dashed: target.</p>')
 
 
 def _disc(spool, small=False):
@@ -481,6 +595,58 @@ def _filament(card):
     return "".join(parts)
 
 
+_PENDING_LABELS = {"z_offset": "Z offset", "bed_mesh": "bed mesh",
+                   "pressure_advance_flow": "pressure advance and flow"}
+
+
+def _hardware_panels(card):
+    """The nozzle and bed panels, or a note when the facts are unreadable."""
+    facts = card.get("hardware")
+    if not facts:
+        return ('<div class="hw-panels"><div class="hw-panel"><h3>Nozzle and bed</h3>'
+                '<p class="muted">The hardware record could not be read.</p></div></div>')
+    size = facts["diameter_mm"]
+    kind = (_nozzle_label(facts["type"]) if facts["type"]
+            else facts["type_note"] or "unknown")
+    nozzle = ['<div class="hw-panel"><h3>Nozzle</h3>',
+              f'<p class="job-line">{_esc(f"{size:g} mm" if size else "size unknown")} · '
+              f'{_esc(kind)}</p>']
+    meta = []
+    if facts["installed"]:
+        meta.append(f'fitted {facts["installed"]}')
+    if facts["source"] == "settings":
+        meta.append("from settings: no nozzle change recorded yet")
+    if meta:
+        nozzle.append(f'<p class="muted">{_esc(" · ".join(meta))}</p>')
+    z = facts["z_offset_mm"]
+    if z is None:
+        z_text = "Z offset: not recorded"
+    else:
+        z_text = f"Z offset {z:+.3f} mm" + ("" if facts["z_offset_verified"] else " (not verified)")
+    nozzle.append(f'<p>{_esc(z_text)}</p>')
+    if facts["temp_offset_c"] is not None:
+        nozzle.append(f'<p class="muted">Nozzle temperature offset '
+                      f'{facts["temp_offset_c"]:+g}°C for {_esc(kind)}, added to every material below.</p>')
+    if facts["pending"]:
+        names = ", ".join(_PENDING_LABELS.get(item, item.replace("_", " "))
+                          for item in facts["pending"])
+        nozzle.append(f'<p class="badge warn">Calibration due: {_esc(names)}</p>')
+    nozzle.append('<p><a class="button" href="/chat?text=%2Fnozzle%20change">Swap nozzle</a> '
+                  '<span class="muted">opens the guided nozzle change in chat</span></p></div>')
+    bed = ['<div class="hw-panel"><h3>Bed</h3>']
+    bed.append(f'<p>{"Bed mesh: stale since the last nozzle change" if facts["mesh_stale"] else "Bed mesh: no change recorded since it was probed"}</p>')
+    if facts["materials"]:
+        rows = "".join(
+            f'<tr><td>{_esc(row["family"])}</td><td>{_temp(row["nozzle_c"])}</td>'
+            f'<td>{_temp(row["bed_c"])}</td></tr>' for row in facts["materials"])
+        bed.append('<table class="hw-defaults"><thead><tr><th>Material</th><th>Nozzle</th>'
+                   f'<th>Bed</th></tr></thead><tbody>{rows}</tbody></table>'
+                   '<p class="muted">Defaults when a spool or model sets no temperature '
+                   '([material_temps]); the nozzle column includes the offset above.</p>')
+    bed.append("</div>")
+    return f'<div class="hw-panels">{"".join(nozzle)}{"".join(bed)}</div>'
+
+
 def _card(card):
     live = card["live"]
     printer_id = quote(str(card["id"]), safe="")
@@ -529,6 +695,7 @@ def _card(card):
     top.append(f'<div class="dash-side">{"".join(side)}</div>')
     parts.append(f'<div class="dash-top">{"".join(top)}</div>')
     parts.append(_temp_chart(card))
+    parts.append(_hardware_panels(card))
     parts.append(_filament(card))
     parts.append("</section>")
     return "".join(parts)
@@ -633,5 +800,5 @@ def render_dashboard(dash, snap, *, now=None):
     return "".join(parts)
 
 
-__all__ = ["HISTORY", "TempHistory", "build_dashboard", "latest_timelapse",
+__all__ = ["HISTORY", "TempHistory", "build_dashboard", "hardware_facts", "latest_timelapse",
            "recent_prints", "render_dashboard"]
