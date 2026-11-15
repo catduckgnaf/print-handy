@@ -170,13 +170,13 @@ class OpenCreatorAdapter(KlipperAdapter):
         return ""
 
     def start_plan(self, bed_temp, nozzle_temp, *, mesh="auto", options=None):
-        # The documented form resolved for one job: the bed line takes
-        # the job's bed temperature. nozzle_temp is not written: the
-        # firmware derives each used tool's temperature from the file's
-        # own heating lines and config block. Explicit option rendering
-        # is available to the intake/slicer contract through start_contract.
-        return [f"M140 S{bed_temp:g}" if line.startswith("M140 ") else line
-                for line in self.start_lines()]
+        # Render only explicit per-print overrides. Leave firmware defaults
+        # untouched when the operator has not changed an option.
+        option_line = start_contract.option_params(options)
+        lines = [f"M140 S{bed_temp:g}" if line.startswith("M140 ") else line
+                 for line in self.start_lines()]
+        lines.append(option_line) if option_line else None
+        return lines
 
     def start_synthesis_problems(self, text, bed, hotend):
         """Verification problems under the dispatcher's synthesis (start_contract)."""

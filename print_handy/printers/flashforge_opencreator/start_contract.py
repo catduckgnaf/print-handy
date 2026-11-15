@@ -189,21 +189,31 @@ OPTION_DEFAULTS = {
 
 
 def option_params(options=None):
-    """Render explicit OpenCreator switches for a C5_PRINT_START line.
+    """Render explicit options as a C5_PRINT_START line, or empty by default.
 
-    Values default to the modeled firmware settings and accept only boolean
-    values; unknown or malformed inputs fail closed instead of entering G-code.
+    Only explicitly supplied per-print overrides are emitted. Unknown keys and
+    non-boolean values fail closed rather than entering generated G-code.
     """
-    options = options if isinstance(options, dict) else {}
-    params = {"FLOW_CALIBRATION": 0, "PURGE": 1, "PURGE_LINE": 1,
-              "PURGE_LINE_ALL_TOOLS": 0, "BED_LEVELING": 1,
-              "HOST_PRESSURE_ADVANCE": 0, "BUILDPLATE_CHECK": 0}
-    for key, default in OPTION_DEFAULTS.items():
-        value = options.get(f"opencreator_{key}", bool(default))
+    if options is None:
+        options = {}
+    if not isinstance(options, dict):
+        raise ValueError("OpenCreator options must be a mapping")
+    known = {f"opencreator_{key}": key.upper() for key in OPTION_DEFAULTS}
+    unknown = set(options) - set(known)
+    if unknown:
+        raise ValueError(f"unknown OpenCreator option(s): {', '.join(sorted(unknown))}")
+    if not options:
+        return ""
+    params = []
+    for option, key in known.items():
+        if option not in options:
+            continue
+        value = options[option]
         if type(value) is not bool:
-            raise ValueError(f"opencreator_{key} must be a boolean")
-        params[key.upper()] = int(value)
-    return params
+            raise ValueError(f"{option} must be a boolean")
+        params.append(f"{key}={int(value)}")
+    params.append("BUILDPLATE_CHECK=0")
+    return "C5_PRINT_START " + " ".join(params)
 
 
 def first_selected_tool(text):

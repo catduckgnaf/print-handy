@@ -212,6 +212,24 @@ The check reads object names only, never unverified inner fields, and
 absence of evidence is treated as absence: a plain missing-object
 failure keeps its usual wording.
 
+## Per-print options
+
+Print Handy can put explicit overrides on the final line of the generated
+start plan. They are rendered as uppercase `C5_PRINT_START` parameters;
+options not supplied are omitted so OpenCreator's persisted Misc switches
+continue to provide their defaults. For example, setting only purge off
+adds `C5_PRINT_START PURGE=0 BUILDPLATE_CHECK=0`. The fixed
+`BUILDPLATE_CHECK=0` prevents the firmware's independent build-plate check
+from being enabled by an unrelated persisted value.
+
+Supported per-print options are `opencreator_flow_calibration`,
+`opencreator_purge`, `opencreator_purge_line`,
+`opencreator_purge_line_all_tools`, `opencreator_bed_leveling`, and
+`opencreator_host_pressure_advance`. Each accepts a boolean; unknown keys
+and non-boolean values are rejected rather than emitted into G-code. When
+no options are set, no explicit `C5_PRINT_START` line is added and the
+firmware's normal synthesized start remains in use.
+
 ## Persistent feature switches (the Misc switches)
 
 OpenCreator keeps 13 virtual Misc switches that persist across
@@ -322,12 +340,9 @@ to this firmware's hotends. The bed stays on conventional control.
 
 Scoped out of the first tranche (#1490 names the follow-up tranches):
 
-- Per-print `C5_PRINT_START` choices (purge, purge line, bed leveling,
-  flow calibration) as Print Handy job questions: a later tranche.
-  (Tranche 2 delivered the synthesized-start modeling in verification,
-  readiness and the active tool on the `creator5_toolchanger`
-  contract, the AFC identity lane-map refusal, and the manufacturer
-  ceilings recorded above.)
+- Per-print runout-button questions and power-loss Resume/Discard behavior,
+  including their job-question wiring, are a later PR; they are not part of
+  this renderer tranche.
 - Converging Print Handy's spool records with the firmware's own
   `lane_data` publishing. Tranche 3 delivered the reading half: the
   namespace can carry either of two publisher shapes (the generic AFC
