@@ -137,14 +137,40 @@ def _new_stages(timing_path, offset):
     return stages
 
 
-async def _watch_start_progress(adapter, source, metadata, timing_path, offset, clock):
+async def _watch_start_progress(adapter, source, metadata, timing_path, offset, clock, progress=None):
     """Post each START_PROGRESS note once its stage has lasted its grace period.
 
     A note whose later stage was already reached is stale and never posted; the watcher
     ends after the last note (or is cancelled when the start returns).
+
+    The notes are one status message, not one post each (#1471): the first note is
+    sent, later notes edit that same message in place when the adapter can edit, and
+    its id is recorded in ``progress['message_id']`` so the start's final word can
+    update the same message instead of posting another one.
     """
     seen, posted = {}, set()
     last = START_PROGRESS[-1][0]
+    message_id = None
+    can_edit = callable(getattr(adapter, 'edit_message', None))
+
+    async def post_note(text):
+        nonlocal message_id, can_edit
+        if message_id is not None and can_edit:
+            try:
+                result = await adapter.edit_message(chat_id=str(source.chat_id), message_id=message_id,
+                                                    content=text, metadata=metadata)
+            except Exception:
+                result = None
+            if result is not None and getattr(result, 'success', False):
+                return
+            can_edit = False  # this adapter or message cannot be edited: post instead
+        sent = await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+        new_id = getattr(sent, 'message_id', None)
+        if new_id:
+            message_id = str(new_id)
+            if progress is not None:
+                progress['message_id'] = message_id
+
     while last not in posted:
         await asyncio.sleep(START_PROGRESS_POLL_S)
         stages = _new_stages(timing_path, offset)
@@ -161,12 +187,32 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
             try:
                 if stage in START_PROGRESS_VOICE:
                     text = _voiced(text, START_PROGRESS_VOICE[stage], source, Path(timing_path).parent.name)
-                await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+                await post_note(text)
             except Exception:
                 logger.debug("start progress note failed", exc_info=True)
 
 
-async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic):
+async def _deliver_start_result(adapter, source, metadata, message, progress_message_id):
+    """The start's final word: edit its progress message in place when there is one
+    (#1471), so upload, start sent and start confirmed are one message updated in
+    place. Falls back to a fresh post when there is no progress message or the edit
+    does not succeed. Returns the send result, whose message_id names the message
+    carrying the final text either way."""
+    edit = getattr(adapter, 'edit_message', None)
+    if progress_message_id and callable(edit):
+        try:
+            result = await edit(chat_id=str(source.chat_id), message_id=str(progress_message_id),
+                                content=message, metadata=metadata)
+        except Exception:
+            logger.debug("start result edit failed; posting it as a new message instead", exc_info=True)
+            result = None
+        if result is not None and getattr(result, 'success', False):
+            return SimpleNamespace(success=True, message_id=str(progress_message_id))
+    return await adapter.send(chat_id=str(source.chat_id), content=message, metadata=metadata)
+
+
+async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic,
+                               progress=None):
     """Await the start ``work`` unchanged while relaying its TIMING.jsonl progress (#734).
 
     ``work`` is awaited directly, so Stop, cancellation and its result behave exactly as
@@ -180,7 +226,8 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
         offset = timing_path.stat().st_size
     except OSError:
         offset = 0
-    watcher = asyncio.ensure_future(_watch_start_progress(adapter, source, metadata, timing_path, offset, clock))
+    watcher = asyncio.ensure_future(_watch_start_progress(adapter, source, metadata, timing_path, offset, clock,
+                                                          progress))
     try:
         return await work
     finally:
@@ -342,8 +389,11 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 # Start progress (#734): print-now runs as a child process and its result arrives only at
 # the end, while a real start spends 25-75 s between the tap and that result (the start
 # request itself, then the readback while the printer prepares). The child already logs its
-# stages to <job>/TIMING.jsonl as they happen; these short notes relay the two that matter,
+# stages to <job>/TIMING.jsonl as they happen; these short notes relay the ones that matter,
 # each only when that stage has lasted its grace period, so a fast start posts nothing extra.
+# The notes update one status message in place (#1471), and the last note is the first
+# "accepted, preparing" answer: preparation evidence appears seconds after the start goes
+# out, long before print-now returns, so it carries no grace wait beyond the poll.
 START_PROGRESS_POLL_S = 1.0
 # How long the Ready question waits for the speculative with-supports slice,
 # so that option shows its numbers before it can be chosen (#1373).
@@ -388,6 +438,13 @@ START_PROGRESS = (
     # seconds; a shorter grace posted this note just before "Print started".
     ('start_submitted', 10.0, 'The printer accepted the start. It may load filament and heat for a '
                               "few minutes before printing; I'll post when the start is confirmed."),
+    # #1471: heater targets set for this start are visible from about two seconds in,
+    # while print-now keeps watching (its verdict still decides the outcome, and a
+    # preparation the printer abandons still ends as a refusal). Zero grace: this note
+    # is the fast "accepted, preparing" answer, and it supersedes the two notes above.
+    ('preparation_seen', 0.0, 'The printer accepted the start and is heating up. It may load '
+                              "filament and heat for a few minutes before printing; "
+                              "I'll post when the start is confirmed."),
 )
 # The status voice stage each START_PROGRESS note really reports. The upload
 # is over when the first note posts and the start is being sent, so it
@@ -1903,6 +1960,22 @@ def _variant_estimate_str(job_data, result):
     return 'slicing...'
 
 
+def _card_wrap(adapter, source):
+    """The job-card session for this intake (#1472), or the adapter itself.
+
+    Only adapters that support job cards (Discord) are wrapped; every
+    other platform's intake presents exactly as before. Presentation
+    only: the session delegates everything it does not render, so the
+    intake's decisions, prompts and access rules are untouched.
+    """
+    try:
+        from ..bot.job_card import JobCardSession
+        return JobCardSession.maybe(adapter, source)
+    except Exception:
+        logger.debug("job card wrap unavailable", exc_info=True)
+        return adapter
+
+
 def multi_file_fix_note(job):
     """Why no AI fix is offered on a job built from several files, or ''.
 
@@ -1939,6 +2012,18 @@ def recorded_fix_failure(job, source_sha256):
 
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
+    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
+    try:
+        return await _prepare_link_intake(event, wrapped, state, root, timeout=timeout, reuse=reuse,
+                                          printer_id=printer_id, before_start=before_start,
+                                          confirm_target=confirm_target)
+    finally:
+        if wrapped is not adapter:
+            await wrapped.close()
+
+
+async def _prepare_link_intake(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
+                               before_start=None, confirm_target=False):
     """The chat intake for one model link, upload or reprint (see the module docstring).
 
     "yolo" in the message runs the same intake with every question answered
@@ -1982,6 +2067,16 @@ YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
 
 
 async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
+    wrapped = _card_wrap(adapter, getattr(event, 'source', None))
+    try:
+        return await _print_gcode_file_intake(event, wrapped, root, path, timeout=timeout,
+                                              printer_id=printer_id)
+    finally:
+        if wrapped is not adapter:
+            await wrapped.close()
+
+
+async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, printer_id=None):
     """A dropped, already-sliced G-code file (.gcode or .gcode.3mf).
 
     Print Handy slices models itself, so a sliced file only prints as the
@@ -4932,6 +5027,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         receipt['retry_target'] = target
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         start_context = {'target': target, 'receipt': receipt}
+        # The start progress notes' one status message (#1471): the watcher records its
+        # id here, and the start's final word below updates that same message in place.
+        start_progress = {}
         uploading = ((prep_msg + "\n") if not prep_sent else "") + "Uploading to the printer. Press Stop to request cancellation."
         try:
             for attempt in range(COLOR_CONFIRM_ROUNDS):
@@ -4939,7 +5037,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 start_context['color_prompt'] = attempt < COLOR_CONFIRM_ROUNDS - 1
                 ok, tail = await _with_stop(adapter, source, key, metadata, uploading,
                                             _with_start_progress(adapter, source, metadata, jp,
-                                                                 print_next.start(target)),
+                                                                 print_next.start(target),
+                                                                 progress=start_progress),
                                             allow_stop=True, refusal_context=start_context)
                 confirms = [] if ok or not start_context['color_prompt'] else color_confirm(tail)
                 label_confirms = [] if ok or not start_context['color_prompt'] else label_confirm(tail)
@@ -5095,7 +5194,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                      printer_id=printer_id)
             elif start_context.get('prompt_handled'):
                 return {'action': 'skip', 'reason': 'start refused; prompt shows the reason and Retry'}
-        sent = await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)
+        sent = await _deliver_start_result(adapter, source, metadata, message,
+                                           start_progress.get('message_id'))
         message_id = getattr(sent, 'message_id', None)
         if remote and message_id:
             try:

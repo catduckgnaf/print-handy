@@ -30,7 +30,8 @@ class FakeUser:
 
 
 class FakeMessage:
-    def __init__(self, channel, author, content=None, view=None, files=(), attachments=(), reference=None):
+    def __init__(self, channel, author, content=None, view=None, files=(), attachments=(), reference=None,
+                 embed=None):
         self.id = next_id()
         self.channel = channel
         self.author = author
@@ -39,7 +40,9 @@ class FakeMessage:
         self.files = list(files)
         self.attachments = list(attachments)
         self.reference = reference
+        self.embed = embed
         self.edits = []
+        self.thread = None
 
     def buttons(self):
         return [(item.label, item.custom_id) for item in (self.view.children if self.view else [])
@@ -56,10 +59,25 @@ class FakeMessage:
         return found
 
     async def edit(self, content=None, view=None, **kwargs):
-        self.edits.append({"content": content, "view": view})
+        self.edits.append({"content": content, "view": view, **kwargs})
         if content is not None:
             self.content = content
+        if "embed" in kwargs:
+            self.embed = kwargs["embed"]
         self.view = view
+        discord = getattr(self.channel, "discord", None)
+        if discord is not None:
+            discord.on_edit(self)
+
+    async def create_thread(self, name=None, **kwargs):
+        """A thread on this message (#1472 job card detail), registered as
+        a channel on the fake client so sends to its id land there."""
+        thread = FakeChannel(self.channel.discord, next_id(), parent_id=self.channel.id)
+        thread.name = name
+        self.channel.discord.client.channels[thread.id] = thread
+        self.channel.discord.threads.append(thread)
+        self.thread = thread
+        return thread
 
 
 class FakeChannel:
@@ -72,7 +90,8 @@ class FakeChannel:
     async def send(self, content=None, *, view=None, files=None, file=None, reference=None,
                    allowed_mentions=None, **kwargs):
         names = [f.filename for f in (files or ([file] if file else []))]
-        message = FakeMessage(self, self.discord.client.user, content, view, names, reference=reference)
+        message = FakeMessage(self, self.discord.client.user, content, view, names, reference=reference,
+                              embed=kwargs.get("embed"))
         self.discord.on_send(message)
         return message
 
@@ -192,6 +211,9 @@ class FakeDiscord:
         self.errors = []
         self.unanswered = []
         self.pending = set()
+        self.threads = []     # FakeChannels opened with create_thread (#1472)
+        self._card_answered = set()  # (message id, button ids) already auto-pressed on a card
+        self._sent_index = {}  # message id -> index in sent, for messages an edit can refresh
 
     def add_channel(self, channel_id, parent_id=None):
         channel = FakeChannel(self, channel_id, parent_id)
@@ -204,6 +226,18 @@ class FakeDiscord:
     def prompt_buttons(self, message):
         return [(label, cid) for label, cid in message.buttons() if str(cid).startswith("pbq:")]
 
+    def display_text(self, message):
+        """What a reader sees: the content, or the embed's title and
+        description for a job card message (#1472), whose text lives in
+        the embed instead of the content."""
+        if message.content:
+            return message.content
+        embed = getattr(message, "embed", None)
+        if embed is not None:
+            parts = [getattr(embed, "title", "") or "", getattr(embed, "description", "") or ""]
+            return "\n".join(part for part in parts if part)
+        return ""
+
     def on_send(self, message):
         self.messages.append(message)
         buttons = self.prompt_buttons(message)
@@ -211,7 +245,8 @@ class FakeDiscord:
             selects = message.selects()
             if not selects:
                 if not message.view:
-                    self.sent.append(message.content)
+                    self._sent_index[message.id] = len(self.sent)
+                    self.sent.append(self.display_text(message))
                 return
             # A batch question (#1473): one select menu per color group in a
             # single message. Each menu is answered by the same click rules,
@@ -232,20 +267,48 @@ class FakeDiscord:
                                        "picked": labels[index]})
                 self.press_soon(message, custom_id, values=[labels[index]])
             return
+        self._answer_buttons(message, buttons)
+
+    def on_edit(self, message):
+        """A job card's questions arrive as edits to the card message
+        (#1472), not as new sends: answer a card's buttons the same way,
+        once per distinct question shown on it. An edit also refreshes
+        the message's entry in ``sent``: what the operator was told by a
+        card is what it shows now, not what it showed when posted."""
+        if message.id in self._sent_index:
+            self.sent[self._sent_index[message.id]] = self.display_text(message)
+        buttons = self.prompt_buttons(message)
+        key = (message.id, tuple(cid for _label, cid in buttons))
+        if not buttons:
+            self._card_answered = {k for k in self._card_answered if k[0] != message.id}
+            return
+        if key in self._card_answered:
+            return
+        self._card_answered.add(key)
+        self._answer_buttons(message, buttons)
+
+    def _answer_buttons(self, message, buttons):
         labels = [label for label, _ in buttons]
-        self.events.append(("prompt", message.content))
+        text = self.display_text(message)
+        if getattr(message, "embed", None) is not None and "**Waiting:**" in text:
+            # A job card's embed accumulates answered lines and notes
+            # around the open question; click rules match the question
+            # that is open NOW (the block after the Waiting marker), not
+            # a line an earlier question left behind.
+            text = text.split("**Waiting:**", 1)[1].split("\n\n", 1)[0].strip()
+        self.events.append(("prompt", text))
         if not self.auto:
-            self.questions.append({"question": message.content, "choices": labels, "picked": None})
+            self.questions.append({"question": text, "choices": labels, "picked": None})
             return
         try:
-            index = self.pick(message.content, labels)
+            index = self.pick(text, labels)
         except UnansweredQuestion as exc:
             # Press Cancel so the flow ends instead of waiting out the question timeout; the test reports it.
             self.unanswered.append(str(exc))
             index = next((i for i, label in enumerate(labels) if "cancel" in label.casefold()), None)
             if index is None:
                 raise
-        self.questions.append({"question": message.content, "choices": labels, "picked": labels[index]})
+        self.questions.append({"question": text, "choices": labels, "picked": labels[index]})
         self.press_soon(message, buttons[index][1])
 
     def pick(self, question, labels):
