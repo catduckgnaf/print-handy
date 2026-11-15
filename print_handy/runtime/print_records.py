@@ -65,10 +65,12 @@ def normalize_utc(value: Any) -> str | None:
         return None
     try:
         num = float(s)
-        if num > 0:
-            return datetime.fromtimestamp(num, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        # Not a number: an ISO timestamp, which is the normal case and is
+        # parsed below. Logging it wrote a traceback for every record.
+        num = None
+    if num is not None and num > 0:
+        return datetime.fromtimestamp(num, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace("z", "+00:00"))
         if dt.tzinfo is None:

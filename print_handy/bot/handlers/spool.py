@@ -554,6 +554,38 @@ async def spool_dispatch(event, gateway, **kwargs):
                            'Nothing changed.')
             else:
                 message = await asyncio.to_thread(spool_sync.set_remaining_text, spool_id, grams)
+        elif verb in ('shelve', 'unload', 'unassign'):
+            # #1515: the chat twin of the Web UI "Put back on shelf".
+            parts = rest.replace('#', ' ').split()
+            if not await _spool_printer():
+                message = 'No printer chosen, so nothing was changed.'
+            elif len(parts) != 1 or not parts[0].isdigit():
+                message = '`/spool shelve <slot>`, for example `/spool shelve 2`. Nothing changed.'
+            else:
+                try:
+                    result = await asyncio.to_thread(spool_sync.unbind_slot, int(parts[0]),
+                                                     note='Put back on the shelf from chat', **mr_kw)
+                except spool_sync.SpoolError as exc:
+                    message = f'{exc}.'
+                else:
+                    message = spool_sync.unbind_text(result)
+        elif verb in ('rename', 'name'):
+            # #1515: one spool's own name (the Web UI rename).
+            number, _, new_name = rest.replace('#', ' ', 1).strip().partition(' ')
+            if not number.isdigit():
+                message = ('`/spool rename <spool#> <name>`, for example `/spool rename 19 Lucy\'s pink`. '
+                           'Nothing changed.')
+            else:
+                message = await asyncio.to_thread(spool_sync.rename_spool_text, int(number), new_name)
+        elif verb in ('archive', 'unarchive', 'restore'):
+            # #1515: archive or bring back one spool (the Web UI Archive/Unarchive).
+            parts = rest.replace('#', ' ').split()
+            archived = verb == 'archive'
+            if len(parts) != 1 or not parts[0].isdigit():
+                message = f'`/spool {verb} <spool#>`, for example `/spool {verb} 19`. Nothing changed.'
+            else:
+                message = await asyncio.to_thread(spool_sync.set_archived_text, int(parts[0]),
+                                                  archived, **_pkw(pid))
         elif verb == 'sync':
             if await _spool_printer():
                 # Reconcile first (#798): Spoolman's ph_slot assignments rebuild
@@ -596,7 +628,9 @@ async def spool_dispatch(event, gateway, **kwargs):
         else:
             message = ('`/spool list` · `/spool change <slot> <spool#>` · '
                        '`/spool new brand, material, color, grams[, hex]` · '
-                       '`/spool weight <spool#> <grams left>` · `/spool sync`')
+                       '`/spool weight <spool#> <grams left>` · `/spool shelve <slot>` · '
+                       '`/spool rename <spool#> <name>` · `/spool archive <spool#>` · '
+                       '`/spool unarchive <spool#>` · `/spool sync`')
     except Exception as exc:
         logger.exception('/spool failed')
         message = 'That spool change did not work, so nothing was changed. Check the slot and spool number and try again.'

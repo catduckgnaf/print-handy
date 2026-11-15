@@ -1401,6 +1401,83 @@ def set_remaining(spool_id: int, grams: float, *, client: Client = spoolman) -> 
             "label": " ".join(str(filament.get(k) or "").strip() for k in ("name", "material")).strip()}
 
 
+def _spool_or_refuse(spool_id: int, client: Client) -> dict[str, Any]:
+    spool = client("GET", f"/api/v1/spool/{int(spool_id)}", None)
+    if not isinstance(spool, dict) or spool.get("id") is None:
+        raise SpoolError(f"Spoolman has no spool #{spool_id}. Check the id with /spool list. Nothing changed")
+    return spool
+
+
+def rename_spool(spool_id: int, nickname: str, *, client: Client = spoolman) -> dict[str, Any]:
+    """Give one spool its own name (#1515): the per-spool ``ph_nickname``.
+
+    The chat twin of the Web UI rename. Spoolman keeps the name on the
+    filament record, which every spool of that filament shares, so the
+    nickname lives on the spool's extra field instead. An empty
+    nickname clears it and the filament name shows again.
+    """
+    text = " ".join(str(nickname or "").split())
+    if len(text) > 60:
+        raise SpoolError("a spool name must be 60 characters or fewer. Nothing changed")
+    _spool_or_refuse(spool_id, client)
+    if not ensure_extra_field(client, PH_NICKNAME_FIELD, PH_NICKNAME_FIELD_NAME):
+        raise SpoolError("Spoolman did not accept the nickname field. Nothing changed")
+    client("PATCH", f"/api/v1/spool/{int(spool_id)}",
+           {"extra": {PH_NICKNAME_FIELD: json.dumps(text) if text else None}})
+    return {"spool_id": int(spool_id), "nickname": text}
+
+
+def rename_spool_text(spool_id: int, nickname: str, *, client: Client = spoolman) -> str:
+    """The chat reply for /spool rename."""
+    try:
+        result = rename_spool(spool_id, nickname, client=client)
+    except SpoolError as exc:
+        return f"{exc}."
+    if result["nickname"]:
+        return (f"Spool #{result['spool_id']} is now called {result['nickname']!r}. "
+                "Only this spool changed; other spools of the same filament keep their name.")
+    return f"Spool #{result['spool_id']}'s own name is cleared; it shows its filament name again."
+
+
+def set_archived(spool_id: int, archived: bool, *, client: Client = spoolman,
+                 state_path: Path | None = None, printer_id: str | None = None) -> dict[str, Any]:
+    """Archive or unarchive one spool in Spoolman (#1515).
+
+    A spool still loaded in a slot is refused: put it back on the shelf
+    (or replace it) first, so no slot keeps pointing at an archived
+    spool. Unarchiving puts the spool back on the shelf list.
+    """
+    spool = _spool_or_refuse(spool_id, client)
+    if archived:
+        state = load_state(state_path, printer_id=printer_id)
+        if int(spool_id) in _loaded_spool_ids(state):
+            raise SpoolError(f"spool #{spool_id} is loaded in a slot. Put it back on the shelf "
+                             "or replace it first, then archive it. Nothing changed")
+    was = bool(spool.get("archived"))
+    if was != bool(archived):
+        client("PATCH", f"/api/v1/spool/{int(spool_id)}", {"archived": bool(archived)})
+    return {"spool_id": int(spool_id), "archived": bool(archived), "changed": was != bool(archived),
+            "label": spool_nickname(spool) or " ".join(
+                str((spool.get("filament") or {}).get(k) or "").strip() for k in ("name", "material")).strip()}
+
+
+def set_archived_text(spool_id: int, archived: bool, *, client: Client = spoolman,
+                      state_path: Path | None = None, printer_id: str | None = None) -> str:
+    """The chat reply for /spool archive and /spool unarchive."""
+    try:
+        result = set_archived(spool_id, archived, client=client, state_path=state_path,
+                              printer_id=printer_id)
+    except SpoolError as exc:
+        return f"{exc}."
+    label = f" ({result['label']})" if result["label"] else ""
+    if not result["changed"]:
+        return (f"Spool #{result['spool_id']}{label} was already "
+                f"{'archived' if archived else 'not archived'}. Nothing changed.")
+    if archived:
+        return f"Spool #{result['spool_id']}{label} is archived. `/spool unarchive {result['spool_id']}` brings it back."
+    return f"Spool #{result['spool_id']}{label} is back on the shelf."
+
+
 def set_remaining_text(spool_id: int, grams: float, *, client: Client = spoolman) -> str:
     """The chat reply for /spool weight: what changed, or the named refusal."""
     try:
@@ -1410,7 +1487,8 @@ def set_remaining_text(spool_id: int, grams: float, *, client: Client = spoolman
     label = f" ({result['label']})" if result["label"] else ""
     before = result["before"]
     was = f" (was {before:g} g)" if isinstance(before, (int, float)) and not isinstance(before, bool) else ""
-    note = " It is archived; unarchive it in the Web UI if it is back in use." if result["archived"] else ""
+    note = (f" It is archived; `/spool unarchive {result['spool_id']}` brings it back."
+            if result["archived"] else "")
     return f"Spool #{result['spool_id']}{label} now has {result['after']:g} g left{was}.{note}"
 
 
@@ -1889,7 +1967,8 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
         live = by_id.get(sid) or {}
         grams = live.get("remaining_weight")
         g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
-        lines.append(f"Slot {slot}: #{sid} {rec.get('name') or '?'}{g}" if sid else f"Slot {slot}: empty")
+        shown = spool_nickname(live) or rec.get('name') or '?'
+        lines.append(f"Slot {slot}: #{sid} {shown}{g}" if sid else f"Slot {slot}: empty")
         if sid:
             loaded.add(sid)
     shelf = [s for s in spools if s.get("id") not in loaded]
@@ -1899,11 +1978,15 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
         grams = s.get("remaining_weight")
         g = f", {grams:.0f} g" if isinstance(grams, (int, float)) else ""
         from .discord_print_summary import filament_label
-        lines.append(f"#{s['id']} {filament_label(f.get('name'), f.get('material'), '?')}{g}".rstrip())
+        own = spool_nickname(s)
+        label = f"{own} ({filament_label(f.get('name'), f.get('material'), '?')})" if own \
+            else filament_label(f.get('name'), f.get('material'), '?')
+        lines.append(f"#{s['id']} {label}{g}".rstrip())
     if not shelf:
         lines.append("(nothing on the shelf)")
     lines.append("Guided: `/spool` walks you through adding or changing a spool with buttons · "
-                 "One-shot: `/spool change <slot> <spool#>` · `/spool new brand, material, color, grams[, hex]`")
+                 "One-shot: `/spool change <slot> <spool#>` · `/spool new brand, material, color, grams[, hex]` · "
+                 "`/spool shelve <slot>` · `/spool rename <spool#> <name>` · `/spool archive <spool#>`")
     return "\n".join(lines)
 
 
@@ -2054,7 +2137,7 @@ def shelf_spools(*, client: Client = spoolman, state_path: Path | None = None,
         filament = row.get("filament") or {}
         grams = row.get("remaining_weight")
         out.append({"spool_id": int(row["id"]),
-                    "name": str(filament.get("name") or f"Spool #{row['id']}"),
+                    "name": spool_nickname(row) or str(filament.get("name") or f"Spool #{row['id']}"),
                     "material": str(filament.get("material") or ""),
                     "remaining_grams": float(grams) if isinstance(grams, (int, float)) else None})
     return sorted(out, key=lambda s: s["spool_id"])

@@ -154,3 +154,27 @@ def test_two_slot_mapped_launch_carries_no_baseline(mapped, monkeypatch, tmp_pat
     context = json.loads(context_path.read_text())["jobs"][FILE]
     assert context["tool_to_physical_slot"] == {"0": 1, "1": 2}
     assert "spool_usage_baseline" not in context
+
+
+def test_a_multi_slot_start_is_recorded_when_the_active_spool_record_is_empty(mapped, monkeypatch, tmp_path):
+    # A multi-slot launch clears the active-spool record, and an unassign
+    # leaves it empty. The start record must still be written, or the print
+    # has no history and its per-slot usage is never charged.
+    jp, g = make_job(mapped.root, "a")
+    native = mock.Mock()
+    native.embedded_mapping = lambda text, st: {"0": 1, "1": 2}
+    empty = {**_state(1), "spool": {},
+             "filament_slots": {"1": {"spoolman_id": SPOOL, "material": "PLA+", "hex": "#000000"},
+                                "2": {"spoolman_id": SPOOL + 1, "material": "PLA+", "hex": "#ffffff"}}}
+    context_path = tmp_path / "print_handy_context.json"
+    monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
+    with mock.patch.object(model_job, "_job_for_gcode", return_value=json.loads(jp.read_text())), \
+         mock.patch.object(model_job.printer_state, "load", return_value=empty), \
+         mock.patch.object(model_job.printers, "current",
+                           return_value=mock.Mock(multi_slot=True, native_or_none=native)), \
+         mock.patch.object(model_job, "CONTEXT", context_path):
+        REAL_RECORD_START(str(g), FILE, started_at=_iso(time.time()), print_number=114)
+    context = json.loads(context_path.read_text())["jobs"][FILE]
+    assert context["tool_to_physical_slot"] == {"0": 1, "1": 2}
+    assert context["active_spool"]["id"] is None
+    assert context["filament_density"] == 1.24 and context["filament_diameter_mm"] == 1.75

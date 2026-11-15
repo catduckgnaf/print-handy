@@ -2011,8 +2011,21 @@ def recorded_fix_failure(job, source_sha256):
             and failed.get('source_sha256') == source_sha256)
 
 
+def _question_timeout(timeout):
+    """The wait for one intake question: the caller's, else discord.question_timeout_s.
+
+    Resolved here so no caller can forget it: with None a question waited
+    forever and the expiry handler below never ran.
+    """
+    if timeout is not None:
+        return timeout
+    from ..runtime import _config
+    return _config.question_timeout_s()
+
+
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
+    timeout = _question_timeout(timeout)
     wrapped = _card_wrap(adapter, getattr(event, 'source', None))
     try:
         return await _prepare_link_intake(event, wrapped, state, root, timeout=timeout, reuse=reuse,
@@ -2068,6 +2081,7 @@ YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
 
 
 async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
+    timeout = _question_timeout(timeout)
     wrapped = _card_wrap(adapter, getattr(event, 'source', None))
     try:
         return await _print_gcode_file_intake(event, wrapped, root, path, timeout=timeout,

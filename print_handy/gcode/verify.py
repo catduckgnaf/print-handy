@@ -67,6 +67,37 @@ def _refuse_multicolor(text, adapter=None):
     return adapter
 
 
+def _tool_material_problems(text, listed, state, spool_material):
+    """Material warnings for a toolhead printer's file, one tool at a time.
+
+    The slicer writes one filament_type entry per toolhead, so the whole
+    list is never one material. Each tool the file uses is compared with
+    the material recorded for its position; unused entries are ignored.
+    A single-tool file whose position has no record falls back to the
+    active spool. Every problem here is a warning the operator may accept
+    at start, never a hard block (#1336), including a used tool the file
+    lists no material for.
+    """
+    used = sorted(_gcode_tools(text) | {0})
+    slots = state.get("filament_slots") or {}
+    problems = []
+    for tool in used:
+        if tool >= len(listed):
+            problems += material_accept.problem(
+                "material", f"G-code selects T{tool} but its filament_type lists only "
+                            f"{len(listed)} material(s), so its material cannot be checked",
+                f"T{tool}", "unlisted")
+            continue
+        record = slots.get(str(tool + 1))
+        loaded = record.get("material") if isinstance(record, dict) else None
+        if not loaded and len(used) == 1:
+            loaded = spool_material
+        if not printer_state.same_material(listed[tool], loaded):
+            problems += material_accept.material_problem(
+                listed[tool], loaded, f" for T{tool} (position {tool + 1})")
+    return problems
+
+
 _VERIFY_LINE_PREFIXES = (
     '; filament_type = ', '; nozzle_diameter = ', '; first_layer_height = ', '; initial_layer_print_height = ',
     '; nozzle_temperature_initial_layer = ', '; nozzle_temperature = ',
@@ -371,9 +402,13 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
             listed = []
         if len(listed) == 1:
             material = listed[0]
-        if not printer_state.same_material(material, st["spool"]["material"]):
+        # The active-spool record is legitimately empty (fresh install, unassign).
+        spool_material = (st.get("spool") or {}).get("material")
+        if len(listed) > 1 and adapter.tool_based:
+            errors += _tool_material_problems(text, listed, st, spool_material)
+        elif not printer_state.same_material(material, spool_material):
             # A warning the operator may accept at start, never a hard block (#1336).
-            errors += material_accept.material_problem(material, st["spool"]["material"])
+            errors += material_accept.material_problem(material, spool_material)
     hotend,bed=effective_hotend,st["temps_c"]["bed"]
     def numeric_macro_match(macro_name, bed_key, hotend_key):
         match = lines.search(rf'^{re.escape(macro_name)}\s+([^;]*)', macro_name)

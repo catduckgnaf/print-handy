@@ -503,7 +503,7 @@ def classify(exc: BaseException, *, category: Category | None = None) -> Categor
     import subprocess
     if isinstance(exc, subprocess.TimeoutExpired):
         return Category.TRANSIENT
-    if isinstance(exc, (TypeError, AttributeError, AssertionError, NameError, ImportError)):
+    if isinstance(exc, (TypeError, AttributeError, AssertionError, NameError, ImportError, LookupError)):
         return Category.PROGRAMMING
     if isinstance(exc, OSError):
         return Category.TRANSIENT if exc.errno in TRANSIENT_ERRNOS else Category.UNKNOWN
