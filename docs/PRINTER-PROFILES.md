@@ -13,7 +13,8 @@ is reference for people who want the details.
 | --- | --- | --- | --- |
 | Flashforge (ZMod) | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker on your network | [AD5X best practices](./DEVICE-AD5X.md) · [ZMod](./ZMOD.md) |
 | Flashforge (stock) | AD5X on factory firmware | The printer's own LAN interface | [Stock Flashforge](./FLASHFORGE-STOCK.md) |
-| Flashforge (OpenCreator) | Creator 5, Creator 5 Pro on OpenCreator firmware | Moonraker on your network | [OpenCreator](./OPENCREATOR.md) |
+| Flashforge (OpenCreator) | Creator 5, Creator 5 Pro running OpenCreator | Kalico / Moonraker; use the OpenCreator model keys, not the ZMod ones | [OpenCreator](./OPENCREATOR.md) |
+| Flashforge (Reforge; no Print Handy profile yet) | Creator 5, Creator 5 Pro | Independent custom firmware; **no verified Print Handy connection or model key** | [Reforge upstream](https://github.com/Klipper4FlashForge/firmware) · [Request support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) |
 | Bambu Lab | A1, A1 mini, P1P, P1S, P2S, X1, X1C, X1E, H2S, A2L, plus the dual-nozzle H2D, H2D Pro, X2D and H2C | Slices locally; print starts are opt-in over the LAN | [Bambu Lab](./BAMBU-LAB.md) |
 | Prusa | MK4S, Core One, XL, MINI+ | PrusaLink on your network | [Prusa](./PRUSA.md) |
 | Elegoo | Neptune 4, 4 Pro, 4 Plus, 4 Max; Centauri Carbon | Moonraker, or SDCP for the Centauri | [Elegoo](./ELEGOO.md) |
@@ -24,6 +25,8 @@ is reference for people who want the details.
 | Snapmaker | U1 | Moonraker | [Snapmaker](./SNAPMAKER.md) |
 | Any other Klipper printer | Yours not listed? `klipper.generic` is the catch-all | Moonraker | [Printer support](./PRINTER-SUPPORT.md) |
 | Marlin printers | Ender-3 family and other Marlin machines | OctoPrint | [OctoPrint / Marlin](./OCTOPRINT-MARLIN.md) |
+
+**The Reforge row is a firmware discovery link, not a selectable profile.** Do not point a ZMod or OpenCreator profile at Reforge and assume the G-code contracts match. If you have real test results, [open a printer request](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml).
 
 One honest note: a profile existing means Print Handy knows the
 printer's shape and has tested the slicing path; it does not promise
