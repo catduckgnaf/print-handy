@@ -56,6 +56,14 @@ def enabled(cfg) -> bool:
     return bool((cfg.get("firmware") or {}).get("update_alerts", True))
 
 
+def notice_firmwares(cfg) -> frozenset:
+    """Feed lines announced in chat ([firmware] notice_firmwares)."""
+    names = (cfg.get("firmware") or {}).get("notice_firmwares")
+    if names is None:
+        names = settings.FIRMWARE_NOTICE_DEFAULT
+    return frozenset(str(n).lower() for n in names)
+
+
 def interval_s(cfg) -> float:
     hours = (cfg.get("firmware") or {}).get("update_check_hours", 24)
     try:
@@ -303,8 +311,10 @@ class FirmwareAlerter:
                 self._feed_store(printer_id, state_dir, now + BUSY_RETRY_S)
                 return []
             state = fa.load(state_dir, self.surface)
+            wanted = notice_firmwares(self.core.cfg)
+            rows = [row for row in feed.for_model(model) if row.id.lower() in wanted]
             notices, seen = fa.feed_notices(
-                feed.for_model(model), state,
+                rows, state,
                 skip_ids=(fa.COMPONENT,) if owns_zmod else ())
             label = self._feed_label(printer_id, entry)
             delivered = []

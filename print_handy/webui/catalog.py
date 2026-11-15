@@ -123,6 +123,7 @@ GROUP_OF = {
     "notify.ntfy_topic": "notifications",
     "firmware.update_alerts": "notifications",
     "firmware.update_check_hours": "notifications",
+    "firmware.notice_firmwares": "notifications",
     "llm.chat_url": "ai",
     "llm.model": "ai",
     "design.chat_url": "ai",
@@ -414,6 +415,15 @@ CATALOG = (
            "Hours between update checks for each printer (1 to 168). A check is "
            "skipped while the printer is printing.",
            validator="settings firmware check", minimum=1, maximum=168),
+    _field("firmware", "notice_firmwares", "Firmware release notices", "picker",
+           "Which firmware lines get a chat notice when they publish a new release. "
+           "Forge-X follows the 1.4.2 beta until it ships stable. Others show on the "
+           "Firmware page only.",
+           choices=("zmod", "opencreator", "forge-x", "helixscreen", "klipper", "moonraker",
+                    "octoprint", "marlin", "prusa-buddy-mk4s", "prusa-buddy-coreone",
+                    "prusa-buddy-xl", "prusa-buddy-mini", "qidi-q1pro", "qidi-xplus3",
+                    "qidi-xplus4", "qidi-xmax3", "qidi-xsmart3"),
+           validator="settings firmware check"),
     # AI and models: every OpenAI-compatible endpoint in one group. Only
     # URLs and model names are fields — an endpoint's API key stays in
     # the environment, like every other secret. The inheritance chain is

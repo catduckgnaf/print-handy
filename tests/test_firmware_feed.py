@@ -401,8 +401,9 @@ class _Adapter:
         return SimpleNamespace(success=self.ok)
 
 
-def _alerter(tmp_path, monkeypatch, feed, *, ok=True, alerts=True):
-    cfg = {"firmware": {"update_alerts": alerts},
+def _alerter(tmp_path, monkeypatch, feed, *, ok=True, alerts=True, notice=None):
+    cfg = {"firmware": {"update_alerts": alerts,
+                        **({} if notice is None else {"notice_firmwares": notice})},
            "printers": [{"id": "creator", "model": "flashforge_opencreator.creator5_pro",
                          "name": "Shop Creator"}]}
     monkeypatch.setattr(firmware_alert.settings, "printers", lambda c: c["printers"])
@@ -464,6 +465,29 @@ def test_no_feed_and_opt_out_send_nothing(tmp_path, monkeypatch):
     assert _run_feed(alerter, clock) == [[]] and core.adapter.sent == []
     off, core_off, clock_off = _alerter(tmp_path, monkeypatch, [None], alerts=False)
     assert _run_feed(off, clock_off) == [] and core_off.adapter.sent == []
+
+
+def test_only_listed_firmware_lines_get_a_chat_notice(tmp_path, monkeypatch):
+    # [firmware] notice_firmwares (catduck, 2026-11-15): a line not listed
+    # posts nothing, even with a new release; the default lists OpenCreator.
+    feed = [firmware_feed.Feed(None, _rows())]
+    off, core_off, clock_off = _alerter(tmp_path / "off", monkeypatch, feed, notice=["zmod", "forge-x"])
+    _run_feed(off, clock_off)
+    feed[0] = firmware_feed.Feed(None, _rows("0.0.8", "2026-11-20T00:00:00Z"))
+    assert _run_feed(off, clock_off) == [[]] and core_off.adapter.sent == []
+    assert firmware_alert.notice_firmwares({}) == frozenset({"zmod", "opencreator", "forge-x"})
+
+
+def test_notice_firmwares_setting_defaults_and_validates():
+    from print_handy import settings as st
+    data = {"firmware": {}}
+    st._validate_firmware(data)
+    assert data["firmware"]["notice_firmwares"] == ["zmod", "opencreator", "forge-x"]
+    data = {"firmware": {"notice_firmwares": [" ZMod ", ""]}}
+    st._validate_firmware(data)
+    assert data["firmware"]["notice_firmwares"] == ["zmod"]
+    with pytest.raises(st.SettingsError):
+        st._validate_firmware({"firmware": {"notice_firmwares": "zmod"}})
 
 
 # ---------------------------------------------------------------- the Web UI page

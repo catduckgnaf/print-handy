@@ -416,6 +416,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:check|look)\s+for\s+(?:an?\s+)?updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+there\s+)?(?:an?\s+)?(?:new\s+)?{_FW_COMPONENT}\s+updates?{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+)?{_FW_COMPONENT}\s+up\s+to\s+date{_END}", re.I), "/print-firmware"),
+    # Firmware lines Print Handy reports but never applies (the firmware feed,
+    # #1280 section I): questions about them get the read-only report, and
+    # there is deliberately no "update X" form for them.
+    (re.compile(rf"^{_LEAD}(?:check\s+for|look\s+for|is\s+there)\s+(?:an?\s+|any\s+)?(?:new\s+)?(?:forge[\s-]?x|ff5m|open[\s-]?creator)\s+(?:updates?|releases?|firmware){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:new\s+)?(?:forge[\s-]?x|ff5m|open[\s-]?creator)\s+(?:updates?|releases?|version){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:show|open|check)\s+(?:me\s+)?(?:the\s+)?firmware\s+(?:feed|releases){_END}", re.I), "/print-firmware"),
     (re.compile(rf"^{_LEAD}check\s+(?:the\s+)?{_FW_COMPONENT}{_END}", re.I), "/print-firmware"),
     # "update helix" (the owner's words, 2026-11-11): the update form for
     # the named component, its name through firmware_update's one alias
