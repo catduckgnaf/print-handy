@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 import json
 import re
 import time
-import urllib.request
 from dataclasses import dataclass
 
 from .. import printers, settings
@@ -120,9 +119,8 @@ def conflicts(plugins):
 # ---------------------------------------------------------------- transport (read-only)
 
 def _fetch(url, timeout):
-    request = urllib.request.Request(url)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode('utf-8', 'replace')
+    from .. import moonraker
+    return moonraker.url_text(url, timeout=timeout, moonraker=True)
 
 
 def _query(base, path, timeout):
@@ -276,8 +274,14 @@ def resolve(printer_id=None, data=None, *, state=None, adapter=None, live=False)
                else tuple(cache.get('plugins') or ()))
     value = None
     if live:
+        from .. import moonraker
         from .printer_state import read_purge_mode
-        value = read_purge_mode(state)
+        try:
+            value = read_purge_mode(state)
+        except moonraker.MoonrakerAuthError:
+            # Slice time keeps the fail-safe prime-tower slice (unknown
+            # mode); the launch gate re-reads and refuses on auth (#1466).
+            value = None
     else:
         value = cache.get('use_trash_on_print')
     mode_cfg = purge_cfg.get('mode', 'auto')
@@ -328,8 +332,17 @@ def require_launch_safe(gcode_text, state, say=print):
         return
     if len(set(_TOOL_CHANGE.findall(gcode_text or ''))) < 2:
         return  # one color: no color change ever purges, so the purge mode does not matter
+    from .. import moonraker
     from .printer_state import read_purge_mode
-    live = read_purge_mode(state)
+    try:
+        live = read_purge_mode(state)
+    except moonraker.MoonrakerAuthError as exc:
+        # #1466: an auth failure is not the "could not confirm" pass — a
+        # towerless print on a printer whose mode cannot be checked
+        # because the key is wrong must not go ahead silently.
+        raise SystemExit(
+            f'REFUSED: this G-code was sliced without a prime tower, and the printer\'s purge '
+            f'mode could not be checked: {exc} Nothing uploaded or started.') from exc
     if live == 0:
         raise SystemExit(
             'REFUSED: this G-code was sliced without a prime tower, for the printer to purge into its '

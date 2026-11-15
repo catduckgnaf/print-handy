@@ -179,6 +179,7 @@ from . import pages
 from . import printers_page
 from . import projects as projects_module
 from . import routes as routes_module
+from . import timing as timing_module
 from . import screen as screen_module
 from . import shell
 from . import sources as sources_module
@@ -1297,6 +1298,13 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(*projects_module.respond(
             self.server.settings_data, path, theme=self._theme(),
             nav=data_module.nav_for(self.server.settings_data)))
+
+    def _timing_route(self):
+        # The real user-facing waits from TIMING.jsonl (#1476), read-only.
+        self._send(200, timing_module.render_timing_page(
+            self.server.settings_data, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
 
     def _layers_route(self, rest=""):
         archive = layers_module.archive_root(self.server.settings_data)

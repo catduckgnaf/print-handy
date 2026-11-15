@@ -23,7 +23,7 @@ marked verified just because a config number was readable.
 import logging
 
 logger = logging.getLogger(__name__)
-import argparse, contextlib, datetime, json, os, re, sys, threading, urllib.request
+import argparse, contextlib, datetime, json, os, re, sys, threading
 from pathlib import Path
 
 from .. import printers, settings
@@ -919,10 +919,11 @@ def provision_default_record(view=None):
 
 
 def _get(url, data=None, method=None, timeout=6):
-    req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
-                                 method=method, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.load(r)
+    # Moonraker-only transport (every caller passes a Moonraker URL), so it
+    # goes through the one helper and carries the API key (#1466).
+    from .. import moonraker
+    return moonraker.url_json(url, data=data, method=method, timeout=timeout,
+                              headers={"Content-Type": "application/json"}, moonraker=True)
 
 
 # ZMod's AD5X colour-change purge, the saved variable use_trash_on_print
@@ -945,13 +946,22 @@ def purge_mode(variables):
 
 
 def read_purge_mode(st):
-    """The live ZMod purge mode for st's printer, or None when Moonraker cannot say."""
+    """The live ZMod purge mode for st's printer, or None when Moonraker cannot say.
+
+    An authentication failure (401/403 on a key-protected Moonraker) is NOT
+    folded into None (#1466): it raises MoonrakerAuthError, because "could
+    not confirm" and "the key is wrong" need different answers at the
+    launch gate.
+    """
+    from .. import moonraker
     url = (st or {}).get("moonraker_url")
     if not url:
         return None
     try:
         status = _get(f"{url}/printer/objects/query?save_variables")["result"]["status"]
         return purge_mode((status.get("save_variables") or {}).get("variables"))
+    except moonraker.MoonrakerAuthError:
+        raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         # Transport and payload-shape failures only (#1467): this feeds the
         # towerless launch gate, which treats None as "could not confirm", so
@@ -964,9 +974,9 @@ def read_purge_mode(st):
 
 def sync_klipper_nozzle(moonraker_url, nozzle_diameter):
     """Update nozzle_diameter in printer.cfg via Moonraker upload API and restart Klipper."""
+    from .. import moonraker as _moonraker
     cfg_url = f"{moonraker_url}/server/files/config/printer.cfg"
-    req = urllib.request.Request(cfg_url)
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with _moonraker.open_url(cfg_url, timeout=10, moonraker=True) as r:
         content = r.read().decode("utf-8")
 
     pattern = r"^(nozzle_diameter\s*:\s*)([0-9.]+)"
@@ -993,15 +1003,13 @@ def sync_klipper_nozzle(moonraker_url, nozzle_diameter):
     ).encode("utf-8")
 
     upload_url = f"{moonraker_url}/server/files/upload"
-    up_req = urllib.request.Request(upload_url, data=body, method="POST", headers={
-        "Content-Type": f"multipart/form-data; boundary={boundary}"
-    })
-    with urllib.request.urlopen(up_req, timeout=15) as r:
+    with _moonraker.open_url(upload_url, data=body, method="POST", timeout=15, moonraker=True,
+                             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}) as r:
         pass
 
     restart_url = f"{moonraker_url}/printer/restart"
-    res_req = urllib.request.Request(restart_url, data=b"{}", method="POST", headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(res_req, timeout=10) as r:
+    with _moonraker.open_url(restart_url, data=b"{}", method="POST", timeout=10, moonraker=True,
+                             headers={"Content-Type": "application/json"}) as r:
         pass
 
     return True

@@ -126,6 +126,7 @@ class GeneratorBodyContract(unittest.TestCase):
             "## Unraid templates (fix-first)",
             "## Owed live checks",
             "## Slicing-speed baselines (fix-first)",
+            "## Real-install timing",
             "## Fix-first gate",
         ):
             self.assertIn(heading, self.body)
