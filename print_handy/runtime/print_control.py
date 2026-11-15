@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import threading
+import subprocess
 import time
 import urllib.parse
 from pathlib import Path
@@ -28,6 +29,7 @@ from typing import Any
 from .. import moonraker
 from ..core import fuzzy, projects
 from . import _config
+from ._suppress import repeated_failure
 
 BASE = _config.moonraker_url()
 ARCHIVE = _config.archive_dir()
@@ -1713,12 +1715,13 @@ def force_reboot(
     nat_read = native_reader or default_native
     time.sleep(wait_grace_s)
     deadline = time.monotonic() + max_wait_s
+    log_reboot_failure = repeated_failure("Reboot idle check failed", logger=__import__("logging").getLogger(__name__))
     while time.monotonic() < deadline:
         try:
             m, n = mr_read(), nat_read()
             if isinstance(m, dict) and isinstance(n, dict) and safe_idle(m, n):
                 return True, "Restart complete. The printer is idle with heaters off."
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
+            log_reboot_failure(exc)
         time.sleep(poll_s)
     return False, f"Restart sent, but the printer didn't report idle within {wait_grace_s + max_wait_s:.0f}s. Check the printer screen. Not retrying."

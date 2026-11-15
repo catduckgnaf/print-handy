@@ -239,6 +239,14 @@ def _camera_capable(entry, view):
     return healthcheck.listener_connection(view) in _ADAPTER_CAMERA_CONNECTIONS
 
 
+def _redact_detail(value):
+    """Scrub embedded URLs, not just messages consisting of one URL."""
+    import re
+    from ..live_stream import redact_url
+    return re.sub(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>\"']+",
+                  lambda match: redact_url(match.group()), str(value))
+
+
 def _nozzle_label(kind):
     return str(kind or "").replace("_", " ").strip() or "unknown"
 
@@ -341,14 +349,14 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None,
             live = (body or {}).get("status") or {}
             card["live"] = live
             card["state"] = str(live.get("state") or "unavailable")
-            card["detail"] = str(live.get("detail") or "")
+            card["detail"] = _redact_detail(live.get("detail") or "")
             card["name"] = (body or {}).get("name") or card["name"]
             card["model"] = (body or {}).get("model") or card["model"]
             history.sample(printer_id, live.get("hotend_c"), live.get("bed_c"),
                            live.get("hotend_target_c"), live.get("bed_target_c"))
         except Exception as exc:  # a dead read is an unavailable card
-            log.warning("dashboard status read failed for %s: %s", printer_id, exc)
-            card["detail"] = f"{type(exc).__name__}: {exc}"
+            card["detail"] = _redact_detail(f"{type(exc).__name__}: {exc}")
+            log.warning("dashboard status read failed for %s: %s", printer_id, card["detail"])
         card["history"] = history.samples(printer_id)
         try:
             code, sbody = spools_for(printer_id)

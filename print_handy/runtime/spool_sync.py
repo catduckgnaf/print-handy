@@ -21,6 +21,8 @@ until a human says which spool is loaded; `resume_usage()` re-points it.
 from __future__ import annotations
 
 import json
+import logging
+import urllib.error
 import os
 import re
 import time
@@ -248,13 +250,13 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
         default_id = _config.cfg()["printers"][0]["id"]
     except Exception:
         default_id = None
-    if target == root / "printer_hardware.json":
+    if default_id is not None and target == root / "printer_hardware.json":
         # The legacy root record IS the default printer's record (pre-adoption
         # spelling of it): its per-printer copy is the same printer, not another.
         try:
             candidates.remove(root / "printers" / default_id / "printer_hardware.json")
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except ValueError:
+            logging.getLogger(__name__).debug("No per-printer copy of the default record exists")
     elif default_id is not None and target == root / "printers" / default_id / "printer_hardware.json":
         # The reverse direction (P2-127): binding the default printer's
         # per-printer record, the root record is that same printer's legacy
@@ -262,8 +264,8 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
         # another printer — a spool it loads is this printer's own.
         try:
             candidates.remove(root / "printer_hardware.json")
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except ValueError:
+            logging.getLogger(__name__).debug("No legacy copy of the default record exists")
     for candidate in candidates:
         if candidate == target:
             continue
@@ -1344,8 +1346,13 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
         reply = mr("GET", "/printer/objects/query?zmod_color", None) or {}
         printer_hexes = filament_color.printer_slot_hexes(
             ((reply.get("result") or {}).get("status") or {}).get("zmod_color"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (400, 404):
+            logging.getLogger(__name__).debug("Optional zmod_color object is unavailable")
+        else:
+            logging.getLogger(__name__).warning("Could not read optional zmod_color object", exc_info=True)
     except Exception:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        logging.getLogger(__name__).warning("Could not read optional zmod_color object", exc_info=True)
     changes = filament_color.fill_missing_slot_hexes(
         state, spoolman_hexes=spoolman_hexes, printer_hexes=printer_hexes)
     for change in changes:
