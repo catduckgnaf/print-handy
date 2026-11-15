@@ -413,8 +413,8 @@ def test_gate_offers_no_fix_button_on_a_multi_file_job(env, monkeypatch):
         plans=[{'kind': 'supports', 'enabled': True, 'type': 'tree'}], summary='use tree supports'))
     monkeypatch.setattr(ai_fix, 'source_files',
                         lambda job: [{'path': '/models/a.stl'}, {'path': '/models/b.stl'}])
-    # one color (1), slot 1 (0), with supports (0), Cancel (1) at the gate.
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    # one color (2 on the #1473 offer), slot 1 (0), with supports (0), Cancel (1) at the gate.
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     assert not any(ai_fix.FIX_LABEL in (q.get('choices') or []) for q in adapter.questions)
     gate = adapter.questions[-1]
     assert gate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
@@ -438,7 +438,7 @@ def test_a_failed_fix_is_recorded_on_the_job(env, monkeypatch):
         raise ai_fix.FixError('that fix would not change the model (the proposed extend '
                               'moves nothing on it), so nothing was changed')
     monkeypatch.setattr(ai_fix, 'build_fixed_copy', no_op_build)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1], mid='gate-record-failure')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 1], mid='gate-record-failure')
     job = json.loads(Path(receipt['job_json']).read_text())
     failed = job.get('ai_fix_failed')
     assert failed and failed['source_sha256'] == job['color_decisions']['source_sha256']
