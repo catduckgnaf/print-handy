@@ -329,7 +329,7 @@ delivery:
   methods: [printer, discord]  # a subset of the vendor's delivery options; default is the vendor default
 ```
 
-Combinations the vendor does not offer stop startup and name the setting. Examples are a vendor that disagrees with a full model key, `slicer: bambu_studio` on a Klipper printer, and `bambu_handoff` on a Flashforge printer. Every existing vendor defaults to `methods: [printer]`, so its Discord flow is exactly what it was. Add `discord` to get a "Send the files here" button after slicing.
+Combinations the vendor does not offer stop startup and name the setting. Examples are a vendor that disagrees with a full model key, `slicer: bambu_studio` on a Klipper printer, and `bambu_handoff` on a Flashforge printer. Every existing vendor defaults to `methods: [printer]`, so its print flow is exactly what it was. Add `discord` to get a "Send the files here" button in the post-slice print menu as well. Either way, choosing **Slice and Download** always offers "Send the files here" when the vendor offers `discord` at all: Slice and Download is a request for the file, including on a default Flashforge install (#1443).
 
 ## Adding a printer
 
@@ -360,14 +360,12 @@ A new vendor is a package with an `__init__.py` defining `VENDOR = VendorProfile
 
 ## After a slice
 
-The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice only", "Scale the model" and "Cancel print request". "Scale the model" asks bigger or smaller, then 1%, 5% or 10%, and repeats the confirmation at the new size; a size that does not fit the bed is refused, and the bot offers the biggest size that does fit instead. The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
+The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice and Download", "Scale the model" and "Cancel print request". "Scale the model" asks bigger or smaller, then 1%, 5% or 10%, and repeats the confirmation at the new size; a size that does not fit the bed is refused, and the bot offers the biggest size that does fit instead. The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
 
-After **Slice only**:
+After **Slice and Download**: one menu with the options the profile enables, plus the download the Slice and Download choice itself asks for:
 
-- **Only `printer` enabled** (the default for every existing printer): the same question as before, with the Start button and Cancel.
-- **More options enabled**: one menu with the options the profile enables:
-  - **Start next plate · bed is clear**: the same per-job bed-clear button, and still the only way to print. It runs every existing print-now gate.
-  - **Send the files here** (`discord`): attaches each plate's file to the thread.
+  - **Start next plate · bed is clear** (`printer`): the same per-job bed-clear button, and still the only way to print. It runs every existing print-now gate.
+  - **Send the files here** (`discord`): attaches each plate's file to the thread. Offered whenever the vendor profile offers `discord` at all (a default `methods: [printer]` install included), because Slice and Download is a request for the file (#1443). A vendor that does not offer chat delivery gets no new option.
   - **Package for Bambu (no upload)** (`bambu_handoff`): builds a `.gcode.3mf` per plate, with the plate preview PNGs the printer and the Bambu apps show.
   - **Done, don't print**
 
@@ -385,7 +383,7 @@ Slicer choice, file delivery, printer handoff and print authorization are separa
 
 Every file is one message with one `MEDIA:` attachment, labelled "Plate n of m". A summary line follows: "Sent n of m file(s) here. Too big for Discord: ... Failed: ...".
 
-**Said before the button, not after.** The post-slice menu sizes each file before it offers "Send the files here". A plain `.gcode` over the cap is deflated once, in memory, to learn what its zip would weigh; a `.gcode.3mf` package counts as is. A file that cannot fit in any form is named in the same message with its size, the cap and its path on the Print Handy host (for a Bambu package, `<archive>/<job>/sliced/.../bambu/plate_1.gcode.3mf`), and when nothing fits the button is left out, so the operator never picks a download that fails. Files under the cap are attached exactly as before. The per-file check at send time stays as a safety net for a borderline file. The cap is [`discord.upload_max_bytes`](SETTINGS.md) (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`); raise it only when your server's boost level allows larger uploads. Large files stay on the host; Print Handy has no download server, so fetch them from the archive path it names.
+**Said before the button, not after.** The post-slice menu sizes each file before it offers "Send the files here". A plain `.gcode` over the cap is deflated once, in memory, to learn what its zip would weigh; a `.gcode.3mf` package counts as is. A file that cannot fit in any form is named in the same message with its size, the cap and its path on the Print Handy host (for a Bambu package, `<archive>/<job>/sliced/.../bambu/plate_1.gcode.3mf`), and when nothing fits the button is left out, so the operator never picks a download that fails. Files under the cap are attached exactly as before. The per-file check at send time stays as a safety net for a borderline file. The cap is [`discord.upload_max_bytes`](SETTINGS.md) (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`); raise it only when your server's boost level allows larger uploads. Large files stay on the host: fetch them from the archive path it names, or download them from the Web UI's Sliced files page ([WEBUI.md](WEBUI.md)), which serves the same archived plate files behind the Web UI login.
 
 **Failures and retries.** A failed upload (the adapter reports `success=False`, or the send raises) is reported with the error, and the option stays in the menu. A retry sends only the files not yet delivered. Too-big files cannot be fixed by a retry, so they count as reported and the option closes. Every attempt is recorded under `deliveries` in the intake receipt. Expiry and cancellation behave as before.
 

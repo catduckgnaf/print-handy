@@ -14,7 +14,7 @@ from .test_prepared_intake import Adapter, env, run_flow  # noqa: F401
 
 
 def test_link_intake_records_the_front_stages(env):
-    adapter, result, receipt = run_flow(env, [2, 0, 1, 1])  # one color, spool 0, slice only, then Done
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 2])  # slice only, then Done on the delivery menu
     assert receipt["status"] == "SLICED_NOT_STARTED"
     timing_path = Path(receipt["job_json"]).parent / "TIMING.jsonl"
     rows = [json.loads(line) for line in timing_path.read_text().splitlines()]

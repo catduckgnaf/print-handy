@@ -242,11 +242,11 @@ def test_multicolor_refused_start_sends_prep_then_precise_failure(env, monkeypat
 
 
 def test_slice_only_then_start_button_lifecycle(env, monkeypatch):
-    """Slice only, then explicit Start button confirmation sends prep before start."""
+    """Slice and Download, then explicit Start button confirmation sends prep before start."""
     # picks:
     # 1: One color for everything
     # 0: Slot 1
-    # 1: Slice only
+    # 1: Slice and Download
     # 0: Start this exact plate? -> Start next plate · bed is clear
     adapter, result, receipt = run_flow(env, [2, 0, 1, 0])
 

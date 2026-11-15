@@ -8,8 +8,12 @@ show their saved-credential state through
 :func:`print_handy.core.site_accounts.credential_state`, which reports
 a state word only; a credential itself is never rendered.
 
-The page is read-only: connecting a site still happens by dropping a
-link in chat and following the walkthrough there.
+The registry table is read-only: connecting a site still happens by
+dropping a link in chat and following the walkthrough there. The one
+action the page offers is the Start with a link form (#1450), which
+hands a pasted link to the workflow page, where the intake runs with
+its questions as on-page buttons, ending in a download or a print
+start.
 """
 from __future__ import annotations
 
@@ -58,7 +62,8 @@ def sources_rows():
     return rows
 
 
-def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None):
+def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None, form_token: str = "",
+                        chat_enabled: bool = True):
     """The GET /sources page: every place a model link can come from."""
     parts = [
         "<p>Drop a link to a model on any of these sites in chat and "
@@ -66,6 +71,31 @@ def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None):
         "This list is the same registry the bot's link intake reads, "
         "so what is listed here is what works.</p>",
     ]
+    # Start with a link (#1450): the form hands the link to the workflow
+    # page, which runs the same intake with its questions as on-page
+    # buttons and ends in a download or a print start. Offered only
+    # while web chat can run the workflow. (This supersedes the #1443
+    # stopgap form that handed the link to web chat; the Sliced files
+    # page from #1443 remains the archive-wide download surface.)
+    if chat_enabled:
+        parts.append(
+            "<h2>Start with a link</h2>"
+            "<p>Paste a link to a model below and the "
+            "<a href=\"/workflow\">workflow</a> runs here in the "
+            "browser: the same questions chat asks, as buttons on the "
+            "page, ending in a file to download or a print start.</p>"
+            "<form method=\"post\" action=\"/workflow/link\">"
+            f"<input type=\"hidden\" name=\"_csrf\" value=\"{_esc(form_token)}\">"
+            "<p><label>Model link "
+            "<input name=\"url\" type=\"url\" required "
+            "placeholder=\"https://…\"></label> "
+            "<button type=\"submit\">Start the workflow</button></p></form>")
+    else:
+        parts.append(
+            "<h2>Start with a link</h2>"
+            "<p>Web chat is not enabled on this install, so a link "
+            "cannot be started from this page. Paste the link in "
+            "Discord, Telegram or Matrix instead.</p>")
     body = []
     for label, hosts, kind, status, note in sources_rows():
         body.append(

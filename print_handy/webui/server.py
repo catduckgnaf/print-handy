@@ -51,16 +51,16 @@ step) serving:
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
   (:mod:`print_handy.webui.pages`), where settings are edited.
-- ``GET /designs`` and ``GET /designs/<id>`` — the read-only catalog of
-  AI design sessions (#388, stage 3;
+- ``GET /designs`` and ``GET /designs/<id>`` — the design workshop over
+  the catalog of AI design sessions (#388, stage 3; #1449;
   :mod:`print_handy.webui.designs`), with per-session file downloads
-  under ``GET /designs/<id>/<scad|stl|preview>``.
+  under ``GET /designs/<id>/<scad|stl|preview>``. ``POST /designs``
+  and ``POST /designs/choice`` are the workshop's forms: they submit
+  through this browser's web chat view, so a design started here runs
+  the chat design dispatch itself, not a page-side pipeline.
 - ``GET /projects`` and ``GET /api/projects`` — the read-only
   multi-part project readout (#1204; :mod:`print_handy.webui.projects`),
   read from each job's ``project_v1`` manifest and the print records.
-- ``GET /layers`` and ``GET /layers/<job>/<file>`` — a read-only view of
-  one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
-  pause, or exclude control, and nothing here changes chat confirm.
 - ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
   walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered to
   every install that has not finished it; its steps write through the
@@ -69,6 +69,13 @@ step) serving:
   (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
   and redirects back. A browser preference only, behind the same
   authorization as every other page.
+- ``GET /manifest.webmanifest``, ``GET /sw.js``, ``GET /offline``
+  and ``GET /static/<file>`` — the PWA install plumbing (#450
+  Phase 1; :mod:`print_handy.webui.pwa`), declared ``public`` in the
+  route table like the login form: a browser fetches them before any
+  sign-in, and they carry no state or printer data. The static route
+  is the favicon change's icon route (#1456): its allowlist carries
+  the branding icons and the PWA maskable icon alike.
 
 Every HTML page renders through the one shell
 (:mod:`print_handy.webui.shell`): one inline stylesheet, the header
@@ -152,6 +159,7 @@ import hmac
 import html
 import ipaddress
 import json
+import shutil
 import logging
 import os
 import re
@@ -172,21 +180,25 @@ from . import camera as camera_module
 from . import chat as chat_module
 from . import config as config_api
 from . import controls as controls_module
+from . import dashboard as dashboard_module
 from . import data as data_module
 from . import designs as designs_module
-from . import layers as layers_module
 from . import pages
+from . import printer_settings as printer_settings_module
 from . import printers_page
 from . import projects as projects_module
+from . import pwa as pwa_module
 from . import routes as routes_module
 from . import timing as timing_module
 from . import screen as screen_module
 from . import shell
+from . import sliced as sliced_module
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
 from . import upload as upload_module
 from . import walkthrough as walkthrough_module
+from . import workflow as workflow_module
 
 log = logging.getLogger(__name__)
 
@@ -200,6 +212,23 @@ SECURITY_HEADERS = (
     ("X-Frame-Options", "DENY"),
     ("Content-Security-Policy", "frame-ancestors 'none'"),
 )
+# The favicon and branding icons (#1456), served by the public
+# /favicon.ico and /static/* routes. The files live in webui/static and
+# are byte copies of assets/branding (tests/test_webui_favicon.py pins
+# them equal, so the two sets cannot drift apart). The allowlist is the
+# whole surface: a name that is not a key here is a 404 and is never
+# joined onto a filesystem path.
+STATIC_DIR = Path(__file__).parent / "static"
+ICON_FILES = {
+    "favicon.ico": "image/x-icon",
+    "icon-16.png": "image/png",
+    "icon-32.png": "image/png",
+    "icon-64.png": "image/png",
+    "icon-180.png": "image/png",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-512-maskable.png": "image/png",
+}
 # Per-connection socket timeout (seconds without progress on a read or
 # write) and the most requests handled at once: a slow or stalled
 # client cannot hold a thread forever, nor spawn threads without bound.
@@ -541,7 +570,7 @@ def _job_block(job):
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
                        unclaimed=False, loopback=False, open_reason="",
-                       credential_ignored=False):
+                       credential_ignored=False, dashboard=None):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -551,7 +580,12 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     job's file, progress and layers. ``walkthrough_pending`` adds the
     slim finish-setup banner under the header. ``error`` (a /debug
     validation refusal re-rendering this page, #840) shows above the
-    card.
+    card. ``dashboard`` (#1445, a dashboard.build_dashboard result)
+    renders the Home Assistant sample's screen — health row, printer
+    cards with camera, progress ring, temperatures and history,
+    filament, latest timelapse, recent prints — between the overall
+    card and the detail tables; without one the page is exactly the
+    pre-dashboard readout.
     """
     esc = html.escape
     bot, listener, spoolman = snap["bot"], snap["listener"], snap["spoolman"]
@@ -673,6 +707,7 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                    '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
+            + (dashboard_module.render_dashboard(dashboard, snap) if dashboard else "")
             + f'<table class="rows">{main_rows}</table>'
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
@@ -880,6 +915,33 @@ class _Handler(BaseHTTPRequestHandler):
     def _json(self, code, payload):
         self._send(code, json.dumps(payload, indent=1, sort_keys=True, default=str),
                    "application/json")
+
+    def _send_file(self, path, content_type, headers=()):
+        """Send a file as the response body in chunks (review of #1464).
+
+        A sliced plate can be well over 100 MB; reading it whole per request
+        (and for a HEAD request, only to discard it) is memory the box does
+        not need to spend. The length comes from stat, the body is copied
+        in fixed-size pieces."""
+        try:
+            size = path.stat().st_size
+            handle = open(path, "rb")
+        except OSError:
+            self._json(404, {"ok": False, "reason": "that file could not be read"})
+            return
+        with handle:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(size))
+            named = {name.lower() for name, _value in headers}
+            for name, value in SECURITY_HEADERS:
+                if name.lower() not in named:
+                    self.send_header(name, value)
+            for name, value in headers:
+                self.send_header(name, value)
+            self.end_headers()
+            if self.command != "HEAD":
+                shutil.copyfileobj(handle, self.wfile, 1024 * 1024)
 
     def _redirect(self, location, headers=()):
         self._send(303, "", "text/html; charset=utf-8",
@@ -1218,8 +1280,55 @@ class _Handler(BaseHTTPRequestHandler):
         code, body = healthz(self.server.settings_data)
         self._json(code, body)
 
+    def _favicon_route(self):
+        self._icon_file("favicon.ico")
+
+    def _static_route(self, name):
+        self._icon_file(name)
+
+    def _icon_file(self, name):
+        """One branding icon (#1456), from the ICON_FILES allowlist.
+
+        Public by design (see routes.py): the bytes are the project's
+        own logo, nothing about the install. Icons change only with a
+        release, so a browser may keep one for a day."""
+        content_type = ICON_FILES.get(name)
+        if content_type is None:
+            self._json(404, {"ok": False,
+                             "reason": "no icon by that name. "
+                                       "try /favicon.ico or /static/icon-32.png"})
+            return
+        try:
+            data = (STATIC_DIR / name).read_bytes()
+        except OSError:
+            self._json(404, {"ok": False,
+                             "reason": "that icon could not be read."})
+            return
+        self._send(200, data, content_type,
+                   headers=[("Cache-Control", "public, max-age=86400")])
+
     def _setup_redirect(self):
         self._redirect("/")
+
+    # -- PWA routes (#450 Phase 1, declared public in routes.py) ----------
+    def _pwa_manifest(self):
+        self._send(200, pwa_module.manifest_json(),
+                   "application/manifest+json; charset=utf-8",
+                   headers=[("Cache-Control", "public, max-age=86400")])
+
+    def _pwa_service_worker(self):
+        # no-cache: a stale worker script would keep an old caching
+        # policy alive; Service-Worker-Allowed grants the root scope
+        # even though the script itself lives at the root already.
+        self._send(200, pwa_module.SW_SCRIPT,
+                   "application/javascript; charset=utf-8",
+                   headers=[("Service-Worker-Allowed", "/"),
+                            ("Cache-Control", "no-cache")])
+
+    def _pwa_offline(self):
+        self._send(200, pwa_module.render_offline_page(),
+                   "text/html; charset=utf-8",
+                   headers=[("Cache-Control", "public, max-age=86400")])
 
     def _status_page(self):
         if (self._browser_navigation("/")
@@ -1239,6 +1348,10 @@ class _Handler(BaseHTTPRequestHandler):
             credential_ignored=getattr(self.server.access, "credential_ignored", False),
             loopback=is_loopback(self.server.bind_host),
             job=_overall_job(self.server.settings_data),
+            dashboard=dashboard_module.build_dashboard(
+                self.server.settings_data,
+                status_for=self.server.printer_status_func,
+                spools_for=self.server.spools_view_func),
             nav=data_module.nav_for(self.server.settings_data)
             if (data_module.data_enabled(self.server.settings_data)
                 or data_module.wrapped_enabled(self.server.settings_data))
@@ -1276,6 +1389,53 @@ class _Handler(BaseHTTPRequestHandler):
                                           section=section, reveal=reveal),
                    "text/html; charset=utf-8")
 
+    def _printer_settings_page(self):
+        """GET /printer-settings (?printer=<id>): one printer's settings (#1448)."""
+        query = parse_qs(urlparse(self.path).query)
+        data = self.server.settings_data
+        printer_id = (query.get("printer") or [None])[0] \
+            or settings.default_printer_id(data)
+        try:
+            settings.by_id(printer_id, data)
+        except settings.SettingsError:
+            self._json(404, {"ok": False, "reason": "no such printer"})
+            return
+        model = printer_settings_module.build_model(
+            data, printer_id, environ=self.server.webui_environ)
+        self._send(200, printer_settings_module.render_page(
+            model, form_token=self._form_token(), theme=self._theme(),
+            nav=data_module.nav_for(data)), "text/html; charset=utf-8")
+
+    def _printer_settings_save(self, form):
+        """POST /printer-settings: validate and save one printer's settings (#1448).
+
+        All validation and writing live in
+        :mod:`print_handy.webui.printer_settings`; a refusal re-renders
+        the page with the submitted values and the refusal in place.
+        """
+        data = self.server.settings_data
+        printer_id = (form.get("printer") or [""])[0]
+        try:
+            settings.by_id(printer_id, data)
+        except settings.SettingsError:
+            self._json(404, {"ok": False, "reason": "no such printer"})
+            return
+        outcome = printer_settings_module.save(
+            data, printer_id, form, environ=self.server.webui_environ,
+            confirmed=tuple(form.get(pages.REBIND_FIELD) or ()))
+        if outcome[0] == "result":
+            _kind, changed, warnings = outcome
+            self._send(200, printer_settings_module.render_result(
+                changed, printer_id=printer_id, warnings=warnings,
+                theme=self._theme(), nav=data_module.nav_for(data)),
+                "text/html; charset=utf-8")
+            return
+        _kind, model, submitted, errors, moves = outcome
+        self._send(400 if errors else 200, printer_settings_module.render_page(
+            model, form_token=self._form_token(), theme=self._theme(),
+            nav=data_module.nav_for(data), errors=errors,
+            submitted=submitted, rebinds=moves), "text/html; charset=utf-8")
+
     def _chat_state(self):
         self._json(200, chat_module.chat_state(
             self._chat_view(issue=False) if self._web_chat_enabled() else None))
@@ -1285,13 +1445,80 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _sources_page(self):
         self._send(200, sources_module.render_sources_page(
-            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data)),
+            theme=self._theme(), nav=data_module.nav_for(self.server.settings_data),
+            form_token=self._form_token(),
+            chat_enabled=self._web_chat_enabled()),
             "text/html; charset=utf-8")
 
-    def _designs_page(self):
-        rows = designs_module.catalog_rows(self.server.settings_data)
-        self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),
-                   "text/html; charset=utf-8")
+    def _designs_page(self, notice=None, error=None):
+        data = self.server.settings_data
+        rows = designs_module.catalog_rows(data)
+        # The workshop submits through this browser's web chat view, so
+        # it exists only while web chat is on; with it off the page
+        # renders the reason instead of a form (designs_module).
+        view = self._chat_view() if self._web_chat_enabled() else None
+        workshop = designs_module.workshop_model(data, view)
+        self._send(200, designs_module.render_designs_page(
+            rows, theme=self._theme(), nav=data_module.nav_for(data),
+            workshop=workshop, form_token=self._form_token(),
+            notice=notice, error=error),
+            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+
+    def _designs_post(self, form):
+        """POST /designs: the workshop's start and follow-up forms (#1449).
+
+        Both submit one message to this browser's web chat view: a start
+        submits the /print-design command for the description, a follow-up
+        submits its text as-is (the design dispatch routes it: the answer
+        to the open question, or the revision the session waits for).
+        The page itself designs, slices and prints nothing.
+        """
+        if not self._web_chat_enabled():
+            self._designs_page()
+            return
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            self._redirect("/designs")
+            return
+        mode = (form.get("mode") or ["start"])[0]
+        message = designs_module.start_message(text) if mode == "start" else text
+        if not self._chat_view().submit(message):
+            self._designs_page(error="Too many messages in the last minute; "
+                                     "give the bot a moment to catch up.")
+            return
+        self._redirect("/designs", headers=self._chat_cookie_headers())
+
+    def _designs_choice_post(self, form):
+        """POST /designs/choice: one button of the design's open question.
+
+        The same press as /chat/choice (the prompt's own button, resolved
+        through the adapter with the prompt's own approval rules), only
+        landing back on the designs page.
+        """
+        if not self._web_chat_enabled():
+            self._designs_page()
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            try:
+                label = self._chat_view().answer(clarify_id, index)
+            except Exception:
+                log.warning("design page answer for %s did not reach the bot",
+                            clarify_id, exc_info=True)
+                self._designs_page(error="That answer didn't reach the bot "
+                                         "in time. The question is still "
+                                         "open — try again.")
+                return
+            if label is None:
+                self._designs_page(error="That answer wasn't accepted — "
+                                         "the question may have closed, or "
+                                         "the answer belongs to another step.")
+                return
+        self._redirect("/designs")
 
     def _projects_route(self, path):
         # The read-only multi-part project readout (#1204 item 5).
@@ -1306,15 +1533,30 @@ class _Handler(BaseHTTPRequestHandler):
             nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8")
 
-    def _layers_route(self, rest=""):
-        archive = layers_module.archive_root(self.server.settings_data)
-        layer = (parse_qs(urlparse(self.path).query).get("layer") or ["0"])[0]
-        code, content_type, body = layers_module.respond(
-            archive, rest, layer, theme=self._theme())
-        if content_type.startswith("text/html"):
-            self._send(code, body, content_type)
-        else:
-            self._json(code, body)
+    def _sliced_route(self, rest=""):
+        """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).
+
+        The file itself is resolved by :mod:`print_handy.webui.sliced` from
+        the job's own JOB.json inside the archive — the request names a job
+        and a plate position, never a path — and is sent as an attachment,
+        the way the designs route sends a session's files.
+        """
+        data = self.server.settings_data
+        archive = data_module.archive_root(data)
+        if not rest:
+            self._send(200, sliced_module.render_sliced_page(
+                sliced_module.list_sliced(archive), theme=self._theme(),
+                nav=data_module.nav_for(data)), "text/html; charset=utf-8")
+            return
+        segments = [segment for segment in rest.split("/") if segment != ""]
+        path = (sliced_module.resolve_download(archive, segments[0], segments[1])
+                if len(segments) == 2 else None)
+        if path is None:
+            self._json(404, {"ok": False, "reason": "no such sliced file"})
+            return
+        self._send_file(path, sliced_module.content_type(path),
+                        headers=[("Content-Disposition",
+                                  f'attachment; filename="{path.name}"')])
 
     def _not_found(self, path):
         if self._browser_navigation(path):
@@ -1326,7 +1568,7 @@ class _Handler(BaseHTTPRequestHandler):
                          "reason": "try /, /api/status, /api/printers/<id>/status, "
                                    "/api/printers/<id>/camera/snapshot, "
                                    "/api/printers/<id>/spools, "
-                                   "/healthz, /readyz, /config, /designs, /layers, /spools, "
+                                   "/healthz, /readyz, /config, /designs, /spools, "
                                    "/walkthrough or /login"})
 
     # -- Data tab and Wrapped (#956) ---------------------------------------
@@ -1782,7 +2024,7 @@ class _Handler(BaseHTTPRequestHandler):
                        purchase_ready=spools_module.purchase_available()),
                    "text/html; charset=utf-8")
 
-    # -- designs catalog (read-only, #388 stage 3) --------------------------
+    # -- designs catalog and files (#388 stage 3) ----------------------------
     def _design_route(self, rest):
         """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
 
@@ -2346,6 +2588,186 @@ class _Handler(BaseHTTPRequestHandler):
                                       "the answer belongs to another step.")
                 return
         self._redirect("/chat")
+
+    # -- workflow (#1450) ---------------------------------------------------
+
+    def _workflow_page(self, notice=None, error=None):
+        if not self._web_chat_enabled():
+            # The workflow runs on the web chat service, which is never
+            # built while the switch is off: a page that says so, like
+            # the chat page's disabled state.
+            self._send(200, workflow_module.render_workflow_disabled_page(
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        view = self._chat_view()
+        receipt = workflow_module.latest_receipt(self.server.settings_data,
+                                                 view.scope)
+        self._send(200, workflow_module.render_workflow_page(
+            view, receipt, form_token=self._form_token(),
+            notice=notice, error=error, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8", headers=self._chat_cookie_headers())
+
+    def _workflow_state(self):
+        self._json(200, chat_module.chat_state(
+            self._chat_view(issue=False) if self._web_chat_enabled() else None))
+
+    def _workflow_busy(self, view):
+        """True while this session's workflow is mid-flight: a turn
+        running or a question open. A second start would queue a second
+        intake behind it in the same conversation, so the start routes
+        refuse and point at the running one."""
+        return bool(view.busy() or view.open_prompt())
+
+    def _workflow_link_post(self, form):
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        url = (form.get("url") or [""])[0].strip()
+        if not url:
+            self._redirect("/workflow")
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+        if not view.submit(url):
+            self._workflow_page(error="Too many messages in the last "
+                                      "minute; give the bot a moment to "
+                                      "catch up.")
+            return
+        self._redirect("/workflow", headers=self._chat_cookie_headers())
+
+    def _workflow_choice_post(self, form):
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            # The chat page's press rules, verbatim: a timed-out or
+            # refused press comes back as the page with an explanation,
+            # never a silent redirect that looks like success.
+            try:
+                label = self._chat_view().answer(clarify_id, index)
+            except Exception:
+                log.warning("workflow page answer for %s did not reach the bot",
+                            clarify_id, exc_info=True)
+                self._workflow_page(error="That answer didn't reach the "
+                                          "bot in time. The question is "
+                                          "still open, try again.")
+                return
+            if label is None:
+                self._workflow_page(error="That answer wasn't accepted, "
+                                          "the question may have closed, "
+                                          "or the answer belongs to "
+                                          "another step.")
+                return
+        self._redirect("/workflow")
+
+    def _workflow_start_post(self, form):
+        """POST /workflow/start: begin the workflow for one inbox file.
+
+        The name is checked against the inbox listing the Upload page
+        shows (upload.list_inbox), so only a file that is really in the
+        inbox can be named; the file stays in the inbox and is submitted
+        to the intake as the upload it is."""
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        name = (form.get("name") or [""])[0]
+        data = self.server.settings_data
+        if name not in {row[0] for row in upload_module.list_inbox(data)}:
+            self._workflow_page(error="That file is no longer in the "
+                                      "inbox, so no workflow was started.")
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+        path = upload_module.inbox_dir(data) / name
+        if not view.submit("", media_urls=[str(path)]):
+            self._workflow_page(error="Too many messages in the last "
+                                      "minute; give the bot a moment to "
+                                      "catch up.")
+            return
+        self._redirect("/workflow", headers=self._chat_cookie_headers())
+
+    def _workflow_upload_post(self, form):
+        """POST /workflow/upload: receive a file and start its workflow.
+
+        The receive is the Upload page's own (_receive_upload: streamed
+        to a spool file, size and quota checked before a byte lands);
+        the save is save_upload into the inbox; then the saved file is
+        submitted to the intake at once, which is the difference from
+        the Upload page: there the file waits for a chat pickup."""
+        if not self._web_chat_enabled():
+            self._workflow_page()
+            return
+        view = self._chat_view()
+        if self._workflow_busy(view):
+            self._workflow_page(error="A workflow is already running. "
+                                      "Finish it, or wait for it to end, "
+                                      "before starting another.")
+            return
+
+        def handle(fields, files):
+            if not files:
+                self._html_refusal(400, "no file was attached", "/workflow")
+                return
+            saved, reason = upload_module.save_upload(
+                self.server.settings_data, files[0][0], files[0][1])
+            if saved is None:
+                self._html_refusal(507 if reason.startswith(upload_module.INBOX_FULL)
+                                   else 400, reason, "/workflow")
+                return
+            if not view.submit("", media_urls=[str(saved)]):
+                self._workflow_page(
+                    notice=f"{saved.name} is in the inbox, but the "
+                           "workflow could not be started (too many "
+                           "messages in the last minute). Start it from "
+                           "the Upload page in a moment.")
+                return
+            self._redirect("/workflow",
+                           headers=self._chat_cookie_headers())
+
+        refused = self._receive_upload(handle)
+        if refused:
+            headers = [("Retry-After", "30")] if refused[0] == 503 else []
+            self._send(refused[0], shell.page(
+                "error", f'<p class="error">{html.escape(refused[1])}</p>'
+                         '<p><a href="/workflow">Back</a></p>',
+                path="/workflow", theme=self._theme()),
+                "text/html; charset=utf-8", headers=headers)
+
+    def _workflow_download_route(self, rest):
+        """GET /workflow/download/<intake id>/<n>: one sliced file.
+
+        ``rest`` is exactly an intake id and a plate position. The file
+        is resolved by print_handy.webui.workflow from this session's
+        own receipt: only a file that receipt names can be served, and
+        an intake id from another session resolves nothing here."""
+        segments = [segment for segment in rest.split("/") if segment != ""]
+        path = None
+        if len(segments) == 2 and self._web_chat_enabled():
+            view = self._chat_view(issue=False)
+            path = workflow_module.download_target(
+                self.server.settings_data, view.scope, segments[0], segments[1])
+        if path is None:
+            self._json(404, {"ok": False, "reason": "no such sliced file"})
+            return
+        self._send_file(path, workflow_module.content_type(path),
+                        headers=[("Content-Disposition",
+                                  f'attachment; filename="{path.name}"')])
 
     # -- uploads ------------------------------------------------------------
 

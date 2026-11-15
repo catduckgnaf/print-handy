@@ -17,20 +17,29 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 |---|---|
 | `GET /` | The status page |
 | `GET /config` | The picker configuration page |
+| `GET /printer-settings` | The Printer settings tab: one printer's own settings (name, connection, chat channel, delivery), with a `?printer=<id>` picker on multi-printer installs |
+| `POST /printer-settings` | Save the Printer settings tab's form through the same validated write as `/config` |
 | `GET /api/status` | The same status snapshot as JSON |
 | `GET /api/printers` | The configured printers as JSON, read from configuration only: each printer's id, name, model, vendor, connection, `default`, `controls_enabled` and `temperature_limits_c`, plus `instance_id`, `version` and the global `controls_enabled`. It runs no doctor check and contacts no printer or service, so it is cheap to poll. Same access token as `/api/status` |
 | `GET /api/printers/<id>/status` | One roster printer's live status as JSON: its identity plus the adapter's normalized status (`state`, `filename`, `progress`, temperatures, and any target/ETA/layer fields that printer's adapter reports). An unknown id is a 404; a printer that cannot be reached answers with `state: "unavailable"` instead of an error |
 | `GET /printers/<id>/screen` | The printer screen view (#1303): that printer's own display as a labeled, read-only page, refreshed while open. A printer that publishes no screen gets the page with the reason, not a broken image |
 | `GET /api/printers/<id>/screen/snapshot` | One JPEG of that printer's own display (not the bed camera), discovered through Moonraker's registered `screen` webcam and served without naming the printer's address. A printer with no Moonraker connection or no registered screen is a 404 with the reason; an unreachable printer or screen service is a 502 |
 | `GET /healthz` | The standalone bot heartbeat verdict: `200` when it passes, `503` when it does not |
+| `GET /favicon.ico` | The Print Handy icon (the catduck mascot from the branding set), served without a login so every page, the login page included, shows it in the browser tab |
+| `GET /static/icon-<size>.png` | The same icon at 16, 32, 64, 180, 192 and 512 px, also without a login; the page head names the 16 and 32 px sizes and the 180 px one as the apple-touch-icon. Any other name under `/static/` is a 404 |
 | `GET /readyz` | Per-component readiness as JSON: `spoolman`, `slicer` and one `printers.<id>` row each, plus `ready`. `200` when no component is known to be down, `503` when one is. Same access token as `/api/status` |
-| `GET /designs` | The read-only designs catalog: AI design sessions on disk, newest first |
+| `GET /designs` | The design workshop (start and iterate on a design) over the catalog of AI design sessions on disk, newest first |
+| `POST /designs` | The workshop's start and follow-up forms: submit a description or a change through web chat |
+| `POST /designs/choice` | One button of the design's open question (Slice it / Change it / Cancel) |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
 | `GET /projects` | The read-only multi-part project readout: components, plates, quantities, per-plate attempts and resumable completion state |
 | `GET /api/projects` | The same project readout as JSON |
-| `GET /layers` | Read-only list of sliced plates already in the archive |
-| `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
+| `GET /sliced` | Read-only list of sliced jobs in the archive, with a download per plate file |
+| `GET /sliced/<job>/<n>` | Download of plate number `n` of that job (`.gcode` or `.gcode.3mf`), as an attachment |
+| `GET /workflow` | The print workflow page: start from a link or a file, answer the intake's questions as on-page buttons, end in a download or a print start |
+| `GET /workflow/state` | The workflow page's poll: the newest transcript position and whether a reply is pending, as JSON |
+| `GET /workflow/download/<intake>/<n>` | Download of plate `n` of that session's own finished workflow, as an attachment |
 | `GET /walkthrough` | The first-run walkthrough, while it is pending for this install |
 | `POST /walkthrough` | One walkthrough step's action (continue, skip, back, finish) |
 | `GET /data` | The Data tab: print-record statistics. Only while `timelapse.data_enabled` is on (it follows `wrapped_enabled` until set); otherwise a named 403 refusal |
@@ -43,8 +52,12 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `POST /wrapped/share` | The Pasta Wrapped page's share form: exports the year's static share bundle locally, on demand. Same gating as `/wrapped` |
 | `GET /timing` | The Timing page: median and p90 for the user-facing waits (link to first question, slice, tap to start, and the rest), read back from the archive's `TIMING.jsonl` files, with the budget per span and the count of lost start responses |
 | `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
+| `GET /manifest.webmanifest` (and `GET /manifest.json`) | The PWA web app manifest (#450 Phase 1): name, stable `id`, standalone display, theme colors and install icons. Public, like the login form, because a browser fetches it before any sign-in; it carries no state |
+| `GET /sw.js` | The PWA service worker: precaches only the install assets and the offline page, and never caches API responses, upload links, the login page, or any non-GET request |
+| `GET /offline` | The offline fallback page the service worker shows when a navigation cannot reach the server |
+| `GET /static/<file>` | The one PWA-only install asset: the separate padded 512 maskable icon the manifest lists. Public; every other file name is a 404. The favicon and the branding icons are served by their own routes, not this one |
 
-Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, layers, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
+Every page renders through one shared shell: the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, projects, login and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only). It is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card: **All good** or **Attention needed**, with the doctor checks' warning and failure counts, above the same status tables as before. While the default printer is printing or paused, the card also shows the job's file name, progress, layer count and estimated time left, read live from the printer for the page only (the `/api/status` JSON does not gain the read, and a printer that cannot be reached simply leaves the card as it was).
 
 ### Chat page
 
@@ -54,9 +67,15 @@ Each Web UI session has its own conversation. A browser signed in with a login s
 
 Alerts the bot posts on its own also reach web chat. A ZMod update alert ([Firmware updates](FIRMWARE-UPDATE.md#zmod-update-alerts-in-chat)) appears on the chat page with its **Update** and **Skip this version** buttons, shared by every session, and Update opens the same confirmation `/print-firmware update zmod` asks in chat. `/print-firmware`, its update form and its guides answer here exactly as in chat. The listener-down notice does not come to web chat (the status page shows each listener's state live instead). The listener's print posts do, on every printer family (Moonraker and Klipper including the AD5X with ZMod, Bambu Lab, PrusaLink, OctoPrint, Elegoo SDCP and stock Flashforge): print started, paused, complete, cancelled and error, the completion roast, and the next-plate offer, with the same text the chat gets and no starter mention. A pause, an error, an emergency stop or a camera check arrives with the same actions as buttons (**Resume print**, **Cancel print**, **Pause**, **It's fine**, **Stop asking for this print**, **Restart printer & end job**). A press takes the same path as a press in Discord, Telegram or Matrix: the printer is read again before anything is sent, the first answer wins (a second press, here or in the chat, sends nothing), and the buttons close when the print ends. Web chat cannot show attachments, so a timelapse video, a completion snapshot or a camera check photo is named in one line saying which chat it went to. The next-plate picker, spool questions and new-spool walkthrough are Discord component flows and stay in Discord on a Discord install; their commands (`/print-next` and the spool commands) work in web chat as in chat. Print posts reach web chat while the chat page is on (`[webui] chat_enabled`), through a small feed file in the state folder (`webui-chat-feed.jsonl`, at most 256 KiB plus one older copy); web chat shows posts made after the Web UI started, and the status page shows the current state of each print. `/print-live` is a Discord voice-channel Activity and, as on Telegram and Matrix, is not a web chat command. The merge-time check `tests/bot/test_command_webui_parity.py` keeps this true: every command must answer in web chat as it does in chat, every alert the chat heartbeat posts must reach web chat, and every listener print post must reach web chat with the same facts, unless it is listed there with the reason.
 
+### Workflow page
+
+`/workflow` is the print workflow on one page (#1450): the browser half of dropping a link or a file in Discord. Start with a model link (the form here, or the **Start with a link** form on the [Model sources page](#model-sources-page)) or with a file (the upload form here, or **Start workflow** on a file already in the [upload inbox](#upload-page-and-upload-links)), and the same intake that runs in chat walks through its questions here: colors, slots, scale and the slice choices appear as the page's current step, one button per answer, in the same order with the same defaults and refusals. The page refreshes itself while the bot works, and leaving and coming back reattaches to the running workflow: the open question is still there, in the same session, and nothing is submitted twice.
+
+The workflow ends the way chat ends, with the intake's own final menu. **Start** is the same per-job bed-clear button as in chat: it records the same bed-clear approval on the intake receipt and runs every print gate, and there is no other way to start from this page. The download ending is the one thing the chat page cannot do (it can only name an attached file): when the intake ends sliced and not printed, the page offers one **Download** per plate, served from the session's own intake receipt, which names the exact sliced files and belongs to the session that ran the workflow; another session's receipt serves nothing here. The workflow runs through web chat, so `[webui] chat_enabled` gates it too: with web chat off, the page says so and nothing can be started.
+
 ### Upload page and upload links
 
-`/upload` takes a model file (`.stl` or `.3mf`; an STL over the 32 MiB intake limit is refused) and puts it in the inbox (`<state>/webui-inbox`). An uploaded file is not a print: it becomes printable only when it is picked up in chat, where it goes through the normal confirm-before-print flow like a file dropped in chat. The page also lists the inbox contents, how much of the inbox quota is in use, and a **Delete** button per file.
+`/upload` takes a model file (`.stl` or `.3mf`; an STL over the 32 MiB intake limit is refused) and puts it in the inbox (`<state>/webui-inbox`). An uploaded file is not a print: it becomes printable when it is picked up in chat, where it goes through the normal confirm-before-print flow like a file dropped in chat, or when **Start workflow** on the inbox row starts that flow on the [workflow page](#workflow-page) instead. The page also lists the inbox contents, how much of the inbox quota is in use, and a **Delete** button per file.
 
 Upload limits:
 
@@ -70,11 +89,11 @@ The page can mint an **upload link**, `/u/<token>`: a no-login address that open
 
 ### Model sources page
 
-`/sources` lists every place a model link can be dropped from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. It is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top.
+`/sources` lists every place a model link can come from: the model sites Print Handy accepts (with the support level and whether a needed login is saved), plus a direct link to a `.stl`/`.3mf` file on any host, Dropbox share links included. The page reads the same registry (`print_handy/core/model_sources.py`) that link intake and the chat `/print-source` report use, so it cannot drift from what the bot actually accepts. The registry table is read-only: connecting a site still happens by dropping a link in chat and following the walkthrough there. The Designs page links here from its top. The page's one action is the **Start with a link** form, which hands a pasted link to the [workflow page](#workflow-page); it is offered only while web chat is enabled, and with web chat off the page says why. (The form began as #1443's Slice a link hand-off to web chat; the workflow page supersedes it, and #1443's [Sliced files](#sliced-files-page) page remains the archive-wide place a finished slice waits to download.)
 
 ### Designs page
 
-The designs page is a read-only catalog of the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled, and it has no write actions: nothing there deletes, slices or prints. See [AI design with OpenSCAD](DESIGN.md#browsing-designs-in-the-web-ui).
+The designs page leads with the design workshop: describe a part and the design runs right there, with its preview, the bot's replies, and the Slice it / Change it / Cancel question as page buttons, followed by a form for the next change. The workshop submits through web chat, so it is the same design flow as `/print-design` in chat (same engine, same hand-off into intake, same confirmations), and it needs web chat on; while design is disabled or no design model is configured, the workshop says why instead of showing a form that cannot work. Below it, the catalog lists the AI design sessions kept on the machine (the same 14-day window the design engine keeps under the cache directory). Each row names the session (derived from the instruction it was started with), says whether it was created from a description or is an edit (and of what), its state (in progress, ready, handed off, cancelled), its turn count, its created/updated times, and its preview when one exists. A session's own page shows the final `.scad` source and downloads for the source, the final STL and the preview PNG; files are served only from inside that session's own directory. The catalog lists what is on disk whether or not `[design]` is currently enabled. See [AI design with OpenSCAD](DESIGN.md#designing-in-the-web-ui).
 
 ### Projects page
 
@@ -92,11 +111,9 @@ The page keeps no store of its own and changes nothing: continuing or reprinting
 
 `/timing` is a read-only report of the waits a person actually feels, read back from the `TIMING.jsonl` file every job writes in its archive folder. Over the newest 100 jobs it shows the median and the 90th percentile for each span: link to first question (the message arriving to the first question being posted), last answer to ready to slice, the slice itself, the post-slice verify, launch preflight, tap to start accepted, and tap to print started, with the two timing stages each span is measured between, the budget the span is held to, and a note when a span is over budget. It also counts lost start responses: a start whose answer never arrived, afterwards confirmed from the printer's own state and never assumed. The same report appears in the doctor (`python3 -m print_handy.doctor`) and in the diagnostics bundle, and `python3 -m print_handy.jobs.timing_report` prints it on its own, can write the summary JSON a release checklist records, and can check the budgets (`--check-budgets`). A job contributes to a span only when both of its stages were recorded, so spans appear as the stages land on real installs; a span with no samples reads "not measured" rather than zero.
 
-### Sliced layers
+### Sliced files page
 
-`/layers` lists plates whose G-code is already in the archive (the `JOB.json` next to each plate names the file). Opening one draws that plate one layer at a time. Extrusion is colored by role: perimeter, infill, support, and anything else. Travel is drawn faint. Previous and next links stay inside the file's layer range, and the drawing can be panned. A job sliced into several plates (a multicolor split, for example) lists every plate. A file that is not G-code, or that has no extrusion, shows an error and no drawing. A file over 8 MB, or one with more than 200,000 moves, shows "too large to draw here" and no drawing. The page has no print, pause, or exclude control. It does not start a job and it does not change the confirm card in chat. With the Web UI disabled, the route is not served.
-
-Paths stay inside the archive: the address is a job folder plus the plate's position in that job's own `JOB.json` (`gcode` first, then each derived plate), because every plate file has the same name. Older `/layers/<job>/plate_1.gcode` links no longer open. A path outside that plate is not opened.
+`/sliced` is where a slice becomes a file you take away (#1443): every sliced job in the archive, newest first, with a download link per plate file, plain `.gcode` and ZMod `.gcode.3mf` packages alike. This is the flow for printing by other means (a USB stick, an SD card, the printer's own screen), and the browser half of the link → slice → download flow: paste a model link into the **Slice a link** form on the Sources page (or drop it in chat), choose **Slice and Download**, and the finished file waits here. Files sliced from AI-made designs land here the same way. Downloads resolve only to files the job's own `JOB.json` names, inside that job's archive folder, and are served as attachments behind the same login. The page slices nothing, uploads nothing, and starts nothing.
 
 ### Status page
 
@@ -114,6 +131,8 @@ The status page reports:
 The status page also lists the newest archived slice-failure folders under "Recent model failures", and `/api/status` carries them as `slice_failures` (folder name, local path, modified time). The folders hold a failed model's raw slicer logs; the page shows where they are and does not serve them.
 
 With a multi-printer roster configured, the status page also lists the roster read-only (each printer's id, name, model, connection, channel and endpoint), and `/api/status` carries the same rows under `printers`.
+
+Above those readout tables, the status page renders a dashboard (#1445) modeled on the Home Assistant dashboard catduck runs: a health row (ready, doctor failures, print error state, version), then one card per configured printer. Each card shows the printer's name and live state, its camera still when the printer has one (the same snapshot the camera route serves, refreshed in place), a progress ring with the job's file, layer and time remaining, the nozzle and bed temperatures with their targets, a nozzle and bed temperature history graph, and the printer's filament: the loaded slots as color discs with material and remaining weight, then the shelf grouped by material, linking out to the Spools page. Under the cards sit the newest timelapse clip by name (the Wrapped page plays the compiled video) and the most recent finished prints from the print records, with duration, material and filament used. A printer that cannot be read renders an unavailable card instead of failing the page, and a Spoolman that does not answer renders a note in place of the filament panel. The dashboard is read-only except for one control: while `[webui] controls_enabled` is on, each card carries an E-stop button that asks for confirmation and then posts to the same emergency stop route the API exposes, with that route's gates and refusals unchanged. There is no light button: the Web UI has no light control today (the light is switched in chat and by the auto light-off automation), so the dashboard does not offer one. The temperature history is sampled in memory by the Web UI itself, one sample per printer per dashboard view, throttled and capped; it starts empty each time the Web UI restarts, is never persisted or backfilled, and the card says so until enough samples exist to draw the graph.
 
 For external consumers (the Home Assistant integration, dashboards), `GET /api/printers/<id>/status` serves one printer's live status: the same identity fields as a roster row plus a `status` object holding the printer adapter's normalized status, read live through that printer's own connection: `state`, `filename`, `progress`, `hotend_c`, `bed_c`, and, where the adapter provides them, `hotend_target_c`, `bed_target_c`, `remaining_min`, `layer` and `total_layer`, plus the always-present exclude-object keys `current_object`, `objects` and `excluded_objects` (ha-print-handy #1; empty for families that do not report objects). It sits behind the same access-token auth as `/api/status` and is read-only: it sends nothing to the printer. An unknown id is a 404. A configured printer that is offline or unreachable still answers 200 with `status.state` set to `"unavailable"` and a `detail`, so a consumer polling every printer does not lose the whole poll to one dead machine; a printer on the `offline` connection reads the same way. **Stage 2e decision: the roster is not editable here.** The field catalog addresses global fields only in this version, so per-printer changes stay where the roster is declared: the config file, the CLI setup wizard, or the guided setup's review step. A per-printer addressing scheme for the catalog is a future stage's decision, deliberately not pre-empted by this one.
 
@@ -310,7 +329,7 @@ Form posts (configuration, the walkthrough, spools, printers, uploads, chat, deb
 
 Changing or removing the login in the walkthrough's Login step on a claimed install also asks for the **current password** (or the access token); a wrong entry counts toward the login backoff. HTML pages are sent with `Cache-Control: no-store`, so a browser or proxy cache never keeps a page that embeds a token. Restarting the server, or changing the login, replaces the form secrets, so an old page must be reloaded.
 
-Every route declares exactly one of these policies in one table, `print_handy/webui/routes.py`, and one check in the server enforces it before the route answers: `public` (the health probe, the login form, logout, and the read-only `405` for other methods), `session` (the page and read rule: access open, the header, or a login session), `session+csrf` (the form posts above), `header` (the printer control and spool JSON APIs) and `link-token` (a no-login upload link). The Pasta Wrapped video and share forms still accept the server's start-up form token beside a signed-in session on a claimed install, because the Wrapped page embeds that token; the table marks those two routes. A test enumerates the table and fails when a route is undeclared, changes policy, or checks a credential on its own.
+Every route declares exactly one of these policies in one table, `print_handy/webui/routes.py`, and one check in the server enforces it before the route answers: `public` (the health probe, the login form, logout, the favicon and branding icons, the PWA install plumbing, and the read-only `405` for other methods), `session` (the page and read rule: access open, the header, or a login session), `session+csrf` (the form posts above), `header` (the printer control and spool JSON APIs) and `link-token` (a no-login upload link). The Pasta Wrapped video and share forms still accept the server's start-up form token beside a signed-in session on a claimed install, because the Wrapped page embeds that token; the table marks those two routes. A test enumerates the table and fails when a route is undeclared, changes policy, or checks a credential on its own.
 
 ## Where the Web UI may be reached
 
@@ -325,6 +344,68 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 | Router port forward, or the Web UI published directly on the public internet | Possible, and it is your choice to make, but only behind a login you set deliberately first: an access token (`WEBUI_ACCESS_TOKEN`) or a saved password, set before the port is forwarded. An unclaimed or left-open Web UI on the public internet is open to the whole internet; the "no login is set" note is the warning, and plain HTTP also sends that login unencrypted, so the HTTPS reverse proxy row above is the better shape for outside access. | Set `cookie_secure` true when an HTTPS proxy fronts it; on plain public HTTP there is no cookie setting that makes the bind safe. |
 
 `cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
+
+## Printer settings tab
+
+Open `/printer-settings`, or follow the **Printer settings** tab in the nav. Where the configuration page shows every setting on the install, this tab shows one printer at a time, in plain language: its name and model, the connection fields its vendor uses (a Moonraker URL, a Bambu Lab LAN host and serial, a PrusaLink host, a stock Flashforge or Elegoo SDCP host), its chat channel, and its slicing and delivery options, including the ZMod delivery format on Flashforge printers. On an install with more than one printer, a picker at the top switches printers (`/printer-settings?printer=<id>`); delivery methods are shared by every printer on the install and are labeled as such.
+
+Every field shows its effective value and where that value comes from (model default, home config, settings file, your own settings file, or the environment). A value set by an environment variable is shown locked, with the variable named, and cannot be edited here, exactly as on the configuration page. Secrets are never shown: connection fields name environment variables for credentials, never the credentials themselves.
+
+Saving writes through the same machinery as the configuration page, so a value this tab saves is a value the settings loader accepts, and an invalid value is refused in place with the loader's own reason, with the rest of the form kept as submitted. On an install with a declared printer roster, the tab edits that printer's roster entry (name, model, chat channel, connection) in place; moving a credentialed service to a new host asks for the same confirmation the configuration page asks for before the credential follows it. Like every Web UI save, changes take effect after a restart.
+
+## Progressive Web App (PWA) and HTTPS serving
+
+The Web UI is an installable Progressive Web App (#450 Phase 1): reached over a secure context, it can be installed to a phone home screen or a desktop app dock, runs standalone without browser chrome, and shows a branded offline page when the server cannot be reached. Every page links the manifest (`/manifest.webmanifest`); the service worker (`/sw.js`) precaches only the manifest, the maskable icon it serves itself, and the offline page.
+
+### The secure-context gate
+
+Browsers allow service workers, PWA installation, and persistent storage only in a **secure context**:
+
+- any `https://` origin; or
+- loopback: `http://localhost` or `http://127.0.0.1`.
+
+A LAN address over plain HTTP (for example `http://192.0.2.10:8088`) is not a secure context. The Web UI works normally there, but the browser will not register the service worker and will not offer installation. The Web UI has no HTTPS listener of its own, so use one of the supported paths below to put a trusted certificate in front of it.
+
+### Recommended: Tailscale Serve
+
+If the machine and the phone or computer are on the same tailnet, Tailscale Serve gives the Web UI a real trusted certificate under the machine's MagicDNS name, with no public exposure:
+
+```bash
+tailscale serve --https 443 http://127.0.0.1:8088
+```
+
+Open the `https://<host>.<tailnet>.ts.net` address it reports, and set `cookie_secure` true so the session cookie is only sent over HTTPS. Access stays limited to your tailnet.
+
+### Alternative: your own domain with a reverse proxy
+
+Run Caddy, nginx, or Traefik with a certificate for a domain you own (Let's Encrypt with DNS-01 works without exposing the server), terminating TLS and forwarding plain HTTP to the Web UI on the private network:
+
+```caddyfile
+printhandy.example.com {
+    reverse_proxy 127.0.0.1:8088
+}
+```
+
+Set `cookie_secure` true in this shape too, and use split-horizon DNS so the name resolves to the local proxy from the LAN.
+
+### Localhost exception, and what is not recommended
+
+Opening `http://localhost:8088` or `http://127.0.0.1:8088` on the machine itself is already a secure context, so installation and the service worker work there with no certificate at all, which makes it handy for testing.
+
+Public tunnels that publish the Web UI address to the internet are **not recommended**: they put a printer-control page on a public origin. If you need access away from home, the tailnet route above keeps the same trusted origin without public exposure.
+
+### How to install
+
+- **Android and desktop Chrome/Edge:** open the Web UI over its HTTPS address and use the **Install app** button in the header when it appears, or the browser menu's install entry.
+- **iPhone and iPad (Safari):** there is no install prompt. Tap **Share**, then **Add to Home Screen**; the Web UI shows that hint itself on those devices. On iOS, an installed web app keeps its own storage, which the system can evict under pressure or after long disuse. The server stays the source of truth for everything, and nothing is stored only on the device.
+
+### Caching rules
+
+The service worker enforces a narrow caching policy:
+
+- **Never cached:** API responses (`/api/*`), token upload links (`/u/*`), the login and theme routes, and every non-GET request (printer controls included). Cross-origin requests are never intercepted.
+- **Navigations are network-only:** a page is never stored, so stale printer state is never served as if it were live. When a navigation fails because the server is unreachable, the precached `/offline` page is shown instead.
+- **Cached:** only the manifest, the maskable icon, and the offline page are precached, under a versioned cache name; an updated worker deletes the old caches when it activates. The remaining install icons are cached at runtime when the browser fetches them from their own routes.
 
 ## Use the configuration page
 

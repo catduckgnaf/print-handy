@@ -1,7 +1,7 @@
 """Web UI redesign (#875): Printers page with Add a printer, Settings tabs,
-search and Restart setup, the Spools printer switcher, Layers controls."""
+search and Restart setup, the Spools printer switcher."""
 from print_handy import settings
-from print_handy.webui import layers, pages, printers_page, spools, walkthrough
+from print_handy.webui import pages, printers_page, spools, walkthrough
 
 ROSTER = """\
 printers:
@@ -91,9 +91,3 @@ def test_spools_page_switcher_only_with_more_than_one_printer():
                                     printers=[{"id": "a"}, {"id": "b", "name": "B"}])
     assert 'class="switcher"' in two and 'href="/spools/b"' in two
 
-
-def test_layers_controls_are_always_visible():
-    from tests.test_webui_layers import PLATE
-    parsed = layers.parse_gcode(PLATE)
-    page = layers.render_plate(parsed, 0, title="x")
-    assert 'type="range"' in page and "data-zoom" in page

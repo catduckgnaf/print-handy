@@ -133,7 +133,7 @@ class AuthSweepTests(WebServerCase):
 
     def get_routes(self, pid):
         return ["/", "/api/status", "/readyz", "/config", "/printers",
-                "/spools", f"/spools/{pid}", "/designs", "/layers",
+                "/spools", f"/spools/{pid}", "/designs",
                 "/data", "/wrapped", "/api/data", "/api/wrapped",
                 "/wrapped/video-file?year=2026", f"/api/printers/{pid}/status",
                 f"/api/printers/{pid}/spools",
@@ -225,7 +225,7 @@ class AuthSweepTests(WebServerCase):
             httpd, port = self.start(tmp)
             pid = self.printer_id(httpd)
             paths = ["/", "/api/status", "/config", "/printers", "/designs",
-                     "/layers", "/login", f"/api/printers/{pid}/status",
+                     "/login", f"/api/printers/{pid}/status",
                      "/nope", "/api/printers/x/bogus"]
             bodies = [self.get(port, path, headers=self.auth())[2]
                       for path in paths]
@@ -253,7 +253,6 @@ class RouteShapeTests(WebServerCase):
                 ("/config", f'name="{pages.CSRF_FIELD}"'),
                 ("/printers", "Add a printer"),
                 ("/designs", "Print Handy designs"),
-                ("/layers", "Print Handy layers"),
                 ("/data", "Print Handy data"),
                 ("/wrapped", "Print Handy wrapped"),
                 ("/login", f'name="{pages.LOGIN_TOKEN_FIELD}"'),
@@ -360,6 +359,15 @@ class RouteShapeTests(WebServerCase):
                 payload = json.loads(raw)
                 self.assertFalse(payload["ok"], path)
                 self.assertIn("/api/status", payload["reason"], path)
+            # The Layers page was removed (#1447): its old addresses are
+            # unknown routes now, and the 404 no longer names them.
+            for path in ("/layers", "/layers/job-1/0"):
+                code, _, raw = self.request(port, "GET", path,
+                                            headers=self.auth())
+                self.assertEqual(code, 404, path)
+                payload = json.loads(raw)
+                self.assertFalse(payload["ok"], path)
+                self.assertNotIn("/layers", payload["reason"], path)
             # Under /api/printers/ the 404 names the routes that live there.
             for path in ("/api/printers/", f"/api/printers/{pid}/bogus",
                          f"/api/printers/{pid}/status/extra"):

@@ -9,9 +9,12 @@ header chrome (brand tile, pill navigation over the real surfaces, the
 Dark/Light theme toggle), and the theme rule.
 
 The stylesheet is inline rather than a served file: the Web UI stays
-single-process and asset-free, with no new route, no cache questions,
-and no external request of any kind — the font stacks name system fonts
-only, exactly as they fall back in the prototype.
+single-process, with no external request of any kind — the font stacks
+name system fonts only, exactly as they fall back in the prototype.
+The one served-asset exception is the PWA foundation (#450):
+PWA_HEAD_TAGS links the manifest the public PWA routes serve, and
+PWA_SCRIPT registers the service worker on secure contexts only
+(see :mod:`print_handy.webui.pwa`).
 
 Theme: dark is the default. The ``ph-theme`` cookie (``dark`` or
 ``light``) is read by the server and stamped on ``<html>`` as
@@ -46,8 +49,10 @@ DEFAULT_THEME = "dark"
 # header picked it up on the rebase rather than inventing it early.)
 NAV = (
     ("/", "Status"),
-    ("/layers", "Layers"),
+    ("/sliced", "Sliced files"),
+    ("/workflow", "Workflow"),
     ("/printers", "Printers"),
+    ("/printer-settings", "Printer settings"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
     ("/projects", "Projects"),
@@ -225,6 +230,33 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .progress > i { display: block; height: 100%; background: var(--color-accent); }
 .job-line { font-weight: 500; margin: 0.75rem 0 0; overflow-wrap: anywhere; }
+.dash-health { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.dash-health .stat { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 0.75rem 1rem; }
+.dash-health .stat .v { font-size: 1.25rem; font-weight: 600; }
+.dash-top { display: flex; flex-wrap: wrap; gap: 1rem; }
+.dash-cam { flex: 2 1 20rem; min-width: 0; }
+.dash-cam img { width: 100%; display: block; border-radius: var(--radius-card); }
+.dash-side { flex: 1 1 15rem; min-width: 0; }
+.ring-wrap { position: relative; width: 8.5rem; height: 8.5rem; }
+.ring-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.ring-center .pct { font-size: 1.6rem; font-weight: 600; line-height: 1.1; }
+.temps { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+.temp-box { border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 0.5rem 0.75rem; min-width: 7rem; }
+.temp-box .v { font-size: 1.375rem; font-weight: 600; }
+.temp-chart { width: 100%; height: 6rem; display: block; }
+.temp-chart polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.temp-chart .nozzle { stroke: var(--color-accent); }
+.temp-chart .bed { stroke: var(--color-warn); }
+button.danger, .button.danger { background: var(--color-bad-bg); color: var(--color-bad); }
+.slots { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
+.slot { width: 6.5rem; text-align: center; }
+.slot .disc { margin-bottom: 0.375rem; }
+.disc { display: inline-block; width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 2px solid var(--color-line); background: var(--color-bg); }
+.disc.small { width: 1.4rem; height: 1.4rem; vertical-align: middle; }
+.disc.empty { border-style: dashed; }
+.shelf-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; }
+.recent-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.5rem 0; border-bottom: 1px solid var(--color-line); }
+.recent-row:last-child { border-bottom: none; }
 ol.steps { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 1rem 0; padding: 0; font-size: 0.875rem; }
 ol.steps li { padding: 0.3rem 0.75rem; border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-muted); border: 1px solid var(--color-line); }
 ol.steps li.done { background: var(--color-ok-bg); color: var(--color-ok); border-color: transparent; }
@@ -240,6 +272,43 @@ img { max-width: 100%; }
   table.rows th { width: auto; }
   th, td { padding: 0.45rem 0.5rem; }
 }
+/* Pasta Wrapped (#1446): the Wrapped page is a scrolling story of
+   full-screen sections. Every rule is scoped to .wrapped (or, for
+   the scroll behavior, to a document containing one, via :has), so
+   no other page's layout or scrolling changes. */
+html:has(.wrapped) { scroll-behavior: smooth; }
+@media (min-height: 30rem) {
+  html:has(.wrapped) { scroll-snap-type: y proximity; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:has(.wrapped) { scroll-behavior: auto; scroll-snap-type: none; }
+}
+.wrapped-screen {
+  min-height: 100vh; min-height: 100svh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 2rem 0; scroll-snap-align: start;
+}
+.wrapped > section:nth-of-type(even) {
+  background: var(--color-surface); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); padding-left: 1.5rem; padding-right: 1.5rem;
+}
+.wrapped-screen > h2 { font-size: 1.5rem; margin-top: 0; }
+.wrapped-screen > .eyebrow { color: var(--color-accent); }
+.wrapped-big {
+  font-size: clamp(3rem, 16vw, 8.5rem); font-weight: 700;
+  line-height: 1.02; letter-spacing: -0.02em; margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+.wrapped-big-text { font-size: clamp(2rem, 9vw, 4.5rem); }
+.wrapped-caption { font-size: 1.125rem; color: var(--color-muted); margin: 0.25rem 0 0; }
+.wrapped-lede { font-size: 1.25rem; }
+.wrapped-hero h1 { font-size: clamp(2.25rem, 8vw, 4rem); }
+.wrapped-cue { color: var(--color-muted); font-size: 1.5rem; margin-top: 2rem; }
+.wrapped figure { margin: 1rem 0; }
+.wrapped svg { max-width: 100%; height: auto; }
+.wrapped video { width: 100%; height: auto; border-radius: var(--radius-card); background: #000; }
+.wrapped-sharecard { text-align: center; align-items: center; }
+.wrapped-finale { padding-top: 1rem; }
 """.strip()
 
 
@@ -283,6 +352,77 @@ SUBMIT_SCRIPT = (
     ".forEach(function(h){h.remove();});});"
     "</script>")
 
+# The favicon and touch icon links, in every page head (#1456). The
+# files are the branding icons in webui/static (byte copies of
+# assets/branding, pinned equal by tests/test_webui_favicon.py), served
+# by the public /favicon.ico and /static/* routes in routes.py, so the
+# browser can fetch them before or without a login, the login page
+# included.
+ICON_HEAD_TAGS = (
+    '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
+    '<link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">'
+    '<link rel="icon" type="image/png" sizes="16x16" href="/static/icon-16.png">'
+    '<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">'
+)
+
+# PWA head tags (#450 Phase 1): the manifest link, the theme colors
+# (the shell tokens: #12110f is the dark background, #f3efe6 the light
+# one), and the capable metas. They ride on every page, bare ones
+# included, so the login page is installable too. The icon and
+# apple-touch-icon link tags are the favicon change's ICON_HEAD_TAGS
+# above, deliberately not duplicated here.
+PWA_HEAD_TAGS = (
+    '<meta name="mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
+    '<meta name="apple-mobile-web-app-title" content="Print Handy">'
+    '<meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">'
+    '<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">'
+    '<link rel="manifest" href="/manifest.webmanifest">'
+)
+
+# The PWA script (#450 Phase 1): progressive enhancement only, like
+# SUBMIT_SCRIPT — every page works exactly as before without it.
+# Registration runs only in a secure context (HTTPS or loopback; a
+# plain-HTTP LAN address never registers, and the page is unaffected),
+# and persistent storage is requested so the precached offline shell
+# is less likely to be evicted. The install affordance appears only
+# when the browser offers one: Chromium fires beforeinstallprompt,
+# which is captured so a discreet "Install app" button can be added
+# to the header; iOS Safari has no prompt API, so on an iPhone or
+# iPad that is not already running standalone the script adds one
+# small, dismissible note naming Share, then Add to Home Screen.
+PWA_SCRIPT = (
+    "<script>"
+    "if(window.isSecureContext&&'serviceWorker' in navigator){"
+    "window.addEventListener('load',function(){"
+    "navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});"
+    "if(navigator.storage&&navigator.storage.persist){"
+    "navigator.storage.persist().catch(function(){});}});}"
+    "var phInstallEvent=null;"
+    "window.addEventListener('beforeinstallprompt',function(e){"
+    "e.preventDefault();phInstallEvent=e;"
+    "var host=document.querySelector('.chrome-right');"
+    "if(!host||document.getElementById('ph-install'))return;"
+    "var b=document.createElement('button');b.type='button';"
+    "b.id='ph-install';b.textContent='Install app';"
+    "b.addEventListener('click',function(){if(!phInstallEvent)return;"
+    "phInstallEvent.prompt();"
+    "phInstallEvent.userChoice.then(function(){phInstallEvent=null;b.remove();});});"
+    "host.appendChild(b);});"
+    "window.addEventListener('DOMContentLoaded',function(){"
+    "var ios=/iphone|ipad|ipod/i.test(navigator.userAgent);"
+    "if(!ios||window.navigator.standalone)return;"
+    "var main=document.querySelector('main .wrap');if(!main)return;"
+    "var note=document.createElement('p');note.className='note';"
+    "note.id='ph-ios-install';"
+    "note.textContent='To install Print Handy on this device, tap Share, "
+    "then Add to Home Screen. ';"
+    "var close=document.createElement('button');close.type='button';"
+    "close.textContent='Dismiss';"
+    "close.addEventListener('click',function(){note.remove();});"
+    "note.appendChild(close);main.insertBefore(note,main.firstChild);});"
+    "</script>")
 
 def _esc(value):
     return html.escape(str(value), quote=True)
@@ -349,6 +489,8 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     theme_attr = ' data-theme="light"' if theme == "light" else ""
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
              '<meta name="viewport" content="width=device-width, initial-scale=1">'
+             f"{ICON_HEAD_TAGS}"
+             f"{PWA_HEAD_TAGS}"
              f"<title>Print Handy — {_esc(title)}</title>"
              f"<style>{CSS}</style></head><body>"]
     if chrome:
@@ -373,11 +515,13 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
                  f'<a href="{_esc(SOURCE_URL)}/tree/{_esc(__version__)}" rel="noopener">'
                  'Source for this version</a></div></footer>')
     parts.append(SUBMIT_SCRIPT)
+    parts.append(PWA_SCRIPT)
     parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
+    "CSS", "DEFAULT_THEME", "ICON_HEAD_TAGS", "NAV", "PWA_HEAD_TAGS",
+    "PWA_SCRIPT", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]
