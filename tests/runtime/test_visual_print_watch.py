@@ -365,11 +365,18 @@ def test_a_single_weak_detection_posts_nothing(monkeypatch):
 def test_weak_looking_text_without_a_detection_is_an_endpoint_answer(monkeypatch):
     """The decision is the detector's structured result, never its wording:
     an answer that only reads like a weak detection (an endpoint, a plain
-    tuple) alerts and pings like any uncertain verdict."""
+    tuple) is NOT treated as a weak local detection — it follows the
+    endpoint rule (#1474): the first inconclusive check is only noted,
+    and the streak posts without a ping, never with weak-detection
+    wording or escalation."""
     rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
                    ("uncertain", LIVE_WEAK_DETAIL))
     rig.check(0.12, reason="layer2", layer=2)
-    assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
+    assert rig.alerts == [] and rig.events == [("uncertain", "noted")]
+    rig.check(0.12, reason="layer2", layer=2)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is False
+    assert "inconclusive in 2 checks in a row" in rig.alerts[0][0]
+    assert rig.events[-1] == ("uncertain", "alert")
 
 
 def test_a_stall_alert_with_a_weak_detection_keeps_the_ping(monkeypatch):
@@ -425,13 +432,27 @@ def test_a_single_strong_detection_still_alerts_as_spaghetti_with_a_ping(monkeyp
     assert rig.events == [("spaghetti", "alert")] and len(rig.roasts) == 1
 
 
-@pytest.mark.parametrize("detail", ["model unsure", "the vision check could not be completed"])
-def test_endpoint_and_detector_error_uncertain_still_alert_with_a_ping(monkeypatch, detail):
+def test_detector_error_uncertain_still_alerts_with_a_ping(monkeypatch):
+    """A verdict call that could not judge the frame is a watch failure,
+    not an inconclusive judgement: it alerts at once, with a ping."""
     rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
-                   ("uncertain", detail))
+                   ("uncertain", "the vision check could not be completed"))
     rig.check(0.0, reason="layer2", layer=2)
     assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
     assert rig.events == [("uncertain", "alert")]
+
+
+def test_endpoint_uncertain_notes_once_then_posts_the_streak_without_a_ping(monkeypatch):
+    """#1474: one inconclusive check is only noted; the streak posts,
+    without a ping."""
+    rig = _WeakRig(monkeypatch, verdict=lambda image, prompt, streak=None, local_fallback=False:
+                   ("uncertain", "model unsure"))
+    rig.check(0.0, reason="layer2", layer=2)
+    assert rig.alerts == [] and rig.events == [("uncertain", "noted")]
+    rig.check(0.0, reason="layer2", layer=2)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is False
+    assert "inconclusive in 2 checks in a row" in rig.alerts[0][0]
+    assert rig.events[-1] == ("uncertain", "alert")
 
 def _jpeg():
     return bytes((0xff, 0xd8, 0xff, 0xd9))
@@ -468,8 +489,9 @@ def test_visual_check_alerts_on_air_uncertain_and_endpoint_error(monkeypatch):
     import asyncio
 
     alerts = []
-    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
-    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, reason, identity=None: alerts.append(reason) or reason)
+    frames = _distinct_jpegs()
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: frames())
+    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, reason, identity=None, **kw: alerts.append(reason) or reason)
 
     async def run(verdict):
         monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt, streak=None: verdict)
@@ -478,7 +500,18 @@ def test_visual_check_alerts_on_air_uncertain_and_endpoint_error(monkeypatch):
         await listener.visual_check("layer2", 2)
 
     asyncio.run(run(("air", "empty bed")))
-    asyncio.run(run(("uncertain", "model unsure")))
+
+    async def run_uncertain_twice():
+        # #1474: one inconclusive check is only noted; the streak posts.
+        monkeypatch.setattr(mel, "_visual_verdict",
+                            lambda image, prompt, streak=None: ("uncertain", "model unsure"))
+        listener = mel.Listener()
+        listener.filename = "bin.gcode"
+        await listener.visual_check("layer2", 2)
+        assert not any("could not tell" in item for item in alerts)
+        await listener.visual_check("layer2", 2)
+
+    asyncio.run(run_uncertain_twice())
 
     def boom(image, prompt, streak=None):
         raise OSError("endpoint down")
@@ -491,7 +524,8 @@ def test_visual_check_alerts_on_air_uncertain_and_endpoint_error(monkeypatch):
 
     asyncio.run(run_boom())
     assert any("no plastic where the print should be" in item for item in alerts)
-    assert any("the check could not tell from this frame" in item for item in alerts)
+    assert any("the check could not tell from these frames (inconclusive in 2 checks "
+               "in a row)" in item for item in alerts)
     assert any("the vision check could not be completed" in item for item in alerts)
     assert all("endpoint down" not in item and "OSError" not in item for item in alerts)  # raw detail demoted (#467)
 

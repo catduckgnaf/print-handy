@@ -221,6 +221,10 @@ class BackgroundSlice:
         the binding must settle first; afterwards JOB.json is stable.
         """
         if self.task is not None:
+            # suppress kept with reason (#1455): _run records the slice's failures
+            # in self.error, so awaiting the task can only surface CancelledError —
+            # an expected end state (a discarded or superseded slice) whose
+            # outcome the callers read from the fields, never a lost failure.
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
 
@@ -230,6 +234,8 @@ class BackgroundSlice:
             return await self.take_supports()
         if self.binding != binding or self.task is None:
             return None
+        # suppress kept with reason (#1455): see settle() — the outcome is
+        # read from self.error / self.result below.
         with contextlib.suppress(asyncio.CancelledError):
             await self.task
         self.task = None
@@ -241,6 +247,7 @@ class BackgroundSlice:
     async def take_no_supports(self):
         """Return the no-supports slice result, restoring no-supports job metadata to disk."""
         if self.task is not None:
+            # suppress kept with reason (#1455): see settle().
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
         if await asyncio.to_thread(_sliced_with_supports, self.result):
@@ -256,9 +263,12 @@ class BackgroundSlice:
     async def take_supports(self):
         """Return the with-supports slice result, writing with-supports job metadata to disk."""
         if self.task is not None:
+            # suppress kept with reason (#1455): see settle().
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
         if self.supports_task is not None:
+            # suppress kept with reason (#1455): see settle() — the outcome is
+            # read from self.supports_error / self.supports_result.
             with contextlib.suppress(asyncio.CancelledError):
                 await self.supports_task
         self._write_slice_job(self.job_with_supports, default_supports=True)
@@ -283,10 +293,13 @@ class BackgroundSlice:
         self.clearance = None
         if task is not None and not task.done():
             task.cancel()
+            # suppress kept with reason (#1455): the task was cancelled by us
+            # just above, so its CancelledError is the expected outcome.
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         if sup_task is not None and not sup_task.done():
             sup_task.cancel()
+            # suppress kept with reason (#1455): cancelled by us just above.
             with contextlib.suppress(asyncio.CancelledError):
                 await sup_task
         if self.work is not None:  # a discarded slice leaves no G-code behind

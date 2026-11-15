@@ -106,7 +106,44 @@ def keep_frame(watch, reason, layer, image, now):
     return False
 
 
-def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True, detection=None):
+# Independent consecutive inconclusive checks (an endpoint "uncertain"
+# with no local detection behind it) before the streak is posted — without
+# a ping (#1474, mirroring local_vision.WEAK_ALERT_AFTER for weak local
+# detections). One frame the check "could not tell" from is logged, not
+# posted: at 11-12% confidence it is noise, and posting it with buttons
+# teaches the operator to ignore the camera.
+INCONCLUSIVE_ALERT_AFTER = 2
+
+
+class InconclusiveStreak:
+    """Consecutive inconclusive checks for one print (#1474).
+
+    The endpoint route's "uncertain" carries no structured detection, so
+    the streak the weak-local-detection rule gets from
+    ``local_vision.FailureStreak`` is kept here instead: a caller feeds
+    every verdict of the print (any other verdict resets the count), and
+    ``is_suspicious`` decides on the returned count. A frame that repeats
+    the last counted one (``counted=False``) neither builds nor resets
+    the streak — the same still frame is not independent evidence.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.seen = 0
+
+    def note(self, verdict, *, counted=True):
+        """Feed one check's verdict; return the inconclusive streak length."""
+        if verdict != "uncertain":
+            self.seen = 0
+        elif counted:
+            self.seen = min(self.seen + 1, 100)
+        return self.seen
+
+
+def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True, detection=None,
+                  failed=False, uncertain_seen=None):
     """Whether a verdict alerts the operator, by the family's recorded rules.
 
     Missing plastic, spaghetti, detached, uncertain and the safety
@@ -118,6 +155,13 @@ def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True, de
     local detector's structured ``detection``,
     ``local_vision.detection_of(result)``): that one is only noted. A
     stall check still alerts on it, as on any uncertain verdict.
+
+    An endpoint "uncertain" (no detection) is likewise only noted until
+    it is part of a streak (#1474, :func:`inconclusive_noted`): callers
+    pass ``uncertain_seen`` from their per-print
+    :class:`InconclusiveStreak`. A verdict call that could not judge the
+    frame at all (``failed``, a watch failure) is not an inconclusive
+    judgement and keeps alerting through the failure-episode throttle.
     """
     suspicious = verdict in _vw.VISUAL_SUSPICIOUS_VERDICTS
     if verdict == "empty_idle":
@@ -129,7 +173,10 @@ def is_suspicious(verdict, *, reason, changed, profile, rules, printing=True, de
         veto = rules.stall_veto == "always" or bool(profile.get("vision_veto"))
         suspicious = not (veto and verdict in _vw.VISUAL_HEALTHY_VERDICTS)
     if verdict == "uncertain":
-        suspicious = not weak_noted(verdict, detection, reason=reason, changed=changed)
+        suspicious = (not weak_noted(verdict, detection, reason=reason, changed=changed)
+                      and not inconclusive_noted(verdict, detection, reason=reason,
+                                                 changed=changed, failed=failed,
+                                                 uncertain_seen=uncertain_seen))
     return suspicious
 
 
@@ -210,28 +257,64 @@ def weak_noted(verdict, detection, *, reason=None, changed=None):
     return weak is not None and not weak.posts and not _stall_check(reason, changed)
 
 
-def alert_pings(reason, verdict, detection):
+def inconclusive_noted(verdict, detection, *, reason=None, changed=None, failed=False,
+                       uncertain_seen=None):
+    """True for an inconclusive check that is only noted (logged), not posted (#1474).
+
+    An endpoint "uncertain" (no local detection behind it) that is not
+    yet part of a streak: one "could not tell" frame is logged and
+    recorded, and only a streak of them is posted (without a ping, see
+    :func:`alert_pings`). A watch failure is not an inconclusive
+    judgement, a weak local detection has its own rule
+    (:func:`weak_noted`), a caller that does not track the streak
+    (``uncertain_seen`` None) keeps the pre-#1474 alerting, and on a stall
+    check over an unchanged frame nothing is only noted: the stall alert
+    goes out.
+    """
+    if verdict != "uncertain" or detection is not None or failed or uncertain_seen is None:
+        return False
+    if _stall_check(reason, changed):
+        return False
+    return uncertain_seen < INCONCLUSIVE_ALERT_AFTER
+
+
+def alert_pings(reason, verdict, detection, *, uncertain_seen=None, failed=False):
     """Whether a posted alert may ping the print's starter.
 
     A posted weak local detection never pings: it is not a failure verdict
     until later checks keep seeing it (``local_vision.ESCALATE_AFTER``).
+    A posted streak of inconclusive checks never pings either (#1474):
+    "could not tell" several times in a row is worth a look, not a ping.
+    A watch failure is not an inconclusive judgement and pings as before.
     A stall alert pings as always, even when the stalled frame also gave a
     weak detection: the stall is the news (#1397).
     """
-    return reason == "stalled_layers" or weak_detection(verdict, detection) is None
+    if reason == "stalled_layers" or failed:
+        return True
+    if verdict == "uncertain" and detection is None and uncertain_seen is not None:
+        return False
+    return weak_detection(verdict, detection) is None
 
 
-def alert_text(reason, layer, verdict, detail, *, pause_why="", detection=None):
+def alert_text(reason, layer, verdict, detail, *, pause_why="", detection=None,
+               uncertain_seen=None):
     """The camera alert's text; with ``pause_why`` the auto-pause line is appended.
 
     A weak local detection (``detection``) is worded as low confidence,
     its confidence rounded down, with how many checks in a row saw it.
+    A posted streak of inconclusive checks (#1474) says how many checks
+    in a row could not tell, instead of pretending one frame spoke.
     """
     from .local_vision import percent
 
     weak = weak_detection(verdict, detection)
     if reason == "stalled_layers":
         text = _vw.stall_alert_text(layer, verdict, detail)
+    elif verdict == "uncertain" and detection is None and uncertain_seen:
+        text = (f"{check_label(reason)} {_where(layer)}: the check could not tell "
+                f"from these frames (inconclusive in {uncertain_seen} "
+                f"check{'s' if uncertain_seen != 1 else ''} in a row). "
+                "Please take a look at the print.")
     elif weak is not None:
         text = (f"{check_label(reason)} {_where(layer)}: possible failure, low confidence "
                 f"({percent(weak.confidence)}%, seen in {weak.seen} "
