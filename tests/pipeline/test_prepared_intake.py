@@ -22,22 +22,6 @@ print_next = external("print_next")
 from .test_color_intake import source, state  # noqa: E402
 
 
-# The mapping offer (#1473) replaces the old first color question ("choose
-# colors for these parts" = 0, "one color for everything" = 1). These scripted
-# flows were written against that question and are not about the offer, so
-# their first pick is mapped onto it: 0 declines the offer and picks every
-# color, 1 takes one color for everything. Tests of the offer itself live in
-# test_color_mapping_proposal.py and script it directly.
-_OFFER_DECLINE = ('Change colors', 'Pick every color')
-
-
-def _mapping_offer_answer(choices, pick):
-    declines = [c for c in choices if c in _OFFER_DECLINE]
-    if not declines or 'One color for everything' not in choices:
-        return None
-    return declines[0] if pick == 0 else ('One color for everything' if pick == 1 else None)
-
-
 class Adapter:
     def __init__(self, picks):
         self.picks = iter(picks)
@@ -52,9 +36,7 @@ class Adapter:
         if getattr(self, 'expire_once', False):
             self.expire_once = False
             return S(success=True)
-        pick = next(self.picks)
-        offer = _mapping_offer_answer(kw['choices'], pick)
-        answer = offer if offer is not None else kw['choices'][pick]
+        answer = kw['choices'][next(self.picks)]
         import tools.clarify_gateway as cm
         cm.resolve_gateway_clarify(kw['clarify_id'], answer)
         return S(success=True)
