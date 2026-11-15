@@ -166,6 +166,27 @@ def test_server_lists_and_downloads_sliced_files(tmp_path):
         assert status == 404
         status, _headers, _body = _get(port, "/sliced/../secret.gcode")
         assert status == 404
+        # job-1 recorded no conversion provenance, so no report link and a 404.
+        assert b"/settings-report/job-1" not in _get(port, "/sliced")[2]
+        status, _headers, _body = _get(port, "/settings-report/job-1")
+        assert status == 404
+        job_json = archive / "job-1" / "JOB.json"
+        record = json.loads(job_json.read_text(encoding="utf-8"))
+        record["provenance"] = {"conversion_provenance": {"source_format": "bambu", "settings": {
+            "layer_height": {"project_value": 0.2, "selected_value": 0.2, "selected_reason": "designer"},
+            "nozzle_temperature": {"project_value": 230, "selected_value": 220,
+                                   "selected_reason": "material_profile"}}}}
+        job_json.write_text(json.dumps(record), encoding="utf-8")
+        status, _headers, body = _get(port, "/sliced")
+        assert status == 200 and b'href="/settings-report/job-1"' in body
+        status, headers, body = _get(port, "/settings-report/job-1")
+        assert status == 200
+        assert headers["Content-Disposition"] == 'attachment; filename="job-1-settings-decisions.json"'
+        report = json.loads(body)
+        assert [(row["setting"], row["status"]) for row in report["settings"]] == [
+            ("layer_height", "kept"), ("nozzle_temperature", "replaced")]
+        status, _headers, _body = _get(port, "/settings-report/../job-1")
+        assert status == 404
         status, _headers, body = _get(port, "/sources")
         assert status == 200 and b"Start with a link" in body and b'action="/workflow/link"' in body
     finally:
