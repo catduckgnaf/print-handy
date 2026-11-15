@@ -73,6 +73,7 @@ COMMANDS = (
             (Option("plan_id", "Plan from the completion message", autocomplete="plan", required=True),
              Option("part_id", "A specific plate (optional)", autocomplete="plate")), "/print-next <plan_id> [part_id]"),
     Command("print-stop", "Stop the current print (asks first)", usage="/print-stop"),
+    Command("print-pause", "Pause the print", usage="/print-pause"),
     Command("print-resume", "Resume a paused print (asks first)", usage="/print-resume"),
     Command("print-status", "How the current print is going (read-only)",
             (Option("printer", "Printer (optional; defaults to this channel's printer)",
@@ -258,7 +259,7 @@ def help_text(bot_name="Print Handy", supports_live_stream=True):
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
              "- Post a model link or .3mf/.stl to print it.",
              '- "print it" prints the last link; "print again"/"print 57" reprints.',
-             '- "add new filament", "add a new spool" or "swap the filament" starts the guided /spool flow.',
+             '- "add a new spool" or "swap the filament" starts guided /spool.',
              '- @mention me: "spool list".']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
