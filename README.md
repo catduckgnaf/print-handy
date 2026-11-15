@@ -80,11 +80,12 @@ Edit `.env` and fill in three things:
 
 ```bash
 docker compose up -d
-docker compose ps
-docker compose exec combined python3 -m print_handy.doctor
+docker compose ps        # wait for "healthy"
 ```
 
-Open `http://<your-server>:8088` for the Web UI setup. **Set its login during the first-run walkthrough** or explicitly configure access: without a login, anyone who can reach that port can use its printer controls. Then try `/print-help` in your configured chat, or use the Web UI.
+1. **Claim the Web UI.** Open `http://<your-server>:8088` and **set its login during the first-run walkthrough**, or record that you mean to leave it open. Until then, anyone who can reach that port can use its printer controls.
+2. **Say hello.** Send `/print-help` in your configured chat, or use the Web UI.
+3. **Check the install.** `docker compose exec combined python3 -m print_handy.doctor` checks the settings, the slicer and every configured service, and names whatever is wrong.
 
 ### Unraid
 
