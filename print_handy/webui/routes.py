@@ -147,6 +147,8 @@ ROUTES = (
     _get("/api/wrapped/video-status", SESSION, "_wrapped_video_status_route"),
     # The real user-facing waits, read back from TIMING.jsonl (#1476).
     _get("/timing", SESSION, "_timing_route"),
+    # Firmware and updates per printer, from the firmware feed (#1280 I).
+    _get("/firmware", SESSION, "_firmware_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),

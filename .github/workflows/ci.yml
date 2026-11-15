@@ -411,6 +411,12 @@ jobs:
           python -m tests.corpus.timing_gate timing/run-*.json --record
           --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
           > timing/proposed-baseline.json || true
+      - name: Proposed per-CPU baseline from this runner (the whole file with this CPU's profile, for review)
+        if: always()
+        run: >-
+          python -m tests.corpus.timing_gate timing/run-*.json --record --per-cpu
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
+          > timing/proposed-baseline-per-cpu.json || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
@@ -500,6 +506,13 @@ jobs:
           --baseline tests/corpus/timing_baseline_real_slicer.json --record
           --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact slicer-timing-real, median of 3"
           > slicer-timing/proposed-baseline.json || true
+      - name: Proposed per-CPU real-slicer baseline from this runner (for review)
+        if: always()
+        run: >-
+          python -m tests.corpus.timing_gate slicer-timing/run-*.json
+          --baseline tests/corpus/timing_baseline_real_slicer.json --record --per-cpu
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact slicer-timing-real, median of 3"
+          > slicer-timing/proposed-baseline-per-cpu.json || true
       - name: Proposed standalone baseline from this runner (for review, never applied automatically)
         if: always()
         # Guarded on at least one standalone timing file existing: with no

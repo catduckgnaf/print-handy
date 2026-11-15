@@ -173,6 +173,21 @@ with the raw Klipper `BED_MESH_CALIBRATE`, because it skips the
 load-cell (weight sensor) reset. Use Forge-X's own calibration macros
 and screens for bed mesh and Z offset on this firmware.
 
+## Print start by screen mode
+
+Forge-X documents two machine start forms, chosen by the printer's local screen (the ff5m 1.4.2 slicing guide):
+
+| Screen (`display` setting) | Documented start G-code |
+| --- | --- |
+| Feather, Guppy or Headless | `START_PRINT EXTRUDER_TEMP=<nozzle> BED_TEMP=<bed>` on one line |
+| Stock | the same line, then `M190 S<bed>` and `M104 S<nozzle>` |
+
+Print Handy's Forge-X profiles slice the Feather, Guppy and Headless form. Print Handy reads the screen from Moonraker (`mod_params`, the `display` setting of Forge-X's `SET_MOD` system). If the printer reports the Stock screen, the start is refused with the reason: switch the display with `SET_MOD PARAM=display VALUE=FEATHER` (or `GUPPY` or `HEADLESS`). A missing or unrecognized value is not guessed in either direction.
+
+The start line never carries `Z_OFFSET` or `SKIP_ZOFFSET`. Both are deprecated on Forge-X, and passing either cancels the print. Nor does it carry any ZMod start parameter. The two-way firmware mismatch warning (below) still applies.
+
+Documented and config verified, not hardware verified (#1506). Calibration routing and timelapse are separate follow-ups.
+
 ## Delivery: plain G-code
 
 These models deliver plain `.gcode`, always.

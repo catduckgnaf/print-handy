@@ -156,7 +156,14 @@ from the first `M141` or `M191`, the tool from the first `T0` to `T3`
 line or the first used slot in Orca's `filament used [mm]` list, and
 the hotend from the first `M109`, else the first `M104`, else the
 selected tool's `nozzle_temperature_initial_layer` in the config block.
-The synthesized command names the used tools as `USED_TOOLS=`. A file
+The synthesized command names the used tools as `USED_TOOLS=`, passes
+Orca's first `first_layer_height` as `FIRST_LAYER_HEIGHT=`, and fills
+`MATERIAL0` through `MATERIAL3` from the last `filament_type` line in
+the footer (falling back to the header). Material entries are
+upper-cased only when they match the firmware's allowed character set;
+quoted names are unquoted first, and invalid or missing slots become
+`UNKNOWN`. Verification's synthesized-start model includes these values
+alongside the temperature and tool fields. A file
 with no discoverable hotend temperature fails verification with the
 firmware's own failure mode named, because that is what the printer
 would do with it: fail before any motion. An explicit `C5_PRINT_START`
@@ -306,6 +313,25 @@ job invisibly. Print Handy never sends `SET_MAP` itself: on this
 firmware that command swaps two lanes' maps instead of assigning one,
 and changing the map is the operator's decision at the printer.
 
+### AFC lanes and the tool map
+
+Print Handy parses the AFC lane list and each reported `AFC_lane` record,
+including the lane's tool map. It also reads per-tool filament records from
+`lane_data` in either publisher shape: generic AFC's `T<n>` keys, which
+include `extruder_index`, and `creator5_filament_sync`'s `c5_tool<n>` keys.
+AFC tool records are accepted only when the key and `extruder_index` agree.
+
+The identity map (`extruder0` to `T0`, through `extruder3` to `T3`) is
+accepted; a remapped or unreported lane is refused by readiness, with the
+lane and actual mapping named. Print Handy does not send `SET_MAP`.
+
+Writing spool data to the printer is not done yet. Live `lane_data`
+ownership is unverified, and Cartrigger's capture is pending. Outbound
+`SET_SPOOL_ID` wiring, the setting that enables it, and announcing a
+mid-print remap are later work.
+
+Guidance from Cartrigger (OpenCreator) on #1490.
+
 ### Hotend control: MPC, not PID
 
 All four hotends on OpenCreator run Kalico's MPC (model predictive
@@ -372,6 +398,10 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   upstream's reference implementation for print-start configuration
   (see the start form section).
 - The Legacy edition (see Editions above).
+
+## Credits
+
+Thanks to [Cartrigger](https://github.com/Cartrigger) of the FlashForge C5 Modding Group, who develops OpenCreator. On #1490 he explained how VDS and ACE appear to Moonraker (dedicated temperature sensors with macros; ACE behaves like current AFC systems), pointed us to the [opencreator-send](https://github.com/FlashForge-C5-Modding-Group/opencreator-send) plugin as the print-start reference behind this page's start contract, and offered help with anything else Print Handy needs. Print Handy reads that plugin for behavior only and copies none of its code.
 
 ## Choosing between the Creator firmwares
 

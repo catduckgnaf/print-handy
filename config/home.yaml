@@ -433,6 +433,10 @@ firmware:
   update_alerts: true
   # Hours between checks for each printer, 1 to 168.
   update_check_hours: 24
+  # Firmware feed lines announced in chat (ids from docs/firmware-feed.toml).
+  # Forge-X follows its feed channel: the 1.4.2 beta until it ships stable.
+  # Every other firmware stays on the Web UI's Firmware page only.
+  notice_firmwares: [zmod, opencreator, forge-x]
 maintenance:
   quick_hours: 25
   full_hours: 75

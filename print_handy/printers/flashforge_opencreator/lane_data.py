@@ -113,6 +113,7 @@ def _normalize(source: str, tool: int, record: dict[str, Any]) -> dict[str, Any]
     weight = record.get("weight")
     return {
         "tool": int(tool),
+        "extruder_index": _spool_id(record.get("extruder_index")),
         "material": str(record.get("material") or ""),
         "color": str(record.get("color") or ""),
         "spool_id": _spool_id(record.get("spool_id")),
