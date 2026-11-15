@@ -32,13 +32,13 @@ def test_each_heater_gets_its_own_plot_row():
     clock[0] += 120
     page = render(history=history)
     assert page.count('<div class="temp-row">') == 2
-    assert 'aria-label="Nozzle temperature, current and target"' in page
-    assert 'aria-label="Bed temperature, current and target"' in page
+    assert 'aria-label="Nozzle temperature history"' in page
+    assert 'aria-label="Bed temperature history"' in page
 
 
 def test_estop_is_the_strong_red_button():
     page = render()
-    assert 'class="danger estop" data-estop="flashforge-ad5x"' in page
+    assert 'class="danger" data-estop="flashforge-ad5x"' in page
     assert ">Emergency stop</button>" in page
 
 

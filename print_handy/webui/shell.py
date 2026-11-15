@@ -278,8 +278,8 @@ button:disabled { opacity: 0.55; cursor: default; }
 .hw-defaults { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .hw-defaults th, .hw-defaults td { text-align: left; padding: 0.15rem 0.4rem; }
 button.danger, .button.danger { background: var(--color-bad-bg); color: var(--color-bad); }
-button.estop, button.danger.estop { font-weight: 700; padding: 0.6rem 1.1rem; background: #c62828; color: #fff; border: 0; }
-button.estop:hover, button.estop:focus-visible { background: #b71c1c; outline: 3px solid #ef9a9a; outline-offset: 2px; }
+button.danger[data-estop] { font-weight: 700; padding: 0.6rem 1.1rem; background: #c62828; color: #fff; border: 0; }
+button.danger[data-estop]:hover, button.danger[data-estop]:focus-visible { background: #b71c1c; outline: 3px solid #ef9a9a; outline-offset: 2px; }
 .slots { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
 .slot { width: 6.5rem; text-align: center; }
 .slot-link { display: block; color: inherit; text-decoration: none; border: 1px solid transparent; border-radius: 0.5rem; padding: 0.4rem; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }

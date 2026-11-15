@@ -495,7 +495,7 @@ def _heater_plot(samples, index, kind, label):
             f'<span class="temp-axis top">{_temp(high)}</span>'
             f'<span class="temp-axis bottom">{_temp(low)}</span>'
             f'<svg class="temp-chart" viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
-            f'role="img" aria-label="{_esc(label)} temperature, current and target">'
+            f'role="img" aria-label="{_esc(label)} temperature history">'
             + "".join(lines) + "</svg></div></div>")
 
 
@@ -507,13 +507,25 @@ def _temp_chart(card):
     and each heater's scale are written on the graph.
     """
     samples = card["history"]
+    live = card.get("live") or {}
+
+    def pair(label, current, target):
+        text = f"{label} {_temp(current)}"
+        if _number(target):
+            text += f" → {_temp(target)}"
+        return text
+
+    legend = ('<p class="muted temp-legend">'
+              f'<span class="key nozzle"></span>{_esc(pair("Nozzle", live.get("hotend_c"), live.get("hotend_target_c")))} · '
+              f'<span class="key bed"></span>{_esc(pair("Bed", live.get("bed_c"), live.get("bed_target_c")))}</p>')
     if len(samples) < 2:
-        return ('<div class="dash-panel"><h3>Temperature</h3><p class="muted">The history collects while the '
+        return ('<div class="dash-panel"><h3>Temperature</h3>' + legend
+                + '<p class="muted">Temperature history collects while the '
                 "Web UI runs and starts empty each time it restarts; "
                 "check back in a few minutes.</p></div>")
     span = samples[-1][0] - samples[0][0]
     plots = _heater_plot(samples, 1, "nozzle", "Nozzle") + _heater_plot(samples, 2, "bed", "Bed")
-    return ('<div class="dash-panel"><h3>Temperature</h3>' + plots
+    return ('<div class="dash-panel"><h3>Temperature</h3>' + legend + plots
             + f'<p class="muted">Last {_span_text(span)}, since the Web UI started. '
               'Solid: current; dashed: target.</p></div>')
 
@@ -695,7 +707,7 @@ def _card(card):
     if card["controls_enabled"]:
         side.append(
             '<div class="dash-controls">'
-            f'<button type="button" class="danger estop" data-estop="{printer_id}" '
+            f'<button type="button" class="danger" data-estop="{printer_id}" '
             f'data-name="{_esc(card["name"])}">Emergency stop</button>'
             '<p class="muted estop-note"></p></div>')
     # Status first, the camera beside it (#1515: the Home Assistant
