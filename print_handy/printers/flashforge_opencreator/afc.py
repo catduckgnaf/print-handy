@@ -81,8 +81,11 @@ def parse_tool_records(value: Any, tool_count: int = 4) -> dict[int, dict[str, A
     return out
 
 
-def bind_commands(lane: str, spool: dict[str, Any] | None, *, spoolman_enabled: bool) -> list[str]:
-    """Printer-side spool bind commands for one lane; caller must enforce idle."""
+def bind_commands(lane: str, spool: dict[str, Any] | None, *, spoolman_enabled: bool,
+                  printer_idle: bool) -> list[str]:
+    """Build printer-side spool bind commands only while the printer is idle."""
+    if not printer_idle:
+        return []
     if not isinstance(lane, str) or not lane.strip() or any(c.isspace() for c in lane.strip()):
         raise ValueError("invalid AFC lane name")
     lane = lane.strip()
