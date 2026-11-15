@@ -108,6 +108,7 @@ def _with_gcode_temperatures(state, text, recorded=None, lines=None):
     already has one), so the filament_type and spool-header lookups here
     cost no extra pass.
     """
+    state = printer_state.with_artifact_spool(state, text, lines)
     if recorded:
         try:
             temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
@@ -254,11 +255,12 @@ def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """A printer Print Handy cannot reach (bambulab.a1): the adapter's checks against the hardware record."""
     adapter = adapter or printers.current()
     from ..core.printer_state import _material_temperature_contract
+    text = GcodeArtifact.of(gcode_path).read_text(errors='ignore')
+    state = printer_state.with_artifact_spool(state, text)
     try:
         _material_temperature_contract(state)
     except RuntimeError as exc:
         raise RuntimeError(f'offline G-code verification failed: {exc}') from exc
-    text = GcodeArtifact.of(gcode_path).read_text(errors='ignore')
     problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text, recorded_temps))
     if problems:
         raise RuntimeError(material_accept.message(problems, 'offline G-code verification failed: '))

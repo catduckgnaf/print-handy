@@ -674,6 +674,30 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None, lines=N
     return resolved[0]
 
 
+def with_artifact_spool(state, text, lines=None):
+    """state whose empty active-spool record is filled from the one slot spool this artifact names.
+
+    The active-spool record is legitimately empty after an unassign or on a
+    fresh install; launch sync (print_now._sync_active_spool) fills it only
+    after verification. An artifact whose `hermes_tool_slots` map names exactly
+    one spool was sliced on that slot's record, so verification reads the
+    material from the same record instead of refusing with "selected spool has
+    no material" (2.3.4, 2026-11-15). A record that already names a material is
+    returned untouched: a real mismatch is still reported.
+    """
+    spool = state.get("spool") or {}
+    if spool.get("material"):
+        return state
+    mapped = _job_map_spool_ids(state, text, lines)
+    if len(mapped) != 1:
+        return state
+    for record in (state.get("filament_slots") or {}).values():
+        if isinstance(record, dict) and record.get("spoolman_id") == mapped[0] and record.get("material"):
+            return {**state, "spool": {**spool, "spoolman_id": mapped[0], "name": record.get("name"),
+                                       "material": record["material"]}}
+    return state
+
+
 def _material_temperature_contract(state):
     """Validate selected material temperatures and retain compatibility with old state files."""
     material = (state.get("spool") or {}).get("material")

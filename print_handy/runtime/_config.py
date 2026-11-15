@@ -203,6 +203,10 @@ def _env_file_value(path: Path, name: str) -> str:
                 found = line.split("=", 1)[1].strip().strip("'\"")
                 if found:
                     return found
+    except FileNotFoundError:
+        # An optional .env that is not there is the normal case (Docker has no
+        # global one), not a failure: logging it flooded the log on every lookup.
+        return ""
     except OSError:
         __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
     return ""

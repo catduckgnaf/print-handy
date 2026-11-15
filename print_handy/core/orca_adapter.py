@@ -1878,6 +1878,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 from .slice_refusal import unconfirmed_slot_color
                 raise unconfirmed_slot_color(color_slot, slot, 'IFS slot color/material mapping is unverified')
             color_row = slot
+    # The active-spool record is legitimately empty after a spool is unassigned
+    # or on a fresh install, and a slot override above carries only id, name and
+    # material. Resolve density the way launch sync does (_sync_active_spool):
+    # this slot's Spoolman filament, else the stored record, else 1.24.
+    density = (spool_filament or {}).get('density') or state['spool'].get('density') or 1.24
+    state = {**state, 'spool': {**state['spool'], 'density': density}}
     # The color code only colors the preview and the 3MF filament label.
     # A slot without one gets the next source in line (its name, else the
     # neutral default, with a WARNING) instead of killing the slice.
