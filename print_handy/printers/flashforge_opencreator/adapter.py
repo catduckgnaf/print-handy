@@ -301,6 +301,9 @@ class OpenCreatorAdapter(KlipperAdapter):
         # disagree. Anything else in the field is not trusted.
         changer = raw.get("creator5_toolchanger")
         active = changer.get("active_tool") if isinstance(changer, dict) else None
+        if isinstance(changer, dict) and changer.get("sensor_error"):
+            # The sensors disagree: whatever the field holds is not a reading.
+            active = None
         out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
         return out
 

@@ -322,3 +322,37 @@ def test_live_verification_refuses_a_wrong_bed_and_a_hot_chamber(monkeypatch, tm
     assert "runs bed 70 C, not the job's 60 C" in message
     message = _live_verify_errors(monkeypatch, tmp_path, _file(["M140 S60", "M191 S75"]))
     assert "65 C chamber ceiling" in message
+
+
+def test_short_or_missing_config_lists_never_raise():
+    # Orca can write fewer entries than there are tools, or none: every
+    # per-slot read is bounds-checked, so synthesis degrades to "not
+    # discoverable" (the firmware's own failure mode), never an exception.
+    short = ("T2
+M140 S60
+G1 X1 E1
+; filament used [mm] = 0,0,5
+"
+             "; nozzle_temperature_initial_layer = 220
+; chamber_temperature = 50
+"
+             "; activate_chamber_temp_control = 1
+; idle_temperature = 0
+")
+    start = start_contract.synthesize_start(short)
+    assert (start.tool, start.hotend, start.chamber, start.used_tools) == (2, None, None, (2,))
+    [problem] = start_contract.start_problems(short, 60, 220)
+    assert "No hotend temperature found" in problem
+    bare = start_contract.synthesize_start("M140 S60
+")
+    assert (bare.tool, bare.hotend, bare.used_tools) == (0, None, ())
+    assert start_contract.synthesize_start("").hotend is None
+
+
+def test_status_reports_no_active_tool_while_the_sensors_disagree():
+    adapter = adapter_for(PRO)
+    raw = _ready_status()
+    raw["creator5_toolchanger"].update(active_tool=1, sensor_error="dock 1 and grab 2 disagree")
+    assert adapter.normalize_status(raw)["active_tool"] is None
+    raw["creator5_toolchanger"]["sensor_error"] = None
+    assert adapter.normalize_status(raw)["active_tool"] == 1
