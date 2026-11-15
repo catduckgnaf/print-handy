@@ -46,11 +46,16 @@ def _ready_status():
                                        "build_plate_detected": True,
                                        "dock_positions": [[0, 0]] * 4,
                                        "tool_measurements": [[0, 0, 0]] * 4},
-              "AFC": {"maps": ["T0", "T1", "T2", "T3"]}}
+              "AFC": {"maps": ["T0", "T1", "T2", "T3"], "error_state": False}}
     for tool in range(4):
         name = "extruder" if tool == 0 else f"extruder{tool}"
         status[name] = {"temperature": 24.0}
-        status[f"AFC_extruder extruder{tool}"] = {"map": f"T{tool}", "current_map": f"T{tool}"}
+        # The shapes the fork reports: the AFC_extruder status carries
+        # the mount sensors and no map; the standalone lane registered
+        # as "AFC_lane extruderN" carries the map (current_map is empty
+        # until the first tool change).
+        status[f"AFC_extruder extruder{tool}"] = {"mount_sensor_error": None, "on_shuttle": tool == 0}
+        status[f"AFC_lane extruder{tool}"] = {"map": [f"T{tool}"], "current_map": ""}
     return status
 
 
@@ -103,7 +108,9 @@ def test_moonraker_objects_are_the_standard_multi_tool_set(key):
         "extruder", "extruder1", "extruder2", "extruder3",
         "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
         "AFC_extruder extruder0", "AFC_extruder extruder1",
-        "AFC_extruder extruder2", "AFC_extruder extruder3"]
+        "AFC_extruder extruder2", "AFC_extruder extruder3",
+        "AFC_lane extruder0", "AFC_lane extruder1",
+        "AFC_lane extruder2", "AFC_lane extruder3"]
 
 
 @pytest.mark.parametrize("key", KEYS)

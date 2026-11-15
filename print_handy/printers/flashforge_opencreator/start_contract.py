@@ -178,7 +178,22 @@ def synthesize_start(text):
         used_tools=used_tools, hotends=hotends, idles=idles)
 
 
-def start_problems(text, bed, hotend):
+def first_selected_tool(text):
+    """The first tool the file's header selects (T0 to T3 or AFC_SELECT_TOOL), or None."""
+    text = text if isinstance(text, str) else ""
+    lines = [_code(line) for line in text[:WINDOW].splitlines()]
+    for line in lines:
+        match = _TOOL_RE.match(line.upper())
+        if match:
+            return int(match.group(1))
+    for line in lines:
+        match = _SELECT_TOOL_RE.match(line)
+        if match:
+            return int(match.group(1) or 0)
+    return None
+
+
+def start_problems(text, bed, hotend, *, max_chamber=None):
     """Verification problems for one file against the job's bed and hotend.
 
     Empty when the start the firmware would run matches the job: for a
@@ -186,11 +201,21 @@ def start_problems(text, bed, hotend):
     line, that line's own HOTEND (and BED when it names one). A file
     with no discoverable hotend temperature names the firmware's own
     failure mode, because that is what the printer would do with it.
+    An explicit line owns every parameter (the firmware synthesizes
+    nothing for it), so it must name its own HOTEND, and its TOOL must
+    be the first tool the file selects. With ``max_chamber`` (the Pro's
+    recorded ceiling), a chamber target above it is refused: the
+    firmware would clamp only to its own, higher, config limit.
     """
     import math
 
     start = synthesize_start(text)
     problems = []
+    if start.explicit and start.hotend is None:
+        problems.append(
+            "the file's C5_PRINT_START line names no HOTEND; the firmware fills in "
+            "nothing for an explicit line")
+        return problems
     if start.hotend is None:
         problems.append(
             "no hotend temperature is discoverable in the G-code header or config block; "
@@ -212,4 +237,15 @@ def start_problems(text, bed, hotend):
             f"not the job's {float(bed):g} C")
     if not 0 <= start.tool <= 3:
         problems.append(f"the start the firmware would synthesize selects unknown tool T{start.tool}")
+    elif start.explicit:
+        first = first_selected_tool(text)
+        if first is not None and first != start.tool:
+            problems.append(
+                f"the file's C5_PRINT_START line selects T{start.tool}, but the first "
+                f"tool the file selects is T{first}")
+    if (max_chamber is not None and start.chamber is not None
+            and start.chamber > float(max_chamber) + 1e-3):
+        problems.append(
+            f"the start runs the chamber at {start.chamber:g} C, above this printer's "
+            f"{float(max_chamber):g} C chamber ceiling")
     return problems

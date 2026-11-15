@@ -1120,6 +1120,20 @@ def test_pid_before_refuses_an_mpc_heater():
     assert cal._pid_before(settings_map, "heater_bed") == cal.PidValues(70.0, 1.0, 300.0)
 
 
+def test_prepare_pid_names_mpc_and_its_own_tuning_command():
+    # The refusal the operator reads must give the real reason: the
+    # heater runs MPC, and MPC has its own tuning command.
+    mpc = {"extruder": {"control": "mpc", "pid_kp": "22.2", "pid_ki": "1.5", "pid_kd": "105.0"}}
+    transport = pid_transport(settings_map=mpc)
+    with pytest.raises(cal.CalibrationRefusal) as caught:
+        cal.prepare_pid(transport, AD5X, "extruder", 240)
+    text = str(caught.value)
+    assert "runs MPC" in text and "C5_MPC_CALIBRATE" in text and "Nothing was sent" in text
+    assert "reports no PID values" not in text
+    assert not any(call[0] == "POST" for call in transport.calls)
+
+
+
 def test_is_restart_disconnect_separates_presend_from_postsend_failures():
     # Post-send drops are the SAVE_CONFIG restart signature; a refused
     # connection or a wrapped connect timeout means the request never
