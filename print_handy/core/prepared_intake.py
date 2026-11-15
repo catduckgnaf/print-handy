@@ -3426,6 +3426,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     raise
             else:
                 await _wait_ready_slices()
+            if (getattr(early, 'error', None) is not None
+                    and not isinstance(early.error, mj.FilamentWarningPending)):
+                is_flagged = False  # the existing slice-failure handler owns this failure, not a Ready approval
+                break
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')
             if clearance is None and early.clearance:
