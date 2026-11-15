@@ -15,7 +15,7 @@ It also has a personality problem. Your model might get roasted, your eleventh c
 
 Current release: **2.3.4**
 
-[Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#will-it-work-with-my-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
+[Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#find-your-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
 ## The fun stuff (and the genuinely useful stuff)
 
@@ -97,35 +97,64 @@ In **Settings > Apps > App store > Repositories**, add `https://github.com/catdu
 
 Want printer entities in Home Assistant too? That's the separate [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy), installed through HACS.
 
-## Will it work with my printer?
+## Find your printer
 
-The question that matters is **which firmware and connection your printer actually runs**, not merely the brand on the front. A built-in profile means Print Handy has definitions and offline tests; it **doesn't** mean someone printed on that exact hardware. [Printer support](docs/PRINTER-SUPPORT.md) explains verification levels and how to request a new printer.
+Start with the printer you own: its **brand**, then the **model**, then the **firmware** it runs. The connection is listed last, as a detail, because nobody shops for a protocol. A built-in profile means Print Handy has the printer's definitions and offline tests; it **doesn't** mean someone printed on that exact hardware. [What does "supported" mean?](docs/PRINTER-SUPPORT.md) explains the levels, and the [model key list](docs/PRINTER-PROFILES.md#find-your-printer) names the exact setting for every printer below.
 
-### FlashForge: choose the firmware first
+### FlashForge
 
-| Firmware / route | Printers with Print Handy profiles | What connects | Guide |
-|---|---|---|---|
-| **Stock FlashForge** | AD5X | Factory LAN HTTP API; no ZMod required | [Stock FlashForge](docs/FLASHFORGE-STOCK.md) |
-| **ZMod** | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker through ZMod | [ZMod](docs/ZMOD.md) |
-| **Forge-X** (1.4.2 beta) | AD5M, AD5M Pro | Moonraker on Forge-X's patched stock Klipper; not ZMod, never both | [Forge-X](docs/FORGEX.md) |
-| **OpenCreator** | Creator 5, Creator 5 Pro | Kalico / Moonraker; separate firmware and profiles from ZMod | [OpenCreator](docs/OPENCREATOR.md) |
-| **Reforge** | **No dedicated profile yet** | Independent Creator 5 / 5 Pro custom firmware; compatibility not verified here | [Reforge upstream](https://github.com/Klipper4FlashForge/firmware) · [Request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) |
+One brand, four firmware routes. A printer can appear under more than one route; pick the firmware yours actually runs.
 
-**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md). Reforge has no integration to verify yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*.
+- **AD5X**: stock factory firmware (the printer's own LAN HTTP API) with the [stock FlashForge guide](docs/FLASHFORGE-STOCK.md), or [ZMod](docs/ZMOD.md) (Moonraker through ZMod).
+- **AD5M, AD5M Pro**: [ZMod](docs/ZMOD.md) (Moonraker), or [Forge-X](docs/FORGEX.md) 1.4.2 beta (Moonraker on Forge-X's patched stock Klipper; not ZMod, never both).
+- **Creator 5, Creator 5 Pro**: [ZMod](docs/ZMOD.md) (Moonraker), or [OpenCreator](docs/OPENCREATOR.md) (Kalico and Moonraker; separate firmware and profiles from ZMod).
 
-A Creator 5 running OpenCreator is not running ZMod, and a stock AD5X is not secretly a Moonraker printer. Choose the matching [model key](docs/PRINTER-PROFILES.md#find-your-printer). The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
+A Creator 5 running OpenCreator is not running ZMod, and a stock AD5X is not secretly a Moonraker printer. **Reforge**, an independent Creator 5 / 5 Pro custom firmware, has **no dedicated Print Handy profile yet**: it is acknowledged here, not supported. See [Reforge upstream](https://github.com/Klipper4FlashForge/firmware), and [request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) if you run it.
 
-### Everybody else
+**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md). Reforge has no integration to verify yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*. The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
 
-| Connection family | Built-in families | Guide |
-|---|---|---|
-| **Klipper / Moonraker** | Creality, Qidi, Sovol, Elegoo Neptune 4, Anycubic Kobra 2 line, Snapmaker U1, generic Klipper | [Printer profiles](docs/PRINTER-PROFILES.md) |
-| **Bambu Lab LAN** | A1, P1, X1, P2, H2 and related supported profiles | [Bambu Lab](docs/BAMBU-LAB.md) |
-| **PrusaLink** | MK4S, CORE One, XL, MINI+ | [Prusa](docs/PRUSA.md) |
-| **Elegoo SDCP** | Centauri Carbon | [Elegoo](docs/ELEGOO.md) |
-| **OctoPrint / Marlin** | Ender, Anycubic and Sovol presets, plus a generic OctoPrint profile | [OctoPrint / Marlin](docs/OCTOPRINT-MARLIN.md) |
+### Creality
 
-Don't see your printer? The [printer support guide](docs/PRINTER-SUPPORT.md#your-printer-is-not-listed) explains generic profiles and the [printer request form](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml). No need to buy a new printer just to please the documentation.
+- **Ender-3 V3, Ender-3 V3 KE, Ender-3 V3 Plus, K1, K1C, K1 Max**: model-specific Klipper firmware, over Moonraker. [Creality guide](docs/CREALITY.md)
+- **Ender-3, Ender-3 Pro, Ender-3 V2, Ender-3 V3 SE**: stock Marlin, through OctoPrint. [OctoPrint and Marlin guide](docs/OCTOPRINT-MARLIN.md)
+
+### Qidi
+
+- **Q1 Pro, X-Plus 3, X-Plus 4, X-Max 3, X-Smart 3**: model-specific Klipper firmware, over Moonraker. [Qidi guide](docs/QIDI.md)
+
+### Snapmaker
+
+- **U1**: Klipper-based firmware, over Moonraker. [Snapmaker guide](docs/SNAPMAKER.md)
+
+### Bambu Lab
+
+- **A1, A1 mini, A2L, P1P, P1S, P2S, X1, X1C, X1E, H2S, H2D, H2D Pro, H2C, X2D**: Bambu Lab firmware, over the Bambu Lab LAN connection. Slices happen locally; print starts are opt-in. [Bambu Lab guide](docs/BAMBU-LAB.md)
+
+### Prusa
+
+- **MK4S, CORE One, XL, MINI+**: Prusa firmware, over PrusaLink. [Prusa guide](docs/PRUSA.md)
+
+### Elegoo
+
+- **Neptune 4, Neptune 4 Pro, Neptune 4 Plus, Neptune 4 Max**: Klipper-based firmware, over Moonraker. [Elegoo guide](docs/ELEGOO.md)
+- **Centauri Carbon**: Elegoo SDCP firmware, over SDCP on your network. [Elegoo guide](docs/ELEGOO.md)
+
+### Anycubic
+
+- **Kobra 2, Kobra 2 Neo, Kobra 2 Pro, Kobra 2 Plus, Kobra 2 Max**: community Klipper firmware, over Moonraker. [Anycubic guide](docs/ANYCUBIC.md)
+- **Chiron, i3 Mega S, Kobra, Kobra Max, Kobra Neo, Kobra Plus, 4Max Pro 2, Vyper**: stock Marlin, through OctoPrint. [OctoPrint and Marlin guide](docs/OCTOPRINT-MARLIN.md)
+
+### Sovol
+
+- **SV01, SV01 Pro, SV02, SV03, SV04, SV05, SV06, SV06 Plus**: two routes each, Sovol's Klipper firmware over Moonraker, or stock Marlin through OctoPrint. [Sovol guide](docs/SOVOL.md)
+- **SV06 ACE, SV06 Plus ACE, SV07, SV07 Plus, SV08, SV08 Max, Zero, M1D**: Klipper firmware, over Moonraker. [Sovol guide](docs/SOVOL.md)
+
+### Any other Klipper or Marlin printer
+
+- **Generic Klipper** (`klipper.generic`): any Klipper printer over Moonraker that is not listed above. You supply the bed size and macros; [printer support](docs/PRINTER-SUPPORT.md#your-printer-is-not-listed) explains.
+- **Generic Marlin through OctoPrint** (`octoprint.marlin`): any Marlin printer behind an OctoPrint server. [OctoPrint and Marlin guide](docs/OCTOPRINT-MARLIN.md)
+
+Don't see your printer at all? The [printer support guide](docs/PRINTER-SUPPORT.md#your-printer-is-not-listed) explains generic profiles and the [printer request form](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml). No need to buy a new printer just to please the documentation.
 
 ## Docs, help and the people who made this possible
 
