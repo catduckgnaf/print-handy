@@ -270,3 +270,34 @@ def test_ask_batch_falls_back_to_one_question_per_group():
         assert picks == [0, 0]
         assert len(adapter.questions) == 2
     asyncio.run(run())
+
+
+def test_partial_proposal_on_tool_based_printer_keeps_claimed_toolheads_taken(tmp_path, monkeypatch):
+    """Accepting a partial proposal on a tool_based printer claims its toolheads so remaining
+    color questions never offer an already-assigned toolhead to a different source color."""
+    from print_handy import settings
+
+    cfg = settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": "flashforge.creator5"})
+    monkeypatch.setattr(settings, "current", lambda: cfg)
+
+    async def run():
+        p = plaque(tmp_path)
+        jp = _job(tmp_path, p)
+        state = {
+            'spool': {'material': 'PLA', 'spoolman_id': 10, 'name': 'red'},
+            'filament_slots': {
+                '1': {'color': 'Red', 'material': 'PLA+', 'spoolman_id': 10},
+                '2': {'color': 'Bronze', 'material': 'PLA+', 'spoolman_id': 11},
+                '3': {'color': 'White', 'material': 'PLA', 'spoolman_id': 12},
+            },
+        }
+        # 0 accepts the partial proposal (Bronze -> toolhead 2); 0 picks first remaining toolhead for Black.
+        adapter = Adapter([0, 0])
+        await collect(jp, state, adapter, 'offline', 'colors-partial-tool', timeout=1)
+        assert len(adapter.questions) == 2
+        remaining_choices = adapter.questions[1]['choices']
+        assert all('Bronze' not in c for c in remaining_choices), remaining_choices
+        saved = json.loads(jp.read_text())['color_decisions']
+        slots = {v['slot'] for v in saved['choices'].values()}
+        assert 2 in slots and len(slots) == 2
+    asyncio.run(run())
