@@ -226,8 +226,6 @@ class BackgroundSlice:
             try:
                 await self.task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("background slice task cancelled", exc_info=True)
 
     async def take(self, binding):
@@ -239,8 +237,6 @@ class BackgroundSlice:
         try:
             await self.task
         except asyncio.CancelledError:
-            if asyncio.current_task().cancelling():
-                raise
             logger.debug("background slice task cancelled", exc_info=True)
         self.task = None
         if self.error is not None or self.result is None:
@@ -254,8 +250,6 @@ class BackgroundSlice:
             try:
                 await self.task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("background slice task cancelled", exc_info=True)
         if await asyncio.to_thread(_sliced_with_supports, self.result):
             # The first slice ran before any decision, so a designer project
@@ -273,15 +267,11 @@ class BackgroundSlice:
             try:
                 await self.task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("background slice task cancelled", exc_info=True)
         if self.supports_task is not None:
             try:
                 await self.supports_task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("background supports-slice task cancelled", exc_info=True)
         self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
@@ -308,16 +298,12 @@ class BackgroundSlice:
             try:
                 await task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("discarded background slice task cancelled", exc_info=True)
         if sup_task is not None and not sup_task.done():
             sup_task.cancel()
             try:
                 await sup_task
             except asyncio.CancelledError:
-                if asyncio.current_task().cancelling():
-                    raise
                 logger.debug("discarded supports-slice task cancelled", exc_info=True)
         if self.work is not None:  # a discarded slice leaves no G-code behind
             if self.before is None:

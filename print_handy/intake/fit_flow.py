@@ -131,8 +131,6 @@ class FitStatus:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    if asyncio.current_task().cancelling():
-                        raise
                     logger.debug("fit check task cancelled during cleanup", exc_info=True)
                 except Exception:
                     logger.debug("fit check task failed during cleanup", exc_info=True)

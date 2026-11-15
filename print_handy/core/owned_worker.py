@@ -414,8 +414,8 @@ async def settle(fut):
         try:
             await asyncio.wait({fut})
         except asyncio.CancelledError:
-            if asyncio.current_task().cancelling():
-                raise
-            logger.debug("worker settlement wait cancelled", exc_info=True)
+            # By design: settle outlasts every cancel until fut is done (the caller
+            # must not leave a worker unreaped); the caller sees the cancel afterward.
+            logger.debug("worker settlement wait cancelled; still waiting for the worker", exc_info=True)
     if not fut.cancelled():
         fut.exception()
