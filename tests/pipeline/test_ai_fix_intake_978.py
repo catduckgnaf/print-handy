@@ -380,6 +380,72 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     assert 'ai_fixes' not in job
 
 
+def test_multi_file_fix_note_names_the_count_and_the_reason():
+    """#1474: the file count is known before the button is drawn — a job
+    built from several files gets no fix button, and the warning text
+    carries the reason (the same words check_file_fix refuses with)."""
+    job = {'selected_sources': [{'path': f'/models/part{i}.stl'} for i in range(6)]}
+    note = prepared_intake.multi_file_fix_note(job)
+    assert 'built from 6 files' in note
+    assert 'changes one file and would drop the others' in note
+    assert prepared_intake.multi_file_fix_note({'selected_sources': [{'path': '/models/one.stl'}]}) == ''
+    assert prepared_intake.multi_file_fix_note({}) == ''
+
+
+def test_recorded_fix_failure_matches_only_the_same_source():
+    """#1474: a recorded failure withdraws the offer for the same slice
+    only; a changed source is a different slice and may be offered again."""
+    job = {'ai_fix_failed': {'source_sha256': 'abc', 'problem': 'Slice failure. x'}}
+    assert prepared_intake.recorded_fix_failure(job, 'abc')
+    assert not prepared_intake.recorded_fix_failure(job, 'different')
+    assert not prepared_intake.recorded_fix_failure({}, 'abc')
+    assert not prepared_intake.recorded_fix_failure(job, None)
+
+
+def test_gate_offers_no_fix_button_on_a_multi_file_job(env, monkeypatch):
+    """#1474 at the gate: with the (dormant) offer machinery switched on,
+    a multi-file job draws no Fix button, the gate question carries the
+    multi-file reason, and no AI call is made."""
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(
+        plans=[{'kind': 'supports', 'enabled': True, 'type': 'tree'}], summary='use tree supports'))
+    monkeypatch.setattr(ai_fix, 'source_files',
+                        lambda job: [{'path': '/models/a.stl'}, {'path': '/models/b.stl'}])
+    # one color (1), slot 1 (0), with supports (0), Cancel (1) at the gate.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    assert not any(ai_fix.FIX_LABEL in (q.get('choices') or []) for q in adapter.questions)
+    gate = adapter.questions[-1]
+    assert gate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert 'built from 2 files' in gate['question']
+    assert 'would drop the others' in gate['question']
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+
+
+def test_a_failed_fix_is_recorded_on_the_job(env, monkeypatch):
+    """#1474: when a fix fails, the failure lands on the job record keyed
+    by the source it failed on, so a later intake of the same slice does
+    not offer the identical fix again (the within-intake withdrawal is
+    pinned by the unbuildable-fix test above)."""
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'extend', 'mm': 5.0},
+                                           summary='extend the underside'))
+
+    def no_op_build(*args, **kwargs):
+        raise ai_fix.FixError('that fix would not change the model (the proposed extend '
+                              'moves nothing on it), so nothing was changed')
+    monkeypatch.setattr(ai_fix, 'build_fixed_copy', no_op_build)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1], mid='gate-record-failure')
+    job = json.loads(Path(receipt['job_json']).read_text())
+    failed = job.get('ai_fix_failed')
+    assert failed and failed['source_sha256'] == job['color_decisions']['source_sha256']
+    assert prepared_intake.recorded_fix_failure(job, failed['source_sha256'])
+    assert not prepared_intake.recorded_fix_failure(job, 'some-other-source')
+
+
 def test_intake_never_offers_the_ai_fix_even_with_ai_ready_1373(env, monkeypatch):
     """Owner ruling 2026-11-12 (#1373): the AI fix is a design request, never a
     last-resort button at the end of an intake. With the heavy tier ready, the

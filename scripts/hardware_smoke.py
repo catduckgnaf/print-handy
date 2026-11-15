@@ -22,6 +22,14 @@ Procedure (idle printer only; stop at the first surprise):
 5. Record the printer firmware, ZMod version, Print Handy version, date and result in the release
    notes; if the printer's responses changed shape, re-record tests/fixtures/printers/ad5x_zmod/
    (read-only GETs only; see the README there).
+6. Timing (#1476). With the smoke job in the archive, run
+   `python3 -m print_handy.jobs.timing_report --check-budgets --summary-out timing-summary.json`
+   on the install. It reads the newest jobs' TIMING.jsonl files and exits non-zero when any
+   user-facing span's median or p90 is over the budgets in print_handy/jobs/timing_report.py
+   (link to first question, slice, tap to start accepted, tap to print started, and the rest).
+   Record the outcome with the step 5 notes; the summary file is what the release checklist
+   records (build_release_checklist.py --timing-summary, with the previous release's summary
+   as --previous-timing-summary so a moved median is flagged).
 
 Nothing in this file talks to a printer. Wire it up only with an explicit operator opt-in and a design
 review, since a script that starts and cancels a print is a script that can start a print.

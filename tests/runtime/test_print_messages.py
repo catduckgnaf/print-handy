@@ -539,8 +539,11 @@ class _InlineThread:
         self._target(*self._args)
 
 
-def test_listener_attaches_local_timelapse_only_when_available(monkeypatch):
+def test_listener_attaches_local_timelapse_only_when_available(monkeypatch, tmp_path):
     posted = []
+    # Per-test announcer state (#1474: delivered completion posts are
+    # recorded in it, and the two scenarios below are two prints).
+    monkeypatch.setattr(mel.announcer, "STATE_PATH", tmp_path / "state.json")
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))
@@ -553,6 +556,9 @@ def test_listener_attaches_local_timelapse_only_when_available(monkeypatch):
     assert posted == ["Print complete: Stand\nMEDIA:/cache/stand.mp4"]
     assert "MEDIA:/volume1" not in posted[0]
     posted.clear()
+    # A second print of the same file: fresh announcer state, so its
+    # completion is a new post, not the first print's duplicate (#1474).
+    mel.announcer.save_state({})
     monkeypatch.setattr(mel.announcer, "archive_completed_timelapse",
                         lambda key: mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVE_NOT_RENDERED))
     mel.run_announcer("test")
@@ -563,8 +569,9 @@ def test_listener_attaches_local_timelapse_only_when_available(monkeypatch):
                       "didn't arrive within the wait (see the listener log)."]
 
 
-def test_listener_combines_completion_and_timelapse(monkeypatch):
+def test_listener_combines_completion_and_timelapse(monkeypatch, tmp_path):
     posted = []
+    monkeypatch.setattr(mel.announcer, "STATE_PATH", tmp_path / "state.json")
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))
@@ -577,8 +584,9 @@ def test_listener_combines_completion_and_timelapse(monkeypatch):
     assert posted == ["Print complete: Stand\nMEDIA:/cache/stand.mp4"]
 
 
-def test_listener_shrinks_video_and_never_drops_completion_on_rejected_upload(monkeypatch):
+def test_listener_shrinks_video_and_never_drops_completion_on_rejected_upload(monkeypatch, tmp_path):
     posted, results = [], [False, True]
+    monkeypatch.setattr(mel.announcer, "STATE_PATH", tmp_path / "state.json")
     monkeypatch.setattr(mel, "log", lambda line: None); monkeypatch.setattr(mel, "warn", lambda line: None)
     monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or results.pop(0))
     monkeypatch.setattr(mel.announcer, "main", lambda: print("TIMELAPSE_POSTPROCESS:stand.gcode\nPrint complete: Stand"))

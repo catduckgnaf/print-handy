@@ -40,7 +40,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -91,9 +90,8 @@ def _stem(remote):
 
 def _get(base_url, path, timeout=GET_TIMEOUT_S):
     """The recorder's only printer request: an HTTP GET returning parsed JSON."""
-    req = urllib.request.Request(base_url.rstrip("/") + path, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", "replace"))
+    from .. import moonraker
+    return moonraker.moonraker_json(base_url.rstrip("/"), path, method="GET", timeout=timeout)
 
 
 def _store_mark(entry):

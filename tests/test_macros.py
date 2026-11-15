@@ -676,7 +676,8 @@ def test_llm_may_name_the_listing_but_never_a_run():
 
 def test_bot_command_text_for_a_run():
     from print_handy.bot import commands as bot_commands
-    assert bot_commands.as_text("print-macros", {"args": "run PRINT_START"}) == "/print-macros run PRINT_START"
+    assert bot_commands.as_text(
+        "print-macros", {"subcommand": "run", "name": "PRINT_START"}) == "/print-macros run PRINT_START"
     assert bot_commands.as_text("print-macros", {}) == "/print-macros"
 
 
