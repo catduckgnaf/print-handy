@@ -320,3 +320,9 @@ def test_wizard_presets_use_print_handy_wizard_prefix():
     assert wizard._preset("discord_chat_id") == "42"
     only_old = setup_wizard.Wizard(environ={"PB_DISCORD_CHAT_ID": "99"})
     assert only_old._preset("discord_chat_id") is None
+
+
+def test_a_lookup_error_is_a_programming_fault_not_an_unknown_cause():
+    # A worker KeyError was reported to chat as "could not identify the cause".
+    assert diagnostics.classify(KeyError("density")) is Category.PROGRAMMING
+    assert diagnostics.classify(IndexError("list index out of range")) is Category.PROGRAMMING

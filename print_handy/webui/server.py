@@ -1581,7 +1581,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_file(path, sliced_module.content_type(path),
                         headers=[("Content-Disposition",
-                                  f'attachment; filename="{path.name}"')])
+                                  f'attachment; filename="{path.name}"'),
+                                 ("Cache-Control", "no-store")])
 
     def _not_found(self, path):
         if self._browser_navigation(path):
@@ -2794,7 +2795,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_file(path, workflow_module.content_type(path),
                         headers=[("Content-Disposition",
-                                  f'attachment; filename="{path.name}"')])
+                                  f'attachment; filename="{path.name}"'),
+                                 ("Cache-Control", "no-store")])
 
     # -- uploads ------------------------------------------------------------
 
