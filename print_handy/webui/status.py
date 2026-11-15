@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import socket
 import threading
@@ -47,6 +48,8 @@ from urllib.parse import urlparse
 from .. import __version__, doctor, healthcheck, logs, moonraker, printers, settings
 from ..bot import health as bot_health
 from ..core import purge
+
+log = logging.getLogger(__name__)
 
 # Heartbeat record keys that are safe and useful to show. The record is
 # written by the bot itself; whitelisting keeps anything unexpected (and
@@ -637,6 +640,7 @@ def printer_status(data, printer_id, *, read=None, hardware_for=None,
         facts = hardware_facts_func(view, record)
         if isinstance(facts, dict):
             body["hardware"] = facts
-    except Exception:  # a hardware problem omits the key, never the status
-        pass
+    except Exception as exc:  # a hardware problem omits the key, never the status
+        log.warning("printer status hardware facts failed for %s: %s",
+                    printer_id, exc)
     return 200, body

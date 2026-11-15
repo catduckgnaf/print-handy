@@ -81,6 +81,7 @@ use fake adapters only.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 import urllib.error
@@ -89,6 +90,8 @@ from .. import moonraker, printer_control, printers, settings
 from ..core import exclude_object as _exclude_object
 from ..core import heater_ceiling as _heater_ceiling
 from . import status as status_module
+
+log = logging.getLogger(__name__)
 
 ACTIONS = ("pause", "resume", "cancel")
 # ha-print-handy #1: the power routes and their Moonraker endpoints
@@ -951,7 +954,9 @@ def record_nozzle(data, printer_id, body=None, *, adapter=None, record=None):
             resolved = adapter or printers.get(entry["model"], view)
             supported_sizes = getattr(resolved, "supported_nozzle_sizes", None)
             supported_types = getattr(resolved, "supported_nozzle_types", None)
-        except Exception:  # no adapter facts: the canonical sets decide
+        except Exception as exc:  # no adapter facts: the canonical sets decide
+            log.debug("nozzle record for %s: adapter lookup failed (%s); "
+                      "the canonical size/type sets decide", printer_id, exc)
             supported_sizes = supported_types = None
         if record is None:
             state = _default_nozzle_record(printer_id, view, float(diameter),
