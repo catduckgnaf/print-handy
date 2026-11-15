@@ -689,7 +689,9 @@ installs; `orca_lanes` publishing being skipped under HelixScreen does
 not affect launches, because `lane_data` is assignment sync, not a
 launch input). The Creator 5 / 5 Pro use the identity toolhead contract
 instead (slicer tool *i* prints with toolhead *i*; a non-identity map is
-refused, never approximated), as does a Klipper printer fitted with the
+refused, never approximated; on OpenCreator firmware the printer's own
+AFC tool map then decides the toolhead, see OPENCREATOR.md), as does a
+Klipper printer fitted with the
 Bondtech INDX accessory over its tools. The single-extruder ZMod models
 (AD5M, AD5M Pro) refuse multicolor maps by name. None of the mapping
 behavior in this section is live-hardware verified yet; it is pinned by
