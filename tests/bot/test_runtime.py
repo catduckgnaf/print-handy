@@ -550,6 +550,39 @@ def test_did_you_mean_no_sends_the_unmatched_reply_and_dispatches_nothing(cfg):
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
 
 
+def test_subcommand_typo_offers_a_correction_before_dispatch(cfg):
+    """#1496: "/spool chnage" names a real command, so the fallback's
+    did-you-mean never sees it — the correction is offered before
+    dispatch, and a yes runs the corrected form as if typed."""
+    seen = []
+    discord, core = make(cfg, router=_recording_router(seen))
+
+    async def flow():
+        task = asyncio.create_task(core.handle_message(discord.message("/spool chnage 1 12")))
+        await press(discord, runtime.SUGGEST_YES_LABEL)
+        return await task
+
+    out = run(flow())
+    assert seen == ["/spool change 1 12"]
+    assert out == {"action": "skip", "reason": "recorded"}
+
+
+def test_subcommand_typo_declined_dispatches_the_original_text(cfg):
+    """A no on the subcommand correction is not the unmatched reply:
+    the handler answers the original text (its usage line) as today."""
+    seen = []
+    discord, core = make(cfg, router=_recording_router(seen))
+
+    async def flow():
+        task = asyncio.create_task(core.handle_message(discord.message("/spool chnage 1 12")))
+        await press(discord, runtime.SUGGEST_NO_LABEL)
+        return await task
+
+    out = run(flow())
+    assert seen == ["/spool chnage 1 12"]
+    assert out == {"action": "skip", "reason": "recorded"}
+
+
 def test_live_command_filtered_from_unsupported_platform_surfaces(cfg):
     """print-live is Discord-only (P2-123): the shared command table keeps it
     for Discord registration and help, and filters it out of both surfaces
