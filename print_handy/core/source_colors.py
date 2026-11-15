@@ -2494,6 +2494,7 @@ def _color_words(value, material=None):
             from . import part_translator
             return (part_translator.named_color(parsed[0]).casefold(),)
         except Exception:
+            logger.debug("could not name color %s", parsed[0], exc_info=True)
             return ()
     guess = filament_color.derive(value, material)
     if guess:
@@ -2599,6 +2600,7 @@ def _spool_label(selection):
             from . import part_translator
             color = part_translator.named_color(parsed[0]).title()
         except Exception:
+            logger.debug("could not name color %s; showing the hex", parsed[0], exc_info=True)
             color = parsed[0]
     else:
         color = ' '.join(color.split()).title()
@@ -2691,7 +2693,10 @@ def _load_mapping_store(path=None):
     try:
         data = json.loads(_mapping_store_path(path).read_text())
         return data if isinstance(data, dict) else {}
+    except FileNotFoundError:  # nothing remembered yet
+        return {}
     except Exception:
+        logger.warning("remembered color mappings unreadable; starting empty", exc_info=True)
         return {}
 
 
