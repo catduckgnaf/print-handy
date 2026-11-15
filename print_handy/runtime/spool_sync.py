@@ -319,6 +319,19 @@ def _printer_adapter(printer_id: str | None):
     return printers.get(settings.by_id(printer_id)["model"], settings.view_for(printer_id))
 
 
+def _lane_write_adapter(printer_id: str | None):
+    """The adapter a ``lane_data`` write would be for, or None when unresolvable.
+
+    An adapter that cannot be resolved keeps the #791 behavior everywhere
+    it is consulted (the record is written), as on every family before
+    the family skips existed.
+    """
+    try:
+        return _printer_adapter(printer_id) if printer_id else printers.current()
+    except Exception:
+        return None
+
+
 def _toolhead_lane_namespace(printer_id: str | None) -> bool:
     """True when the printer is the multi-tool (Creator) family, whose ``lane_data`` keys are ``T0``..``T3`` (#1304).
 
@@ -326,11 +339,20 @@ def _toolhead_lane_namespace(printer_id: str | None) -> bool:
     adapter that cannot be resolved keeps the #791 behavior (the record is
     written), as on every other family.
     """
-    try:
-        adapter = _printer_adapter(printer_id) if printer_id else printers.current()
-    except Exception:
-        return False
-    return getattr(adapter, "multi_tool", False) is True
+    return getattr(_lane_write_adapter(printer_id), "multi_tool", False) is True
+
+
+def _lane_data_write_refusal(printer_id: str | None) -> str | None:
+    """The named reason this printer's spool writes refuse ``lane_data``, or None.
+
+    An adapter declares ``lane_data_write_refusal`` when the namespace
+    is published by the printer itself and which publisher owns it is
+    unverified (the OpenCreator models, #1490 tranche 3): the write is
+    refused with that reason, so the bind outcome names why instead of
+    the generic family skip.
+    """
+    refusal = getattr(_lane_write_adapter(printer_id), "lane_data_write_refusal", None)
+    return refusal if isinstance(refusal, str) and refusal else None
 
 
 def _pending_path(pending_path: Path | None, printer_id: str | None) -> Path:
@@ -542,8 +564,13 @@ def write_lane_side(slot: int, spool: dict[str, Any] | None, *, mr: Client = moo
     keeping the old ``spool_id``, and the lane_data watcher then reads it
     as a screen-side load and moves that spool back. Best effort, like the
     screen push: returns "written", "unsupported" (the Creator toolhead
-    family keys the namespace T0..T3, #1304) or a named "not updated".
+    family keys the namespace T0..T3, #1304), an adapter's named refusal
+    (the OpenCreator models, whose namespace is printer-published and
+    unverified, #1490) or a named "not updated".
     """
+    refusal = _lane_data_write_refusal(printer_id)
+    if refusal is not None:
+        return refusal
     if _toolhead_lane_namespace(printer_id):
         return "unsupported"
     try:

@@ -14,7 +14,7 @@ without a live probe:
   sample that carries objects or components under those names is
   OpenCreator evidence.
 
-The OpenCreator object shapes are documented and config verified only,
+The OpenCreator object shapes are source-verified against the fork,
 not hardware verified (issue #1490): these helpers only ever read the
 names of keys a status sample already carries, never their inner fields,
 and absence of evidence is never treated as evidence of either firmware.
