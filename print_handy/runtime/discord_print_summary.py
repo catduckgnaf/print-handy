@@ -333,8 +333,11 @@ def find_job(filename, archive=None, context_path=None):
     requested_path = original_path
     try:
         requested_path = requested_path.resolve()
-    except OSError:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+    except OSError as exc:
+        if isinstance(exc, FileNotFoundError):
+            __import__("logging").getLogger(__name__).debug("Could not resolve requested G-code path: %r", exc)
+        else:
+            __import__("logging").getLogger(__name__).warning("Could not resolve requested G-code path: %r", exc)
     for path, job in _job_files(archive):
         candidates = [(None, job.get("gcode"))] + [(row, row.get("gcode")) for row in job.get("derived_plates") or []]
         for row, gcode in candidates:
@@ -369,8 +372,12 @@ def find_job(filename, archive=None, context_path=None):
                      "slot": None, "color": spool.get("color"), "material": spool.get("material"),
                      "seconds": parse_duration(entry.get("estimated_time"))}
             return job, plate
-    except (OSError, ValueError, AttributeError):
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+    except (ValueError, AttributeError) as exc:
+        __import__("logging").getLogger(__name__).warning("Invalid start-context sidecar: %r", exc)
+    except FileNotFoundError as exc:
+        __import__("logging").getLogger(__name__).debug("Start-context sidecar unavailable: %r", exc)
+    except OSError as exc:
+        __import__("logging").getLogger(__name__).warning("Could not read start-context sidecar: %r", exc)
     return None, None
 
 
