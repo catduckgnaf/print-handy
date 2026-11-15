@@ -10,7 +10,7 @@
 **Bambu Handy for every printer.** Paste a model link into Discord, Telegram or Matrix, approve the slice, and go do something else. Print Handy slices it for your printer, matches your spools, watches the camera for spaghetti, and roasts your model when it finishes.
 
 - **Runs on your machine.** One Docker container on your network. No account, no Print Handy cloud.
-- **No AI required.** Slicing, spools, printing and the roast are plain local code. AI features are optional add-ons.
+- **Your whole printer, from chat.** Colors, copies, fit, slicing, spools, camera alerts, timelapses and firmware updates, from Discord, Telegram, Matrix or the Web UI.
 - **Nothing prints until you tap approve.** Every job waits for a human.
 
 Current release: **2.3.4**
@@ -97,25 +97,18 @@ The model-by-model list, how to set up an unlisted printer, and how to file a [p
 
 ## What it does
 
-**Out of the box, with no AI:**
+- **Drop in a model, get a print.** Paste a link from MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint, any direct STL or 3MF link, or upload a file. Pick colors, filament and copies with buttons.
+- **Fit it to your printer.** Models are measured at full size and never silently shrunk: rotate, resize, split across plates, add supports, or edit the job in chat ("rotate 90", "tree supports"). See [Editing](docs/EDITING.md).
+- **Slice without surprises.** OrcaSlicer (v2.5.0) and OpenSCAD are built in, and every print keeps its exact recipe for reprints.
+- **Know your filament.** Built-in Spoolman stays in sync with your slots: `/spool` lists, changes and creates spools, and a runout asks which spool goes in next.
+- **Pasta Cam.** The camera watches every print for spaghetti, detached parts and stalls, and posts the photo with **Pause** and **It's fine** buttons. The built-in detector runs locally; a vision model can sharpen it. See [Camera watch](docs/DOCKER.md#camera-watch-visual_watch).
+- **Follow every print.** Start, pause, error and finish posts, a timelapse at the end, and a roast of your model, because spaghetti wasn't insulting enough.
+- **Keep the printer healthy.** ZMod, HelixScreen and plugin update alerts, guided firmware updates and calibration (`/print-firmware`, `/print-calibration`), each behind a confirmation. See [Firmware updates](docs/FIRMWARE-UPDATE.md).
+- **Chat wherever you are.** Discord, Telegram, Matrix or the local Web UI, which also has status, settings, spools, a sliced-layer view and a yearly print recap. "@Print Handy spool list" works like `/spool list`, typos included.
+- **Home Assistant.** The [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer on your roster in Home Assistant, with live status and controls.
+- **Optional AI (beta).** Design and edit a part from a description with `/print-design` ([AI design](docs/DESIGN.md)), and chat in plain language. Point it at a local server, a hosted API or [Cloudflare's free tier](docs/CLOUDFLARE.md); if the endpoint is down, printing carries on.
 
-- **Prepare models** from MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs, Nexprint, any direct STL or 3MF link, or an upload, with guided colors, filament, copies and fit.
-- **Slice without surprises** with one bundled build (v2.5.0) of OrcaSlicer, full-size measurement first, and an exact recipe saved for every reprint.
-- **Track filament** with the bundled Spoolman: `/spool` lists, changes and creates spools, and runout asks which spool is next.
-- **Follow every print** with start, pause, error and completion posts, a timelapse, and the roast.
-- **Care for the printer** with guided firmware updates and calibration (`/print-firmware`, `/print-calibration`), each behind a confirmation.
-- **Use the local Web UI** for status, settings, spools, a sliced-layer view, and a yearly print recap.
-- **Talk to it by name.** "@Print Handy spool list" works like `/spool list`, and everyday typos still land on the right command.
-
-**With an optional model endpoint** (a local server, a hosted API, or [Cloudflare's free tier](docs/CLOUDFLARE.md)):
-
-- **Camera watchdog.** A vision check during the print flags spaghetti, a detached part or a stalled print, and posts the photo with **Pause** and **It's fine** buttons. A built-in local detector works with no AI at all. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). See [Camera watch](docs/DOCKER.md#camera-watch-visual_watch).
-- **Design a part in chat** with `/print-design`: describe it, check the preview, refine it, print it. See [AI design](docs/DESIGN.md).
-- **Chat in plain language** on Discord (opt-in). The model can only pick from Print Handy's own checked commands.
-
-Every AI feature fails soft: if the endpoint is down, printing carries on. The full command list is in the [project reference](docs/PROJECT-REFERENCE.md).
-
-**Home Assistant:** the [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer on your roster in Home Assistant, with live status and controls.
+The full command list is in the [project reference](docs/PROJECT-REFERENCE.md).
 
 ## Safety
 
