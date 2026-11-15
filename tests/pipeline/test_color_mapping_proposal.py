@@ -136,6 +136,43 @@ def test_remembered_mapping_round_trip_and_spool_set_guard(tmp_path):
     assert source_colors.remembered_color_mapping(manifest, swapped, path=store) is None
 
 
+def test_precomputed_groups_are_used_not_regrouped(tmp_path, monkeypatch):
+    """The ask path already grouped the source once for its questions; the
+    proposal and the remembered lookup take those groups instead of
+    regrouping per call. Each regroup is a full per-part pass, and the
+    intake ran it three times on the way to the first color question —
+    the step that pushed parts-512-four-color over the timing gate's
+    cumulative limit on main (CI run 43674027969)."""
+    manifest = source_colors.inventory(plaque(tmp_path))
+    groups = source_colors.color_groups(manifest)
+    store = tmp_path / 'mappings.json'
+    proposal = source_colors.propose_mapping(manifest, SPOOLS)
+    choices = {k: {'slot': g['slot']} for g in proposal['groups'] for k in g['keys']}
+    source_colors.remember_color_mapping(manifest, SPOOLS, choices, path=store)
+
+    def regrouped(*args, **kwargs):
+        raise AssertionError('color_groups recomputed from precomputed inputs')
+
+    monkeypatch.setattr(source_colors, 'color_groups', regrouped)
+    assert source_colors.propose_mapping(manifest, SPOOLS, groups=groups) == proposal
+    remembered = source_colors.remembered_color_mapping(
+        manifest, SPOOLS, path=store, groups=groups)
+    assert remembered is not None
+    assert remembered['choices'] == {k: v['slot'] for k, v in choices.items()}
+
+
+def test_color_groups_accepts_prebuilt_rows(tmp_path, monkeypatch):
+    manifest = source_colors.inventory(plaque(tmp_path))
+    rows = source_colors.grouped_prompts(manifest)
+    expected = source_colors.color_groups(manifest)
+
+    def regrouped(*args, **kwargs):
+        raise AssertionError('grouped_prompts recomputed from prebuilt rows')
+
+    monkeypatch.setattr(source_colors, 'grouped_prompts', regrouped)
+    assert source_colors.color_groups(manifest, rows=rows) == expected
+
+
 # ---------------------------------------------------------------- Discord collect flow
 
 def test_one_tap_accepts_the_proposed_mapping(tmp_path):

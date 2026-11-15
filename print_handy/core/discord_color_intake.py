@@ -214,9 +214,11 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
             if multi_tool:
                 refuse_over_capacity()
             remembered = remembered_color_mapping(manifest, selections,
-                                                  selected_plate_ids=selected_plates)
+                                                  selected_plate_ids=selected_plates,
+                                                  groups=groups)
             proposal = None if remembered else propose_mapping(
-                manifest, selections, selected_plate_ids=selected_plates)
+                manifest, selections, selected_plate_ids=selected_plates,
+                groups=groups)
             if remembered or (proposal and proposal['matched']):
                 if remembered:
                     offer = (f"Same colors as last time for this file? "
