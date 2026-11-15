@@ -71,7 +71,7 @@ def test_intake_progress_lines_carry_their_stage_quip(env, monkeypatch, speak):
     seed(monkeypatch, speak)
     monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: LARGE)
     texts, phases = record_progress(monkeypatch)
-    adapter, _result, _receipt = run_flow(env, [1, 0, 0])
+    adapter, _result, _receipt = run_flow(env, [2, 0, 0])
 
     def said(text, stage):
         if not speak:
@@ -90,7 +90,7 @@ def test_intake_progress_lines_carry_their_stage_quip(env, monkeypatch, speak):
 def test_progress_quip_keys_are_stable_per_intake_and_stage(env, monkeypatch):
     calls = seed(monkeypatch)
     monkeypatch.setattr(prepared_intake, 'large_model_notice', lambda path: LARGE)
-    run_flow(env, [1, 0, 0])
+    run_flow(env, [2, 0, 0])
     keys = {(stage, kwargs['event_key']) for stage, kwargs in calls}
     iid = next(key for stage, key in keys if stage == 'slice').rsplit(':', 1)[0]
     assert keys == {(stage, f'{iid}:{stage}') for stage, _key in keys}  # one key per stage, replay-stable

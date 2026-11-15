@@ -40,8 +40,10 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                             write_job, decisions_digest, build_slot_labels, build_tool_labels,
                             configured_slots, position_limit, _job_adapter, file_sha256,
                             FilamentWarningPending, record_filament_warning_acknowledgement)
-    from .source_colors import (inventory, prompts, canonical_prompts, grouped_prompts, validate_decisions,
-                                distinct_source_colours, prompt_source_colour)
+    from .source_colors import (inventory, prompts, canonical_prompts, validate_decisions,
+                                distinct_source_colours, prompt_source_colour, color_groups,
+                                propose_mapping, remembered_color_mapping, mapping_summary,
+                                remember_color_mapping)
     path = Path(job_path)
     timeout = settings.current()["discord"]["question_timeout_s"] if timeout is None else timeout
     job = json.loads(path.read_text())
@@ -134,16 +136,33 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                 selected_plates=pending.selected_plates, via='discord_color_choices')
             intake_color_choices(path, state, **kwargs)
 
-    async def ask_slots():
+    async def ask_slots_dict(groups=None, taken=None):
+        """Ask one question per color group (#1473): numbered siblings and
+        parts sharing an author color share one question; answers expand
+        back to every decision key in the group. ``taken`` seeds the
+        toolheads a partly accepted proposal already claimed (#1487 review)."""
+        taken = dict(taken or {})
+        picked = {}
+        for group in (groups if groups is not None
+                      else color_groups(manifest, selected_plate_ids=selected_plates)):
+            first = group['rows'][0]
+            note = (f" (author color: {' '.join(group['color_words']).title()})"
+                    if group['color_words'] else '')
+            question = (first['question'] if len(group['rows']) == 1
+                        else f"Choose the color/material for {group['label']}{note}")
+            row = {'key': first['key'], 'source_extruder': first.get('source_extruder'),
+                   'question': question}
+            slot = await ask_one(row, taken)
+            for decision_key in group['keys']:
+                picked[decision_key] = slot
+        return picked
+
+    async def ask_slots(groups=None):
         # Numbered siblings (Stencil 1/2/3) share one question; answers expand back to canonical order.
         taken = {}
         if schema != 'part_slots_v1':
             return [await ask_one(row, taken) for row in questions]
-        picked = {}
-        for row in grouped_prompts(manifest, selected_plate_ids=selected_plates):
-            slot = await ask_one(row, taken)
-            for decision_key in row['keys']:
-                picked[decision_key] = slot
+        picked = await ask_slots_dict(groups)
         return [picked[row['key']] for row in questions]
 
     if job.get('color_decisions'):
@@ -180,22 +199,84 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                     'decisions': decisions, 'sliced': False, 'uploaded': False, 'started': False}
         set_color_decisions(job, decisions)
         write_job(path.parent, job)
+        remember_color_mapping(manifest, selections, decisions.get('choices') or {})
         return {'status': 'COLOR_CHOICES_SAVED', 'job_json': str(path),
                 'source_sha256': source_hash, 'mode': 'per_part', 'slots': slots,
                 'decisions': decisions, 'sliced': False, 'uploaded': False, 'started': False}
     noun = 'stencils' if all('stencil' in str(p.get('name', '')).lower() for p in manifest['parts']) else 'parts'
     noun = 'stencils' if schema != 'part_slots_v1' else noun
-    mode_index = await ask(
-        f'How should the required {noun} be colored?',
-        [f'Preserve colors per {noun[:-1]}/source region', f'All {noun} same color'])
-    if mode_index == 1:
-        slots = [selections[await ask(f'Choose the one color for all {noun}', labels)]['slot']]
-        mode = 'single_color'
-    else:
-        if multi_tool:
-            refuse_over_capacity()
-        slots = await ask_slots()
-        mode = 'per_part'
+    slots = mode = None
+    if schema == 'part_slots_v1':
+        # #1473: offer a remembered or proposed mapping first. It is a
+        # default, never a decision: only the operator's tap applies it.
+        groups = color_groups(manifest, selected_plate_ids=selected_plates)
+        if len(groups) >= 2:
+            if multi_tool:
+                refuse_over_capacity()
+            remembered = remembered_color_mapping(manifest, selections,
+                                                  selected_plate_ids=selected_plates)
+            proposal = None if remembered else propose_mapping(
+                manifest, selections, selected_plate_ids=selected_plates)
+            if remembered or (proposal and proposal['matched']):
+                if remembered:
+                    offer = (f"Same colors as last time for this file? "
+                             f"{mapping_summary(remembered['groups'])}")
+                    options = ['Same colors as last time', 'Change colors',
+                               'One color for everything']
+                elif proposal['complete']:
+                    offer = (f"Colors for these parts: {mapping_summary(proposal['groups'])}. "
+                             'Use these colors?')
+                    options = ['Use these colors', 'Change colors', 'One color for everything']
+                else:
+                    offer = (f"I can match some of these colors to loaded spools: "
+                             f"{mapping_summary(proposal['groups'])}. "
+                             'Use those and pick the rest?')
+                    options = ['Use these and pick the rest', 'Pick every color',
+                               'One color for everything']
+                pick = await ask(offer, options)
+                if pick == 2:
+                    slots = [selections[await ask(f'Choose the one color for all {noun}', labels)]['slot']]
+                    mode = 'single_color'
+                elif remembered and pick == 0:
+                    if multi_tool:
+                        refuse_over_capacity()
+                    slots = [remembered['choices'][row['key']] for row in questions]
+                    mode = 'per_part'
+                elif proposal and proposal['complete'] and pick == 0:
+                    if multi_tool:
+                        refuse_over_capacity()
+                    by_key = {k: g['slot'] for g in proposal['groups'] for k in g['keys']}
+                    slots = [by_key[row['key']] for row in questions]
+                    mode = 'per_part'
+                else:
+                    if multi_tool:
+                        refuse_over_capacity()
+                    picked = {}
+                    pending = []
+                    claimed = {}
+                    for group in (proposal['groups'] if proposal else groups):
+                        if pick == 0 and group.get('slot') is not None:
+                            for k in group['keys']:
+                                picked[k] = group['slot']
+                            if multi_tool:
+                                claimed[group['slot']] = prompt_source_colour(manifest, group['rows'][0])
+                        else:
+                            pending.append(group)
+                    picked.update(await ask_slots_dict(pending, claimed))
+                    slots = [picked[row['key']] for row in questions]
+                    mode = 'per_part'
+    if mode is None:
+        mode_index = await ask(
+            f'How should the required {noun} be colored?',
+            [f'Preserve colors per {noun[:-1]}/source region', f'All {noun} same color'])
+        if mode_index == 1:
+            slots = [selections[await ask(f'Choose the one color for all {noun}', labels)]['slot']]
+            mode = 'single_color'
+        else:
+            if multi_tool:
+                refuse_over_capacity()
+            slots = await ask_slots()
+            mode = 'per_part'
     latest = json.loads(path.read_text())
     if file_sha256(latest['downloaded_file']) != source_hash:
         raise ValueError('source changed during Discord selection; no decisions saved')
@@ -205,6 +286,9 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
     saved = json.loads(path.read_text()).get('color_decisions')
     validate_decisions(manifest, saved, state, resolve_filament_selection,
                        selected_plate_ids=selected_plates)
+    if mode == 'per_part':
+        # #1473: remember the accepted mapping for the next post of this file.
+        remember_color_mapping(manifest, selections, saved.get('choices') or {})
     return {'status': 'COLOR_CHOICES_SAVED', 'job_json': str(path),
             'source_sha256': source_hash, 'mode': mode, 'slots': slots,
             'decisions': saved, 'sliced': False, 'uploaded': False, 'started': False}

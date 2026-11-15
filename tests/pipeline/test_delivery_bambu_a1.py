@@ -71,7 +71,7 @@ def test_a1_offers_no_print_and_packages_through_its_guard(env, monkeypatch, tmp
     _a1_job(monkeypatch)
     _a1_slice(monkeypatch, a1_gcode())
     # one color, slot 1, "Slice only", package, send, (menu ends)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1, 0])
     assert not any(print_next.START_LABEL in q["choices"] or any("print now" in c for c in q["choices"])
                    for q in adapter.questions)
     menus = _delivery_menu(adapter)
@@ -91,7 +91,7 @@ def test_a1_refuses_to_package_foreign_start_code(env, monkeypatch, tmp_path):  
     use_config(monkeypatch, a1_config(tmp_path))
     _a1_job(monkeypatch)
     _a1_slice(monkeypatch, ad5x_gcode())
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1, 1])
     assert not any("MEDIA:" in m and m.strip().endswith(".gcode.3mf") for m in adapter.sent)
     assert any("Klipper" in m or "non-Bambu commands" in m for m in adapter.sent)
     assert env.starts == [] and "bed_clear_approval" not in receipt

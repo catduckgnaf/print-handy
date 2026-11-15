@@ -9,9 +9,12 @@ logger = logging.getLogger(__name__)
 import contextlib
 import contextvars
 import copy
+import hashlib
 import json
 import math
+import os
 import re
+import time
 import posixpath
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -2456,6 +2459,300 @@ def grouped_prompts(manifest, selected_plate_ids=None):
                         'label': fam['label'], 'question': fam['question']})
     out += [{**row, 'keys': [row['key']]} for row in rows if not row['key'].startswith('part:')]
     return out
+
+
+# ---------------------------------------------------------------------------
+# Proposed and remembered color mappings (#1473)
+#
+# Asking one question per part when the part names and author colors already
+# name the answer wastes the operator's taps. These helpers are the shared,
+# adapter-neutral core: group the questions by source color, propose the
+# loaded spool each group matches, and remember an accepted mapping per
+# source hash + loaded-spool set. A proposal or a remembered mapping is a
+# default offered to the operator, never a decision: nothing here writes
+# color decisions, and the flows apply a mapping only after an explicit tap.
+
+
+def _color_hex(value, material=None):
+    """Hex swatch for a color value: itself when it is a hex code, else the
+    named-color table's swatch for the name it carries."""
+    from . import filament_color
+    parsed = filament_color.parse_hex(value)
+    if parsed:
+        return parsed[0]
+    guess = filament_color.derive(value, material)
+    return guess.hex if guess else None
+
+
+def _color_words(value, material=None):
+    """The color words a value names: 'Bronze' -> ('bronze',); a hex code ->
+    its plain name ('black',). Empty when nothing can be read."""
+    from . import filament_color
+    parsed = filament_color.parse_hex(value)
+    if parsed:
+        try:
+            from . import part_translator
+            return (part_translator.named_color(parsed[0]).casefold(),)
+        except Exception:
+            return ()
+    guess = filament_color.derive(value, material)
+    if guess:
+        return tuple(word.casefold() for word in guess.words)
+    text = ' '.join(str(value or '').casefold().split())
+    return (text,) if text else ()
+
+
+def _materials_compatible(author_material, spool_material):
+    """Whether a loaded spool's material can stand in for the author's.
+
+    'PLA+' is PLA; an unknown side never blocks a match. A different known
+    material (PETG for PLA) is a material change, not a color match, so it
+    is never proposed silently."""
+    def norm(value):
+        return re.sub(r'\s+', '', str(value or '').casefold()).rstrip('+')
+    author, spool = norm(author_material), norm(spool_material)
+    return not author or not spool or author == spool
+
+
+def _part_display_name(part):
+    """A part's name for a mapping summary: leading index and the color word
+    it ends with dropped, because the color is said separately.
+
+    '01_PLAQUE_BLACK' -> 'Plaque'; '02_LETTERS_AND_TRIM_BRONZE' -> 'Letters and trim'."""
+    base = short_part_name(part)
+    words = base.split()
+    while words and (words[0].isdigit() or re.fullmatch(r'\d+[.)]', words[0])):
+        words.pop(0)
+    colors = set()
+    from . import filament_color
+    guess = filament_color.derive(part.get('name'))
+    if guess:
+        colors = {word.casefold() for word in guess.words}
+    while words and words[-1].casefold() in colors:
+        words.pop()
+    name = ' '.join(words).strip(' -_') or base
+    if name == name.upper():
+        name = ' '.join(word.casefold() if word.casefold() in ('and', 'the', 'of', 'for')
+                        else word for word in name.title().split())
+    return name
+
+
+def color_groups(manifest, selected_plate_ids=None):
+    """The color questions grouped into one decision per source color.
+
+    Built on grouped_prompts (numbered families already collapsed), then
+    merged by the source color identity (color + material) each row prints
+    with, so four black parts are one group however they are named. Rows
+    whose source color cannot be read stay their own group. Each group:
+    {'keys', 'rows', 'color', 'material', 'color_words', 'name_words',
+    'part_names', 'label'} — 'keys' are the decision keys the group answers,
+    'name_words' the color words the part names themselves carry."""
+    rows = grouped_prompts(manifest, selected_plate_ids=selected_plate_ids)
+    parts = {p['key']: p for p in manifest.get('parts') or []}
+    groups, order = {}, []
+    for row in rows:
+        color, material = prompt_source_colour(manifest, row)
+        words = _color_words(color, material)
+        identity = (words, ' '.join(str(material or '').casefold().split())) \
+            if words and words != ('unknown color',) else None
+        gkey = identity or ('\0row', row['key'])
+        group = groups.get(gkey)
+        if group is None:
+            group = groups[gkey] = {'keys': [], 'rows': [], 'color': color, 'material': material,
+                                    'color_words': words, 'name_words': [], 'part_names': []}
+            order.append(gkey)
+        group['keys'].extend(row['keys'])
+        group['rows'].append(row)
+        for key in row['keys']:
+            if not key.startswith('part:'):
+                continue
+            part = parts.get(key[5:]) or {}
+            name = _part_display_name(part)
+            if name and name not in group['part_names']:
+                group['part_names'].append(name)
+            from . import filament_color
+            guess = filament_color.derive(part.get('name'))
+            for word in (guess.words if guess else ()):
+                if word.casefold() not in group['name_words']:
+                    group['name_words'].append(word.casefold())
+    out = []
+    for gkey in order:
+        group = groups[gkey]
+        names = group['part_names']
+        if len(names) > 3:
+            label = ', '.join(names[:3]) + f' and {len(names) - 3} more'
+        elif names:
+            label = ' and '.join(names) if len(names) <= 2 else ', '.join(names[:-1]) + f' and {names[-1]}'
+        else:
+            label = ' '.join(group['color_words']).title() + ' regions'
+        out.append({**group, 'label': label})
+    return out
+
+
+def _spool_label(selection):
+    """'Black PLA+' for one loaded spool selection."""
+    color = str(selection.get('color') or '').strip()
+    from . import filament_color
+    parsed = filament_color.parse_hex(color)
+    if parsed:
+        try:
+            from . import part_translator
+            color = part_translator.named_color(parsed[0]).title()
+        except Exception:
+            color = parsed[0]
+    else:
+        color = ' '.join(color.split()).title()
+    material = str(selection.get('material') or '').strip()
+    if material and not color.casefold().endswith(material.casefold()):
+        return f'{color} {material}'.strip()
+    return color
+
+
+def propose_mapping(manifest, selections, selected_plate_ids=None):
+    """Propose a loaded spool for each color group, or None for a group.
+
+    A spool matches a group when its color is the group's author color
+    (by name or by swatch) or a color the group's part names carry, and its
+    material is compatible with the author's. A tie between spools is not
+    a proposal: guessing between two identical spools would hide a real
+    choice. One slot may serve several groups only when they share a color;
+    a slot claimed by two different colors leaves the later group unmatched.
+    Returns {'groups': [{...group, 'slot', 'spool_label'}], 'complete': bool,
+    'matched': int}. Pure: applies nothing."""
+    from . import filament_color
+    groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
+    claimed = {}
+    out, matched = [], 0
+    for group in groups:
+        group_hex = _color_hex(group['color'], group['material'])
+        scored = []
+        for selection in selections or []:
+            spool_color = selection.get('color')
+            spool_words = _color_words(spool_color, selection.get('material'))
+            score = 0
+            if group['color_words'] and spool_words == group['color_words']:
+                score += 4
+            elif group_hex and filament_color.same_color(
+                    group_hex, _color_hex(spool_color, selection.get('material'))):
+                score += 4
+            if any(word in spool_words for word in group['name_words']):
+                score += 3
+            if score and not _materials_compatible(group['material'], selection.get('material')):
+                score = 0  # a different known material is a change, not a match
+            if score:
+                scored.append((score, selection))
+        pick = None
+        if scored:
+            best = max(score for score, _ in scored)
+            winners = [selection for score, selection in scored if score == best]
+            if len(winners) == 1:
+                pick = winners[0]
+        slot = None
+        if pick is not None:
+            identity = (group['color_words'], group_hex)
+            if claimed.get(int(pick['slot']), identity) == identity:
+                claimed[int(pick['slot'])] = identity
+                slot = int(pick['slot'])
+        if slot is not None:
+            matched += 1
+        out.append({**group, 'slot': slot,
+                    'spool_label': _spool_label(pick) if slot is not None else None})
+    return {'groups': out, 'complete': bool(out) and matched == len(out), 'matched': matched}
+
+
+def mapping_summary(groups):
+    """'Plaque: Black PLA+, Letters and trim: Bronze PLA+' for proposed groups."""
+    return ', '.join(f"{group['label']}: {group['spool_label']}"
+                     for group in groups if group.get('slot') is not None)
+
+
+def spool_set_fingerprint(selections):
+    """A stable hash of the loaded-spool set: slots, colors, materials and
+    spool IDs. Any change to what is loaded changes the fingerprint, so a
+    remembered mapping is never silently reused for a different set."""
+    rows = sorted((int(s['slot']), ' '.join(str(s.get('color') or '').casefold().split()),
+                   ' '.join(str(s.get('material') or '').casefold().split()),
+                   s.get('spoolman_id')) for s in selections or [])
+    return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+
+
+_MAPPING_STORE = 'color_mappings.json'
+_MAPPING_KEEP = 200
+
+
+def _mapping_store_path(path=None):
+    if path is not None:
+        return Path(path)
+    from .. import settings
+    return settings.state_dir() / _MAPPING_STORE
+
+
+def _load_mapping_store(path=None):
+    try:
+        data = json.loads(_mapping_store_path(path).read_text())
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def remember_color_mapping(manifest, selections, choices, path=None):
+    """Remember an accepted per-part mapping for this source + spool set.
+
+    ``choices`` maps decision keys to resolved selections (or slot ints).
+    Called only after the operator accepted the mapping; best-effort — a
+    store failure must never fail the intake that just succeeded."""
+    try:
+        slots = {}
+        for key, value in (choices or {}).items():
+            slot = value.get('slot') if isinstance(value, dict) else value
+            if isinstance(slot, int) and not isinstance(slot, bool):
+                slots[str(key)] = slot
+        if not slots:
+            return
+        store_path = _mapping_store_path(path)
+        store = _load_mapping_store(store_path)
+        fingerprint = spool_set_fingerprint(selections)
+        store[f"{manifest['source_sha256']}:{fingerprint}"] = {
+            'source_sha256': manifest['source_sha256'], 'fingerprint': fingerprint,
+            'choices': slots, 'saved_at': time.time()}
+        if len(store) > _MAPPING_KEEP:
+            newest = sorted(store.items(), key=lambda item: (item[1] or {}).get('saved_at') or 0)
+            store = dict(newest[-_MAPPING_KEEP:])
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = store_path.with_suffix(store_path.suffix + '.tmp')
+        tmp.write_text(json.dumps(store, indent=2) + '\n')
+        os.replace(tmp, store_path)
+    except Exception:
+        logger.debug('could not remember the accepted color mapping', exc_info=True)
+
+
+def remembered_color_mapping(manifest, selections, selected_plate_ids=None, path=None):
+    """The mapping accepted last time for this exact source + spool set.
+
+    Returns {'choices': {decision_key: slot}, 'groups': [...]} or None.
+    None when nothing was remembered, when the spool set changed (the
+    fingerprint is part of the key), when a remembered slot is no longer
+    loaded, or when the remembered choices do not cover every group the
+    source asks about now — a stale mapping is never partly reused."""
+    fingerprint = spool_set_fingerprint(selections)
+    entry = _load_mapping_store(path).get(f"{manifest['source_sha256']}:{fingerprint}")
+    if not isinstance(entry, dict) or entry.get('source_sha256') != manifest['source_sha256']:
+        return None
+    stored = entry.get('choices') or {}
+    loaded = {int(s['slot']): s for s in selections or []}
+    groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
+    wanted = [key for group in groups for key in group['keys']]
+    if not wanted or any(key not in stored for key in wanted):
+        return None
+    if any(int(stored[key]) not in loaded for key in wanted):
+        return None
+    filled = []
+    for group in groups:
+        slot = int(stored[group['keys'][0]])
+        if any(int(stored[key]) != slot for key in group['keys']):
+            return None  # one group, one decision: a split record is not reused
+        filled.append({**group, 'slot': slot, 'spool_label': _spool_label(loaded[slot])})
+    return {'choices': {key: int(stored[key]) for key in wanted}, 'groups': filled}
 
 
 def validate_decisions(manifest, decisions, state, resolve, selected_plate_ids=None):

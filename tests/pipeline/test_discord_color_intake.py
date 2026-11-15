@@ -31,13 +31,17 @@ def test_canonical_part_rows_save_distinct_slot_mapping(tmp_path):
         jp = tmp_path / 'JOB.json'
         jp.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
                                   'color_manifest': source_colors.inventory(p)}))
-        adapter = Adapter([0, 1, 0, 0])
+        # #1473: both author colors match loaded spools (white -> slot 1,
+        # black -> slot 3), so the proposed mapping is offered first and one
+        # tap accepts it; the saved mapping is still distinct per part.
+        adapter = Adapter([0])
         result = await collect(jp, state(), adapter, 'offline', 'colors-offline', timeout=1)
         saved = json.loads(jp.read_text())['color_decisions']
         keys = list(saved['choices'])
-        assert [saved['choices'][key]['slot'] for key in keys] == [3, 1]
+        assert [saved['choices'][key]['slot'] for key in keys] == [1, 3]
         assert result['decisions'] == saved
-        assert len(adapter.questions) == 3
+        assert len(adapter.questions) == 1
+        assert 'Use these colors' in adapter.questions[0]['choices']
         assert all('source filament' not in q['question'] for q in adapter.questions)
     asyncio.run(run())
 
@@ -224,7 +228,7 @@ def test_discord_flow_refuses_a_source_changed_during_selection(tmp_path):
 
     class Changing(Adapter):
         async def send_clarify(self, **kwargs):
-            if len(self.questions) == 1:
+            if len(self.questions) == 0:
                 with open(p, 'ab') as handle:
                     handle.write(b'\0')
             return await super().send_clarify(**kwargs)

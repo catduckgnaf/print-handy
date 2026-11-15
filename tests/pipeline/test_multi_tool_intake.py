@@ -149,9 +149,9 @@ def test_collect_asks_per_toolhead_and_never_reoffers_a_taken_toolhead(creator, 
     jp = write_job(tmp_path, src, creator)
     manifest = source_colors.inventory(src)
     (jp).write_text(json.dumps({**json.loads(jp.read_text()), 'color_manifest': manifest}))
-    # Mode: preserve per part. Shell -> the black toolhead (2), Eyes -> the red
-    # toolhead (3).
-    adapter = PickAdapter(['Preserve colors', 'Black', 'Red'])
+    # #1473 offers the matched mapping first; Change asks per color group.
+    # Shell -> the black toolhead (2), Eyes -> the red toolhead (3).
+    adapter = PickAdapter(['Change colors', 'Black', 'Red'])
     result = asyncio.run(collect(jp, tool_state(), adapter, 'offline', 'creator-colors', timeout=1))
     assert result['status'] == 'COLOR_CHOICES_SAVED'
     colour_questions = adapter.questions[1:]
@@ -178,7 +178,7 @@ def test_collect_refuses_five_colours(creator, tmp_path):
     adapter = PickAdapter(['Preserve colors'])
     with pytest.raises(MultiColorUnsupported, match='toolheads'):
         asyncio.run(collect(jp, tool_state(), adapter, 'offline', 'creator-five', timeout=1))
-    assert len(adapter.questions) == 1  # only the mode question was asked
+    assert len(adapter.questions) == 0  # refused before any question, proposal included (#1473)
 
 
 def test_duplicate_spool_colours_are_labelled_by_toolhead(creator, tmp_path):
@@ -190,7 +190,7 @@ def test_duplicate_spool_colours_are_labelled_by_toolhead(creator, tmp_path):
     jp = write_job(tmp_path, src, creator)
     manifest = source_colors.inventory(src)
     jp.write_text(json.dumps({**json.loads(jp.read_text()), 'color_manifest': manifest}))
-    adapter = PickAdapter(['Preserve colors', '(Toolhead 2)', '(Toolhead 3)'])
+    adapter = PickAdapter(['Pick every color', '(Toolhead 2)', '(Toolhead 3)'])
     result = asyncio.run(collect(jp, state, adapter, 'offline', 'creator-dupes', timeout=1))
     assert result['status'] == 'COLOR_CHOICES_SAVED'
     offered = [c for q in adapter.questions for c in q['choices']]
@@ -314,9 +314,9 @@ def run_flow(flow_env, src_bytes, wants):
 
 def test_prepare_link_two_colours_completes_with_toolhead_wording(creator, flow_env, tmp_path):
     src = source(tmp_path)
-    # Choose per part; Shell -> black toolhead, Eyes -> red toolhead; then
-    # slice and print.
-    wants = ['Choose colors', 'Black', 'Red', 'Slice and print']
+    # #1473 offers the matched mapping first; Change asks per color group.
+    # Shell -> black toolhead, Eyes -> red toolhead; then slice and print.
+    wants = ['Change colors', 'Black', 'Red', 'Slice and print']
     adapter, result, receipt = run_flow(flow_env, src.read_bytes(), wants)
     assert receipt['status'] == 'STARTED', receipt
     assert flow_env.sliced
@@ -333,7 +333,9 @@ def test_prepare_link_two_colours_completes_with_toolhead_wording(creator, flow_
 def test_prepare_link_four_colours_completes(creator, flow_env):
     src = CASES / 'four-colors-one-plate' / 'model.3mf'
     # Four parts, four source colours -> toolheads 1..4 in question order.
-    wants = ['Choose colors', 'White', 'Black', 'Red', 'Blue', 'Slice and print']
+    # Two author colors match no loaded spool, so the offer is partial and
+    # the per-color path is 'Pick every color' (#1473).
+    wants = ['Pick every color', 'White', 'Black', 'Red', 'Blue', 'Slice and print']
     adapter, result, receipt = run_flow(flow_env, src.read_bytes(), wants)
     assert receipt['status'] == 'STARTED', receipt
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -348,7 +350,7 @@ def test_prepare_link_five_colours_refused_after_mode_pick(creator, flow_env):
     assert receipt['status'] == 'FAILED'
     assert 'toolheads' in receipt['error'] and '5 colors' in receipt['error']
     assert not receipt['sliced'] and not flow_env.sliced
-    assert len(adapter.questions) == 1  # only the mode question was asked
+    assert len(adapter.questions) == 0  # refused before any question, proposal included (#1473)
 
 
 # ---------------------------------------------------------------- slicing through the four-extruder templates

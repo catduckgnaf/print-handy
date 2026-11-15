@@ -153,8 +153,8 @@ def run_flow(env, picks, mid='m1'):
 
 def test_unflagged_model_no_second_slice(env):
     """An unflagged model gets no second slice and standard choice buttons."""
-    # picks: one color (1), slot 1 (0), Slice and print now (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), Slice and print now (0)
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     last = adapter.questions[-1]['choices']
     assert last[0] == 'Slice and print now (bed is clear)'
     assert last[1] == 'Slice only'
@@ -199,8 +199,8 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
 
     monkeypatch.setattr(model_job, 'slice_job', slice_with_warning)
 
-    # picks: one color (1), slot 1 (0), pick "Slice and print with supports (bed is clear)" (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), pick "Slice and print with supports (bed is clear)" (0)
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     last_q = adapter.questions[-1]
     choices = last_q['choices']
     assert choices[0] == 'Slice and print with supports (bed is clear)'
@@ -268,8 +268,8 @@ def test_slow_first_slice_warning_still_offers_supports_before_bed_clear(env, mo
     (CI: test_discord_flow[witch-ghost-cults3d]).
     """
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, first_delay=2.0))
-    # picks: one color (1), slot 1 (0), "Slice and print with supports (bed is clear)" (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print with supports (bed is clear)" (0)
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     last_q = adapter.questions[-1]
     assert last_q['choices'][0] == 'Slice and print with supports (bed is clear)'
     assert 'the slicer found 1 floating region that needs support' in last_q['question']
@@ -286,8 +286,8 @@ def test_slow_speculative_slice_does_not_break_slice_approval(env, monkeypatch):
     approval guard refused the handoff (CI: test_discord_flow[stl-open-thin-wall]).
     """
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, supports_delay=1.5))
-    # picks: one color (1), slot 1 (0), "Slice and print without supports (bed is clear)" (1)
-    adapter, result, receipt = run_flow(env, [1, 0, 1])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice and print without supports (bed is clear)" (1)
+    adapter, result, receipt = run_flow(env, [2, 0, 1])
     assert receipt['status'] == 'STARTED'
     assert 'plate_1_nosup.gcode' in receipt['bed_clear_approval']['gcode']
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -301,11 +301,11 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), pick choice 1 (Slice and print with
+    # picks: one color (2 on the #1473 offer), slot 1 (0), pick choice 1 (Slice and print with
     # supports; the only evidence is a low clearance supports cannot reach,
     # so supports are "not recommended" and come second), then Cancel (1)
     # at the post-slice support override question
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 1])
     # The Ready question is not the last question in the #922 flow (the
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
@@ -353,9 +353,9 @@ def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # one color (1), slot 1 (0), with supports (1: not recommended, so
+    # one color (2 on the #1473 offer), slot 1 (0), with supports (1: not recommended, so
     # second), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 0])
     assert receipt['status'] == 'STARTED'
     override = receipt['support_override']
     assert override['via'] == 'print_anyway'
@@ -383,8 +383,8 @@ def test_coverage_failure_without_clearance_finding_asks_instead_of_dead_ending(
     button) used to say "choose Print anyway" and return with no buttons."""
     monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
-    # one color (1), slot 1 (0), with supports (0), then the override question
-    adapter, result, receipt = run_flow(env, [1, 0, 0, pick])
+    # one color (2 on the #1473 offer), slot 1 (0), with supports (0), then the override question
+    adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'do not cover every flagged region' in q['question']
@@ -408,7 +408,7 @@ def test_flagged_v12_print_anyway_records_explicit_ack_and_starts(env, monkeypat
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
     # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), print anyway(5)
-    adapter, result, receipt = run_flow(env, [1, 0, 5])
+    adapter, result, receipt = run_flow(env, [2, 0, 5])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     ack = job.get('clearance_acknowledgement') or {}
@@ -434,7 +434,7 @@ def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypa
     # slice only(6), scale(7), cancel(8). Pick reorient, then cancel the
     # repeated question, which no longer offers Reorient: pressing it again
     # would record the same turn and change nothing (cancel is now 7).
-    adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
+    adapter, result, receipt = run_flow(env, [2, 0, 4, 7])
     assert any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
              if 'Slice and print with supports, not recommended (bed is clear)' in (q['choices'] or [])]
@@ -473,7 +473,7 @@ def test_reorient_on_a_model_that_already_lies_flat_records_nothing(env, monkeyp
     # nosup(0), sup(1), extend(2), sink(3), reorient(4), ... Pick reorient,
     # then cancel the repeated question, which has no Reorient
     # (nosup, sup, extend, sink, print anyway, slice only, scale, cancel=7).
-    adapter, result, receipt = run_flow(env, [1, 0, 4, 7])
+    adapter, result, receipt = run_flow(env, [2, 0, 4, 7])
     assert any('already lies flat' in m for m in adapter.sent)
     assert not any('Reoriented' in m for m in adapter.sent)
     ready = [q['choices'] for q in adapter.questions
@@ -489,7 +489,7 @@ def test_post_slice_support_prompt_cancel_keeps_the_slice(env, monkeypatch):
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     # Ready menu (flagged, no clearance fixes): sup(0), nosup(1), slice only(2);
     # then the post-slice support prompt: re-slice(0), print without(1), cancel(2).
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert receipt['gcodes'], 'the receipt must still reference the slice'
     for g in receipt['gcodes']:
@@ -500,7 +500,7 @@ def test_post_slice_print_without_supports_records_cantilever_override(env, monk
     """Print without supports after an Orca warning records the explicit override (#922 gap 3)."""
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     # Ready: slice only(2); support prompt: print without(1); start button: start(0).
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 1, 0])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     rec = job.get('unsupported_cantilever_override') or {}
@@ -548,7 +548,7 @@ def test_extend_underside_fix_action_repairs_geometry(env, monkeypatch):
     # gone, but the modeled-support findings remain, so the menu is the
     # flagged one again and the operator waives those explicitly with
     # 'Print anyway' (index 2 there: sup, nosup, print anyway, ...).
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
     assert any('Extended underside to touch build plate' in m for m in adapter.sent)
     assert receipt['status'] == 'STARTED'
 
@@ -596,7 +596,7 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     # findings remain, so the repeated menu is answered with the explicit
     # Print anyway waiver (index 2 there) -- "with supports" no longer
     # waives findings and its slice owes coverage verification (#922).
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 2])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
@@ -613,8 +613,8 @@ def test_print_anyway_on_a_slice_only_install_slices_and_starts_nothing(env, mon
     adapter = None
 
     def picks():
-        # one color (1), slot 1 (0), then the waiver by its label
-        yield 1
+        # one color (2 on the #1473 offer), slot 1 (0), then the waiver by its label
+        yield 2
         yield 0
         while True:
             q = adapter.questions[-1] if adapter and adapter.questions else None
@@ -644,8 +644,8 @@ def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch)
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), "Print anyway, accept the risk (bed is clear)" (5)
-    adapter, result, receipt = run_flow(env, [1, 0, 5])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Print anyway, accept the risk (bed is clear)" (5)
+    adapter, result, receipt = run_flow(env, [2, 0, 5])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     ack = job['clearance_acknowledgement']
@@ -662,8 +662,8 @@ def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
     monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
     monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
 
-    # picks: one color (1), slot 1 (0), "Slice with supports" (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), "Slice with supports" (0)
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert adapter.questions[-1]['choices'][0] == 'Slice with supports'
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert 'bed_clear_approval' not in receipt
