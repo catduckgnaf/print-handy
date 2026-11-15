@@ -13,7 +13,7 @@
 - **No AI required.** Slicing, spools, printing and the roast are plain local code. AI features are optional add-ons.
 - **Nothing prints until you tap approve.** Every job waits for a human.
 
-Current release: **2.3.3**
+Current release: **2.3.4**
 
 [Get started](#get-started) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases) · [Contribute](CONTRIBUTING.md)
 
@@ -51,8 +51,8 @@ You need a 64-bit Linux machine (Debian, Ubuntu, or a Raspberry Pi 4 or 5 on 64-
 
 ```bash
 mkdir print-handy && cd print-handy
-curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.3/docker-compose.yml
-curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.3/.env.example -o .env
+curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/docker-compose.yml
+curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/.env.example -o .env
 ```
 
 Edit `.env` and fill in three things:
