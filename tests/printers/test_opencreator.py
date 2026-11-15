@@ -46,7 +46,11 @@ def _ready_status():
                                        "build_plate_detected": True,
                                        "dock_positions": [[0, 0]] * 4,
                                        "tool_measurements": [[0, 0, 0]] * 4},
-              "AFC": {"maps": ["T0", "T1", "T2", "T3"], "error_state": False}}
+              # AFC lists its own lanes; a standalone toolhead lane is named
+              # after its AFC_extruder section (live capture and fork source).
+              "AFC": {"maps": ["T0", "T1", "T2", "T3"], "error_state": False,
+                      "units": ["Toolchanger Tools"], "multiple_tool_mapping": False,
+                      "lanes": [f"extruder{tool}" for tool in range(4)]}}
     for tool in range(4):
         name = "extruder" if tool == 0 else f"extruder{tool}"
         status[name] = {"temperature": 24.0}
@@ -55,7 +59,8 @@ def _ready_status():
         # as "AFC_lane extruderN" carries the map (current_map is empty
         # until the first tool change).
         status[f"AFC_extruder extruder{tool}"] = {"mount_sensor_error": None, "on_shuttle": tool == 0}
-        status[f"AFC_lane extruder{tool}"] = {"map": [f"T{tool}"], "current_map": ""}
+        status[f"AFC_lane extruder{tool}"] = {"map": [f"T{tool}"], "current_map": "",
+                                              "extruder": f"extruder{tool}"}
     return status
 
 
@@ -108,9 +113,12 @@ def test_moonraker_objects_are_the_standard_multi_tool_set(key):
         "extruder", "extruder1", "extruder2", "extruder3",
         "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
         "AFC_extruder extruder0", "AFC_extruder extruder1",
-        "AFC_extruder extruder2", "AFC_extruder extruder3",
-        "AFC_lane extruder0", "AFC_lane extruder1",
-        "AFC_lane extruder2", "AFC_lane extruder3"]
+        "AFC_extruder extruder2", "AFC_extruder extruder3"]
+    # Lane objects are named by the printer, so they are asked for only
+    # after AFC has listed them (#1490): never assumed from a tool number.
+    assert adapter.moonraker_followup_objects(_ready_status()) == [
+        f"{prefix} extruder{tool}" for tool in range(4) for prefix in ("AFC_lane", "AFC_stepper")]
+    assert adapter.moonraker_followup_objects({}) == []
 
 
 @pytest.mark.parametrize("key", KEYS)

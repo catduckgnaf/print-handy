@@ -7,12 +7,12 @@ from print_handy.printers.flashforge_opencreator.afc import (
 
 def test_lane_data_t_keyed_records_use_matching_extruder_index():
     records = parse_tool_records({"T0": {"extruder_index": 0, "material": "PLA"}})
-    assert records == {0: {"extruder_index": 0, "material": "PLA", "tool": 0}}
+    assert records == {0: {"extruder_index": 0, "material": "PLA", "tool": 0, "head": 0}}
 
 
 def test_lane_data_lane_keyed_records_resolve_extruder_index():
     records = parse_tool_records({"c5_tool1": {"material": "PETG"}})
-    assert records == {1: {"material": "PETG", "tool": 1}}
+    assert records == {1: {"material": "PETG", "tool": 1, "head": 1}}
 
 
 def test_identity_tool_map_is_accepted():

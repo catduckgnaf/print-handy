@@ -231,37 +231,44 @@ def test_readiness_afc_state_fails_closed():
                for p in adapter.readiness_problems({}, no_extruder))
 
 
-def test_readiness_afc_identity_map_passes_and_a_swap_refuses():
+def test_readiness_follows_the_afc_map_and_refuses_one_it_cannot_resolve():
+    # Decided on #1490 (2026-11-15): the printer's map is followed, so a
+    # swap is no longer refused. What still refuses is a map that does
+    # not give every tool exactly one lane and one toolhead.
     adapter = adapter_for(PRO)
     swapped = _ready_status()
-    swapped["AFC_lane extruder0"] = {"map": ["T1"], "current_map": ""}
-    swapped["AFC_lane extruder1"] = {"map": ["T0"], "current_map": ""}
-    problems = adapter.readiness_problems({}, swapped)
-    assert any("not the identity map" in p and "extruder0 is mapped to T1" in p
-               and "extruder1 is mapped to T0" in p for p in problems), problems
+    swapped["AFC_lane extruder0"]["map"] = ["T1"]
+    swapped["AFC_lane extruder1"]["map"] = ["T0"]
+    assert adapter.readiness_problems({}, swapped) == []
+    assert adapter.tool_head_map(swapped) == {0: 1, 1: 0, 2: 2, 3: 3}
     missing = _ready_status()
     del missing["AFC_lane extruder2"]
-    assert any("AFC_lane extruder2 is not reporting" in p
+    assert any("AFC lane extruder2 is not reporting" in p
                for p in adapter.readiness_problems({}, missing))
     # The fork's lane status is empty until its connect step finishes.
     not_connected = _ready_status()
     not_connected["AFC_lane extruder2"] = {}
-    assert any("AFC_lane extruder2 does not report its lane map" in p
+    assert any("AFC lane extruder2 is not reporting" in p
                for p in adapter.readiness_problems({}, not_connected))
+    no_map = _ready_status()
+    del no_map["AFC_lane extruder2"]["map"]
+    assert any("AFC lane extruder2 does not report its tool map" in p
+               for p in adapter.readiness_problems({}, no_map))
     # The map is never read from the AFC_extruder object: the fork's
     # status there carries none, so a map only there must not pass.
     wrong_home = _ready_status()
     del wrong_home["AFC_lane extruder3"]
     wrong_home["AFC_extruder extruder3"]["map"] = "T3"
-    assert any("AFC_lane extruder3 is not reporting" in p
+    assert any("AFC lane extruder3 is not reporting" in p
                for p in adapter.readiness_problems({}, wrong_home))
     string_form = _ready_status()
-    string_form["AFC_lane extruder3"] = {"map": "T3"}
+    string_form["AFC_lane extruder3"]["map"] = "T3"
     assert adapter.readiness_problems({}, string_form) == []
     double = _ready_status()
-    double["AFC_lane extruder3"] = {"map": ["T3", "T2"]}
-    assert any("extruder3 is mapped to T3, T2" in p
+    double["AFC_lane extruder3"]["map"] = ["T3", "T2"]
+    assert any("T2 is mapped to more than one AFC lane (extruder2, extruder3)" in p
                for p in adapter.readiness_problems({}, double))
+    assert adapter.tool_head_map(double) is None
 
 
 def test_pro_chamber_target_above_the_ceiling_is_refused():
