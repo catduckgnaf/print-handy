@@ -333,7 +333,9 @@ def reached_printer(row, observed_file=None, started_files=(), baseline=()):
             number = _job_number(entry[0]) if len(entry) >= 3 and entry[0] else None
             if newest is not None and number is not None and number > newest:
                 return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("could not read the printer job history while reconciling a lease "
+                       "(%s: %s); the lease stays uncertain", type(exc).__name__, exc)
         return False  # unreadable history settles nothing; the lease stays uncertain
     return False
 
@@ -358,7 +360,10 @@ def _capture_baseline(started_files):
     try:
         history = started_files() if callable(started_files) else started_files
         return sorted({history_key(entry) for entry in history or () if entry})
-    except Exception:
+    except Exception as exc:
+        logger.warning("could not capture the job history baseline for a launch lease "
+                       "(%s: %s); falling back to the clock-slack rule alone",
+                       type(exc).__name__, exc)
         return []
 
 
@@ -609,7 +614,12 @@ def printer_clock_skew(moonraker_url, timeout=6):
                                  method="GET", timeout=timeout, moonraker=True) as resp:
             stamp = resp.headers.get("Date")
         return time.time() - parsedate_to_datetime(stamp).timestamp() if stamp else None
-    except Exception:
+    except (OSError, OverflowError, TypeError, ValueError) as exc:
+        # Transport and Date-header parse failures only (#1467): an unreadable
+        # clock is unknown, never zero. A programming error in the try body is
+        # not a transport failure and still raises.
+        logger.warning("could not read the printer clock from %s (%s: %s); "
+                       "treating the clock skew as unknown", moonraker_url, type(exc).__name__, exc)
         return None
 
 

@@ -225,7 +225,14 @@ def screen_z_offset(st):
     if not _native(): return None
     try:
         d=_mr(st,"/server/files/config/Adventurer5M.json",timeout=8)
-    except Exception: return None
+    except (KeyError, OSError, TypeError, ValueError) as exc:
+        # Transport and payload failures only (#1467): no Moonraker URL in the
+        # state, an unreachable printer, or an unparsable answer mean the
+        # screen offset is unreadable. A programming error in the request path
+        # is not a transport failure and still raises.
+        logger.warning("could not read the native screen offset (%s: %s); "
+                       "treating it as unreadable", type(exc).__name__, exc)
+        return None
     def numeric(v):
         return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(float(v))
     nested=((d or {}).get("leftExtruderOffset") or {}).get("zProbeOffset") if isinstance(d,dict) else None

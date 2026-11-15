@@ -962,7 +962,13 @@ def read_purge_mode(st):
         return purge_mode((status.get("save_variables") or {}).get("variables"))
     except moonraker.MoonrakerAuthError:
         raise
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        # Transport and payload-shape failures only (#1467): this feeds the
+        # towerless launch gate, which treats None as "could not confirm", so
+        # the cause is logged instead of swallowed. A programming error in the
+        # try body is not a transport failure and still raises.
+        logger.warning("could not read the live purge mode from %s (%s: %s); "
+                       "treating the purge mode as unknown", url, type(exc).__name__, exc)
         return None
 
 

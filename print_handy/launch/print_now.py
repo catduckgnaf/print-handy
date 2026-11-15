@@ -1399,6 +1399,7 @@ def _blocking_start_timeout():
     try:
         default = float((_mr.__defaults__ or (None, 0))[-1])
     except Exception:
+        logger.debug("could not read the transport's default timeout", exc_info=True)
         default = 0
     return min(BLOCKING_START_POST_TIMEOUT_S, default) if default > 0 else BLOCKING_START_POST_TIMEOUT_S
 

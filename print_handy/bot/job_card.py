@@ -394,6 +394,7 @@ class JobCardSession:
             if prompts.is_open(cid):
                 return
         except Exception:
+            logger.debug("job card could not check prompt %s; leaving it open", cid, exc_info=True)
             return
         short = _first_line(self.card.question)
         if short:
