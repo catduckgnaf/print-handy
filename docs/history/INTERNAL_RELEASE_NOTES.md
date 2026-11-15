@@ -4,8 +4,8 @@
 
 # Version 2.3.4
 
-**Release Date:** 2026-11-14
-**Range:** 2.3.3..main (46 PRs, #1409 to #1505; checklist #1501; baselines verified unchanged from main CI run 43675045757 — discord-timing median ratio 0.945 over 28 cases of 0.3 s and up, no gate failures; real-slicer leg on the same EPYC 7763 runner class as its baseline, no rises). Driven by the combined Web UI delivery (#1460), the ten-lane batch (#1466–#1475), the #1417 silent-handler sweep, the diagnostics tranche (#1404) and OpenCreator tranche 1 (#1490).
+**Release Date:** 2026-11-15
+**Range:** 2.3.3..main (#1409 to #1527; checklist #1501; baselines verified unchanged from main CI run 43675045757 — discord-timing median ratio 0.945 over 28 cases of 0.3 s and up, no gate failures; real-slicer leg on the same EPYC 7763 runner class as its baseline, no rises). Driven by the combined Web UI delivery (#1460), the ten-lane batch (#1466–#1475), the #1417 silent-handler sweep, the diagnostics tranche (#1404) and OpenCreator tranche 1 (#1490).
 **Live checks performed for this release:** none on hardware.
 **Not verified live:** OpenCreator on a real Creator 5 / 5 Pro (toolchanger and AFC status shapes unverified; active tool reports unknown), the Discord voice-channel Activity (#1453), a live slash-command sitting, and the Web UI workflow against a live printer. Real-install timing not measured (no proof-run summary). All covered by offline tests.
 
@@ -17,6 +17,15 @@
 - Settings and Docker: `[prusa]` and `[elegoo_sdcp]` legacy sections load from settings files (PR #1480); default Docker log writes fail-open (PR #1419); PH markers for supervisor, Web UI and gates (PR #1420).
 - Live camera: voice-channel streaming finalized — H.264 transcode at defaults plus the final Activity design (PR #1453).
 - Release and docs: README rewritten as a short landing page (PR #1412); Home Assistant OS app update dispatched when a release is published (PR #1418); issue policy lets development-checkout bugs answer the bundle field Not applicable (PR #1477); tests never inherit a machine credential (PR #1441) and every test gets its own prompt registry (PR #1442); an OpenSCAD timeout falls back to the rasterizer preview (PR #1425).
+
+- Forge-X (#1506): AD5M and AD5M Pro models (PR #1510); screen mode from mod_params, Stock screen refused by name, fatal start parameters guarded (PR #1519); calibration through Forge-X's own macros and a per-print timelapse skip (PR #1527).
+- OpenCreator (#1490): synthesized start verification, toolchanger readiness, AFC map and ceilings (PR #1503); MATERIALn and FIRST_LAYER_HEIGHT on the start line (PR #1516); AFC map, lane records and Spoolman (PR #1518); per-print start options, written once on the full start line (PR #1517). Guidance from Cartrigger (OpenCreator) on #1490.
+- Web UI: workflow downloads restricted to the intake archive (PR #1514); settings report for sliced jobs (PR #1522); click a slot's spool to switch, add, rename, shelve or archive, with a per-spool nickname (PR #1523, #1515).
+- Firmware feed: release notices for every followed firmware and a Web UI Firmware page (PR #1512, #1280 section I).
+- Paint: extended painted-color states past 18 decoded and remapped (PR #1520).
+- Timing gate: per-CPU baseline profiles (PR #1513).
+- Docs and release: README leads with what Print Handy does (PR #1509) and gets three install paths and honest printer support (PR #1511); behavior-neutral source comments (PR #1521); release commit (PR #1502) and notes updates (PR #1507).
+- Release gate: #1490, #1506 and #1515 stay open; their remaining work moves to 2.3.5 (catduck, #1501).
 
 Merged PRs in the range, one line each:
 
@@ -66,6 +75,24 @@ Merged PRs in the range, one line each:
 - feat(#1496): fuzzy parity for subcommands — phrases, near-miss correction, mechanical coverage guard (PR #1498).
 - Fix the color-plan ask regrouping parts three times before asking; it was slowing the ask (PR #1500).
 - /print-live now works from the live voice channel’s own chat, and the refusal names the print channel (PR #1505).
+- release: Print Handy 2.3.4 (PR #1502).
+- OpenCreator tranche 2: synthesized start verification, toolchanger readiness, AFC map, ceilings (#1490) (PR #1503).
+- docs(release): include #1500 and #1505 in 2.3.4 notes (PR #1507).
+- README: lead with what Print Handy does (PR #1509).
+- Forge-X (ff5m) models for AD5M / AD5M Pro (#1506 tranche 1) (PR #1510).
+- docs: give Print Handy a personality, three install paths, and honest printer support (PR #1511).
+- Firmware feed: release notices for every followed firmware and a Web UI Firmware page (#1280 section I) (PR #1512).
+- Timing gate: per-CPU baseline profiles; record 2.3.4 on its own runner CPUs (PR #1513).
+- Restrict workflow downloads to intake archive (PR #1514).
+- OpenCreator: model MATERIALn and FIRST_LAYER_HEIGHT in the synthesized start (#1490) (PR #1516).
+- OpenCreator tranche 5a: per-print start options on the full start line (#1490) (PR #1517).
+- OpenCreator tranche 4: AFC map, lane records and Spoolman (#1490) (PR #1518).
+- Forge-X tranche 2: screen mode from mod_params, stock screen refused by name, fatal start params guarded (#1506) (PR #1519).
+- fix: decode and remap extended painted color states (PR #1520).
+- docs: add behavior-neutral source provenance comments (PR #1521).
+- feat(webui): downloadable settings report for sliced jobs (PR #1522).
+- Web UI: click a slot's spool to switch, add, rename, shelve or archive (#1515) (PR #1523).
+- Forge-X tranche 2b: calibration through Forge-X's own macros and a per-print timelapse skip (#1506) (PR #1527).
 
 # Version 2.3.3
 
