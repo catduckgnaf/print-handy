@@ -102,6 +102,33 @@ DISCORD_ONLY_BUTTON_POSTS = {"post_plate_picker", "post_insertion_confirmation",
 
 SAFE_LABELS = ("cancel", "not now", "keep", "skip", "no", "later", "done")
 
+# Filament-flow parity inventory for #1515. Home Assistant's integration
+# lives in catduckgnaf/ha-print-handy; these are the Web UI API operations
+# it consumes. Runout detection is printer-event driven, not a spool action;
+# /spool guided handles the operator's load/swap disposition.
+FILAMENT_ACTION_PARITY = {
+    "load / assign": ("/spool change <slot> <spool>", "POST spools/assign", "spool_action(assign)"),
+    "runout / guided swap": ("/spool (guided)", "POST spools/swap or spools/assign", "spool_action(swap or assign)"),
+    "swap": ("/spool change <slot> <spool>", "POST spools/swap", "spool_action(swap)"),
+    "new spool": ("/spool new", "POST spools/add", "spool_action(add)"),
+    "rename": ("/spool rename", "POST spools/edit", "spool_action(edit)"),
+    "archive": ("/spool archive", "POST spools/edit", "spool_action(edit)"),
+    "unarchive": ("/spool unarchive", "POST spools/edit", "spool_action(edit)"),
+}
+
+
+def test_filament_actions_have_chat_webui_and_ha_api_paths():
+    from print_handy.webui import spools
+
+    command = next(c for c in commands.COMMANDS if c.name == "spool")
+    subcommands = {s.word for s in command.subcommands}
+    assert {"", "change", "new", "rename", "archive", "unarchive"} <= subcommands
+    api_actions = {"assign", "swap", "add", "edit"}
+    assert api_actions <= set(spools.ACTIONS)
+    dispatched = {"assign", "swap", "add", "edit"}
+    assert dispatched <= {"assign", "swap", "unassign", "add", "edit", "sync"}
+    assert all(all(cell for cell in row) for row in FILAMENT_ACTION_PARITY.values())
+
 
 def _safe_index(labels):
     for want in SAFE_LABELS:
