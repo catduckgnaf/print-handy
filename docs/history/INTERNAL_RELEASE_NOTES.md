@@ -2,6 +2,69 @@
 
 # Unreleased
 
+# Version 2.3.4
+
+**Release Date:** 2026-11-14
+**Range:** 2.3.3..main (44 PRs, #1409 to #1498; checklist #1501; baselines verified unchanged from main CI run 43675045757 — discord-timing median ratio 0.945 over 28 cases of 0.3 s and up, no gate failures; real-slicer leg on the same EPYC 7763 runner class as its baseline, no rises). Driven by the combined Web UI delivery (#1460), the ten-lane batch (#1466–#1475), the #1417 silent-handler sweep, the diagnostics tranche (#1404) and OpenCreator tranche 1 (#1490).
+**Live checks performed for this release:** none on hardware.
+**Not verified live:** OpenCreator on a real Creator 5 / 5 Pro (toolchanger and AFC status shapes unverified; active tool reports unknown), the Discord voice-channel Activity (#1453), a live slash-command sitting, and the Web UI workflow against a live printer. Real-install timing not measured (no proof-run summary). All covered by offline tests.
+
+- Web UI combined delivery (PR #1464, #1460): dashboard replacing the Status page, Workflow page, Sliced files page and Slice and Download, printer settings tab, design from the browser, Pasta Wrapped polish, Layers removal, PWA foundation, favicon.
+- Discord: real slash commands with subcommands, autocomplete and /print-status (PR #1484); fuzzy parity for subcommands with near-miss correction and a mechanical coverage guard (PR #1498); one job card per job edited in place, new `discord.job_card_thread` setting (PR #1488); color mapping proposed and remembered, grouped questions (PR #1487); fast start acceptance with fire-and-readback and one in-place status message (PR #1485); channel-noise fixes (PR #1486).
+- Printers: OpenCreator models for Creator 5 and Creator 5 Pro (PR #1495); OctoPrint and Marlin family G-code guard (PR #1481); slices verified with the job's own adapter at slice time (PR #1478); MOONRAKER_API_KEY through one shared Moonraker transport (PR #1483); spool lane_data kept in step on swap and unassign (PR #1427).
+- Diagnostics and logging: crash records, bundle log fallback, shared Web UI/live logging (PR #1409); job correlation ID through the print lifecycle (PR #1424) and the bundle finding IDs beyond the newest 50 jobs (PR #1429); TIMING.jsonl real-wait reporting and budgets (PR #1489); explicit listener/watch log levels and the Moonraker legacy log file retired (PR #1422); REBOOT drop at info and plate-alias fall-through at debug (PR #1465).
+- Silent-handler sweep (#1417, #1455): silent except-pass and contextlib.suppress replaced with logging or recovery across core, runtime, bot, launch, Web UI, jobs/G-code and package-root modules (PRs #1421, #1423, #1426, #1431–#1440, #1482), with a package-wide guard (PR #1457) extended to broad no-log handlers on decision paths (PR #1479).
+- Settings and Docker: `[prusa]` and `[elegoo_sdcp]` legacy sections load from settings files (PR #1480); default Docker log writes fail-open (PR #1419); PH markers for supervisor, Web UI and gates (PR #1420).
+- Live camera: voice-channel streaming finalized — H.264 transcode at defaults plus the final Activity design (PR #1453).
+- Release and docs: README rewritten as a short landing page (PR #1412); Home Assistant OS app update dispatched when a release is published (PR #1418); issue policy lets development-checkout bugs answer the bundle field Not applicable (PR #1477); tests never inherit a machine credential (PR #1441) and every test gets its own prompt registry (PR #1442); an OpenSCAD timeout falls back to the rasterizer preview (PR #1425).
+
+Merged PRs in the range, one line each:
+
+- feat(diagnostics): crash records, bundle log fallback, shared logging for Web UI and live activity (#1404) (PR #1409).
+- docs: rewrite the README as a short landing page (PR #1412).
+- ci(release): dispatch the Home Assistant OS app update when a release is published (PR #1418).
+- fix(docker): keep default log writes fail-open (PR #1419).
+- Add PH markers for supervisor, Web UI, and gates (PR #1420).
+- fix: handle core exception fallbacks explicitly (part a) (PR #1421).
+- fix(logging): explicit levels for listener/watch logging; retire the Moonraker legacy log file (PR #1422).
+- fix(jobs,gcode): replace six silent except-pass handlers with recovery or logging (#1417) (PR #1423).
+- Diagnostics: carry job correlation ID through print lifecycle (PR #1424).
+- fix(ai_fix): an OpenSCAD timeout falls back to the rasterizer preview again (PR #1425).
+- fix(webui): replace silent except-pass handlers with logging or recovery (#1417) (PR #1426).
+- fix(spools): keep lane_data in step on swap and unassign so the watcher cannot undo them (PR #1427).
+- fix(diagnostics): the bundle finds correlation ids beyond the newest 50 jobs (PR #1429).
+- fix(runtime): replace silent except-pass handlers (part of #1417) (PR #1431).
+- fix(runtime): replace silent except-pass handlers (part of #1417) (PR #1432).
+- fix(runtime): replace silent except-pass handlers (part of #1417) (PR #1433).
+- fix(core): replace silent except-pass handlers (part of #1417) (PR #1434).
+- fix(core): replace silent except-pass handlers (part of #1417) (PR #1435).
+- fix(core): replace silent except-pass handlers (part of #1417) (PR #1436).
+- fix(bot): log silent best-effort failures (PR #1437).
+- fix(bot): replace silent exception handlers (part of #1417) (PR #1438).
+- fix(launch): replace silent except-pass handlers (part of #1417) (PR #1439).
+- fix(root): replace the 16 silent except-pass handlers in package-root modules (#1417) (PR #1440).
+- test: never inherit a credential from the machine running the suite (fixes #1428) (PR #1441).
+- test: give every test its own prompt registry (PR #1442).
+- feat(live): finalize voice-channel camera streaming: H.264 transcode at defaults + the final Activity design (#311) (PR #1453).
+- test(#1417): package-wide guard against silent exception handlers (PR #1457).
+- Web UI cleanup and completion: dashboard, Wrapped, Layers removal, printer settings, designing, on-page workflow, slice downloads, PWA foundation, favicon (#1460) (PR #1464).
+- runtime: log REBOOT drop at info and plate-alias fall-through at debug (#1417) (PR #1465).
+- fix(issue-policy): let development-checkout bugs answer the bundle field with Not applicable (#1470) (PR #1477).
+- Verify slices for non-default printers at slice time (#1468) (PR #1478).
+- Count broad no-log handlers in the silent-handler guard and log the decision paths (#1467) (PR #1479).
+- fix(settings): load [prusa] and [elegoo_sdcp] legacy sections from settings files (#1461) (PR #1480).
+- Give OctoPrint and Marlin models a family G-code guard (#1469) (PR #1481).
+- fix(core): replace the silent contextlib.suppress calls (#1455) (PR #1482).
+- Send MOONRAKER_API_KEY through one shared Moonraker transport (PR #1483).
+- feat(#1475): real Discord slash commands — one interaction response, subcommands, autocomplete, /print-status (PR #1484).
+- Fast start acceptance (#1471): fire-and-readback start, preparation_seen stage, one in-place status message (PR #1485).
+- fix(#1474): quiet the channel — fix offers, one completion post, screen and camera noise (PR #1486).
+- Color questions: propose and remember the mapping, ask groups in one message (#1473) (PR #1487).
+- One Discord job card per job, edited in place (#1472) (PR #1488).
+- feat(#1476): report and budget the real waits from TIMING.jsonl (PR #1489).
+- feat(printers): OpenCreator firmware models for Creator 5 and Creator 5 Pro (#1490 tranche 1) (PR #1495).
+- feat(#1496): fuzzy parity for subcommands — phrases, near-miss correction, mechanical coverage guard (PR #1498).
+
 # Version 2.3.3
 
 **Release Date:** 2026-11-13

@@ -1,52 +1,69 @@
-# Print Handy 2.3.3: just @ it
+# Print Handy 2.3.4: the Web UI grows up
 
-One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.3, also tagged latest.
+One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also tagged latest.
 
-2.3.2 printed what the designer drew, then took 26 seconds to admit the lantern was ready, yelled at a healthy print over a 12% hunch, and told the owner "I didn't understand that" when he pasted a link to his own message. Twice. 2.3.3 is faster, calmer, and finally answers when you call it by name.
+2.3.3 learned to answer when you call it by name. 2.3.4 grows up everywhere else: the Web UI becomes a real dashboard with a print workflow in the browser, Discord gets real slash commands and one tidy card per job, color questions shrink to one tap, print starts answer in seconds, and two more printer families get a proper G-code guard. Underneath, the whole codebase stopped swallowing its own errors, so when something does go wrong it says so in the log.
 
 ## What you can do
 
-### Talk to the bot by name
-- Mention the bot instead of typing the slash: "@Print Handy spool list", "@Print Handy /spool list" or "@Print Handy stop" run the command on Discord, Telegram, Matrix and web chat. Punctuation after the mention is fine ("@Print Handy, spool list"), and a bare mention gets the help. (#1394)
-- The bot learns its own name from its account at run time: Discord mention, name and nickname; Telegram username and display name; Matrix pill, display name and localpart; plus `bot_name` if you set one. Rename the account to "Shop Bot" and it answers to "@Shop Bot" and replies as "Shop Bot". (#1394)
-- On Telegram, a command for another bot in a shared group (`/status@SomeOtherBot`) is no longer run here. (#1394)
+### Run a print from the browser
+- The Web UI's Status page is now a dashboard: camera, printer state, temperatures over time, filament, and recent prints in one place. A new Workflow page runs a print from a link or an upload right in the browser, a Printer settings tab makes per-printer setup plain, the Designs page can start a design in the browser, and Pasta Wrapped got its polish. The Web UI also installs as an app (PWA foundation) and has a proper favicon. (#1464)
+- A new Sliced files page lets you download finished slices from the Web UI. (#1464)
 
-### Re-run an earlier message
-- On Discord, paste the link to an earlier message in the print channel and the bot runs that message's model link or file again, as you. (#1391)
+### Use real Discord slash commands
+- Slash commands are real slash commands now: each one answers once, inside the interaction, with no echoed command line and no second post. `/spool`, `/print-calibration`, `/print-firmware`, `/print-macros` and `/nozzle` open with real subcommands and typed options, and job, plan, plate, spool, slot, macro and printer fields autocomplete from your own lists as you type. `/print-colors` picks a past job instead of asking for a file path on the server, and `/print-help` leads with the five things people do most. (#1484)
+- New: `/print-status` tells you how the current print is doing. (#1484)
+- Plain words keep up with the new forms: "list the spools", "input shaper", "calibrate z offset" and the rest of the calibration and spool subcommand forms each offer the right command, and a mistyped subcommand (`/spool chnage`) asks "Did you mean `/spool change`?" before doing anything. (#1498)
 
-### Keep printing while a design runs
-- A model link or file pasted while an AI design is working, waiting at "What next for this design?", or waiting for a change now starts a normal print intake instead of being swallowed. "print 57" works mid-design, and another person's design runs alongside yours. (#1398)
+### Answer color questions in one tap
+- When a file's part colors match the spools you have loaded, Print Handy proposes the mapping up front ("Plaque: Black PLA+, Letters and trim: Bronze PLA+") and one tap accepts it. Parts that share a color are asked about once, together; on Discord all the choices arrive in one message of dropdowns; and the same file with the same spools loaded offers "Same colors as last time" first. Nothing is ever applied without your tap. (#1487)
 
-### Ready sooner on big jobs
-- A large job reaches its Ready question about 11 seconds sooner: on a 25 MB, 1.16 million line G-code the passes after OrcaSlicer take 3.6 s instead of about 15 s, with the same verdicts. The bed check runs in Rust now, with the Python version kept as the fallback. (#1393, #1396)
+### Watch one card per job on Discord
+- Each Discord job is now a single card that updates in place: model, thumbnail when the source has one, material, estimate, and a color for its state. Questions appear as buttons on the card and fold into it when answered, progress just updates the card, and summaries and warnings no longer repeat-post. (#1488)
 
-### Home Assistant gets its fields
-- The server now reports `temperature_limits_c`, `controls_enabled`, a persistent random `instance_id`, and `GET /api/printers` (config and state only) for the ha-print-handy integration. (#1401)
+### Start prints that answer in seconds
+- After the upload, chat now answers "the printer accepted the start and is heating up" within seconds instead of sitting silent for up to 40 s, and the upload, start-sent and confirmed updates are one message edited in place. A start is still sent exactly once and never resent. (#1485)
+
+### Print to a Creator 5 or Creator 5 Pro on OpenCreator firmware
+- Creator 5 and Creator 5 Pro owners running OpenCreator firmware can pick their printer (Flashforge Creator 5 (OpenCreator) / Flashforge Creator 5 Pro (OpenCreator)): slicing uses the firmware's documented start form with labeled objects, delivery is plain G-code, and pointing a Creator profile at the wrong custom firmware (ZMod vs OpenCreator) now says so in the readiness refusal. Documented and configuration verified; not yet hardware verified. See docs/OPENCREATOR.md. (#1495)
+
+### See where the time goes
+- A new Timing page in the Web UI, a doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)
+- Crashes now leave evidence: an unhandled error saves a redacted crash record, the diagnostics bundle gains a Crashes section and carries logs even on installs that never configured a log file, and every job carries a correlation ID so one job can be followed across slicing, launch and monitoring. (#1409, #1424, #1429)
+
+### Stream the camera into a Discord voice channel
+- The Discord live camera view now transcodes an MJPEG or snapshot printer camera to H.264 when the live feed values are left at their defaults, so the Activity player receives a stream it can open; RTSP and WebRTC cameras are still relayed unchanged. The setup guide records the final design: the camera plays in the channel's Activity and the bot runs the session without joining the call. Not live-verified yet; the first live sitting is still to come. (#1453)
 
 ## Fixes
-- New guide: install Print Handy on Home Assistant OS as an app from **Settings > Apps > App store**, and it updates with each release. (#1405)
-- A finished print with a numbered timelapse posts "Print complete" once. On 2.3.2 the same completion could post a second time a few minutes later. (#1406)
-- Release housekeeping, no change to what Print Handy does: the version bump (#1403), a test that leaked a background thread into later tests (#1407), and release-notes corrections (#1408, #1410, #1411).
-- A single weak camera detection (one box at 12% on a healthy print) no longer posts an alert. A lone weak detection is logged; two in a row post one plainly worded, low-confidence alert with no ping; three make it a failure, as two did before. Strong detections behave exactly as before, on Moonraker and Bambu Lab alike. (#1395)
-- A stall alert keeps its starter ping even when a weak detection shows up on the same frame. (#1395)
-- Open questions (design, colors, Stop buttons, approvals) no longer hold the bot's worker threads, so a few of them can't stall a print start on a small container anymore. (#1398)
-- The ZMod finalize no longer trusts a file that only looks finished: a hand-edited G-code with Print Handy's map lines now gets the full heater, material and used-tools checks. The full pass is fast enough that skipping it bought nothing. (#1396)
-- A mention followed by a newline ("@Print Handy design" then the description on the next line) runs `/design`. The help stays one Discord message for a `bot_name` up to 32 characters. (#1394)
+- Slices for a printer other than the default were marked verified without the offline safety checks ever running, and could be downloaded on that basis. Every slice is now verified at slice time with the job's own printer, and a slice the checker refuses fails at slice time with the reason. (#1478)
+- OctoPrint and Marlin printers accepted G-code files sliced for another printer, carrying Klipper or ZMod start macros, or moving outside the bed, and failed at the printer instead. Those files are now refused up front with the reason named; hand-written Marlin start code still works. (#1481)
+- On key-protected Moonraker installs, some surfaces sent no API key and failed quietly. Stop, pause, resume, the Web UI, launch checks and the purge safety gate now all send the `MOONRAKER_API_KEY` you configured through one shared transport; a missing or wrong key is named as such, and a towerless print whose purge mode cannot be checked because of an auth failure is refused instead of going ahead unchecked. (#1483)
+- A PrusaLink or Elegoo SDCP host written into the settings file under `[prusa]` or `[elegoo_sdcp]` was silently ignored as an unknown section, so the printer used a different address than the one on file. Those values now load. (#1480)
+- Swapping spools between two IFS slots from the Web UI or the Home Assistant integration, or unassigning and reassigning them, no longer gets undone a few seconds later by the HelixScreen sync, and no longer posts "HelixScreen change" messages. (#1427)
+- The channel is quieter: the AI fix button no longer appears on jobs built from several files, a failed fix is not offered again on the same slice, a finished print posts its completion exactly once, a flip-flopping screen slot settles into a single change message, and a camera check that cannot tell from one frame is logged quietly instead of posted. (#1486)
+- Two expected events — looking up a print by a title shaped like a plate alias, and the connection drop a REBOOT macro causes on purpose — no longer write WARNING tracebacks to the log. (#1465)
+- A geometry fix preview falls back to the built-in renderer when OpenSCAD hangs, instead of failing. (#1425)
+- The button in chat is renamed **Slice and Download**, and that is what it delivers: the sliced file itself, on Flashforge printers too, including files sliced from AI designs. (#1464)
+- Printer listener and watch failures are logged as warnings for every printer family, and Bambu Lab LAN listener lines are redacted like every other log line. (#1422)
+- Release housekeeping: the README is rewritten as a short landing page (#1412), and the Home Assistant OS app now offers each release within minutes of publishing (#1418).
 
 ## Upgrade and compatibility
-- **Mentions are commands now.** A message that starts by mentioning the bot is routed as a command for it. A message that mentions nobody routes exactly as before. (#1394)
-- **Telegram privacy mode.** With BotFather's privacy mode on (the default) a group only delivers commands and replies, so there use `/spool@YourBot list` or reply to the bot. A plain "@YourBot spool list" needs privacy mode off or the bot as a group admin. A private chat always works. (#1394)
-- **Weak detections stay quiet.** If you relied on every weak camera detection posting an alert, you now get one only after two in a row. (#1395)
-- **Claim the Web UI at setup.** The install guides now make claiming the Web UI a setup step; nothing changes for an install that already claimed it. (#1401)
-- No setting was added, renamed or removed.
+- **Slash commands answer in place.** Discord commands no longer echo the command line as a separate post before answering; each command answers once inside its interaction. (#1484)
+- **The Web UI Layers page is gone.** Its job moved into the dashboard and workflow pages. (#1464)
+- **Discord job posts change shape.** One card per job, edited in place, replaces the trail of separate posts. A new `[discord] job_card_thread` setting (off by default) moves long detail into a thread on the card. (#1488)
+- **The Moonraker listener's separate log file is retired.** Its lines are in the shared log now, where `[logging] levels` and debug capture see them. (#1422)
+- **Settings-file `[prusa]` and `[elegoo_sdcp]` hosts now take effect.** If you wrote one and Print Handy used a different address, it will now use the address on file. (#1480)
+- **Live camera feeds transcode at defaults.** An MJPEG or snapshot camera is transcoded to H.264 for the Discord live view unless you changed the live feed values; the raw camera stream that timelapse and the watchdog read is unchanged. (#1453)
+- No setting was removed or renamed. One setting was added: `discord.job_card_thread`, off by default. (#1488)
 
 ## Technical details and contributors
-- A performance regression ledger and procedure (`docs/history/PERFORMANCE-REGRESSIONS.md`): measure the real job, profile a copy, fix the work instead of the threshold, add a work-counting test. (#1392, #1393, #1396)
-- `tests/hermes/` is now `tests/runtime/`. The 2.3.x compatibility shims (`print_handy.hermes` and friends) are scheduled for removal in 2.4.0, and a test fails at 2.4.0 if any remain. (#1401)
-- `config/docker.yaml` and `config/docker.toml` are held to identical settings by a test; issue text is spell-checked like PR text. (#1401)
-- The 2.3.2 image digest is pinned in docs/DOCKER.md. (#1390)
-- Slicing-speed baselines re-recorded from the release commit's CI run.
+- The silent-failure cleanup (#1417, #1455): every silent `except: pass` and `contextlib.suppress` in the package was replaced with logging, recovery, or a narrowed handler — launch (#1439), runtime (#1431, #1432, #1433), core (#1421, #1434, #1435, #1436, #1482), bot (#1437, #1438), Web UI (#1426), jobs and G-code (#1423), and the package-root modules (#1440) — and a package-wide guard test now fails if a new silent handler lands (#1457), including broad no-log handlers on launch decision paths (#1479).
+- Logging markers for the supervisor, Web UI and gates (#1420); default Docker log writes stay fail-open so a logging failure cannot take the container down (#1419).
+- Tests no longer inherit a credential from the machine running the suite (#1441), and every test gets its own prompt registry (#1442).
+- Development-checkout bug reports can answer the diagnostics-bundle field with Not applicable (#1477).
+- Slicing-speed baselines verified unchanged for this release: from main CI run 43675045757 on the release commit, the discord-timing median ratio is 0.945 over the 28 cases of 0.3 s and up with no gate failures, and the real-slicer leg (same EPYC 7763 runner class as its baseline) shows no rises.
 
 ## Verification and known limitations
-- Offline suites and CI on every merged head.
-- Not seen live yet: a mention on Telegram and Matrix, a weak-detection streak on a real print, a print started during a running design, the Home Assistant integration reading the new fields, and a single "Print complete" for a finished print with a numbered timelapse.
+- Offline suites and CI green on every merged head, and on main at the release commit (CI run 43675045757).
+- Not verified on hardware: OpenCreator support on a real Creator 5 or Creator 5 Pro (the toolchanger and AFC status shapes are unverified, so the active tool reports as unknown), the Discord voice-channel Activity live, a real Discord slash-command sitting, and the new Web UI workflow against a live printer. All are covered by offline tests.
+- Real-install timing was not measured for this release; no proof-run timing summary was recorded.
