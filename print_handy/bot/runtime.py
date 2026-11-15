@@ -364,12 +364,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:just\s+)?failed{_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:please\s+)?(?:what(?:'s|\s+is)\s+the\s+eta|how\s+much\s+time\s+is\s+left|time\s+remaining|percent\s+complete|what\s+layer\s+is\s+it\s+on){_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:please\s+)?(?:what\s+temp(?:erature)?\s+is\s+the\s+(?:bed|nozzle)|(?:hotend|bed)\s+temperature|how\s+hot\s+is\s+the\s+(?:nozzle|bed)|is\s+the\s+bed\s+heated|is\s+the\s+nozzle\s+hot){_END}", re.I), "/print-status"),
-    (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-camera"),
+    (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-status"),
     # Reprint and calibration
     (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again|retry\s+(?:the|that|last)\s+print|try\s+that\s+print\s+again|run\s+that\s+print\s+again|print\s+another\s+(?:one|copy)|print\s+one\s+more){_END}", re.I), "/print-again"),
     (re.compile(rf"^{_LEAD}(?:(?:print|start)\s+(?:the\s+)?)?next\s+plate{_END}", re.I), "/print-next"),
-    (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
-    (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibrate"),
+    (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibration"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibration"),
     # Calibration subcommands (#1496): each /print-calibration form #1475
     # registered gets its own plain-language route to its typed form.
     (re.compile(rf"^(?:please\s+)?(?:bed\s+mesh|mesh\s+calibration){_END}", re.I), "/print-calibration mesh"),

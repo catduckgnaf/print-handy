@@ -117,7 +117,7 @@ TASK_TEMPLATES = {
     "spaghetti": [("the print is {}", "/print-troubleshoot first-layer"),
                   ("my print turned into {}", "/print-troubleshoot first-layer")],
     "stringing": [("too much {}", "/print-lookup stringing")],
-    "calibrate": [("{} the bed", "/print-calibrate")],
+    "calibrate": [("{} the bed", "/print-calibration")],
     "temperature": [("what {} is the nozzle", "/print-status")],
 }
 
@@ -168,11 +168,9 @@ def test_corpus_typos_of_command_words_suggest_the_command(text, expected):
     ("/print-spols", "/print-spools"),      # typo inside the longer name
     ("/print-bed-dwn", "/print-bed-down"),  # dropped vowel in the tail word
     ("/nozzel", "/nozzle"),                 # corpus typo as the whole command
-    # "pause" typo: no /print-pause command exists; since /print-status
-    # landed (#1475) its windowed stem score wins this outright — fitting,
-    # since its answer carries the Pause button — so the case pins the
-    # single suggestion instead of the pick-list it used to get.
-    ("/print-pauze", "/print-status"),
+    # "pause" typo: /print-pause is a registered command (#1524), so its
+    # own near-miss corrects to it instead of borrowing /print-status.
+    ("/print-pauze", "/print-pause"),
     # "status" typo: contested (stop/source/resume) until the command it
     # names existed; since #1475 it suggests /print-status outright.
     ("/print-staus", "/print-status"),

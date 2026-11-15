@@ -868,7 +868,7 @@ def test_fuzzy_score_tolerates_typos_against_the_target():
     ("stopp the print", "/print-stop"),
     ("the nozzel is clogged", "/print-troubleshoot clog"),
     ("change the nozzel", "/nozzle change"),
-    ("callibrate the bed", "/print-calibrate"),
+    ("callibrate the bed", "/print-calibration"),
 ])
 def test_misspelled_tasks_get_the_right_suggestion(text, command):
     assert runtime.command_suggestion(text) == command

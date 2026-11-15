@@ -25,10 +25,10 @@ gets a generated near-miss case (one adjacent-letter swap) that
 ``runtime.subcommand_suggestion`` must correct back. A new subcommand
 without fuzzy phrases fails here until they ship with it.
 
-Expected values are the suggestion's command form. Two established
-forms differ from the registry spelling and are pinned as they are:
-calibration phrases suggest the legacy ``/print-calibrate`` and the
-nozzle phrases suggest ``/nozzle change``.
+Expected values are the suggestion's command form. One established
+form differs from the bare registry name and is pinned as it is: the
+nozzle phrases suggest ``/nozzle change``. Every suggested command is a
+registered one (#1524, tests/bot/test_suggestion_targets.py).
 """
 import pytest
 
@@ -38,6 +38,7 @@ from print_handy.core.fuzzy_vocabulary import TYPO_FORMS
 COMMAND_PHRASES = {
     "print-next": [("next plate", "/print-next")],
     "print-stop": [("stop the print", "/print-stop")],
+    "print-pause": [("pause the print", "/print-pause")],
     "print-resume": [("resume the print", "/print-resume")],
     "print-status": [("how is the print doing", "/print-status"),
                      ("how long left", "/print-status"),
@@ -87,8 +88,8 @@ COMMAND_PHRASES = {
                        ("forgex update", "/print-firmware"),
                        ("open creator version", "/print-firmware"),
                        ("show the firmware feed", "/print-firmware")],
-    "print-calibration": [("bed leveling", "/print-calibrate"),
-                          ("calibrate the bed", "/print-calibrate")],
+    "print-calibration": [("bed leveling", "/print-calibration"),
+                          ("calibrate the bed", "/print-calibration")],
     "print-live": [("start the live camera", "/print-live"),
                    ("watch the print live", "/print-live"),
                    ("stop the live camera", "/print-live stop"),
