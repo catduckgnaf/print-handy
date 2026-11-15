@@ -752,9 +752,11 @@ PH_NICKNAME_FIELD_NAME = "Print Handy nickname"
 
 def ensure_extra_field(client: Client, key: str, name: str) -> bool:
     """Define one text extra field on Spoolman spools when it is missing. Best effort."""
+    log = __import__("logging").getLogger(__name__)
     try:
         fields = _call_client(client, "GET", "/api/v1/field/spool", None)
     except Exception:
+        log.warning("Spoolman spool field list unavailable; %s field not ensured", key, exc_info=True)
         return False
     if not isinstance(fields, list):
         return False
@@ -764,6 +766,7 @@ def ensure_extra_field(client: Client, key: str, name: str) -> bool:
         _call_client(client, "POST", f"/api/v1/field/spool/{key}",
                      {"name": name, "field_type": "text"})
     except Exception:
+        log.warning("Spoolman refused to create the %s spool field", key, exc_info=True)
         return False
     return True
 
