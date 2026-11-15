@@ -32,7 +32,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 
 Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connection paths and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
 
-- [ZMod](ZMOD.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
+- [ZMod](ZMOD.md) · [OpenCreator](OPENCREATOR.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
 - [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
 - [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
 - [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)

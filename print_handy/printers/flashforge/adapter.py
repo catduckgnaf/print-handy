@@ -198,7 +198,11 @@ class ZmodMultiToolAdapter(ZmodSingleExtruderAdapter):
                 problems.append(f"toolhead {tool + 1} ({name}) is not reporting")
         color = status.get("zmod_color")
         if not isinstance(color, dict):
-            problems.append("zmod_color is not reporting (the active tool is unknown)")
+            # Firmware mismatch (#1490): a sample carrying OpenCreator-only
+            # objects names the actual cause instead of a bare absence.
+            from ..flashforge_opencreator import firmware_check
+            mismatch = firmware_check.opencreator_mismatch_problem(status)
+            problems.append(mismatch or "zmod_color is not reporting (the active tool is unknown)")
         elif color.get("active_tool_id") is None:
             problems.append("zmod_color does not report an active tool")
         else:

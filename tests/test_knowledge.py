@@ -133,6 +133,14 @@ SPLIT_FIXTURE_WIDENED_BY_647 = {
     "klipper.print-start", "klipper.print-end",
 }
 
+# #1490 widened one more entry on purpose, the same way #647 did: the
+# OpenCreator Creator models emit SET_PRINT_STATS_INFO in their documented
+# start form, so klipper.set-print-stats-info gained their keys (and the
+# notes sentence recording why). The exact widened scope is asserted in
+# tests/test_macros.py::test_opencreator_macro_scope_is_exactly_set_print_stats_info.
+SPLIT_FIXTURE_WIDENED_BY_1490 = {"klipper.set-print-stats-info"}
+SPLIT_FIXTURE_WIDENED = SPLIT_FIXTURE_WIDENED_BY_647 | SPLIT_FIXTURE_WIDENED_BY_1490
+
 
 def test_split_registry_matches_pre_split_entries(registry):
     """The per-firmware split is content-preserving: the merged registry holds
@@ -154,7 +162,7 @@ def test_split_registry_matches_pre_split_entries(registry):
     } for e in registry.firmware_entries}
     assert set(expected) <= set(actual)
     for entry_id, row in expected.items():
-        if entry_id in SPLIT_FIXTURE_WIDENED_BY_647:
+        if entry_id in SPLIT_FIXTURE_WIDENED:
             got, want = dict(actual[entry_id]), dict(row)
             for field in ("printers", "notes"):
                 got.pop(field)
