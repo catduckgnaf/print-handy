@@ -196,6 +196,11 @@ def registrations(supports_live_stream=True):
         [(alias, c) for c in visible for alias in c.aliases]
 
 
+def _option_text(value):
+    """One option's typed form; only a missing option is empty, so 0 stays "0"."""
+    return "" if value is None else str(value).strip()
+
+
 def as_text(name, values):
     """The typed form of a slash command: '/spool change 1 12'.
 
@@ -208,7 +213,7 @@ def as_text(name, values):
         sub = subcommand(command, str(values.get("subcommand") or ""))
         if sub is None:  # no subcommand picked: the bare typed form
             return "/" + name
-        args = [str(values.get(o.name) or "").strip() for o in sub.options]
+        args = [_option_text(values.get(o.name)) for o in sub.options]
         args = [a for a in args if a]
         parts = ["/" + name]
         if sub.word:
@@ -216,7 +221,7 @@ def as_text(name, values):
         if args:
             parts.append(sub.joiner.join(args))
         return " ".join(parts)
-    args = [str(values.get(o.name) or "").strip() for o in (command.options if command else ())]
+    args = [_option_text(values.get(o.name)) for o in (command.options if command else ())]
     return " ".join(["/" + name] + [a for a in args if a])
 
 

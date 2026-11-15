@@ -16,6 +16,7 @@ values it always used, so Discord sessions, sources and replies are unchanged.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import collections
 import contextlib
 import logging
@@ -728,7 +729,38 @@ def safe_name(name):
     return cleaned[:120] or "model"
 
 
-class Gateway:
+# The slash command a handler is answering, for the current asyncio task only
+# (#1475). Each message and each slash command runs in its own task with its
+# own copy of the context, so one command's interaction can never receive
+# another command's replies: the shared adapter object is never swapped.
+_SLASH_ADAPTER: contextvars.ContextVar = contextvars.ContextVar("print_handy_slash_adapter", default=None)
+
+
+def _slash_adapter():
+    """The current task's slash proxy while its command is still running, else None.
+
+    A task spawned by a slash flow inherits the proxy with its context; once
+    the command has returned (``closed``) such a task posts through the real
+    adapter again instead of an interaction that is no longer waiting."""
+    proxy = _SLASH_ADAPTER.get()
+    if proxy is None or object.__getattribute__(proxy, "_delivery").closed:
+        return None
+    return proxy
+
+
+class _RoutedAdapter:
+    """``adapter`` attribute that answers with the current task's slash proxy, when one is live."""
+
+    @property
+    def adapter(self):
+        return _slash_adapter() or self._adapter
+
+    @adapter.setter
+    def adapter(self, value):
+        self._adapter = value
+
+
+class Gateway(_RoutedAdapter):
     """The gateway calls the handlers make: may this person act, where do replies go, which session.
 
     Channel scope is the routing map (#335): a source is in scope when its
@@ -804,9 +836,10 @@ class _SlashDelivery:
         self.view = view
         self.sent = False
         self.prompted = False
+        self.closed = False  # set when run_slash returns: later sends use the real adapter
 
     async def deliver(self, content, files=None):
-        adapter = self.core.adapter
+        adapter = self.core._adapter  # the real adapter, never this flow's own proxy
         send_followup = getattr(adapter, "send_followup", None)
         if send_followup is not None:
             result = await send_followup(self.interaction, content, files=files,
@@ -841,7 +874,7 @@ class _SlashAdapter:
             chat_id, question, choices, clarify_id, session_key, metadata=metadata)
 
 
-class BotCore:
+class BotCore(_RoutedAdapter):
     def __init__(self, client, cfg=None, *, router=None, llm_opener=None, agent_opener=None,
                  platform_name=None, adapter=None, chat_id=None, use_llm=None):
         """Run the handlers against one platform adapter.
@@ -1523,9 +1556,10 @@ class BotCore:
         command = commands.by_name(name)
         await interaction.response.defer(ephemeral=bool(command and command.ephemeral))
         delivery = _SlashDelivery(self, interaction, view=view)
-        proxy = _SlashAdapter(self.adapter, delivery)
-        real_adapter, self.adapter = self.adapter, proxy
-        gateway_adapter, self.gateway.adapter = self.gateway.adapter, proxy
+        # Context-local, never a swap of the shared adapter: a message or a
+        # second slash command handled while this one awaits a button keeps
+        # its own delivery (review of #1484).
+        token = _SLASH_ADAPTER.set(_SlashAdapter(self._adapter, delivery))
         try:
             if command is not None and command.name == "print-help":
                 # Slash help is the short form plus the command menu (the
@@ -1540,8 +1574,8 @@ class BotCore:
                                        "The failure is in the bot log.")
             return {"action": "skip", "reason": "slash command failed"}
         finally:
-            self.adapter = real_adapter
-            self.gateway.adapter = gateway_adapter
+            delivery.closed = True
+            _SLASH_ADAPTER.reset(token)
         if not delivery.sent and not delivery.prompted:
             await _SlashDelivery(self, interaction).deliver("Done.")
         elif not delivery.sent and delivery.prompted:

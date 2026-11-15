@@ -29,7 +29,12 @@ def resolve_job_ref(ref, archive=None):
         return None
     direct = Path(raw).expanduser()
     if direct.name == 'JOB.json' and direct.is_file():
-        return direct.resolve()
+        # The legacy typed path form names an archived job and nothing else
+        # (review of #1484): a JOB.json outside the archive is not resolved.
+        resolved = direct.resolve()
+        if resolved.is_relative_to(archive.resolve()):
+            return resolved
+        return None
     if raw.isdigit():  # a print number, the autocomplete value for printed jobs
         try:
             from print_handy.runtime import print_control

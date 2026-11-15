@@ -265,3 +265,72 @@ def test_print_colors_resolves_a_job_reference_not_a_path(tmp_path):
     assert color_selection.resolve_job_ref(str(job_file), tmp_path) == job_file.resolve()
     assert color_selection.resolve_job_ref("no-such-job", tmp_path) is None
     assert color_selection.resolve_job_ref("", tmp_path) is None
+
+
+# ------------------------------------------------------------- review fixes
+
+def test_overlapping_slash_commands_keep_their_own_delivery(cfg):
+    """A slash command awaiting a button never lends its interaction to another
+    command or to a plain message handled meanwhile, and the shared adapter is
+    intact afterwards (review of #1484: the adapter was swapped across an await)."""
+    discord, core = make(cfg)
+    real = core.adapter
+    first = fake_discord.FakeInteraction(discord, discord.operator, channel=discord.channel)
+    second = fake_discord.FakeInteraction(discord, discord.operator, channel=discord.channel)
+    seen = {}
+
+    async def scenario():
+        release = asyncio.Event()
+        started = asyncio.Event()
+
+        async def process(event, allow_llm=False):
+            which = "first" if not started.is_set() else "second"
+            if which == "first":
+                started.set()
+                await release.wait()  # a button prompt left open
+            seen[which] = core.adapter
+            await core.adapter.send(chat_id=core.chat_id, content=f"answer for {which}")
+            return {"action": "skip"}
+
+        with mock.patch.object(core, "process", side_effect=process):
+            one = asyncio.create_task(core.run_slash(first, "print-spools", {}))
+            await started.wait()
+            # A plain message's task, while the first command is still open.
+            seen["message"] = await asyncio.create_task(_adapter_of(core))
+            await core.run_slash(second, "print-spools", {})
+            seen["between"] = core.adapter
+            release.set()
+            await one
+
+    async def _adapter_of(c):
+        return c.adapter
+
+    run(scenario())
+    assert seen["message"] is real and seen["between"] is real
+    assert seen["first"] is not real and seen["second"] is not real and seen["first"] is not seen["second"]
+    assert [r["content"] for r in first.replies] == ["answer for first"]
+    assert [r["content"] for r in second.replies] == ["answer for second"]
+    assert core.adapter is real and core.gateway.adapter is real
+
+
+def test_a_zero_option_value_is_kept_in_the_typed_form():
+    assert commands.as_text("spool", {"subcommand": "weight", "spool": 19, "grams": 0}) == "/spool weight 19 0"
+
+
+def test_print_colors_does_not_resolve_a_job_file_outside_the_archive(tmp_path):
+    archive = tmp_path / "archive"
+    inside = archive / "job-a" / "JOB.json"
+    inside.parent.mkdir(parents=True)
+    inside.write_text(json.dumps({"title": "A"}))
+    outside = tmp_path / "elsewhere" / "JOB.json"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps({"title": "B"}))
+    assert color_selection.resolve_job_ref(str(inside), archive) == inside.resolve()
+    assert color_selection.resolve_job_ref(str(outside), archive) is None
+
+
+def test_print_status_keys_on_the_printer_the_command_named():
+    gateway = mock.Mock()
+    with mock.patch("print_handy.bot.handlers.common._channel_printer_id", return_value="channel-printer"):
+        assert print_status._channel_pid(mock.Mock(), gateway, "named-printer") == "named-printer"
+        assert print_status._channel_pid(mock.Mock(), gateway, None) == "channel-printer"

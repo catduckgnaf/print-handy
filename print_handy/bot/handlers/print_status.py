@@ -279,7 +279,9 @@ def _roster():
 
 def _channel_pid(source, gateway, pid):
     from .common import _channel_printer_id
-    return _channel_printer_id(source, gateway) or pid
+    # The printer the command named wins (review of #1484); the channel's
+    # own printer only fills in when none was named.
+    return pid or _channel_printer_id(source, gateway)
 
 
 def _label_for(source, gateway, pid):
