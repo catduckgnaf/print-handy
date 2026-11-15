@@ -246,6 +246,39 @@ Print Handy does not change these switches. They are recorded here
 because they change what a print start does on the printer, in ways a
 Print Handy operator will otherwise meet unexplained.
 
+## Per-print start overrides
+
+Print Handy never changes the switches themselves. Instead, six
+`[printer]` settings override them for the prints Print Handy slices:
+`opencreator_flow_calibration`, `opencreator_purge`,
+`opencreator_purge_line`, `opencreator_purge_line_all_tools`,
+`opencreator_bed_leveling` and `opencreator_host_pressure_advance`. Each
+is `printer` (the default: send nothing, the switch decides), `on` or
+`off`. A seventh, `opencreator_buildplate_check`, is `printer` (the
+default) or `off`, which skips the firmware's build plate check.
+
+With every setting at its default, the sliced file is left exactly as
+before and the firmware synthesizes its own start. As soon as one
+override is set, Print Handy writes one explicit `C5_PRINT_START` line
+as the file's first line. An explicit line opts the file out of
+synthesis, and the firmware then fills in nothing for it, so the line
+carries everything the dispatcher would have synthesized from that same
+file, in the dispatcher's order (`TOOL`, `HOTEND`, `BED`,
+`FIRST_LAYER_HEIGHT`, `MATERIAL0` to `MATERIAL3`, `USED_TOOLS`, the other
+used tools' `HOTENDn`, `IDLEn`, and `CHAMBER` when there is one),
+followed by the overrides, for example `PURGE_LINE=0 BED_LEVELING=0`.
+The line then passes the same start verification as any explicit line:
+its `HOTEND`, `BED` and `TOOL` must match the job, and a Pro's chamber
+target stays under the recorded ceiling. A file that already carries
+its own `C5_PRINT_START` line, or has no hotend temperature the
+dispatcher could find, is refused rather than given a second line.
+
+The full-line rule follows upstream's own OpenCreator Send plugin, which
+writes the same full line when an operator changes a per-print option,
+and the fork's dispatcher (`creator5_start_command` in
+`klippy/extras/virtual_sdcard.py`), read for behavior only; no code is
+copied. Guidance from Cartrigger (OpenCreator) on #1490.
+
 ## Creator 5 vs Creator 5 Pro on OpenCreator
 
 Same toolheads, same 256 mm cube. The base printer has no chamber
