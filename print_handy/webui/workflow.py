@@ -35,10 +35,11 @@ same way the designs page serves a session's files from its record.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .. import settings
-from . import shell
+from . import shell, sliced
 
 _esc = shell._esc
 REFRESH_SECONDS = 3
@@ -114,8 +115,12 @@ def download_target(data, scope, intake_id, index):
     """The ``index``-th sliced file of this session's receipt, or None.
 
     Only a file the receipt itself names (its ``gcodes``, recorded at
-    slice time) can be served, and only while it is still there."""
-    if not str(index).isdigit():
+    slice time) can be served, and only while it is still there. The
+    receipt is not trusted for what kind of file that is: the name must
+    be a plate file name (.gcode or .gcode.3mf), the rule the Sliced
+    files page applies, so a receipt can never hand out anything else
+    (review of #1464)."""
+    if not re.fullmatch(r"[0-9]{1,4}", str(index or "")):
         return None
     receipt = receipt_for(data, scope, intake_id)
     if receipt is None:
@@ -123,8 +128,13 @@ def download_target(data, scope, intake_id, index):
     gcodes = receipt.get("gcodes") or []
     if int(index) >= len(gcodes):
         return None
-    path = Path(str(gcodes[int(index)]))
-    return path if path.is_file() else None
+    try:
+        path = Path(str(gcodes[int(index)])).resolve()
+    except OSError:
+        return None
+    if not sliced._PLATE_NAME.fullmatch(path.name) or not path.is_file():
+        return None
+    return path
 
 
 def content_type(path):

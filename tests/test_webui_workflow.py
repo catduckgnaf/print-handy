@@ -342,3 +342,19 @@ def test_disabled_chat_disables_the_workflow(tmp_path, monkeypatch):
         assert status == 200 and "Web chat is turned off" in page.decode()
     finally:
         srv.shutdown()
+
+
+def test_download_target_serves_only_plate_files(tmp_path):
+    """A receipt naming something that is not a plate file resolves nothing
+    (review of #1464: the receipt was trusted for the path)."""
+    from print_handy.webui import workflow
+
+    secret = tmp_path / "settings.toml"
+    secret.write_text("token = 1")
+    plate = tmp_path / "plate_1.gcode"
+    plate.write_text("G28")
+    receipt = {"intake_id": "abc", "gcodes": [str(secret), str(plate)]}
+    with mock.patch.object(workflow, "receipt_for", return_value=receipt):
+        assert workflow.download_target({}, "scope", "abc", "0") is None
+        assert workflow.download_target({}, "scope", "abc", "1") == plate.resolve()
+        assert workflow.download_target({}, "scope", "abc", "²") is None

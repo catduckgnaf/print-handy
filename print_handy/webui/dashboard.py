@@ -433,6 +433,8 @@ def _filament(card):
         parts.append('<p class="eyebrow">Shelf</p>')
         shown = 0
         for material, rows in groups.items():
+            if shown >= _SHELF_LIMIT:
+                break  # no bare material headers once the row limit is reached
             parts.append(f'<p class="muted">{_esc(material)} · {len(rows)}</p>')
             for spool in rows:
                 if shown >= _SHELF_LIMIT:

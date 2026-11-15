@@ -159,6 +159,7 @@ import hmac
 import html
 import ipaddress
 import json
+import shutil
 import logging
 import os
 import re
@@ -914,6 +915,33 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(payload, indent=1, sort_keys=True, default=str),
                    "application/json")
 
+    def _send_file(self, path, content_type, headers=()):
+        """Send a file as the response body in chunks (review of #1464).
+
+        A sliced plate can be well over 100 MB; reading it whole per request
+        (and for a HEAD request, only to discard it) is memory the box does
+        not need to spend. The length comes from stat, the body is copied
+        in fixed-size pieces."""
+        try:
+            size = path.stat().st_size
+            handle = open(path, "rb")
+        except OSError:
+            self._json(404, {"ok": False, "reason": "that file could not be read"})
+            return
+        with handle:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(size))
+            named = {name.lower() for name, _value in headers}
+            for name, value in SECURITY_HEADERS:
+                if name.lower() not in named:
+                    self.send_header(name, value)
+            for name, value in headers:
+                self.send_header(name, value)
+            self.end_headers()
+            if self.command != "HEAD":
+                shutil.copyfileobj(handle, self.wfile, 1024 * 1024)
+
     def _redirect(self, location, headers=()):
         self._send(303, "", "text/html; charset=utf-8",
                    headers=[("Location", location), *headers])
@@ -1297,7 +1325,7 @@ class _Handler(BaseHTTPRequestHandler):
                             ("Cache-Control", "no-cache")])
 
     def _pwa_offline(self):
-        self._send(200, pwa_module.render_offline_page(theme=self._theme()),
+        self._send(200, pwa_module.render_offline_page(),
                    "text/html; charset=utf-8",
                    headers=[("Cache-Control", "public, max-age=86400")])
 
@@ -1516,9 +1544,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path is None:
             self._json(404, {"ok": False, "reason": "no such sliced file"})
             return
-        self._send(200, path.read_bytes(), sliced_module.content_type(path),
-                   headers=[("Content-Disposition",
-                             f'attachment; filename="{path.name}"')])
+        self._send_file(path, sliced_module.content_type(path),
+                        headers=[("Content-Disposition",
+                                  f'attachment; filename="{path.name}"')])
 
     def _not_found(self, path):
         if self._browser_navigation(path):
@@ -2725,9 +2753,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path is None:
             self._json(404, {"ok": False, "reason": "no such sliced file"})
             return
-        self._send(200, path.read_bytes(), workflow_module.content_type(path),
-                   headers=[("Content-Disposition",
-                             f'attachment; filename="{path.name}"')])
+        self._send_file(path, workflow_module.content_type(path),
+                        headers=[("Content-Disposition",
+                                  f'attachment; filename="{path.name}"')])
 
     # -- uploads ------------------------------------------------------------
 
