@@ -11,6 +11,7 @@ preparation that was interrupted is started again only from fresh confirmations.
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import time
@@ -19,6 +20,8 @@ import weakref
 from pathlib import Path
 
 from . import resources
+
+logger = logging.getLogger(__name__)
 
 DEADLINE_S = 60 * 60      # upper bound for one heavy step; slice_job may run Orca (600 s limit) per plate
 GRACE_S = 10.0            # between SIGTERM and SIGKILL
@@ -112,16 +115,20 @@ def _members(pgid):
 
 
 def _signal(pgid, sig):
-    with contextlib.suppress(ProcessLookupError, PermissionError):
+    try:
         os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        logger.debug("worker process-group signal failed for %s", pgid, exc_info=True)
 
 
 async def _gone(proc, seconds):
     end = time.monotonic() + seconds
     while True:
         if proc.returncode is None:
-            with contextlib.suppress(asyncio.TimeoutError):
+            try:
                 await asyncio.wait_for(asyncio.shield(proc.wait()), 0.05)
+            except asyncio.TimeoutError:
+                logger.debug("worker process wait timed out", exc_info=True)
         if proc.returncode is not None and not _members(proc.pid):
             return True
         if time.monotonic() >= end:
@@ -177,9 +184,11 @@ async def _read(stream, limit, tail=False):
 
 async def _exchange(proc, payload):
     async def feed():
-        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+        try:
             proc.stdin.write(payload)
             await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            logger.debug("worker stdin closed before request was fully written", exc_info=True)
         proc.stdin.close()
     out, err, _ = await asyncio.gather(_read(proc.stdout, OUTPUT_LIMIT), _read(proc.stderr, STDERR_TAIL, tail=True),
                                        feed())
@@ -343,12 +352,14 @@ async def run(argv, payload, *, label, lane, cwd=None, record=None, warm_argv=No
             _LIVE.pop(proc.pid, None)
             _SHUTTING_DOWN.discard(proc.pid)
             if record is not None:
-                with contextlib.suppress(OSError):
+                try:
                     if how in (None, 'unconfirmed'):
                         _write_record(record, {'state': 'stop_unconfirmed', 'step': label, 'started_at': started,
                                                'worker_pid': proc.pid, 'owner': _OWNER})
                     else:
                         record.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("worker stop record cleanup failed", exc_info=True)
 
 
 async def shutdown():
@@ -381,8 +392,10 @@ def interrupted(folder):
 
 
 def clear(folder):
-    with contextlib.suppress(OSError):
+    try:
         (Path(folder) / RECORD).unlink(missing_ok=True)
+    except OSError:
+        logger.debug("worker record cleanup failed", exc_info=True)
 
 
 async def in_thread(func, *args, **kwargs):
@@ -398,7 +411,11 @@ async def in_thread(func, *args, **kwargs):
 async def settle(fut):
     """Wait until fut is done, whatever cancels arrive meanwhile. Its result or error is dropped."""
     while not fut.done():
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await asyncio.wait({fut})
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            logger.debug("worker settlement wait cancelled", exc_info=True)
     if not fut.cancelled():
         fut.exception()

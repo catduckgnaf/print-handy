@@ -7,7 +7,7 @@ importable from there for one release.
 import logging
 
 logger = logging.getLogger(__name__)
-import asyncio, contextlib, json, re, time
+import asyncio, json, re, time
 from pathlib import Path
 
 from .. import settings
@@ -128,8 +128,14 @@ class FitStatus:
         finally:
             if not task.done():
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
+                try:
                     await task
+                except asyncio.CancelledError:
+                    if asyncio.current_task().cancelling():
+                        raise
+                    logger.debug("fit check task cancelled during cleanup", exc_info=True)
+                except Exception:
+                    logger.debug("fit check task failed during cleanup", exc_info=True)
 
     async def finish(self, outcome):
         """Close the status line with the result and total time, only if one was shown."""

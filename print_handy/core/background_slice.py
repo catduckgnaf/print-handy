@@ -6,15 +6,17 @@ process group (SIGTERM, then SIGKILL after a grace period) and waits until it is
 writes after the cleanup. Nothing here uploads or starts a print.
 """
 import asyncio
-import contextlib
 import copy
 import json
+import logging
 import os
 import shutil
 import time
 from pathlib import Path
 
 from . import owned_worker, slice_recipe
+
+logger = logging.getLogger(__name__)
 
 # The JOB.json fields a slice commits (the set model_job's decision changes
 # retire into artifact_history, plus the derived-plate and check records).
@@ -221,8 +223,12 @@ class BackgroundSlice:
         the binding must settle first; afterwards JOB.json is stable.
         """
         if self.task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self.task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("background slice task cancelled", exc_info=True)
 
     async def take(self, binding):
         """Return the finished slice for this binding, or None when there is nothing usable."""
@@ -230,8 +236,12 @@ class BackgroundSlice:
             return await self.take_supports()
         if self.binding != binding or self.task is None:
             return None
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await self.task
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            logger.debug("background slice task cancelled", exc_info=True)
         self.task = None
         if self.error is not None or self.result is None:
             return None
@@ -241,8 +251,12 @@ class BackgroundSlice:
     async def take_no_supports(self):
         """Return the no-supports slice result, restoring no-supports job metadata to disk."""
         if self.task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self.task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("background slice task cancelled", exc_info=True)
         if await asyncio.to_thread(_sliced_with_supports, self.result):
             # The first slice ran before any decision, so a designer project
             # with supports on (or painted enforcers) sliced WITH supports:
@@ -256,11 +270,19 @@ class BackgroundSlice:
     async def take_supports(self):
         """Return the with-supports slice result, writing with-supports job metadata to disk."""
         if self.task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self.task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("background slice task cancelled", exc_info=True)
         if self.supports_task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self.supports_task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("background supports-slice task cancelled", exc_info=True)
         self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
 
@@ -283,12 +305,20 @@ class BackgroundSlice:
         self.clearance = None
         if task is not None and not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("discarded background slice task cancelled", exc_info=True)
         if sup_task is not None and not sup_task.done():
             sup_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await sup_task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                logger.debug("discarded supports-slice task cancelled", exc_info=True)
         if self.work is not None:  # a discarded slice leaves no G-code behind
             if self.before is None:
                 shutil.rmtree(self.work, ignore_errors=True)

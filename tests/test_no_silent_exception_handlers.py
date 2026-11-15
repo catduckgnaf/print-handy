@@ -24,11 +24,7 @@ SCANNED = ("print_handy", "scripts", "plugins", "docker")
 SUPPRESS_ALLOWANCE = {
     "print_handy/bot/edit_chat.py": 1,
     "print_handy/bot/handlers/common.py": 4,
-    "print_handy/core/background_slice.py": 7,
-    "print_handy/core/owned_worker.py": 6,
     "print_handy/core/prepared_intake.py": 29,
-    "print_handy/intake/fit_flow.py": 1,
-    "print_handy/intake/questions.py": 2,
     "print_handy/runtime/family_control.py": 1,
     "print_handy/runtime/moonraker_event_listener.py": 4,
     "print_handy/runtime/print_alert_buttons.py": 4,
