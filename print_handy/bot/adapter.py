@@ -202,6 +202,49 @@ class StandaloneAdapter(BasePlatformAdapter):
         self._record_prompt(clarify_id, {"message": message, "choices": labels, "question": pieces[-1]})
         return SendResult(True, message_id=str(message.id))
 
+    async def send_clarify_batch(self, chat_id, question, groups, session_key, metadata=None):
+        """One message with one select menu per group (#1473), five rows to a message.
+
+        ``groups`` is [{label, choices, clarify_id}]; each select resolves its
+        own clarify_id in the registry with the chosen label, so the waiting
+        flow collects one answer per group from a single message instead of
+        one message per part. Groups past the fifth row spill to a following
+        message. A message's selects stay live until every one is answered;
+        only then is the message edited to show the picks."""
+        import discord
+        labels_by_cid = {}
+        try:
+            channel = await self._channel(chat_id, metadata)
+            pieces = rest.chunks(question)
+            for piece in pieces[:-1]:
+                await channel.send(piece, allowed_mentions=discord.AllowedMentions.none())
+            first_id = None
+            for start in range(0, len(groups), 5):
+                chunk = groups[start:start + 5]
+                view = discord.ui.View(timeout=None)
+                batch = {"pending": set(), "answers": {}, "labels": {}}
+                for group in chunk:
+                    labels = [str(c)[:100] for c in group["choices"]][:25]
+                    labels_by_cid[group["clarify_id"]] = labels
+                    batch["pending"].add(group["clarify_id"])
+                    batch["labels"][group["clarify_id"]] = str(group["label"])
+                    view.add_item(discord.ui.Select(
+                        placeholder=str(group.get("question") or group["label"])[:150],
+                        options=[discord.SelectOption(label=label, value=label) for label in labels],
+                        custom_id=custom_id(group["clarify_id"], 0)))
+                message = await channel.send(pieces[-1], view=view,
+                                             allowed_mentions=discord.AllowedMentions.none())
+                first_id = first_id or str(message.id)
+                for group in chunk:
+                    self._record_prompt(group["clarify_id"],
+                                        {"message": message, "choices": labels_by_cid[group["clarify_id"]],
+                                         "question": pieces[-1], "batch": batch,
+                                         "group_label": str(group["label"])})
+            return SendResult(True, message_id=first_id)
+        except Exception as exc:
+            logger.warning("Discord batch question failed: %r", exc)
+            return SendResult(False, error=str(exc))
+
     # ------------------------------------------------------------------ job card (#1472)
 
     def _card_embed(self, card):
@@ -378,6 +421,11 @@ class StandaloneAdapter(BasePlatformAdapter):
             row = self._prompts.pop(str(cid), None)
         if not row:
             return
+        batch = row.get("batch")
+        if batch is not None and batch["pending"] - {str(cid)}:
+            # One select of a batch message closed; the others stay live.
+            batch["pending"].discard(str(cid))
+            return
         if row.get("card") is not None:
             # A card prompt collapses into a line on the card (#1472), the
             # generalization of the standalone edit below.
@@ -405,6 +453,12 @@ class StandaloneAdapter(BasePlatformAdapter):
         if parsed is None:
             return False
         cid, index = parsed
+        # A select menu (#1473 batch questions) answers with the chosen value,
+        # not a button index: one message can carry several selects, each with
+        # its own clarify_id.
+        values = data.get("values") if isinstance(data, dict) else None
+        is_select = isinstance(values, list) and bool(values)
+        select_answer = str(values[0]) if is_select else None
         user = getattr(interaction, "user", None)
         if not self._is_allowed_user(str(getattr(user, "id", "")), user):
             # Never silent (#386): the presser gets the ephemeral reply and
@@ -443,10 +497,16 @@ class StandaloneAdapter(BasePlatformAdapter):
                 await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
                 return True
         labels = row["choices"] if row else (self.registry.choices(cid) or [])
-        if not 0 <= index < len(labels):
+        if is_select:
+            if select_answer not in labels:
+                await interaction.response.send_message("That question already closed. Nothing changed.",
+                                                        ephemeral=True)
+                return True
+        elif not 0 <= index < len(labels):
             await interaction.response.send_message("That question already closed. Nothing changed.",
                                                     ephemeral=True)
             return True
+        answer = select_answer if is_select else labels[index]
         # Acknowledge before resolving: resolving wakes the waiting flow (slice start, file reads),
         # which can hold the event loop past Discord's 3 s interaction window, and the presser then
         # sees "This interaction failed" with nothing logged. A deferred update claims nothing yet.
@@ -454,7 +514,7 @@ class StandaloneAdapter(BasePlatformAdapter):
             await interaction.response.defer()
         except Exception:
             logger.warning("could not acknowledge prompt click", exc_info=True)
-        if not self.registry.resolve_gateway_clarify(cid, labels[index]):
+        if not self.registry.resolve_gateway_clarify(cid, answer):
             try:
                 await interaction.followup.send("That question already closed. Nothing changed.", ephemeral=True)
             except Exception:
@@ -464,13 +524,29 @@ class StandaloneAdapter(BasePlatformAdapter):
         question = row["question"] if row else str(getattr(getattr(interaction, "message", None), "content", "") or "")
         with _prompts_guard(self):
             self._prompts.pop(cid, None)
+        batch = row.get("batch") if row else None
+        if is_select and batch is not None:
+            batch["answers"][cid] = answer
+            batch["pending"].discard(cid)
+            if batch["pending"]:
+                # Other selects on this message are still open: leave the
+                # message and its remaining menus untouched.
+                return True
+            picked = "\n".join(f"> {batch['labels'][c]}: **{batch['answers'][c]}**"
+                               for c in batch["labels"] if c in batch["answers"])
+            try:
+                await interaction.edit_original_response(
+                    content=f"{question}\n{picked}"[:rest.LIMIT], view=None)
+            except Exception:
+                logger.debug("could not record the batch choices on the prompt", exc_info=True)
+            return True
         if row is not None and row.get("card") is not None:
             # A press on the job card (#1472): every check above (allowed,
             # approver, initiator, channel) already ran exactly as for a
             # standalone prompt. The answer collapses into a line on the
             # card and the card re-renders without its buttons.
             card = row["card"]
-            card.add_answered(question, f"{who} chose **{labels[index]}**")
+            card.add_answered(question, f"{who} chose **{answer}**")
             self._card_views[str(getattr(row["message"], "id", ""))] = None
             try:
                 await interaction.edit_original_response(embed=self._card_embed(card), view=None)
@@ -479,7 +555,7 @@ class StandaloneAdapter(BasePlatformAdapter):
             return True
         try:
             await interaction.edit_original_response(
-                content=f"{question}\n> {who} chose **{labels[index]}**"[:rest.LIMIT], view=None)
+                content=f"{question}\n> {who} chose **{answer}**"[:rest.LIMIT], view=None)
         except Exception:
             logger.debug("could not record the choice on the prompt", exc_info=True)
         return True

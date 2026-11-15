@@ -8,7 +8,10 @@ exactly one policy:
 ``public``
     No credential. The health probe, the login form and its POST,
     logout (it ends only the caller's own session), the ``/setup``
-    redirect, and the read-only refusal for unsupported methods.
+    redirect, the favicon and branding icons (a browser asks for them
+    before or without a login), the PWA install plumbing (manifest,
+    service worker, offline page and the fixed install icons, #450),
+    and the read-only refusal for unsupported methods.
 ``session``
     The read rule: access is open, or the ``X-WebUI-Token`` header
     matches, or a live login session. A browser navigation without it
@@ -113,6 +116,22 @@ ROUTES = (
     _get("/healthz", PUBLIC, "_healthz", host_check=False),
     _get("/setup", PUBLIC, "_setup_redirect"),
     _get("/login", PUBLIC, "_login_page"),
+    # The favicon and the branding icons (#1456): a browser asks for
+    # these on every page, the login page included, before it holds any
+    # session, so they answer without one. Only the fixed icon names in
+    # the server's allowlist are served; anything else under /static/
+    # gets the handler's 404.
+    _get("/favicon.ico", PUBLIC, "_favicon_route"),
+    _get("/static/*", PUBLIC, "_static_route", decode=False),
+    # PWA install plumbing (#450 Phase 1): public by design, like the
+    # login form — a browser fetches the manifest, the service worker
+    # and the offline page before any sign-in, and none of them carries
+    # state, a credential, or printer data. The install icons ride the
+    # /static/* row above (the maskable icon is in the same allowlist).
+    _get("/manifest.webmanifest", PUBLIC, "_pwa_manifest"),
+    _get("/manifest.json", PUBLIC, "_pwa_manifest"),
+    _get("/sw.js", PUBLIC, "_pwa_service_worker"),
+    _get("/offline", PUBLIC, "_pwa_offline"),
     _get("/u/*", LINK_TOKEN, "_token_upload_page"),
     _get("/theme", SESSION, "_theme_route"),
     _get("/walkthrough", SESSION, "_walkthrough_page"),
@@ -136,16 +155,20 @@ ROUTES = (
     _get("/printers/*/screen", SESSION, "_screen_page"),
     _get("/spools/*", SESSION, "_spools_page"),
     _get("/config", SESSION, "_config_page"),
+    _get("/printer-settings", SESSION, "_printer_settings_page"),
     _get("/chat", SESSION, "_chat_page"),
     _get("/chat/state", SESSION, "_chat_state"),
+    _get("/workflow", SESSION, "_workflow_page"),
+    _get("/workflow/state", SESSION, "_workflow_state"),
+    _get("/workflow/download/*", SESSION, "_workflow_download_route", decode=False),
     _get("/upload", SESSION, "_upload_page"),
     _get("/sources", SESSION, "_sources_page"),
     _get("/designs", SESSION, "_designs_page"),
     _get("/designs/*", SESSION, "_design_route", decode=False),
     _get("/projects", SESSION, "_projects_route", pass_path=True),
     _get("/api/projects", SESSION, "_projects_route", pass_path=True),
-    _get("/layers", SESSION, "_layers_route"),
-    _get("/layers/*", SESSION, "_layers_route", decode=False),
+    _get("/sliced", SESSION, "_sliced_route"),
+    _get("/sliced/*", SESSION, "_sliced_route", decode=False),
     # Anything else: the themed 404 for a browser, JSON otherwise, behind
     # the read rule like every page.
     _get("*", SESSION, "_not_found", decode=False),
@@ -154,6 +177,12 @@ ROUTES = (
     _post("/login", PUBLIC, "_login_submit"),
     _post("/chat", SESSION_CSRF, "_chat_post", back="/chat"),
     _post("/chat/choice", SESSION_CSRF, "_chat_choice_post", back="/chat"),
+    _post("/designs", SESSION_CSRF, "_designs_post", back="/designs"),
+    _post("/designs/choice", SESSION_CSRF, "_designs_choice_post", back="/designs"),
+    _post("/workflow/link", SESSION_CSRF, "_workflow_link_post", back="/workflow"),
+    _post("/workflow/choice", SESSION_CSRF, "_workflow_choice_post", back="/workflow"),
+    _post("/workflow/start", SESSION_CSRF, "_workflow_start_post", back="/workflow"),
+    _post("/workflow/upload", SESSION_CSRF, "_workflow_upload_post", back="/workflow", multipart=True),
     _post("/upload", SESSION_CSRF, "_upload_post", back="/upload", multipart=True),
     # Ends only the caller's own session: the worst a cross-origin post
     # can do is sign the operator out.
@@ -168,6 +197,8 @@ ROUTES = (
           process_token=True),
     _post("/config/preview", SESSION_CSRF, "_config_preview", back="/config"),
     _post("/config", SESSION_CSRF, "_config_save", back="/config"),
+    _post("/printer-settings", SESSION_CSRF, "_printer_settings_save",
+          back="/printer-settings"),
     _post("/debug", SESSION_CSRF, "_debug_post", back="/"),
     _post("/printers", SESSION_CSRF, "_printers_post", back="/printers"),
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),

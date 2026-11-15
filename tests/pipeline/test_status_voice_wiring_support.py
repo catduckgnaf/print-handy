@@ -29,7 +29,7 @@ def test_reorient_notice_carries_the_rotation_quip(env, monkeypatch, speak):
     from print_handy.core import edit_plan
     on_side = edit_plan.rotation_matrix('x', 90)
     monkeypatch.setattr(edit_plan, 'lay_flat_rotation', lambda tris: (on_side, edit_plan.mesh_envelope(on_side, tris)))
-    adapter, _result, _receipt = run_flow(env, [1, 0, 4, 7])
+    adapter, _result, _receipt = run_flow(env, [2, 0, 4, 7])
     assert (REORIENTED + (' [rotation quip]' if speak else '')) in adapter.sent
 
 
@@ -39,7 +39,7 @@ def test_extend_underside_notice_carries_the_mesh_repair_quip(env, monkeypatch, 
     monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
-    adapter, _result, _receipt = run_flow(env, [1, 0, 2, 2])
+    adapter, _result, _receipt = run_flow(env, [2, 0, 2, 2])
     notice = [m for m in adapter.sent if m.startswith('Extended underside to touch build plate')]
     assert len(notice) == 1
     assert notice[0].endswith('Re-analyzing... [mesh_repair quip]' if speak else 'Re-analyzing...')

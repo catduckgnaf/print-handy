@@ -93,8 +93,8 @@ def _run_card_flow(env, picks):
 
 
 def test_simple_job_posts_at_most_three_messages_to_print_started(env):
-    # picks: one color for everything, slot 1, then "Slice and print now (bed is clear)"
-    adapter, result, receipt = _run_card_flow(env, [1, 0, 0])
+    # picks: one color for everything (2 on the #1473 offer), slot 1, then "Slice and print now (bed is clear)"
+    adapter, result, receipt = _run_card_flow(env, [2, 0, 0])
     assert receipt["status"] == "STARTED" and receipt["started"] is True
     assert len(env.starts) == 1
     # The whole intake — three questions, the fit/slice/upload progress,
@@ -112,7 +112,7 @@ def test_simple_job_posts_at_most_three_messages_to_print_started(env):
 def test_the_same_flow_on_a_plain_adapter_is_not_wrapped(env):
     event = S(source=S(profile="3dprinting", chat_id="c1", thread_id=None, user_id="u"),
               message_id="m1", text="https://www.printables.com/model/1-ghost")
-    adapter = Adapter([1, 0, 0])
+    adapter = Adapter([2, 0, 0])
     assert JobCardSession.maybe(adapter, event.source) is adapter
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob("*.json")).read_text())

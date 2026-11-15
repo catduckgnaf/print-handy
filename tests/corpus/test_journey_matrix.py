@@ -40,6 +40,12 @@ UNSUPPORTED = {
 def clicks(color, fit):
     rules = []
     if color:
+        # #1473: a mappable file is offered its mapping first; the color-mode
+        # journeys below start by declining it (Change / Pick every color),
+        # then answer the per-group questions as before.
+        rules += [{"question": "Use these colors?", "button": "Change colors"},
+                  {"question": "pick the rest?", "button": "Pick every color"},
+                  {"question": "Same colors as last time", "button": "Change colors"}]
         rules.append({"question": "Inspected", "button": color})
     rules.append({"question": "Choose", "button": "White"})
     if fit:
@@ -63,7 +69,10 @@ def test_journey(row, tmp_path):
     asked = [q["question"] for q in result.adapter.questions]
     assert result.receipt.get("status") == status, asked
     if color:
-        assert any("Inspected" in q for q in asked)
+        # The color prompt is the "Inspected" mode question, or the #1473
+        # mapping offer that now precedes it on mappable files.
+        assert any("Inspected" in q or "Use these colors?" in q or "pick the rest?" in q
+                   for q in asked)
     if fit:
         assert any("does not fit" in q for q in asked)
         picked = [q["picked"] for q in result.adapter.questions if "does not fit" in q["question"]]

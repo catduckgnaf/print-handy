@@ -122,7 +122,10 @@ def expand(entry):
                  f'description = "{colors} color {layout} model sized {fit} against the merge planner"']
         if reason:
             lines.append(f"known_failure = {_value(reason)}")
-        lines += ["", "[[click]]", 'question = "Choose colors for these parts"', 'button = "Choose colors"', ""]
+        lines += ["", "[[click]]", 'question = "Use these colors?"', 'button = "Change colors"', "",
+                  "[[click]]", 'question = "pick the rest?"', 'button = "Pick every color"', "",
+                  "[[click]]", 'question = "Same colors as last time"', 'button = "Change colors"', "",
+                  "[[click]]", 'question = "Choose colors for these parts"', 'button = "Choose colors"', ""]
         for part, button in zip(names, buttons):
             question = f"for {part}," if layout == "assembly" else f'("{part}")'
             lines += ["[[click]]", f"question = {_value(question)}", f'button = "{button}"', ""]

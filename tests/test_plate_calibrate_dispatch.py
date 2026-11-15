@@ -82,18 +82,15 @@ def _run(text, adapter=None, *, confirm_answer="Make this my empty plate"):
            wait_for_response=lambda cid, timeout: confirm_answer,
            resolve_gateway_clarify=lambda cid, value: None,
            CANCELLED="cancelled")
-    monkeypatch_cm(cm)
-    out = asyncio.run(plugin.plate_calibrate_dispatch(
-        _event(text), _gateway(adapter)))
-    return out, adapter
-
-
-def monkeypatch_cm(cm):
-    # _confirm resolves its registry through prompts.gateway() at call
-    # time, so point gateway() at the fake for the duration of the
-    # dispatch instead of relying on module identity.
     import print_handy.core.prompts as prompts_pkg
+    previous = prompts_pkg.gateway
     prompts_pkg.gateway = lambda: cm
+    try:
+        out = asyncio.run(plugin.plate_calibrate_dispatch(
+            _event(text), _gateway(adapter)))
+    finally:
+        prompts_pkg.gateway = previous
+    return out, adapter
 
 
 def test_status_without_a_reference_names_the_remedy(env):

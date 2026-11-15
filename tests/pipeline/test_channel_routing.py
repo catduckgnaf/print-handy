@@ -34,7 +34,7 @@ printers:
     moonraker_url: http://192.168.1.61:7125
 """
 
-PICKS = [1, 0, 0]  # one color for everything, slot 1, then "Slice and print (bed is clear)"
+PICKS = [2, 0, 0]  # one color for everything (2 on the #1473 offer), slot 1, then "Slice and print (bed is clear)"
 
 
 @pytest.fixture

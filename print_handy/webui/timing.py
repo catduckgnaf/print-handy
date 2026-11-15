@@ -10,7 +10,7 @@ records nothing and changes nothing.
 from __future__ import annotations
 
 from ..jobs import timing_report
-from . import layers as layers_module
+from . import data as data_module
 from . import shell
 
 _esc = shell._esc
@@ -22,7 +22,7 @@ def _seconds(value):
 
 def render_timing_page(data, *, theme=shell.DEFAULT_THEME, nav=None):
     """The Timing page document for a settings mapping."""
-    report = timing_report.build_report(layers_module.archive_root(data))
+    report = timing_report.build_report(data_module.archive_root(data))
     parts = [
         "<p>The waits a person actually feels, read back from the "
         "<code>TIMING.jsonl</code> file every job writes: median and 90th "

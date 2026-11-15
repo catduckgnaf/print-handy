@@ -47,8 +47,8 @@ def test_unverified_with_no_clearance_finding_asks(env, monkeypatch, pick, statu
     Print anyway proceeds and records the waiver; Cancel starts nothing."""
     _coverage_only_flow(env, monkeypatch)
     _stub_unverified(monkeypatch)
-    # one color (1), slot 1 (0), with supports (0), then the override question
-    adapter, result, receipt = run_flow(env, [1, 0, 0, pick])
+    # one color (2 on the #1473 offer), slot 1 (0), with supports (0), then the override question
+    adapter, result, receipt = run_flow(env, [2, 0, 0, pick])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
@@ -72,9 +72,9 @@ def test_unverified_on_the_resliced_slice_asks(env, monkeypatch):
     """The re-slice-with-supports path asks too, not just the first slice."""
     _coverage_only_flow(env, monkeypatch)
     _stub_unverified(monkeypatch)
-    # one color (1), slot 1 (0), slice only (2), re-slice with supports (0),
+    # one color (2 on the #1473 offer), slot 1 (0), slice only (2), re-slice with supports (0),
     # Print anyway at the unverified question (0), start (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 0, 0])
     asked = [q for q in adapter.questions
              if q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]]
     assert len(asked) == 1
@@ -91,7 +91,7 @@ def test_unverified_source_bounds_unreadable_asks(env, monkeypatch):
     def _no_leaves(path):
         raise OSError('cannot read source')
     monkeypatch.setattr(support_clearance, 'leaves', _no_leaves)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
@@ -108,7 +108,7 @@ def test_unverified_coverage_check_raising_asks(env, monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError('kaboom')
     monkeypatch.setattr(support_clearance, 'verify_support_coverage', _boom)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
@@ -130,7 +130,7 @@ def test_unverified_unreadable_plate_file_asks_and_cancel_stops(env, monkeypatch
             Path(path).unlink()
         return digest
     monkeypatch.setattr(prepared_intake.delivery, 'sha256', _sha256_then_delete)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']
@@ -168,7 +168,7 @@ def test_unverified_multi_plate_no_match_asks(env, monkeypatch):
     _coverage_only_flow(env, monkeypatch)
     reason = 'region Gamma matched no object instance on any plate; its coverage is unverified'
     _stub_unverified(monkeypatch, reason=reason)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])
     q = adapter.questions[-1]
     assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert "Support coverage couldn't be verified:" in q['question']

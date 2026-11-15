@@ -2206,7 +2206,9 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                         before_start=None, confirm_target=False):
     from . import model_job as mj
-    from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
+    from .source_colors import (inventory, canonical_prompts, grouped_prompts, validate_decisions,
+                                color_groups, propose_mapping, remembered_color_mapping,
+                                mapping_summary, prompt_source_colour)
     source = event.source
     url = None if reuse else model_link(event.text)
     uploads = [] if (url or reuse) else model_files(event)
@@ -2545,6 +2547,128 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         selected_plates = job.get('selected_plates') or None
         questions = canonical_prompts(manifest, selected_plate_ids=selected_plates)
         grouped = grouped_prompts(manifest, selected_plate_ids=selected_plates)
+
+        def _group_unit(group):
+            """One askable unit for a color group (#1473): its decision keys,
+            a question that names the parts and their author color, and the
+            row its source color is read from."""
+            note = ''
+            if group['color_words']:
+                note = f" (author color: {' '.join(group['color_words']).title()})"
+            question = (group['rows'][0]['question'] if len(group['rows']) == 1
+                        else f"Choose the color/material for {group['label']}{note}")
+            return {'keys': group['keys'], 'label': group['label'],
+                    'question': question, 'colour_row': group['rows'][0]}
+
+        async def _ask_units(units, choices, taken=None):
+            """Fill ``choices`` (decision key -> selection) by asking each unit.
+
+            On Discord every unit is one select menu in a single batch
+            message (five rows to a message, then a second). Tool printers
+            and other adapters ask unit by unit, with a tool already given a
+            different source color not offered again (#346)."""
+            if not units:
+                return
+            from . import yolo as _yolo
+            if (not job_adapter.tool_based and len(units) > 1 and not _yolo.ACTIVE.get()
+                    and getattr(adapter, 'send_clarify_batch', None) is not None):
+                from .link_intake import ask_batch
+                picks = await ask_batch(
+                    adapter, source, key, 'Choose the color/material for each color:',
+                    [{'label': unit['label'], 'question': unit['question'], 'choices': labels}
+                     for unit in units], timeout)
+                for unit, pick in zip(units, picks):
+                    for decision_key in unit['keys']:
+                        choices[decision_key] = selections[pick]
+                return
+            # tool -> source colour already assigned to it (tool_based only).
+            # Seeded with the toolheads a partly accepted proposal already
+            # claimed, so a remaining question never offers one of those to
+            # a different source colour (review of #1487).
+            taken = dict(taken or {})
+            for unit in units:
+                if job_adapter.tool_based:
+                    colour = prompt_source_colour(manifest, unit['colour_row'])
+                    offered = [(label, sel) for label, sel in zip(labels, selections)
+                               if taken.get(sel['slot'], colour) == colour]
+                    picked = offered[await _ask(adapter, source, key, unit['question'],
+                                                [label for label, _ in offered], timeout)][1]
+                    taken[picked['slot']] = colour
+                else:
+                    picked = selections[await _ask(adapter, source, key, unit['question'],
+                                                    labels, timeout)]
+                for decision_key in unit['keys']:
+                    choices[decision_key] = picked
+
+        async def _ask_color_plan():
+            """Offer a remembered or proposed mapping before the color questions (#1473).
+
+            Returns {'mode': 1} for one color for everything, {'mode': 0,
+            'choices': {...}, 'units': [...]} for per-part (choices already
+            accepted; units still to ask), or None to use the legacy mode
+            question. A mapping is only ever applied after the operator taps
+            its button — proposing or remembering never decides."""
+            if layered and not manifest['painted'] and len(manifest['parts']) <= 1:
+                # Nothing but height changes makes this multicolor (#870):
+                # the legacy question names that choice ("Keep the
+                # height-based colors"); a mapping offer must not pre-empt it.
+                return None
+            groups = color_groups(manifest, selected_plate_ids=selected_plates)
+            if len(groups) < 2:
+                return None
+            if job_adapter.tool_based:
+                # One colour per toolhead (#346): more distinct source
+                # colours than toolheads can never be assigned, by proposal
+                # or by hand; refuse before offering anything.
+                from .source_colors import distinct_source_colours
+                colours = distinct_source_colours(manifest)
+                if len(colours) > job_adapter.tool_count:
+                    raise printers.MultiColorUnsupported(
+                        f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
+                        f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
+                        f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
+            by_slot = {sel['slot']: sel for sel in selections}
+            remembered = remembered_color_mapping(manifest, selections,
+                                                  selected_plate_ids=selected_plates)
+            proposal = None if remembered else propose_mapping(
+                manifest, selections, selected_plate_ids=selected_plates)
+            if remembered:
+                prompt = (f"Same colors as last time for this file? "
+                          f"{mapping_summary(remembered['groups'])}")
+                options = ['Same colors as last time', 'Change colors', 'One color for everything']
+            elif proposal and proposal['matched']:
+                if proposal['complete']:
+                    prompt = (f"Colors for these parts: {mapping_summary(proposal['groups'])}. "
+                              'Use these colors?')
+                    options = ['Use these colors', 'Change colors', 'One color for everything']
+                else:
+                    prompt = (f"I can match some of these colors to loaded spools: "
+                              f"{mapping_summary(proposal['groups'])}. "
+                              'Use those and pick the rest?')
+                    options = ['Use these and pick the rest', 'Pick every color',
+                               'One color for everything']
+            else:
+                return None
+            pick = await _ask(adapter, source, key, prompt, options, timeout)
+            if pick == 2:
+                return {'mode': 1}
+            if remembered and pick == 0:
+                return {'mode': 0, 'units': [],
+                        'choices': {k: by_slot[slot] for k, slot in remembered['choices'].items()}}
+            if proposal and proposal['complete'] and pick == 0:
+                return {'mode': 0, 'units': [],
+                        'choices': {k: by_slot[g['slot']] for g in proposal['groups']
+                                    for k in g['keys']}}
+            preset, pending, claimed = {}, [], {}
+            for group in (proposal['groups'] if proposal else groups):
+                if pick == 0 and group.get('slot') is not None:
+                    for k in group['keys']:
+                        preset[k] = by_slot[group['slot']]
+                    if job_adapter.tool_based:
+                        claimed[group['slot']] = prompt_source_colour(manifest, group['rows'][0])
+                else:
+                    pending.append(_group_unit(group))
+            return {'mode': 0, 'choices': preset, 'units': pending, 'taken': claimed}
         families = [row for row in grouped if len(row['keys']) > 1]
         tally = {}
         for p in manifest['parts']:
@@ -2558,6 +2682,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # and the choice is recorded on the decisions, never left silent.
         layered = bool(manifest.get('layer_changes'))
         layer_single_choice = None
+        color_plan = None  # #1473: set when a proposed/remembered mapping was offered
         if saved_decisions:
             decisions = saved_decisions
         elif layered and not manifest['painted'] and getattr(job_adapter, 'color_system', None) == 'single':
@@ -2582,27 +2707,33 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                       'Print it in one color for everything?')
             mode = 1 + await _ask(adapter, source, key, prompt, ['One color for everything'], timeout)
         elif questions and (len(manifest['parts']) > 1 or manifest['painted'] or layered):
-            options = ['Keep distinct source regions' if manifest['painted'] else 'Choose colors for these parts',
-                       'One color for everything']
-            if families:
-                together = '; '.join(row.get('label') or row['question'].split(' for ', 1)[1].split(' (', 1)[0]
-                                     for row in families)
-                options[0] = f'Choose colors ({together} share one color)'[:80]
-                options.append('Choose every part individually')
-            count = len(manifest['parts'])
-            found = f"Inspected {count} part{'s' if count != 1 else ''}: {names}."
-            prompt = (f'{found} Keep distinct source regions or explicitly use one color for everything? '
-                      'Keeping painted regions prints each painted area in the color you pick for it.'
-                      if manifest['painted'] else
-                      f'{found} Choose colors for these parts or one color for everything?')
-            if layered and not manifest['painted'] and len(manifest['parts']) <= 1:
-                # Nothing but the height changes makes this multicolor: ask
-                # about them by name, not about "these parts".
-                from .source_colors import layer_change_summary
-                options[0] = 'Keep the height-based colors'
-                prompt = (f'{found} This print {layer_change_summary(manifest)}. '
-                          'Keep the height-based colors or use one color for everything?')
-            mode = await _ask(adapter, source, key, prompt, options, timeout)
+            # #1473: a remembered or proposed mapping is offered first; the
+            # legacy mode question runs only when neither applies.
+            color_plan = await _ask_color_plan()
+            if color_plan is not None:
+                mode = color_plan['mode']
+            else:
+                options = ['Keep distinct source regions' if manifest['painted'] else 'Choose colors for these parts',
+                           'One color for everything']
+                if families:
+                    together = '; '.join(row.get('label') or row['question'].split(' for ', 1)[1].split(' (', 1)[0]
+                                         for row in families)
+                    options[0] = f'Choose colors ({together} share one color)'[:80]
+                    options.append('Choose every part individually')
+                count = len(manifest['parts'])
+                found = f"Inspected {count} part{'s' if count != 1 else ''}: {names}."
+                prompt = (f'{found} Keep distinct source regions or explicitly use one color for everything? '
+                          'Keeping painted regions prints each painted area in the color you pick for it.'
+                          if manifest['painted'] else
+                          f'{found} Choose colors for these parts or one color for everything?')
+                if layered and not manifest['painted'] and len(manifest['parts']) <= 1:
+                    # Nothing but the height changes makes this multicolor: ask
+                    # about them by name, not about "these parts".
+                    from .source_colors import layer_change_summary
+                    options[0] = 'Keep the height-based colors'
+                    prompt = (f'{found} This print {layer_change_summary(manifest)}. '
+                              'Keep the height-based colors or use one color for everything?')
+                mode = await _ask(adapter, source, key, prompt, options, timeout)
         else:
             mode = 1
         if not saved_decisions:
@@ -2622,23 +2753,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                             f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
                             f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
                             f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
-                # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
-                rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
-                choices = {}
-                taken = {}  # tool -> source colour already assigned to it (tool_based only)
-                for row in rows:
-                    if job_adapter.tool_based:
-                        from .source_colors import prompt_source_colour
-                        colour = prompt_source_colour(manifest, row)
-                        offered = [(label, sel) for label, sel in zip(labels, selections)
-                                   if taken.get(sel['slot'], colour) == colour]
-                        picked = offered[await _ask(adapter, source, key, row['question'],
-                                                    [label for label, _ in offered], timeout)][1]
-                        taken[picked['slot']] = colour
+                if color_plan is not None:
+                    # #1473: the accepted mapping fills what it covers; only
+                    # the groups the operator still owes are asked.
+                    choices = dict(color_plan['choices'])
+                    await _ask_units(color_plan['units'], choices, color_plan.get('taken'))
+                else:
+                    # Numbered siblings (Stencil 1/2/3) and parts sharing an
+                    # author color get one question (#1473) unless the
+                    # operator chose per part.
+                    if mode == 0:
+                        units = [_group_unit(group) for group in
+                                 color_groups(manifest, selected_plate_ids=selected_plates)]
                     else:
-                        picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
-                    for decision_key in row['keys']:
-                        choices[decision_key] = picked
+                        units = [{'keys': [row['key']], 'label': row['question'],
+                                  'question': row['question'], 'colour_row': row}
+                                 for row in questions]
+                    choices = {}
+                    await _ask_units(units, choices)
                 decisions['choices'] = choices
             else:
                 # Core face colors print as one color, and the operator is told (#714).
@@ -2665,6 +2797,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
                                        selected_plate_ids=selected_plates)
         mj.set_color_decisions(latest, validated)
+        if validated.get('mode') == 'per_part':
+            # #1473: remember the accepted mapping for the next post of this
+            # file with the same spools loaded (best-effort, never blocking).
+            from .source_colors import remember_color_mapping
+            remember_color_mapping(manifest, selections, validated.get('choices') or {})
         if decisions['mode'] == 'single_color':
             latest['filament_selection'] = validated['selection']
         fit_status = FitStatus(adapter, source, metadata)
@@ -3388,7 +3525,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # supports" records it.
                     menu_options.append({'kind': 'print_anyway',
                                          'label': PRINT_ANYWAY_RISK_LABEL if can_print else SLICE_ANYWAY_RISK_LABEL})
-                menu_options.append({'kind': 'slice_only', 'label': 'Slice only'})
+                menu_options.append({'kind': 'slice_only', 'label': 'Slice and Download'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
                 first_labels = [opt['label'] for opt in menu_options]
@@ -3396,7 +3533,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 summary_extra = ''
                 menu_options = [
                     {'kind': 'print', 'label': print_label},
-                    {'kind': 'slice_only', 'label': 'Slice only'},
+                    {'kind': 'slice_only', 'label': 'Slice and Download'},
                     {'kind': 'scale', 'label': SCALE_LABEL},
                     {'kind': 'cancel', 'label': cancel_label},
                 ]
@@ -3774,7 +3911,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'operator cancelled print request'}
         if is_flagged and hasattr(early, 'settle'):
-            # A flagged menu answered with Slice only reaches this guard with
+            # A flagged menu answered with Slice and Download reaches this guard with
             # no recorded decision to settle for; the speculative slice must
             # still be finished before JOB.json is compared to the binding.
             await early.settle()
@@ -4832,7 +4969,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         later = (f" Plate {picked_plate + 1} of {len(parts)} only; a picker for the rest follows when it finishes."
                  if split else '')
         if choice == 1:
-            # Slice only never confirmed the bed. One start button for the exact plate, same machinery as /print-next.
+            # Slice and Download never confirmed the bed. One start button for the exact plate, same machinery as /print-next.
             question = (f"Start plate {picked_plate + 1} of {len(gcodes)} ({parts[picked_plate]['label']}) now? "
                         'Starting uploads and prints immediately.'
                         if split else 'Start this exact plate? Starting uploads and prints immediately.')
@@ -4840,13 +4977,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 question = breakdown + '\n' + question
             if slot_lines:
                 question = slot_lines + '\n' + question
-            if delivery.only_printer(enabled):
+            # An explicit Slice and Download is a request for the file itself (#1443): the menu
+            # offers the chat download whenever the vendor profile offers it at all,
+            # not only when [delivery] methods kept it — a default Flashforge install
+            # (printer-only default) must still hand over the file it sliced.
+            menu_enabled = delivery.slice_only_methods()
+            if delivery.only_printer(menu_enabled):
                 go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
                                 approval=True)
             else:
                 if not can_print:
                     question = breakdown + '\nSliced and validated. What should I do with the files?'
-                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, enabled,
+                go = await _delivery_menu(adapter, source, key, metadata, timeout, question, menu_enabled,
                                           receipt, receipt_path, jp, gcodes)
             if go != 0:
                 receipt['status'] = 'SLICED_NOT_STARTED'

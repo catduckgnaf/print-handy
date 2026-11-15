@@ -63,7 +63,7 @@ def test_unknown_refusal_is_plain_and_keeps_raw_detail_out_of_chat():
 
 def test_single_color_successful_flow_messages_and_order(env):
     """After bed-clear approved, prep message is sent before start, followed by started confirmation."""
-    adapter, result, receipt = run_flow(env, [1, 0, 0])  # single color, slot 1, slice and print now
+    adapter, result, receipt = run_flow(env, [2, 0, 0])  # single color, slot 1, slice and print now
 
     # P2-58: the still-running background slice is acknowledged first.
     assert len(adapter.log) == 3, f'Expected wait, prep and one start message: {adapter.log}'
@@ -108,7 +108,7 @@ def test_receipt_parseable_at_start_requested_transition(env, monkeypatch):
 
     monkeypatch.setattr(print_next, 'start', checked_start)
 
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert len(transition_verified) == 1, 'Transition check did not run'
     assert receipt['status'] == 'STARTED'
 
@@ -127,7 +127,7 @@ def test_refused_start_sends_prep_then_precise_failure_no_printing_claim(env, mo
 
     monkeypatch.setattr(print_next, 'start', refused_start)
 
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
 
     assert len(adapter.log) == 3, f'Expected wait, prep and one refusal message: {adapter.log}'
     assert adapter.log[0] == WAIT_TEXT
@@ -156,7 +156,7 @@ def test_refused_start_sends_prep_then_precise_failure_no_printing_claim(env, mo
 
 def test_duplicate_event_deduplication_and_no_duplicate_messages(env):
     """A duplicate model-link event does not trigger a second start or duplicate Discord messages."""
-    adapter1, result1, receipt1 = run_flow(env, [1, 0, 0], mid='dedup-1')
+    adapter1, result1, receipt1 = run_flow(env, [2, 0, 0], mid='dedup-1')
     assert len(env.starts) == 1
     initial_sent_count = len(adapter1.log)
     assert initial_sent_count == 3
@@ -200,7 +200,7 @@ def test_multicolor_mapped_flow_lifecycle_and_messages(env, monkeypatch):
     # 0: Shell -> Slot 1 (white PLA)
     # 1: Eyes -> Slot 3 (black PLA)
     # 0: Slice and print now (bed is clear)
-    adapter, result, receipt = run_flow(env, [0, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
 
     assert len(transition_verified) == 1
     assert receipt['color_decisions']['mode'] == 'per_part'
@@ -231,7 +231,7 @@ def test_multicolor_refused_start_sends_prep_then_precise_failure(env, monkeypat
     monkeypatch.setattr(print_next, 'start', refused_start)
 
     # picks: per_part (0), Shell->slot 1 (0), Eyes->slot 3 (1), Slice and print now (0)
-    adapter, result, receipt = run_flow(env, [0, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
 
     prep_idx = next(i for i, m in enumerate(adapter.log) if PREP_TEXT in m)
     fail_idx = next(i for i, m in enumerate(adapter.log) if m.startswith("Didn't start:"))
@@ -242,13 +242,13 @@ def test_multicolor_refused_start_sends_prep_then_precise_failure(env, monkeypat
 
 
 def test_slice_only_then_start_button_lifecycle(env, monkeypatch):
-    """Slice only, then explicit Start button confirmation sends prep before start."""
+    """Slice and Download, then explicit Start button confirmation sends prep before start."""
     # picks:
     # 1: One color for everything
     # 0: Slot 1
-    # 1: Slice only
+    # 1: Slice and Download
     # 0: Start this exact plate? -> Start next plate · bed is clear
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 0])
 
     assert receipt['status'] == 'STARTED'
     assert receipt['started'] is True
@@ -310,7 +310,7 @@ def _color_mismatch_start(monkeypatch, refusal=COLOR_REFUSAL):
 def test_color_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkeypatch):
     """#795: never a Retry-only refusal; Print anyway reaches the start exactly once more."""
     seen = _color_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # one color, slot 1, print now, Print anyway
     question = adapter.questions[-1]
     assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, prepared_intake.SET_SCREEN_LABEL,
                                    print_next.CANCEL_LABEL]
@@ -325,7 +325,7 @@ def test_color_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkey
 
 def test_color_mismatch_cancel_uploads_nothing(env, monkeypatch):
     seen = _color_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 2])  # ... then Cancel
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 2])  # ... then Cancel
     assert len(seen) == 1
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
@@ -365,7 +365,7 @@ def test_label_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkey
     """#839: the label mismatch mirrors the color flow — ask once, Print anyway
     binds the acceptance to this exact G-code, and it is consumed after."""
     seen = _label_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # one color, slot 1, print now, Print anyway
     question = adapter.questions[-1]
     assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'PETG' in question['question'] and 'Silk PLA' in question['question']
@@ -379,7 +379,7 @@ def test_label_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkey
 
 def test_label_mismatch_cancel_uploads_nothing(env, monkeypatch):
     seen = _label_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... then Cancel
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])  # ... then Cancel
     assert len(seen) == 1
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
@@ -388,7 +388,7 @@ def test_label_mismatch_cancel_uploads_nothing(env, monkeypatch):
 def test_two_mismatched_slots_get_one_prompt_and_one_print_anyway_for_both(env, monkeypatch):
     """#795 review: both slots are named in one question, and one answer covers both."""
     seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... then Print anyway
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # ... then Print anyway
     asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
     assert len(asked) == 1
     question = asked[0]['question']
@@ -403,7 +403,7 @@ def test_two_mismatched_slots_get_one_prompt_and_one_print_anyway_for_both(env, 
 
 def test_two_mismatched_slots_cancel_uploads_nothing(env, monkeypatch):
     seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 2])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 2])
     assert len(seen) == 1
     assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
 
@@ -414,7 +414,7 @@ def test_color_refusal_that_surfaces_keeps_its_retry_text(env, monkeypatch):
         return False, COLOR_REFUSAL
 
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0] + [0] * (prepared_intake.COLOR_CONFIRM_ROUNDS - 1))
+    adapter, result, receipt = run_flow(env, [2, 0, 0] + [0] * (prepared_intake.COLOR_CONFIRM_ROUNDS - 1))
     asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
     assert len(asked) == prepared_intake.COLOR_CONFIRM_ROUNDS - 1
     assert adapter.log[-1].startswith("Didn't start: printer slot 1 color is #E53935")
@@ -443,7 +443,7 @@ def test_set_screen_that_fails_for_a_slot_prints_anyway_and_tells_the_channel(en
         return 'pushed'
 
     monkeypatch.setattr(spool_sync, 'sync_slot_screen', sync_slot_screen)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... then Set screen to Spoolman color
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])  # ... then Set screen to Spoolman color
     assert calls == [1, 2]
     assert receipt['color_mismatch']['screen'] == {'1': 'pushed', '2': 'failed'}
     notes = [m for m in adapter.log if 'screen color unchanged' in m]
@@ -457,7 +457,7 @@ def test_set_screen_that_pushes_every_slot_posts_no_note(env, monkeypatch):
     _color_mismatch_start(monkeypatch)
     spool_sync = external("spool_sync")
     monkeypatch.setattr(spool_sync, 'sync_slot_screen', lambda slot, printer_id=None: 'pushed')
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])
     assert not any('screen color unchanged' in m for m in adapter.log)
     assert receipt['color_mismatch']['screen'] == {'1': 'pushed'}
 
@@ -485,7 +485,7 @@ def test_material_mismatch_asks_reslice_first_and_print_as_sliced_starts_once_13
     """#1336 (fails on base 1d452a58, which showed a Retry-only refusal): the intake asks
     Reslice / Print as sliced / Cancel; Print as sliced restarts with this answer only."""
     seen = _material_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # one color, slot 1, print now, Print as sliced
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])  # one color, slot 1, print now, Print as sliced
     question = adapter.questions[-1]
     assert question['choices'] == ['Reslice for PLA', 'Print as sliced', 'Cancel']
     assert 'PETG' in question['question'] and 'own temperatures' in question['question']
@@ -498,7 +498,7 @@ def test_material_mismatch_asks_reslice_first_and_print_as_sliced_starts_once_13
 
 def test_material_mismatch_reslice_is_the_default_and_starts_nothing_1336(env, monkeypatch):
     seen = _material_mismatch_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... Reslice for PLA
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # ... Reslice for PLA
     assert len(seen) == 1
     assert receipt['status'] == 'SLICED_NOT_STARTED'
     assert any('To reslice for PLA' in m for m in adapter.log)
@@ -524,7 +524,7 @@ def _shortage_start(monkeypatch):
 def test_filament_shortage_asks_print_anyway_and_starts_once(env, monkeypatch):
     """A short spool on a slot the print uses asks Print anyway / Cancel before upload, never a block."""
     seen = _shortage_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # one color, slot 1, print now, Print anyway
     question = adapter.questions[-1]
     assert question['choices'] == ['Print anyway', 'Cancel']
     assert 'Slot 2' in question['question'] and 'spool #19' in question['question']
@@ -535,7 +535,7 @@ def test_filament_shortage_asks_print_anyway_and_starts_once(env, monkeypatch):
 
 def test_filament_shortage_cancel_starts_nothing(env, monkeypatch):
     seen = _shortage_start(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... Cancel
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 1])  # ... Cancel
     assert len(seen) == 1 and receipt['status'] == 'SLICED_NOT_STARTED'
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
 
@@ -552,7 +552,7 @@ def test_swapped_spool_asks_use_the_loaded_spool_in_the_intake_1336(env, monkeyp
         return True, 'started'
 
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... Use the loaded spool
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0])  # ... Use the loaded spool
     assert adapter.questions[-1]['choices'][0] == prepared_intake.USE_LOADED_SPOOL_LABEL
     assert seen == [False, True]
     assert 'accept_spool_change' not in (receipt.get('retry_target') or {})

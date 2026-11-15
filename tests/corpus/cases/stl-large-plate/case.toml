@@ -9,6 +9,18 @@ fixture = "model.stl"
 description = "large-plate binary STL: solid cube slicing to a 50 MB class G-code for the real-Orca timing leg"
 
 [[click]]
+question = "Use these colors?"
+button = "Change colors"
+
+[[click]]
+question = "pick the rest?"
+button = "Pick every color"
+
+[[click]]
+question = "Same colors as last time"
+button = "Change colors"
+
+[[click]]
 question = "Choose the color for"
 button = "White"
 

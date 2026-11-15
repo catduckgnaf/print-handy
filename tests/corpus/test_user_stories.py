@@ -12,7 +12,11 @@ def _run(case_name, tmp_path):
 
 
 def _picked(run, fragment):
-    return [q["picked"] for q in run.adapter.questions if fragment.casefold() in q["question"].casefold()]
+    # Only the part's own color question counts: the #1473 mapping offer also
+    # names every part, but picking there chooses a mapping, not this part's spool.
+    return [q["picked"] for q in run.adapter.questions
+            if "choose the color/material for" in q["question"].casefold()
+            and fragment.casefold() in q["question"].casefold()]
 
 
 def test_catduck_drops_a_multicolor_file_then_slices_and_prints(tmp_path):

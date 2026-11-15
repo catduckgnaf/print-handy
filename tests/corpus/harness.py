@@ -506,6 +506,11 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="dire
         enter(printer_overrides.patched(overrides))
         patch(printer_state, "STATE", str(state_file))
         patch(_config, "state_dir", lambda: work / "state")
+        # The remembered color mappings (#1473) live in the app state dir; a
+        # run is one drop's alternate history, so its memory starts empty and
+        # stays inside this run's work dir like every other drop artifact.
+        patch(source_colors, "_mapping_store_path",
+              lambda path=None: Path(path) if path is not None else work / "state" / "color_mappings.json")
         archive = (WORK / f"{case.name}-{uuid.uuid4().hex[:8]}") if real_slicer else work / "archive"
         archive.mkdir(parents=True, exist_ok=True)
         patch(model_job, "ARCHIVE", archive)
