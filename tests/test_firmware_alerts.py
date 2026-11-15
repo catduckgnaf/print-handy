@@ -519,7 +519,8 @@ def test_only_zmod_printers_get_alerts(cfg):
 
 def test_settings_default_on_daily():
     data = _config.cfg()
-    assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24}
+    assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24,
+                                "notice_firmwares": ["zmod", "opencreator", "forge-x"]}
 
 
 @pytest.mark.parametrize("bad", [{"update_alerts": "yes"}, {"update_check_hours": 0},

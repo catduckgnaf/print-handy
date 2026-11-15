@@ -227,7 +227,8 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
 AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
                 "fallback_api_key_env", "timeout_s")
-ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "denylist")}
+ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "denylist"),
+             ("firmware", "notice_firmwares")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
 MIXED_KEYS = {("zmod", "plugins")}
@@ -1763,6 +1764,10 @@ def _validate_vision(data):
 
 
 FIRMWARE_CHECK_HOURS_MAX = 168
+# Firmware lines whose new releases are announced in chat by default (catduck, 2026-11-15): the
+# firmwares Print Handy supports on Flashforge printers. Forge-X follows its feed channel, which is
+# the 1.4.2 prerelease line until 1.4.2 ships stable. Ids are the firmware feed's (docs/firmware-feed.toml).
+FIRMWARE_NOTICE_DEFAULT = ("zmod", "opencreator", "forge-x")
 
 
 def _validate_firmware(data):
@@ -1773,6 +1778,9 @@ def _validate_firmware(data):
     confirmed apply as ``/print-firmware update zmod``. Nothing is ever
     applied without that press and its confirmation. ``update_check_hours``
     is how often each printer is checked (1 to 168 hours, default 24).
+    ``notice_firmwares`` lists the firmware feed lines whose new releases
+    get a chat notice (default zmod, opencreator, forge-x); every other
+    line stays in the feed and on the Web UI's Firmware page only.
     """
     firmware = data.setdefault("firmware", {})
     alerts = firmware.setdefault("update_alerts", True)
@@ -1782,6 +1790,11 @@ def _validate_firmware(data):
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
                             f"from 1 to {FIRMWARE_CHECK_HOURS_MAX}, got {hours!r}")
+    names = firmware.setdefault("notice_firmwares", list(FIRMWARE_NOTICE_DEFAULT))
+    if not isinstance(names, (list, tuple)) or not all(isinstance(n, str) for n in names):
+        raise SettingsError(f"[firmware] notice_firmwares must be a list of firmware feed ids, "
+                            f"like {list(FIRMWARE_NOTICE_DEFAULT)!r}, got {names!r}")
+    firmware["notice_firmwares"] = [n.strip().lower() for n in names if n.strip()]
 
 
 def _validate_notify(data):

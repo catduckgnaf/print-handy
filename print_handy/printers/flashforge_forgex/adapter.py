@@ -37,7 +37,7 @@ nothing here assumes a printer-side Spoolman.
 """
 from ..base import basic_status
 from ..klipper.adapter import KlipperAdapter
-from . import facts, firmware_check
+from . import facts, firmware_check, start_contract
 
 # The documented machine start form, exactly as the templates carry it.
 DOCUMENTED_START_LINES = (
@@ -69,8 +69,13 @@ class ForgeXAdapter(KlipperAdapter):
         return "END_PRINT"
 
     def start_plan(self, bed_temp, nozzle_temp, *, mesh="auto"):
-        return [DOCUMENTED_START_LINES[0],
-                f"START_PRINT EXTRUDER_TEMP={nozzle_temp:g} BED_TEMP={bed_temp:g}"]
+        lines = [DOCUMENTED_START_LINES[0],
+                 f"START_PRINT EXTRUDER_TEMP={nozzle_temp:g} BED_TEMP={bed_temp:g}"]
+        for line in lines:
+            bad = start_contract.forbidden_params(line)
+            if bad:  # pragma: no cover - the form above never carries them
+                raise ValueError(f"Forge-X start would carry {', '.join(bad)}, which cancel the print")
+        return lines
 
     def readiness_problems(self, state, status, selection=None, **kw):
         problems = super().readiness_problems(state, status, selection, **kw)
@@ -83,11 +88,18 @@ class ForgeXAdapter(KlipperAdapter):
         mismatch = firmware_check.zmod_mismatch_problem(status)
         if mismatch:
             problems.append(mismatch)
+        # The stock screen needs a different start form than the one these
+        # profiles slice (start_contract.py, #1506 tranche 2): refuse it by name.
+        stock = start_contract.stock_screen_problem(status)
+        if stock:
+            problems.append(stock)
         return problems
 
     def moonraker_objects(self):
+        # mod_params carries the screen mode (start_contract.py) and is the
+        # Forge-X evidence the mismatch warning reads.
         return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed",
-                "exclude_object"]
+                "exclude_object", "mod_params"]
 
     def normalize_status(self, raw):
         return basic_status(raw)

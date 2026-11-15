@@ -20,7 +20,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 - [Multi-part projects](PROJECTS.md): upload several STL/3MF files together, trace project/plate JSON IDs and print the next plate.
 - [Settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md): settings, precedence and environment overrides.
 - [Slicer warnings](SLICER-WARNINGS.md): OrcaSlicer warnings after slicing.
-- [Firmware updates](FIRMWARE-UPDATE.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md).
+- [Firmware updates](FIRMWARE-UPDATE.md) · [Firmware feed](FIRMWARE-FEED.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md).
 - [Design a part](DESIGN.md): optional AI-assisted OpenSCAD design. Review the result before the usual approval flow.
 - [Edit a prepared model](EDITING.md): confirmed edit operations and limits. OrcaSlicer warning behavior is covered in [Slicer warnings](SLICER-WARNINGS.md).
 - [Printer profiles](PRINTER-PROFILES.md): supported delivery methods and verification limits.

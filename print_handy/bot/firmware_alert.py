@@ -33,6 +33,7 @@ import time
 import uuid
 
 from .. import firmware_alerts as fa
+from .. import firmware_feed
 from .. import firmware_update as fw
 from .. import settings
 from ..core import prompts
@@ -53,6 +54,14 @@ JITTER_FRACTION = 0.1
 
 def enabled(cfg) -> bool:
     return bool((cfg.get("firmware") or {}).get("update_alerts", True))
+
+
+def notice_firmwares(cfg) -> frozenset:
+    """Feed lines announced in chat ([firmware] notice_firmwares)."""
+    names = (cfg.get("firmware") or {}).get("notice_firmwares")
+    if names is None:
+        names = settings.FIRMWARE_NOTICE_DEFAULT
+    return frozenset(str(n).lower() for n in names)
 
 
 def interval_s(cfg) -> float:
@@ -78,6 +87,21 @@ def alert_printers(cfg):
     return out
 
 
+def feed_printers(cfg):
+    """(printer_id, model key, registry entry or None) for every roster printer.
+
+    Release notices from the firmware feed go to any printer whose model
+    a feed entry covers, whatever its connection: a notice reads nothing
+    from the printer.
+    """
+    out = []
+    for row in settings.printers(cfg):
+        model = row.get("model")
+        if row.get("id") is not None and model:
+            out.append((str(row["id"]), str(model), fw.printer_entry(model)))
+    return out
+
+
 def _moonraker_for(cfg, printer_id):
     from ..runtime import spool_sync
     default = settings.default_printer_id(cfg)
@@ -88,10 +112,11 @@ class FirmwareAlerter:
     """The bot's update-alert scheduler and delivery for one BotCore."""
 
     def __init__(self, core, *, transport_for=None, releases=None, clock=time.time,
-                 rng=None, confirm_timeout_s=None):
+                 rng=None, confirm_timeout_s=None, feed=None):
         self.core = core
         self.transport_for = transport_for or (lambda pid: _moonraker_for(core.cfg, pid))
         self.releases = releases or fa.ReleaseCache()
+        self.feed = feed or firmware_feed.current
         self.clock = clock
         self.rng = rng or random.Random()
         self.confirm_timeout_s = confirm_timeout_s
@@ -105,6 +130,9 @@ class FirmwareAlerter:
         # the next heartbeat re-check (and re-announce) every 15 seconds.
         self._hold: dict[str, float] = {}
         self._announced_mem: dict[str, set] = {}
+        self._feed_checking: set[str] = set()
+        self._feed_hold: dict[str, float] = {}
+        self._feed_first_due: dict[str, float] = {}
         self.tasks: set[asyncio.Task] = set()
 
     # -------------------------------------------------------------- scheduling
@@ -157,6 +185,34 @@ class FirmwareAlerter:
             return started
         except Exception:
             logger.exception("firmware update alert scheduling failed")
+            return []
+
+    def tick_feed(self):
+        """Start a release-notice check for each due printer. Never raises, never waits.
+
+        The feed half of the heartbeat: every roster printer whose model
+        the firmware feed covers, whatever its connection. Same opt-out
+        and the same interval as the ZMod alerts.
+        """
+        try:
+            cfg = self.core.cfg
+            if not enabled(cfg) or getattr(getattr(self.core, "gateway", None), "setup_only", False):
+                return []
+            now = self.clock()
+            zmod_ids = {printer_id for printer_id, _ in alert_printers(cfg)}
+            started = []
+            for printer_id, model, entry in feed_printers(cfg):
+                if printer_id in self._feed_checking:
+                    continue
+                state = fa.load(self._state_dir(printer_id), self.surface)
+                if now < self._feed_due(printer_id, state, now):
+                    continue
+                self._feed_checking.add(printer_id)
+                started.append(self._spawn(self.check_feed(
+                    printer_id, model, entry, owns_zmod=printer_id in zmod_ids)))
+            return started
+        except Exception:
+            logger.exception("firmware release notice scheduling failed")
             return []
 
     # -------------------------------------------------------------- one check
@@ -224,6 +280,88 @@ class FirmwareAlerter:
             return []
         finally:
             self._checking.discard(printer_id)
+
+    # -------------------------------------------------------------- feed notices
+
+    def _feed_due(self, printer_id, state, now):
+        hold = self._feed_hold.get(printer_id, 0.0)
+        stored = state.get("feed_next_check_at")
+        if isinstance(stored, (int, float)) and not isinstance(stored, bool):
+            return max(float(stored), hold)
+        if hold:
+            return hold
+        if printer_id not in self._feed_first_due:
+            self._feed_first_due[printer_id] = (
+                now + FIRST_CHECK_S + self.rng.uniform(0, FIRST_JITTER_S))
+        return self._feed_first_due[printer_id]
+
+    async def check_feed(self, printer_id, model, entry, *, owns_zmod=False):
+        """One feed check for one printer: a notice per new upstream release.
+
+        Reads the published firmware feed and nothing from the printer.
+        A release is recorded as seen only once its notice was delivered,
+        so a chat that is down gets the notice at the next check.
+        """
+        state_dir = self._state_dir(printer_id)
+        now = self.clock()
+        try:
+            feed = await asyncio.to_thread(self.feed)
+            if feed is None:
+                # Unreachable feed: say nothing, look again sooner.
+                self._feed_store(printer_id, state_dir, now + BUSY_RETRY_S)
+                return []
+            state = fa.load(state_dir, self.surface)
+            wanted = notice_firmwares(self.core.cfg)
+            rows = [row for row in feed.for_model(model) if row.id.lower() in wanted]
+            notices, seen = fa.feed_notices(
+                rows, state,
+                skip_ids=(fa.COMPONENT,) if owns_zmod else ())
+            label = self._feed_label(printer_id, entry)
+            delivered = []
+            for notice in notices:
+                if await self.announce_release(printer_id, label, notice):
+                    delivered.append(notice)
+                else:
+                    # Not delivered: keep the previous record so the next
+                    # check announces it again.
+                    before = (state.get(fa.FEED_SEEN) or {}).get(notice.firmware_id)
+                    if before is None:
+                        seen.pop(notice.firmware_id, None)
+                    else:
+                        seen[notice.firmware_id] = before
+            self._feed_store(printer_id, state_dir, self._next(now), seen)
+            return delivered
+        except Exception as exc:
+            self._feed_hold[printer_id] = max(self._feed_hold.get(printer_id, 0.0),
+                                              now + BUSY_RETRY_S)
+            logger.warning("firmware feed check for %s failed (no notice sent; "
+                           "retrying later): %r", printer_id, exc)
+            return []
+        finally:
+            self._feed_checking.discard(printer_id)
+
+    def _feed_store(self, printer_id, state_dir, next_at, seen=None):
+        """Write the feed check time (and what was seen) over the state on disk now."""
+        self._feed_hold[printer_id] = next_at
+        latest = fa.load(state_dir, self.surface)
+        if seen is not None:
+            latest = {**latest, fa.FEED_SEEN: seen}
+        fa.save(state_dir, {**latest, "feed_next_check_at": next_at}, self.surface)
+
+    def _feed_label(self, printer_id, entry):
+        name = routing.printer_name(self.core.cfg, printer_id)
+        if name and name != printer_id:
+            return name
+        return getattr(entry, "label", None) or printer_id
+
+    async def announce_release(self, printer_id, label, notice) -> bool:
+        """Post one release notice; True only when the platform delivered it."""
+        chat = self._chat(printer_id)
+        if not chat:
+            logger.info("firmware release notice for %s not posted: no chat configured",
+                        printer_id)
+            return False
+        return _delivered(await self.core.adapter.send(chat_id=chat, content=notice.text(label)))
 
     # -------------------------------------------------------------- delivery
 
