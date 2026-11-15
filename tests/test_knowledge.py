@@ -139,7 +139,14 @@ SPLIT_FIXTURE_WIDENED_BY_647 = {
 # notes sentence recording why). The exact widened scope is asserted in
 # tests/test_macros.py::test_opencreator_macro_scope_is_exactly_set_print_stats_info.
 SPLIT_FIXTURE_WIDENED_BY_1490 = {"klipper.set-print-stats-info"}
-SPLIT_FIXTURE_WIDENED = SPLIT_FIXTURE_WIDENED_BY_647 | SPLIT_FIXTURE_WIDENED_BY_1490
+
+# #1506 widened the same entry again, the same way: the Forge-X AD5M
+# models emit SET_PRINT_STATS_INFO in their documented start form, so
+# klipper.set-print-stats-info gained their keys (and the notes sentence
+# recording why). The exact widened scope is asserted in
+# tests/test_macros.py::test_forgex_macro_scope_is_exactly_set_print_stats_info.
+SPLIT_FIXTURE_WIDENED_BY_1506 = {"klipper.set-print-stats-info"}
+SPLIT_FIXTURE_WIDENED = SPLIT_FIXTURE_WIDENED_BY_647 | SPLIT_FIXTURE_WIDENED_BY_1490 | SPLIT_FIXTURE_WIDENED_BY_1506
 
 
 def test_split_registry_matches_pre_split_entries(registry):

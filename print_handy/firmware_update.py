@@ -1185,6 +1185,28 @@ GUIDANCE = {
                       "printer at an upstream Klipper release."),
         why_no_apply=("The U1 runs Snapmaker's own Klipper-based firmware, a vendor "
                       "fork. " + _FORK_WHY)),
+    "flashforge_forgex": FamilyGuidance(
+        title="Forge-X firmware (Flashforge AD5M, AD5M Pro)",
+        can_report=("the versions its Moonraker update manager reports for its "
+                    "components (forge-x, fluidd, mainsail, guppyscreen) — the "
+                    "forge-x component's version is a git describe string for the "
+                    "branch it tracks, not a release number, and a version Moonraker "
+                    "reports as not reported is stated as not reported, never as "
+                    "up to date"),
+        manual_steps=("At the printer, in Fluidd or Mainsail: Configuration → "
+                      "Software Update, for updates within the installed version "
+                      "line (for example one 1.4.2 beta build to a later one). Moving to a new "
+                      "version line is not an over-the-air update: download the "
+                      "Forge-X release image for your exact model, put it on a USB "
+                      "drive without unpacking it, and install it at the printer "
+                      "from the drive. See docs/FORGEX.md."),
+        why_no_apply=("Print Handy reports Forge-X update state but does not apply "
+                      "it (#1506): the forge-x component tracks a branch tip rather "
+                      "than release tags, whether a USB-installed printer reports a "
+                      "readable version at all is not yet verified on live hardware, "
+                      "and the same-line-only rule for over-the-air updates is not "
+                      "yet encoded as a Print Handy gate. Guarded apply is tranche "
+                      "3 of #1506, under #1280 section I.")),
     "flashforge_stock": FamilyGuidance(
         title="Flashforge stock firmware (AD5X)",
         can_report=("nothing programmatic: the stock LAN API Print Handy uses carries "
@@ -1262,6 +1284,8 @@ def guidance_for(entry) -> FamilyGuidance | None:
         return GUIDANCE["snapmaker_u1"]
     if entry.vendor == "flashforge_stock":
         return GUIDANCE["flashforge_stock"]
+    if entry.vendor == "flashforge_forgex":
+        return GUIDANCE["flashforge_forgex"]
     if entry.vendor == "bambulab":
         return GUIDANCE["bambulab"]
     if entry.vendor == "prusa":

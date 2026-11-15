@@ -115,6 +115,18 @@ class ZmodSingleExtruderAdapter(ZmodAdapter):
         webhooks = (status.get("webhooks") or {}).get("state")
         if webhooks not in (None, "ready"):
             problems.append(f"Klipper is not ready ({webhooks})")
+        if type(self) is ZmodSingleExtruderAdapter:
+            # Firmware mismatch (#1506): the AD5M pair's plain check above
+            # passes silently on a Forge-X printer, and both firmwares use
+            # a START_PRINT macro with different parameters, so a sample
+            # carrying Forge-X-only surfaces names the actual cause. The
+            # multi-tool subclass has its own readiness (and its own
+            # OpenCreator mismatch warning), so this stays on the exact
+            # single-extruder class the AD5M pair uses.
+            from ..flashforge_forgex import firmware_check
+            mismatch = firmware_check.forgex_mismatch_problem(status)
+            if mismatch:
+                problems.append(mismatch)
         return problems
 
     def screen_command(self, slot, material, hex_code):

@@ -1,0 +1,25 @@
+{
+  "host_type": {
+    "sha256": "585222d16ca80a3095bf04f106e9afbaaf2afbc8bdea54043b7410ef52cd80ff",
+    "value": "moonraker"
+  },
+  "machine_end_gcode": {
+    "sha256": "568eac3d1a9a0bffeef6ef42d47e6afc1cc4d31d05318783e1b1dacf2047af24",
+    "value": "END_PRINT"
+  },
+  "machine_start_gcode": {
+    "sha256": "49e1b3dee08928d53cf1c59674c88ca4eb8d825669b468471f1b17ed5b1769c6"
+  },
+  "post_process": {
+    "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "value": ""
+  },
+  "printer_technology": {
+    "sha256": "11a187af8435cf2ff3aa6674d584eacaed00fdbc610a062fec4e363ee286266e",
+    "value": "FFF"
+  },
+  "slicing_pipeline_plugin": {
+    "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "value": ""
+  }
+}

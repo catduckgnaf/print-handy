@@ -906,3 +906,7 @@ Creator 5 Pro also run a second, incompatible custom firmware,
 OpenCreator, with its own model keys (`flashforge_opencreator.creator5`,
 `flashforge_opencreator.creator5_pro`); see
 [OpenCreator printers](OPENCREATOR.md).
+The Adventurer 5M and Adventurer 5M Pro also run a second,
+incompatible custom firmware, Forge-X, with its own model keys
+(`flashforge_forgex.ad5m`, `flashforge_forgex.ad5m_pro`); see
+[Forge-X printers](FORGEX.md).
