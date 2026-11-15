@@ -9,23 +9,21 @@ the two are different printer profiles and never mix.
 |---|---|---|
 | `flashforge_stock.ad5x` | Adventurer 5X (stock firmware) | LAN upload/start implemented; see verification status below |
 
-## Every Flashforge model, and which route applies
+## Which FlashForge firmware are you running?
 
-So the stock page never reads as if the AD5X were the only Flashforge printer, here is the whole Flashforge line-up with the route that applies to each model today:
+Same brand, different control systems. Print Handy doesn't treat a Creator 5 and an AD5X as interchangeable just because both say FlashForge. Here are the actual selectable model keys:
 
-| Printer | Stock firmware (this page) | ZMod (Moonraker) |
-|---|---|---|
-| Adventurer 5X (AD5X) | Built-in profile: `flashforge_stock.ad5x` | Built-in profile: `flashforge.ad5x` |
-| Adventurer 5M (AD5M) | No stock profile yet | Built-in profile: `flashforge.ad5m` |
-| Adventurer 5M Pro (AD5M Pro) | No stock profile yet | Built-in profile: `flashforge.ad5m_pro` |
-| Creator 5 | No stock profile yet | Built-in profile: `flashforge.creator5` |
-| Creator 5 Pro | No stock profile yet | Built-in profile: `flashforge.creator5_pro` |
+| Printer | Factory firmware | ZMod | OpenCreator |
+|---|---|---|---|
+| Adventurer 5X (AD5X) | `flashforge_stock.ad5x` | `flashforge.ad5x` | No profile |
+| Adventurer 5M (AD5M) | No profile | `flashforge.ad5m` | No profile |
+| Adventurer 5M Pro (AD5M Pro) | No profile | `flashforge.ad5m_pro` | No profile |
+| Creator 5 | No profile | `flashforge.creator5` | `flashforge_opencreator.creator5` |
+| Creator 5 Pro | No profile | `flashforge.creator5_pro` | `flashforge_opencreator.creator5_pro` |
 
-The ZMod profiles are covered in [ZMod printers](ZMOD.md). The Creator 5
-and Creator 5 Pro also run a second custom firmware, OpenCreator, with
-its own profiles (`flashforge_opencreator.creator5`,
-`flashforge_opencreator.creator5_pro`); see
-[OpenCreator printers](OPENCREATOR.md). Nothing on this page claims stock-firmware support for a model without a stock profile.
+[ZMod](ZMOD.md) and [OpenCreator](OPENCREATOR.md) have their own setup instructions, including distinct firmware and G-code behavior. Another independent custom firmware, [Reforge](https://github.com/Klipper4FlashForge/firmware), exists for Creator 5 and Creator 5 Pro but has **no separate Print Handy profile or verified integration yet**. Its Moonraker availability alone is not proof that a ZMod or OpenCreator model key is safe to reuse. [Request support or report a hardware test](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml).
+
+This page documents **only** the stock AD5X LAN path. Having a FlashForge logo is not, regrettably, a network protocol.
 
 ## How Print Handy talks to it
 
