@@ -49,6 +49,35 @@ SINGLE_TOOL_T0 = _file([
 ])
 
 
+def test_materials_and_first_layer_height_match_firmware_synthesis():
+    text = _file(["M140 S60", "M109 S220"], body="")
+    text = text.replace("; first_layer_height = 0.2\n", "")
+    text += "; filament_type = pla;petg;abs;nylon\n; first_layer_height = 0.28\n"
+    start = start_contract.synthesize_start(text)
+    assert start.materials == ("PLA", "PETG", "ABS", "NYLON")
+    assert start.first_layer_height == 0.28
+
+
+def test_quoted_or_invalid_material_becomes_unknown():
+    text = _file(["M140 S60", "M109 S220"])
+    text += "; filament_type = \\\"Silk PLA\\\";PETG;PLA+;bad material\n"
+    start = start_contract.synthesize_start(text)
+    assert start.materials == ("UNKNOWN", "PETG", "PLA+", "UNKNOWN")
+
+
+def test_first_layer_height_can_be_absent():
+    text = _file(["M140 S60", "M109 S220"], body="").replace("; first_layer_height = 0.2\n", "")
+    assert start_contract.synthesize_start(text).first_layer_height is None
+
+
+def test_material_footer_takes_precedence_over_header():
+    text = _file(["M140 S60", "M109 S220"])
+    text += "; filament_type = PLA;PETG;ABS;NYLON\n"
+    text += "; filament_type = TPU;PC;ASA;PVA\n"
+    start = start_contract.synthesize_start(text)
+    assert start.materials == ("TPU", "PC", "ASA", "PVA")
+
+
 def test_single_tool_t0_falls_back_to_the_config_block():
     # No M104/M109 and no T line in the documented start form: TOOL is
     # the first used slot and HOTEND is that slot's config temperature.

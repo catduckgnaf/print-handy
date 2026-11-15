@@ -156,7 +156,14 @@ from the first `M141` or `M191`, the tool from the first `T0` to `T3`
 line or the first used slot in Orca's `filament used [mm]` list, and
 the hotend from the first `M109`, else the first `M104`, else the
 selected tool's `nozzle_temperature_initial_layer` in the config block.
-The synthesized command names the used tools as `USED_TOOLS=`. A file
+The synthesized command names the used tools as `USED_TOOLS=`, passes
+Orca's first `first_layer_height` as `FIRST_LAYER_HEIGHT=`, and fills
+`MATERIAL0` through `MATERIAL3` from the last `filament_type` line in
+the footer (falling back to the header). Material entries are
+upper-cased only when they match the firmware's allowed character set;
+quoted names are unquoted first, and invalid or missing slots become
+`UNKNOWN`. Verification's synthesized-start model includes these values
+alongside the temperature and tool fields. A file
 with no discoverable hotend temperature fails verification with the
 firmware's own failure mode named, because that is what the printer
 would do with it: fail before any motion. An explicit `C5_PRINT_START`

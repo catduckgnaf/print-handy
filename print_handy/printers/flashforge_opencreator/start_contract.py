@@ -36,10 +36,11 @@ The synthesis, as the fork specifies it:
   the key. When the file is longer than the header window, the
   header's trailing partial line is dropped for config reads, because
   the window may have cut a config line in half.
-- The dispatcher also fills MATERIALn from ``filament_type`` and
-  FIRST_LAYER_HEIGHT from the config block; this model covers the
-  tool and temperature fields Print Handy's verification compares,
-  and does not track those two.
+- FIRST_LAYER_HEIGHT is the first ``first_layer_height`` metadata value
+  in the header. MATERIAL0..3 come from the last ``filament_type`` line
+  in the footer first, then the header; each semicolon-delimited value
+  is unquoted, validated against the firmware allowlist, and upper-cased,
+  or becomes ``UNKNOWN``.
 - No discoverable hotend temperature is the firmware's own failure
   mode: the job fails before any motion with a console reason.
 """
@@ -55,6 +56,8 @@ _TOOL_RE = re.compile(r"^T([0-3])(?:\s|$)")
 _SELECT_TOOL_RE = re.compile(r"^AFC_SELECT_TOOL\s+TOOL=extruder([0-3]?)", re.IGNORECASE)
 _TEMP_RE = re.compile(r"^M(104|109|140|141|190|191)\b[^;]*?\bS\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _ARG_RE = re.compile(r"([A-Z_0-9]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))", re.IGNORECASE)
+_MATERIAL_RE = re.compile(r"[A-Za-z0-9+_./-]+")
+_FILAMENT_TYPE_RE = re.compile(r"^[ \t]*;[ \t]*filament_type[ \t]*=[ \t]*([^\r\n]*)", re.IGNORECASE | re.MULTILINE)
 _CONFIG_RE = re.compile(r"^;\s*([A-Za-z0-9_ \[\]]+?)\s*=\s*(.*?)\s*$")
 
 
@@ -71,6 +74,8 @@ class SynthesizedStart:
     hotends: dict = field(default_factory=dict)
     idles: dict = field(default_factory=dict)
     args: dict = field(default_factory=dict)
+    first_layer_height: float | None = None
+    materials: tuple = ("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN")
 
 
 def _code(line):
@@ -96,6 +101,31 @@ def _config_values(header, footer, key):
                     values.append(0.0)
             return values
     return []
+
+
+def _materials(footer, header):
+    """Four firmware MATERIAL values: footer's last line, then header."""
+    raw = None
+    for source in (footer, header):
+        matches = list(_FILAMENT_TYPE_RE.finditer(source))
+        if matches:
+            raw = matches[-1].group(1).split(";", 4)
+            break
+    result = []
+    for value in (raw or ())[:4]:
+        value = value.strip()
+        if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+            value = value[1:-1].strip()
+        result.append(value.upper() if _MATERIAL_RE.fullmatch(value) else "UNKNOWN")
+    return tuple(result + ["UNKNOWN"] * (4 - len(result)))
+
+
+def _first_layer_height(header):
+    for line in header.splitlines():
+        match = re.match(r"^\s*;\s*first_layer_height\s*=\s*([0-9.]+)", line, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+    return None
 
 
 def _first_temp(lines, commands):
@@ -173,9 +203,12 @@ def synthesize_start(text):
     idle_values = _config_values(config_header, footer, "idle_temperature")
     idles = {i: idle_values[i] for i in range(min(4, len(idle_values)))
              if idle_values[i] > 0}
+    first_layer_height = _first_layer_height(header)
+    materials = _materials(footer, config_header)
     return SynthesizedStart(
         explicit=False, tool=tool, hotend=hotend, bed=bed, chamber=chamber,
-        used_tools=used_tools, hotends=hotends, idles=idles)
+        used_tools=used_tools, hotends=hotends, idles=idles,
+        first_layer_height=first_layer_height, materials=materials)
 
 
 def first_selected_tool(text):
