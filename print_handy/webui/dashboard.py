@@ -439,11 +439,23 @@ def _filament(card):
         meta = " · ".join(bit for bit in (
             _grams(spool.get("remaining_weight")),
             f"{round(percent)}%" if isinstance(percent, (int, float)) else "") if bit)
-        loaded.append(
-            f'<a class="slot slot-link" href="/spools/{printer_id}" aria-label="Manage spool in slot {int(row.get("slot") or 0)}">{_disc(spool)}'
-            f'<div>{_esc(spool.get("name") or "")}</div>'
-            f'<div class="muted">{_esc(spool.get("material") or "")}</div>'
-            f'<div class="muted">{_esc(meta)}</div><span class="slot-action">Manage spool →</span></a>')
+        slot_number = int(row.get("slot") or 0)
+        card_link = (card["controls_enabled"] and
+                     f'<a class="slot slot-link" href="/spools/{printer_id}#slot-{slot_number}" '
+                     f'aria-label="Change spool in slot {slot_number}">')
+        if card_link:
+            loaded.append(
+                card_link + f'{_disc(spool)}'
+                f'<div>{_esc(spool.get("name") or "")}</div>'
+                f'<div class="muted">{_esc(spool.get("material") or "")}</div>'
+                f'<div class="muted">{_esc(meta)}</div>'
+                '<span class="slot-action">Change spool →</span></a>')
+        else:
+            loaded.append(
+                f'<div class="slot">{_disc(spool)}'
+                f'<div>{_esc(spool.get("name") or "")}</div>'
+                f'<div class="muted">{_esc(spool.get("material") or "")}</div>'
+                f'<div class="muted">{_esc(meta)}</div></div>')
     parts = ['<h3>Filament</h3>', f'<div class="slots">{"".join(loaded)}</div>']
     if shelf:
         groups = {}

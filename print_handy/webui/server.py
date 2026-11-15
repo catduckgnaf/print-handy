@@ -1986,6 +1986,7 @@ class _Handler(BaseHTTPRequestHandler):
             notice=done or None,
             show_archived=(query.get("archived") or [""])[0] == "1",
             purchase_ready=spools_module.purchase_available(),
+            controls_enabled=controls_module.controls_enabled(self.server.settings_data),
             printers=settings.printers(self.server.settings_data)),
             "text/html; charset=utf-8")
 

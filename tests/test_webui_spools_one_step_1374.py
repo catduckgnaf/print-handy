@@ -71,6 +71,33 @@ class OneStepPageTests(unittest.TestCase):
         self.assertEqual(code, 303, raw)
         return urllib.parse.unquote(headers["Location"])
 
+    def test_active_slot_picker_shows_five_actions_and_posts_api_actions(self):
+        raw = self.page()
+        self.assertIn('id="slot-1"', raw)
+        for label in ("Replace with", "Add a spool", "Rename", "Put back on shelf", "Archive"):
+            self.assertIn(label, raw)
+        self.assertEqual(spools.form_body("assign", {"slot": ["1"], "spool_id": ["7"]}),
+                         ("assign", {"slot": 1, "spool_id": 7}))
+        self.assertEqual(spools.form_body("add", {"material": ["PLA"], "brand": ["Sunlu"],
+                                                   "color": ["Black"], "grams": ["900"],
+                                                   "slot": ["1"]})[0], "add")
+        self.assertEqual(spools.form_body("edit", {"spool_id": ["3"], "name": ["New name"]}),
+                         ("edit", {"spool_id": 3, "name": "New name"}))
+        self.assertEqual(spools.form_body("unassign", {"slot": ["1"]}),
+                         ("unassign", {"slot": 1}))
+        self.assertEqual(spools.form_body("edit", {"spool_id": ["3"], "archived": ["true"]}),
+                         ("edit", {"spool_id": 3, "archived": True}))
+
+    def test_controls_disabled_hides_slot_picker_actions(self):
+        self.data["webui"]["controls_enabled"] = False
+        raw = self.page()
+        # The slot table only; the page's own Edit form further down has an
+        # "Archived" checkbox and is refused at POST time like every control.
+        loaded = raw[raw.index("<h2>Loaded</h2>"):raw.index("</table>", raw.index("<h2>Loaded</h2>"))]
+        for label in ("Replace with", "Rename", "Put back on shelf", "Archive"):
+            self.assertNotIn(label, loaded)
+        self.assertIn('id="slot-1"', raw)
+
     def test_archived_spools_are_hidden_until_the_toggle(self):
         raw = self.page()
         # Spool #11 is the archived Gray PETG.
@@ -113,3 +140,44 @@ class OneStepPageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_rename_sets_a_per_spool_nickname_not_the_shared_filament_name():
+    """#1515: Rename changes one spool; the filament record (shared) is untouched."""
+    from print_handy.runtime import spool_sync
+    from print_handy.webui import spools as sp
+    calls = []
+    spool = {"id": 7, "filament": {"id": 3, "name": "Black", "material": "PLA"}, "extra": {}}
+
+    def client(method, path, body):
+        calls.append((method, path, body))
+        if path == "/api/v1/field/spool":
+            return []
+        if method == "GET" and path == "/api/v1/spool/7":
+            return spool
+        return {}
+
+    action, body = sp.form_body("edit", {"spool_id": ["7"], "nickname": ["Desk black"]})
+    assert body == {"spool_id": 7, "nickname": "Desk black"}
+    entry = {"id": "ad5x"}
+    import unittest.mock as m
+    with m.patch.object(sp, "_resolve_write", return_value=entry):
+        code, result = sp.edit({}, "ad5x", body, client=client)
+    assert code == 200, result
+    assert not any(path.startswith("/api/v1/filament") for _m, path, _b in calls)
+    patch = [b for mth, path, b in calls if mth == "PATCH" and path == "/api/v1/spool/7"]
+    assert patch == [{"extra": {spool_sync.PH_NICKNAME_FIELD: '"Desk black"'}}]
+    assert ("POST", f"/api/v1/field/spool/{spool_sync.PH_NICKNAME_FIELD}",
+            {"name": spool_sync.PH_NICKNAME_FIELD_NAME, "field_type": "text"}) in calls
+    assert "only this spool" in result["detail"]
+
+
+def test_nickname_wins_the_display_name_and_falls_back_when_cleared():
+    from print_handy.runtime import spool_sync
+    from print_handy.webui import spools as sp
+    row = {"id": 7, "filament": {"name": "Black", "material": "PLA"},
+           "extra": {spool_sync.PH_NICKNAME_FIELD: '"Desk black"'}}
+    assert sp.spool_summary(row)["name"] == "Desk black"
+    row["extra"] = {}
+    assert sp.spool_summary(row)["name"] != "Desk black"
+    assert sp.spool_summary(row)["nickname"] is None
