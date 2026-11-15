@@ -313,6 +313,25 @@ job invisibly. Print Handy never sends `SET_MAP` itself: on this
 firmware that command swaps two lanes' maps instead of assigning one,
 and changing the map is the operator's decision at the printer.
 
+### AFC lanes and the tool map
+
+Print Handy parses the AFC lane list and each reported `AFC_lane` record,
+including the lane's tool map. It also reads per-tool filament records from
+`lane_data` in either publisher shape: generic AFC's `T<n>` keys, which
+include `extruder_index`, and `creator5_filament_sync`'s `c5_tool<n>` keys.
+AFC tool records are accepted only when the key and `extruder_index` agree.
+
+The identity map (`extruder0` to `T0`, through `extruder3` to `T3`) is
+accepted; a remapped or unreported lane is refused by readiness, with the
+lane and actual mapping named. Print Handy does not send `SET_MAP`.
+
+Writing spool data to the printer is not done yet. Live `lane_data`
+ownership is unverified, and Cartrigger's capture is pending. Outbound
+`SET_SPOOL_ID` wiring, the setting that enables it, and announcing a
+mid-print remap are later work.
+
+Guidance from Cartrigger (OpenCreator) on #1490.
+
 ### Hotend control: MPC, not PID
 
 All four hotends on OpenCreator run Kalico's MPC (model predictive
