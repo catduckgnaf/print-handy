@@ -453,49 +453,29 @@ def _span_text(seconds):
     return f"{minutes} min" if minutes < 90 else f"{minutes / 60:.1f} h"
 
 
-def _temp_chart(card):
-    """Current against target per heater as an inline SVG, or the collecting note.
+def _heater_plot(samples, index, kind, label):
+    """One heater's current and target lines, on that heater's own scale.
 
-    Solid lines are readings, dashed lines are targets (a target of 0 is
-    a heater that is off, drawn at 0 only when the scale reaches it).
-    The scale's top and bottom and the time span are written on the
-    graph, so it reads without hovering.
+    Nozzle and bed run 150 degrees apart, so a shared axis flattens the
+    bed into a line along the bottom (#1515 review). Each heater gets
+    its own short plot with its scale written beside it.
     """
-    samples = card["history"]
-    live = card["live"]
-
-    def pair(label, current, target):
-        text = f"{label} {_temp(current)}"
-        if _number(target):
-            text += f" → {_temp(target)}"
-        return text
-
-    legend = ('<p class="muted temp-legend">'
-              f'<span class="key nozzle"></span>{_esc(pair("Nozzle", live.get("hotend_c"), live.get("hotend_target_c")))} · '
-              f'<span class="key bed"></span>{_esc(pair("Bed", live.get("bed_c"), live.get("bed_target_c")))}</p>')
-    if len(samples) < 2:
-        return (legend + '<p class="muted">Temperature history collects while the '
-                "Web UI runs and starts empty each time it restarts; "
-                "check back in a few minutes.</p>")
-    width, height = 600, 120
-    times = [row[0] for row in samples]
-    values = [value for row in samples for value in row[1:]
-              if value is not None and value > 0]
+    width, height = 600, 64
+    values = [row[i] for row in samples for i in (index, index + 2)
+              if i < len(row) and row[i] is not None and (i == index or row[i] > 0)]
     if not values:
-        values = [0.0]
+        return ""
     low, high = min(values), max(values)
     span = max(10.0, high - low)
-    low -= (span - (high - low)) / 2
-    high = low + span
-    low = max(0.0, low) if min(values) >= 0 else low
-    high = max(high, low + 10.0)
-    t0, t1 = times[0], max(times[-1], times[0] + 1)
+    low = max(0.0, low - (span - (high - low)) / 2 - 2)
+    high = low + span + 4
+    t0, t1 = samples[0][0], max(samples[-1][0], samples[0][0] + 1)
 
-    def points(index):
+    def points(i, skip_off):
         coords = []
         for row in samples:
-            value = row[index] if index < len(row) else None
-            if value is None or (index >= 3 and value <= 0):
+            value = row[i] if i < len(row) else None
+            if value is None or (skip_off and value <= 0):
                 continue  # an off heater has no target line
             x = (row[0] - t0) / (t1 - t0) * width
             y = height - (value - low) / (high - low) * height
@@ -503,21 +483,39 @@ def _temp_chart(card):
         return " ".join(coords)
 
     lines = []
-    for index, kind in ((3, "nozzle target"), (4, "bed target"), (1, "nozzle"), (2, "bed")):
-        pts = points(index)
-        if pts:
-            lines.append(f'<polyline class="{kind}" points="{pts}"></polyline>')
-    return (
-        legend
-        + '<div class="temp-plot">'
-        f'<span class="temp-axis top">{_temp(high)}</span>'
-        f'<span class="temp-axis bottom">{_temp(low)}</span>'
-        f'<svg class="temp-chart" viewBox="0 0 {width} {height}" '
-        'preserveAspectRatio="none" role="img" '
-        f'aria-label="Nozzle and bed temperature, current and target, last {_span_text(t1 - t0)}">'
-        + "".join(lines) + '</svg></div>'
-        + f'<p class="muted">Last {_span_text(t1 - t0)}, since the Web UI started. '
-          'Solid: current; dashed: target.</p>')
+    target = points(index + 2, True)
+    if target:
+        lines.append(f'<polyline class="{kind} target" points="{target}"></polyline>')
+    current = points(index, False)
+    if current:
+        lines.append(f'<polyline class="{kind}" points="{current}"></polyline>')
+    return ('<div class="temp-row">'
+            f'<span class="temp-name"><span class="key {kind}"></span>{_esc(label)}</span>'
+            '<div class="temp-plot">'
+            f'<span class="temp-axis top">{_temp(high)}</span>'
+            f'<span class="temp-axis bottom">{_temp(low)}</span>'
+            f'<svg class="temp-chart" viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
+            f'role="img" aria-label="{_esc(label)} temperature, current and target">'
+            + "".join(lines) + "</svg></div></div>")
+
+
+def _temp_chart(card):
+    """Current against target per heater, or the collecting note.
+
+    Solid lines are readings, dashed lines are targets (a target of 0
+    is a heater that is off and draws no target line). The time span
+    and each heater's scale are written on the graph.
+    """
+    samples = card["history"]
+    if len(samples) < 2:
+        return ('<div class="dash-panel"><h3>Temperature</h3><p class="muted">The history collects while the '
+                "Web UI runs and starts empty each time it restarts; "
+                "check back in a few minutes.</p></div>")
+    span = samples[-1][0] - samples[0][0]
+    plots = _heater_plot(samples, 1, "nozzle", "Nozzle") + _heater_plot(samples, 2, "bed", "Bed")
+    return ('<div class="dash-panel"><h3>Temperature</h3>' + plots
+            + f'<p class="muted">Last {_span_text(span)}, since the Web UI started. '
+              'Solid: current; dashed: target.</p></div>')
 
 
 def _disc(spool, small=False):
@@ -631,18 +629,25 @@ def _hardware_panels(card):
         names = ", ".join(_PENDING_LABELS.get(item, item.replace("_", " "))
                           for item in facts["pending"])
         nozzle.append(f'<p class="badge warn">Calibration due: {_esc(names)}</p>')
-    nozzle.append('<p><a class="button" href="/chat?text=%2Fnozzle%20change">Swap nozzle</a> '
-                  '<span class="muted">opens the guided nozzle change in chat</span></p></div>')
+    nozzle.append('<p class="panel-action"><a class="button" href="/chat?text=%2Fnozzle%20change">'
+                  'Swap nozzle</a></p><p class="muted">Opens the guided nozzle change in chat.</p></div>')
     bed = ['<div class="hw-panel"><h3>Bed</h3>']
+    live = card.get("live") or {}
+    bed_now = _temp(live.get("bed_c"))
+    bed_target = live.get("bed_target_c")
+    bed.append(f'<p class="job-line">{_esc(bed_now)}'
+               + (f' <span class="muted">target {_esc(_temp(bed_target))}</span>'
+                  if _number(bed_target) else ' <span class="muted">heater off</span>') + '</p>')
     bed.append(f'<p>{"Bed mesh: stale since the last nozzle change" if facts["mesh_stale"] else "Bed mesh: no change recorded since it was probed"}</p>')
     if facts["materials"]:
         rows = "".join(
             f'<tr><td>{_esc(row["family"])}</td><td>{_temp(row["nozzle_c"])}</td>'
             f'<td>{_temp(row["bed_c"])}</td></tr>' for row in facts["materials"])
-        bed.append('<table class="hw-defaults"><thead><tr><th>Material</th><th>Nozzle</th>'
+        bed.append('<details class="hw-more"><summary>Material temperature defaults</summary>'
+                   '<table class="hw-defaults"><thead><tr><th>Material</th><th>Nozzle</th>'
                    f'<th>Bed</th></tr></thead><tbody>{rows}</tbody></table>'
-                   '<p class="muted">Defaults when a spool or model sets no temperature '
-                   '([material_temps]); the nozzle column includes the offset above.</p>')
+                   '<p class="muted">Used when a spool or model sets no temperature '
+                   '([material_temps]); the nozzle column includes the offset above.</p></details>')
     bed.append("</div>")
     return f'<div class="hw-panels">{"".join(nozzle)}{"".join(bed)}</div>'
 
@@ -663,7 +668,7 @@ def _card(card):
             f'<img data-dash-cam src="/api/printers/{printer_id}/camera/snapshot" '
             f'alt="Camera view of {_esc(card["name"])}">'
             '<p class="muted dash-cam-note"></p></div>')
-    side = [_ring(card), f'<p class="job-line">{_esc(headline)}</p>']
+    side = [f'<div class="dash-job">{_ring(card)}<div><p class="job-line">{_esc(headline)}</p>']
     if subline:
         side.append(f'<p class="muted">{_esc(subline)}</p>')
     meta = []
@@ -674,6 +679,7 @@ def _card(card):
         meta.append(f"about {live['remaining_min']} min left")
     if meta:
         side.append(f'<p class="muted">{" · ".join(_esc(bit) for bit in meta)}</p>')
+    side.append("</div></div>")
     side.append(
         '<div class="temps">'
         f'<div class="temp-box"><div class="muted">Nozzle</div>'
@@ -689,14 +695,16 @@ def _card(card):
     if card["controls_enabled"]:
         side.append(
             '<div class="dash-controls">'
-            f'<button type="button" class="danger" data-estop="{printer_id}" '
-            f'data-name="{_esc(card["name"])}">E-stop</button>'
+            f'<button type="button" class="danger estop" data-estop="{printer_id}" '
+            f'data-name="{_esc(card["name"])}">Emergency stop</button>'
             '<p class="muted estop-note"></p></div>')
-    top.append(f'<div class="dash-side">{"".join(side)}</div>')
+    # Status first, the camera beside it (#1515: the Home Assistant
+    # dashboard's order), then heat, hardware and filament.
+    top.insert(0, f'<div class="dash-side">{"".join(side)}</div>')
     parts.append(f'<div class="dash-top">{"".join(top)}</div>')
+    parts.append(f'<div class="dash-panel">{_filament(card)}</div>')
     parts.append(_temp_chart(card))
     parts.append(_hardware_panels(card))
-    parts.append(_filament(card))
     parts.append("</section>")
     return "".join(parts)
 
