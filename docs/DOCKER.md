@@ -1,10 +1,10 @@
 # Docker
 
-Docker is one of Print Handy's three main installation paths, alongside [Unraid](https://github.com/catduckgnaf/catduck-unraid-templates) and the [Home Assistant add-on](HOME-ASSISTANT-OS.md). This page is the deep dive. For the short copy-and-paste setup, start at [Install it in the README](../README.md#install-it).
+Docker is one of Print Handy's three main installation paths, alongside [Unraid](https://github.com/catduckgnaf/catduck-unraid-templates) and the [Home Assistant add-on](HOME-ASSISTANT-OS.md). This page is the deep dive. For the short copy-and-paste setup, start at [Get started in the README](../README.md#get-started).
 
 ## First time here?
 
-1. Download the release's `docker-compose.yml` and `.env.example` using the [README quickstart](../README.md#docker).
+1. Download the release's `docker-compose.yml` and `.env.example` using the [README quickstart](../README.md#get-started).
 2. Set `PRINT_HANDY_IMAGE` to the digest you intend to run ([how to find the digest](#pinning-the-image)). A release tag is a reference, not proof of a fixed digest.
 3. Select the exact printer **model and firmware** in [Printer support](PRINTER-SUPPORT.md). Moonraker settings are only for printers that actually speak Moonraker.
 4. Configure [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md), [Matrix](MATRIX-BOT-SETUP.md) or the local [Web UI](WEBUI.md).

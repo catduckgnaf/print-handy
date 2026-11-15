@@ -1,4 +1,4 @@
-# Documentation audit — 15 November 2026
+# Documentation audit, 15 November 2026
 
 Scope: `catduckgnaf/print-handy` at base commit `595ef054ddd0b333a28071e354bf26e298e0e2d4`. This is the editorial review behind the friendlier README and documentation-navigation changes. It is not a claim that all supported printers have passed live hardware tests.
 

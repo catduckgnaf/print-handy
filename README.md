@@ -15,18 +15,20 @@ It also has a personality problem. Your model might get roasted, your eleventh c
 
 Current release: **2.3.4**
 
-[Install](#install-it) · [See it work](#from-link-to-print) · [Printer support](#will-it-work-with-my-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
+[Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#will-it-work-with-my-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
 ## The fun stuff (and the genuinely useful stuff)
 
 - **Drop a link or a file.** MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs, Nexprint, direct STL/3MF links and file uploads feed the print workflow. Some sites or downloads have limits or need credentials; [model sources](docs/PROJECT-REFERENCE.md) explains the details.
-- **Tell the slicer what you want.** Pick colors, filaments and copies. Rotate, resize, split across plates and adjust supports from chat; Print Handy checks bed fit before making you waste filament on a sculpture of disappointment. [Model editing](docs/EDITING.md) has the supported operations and their limits.
+- **Tell the slicer what you want.** Pick colors, filaments and copies. Rotate, resize, split across plates and adjust supports from chat; Print Handy checks bed fit before making you waste filament on a sculpture of disappointment. OrcaSlicer and OpenSCAD are built in, so there's nothing else to install. [Model editing](docs/EDITING.md) has the supported operations and their limits.
 - **Spoolman without the spreadsheet cosplay.** Track your filament, match spools to printer slots and get prompted when a spool runs out. A bundled Spoolman instance is included in the container; you can also connect your own. [Spools and commands](docs/PROJECT-REFERENCE.md).
-- **Pasta Cam (camera watchdog).** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
+- **Pasta Cam (Camera watchdog).** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
 - **Print updates with attitude.** Progress, pauses, errors, finish posts, optional timelapses, model roasts and non-AI status quips. Some printer connections monitor only jobs Print Handy started. [Status voice](docs/STATUS-VOICE.md) · [Timelapses](docs/DOCKER.md#timelapse-capture-go2rtc).
 - **A real Web UI.** Set up printers, work through a model link or upload, use chat in your browser, browse slices and print history, and view the **Pasta Wrapped** recap. Some recap/video features depend on the records and options available. [Web UI guide](docs/WEBUI.md).
-- **Firmware, without pretending every printer is the same.** Check firmware versions and available components; eligible ZMod and vanilla Klipper printers can apply a reported component update with confirmation. Other firmware paths get guidance or read-only reporting. [Exactly what updates work](docs/FIRMWARE-UPDATE.md).
+- **Firmware, without pretending every printer is the same.** Check firmware versions and available components, including ZMod and HelixScreen updates; eligible ZMod and vanilla Klipper printers can apply a reported component update with confirmation. Other firmware paths get guidance or read-only reporting. [Exactly what updates work](docs/FIRMWARE-UPDATE.md).
 - **Optional AI, not mandatory AI.** Describe a part to the design tool, iterate on it or use supported natural-language editing. Normal printing, filament tracking, roasts and status messages don't need an LLM. AI features require an endpoint you configure and have platform-specific limitations. [Design guide](docs/DESIGN.md) · [Chat platforms](docs/STANDALONE.md).
+
+- **Home Assistant.** The [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer in Home Assistant with live status and controls.
 
 One container runs locally; the chat provider you choose still carries messages and attachments through its own service. The local Web UI doesn't need a Discord account. Don't mistake *local-first* for *every message stays in your basement*.
 
@@ -60,9 +62,9 @@ These screenshots are **mockups based on real bot text and controls**, not proof
 
 ## Get started
 
-### Docker
+Three ways in: Docker (right here), [Unraid](#unraid) or the [Home Assistant add-on](#home-assistant-add-on).
 
-Runs on 64-bit Linux (amd64 or arm64) with Docker and the Compose plugin. This is the short version; [the Docker guide](docs/DOCKER.md) covers version pinning, networks, storage, upgrades and every optional service.
+**Docker** runs on 64-bit Linux (amd64 or arm64) with Docker and the Compose plugin. This is the short version; [the Docker guide](docs/DOCKER.md) covers version pinning, networks, storage, upgrades and every optional service.
 
 ```bash
 mkdir print-handy && cd print-handy
@@ -70,9 +72,11 @@ curl -fLO https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/docker
 curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/.env.example -o .env
 ```
 
-Edit `.env`. Set `PRINT_HANDY_IMAGE` to an image digest from [the pinning guide](docs/DOCKER.md#pinning-the-image); the Compose file intentionally won't start without one. Choose your printer profile and connection details from [Printer support](docs/PRINTER-SUPPORT.md). For a Moonraker printer, this includes `PRINT_HANDY__SERVICES__MOONRAKER_URL`. Other families **do not** magically have Moonraker: follow their own setup guides.
+Edit `.env` and fill in three things:
 
-For Discord, configure `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID` using [Discord setup](docs/DISCORD-BOT-SETUP.md). Prefer Telegram or Matrix? Use [Telegram setup](docs/TELEGRAM-BOT-SETUP.md) or [Matrix setup](docs/MATRIX-BOT-SETUP.md) and the corresponding `PRINT_HANDY__BOT__PLATFORM` and credentials. The Web UI is also available locally.
+- `PRINT_HANDY_IMAGE`: the image to run, as a pinned digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`) from [Pinning the image](docs/DOCKER.md#pinning-the-image). There is no default, and that is deliberate: a tag can move or be republished, so a default would let the image change under you.
+- Your chat: `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID` from [Discord setup](docs/DISCORD-BOT-SETUP.md) (about 15 minutes). Prefer [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md)? Set `PRINT_HANDY__BOT__PLATFORM` and that platform's token instead. The Web UI works either way.
+- Your printer: `PRINT_HANDY__SERVICES__MOONRAKER_URL` for a Klipper printer. Other families don't magically have Moonraker; their variables are in [Printer support](docs/PRINTER-SUPPORT.md).
 
 ```bash
 docker compose up -d
@@ -102,6 +106,7 @@ The question that matters is **which firmware and connection your printer actual
 |---|---|---|---|
 | **Stock FlashForge** | AD5X | Factory LAN HTTP API; no ZMod required | [Stock FlashForge](docs/FLASHFORGE-STOCK.md) |
 | **ZMod** | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker through ZMod | [ZMod](docs/ZMOD.md) |
+| **Forge-X** (1.4.2 beta) | AD5M, AD5M Pro | Moonraker on Forge-X's patched stock Klipper; not ZMod, never both | [Forge-X](docs/FORGEX.md) |
 | **OpenCreator** | Creator 5, Creator 5 Pro | Kalico / Moonraker; separate firmware and profiles from ZMod | [OpenCreator](docs/OPENCREATOR.md) |
 | **Reforge** | **No dedicated profile yet** | Independent Creator 5 / 5 Pro custom firmware; compatibility not verified here | [Reforge upstream](https://github.com/Klipper4FlashForge/firmware) · [Request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) |
 
