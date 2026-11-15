@@ -186,12 +186,15 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
     finally:
         watcher.cancel()
         # suppress kept with reason (#1455): the watcher was cancelled by us
-        # just above, so its CancelledError is the expected outcome; a real
-        # failure is retrieved and logged below instead of swallowed.
+        # just above, so its CancelledError is the expected outcome. A real
+        # failure raised while it unwinds is caught and logged here, inside
+        # the suppress, so it can never escape this finally and replace the
+        # result or skip the cleanup that follows.
         with contextlib.suppress(asyncio.CancelledError):
-            await watcher
-        if watcher.done() and not watcher.cancelled() and watcher.exception() is not None:
-            logger.debug("start progress watcher failed: %r", watcher.exception())
+            try:
+                await watcher
+            except Exception as exc:
+                logger.debug("start progress watcher failed: %r", exc)
 
 
 def _color_prompt_follows(refusal_context, tail):
@@ -268,12 +271,15 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
         if not task.done():
             task.cancel()
             # suppress kept with reason (#1455): the task was cancelled by us
-            # just above, so its CancelledError is the expected outcome; a
-            # real failure is retrieved and logged below instead of swallowed.
+            # just above, so its CancelledError is the expected outcome. A real
+            # failure raised while it unwinds is caught and logged here, inside
+            # the suppress, so it can never escape this finally and replace the
+            # result or skip the cleanup that follows.
             with contextlib.suppress(asyncio.CancelledError):
-                await task
-            if task.done() and not task.cancelled() and task.exception() is not None:
-                logger.debug("stopped work failed while being torn down: %r", task.exception())
+                try:
+                    await task
+                except Exception as exc:
+                    logger.debug("stopped work failed while being torn down: %r", exc)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         try:
             await asyncio.wait_for(waiter, 5)

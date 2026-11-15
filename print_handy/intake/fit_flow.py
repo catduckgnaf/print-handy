@@ -129,12 +129,15 @@ class FitStatus:
             if not task.done():
                 task.cancel()
                 # suppress kept with reason (#1455): the task was cancelled by us
-                # just above, so its CancelledError is the expected outcome; a
-                # real failure is retrieved and logged below instead of swallowed.
+                # just above, so its CancelledError is the expected outcome. A real
+                # failure raised while it unwinds is caught and logged here, inside
+                # the suppress, so it can never escape this finally and replace the
+                # result or skip the cleanup that follows.
                 with contextlib.suppress(asyncio.CancelledError):
-                    await task
-                if task.done() and not task.cancelled() and task.exception() is not None:
-                    logger.debug("fit check worker failed while being stopped: %r", task.exception())
+                    try:
+                        await task
+                    except Exception as exc:
+                        logger.debug("fit check worker failed while being stopped: %r", exc)
 
     async def finish(self, outcome):
         """Close the status line with the result and total time, only if one was shown."""
