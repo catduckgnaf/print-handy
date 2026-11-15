@@ -169,11 +169,12 @@ class OpenCreatorAdapter(KlipperAdapter):
         # a template carries, so no end macro line reaches the file.
         return ""
 
-    def start_plan(self, bed_temp, nozzle_temp, *, mesh="auto"):
+    def start_plan(self, bed_temp, nozzle_temp, *, mesh="auto", options=None):
         # The documented form resolved for one job: the bed line takes
         # the job's bed temperature. nozzle_temp is not written: the
         # firmware derives each used tool's temperature from the file's
-        # own heating lines and config block.
+        # own heating lines and config block. Explicit option rendering
+        # is available to the intake/slicer contract through start_contract.
         return [f"M140 S{bed_temp:g}" if line.startswith("M140 ") else line
                 for line in self.start_lines()]
 
