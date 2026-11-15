@@ -115,7 +115,7 @@ def test_printing_dashboard_shows_progress_temps_and_estop_when_enabled():
                    "210°C", "60°C", "Printing"):
         assert needle in page, needle
     assert '<button type="button" class="danger" data-estop="flashforge-ad5x"' in page
-    assert "/emergency_stop" in page  # the button posts to the existing route
+    assert "/dashboard/estop/" in page  # session+csrf route: a browser has no token header
 
 
 def test_offline_printer_card_says_unavailable_and_the_page_still_renders():
@@ -263,3 +263,66 @@ def test_latest_timelapse_reuses_one_walk_within_its_ttl():
         fresh = dashboard.latest_timelapse(data, now=1000.0 + dashboard._TIMELAPSE_TTL_S + 1)
     assert first["name"] == cached["name"] == "print-1_first.mp4"
     assert fresh["name"] == "print-2_later.mp4"
+
+
+def test_estop_button_works_for_a_signed_in_browser_on_a_claimed_install():
+    """The button used to post to the header-only API route, so on any
+    install with a login every press got a 401. A signed-in browser now
+    stops the printer with its session plus the page's _csrf, and neither
+    a bare cookie nor a stale token sends anything."""
+    import re
+    from urllib.parse import urlencode
+    token = "test-webui-token-12345"
+    sent = []
+
+    def control(printer_id, verb, body):
+        sent.append((printer_id, verb, body))
+        return 200, {"ok": True, "id": printer_id, "action": verb, "detail": "stop sent"}
+
+    def call(port, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.request(method, path, body=body, headers=headers or {})
+            response = conn.getresponse()
+            return (response.status, {k.lower(): v for k, v in response.getheaders()},
+                    response.read().decode())
+        finally:
+            conn.close()
+
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    with tempfile.TemporaryDirectory() as tmp:
+        environ = {"WEBUI_ACCESS_TOKEN": token}
+        data = load(tmp, "webui:\n  enabled: true\n  port: 8765\n  controls_enabled: true\n")
+        httpd = server.make_server(
+            data, environ=environ, port=0, snapshot_func=lambda: SNAP,
+            printer_status_func=status_fake(PRINTING), spools_view_func=spools_fake(),
+            printer_control_func=control)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = httpd.server_address[1]
+            code, headers, _ = call(port, "POST", "/login",
+                                    body=urlencode({"token": token}), headers=form)
+            assert code == 303
+            cookie = {"Cookie": headers["set-cookie"].split(";", 1)[0].strip()}
+            code, _, page = call(port, "GET", "/", headers=cookie)
+            assert code == 200
+            csrf = re.search(r'id="dash-csrf" value="([^"]*)"', page).group(1)
+            assert csrf
+            path = "/dashboard/estop/flashforge-ad5x"
+            # The cookie alone, or a wrong token, sends nothing.
+            for body in ("", urlencode({"_csrf": "stale"})):
+                code, _, _ = call(port, "POST", path, body=body, headers={**form, **cookie})
+                assert code == 403
+            # No session at all sends nothing either.
+            code, _, _ = call(port, "POST", path, body=urlencode({"_csrf": csrf}), headers=form)
+            assert code in (401, 403)
+            assert sent == []
+            # Session plus the page's token: the API's own stop, confirmed.
+            code, _, body = call(port, "POST", path, body=urlencode({"_csrf": csrf}),
+                                 headers={**form, **cookie})
+            assert code == 200 and json.loads(body)["ok"] is True
+            assert sent == [("flashforge-ad5x", "emergency_stop", {"confirm": True})]
+        finally:
+            httpd.shutdown()
+            httpd.server_close()

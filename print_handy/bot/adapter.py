@@ -8,6 +8,7 @@ only adapter module that imports ``discord``.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -73,6 +74,10 @@ class StandaloneAdapter(BasePlatformAdapter):
         self._prompts: dict[str, dict[str, Any]] = {}
         self._card_messages: dict[str, Any] = {}
         self._card_views: dict[str, Any] = {}
+        # Which prompt owns a card's current buttons, and one edit lock per
+        # card message: see _card_lock.
+        self._card_view_owner: dict[str, Any] = {}
+        self._card_locks: dict[Any, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ delivery
 
@@ -260,6 +265,34 @@ class StandaloneAdapter(BasePlatformAdapter):
         embed.set_footer(text=spec["footer"])
         return embed
 
+    def _card_lock(self, mid):
+        """The edit lock for one card message (per event loop).
+
+        A button press and the intake's next question both edit the same
+        card message. Unserialized, the press's edit, built before the
+        next question existed and sent with no buttons, could land last
+        and wipe that question and its buttons from the card, leaving the
+        intake waiting on a prompt nobody could see (live, after "Choose
+        files"). Every card edit takes this lock and renders the card's
+        state at that moment, so the last edit always shows the newest
+        question.
+        """
+        key = (id(asyncio.get_running_loop()), str(mid))
+        lock = self._card_locks.get(key)
+        if lock is None:
+            lock = self._card_locks[key] = asyncio.Lock()
+        return lock
+
+    def _set_card_view(self, mid, view, owner=None):
+        self._card_views[mid] = view
+        self._card_view_owner[mid] = str(owner) if (view is not None and owner) else None
+
+    def _clear_card_view_of(self, mid, cid):
+        """Retire the card's buttons only when they belong to prompt ``cid``:
+        a newer question's buttons stay."""
+        if self._card_view_owner.get(mid) in (None, str(cid)):
+            self._set_card_view(mid, None)
+
     def _card_files(self, card):
         """[discord.File] carrying the card's thumbnail once, else [].
 
@@ -305,19 +338,20 @@ class StandaloneAdapter(BasePlatformAdapter):
         if message is None:
             return SendResult(False, error="job card message is not tracked")
         mid = str(message.id)
-        if view is not None:
-            self._card_views[mid] = view
-        elif clear_view:
-            self._card_views[mid] = None
-        try:
-            kwargs = {"embed": self._card_embed(card), "view": self._card_views.get(mid)}
-            files = self._card_files(card)
-            if files:
-                kwargs["attachments"] = files
-            await message.edit(**kwargs)
-        except Exception as exc:
-            logger.info("Discord job card edit failed: %r", exc)
-            return SendResult(False, error=str(exc))
+        async with self._card_lock(mid):
+            if view is not None:
+                self._set_card_view(mid, view)
+            elif clear_view:
+                self._set_card_view(mid, None)
+            try:
+                kwargs = {"embed": self._card_embed(card), "view": self._card_views.get(mid)}
+                files = self._card_files(card)
+                if files:
+                    kwargs["attachments"] = files
+                await message.edit(**kwargs)
+            except Exception as exc:
+                logger.info("Discord job card edit failed: %r", exc)
+                return SendResult(False, error=str(exc))
         return SendResult(True, message_id=mid)
 
     async def attach_card_prompt(self, chat_id, card, question, choices, clarify_id, session_key,
@@ -341,12 +375,14 @@ class StandaloneAdapter(BasePlatformAdapter):
                      else discord.ButtonStyle.primary)
             view.add_item(discord.ui.Button(label=label[:LABEL_LIMIT], style=style,
                                             custom_id=custom_id(clarify_id, index)))
-        self._card_views[str(message.id)] = view
-        try:
-            await message.edit(embed=self._card_embed(card), view=view)
-        except Exception as exc:
-            logger.warning("Discord card prompt attach failed: %r", exc)
-            return SendResult(False, error=str(exc))
+        mid = str(message.id)
+        async with self._card_lock(mid):
+            self._set_card_view(mid, view, owner=clarify_id)
+            try:
+                await message.edit(embed=self._card_embed(card), view=view)
+            except Exception as exc:
+                logger.warning("Discord card prompt attach failed: %r", exc)
+                return SendResult(False, error=str(exc))
         self._record_prompt(clarify_id, {"message": message, "choices": labels,
                                          "question": str(question), "card": card})
         return SendResult(True, message_id=str(message.id))
@@ -368,12 +404,14 @@ class StandaloneAdapter(BasePlatformAdapter):
         view.add_item(discord.ui.Button(label=prepared_intake.STOP_LABEL,
                                         style=discord.ButtonStyle.danger,
                                         custom_id=f"{prepared_intake.STOP_CUSTOM_ID}{clarify_id}"))
-        self._card_views[str(message.id)] = view
-        try:
-            await message.edit(embed=self._card_embed(card), view=view)
-        except Exception as exc:
-            logger.warning("Discord card Stop attach failed: %r", exc)
-            return SendResult(False, error=str(exc))
+        mid = str(message.id)
+        async with self._card_lock(mid):
+            self._set_card_view(mid, view, owner=clarify_id)
+            try:
+                await message.edit(embed=self._card_embed(card), view=view)
+            except Exception as exc:
+                logger.warning("Discord card Stop attach failed: %r", exc)
+                return SendResult(False, error=str(exc))
         # Recorded like every other prompt, so retire_prompt finds it when the
         # step ends and takes the Stop button off the card (review of #1488:
         # unrecorded, the button stayed on the card after the step).
@@ -405,14 +443,21 @@ class StandaloneAdapter(BasePlatformAdapter):
         message = row.get("message")
         if message is None:
             return
-        self._card_views[str(getattr(message, "id", ""))] = None
-        try:
-            if row.get("card") is not None:
-                await message.edit(embed=self._card_embed(row["card"]), view=None)
-            else:
+        mid = str(getattr(message, "id", ""))
+        if row.get("card") is None:
+            self._card_views[mid] = None
+            try:
                 await message.edit(view=None)
-        except Exception:
-            logger.debug("could not retire prompt buttons", exc_info=True)
+            except Exception:
+                logger.debug("could not retire prompt buttons", exc_info=True)
+            return
+        async with self._card_lock(mid):
+            self._clear_card_view_of(mid, clarify_id)
+            try:
+                await message.edit(embed=self._card_embed(row["card"]),
+                                   view=self._card_views.get(mid))
+            except Exception:
+                logger.debug("could not retire prompt buttons", exc_info=True)
 
     # ------------------------------------------------------------------ answers
 
@@ -430,13 +475,16 @@ class StandaloneAdapter(BasePlatformAdapter):
             # A card prompt collapses into a line on the card (#1472), the
             # generalization of the standalone edit below.
             card = row["card"]
-            if not row.get("stop"):  # a progress step's Stop is not a question to record
-                card.add_answered(row["question"], note)
-            self._card_views[str(getattr(row["message"], "id", ""))] = None
-            try:
-                await row["message"].edit(embed=self._card_embed(card), view=None)
-            except Exception:
-                logger.debug("could not collapse answered card prompt", exc_info=True)
+            mid = str(getattr(row["message"], "id", ""))
+            async with self._card_lock(mid):
+                if not row.get("stop"):  # a progress step's Stop is not a question to record
+                    card.add_answered(row["question"], note, cid=cid)
+                self._clear_card_view_of(mid, cid)
+                try:
+                    await row["message"].edit(embed=self._card_embed(card),
+                                              view=self._card_views.get(mid))
+                except Exception:
+                    logger.debug("could not collapse answered card prompt", exc_info=True)
             return
         try:
             await row["message"].edit(content=f"{row['question']}\n> {note}"[:rest.LIMIT], view=None)
@@ -545,13 +593,20 @@ class StandaloneAdapter(BasePlatformAdapter):
             # approver, initiator, channel) already ran exactly as for a
             # standalone prompt. The answer collapses into a line on the
             # card and the card re-renders without its buttons.
+            # The resolve above already woke the intake, which may attach its
+            # next question to this card before this edit runs: collapse only
+            # this prompt, and render under the card's lock from the card's
+            # current state, so a newer question and its buttons survive.
             card = row["card"]
-            card.add_answered(question, f"{who} chose **{answer}**")
-            self._card_views[str(getattr(row["message"], "id", ""))] = None
-            try:
-                await interaction.edit_original_response(embed=self._card_embed(card), view=None)
-            except Exception:
-                logger.debug("could not record the choice on the job card", exc_info=True)
+            mid = str(getattr(row["message"], "id", ""))
+            async with self._card_lock(mid):
+                card.add_answered(question, f"{who} chose **{answer}**", cid=cid)
+                self._clear_card_view_of(mid, cid)
+                try:
+                    await row["message"].edit(embed=self._card_embed(card),
+                                              view=self._card_views.get(mid))
+                except Exception:
+                    logger.debug("could not record the choice on the job card", exc_info=True)
             return True
         try:
             await interaction.edit_original_response(
