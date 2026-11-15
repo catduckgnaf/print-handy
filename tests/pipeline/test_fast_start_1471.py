@@ -100,7 +100,7 @@ def test_a_reset_start_post_is_still_a_lost_response(mapped):
 
 def test_read_timeout_classification():
     assert print_now._is_read_timeout(TimeoutError("timed out"))
-    assert print_now._is_read_timeout(urllib.error.URLError(TimeoutError("timed out")))
+    assert not print_now._is_read_timeout(urllib.error.URLError(TimeoutError("timed out")))
     assert not print_now._is_read_timeout(urllib.error.URLError(ConnectionRefusedError("refused")))
     assert not print_now._is_read_timeout(ConnectionResetError("reset"))
     assert not print_now._is_read_timeout(urllib.error.HTTPError("http://m", 503, "x", {}, None))
@@ -128,3 +128,16 @@ def test_wait_printing_without_preparation_records_no_stage(tmp_path, monkeypatc
     monkeypatch.setattr(model_job, "_printer_phase", lambda st: ("standby", "", "Ready"))
     assert REAL_WAIT_PRINTING({}, "x.gcode", 30, prep_check=lambda st: False, job_path=jp) == "standby"
     assert timing_stages(jp) == []
+
+
+def test_a_connect_timeout_is_not_a_held_open_start():
+    """A timeout before the request was written (urllib wraps it in URLError) may mean the
+    printer never received the start: it must take the lost-response path, never the
+    held-open one (review of #1485)."""
+    import urllib.error
+
+    from print_handy.launch import print_now
+
+    assert print_now._is_read_timeout(TimeoutError("timed out")) is True
+    assert print_now._is_read_timeout(urllib.error.URLError(TimeoutError("timed out"))) is False
+    assert print_now._is_read_timeout(ConnectionResetError()) is False

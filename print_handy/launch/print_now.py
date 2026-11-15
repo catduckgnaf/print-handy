@@ -6,6 +6,7 @@ importable from there for one release.
 """
 import logging
 import hashlib, json, os, re, subprocess, time, zipfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import NamedTuple
@@ -1381,11 +1382,14 @@ BLOCKING_START_POST_TIMEOUT_S = 5.0
 
 def _is_read_timeout(exc):
     """Whether a start request failure is a read timeout: the request went out and the
-    printer simply has not answered yet. An HTTP answer, a refused connection and a reset
-    are not timeouts and keep the lost-response treatment."""
-    if isinstance(exc, TimeoutError):
-        return True
-    return isinstance(getattr(exc, "reason", None), TimeoutError)
+    printer simply has not answered yet.
+
+    Only a bare ``TimeoutError`` qualifies. urllib raises that from the response read,
+    after the request was written. A timeout while connecting or sending arrives wrapped
+    in ``URLError`` (its ``reason`` is the timeout): the printer may never have received
+    that request, so it keeps the lost-response treatment, as an HTTP answer, a refused
+    connection and a reset do."""
+    return isinstance(exc, TimeoutError) and not isinstance(exc, urllib.error.URLError)
 
 
 def _blocking_start_timeout():
