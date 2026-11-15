@@ -1,6 +1,6 @@
 # Install Print Handy (native, no Docker)
 
-No Docker? Python plus systemd gets you the same bot. Most people should use [Docker](DOCKER.md) instead. Coming from an old Hermes-hosted install? That mode is gone; the move is at the [bottom of this page](#coming-from-the-old-hermes-install).
+This is the **advanced native path**, not a fourth primary installation option. The normal choices are [Docker](DOCKER.md), [Unraid](https://github.com/catduckgnaf/catduck-unraid-templates) and the [Home Assistant add-on](HOME-ASSISTANT-OS.md). Python plus systemd still works if maintaining your own dependencies is how you relax. Most people should use Docker instead. Coming from an old Hermes-hosted install? That mode is gone; the move is at the [bottom of this page](#coming-from-the-old-hermes-install).
 
 This page is the native install: Python and systemd user services. The bot's behavior and settings are covered by the [standalone bot guide](STANDALONE.md).
 

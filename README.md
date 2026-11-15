@@ -7,47 +7,64 @@
 [![CI](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml/badge.svg)](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/mT2Ht3nqZu)
 
-**Bambu Handy for every printer.** Paste a model link into Discord, Telegram or Matrix, approve the slice, and go do something else. Print Handy slices it for your printer, matches your spools, watches the camera for spaghetti, and roasts your model when it finishes.
+**Bambu Handy for every printer. Including Bambu printers. We're not petty.**
 
-- **Runs on your machine.** One Docker container on your network. No account, no Print Handy cloud.
-- **Your whole printer, from chat.** Colors, copies, fit, slicing, spools, camera alerts, timelapses and firmware updates, from Discord, Telegram, Matrix or the Web UI.
-- **Nothing prints until you tap approve.** Every job waits for a human.
+Find a model, drop its link or STL/3MF into Discord, Telegram, Matrix or the Web UI, and let Print Handy deal with the fiddly bits: colors, copies, bed fit, slicing, spools and print updates. It runs on your own hardware. There's no Print Handy cloud, no mandatory AI subscription, and considerably fewer reasons to move your laptop next to a printer.
+
+It also has a personality problem. Your model might get roasted, your eleventh copy deserves a Spinal Tap reference, and Pasta Cam would very much like your printer to stop making spaghetti.
 
 Current release: **2.3.4**
 
-[Get started](#get-started) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases) · [Contribute](CONTRIBUTING.md)
+[Install](#get-started) · [See it work](#from-link-to-print) · [Printer support](#will-it-work-with-my-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
-## See it in action
+## The fun stuff (and the genuinely useful stuff)
 
-**Drop a link, pick your colors.**
+- **Drop a link or a file.** MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs, Nexprint, direct STL/3MF links and file uploads feed the print workflow. Some sites or downloads have limits or need credentials; [model sources](docs/PROJECT-REFERENCE.md) explains the details.
+- **Tell the slicer what you want.** Pick colors, filaments and copies. Rotate, resize, split across plates and adjust supports from chat; Print Handy checks bed fit before making you waste filament on a sculpture of disappointment. OrcaSlicer and OpenSCAD are built in, so there's nothing else to install. [Model editing](docs/EDITING.md) has the supported operations and their limits.
+- **Spoolman without the spreadsheet cosplay.** Track your filament, match spools to printer slots and get prompted when a spool runs out. A bundled Spoolman instance is included in the container; you can also connect your own. [Spools and commands](docs/PROJECT-REFERENCE.md).
+- **Pasta Cam (Camera watchdog).** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
+- **Print updates with attitude.** Progress, pauses, errors, finish posts, optional timelapses, model roasts and non-AI status quips. Some printer connections monitor only jobs Print Handy started. [Status voice](docs/STATUS-VOICE.md) · [Timelapses](docs/DOCKER.md#timelapse-capture-go2rtc).
+- **A real Web UI.** Set up printers, work through a model link or upload, use chat in your browser, browse slices and print history, and view the **Pasta Wrapped** recap. Some recap/video features depend on the records and options available. [Web UI guide](docs/WEBUI.md).
+- **Firmware, without pretending every printer is the same.** Check firmware versions and available components, including ZMod and HelixScreen updates; eligible ZMod and vanilla Klipper printers can apply a reported component update with confirmation. Other firmware paths get guidance or read-only reporting. [Exactly what updates work](docs/FIRMWARE-UPDATE.md).
+- **Optional AI, not mandatory AI.** Describe a part to the design tool, iterate on it or use supported natural-language editing. Normal printing, filament tracking, roasts and status messages don't need an LLM. AI features require an endpoint you configure and have platform-specific limitations. [Design guide](docs/DESIGN.md) · [Chat platforms](docs/STANDALONE.md).
 
-<img src="assets/screenshots/discord-01-link-and-colors.png" alt="Print Handy in Discord: paste a model link, the bot checks the model, then asks which color each part prints in" width="720">
+- **Home Assistant.** The [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer in Home Assistant with live status and controls.
 
-**Choose how many copies, then confirm. Nothing prints until you do.**
+One container runs locally; the chat provider you choose still carries messages and attachments through its own service. The local Web UI doesn't need a Discord account. Don't mistake *local-first* for *every message stays in your basement*.
 
-<img src="assets/screenshots/discord-02-copies-and-confirm.png" alt="Print Handy in Discord: choose the number of copies, then confirm the estimate with Slice and print now, Slice only, Stop with colors saved or Cancel print request" width="720">
+## From link to print
 
-**It prints, and it roasts you a little.**
+**1. Paste a model link. Choose the colors.** The printer doesn't care whether your taste is good.
 
-<img src="assets/screenshots/discord-03-print-start.png" alt="Print Handy in Discord: the print started post, ending with a one-line roast of the model" width="720">
+<img src="assets/screenshots/discord-01-link-and-colors.png" alt="Discord model-link intake and color selection" width="720">
+
+**2. Pick the number of copies and review the slice choices.** One little dragon, eleven little dragons. We aren't judging. Much.
+
+<img src="assets/screenshots/discord-02-copies-and-confirm.png" alt="Discord copy-count selection and slice or print choices" width="720">
+
+**3. Watch it start, or watch it get roasted.** Sometimes both.
+
+<img src="assets/screenshots/discord-03-print-start.png" alt="Discord print-start status with a one-line roast" width="720">
 
 <details>
-<summary><b>More: fit, spools, the camera watchdog and the finish</b></summary>
+<summary><b>More screenshots: fit checks, spools, Pasta Cam and the finish line</b></summary>
 
-1. **If it doesn't fit, you choose how.** Models are measured at full size and never silently shrunk: split across plates, turn it, shrink it on purpose, or cancel. ![The fit question and the units question](assets/screenshots/discord-08-fit-and-geometry.png)
-2. **It finishes, with a timelapse.** ![Print complete post with timelapse](assets/screenshots/discord-04-print-complete.png)
-3. **The camera watchdog spots trouble.** ![Camera alert with Pause, It's fine and Stop asking for this print](assets/screenshots/discord-05-camera-watchdog.png)
-4. **Pause, runout and the spool question.** ![Paused post and runout spool question](assets/screenshots/discord-06-pause-and-runout.png)
-5. **Change a spool, guided.** ![Changing a spool, guided](assets/screenshots/discord-09-spool-change.png)
-6. **A new spool in Spoolman gets offered for a slot.** ![New spool prompt and load flow](assets/screenshots/discord-07-new-spool.png)
+1. **Bed fit, geometry and the occasional uncomfortable measurement.** ![Fit and geometry prompts](assets/screenshots/discord-08-fit-and-geometry.png)
+2. **Finished print and timelapse.** ![Print completed](assets/screenshots/discord-04-print-complete.png)
+3. **Pasta Cam asks whether that's a print or an entrée.** ![Camera alert](assets/screenshots/discord-05-camera-watchdog.png)
+4. **Pause, runout and spool choices.** ![Pause and runout](assets/screenshots/discord-06-pause-and-runout.png)
+5. **Changing a spool.** ![Spool change](assets/screenshots/discord-09-spool-change.png)
+6. **A new Spoolman spool joins the party.** ![New spool](assets/screenshots/discord-07-new-spool.png)
 
-These are mockups built from the bot's real message text and buttons, with placeholder names. Sources for every line are in [assets/screenshots](assets/screenshots/README.md).
+These screenshots are **mockups based on real bot text and controls**, not proof of a hardware print. Their sources are documented in [assets/screenshots](assets/screenshots/README.md).
 
 </details>
 
 ## Get started
 
-You need a 64-bit Linux machine (Debian, Ubuntu, or a Raspberry Pi 4 or 5 on 64-bit Raspberry Pi OS) with Docker and the Compose plugin. The image is published for `linux/amd64` and `linux/arm64`.
+Three ways in: Docker (right here), [Unraid](#unraid) or the [Home Assistant add-on](#home-assistant-add-on).
+
+**Docker** runs on 64-bit Linux (amd64 or arm64) with Docker and the Compose plugin. This is the short version; [the Docker guide](docs/DOCKER.md) covers version pinning, networks, storage, upgrades and every optional service.
 
 ```bash
 mkdir print-handy && cd print-handy
@@ -58,80 +75,75 @@ curl -fL https://raw.githubusercontent.com/catduckgnaf/print-handy/2.3.4/.env.ex
 Edit `.env` and fill in three things:
 
 - `PRINT_HANDY_IMAGE`: the image to run, as a pinned digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`) from [Pinning the image](docs/DOCKER.md#pinning-the-image). There is no default, and that is deliberate: a tag can move or be republished, so a default would let the image change under you.
-- `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID`: the bot and the channel it serves. [Discord bot setup](docs/DISCORD-BOT-SETUP.md) takes about 15 minutes. For [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md), set `PRINT_HANDY__BOT__PLATFORM` and that platform's token instead.
-- `PRINT_HANDY__SERVICES__MOONRAKER_URL`: your printer's address, for example `http://192.0.2.50:7125` on Klipper. Other printer families use their own variables, named in the [printer guides](docs/PRINTER-SUPPORT.md).
-
-Then start it:
+- Your chat: `DISCORD_BOT_TOKEN` and `PRINT_HANDY__DISCORD__CHAT_ID` from [Discord setup](docs/DISCORD-BOT-SETUP.md) (about 15 minutes). Prefer [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md)? Set `PRINT_HANDY__BOT__PLATFORM` and that platform's token instead. The Web UI works either way.
+- Your printer: `PRINT_HANDY__SERVICES__MOONRAKER_URL` for a Klipper printer. Other families don't magically have Moonraker; their variables are in [Printer support](docs/PRINTER-SUPPORT.md).
 
 ```bash
 docker compose up -d
 docker compose ps        # wait for "healthy"
 ```
 
-1. **Claim the Web UI.** Open `http://<this-machine>:8088` and finish the walkthrough's Login step: set a password, or record that you mean to leave it open. Until then, anyone who can reach port 8088 can use it, printing and arming controls included.
-2. **Say hello.** Send `/print-help` in your print channel. When the bot answers with its command list, paste a model link.
-3. **Check the install.** `python3 -m print_handy.doctor` checks the settings, the slicer and every configured service, and names whatever is wrong.
+1. **Claim the Web UI.** Open `http://<your-server>:8088` and **set its login during the first-run walkthrough**, or record that you mean to leave it open. Until then, anyone who can reach that port can use its printer controls.
+2. **Say hello.** Send `/print-help` in your configured chat, or use the Web UI.
+3. **Check the install.** `docker compose exec combined python3 -m print_handy.doctor` checks the settings, the slicer and every configured service, and names whatever is wrong.
 
-The first start creates `./data` for you. Settings, upgrades and the full variable list are in the [Docker guide](docs/DOCKER.md).
+### Unraid
 
-### Other ways to install
+In **Apps > Settings**, add `https://github.com/catduckgnaf/catduck-unraid-templates` under **Use DockerHub / Custom repositories**, then search Apps for **Print Handy**. The template and the Docker image are the same Print Handy, not two competing projects. See the [Unraid template repository](https://github.com/catduckgnaf/catduck-unraid-templates) and [Docker guide](docs/DOCKER.md) for networking and persistence.
 
-- **Unraid:** add `https://github.com/catduckgnaf/catduck-unraid-templates` under **Apps > Settings > Use DockerHub / Custom repositories**, then search Apps for `print-handy`. See the [Docker guide](docs/DOCKER.md).
-- **Home Assistant OS:** add `https://github.com/catduckgnaf/print-handy-haos-addon` under **Settings > Apps > App store > Repositories** and install **Print Handy**. See the [Home Assistant OS guide](docs/HOME-ASSISTANT-OS.md).
-- **No Docker:** a [native install](docs/INSTALL.md) or the [standalone bot](docs/STANDALONE.md).
+### Home Assistant add-on
 
-## Is my printer supported?
+In **Settings > Apps > App store > Repositories**, add `https://github.com/catduckgnaf/print-handy-haos-addon`. Install **Print Handy**, start it and open the Web UI. Set its login, then connect your printer and optional chat platform. The add-on runs the published container through Home Assistant, with its own configuration and backup handling. [Full add-on guide](docs/HOME-ASSISTANT-OS.md).
 
-Print Handy knows 84 printer models, grouped by how they connect. Any Klipper printer with Moonraker can use the generic Klipper profile, and any Marlin printer behind OctoPrint can use the generic OctoPrint profile.
+Want printer entities in Home Assistant too? That's the separate [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy), installed through HACS.
 
-| Connects by | What you get | Printers |
+## Will it work with my printer?
+
+The question that matters is **which firmware and connection your printer actually runs**, not merely the brand on the front. A built-in profile means Print Handy has definitions and offline tests; it **doesn't** mean someone printed on that exact hardware. [Printer support](docs/PRINTER-SUPPORT.md) explains verification levels and how to request a new printer.
+
+### FlashForge: choose the firmware first
+
+| Firmware / route | Printers with Print Handy profiles | What connects | Guide |
+|---|---|---|---|
+| **Stock FlashForge** | AD5X | Factory LAN HTTP API; no ZMod required | [Stock FlashForge](docs/FLASHFORGE-STOCK.md) |
+| **ZMod** | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker through ZMod | [ZMod](docs/ZMOD.md) |
+| **Forge-X** (1.4.2 beta) | AD5M, AD5M Pro | Moonraker on Forge-X's patched stock Klipper; not ZMod, never both | [Forge-X](docs/FORGEX.md) |
+| **OpenCreator** | Creator 5, Creator 5 Pro | Kalico / Moonraker; separate firmware and profiles from ZMod | [OpenCreator](docs/OPENCREATOR.md) |
+| **Reforge** | **No dedicated profile yet** | Independent Creator 5 / 5 Pro custom firmware; compatibility not verified here | [Reforge upstream](https://github.com/Klipper4FlashForge/firmware) · [Request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) |
+
+**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md). Reforge has no integration to verify yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*.
+
+A Creator 5 running OpenCreator is not running ZMod, and a stock AD5X is not secretly a Moonraker printer. Choose the matching [model key](docs/PRINTER-PROFILES.md#find-your-printer). The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
+
+### Everybody else
+
+| Connection family | Built-in families | Guide |
 |---|---|---|
-| **Moonraker (Klipper)** | The full flow: slicing, gated print start, progress, alerts, timelapses | Flashforge AD5X, AD5M and Creator 5 lines on [ZMod](docs/ZMOD.md), AD5M lines on [Forge-X](docs/FORGEX.md), Creator 5 lines on [OpenCreator](docs/OPENCREATOR.md), [Elegoo](docs/ELEGOO.md) Neptune 4, [Qidi](docs/QIDI.md), [Creality](docs/CREALITY.md) K1 and Ender-3 V3, [Anycubic](docs/ANYCUBIC.md) Kobra 2, [Sovol](docs/SOVOL.md), [Snapmaker](docs/SNAPMAKER.md) U1, and any other Klipper printer |
-| **Bambu Lab LAN** | Slicing and packaging, with opt-in LAN status, upload and gated start | A1, P1, P2S, X1, H2 and X2D lines. See [Bambu Lab printers](docs/BAMBU-LAB.md) |
-| **PrusaLink** | Slicing, with opt-in LAN status, upload and gated start | MK4S, CORE One, XL, MINI+. See [Prusa printers](docs/PRUSA.md) |
-| **Flashforge stock LAN** | The printer's own LAN API, no ZMod needed | AD5X. See [Stock Flashforge printers](docs/FLASHFORGE-STOCK.md) |
-| **Elegoo SDCP** | SDCP LAN, opt-in | Centauri Carbon. See [Elegoo printers](docs/ELEGOO.md) |
-| **OctoPrint (Marlin)** | A generic Marlin profile plus built-in presets | Creality Ender-3, Anycubic and Sovol Marlin presets, and any other Marlin printer. See [OctoPrint + Marlin](docs/OCTOPRINT-MARLIN.md) |
+| **Klipper / Moonraker** | Creality, Qidi, Sovol, Elegoo Neptune 4, Anycubic Kobra 2 line, Snapmaker U1, generic Klipper | [Printer profiles](docs/PRINTER-PROFILES.md) |
+| **Bambu Lab LAN** | A1, P1, X1, P2, H2 and related supported profiles | [Bambu Lab](docs/BAMBU-LAB.md) |
+| **PrusaLink** | MK4S, CORE One, XL, MINI+ | [Prusa](docs/PRUSA.md) |
+| **Elegoo SDCP** | Centauri Carbon | [Elegoo](docs/ELEGOO.md) |
+| **OctoPrint / Marlin** | Ender, Anycubic and Sovol presets, plus a generic OctoPrint profile | [OctoPrint / Marlin](docs/OCTOPRINT-MARLIN.md) |
 
-The model-by-model list, how to set up an unlisted printer, and how to file a [printer request](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) are in the [printer support guide](docs/PRINTER-SUPPORT.md). Thousands of automated tests cover every printer family, and the AD5X on ZMod is the author's daily printer ([tested baseline](docs/DEVICE-AD5X.md#tested-baseline)). Tests are still not your printer on your bench, so watch the first print.
+Don't see your printer? The [printer support guide](docs/PRINTER-SUPPORT.md#your-printer-is-not-listed) explains generic profiles and the [printer request form](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml). No need to buy a new printer just to please the documentation.
 
-## What it does
+## Docs, help and the people who made this possible
 
-- **Drop in a model, get a print.** Paste a link from MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint, any direct STL or 3MF link, or upload a file. Pick colors, filament and copies with buttons.
-- **Fit it to your printer.** Models are measured at full size and never silently shrunk: rotate, resize, split across plates, add supports, or edit the job in chat ("rotate 90", "tree supports"). See [Editing](docs/EDITING.md).
-- **Slice without surprises.** OrcaSlicer (v2.5.0) and OpenSCAD are built in, and every print keeps its exact recipe for reprints.
-- **Know your filament.** Built-in Spoolman stays in sync with your slots: `/spool` lists, changes and creates spools, and a runout asks which spool goes in next.
-- **Pasta Cam (camera watchdog).** The camera watches every print for spaghetti, detached parts and stalls, and posts the photo with **Pause** and **It's fine** buttons. Camera watchdog detection runs locally; a vision model can sharpen it. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). See [Camera watch](docs/DOCKER.md#camera-watch-visual_watch).
-- **Follow every print.** Start, pause, error and finish posts, a timelapse at the end, and a roast of your model, because spaghetti wasn't insulting enough.
-- **Keep the printer healthy.** ZMod, HelixScreen and plugin update alerts, guided firmware updates and calibration (`/print-firmware`, `/print-calibration`), each behind a confirmation. See [Firmware updates](docs/FIRMWARE-UPDATE.md).
-- **Chat wherever you are.** Discord, Telegram, Matrix or the local Web UI, which also has status, settings, spools, a sliced-layer view and a yearly print recap. "@Print Handy spool list" works like `/spool list`, typos included.
-- **Home Assistant.** The [Print Handy integration](https://github.com/catduckgnaf/ha-print-handy) puts every printer on your roster in Home Assistant, with live status and controls.
-- **Optional AI (beta).** Design and edit a part from a description with `/print-design` ([AI design](docs/DESIGN.md)), and chat in plain language. Point it at a local server, a hosted API or [Cloudflare's free tier](docs/CLOUDFLARE.md); if the endpoint is down, printing carries on.
+For the complete setup and command references, use the [documentation home](docs/README.md) or [documentation site](https://catduckgnaf.github.io/print-handy-docs/). For humans with problems, there's the [Discord server](https://discord.gg/mT2Ht3nqZu) and [GitHub issues](https://github.com/catduckgnaf/print-handy/issues). Code contributions go through [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The full command list is in the [project reference](docs/PROJECT-REFERENCE.md).
+### Thanks, seriously
 
-## Safety
+The FlashForge community has done a remarkable amount of work convincing these printers to speak something other than corporate. Print Handy builds on those efforts; it isn't their firmware and doesn't claim to maintain it.
 
-Print Handy is careful, but it is not a guarantee. Check supports, bed clearance and the G-code before a first print, keep the confirmation guards on, and don't treat a camera check as permission to print unattended. Only print models you are allowed to download, and review logs before attaching them to a public issue.
+- **[ZMod](https://zmod.link)** for opening up the Adventurer and Creator printers through Klipper and Moonraker.
+- **[OpenCreator](https://github.com/FlashForge-C5-Modding-Group/OpenCreator)** and the [FlashForge Creator 5 Modding Group](https://github.com/FlashForge-C5-Modding-Group) for their alternative Creator 5 firmware and documentation.
+- **[Reforge / Klipper4FlashForge](https://github.com/Klipper4FlashForge/firmware)** for another independent Creator 5 custom firmware path. It's acknowledged here, **not** advertised as a tested Print Handy integration.
+- **[OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)**, **[Spoolman](https://github.com/Donkie/Spoolman)**, **[Klipper](https://github.com/Klipper3d/klipper)**, **[Moonraker](https://github.com/Arksine/moonraker)**, **[OpenSCAD](https://github.com/openscad/openscad)** and **[go2rtc](https://github.com/AlexxIT/go2rtc)** for the tools that make slicing, spools, printer control, design and cameras possible.
 
-## Find the right guide
+Thanks also to everyone filing hardware reports, testing strange combinations, fixing bugs and contributing code. If your printer works because somebody spent a weekend deciphering a protocol, they deserve a credit and probably a nap. Third-party licenses and component details are in [Component provenance](docs/COMPONENTS.md).
 
-| I want to… | Go here |
-|---|---|
-| Install and configure | [Documentation site](https://catduckgnaf.github.io/print-handy-docs/) · [Docs source](docs/README.md) |
-| Run the Docker container | [Docker guide](docs/DOCKER.md) |
-| Check or add a printer | [Printer support](docs/PRINTER-SUPPORT.md) · [Printer profiles](docs/PRINTER-PROFILES.md) |
-| Run two or more printers | [More than one printer](docs/MULTI-INSTANCE.md) |
-| Use the Web UI | [Web UI guide](docs/WEBUI.md) |
-| Look up commands and settings | [Project reference](docs/PROJECT-REFERENCE.md) · [Settings](docs/SETTINGS.md) |
-| Get help | [Discord server](https://discord.gg/mT2Ht3nqZu) (#support) |
-| Report a bug or contribute | [Issues](https://github.com/catduckgnaf/print-handy/issues) · [Contribution guide](CONTRIBUTING.md) |
-| See what shipped | [Releases](https://github.com/catduckgnaf/print-handy/releases) · [Release-note guide](docs/RELEASE-NOTES-GUIDE.md) |
-
-The Discord server is the community home: ask in **#support**, talk printers in **#printers**, and watch **#updates** for releases. Bugs and feature requests belong in [Issues](https://github.com/catduckgnaf/print-handy/issues).
-
-*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
+*Not affiliated with Bambu Lab or the firmware projects above. We just think the good printer experience should be less exclusive.*
 
 ## License
 
-Print Handy is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). Version 2.2.7 and earlier were released under the MIT License; [NOTICE](NOTICE) keeps those terms for the code carried forward. The third-party components the image and the wheel ship, and their licenses, are listed in [docs/COMPONENTS.md](docs/COMPONENTS.md).
+Print Handy's **current code is licensed under [GNU Affero General Public License v3.0 only (AGPL-3.0-only)](LICENSE)**. See [NOTICE](NOTICE) and [third-party component licenses](docs/COMPONENTS.md) for applicable notices.

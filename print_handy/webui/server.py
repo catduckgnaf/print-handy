@@ -194,6 +194,7 @@ from . import timing as timing_module
 from . import screen as screen_module
 from . import shell
 from . import sliced as sliced_module
+from . import settings_report as settings_report_module
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
@@ -1542,6 +1543,20 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.settings_data, theme=self._theme(), checked=checked,
             nav=data_module.nav_for(self.server.settings_data)),
             "text/html; charset=utf-8")
+
+    def _settings_report_route(self, rest=""):
+        """Download the evidence-backed conversion decisions for an archived job."""
+        segments = [segment for segment in rest.split("/") if segment]
+        archive = data_module.archive_root(self.server.settings_data)
+        payload = (settings_report_module.report_payload(archive, segments[0])
+                   if len(segments) == 1 else None)
+        if payload is None:
+            self._json(404, {"ok": False, "reason": "no recorded settings-decision report for this job"})
+            return
+        name = f"{segments[0]}-settings-decisions.json"
+        self._send(200, settings_report_module.render_json(payload), "application/json; charset=utf-8",
+                   headers=[("Content-Disposition", f'attachment; filename="{name}"'),
+                            ("Cache-Control", "no-store")])
 
     def _sliced_route(self, rest=""):
         """GET /sliced (the downloads page) and /sliced/<job>/<n> (one plate file, #1443).

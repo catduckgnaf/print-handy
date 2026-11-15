@@ -1,6 +1,6 @@
 # The Print Handy bot
 
-This is the bot with no Docker around it: links, files, color buttons, slicing and printer alerts, all from one Python process. No AI needed. Also runs on Telegram or Matrix. One token, one bot; two copies means two answers to everything.
+This is the bot **without the container**: links, files, color buttons, slicing and printer alerts, all from one Python process. No AI needed. Discord, Telegram and Matrix are platform choices, not separate installation products. This is advanced native operation; the three primary installs are [Docker](DOCKER.md), [Unraid](https://github.com/catduckgnaf/catduck-unraid-templates) and the [Home Assistant add-on](HOME-ASSISTANT-OS.md). One token, one bot; two copies means two answers to everything.
 
 It is for a machine that already runs Python services and would rather not run Docker. What it does not include is everything the Docker image bundles: OrcaSlicer, Spoolman, OpenSCAD, ffmpeg and go2rtc are yours to install, if you want what they do. You install the slicer yourself ([native install, step 2](INSTALL.md#2-orcaslicer)) and point `services.spoolman_url` at a Spoolman you run. If that sounds like work, [Docker](DOCKER.md) is the shorter road.
 

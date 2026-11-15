@@ -98,6 +98,11 @@ def _mtime(path: Path) -> float:
         return 0
 
 
+def _has_settings_report(payload: dict) -> bool:
+    from .settings_report import has_report
+    return has_report(payload)
+
+
 def list_sliced(archive: Path, limit: int = SLICED_ROW_LIMIT) -> list:
     """Downloadable sliced jobs, newest first: one row per job, one entry per plate.
 
@@ -137,7 +142,8 @@ def list_sliced(archive: Path, limit: int = SLICED_ROW_LIMIT) -> list:
             mtime = 0
         rows.append({"job_id": job_id, "title": str(payload.get("title") or job_id),
                      "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)) if mtime else "unknown",
-                     "mtime": mtime, "plates": plates})
+                     "mtime": mtime, "plates": plates,
+                     "settings_report": _has_settings_report(payload)})
     rows.sort(key=lambda row: row["mtime"], reverse=True)
     return rows
 
@@ -181,7 +187,9 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
                           theme=theme, heading="Sliced files", nav=nav)
     body = []
     for row in rows:
-        for plate in row["plates"]:
+        report = ('<a href="/settings-report/' + _esc(row['job_id']) + '">Settings report</a>'
+                  if row.get("settings_report") else "")
+        for number, plate in enumerate(row["plates"]):
             body.append(
                 "<tr>"
                 f"<td>{_esc(row['title'])}</td>"
@@ -189,9 +197,10 @@ def render_sliced_page(rows, *, theme=shell.DEFAULT_THEME, nav=None) -> str:
                 f"<td>{_esc(plate['name'])}</td>"
                 f"<td>{_esc(_fmt_size(plate['size']))}</td>"
                 f"<td><a href=\"/sliced/{_esc(row['job_id'])}/{int(plate['index'])}\">Download</a></td>"
+                f"<td>{report if number == 0 else ''}</td>"
                 "</tr>")
     parts.append("<table><tr><th>Model</th><th>Sliced</th><th>File</th>"
-                 "<th>Size</th><th></th></tr>" + "".join(body) + "</table>")
+                 "<th>Size</th><th></th><th></th></tr>" + "".join(body) + "</table>")
     return shell.page("sliced", "".join(parts), path="/sliced",
                       theme=theme, heading="Sliced files", nav=nav)
 

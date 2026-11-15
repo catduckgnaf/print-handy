@@ -1,3 +1,4 @@
+# Heater ceilings are a roof, never a target to aim for.
 """The one heater ceiling every Print Handy temperature path asks (#1147).
 
 A target above the ceiling is refused, never clamped: the G-code
