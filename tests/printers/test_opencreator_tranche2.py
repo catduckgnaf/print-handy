@@ -328,23 +328,18 @@ def test_short_or_missing_config_lists_never_raise():
     # Orca can write fewer entries than there are tools, or none: every
     # per-slot read is bounds-checked, so synthesis degrades to "not
     # discoverable" (the firmware's own failure mode), never an exception.
-    short = ("T2
-M140 S60
-G1 X1 E1
-; filament used [mm] = 0,0,5
-"
-             "; nozzle_temperature_initial_layer = 220
-; chamber_temperature = 50
-"
-             "; activate_chamber_temp_control = 1
-; idle_temperature = 0
-")
+    short = "\n".join([
+        "T2", "M140 S60", "G1 X1 E1",
+        "; filament used [mm] = 0,0,5",
+        "; nozzle_temperature_initial_layer = 220",
+        "; chamber_temperature = 50",
+        "; activate_chamber_temp_control = 1",
+        "; idle_temperature = 0", ""])
     start = start_contract.synthesize_start(short)
     assert (start.tool, start.hotend, start.chamber, start.used_tools) == (2, None, None, (2,))
     [problem] = start_contract.start_problems(short, 60, 220)
     assert "No hotend temperature found" in problem
-    bare = start_contract.synthesize_start("M140 S60
-")
+    bare = start_contract.synthesize_start("M140 S60")
     assert (bare.tool, bare.hotend, bare.used_tools) == (0, None, ())
     assert start_contract.synthesize_start("").hotend is None
 
