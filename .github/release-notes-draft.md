@@ -48,6 +48,8 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 - `/print-live` also works from the live voice channel's own text chat. (#1505)
 
 ## Fixes
+- Hotfix, same day: slicing failed with "could not identify the cause" (`PH_SLICING_UNKNOWN`) whenever the printer had no active spool on record, which is exactly what unassigning or rebinding a spool in the Web UI leaves behind. Slicing and its safety check now work from the slot you picked. The log also stops filling with warnings about a `.env` file nobody needed. If you already pulled 2.3.4, pull it again. (#1533)
+- Forge-X beta builds are now ordered by their number, so `1.4.2-beta-10` is newer than `1.4.2-beta-4` in chat notices and the weekly release watch. With `[firmware] forgex_apply = true`, `/print-firmware update forge-x` can install a Forge-X update within the installed version line; it ships off. (#1532)
 - The Web UI workflow could hand back a download from outside the job's intake folder. Downloads are now limited to that job's intake archive. (#1514)
 - 3MF files painted with more than 18 colors (Orca's and Bambu Studio's extended paint states) lost those colors. They are now decoded and remapped. (#1520)
 - The color-plan question no longer regroups the same parts three times before asking. (#1500)

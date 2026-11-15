@@ -95,6 +95,8 @@ Merged PRs in the range, one line each:
 - Forge-X tranche 2b: calibration through Forge-X's own macros and a per-print timelapse skip (#1506) (PR #1527).
 - docs(release): bring the 2.3.4 notes up to date with #1500-#1527 (PR #1528).
 - docs(release): name the notes PRs themselves in the 2.3.4 notes (PR #1531).
+- Forge-X tranche 3: beta builds ordered by number, guarded forge-x install shipped off, weekly watch entry (#1506) (PR #1532). Merged after the first 2.3.4 tag; included by the same-day re-cut.
+- fix(slice): slice and verify a slot job when the active-spool record is empty; missing optional .env no longer logged (PR #1533). Same-day re-cut of 2.3.4 on the owner's call: the first cut failed every slot-selected slice on an install whose active-spool record was empty.
 
 # Version 2.3.3
 
