@@ -886,8 +886,16 @@ class BambuPrintMonitor:
             # "uncertain" (no local detection behind it) is only noted
             # until it persists. An unchanged frame is not independent
             # evidence and does not build the streak.
-            uncertain_seen = (self._inconclusive_streak.note(
-                verdict, counted=changed is not False) if detection is None else None)
+            # A watch failure is not a judgement and neither builds nor
+            # breaks the streak; a check the local detector spoke on is a
+            # different kind of evidence and ends an endpoint streak.
+            if watch_failed:
+                uncertain_seen = None
+            elif detection is None:
+                uncertain_seen = self._inconclusive_streak.note(verdict, counted=changed is not False)
+            else:
+                self._inconclusive_streak.reset()
+                uncertain_seen = None
             # Bambu Lab's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy verdict vetoes a stall only where the sensitivity
             # profile allows it, and a supposedly empty idle bed during a

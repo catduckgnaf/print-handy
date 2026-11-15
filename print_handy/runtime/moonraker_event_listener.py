@@ -1526,13 +1526,17 @@ def _post_completion(message, completion_message, job_key=None):
             _acknowledge_completion(completion_message)
             return True
         _COMPLETION_POSTS_IN_FLIGHT.add(key)
+    delivered = False
     try:
         delivered = _deliver_completion(message, completion_message, job_key=job_key)
     finally:
+        # Record the delivery before the in-flight claim is dropped, under the
+        # same lock: with the claim released first, a concurrent route could
+        # find neither the claim nor the record and post a duplicate.
         with _COMPLETION_POST_LOCK:
+            if delivered and pending_backed:
+                _record_completion_posted(key)
             _COMPLETION_POSTS_IN_FLIGHT.discard(key)
-    if delivered and pending_backed:
-        _record_completion_posted(key)
     return delivered
 
 
@@ -4419,8 +4423,16 @@ class Listener:
             # "uncertain" (no local detection behind it) is only noted
             # until it persists. An unchanged frame is not independent
             # evidence and does not build the streak.
-            uncertain_seen = (self.inconclusive_streak.note(
-                verdict, counted=changed is not False) if detection is None else None)
+            # A watch failure is not a judgement and neither builds nor
+            # breaks the streak; a check the local detector spoke on is a
+            # different kind of evidence and ends an endpoint streak.
+            if watch_failed:
+                uncertain_seen = None
+            elif detection is None:
+                uncertain_seen = self.inconclusive_streak.note(verdict, counted=changed is not False)
+            else:
+                self.inconclusive_streak.reset()
+                uncertain_seen = None
             # Moonraker's recorded rules (camera_watch.FAMILY_RULES): a
             # healthy vision verdict outranks the pixel diff at every
             # sensitivity, and an empty bed while printing alerts on its
