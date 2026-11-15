@@ -134,6 +134,14 @@ def download_target(data, scope, intake_id, index):
         return None
     if not sliced._PLATE_NAME.fullmatch(path.name) or not path.is_file():
         return None
+    # Receipts record output paths, but may be stale or modified. Only serve
+    # a plate that remains inside the configured archive, matching /sliced.
+    try:
+        archive = intake_root(data).resolve()
+        if not path.is_relative_to(archive):
+            return None
+    except (OSError, ValueError):
+        return None
     return path
 
 
