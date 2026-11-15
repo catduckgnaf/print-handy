@@ -1100,3 +1100,30 @@ def test_print_anyway_for_both_slots_uploads_once_and_one_slot_alone_does_not(ma
     with mock.patch.object(model_job, "_clear_active_spool", return_value={}):
         _run_two_slots(mapped, jp, g, job)
     assert len(uploads(mapped.run)) == 1
+
+
+def _launch_two_slots(mapped, authority):
+    from print_handy.launch import print_now as print_now_module
+    jp, g, job = _two_mismatched_slots(mapped)
+    job["color_mismatch_accepted"] = {
+        "gcode_sha256": model_job.file_sha256(g),
+        "slots": [model_job.color_mismatch_key(1, "#E53935", "#CD7F32"),
+                  model_job.color_mismatch_key(2, "#1E88E5", "#43A047")]}
+    with mock.patch.object(model_job, "_clear_active_spool", return_value={}) as clear, \
+         mock.patch.object(print_now_module, "_launch_accounting_authority", return_value=authority):
+        _run_two_slots(mapped, jp, g, job)
+    return clear, job
+
+
+def test_a_multi_slot_start_still_clears_the_active_spool_when_print_handy_counts(mapped):
+    # The long-standing behavior (#1536 must not change it): Print Handy
+    # charges each slot at the end, so Moonraker's pointer is cleared.
+    clear, job = _launch_two_slots(mapped, "print_handy")
+    assert clear.call_count == 1
+    assert "spool_accounting_authority" not in job
+
+
+def test_a_multi_slot_start_leaves_the_active_spool_alone_when_the_printer_counts(mapped):
+    clear, job = _launch_two_slots(mapped, "printer")
+    assert clear.call_count == 0
+    assert job["spool_accounting_authority"] == "printer"

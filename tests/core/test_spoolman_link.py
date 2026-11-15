@@ -135,9 +135,21 @@ def test_explicit_setting_wins_over_detection():
         "print_handy", _linked())["source"] == "setting"
 
 
-def test_auto_follows_the_detected_link():
+def test_auto_keeps_print_handy_counting_on_a_linked_printer_that_does_not_assign_spools():
+    # The usual setup: Moonraker is linked, and Print Handy clears the active
+    # spool for a multi-slot print and charges each slot itself. Handing that
+    # print to the printer would count nothing.
     assert spoolman_link.resolve_accounting_authority(
-        "auto", _linked())["authority"] == "printer"
+        "auto", _linked())["authority"] == "print_handy"
+    assert spoolman_link.resolve_accounting_authority(
+        "", _linked())["authority"] == "print_handy"
+
+
+def test_auto_follows_the_detected_link_when_the_firmware_assigns_spools():
+    assert spoolman_link.resolve_accounting_authority(
+        "auto", _linked(), firmware_assigns_spools=True)["authority"] == "printer"
+    assert spoolman_link.resolve_accounting_authority(
+        "auto", UNLINKED, firmware_assigns_spools=True)["authority"] == "print_handy"
     assert spoolman_link.resolve_accounting_authority(
         "", UNLINKED)["authority"] == "print_handy"
     assert spoolman_link.resolve_accounting_authority(
@@ -146,7 +158,7 @@ def test_auto_follows_the_detected_link():
 
 def test_same_instance_is_reported_when_both_urls_are_known():
     resolved = spoolman_link.resolve_accounting_authority(
-        "auto", _linked(), configured_url="HTTP://NAS.local:7912/")
+        "auto", _linked(), configured_url="HTTP://NAS.local:7912/", firmware_assigns_spools=True)
     assert resolved["authority"] == "printer"
     assert resolved["same_instance"] is True and resolved["warnings"] == []
 
@@ -178,7 +190,14 @@ def test_accounting_authority_for_uses_settings_and_live_detection():
     try:
         resolved = spoolman_link.accounting_authority_for(
             moonraker_call=_transport(LINKED_CONFIG))
-        assert resolved["authority"] == "printer" and resolved["same_instance"] is True
+        # The default printer's firmware does not assign spools: Print Handy keeps counting.
+        assert resolved["authority"] == "print_handy" and resolved["same_instance"] is True
+        from print_handy import printers
+        opencreator = printers.get("flashforge_opencreator.creator5_pro", data)
+        assert opencreator.firmware_assigns_spools is True
+        handed = spoolman_link.accounting_authority_for(
+            moonraker_call=_transport(LINKED_CONFIG), adapter=opencreator)
+        assert handed["authority"] == "printer" and handed["source"] == "auto"
         offline = spoolman_link.accounting_authority_for()
         assert offline["authority"] == "print_handy" and offline["moonraker_linked"] is False
     finally:

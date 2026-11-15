@@ -18,6 +18,8 @@ The parsers here are pure; the only network shape is the caller's
 """
 from __future__ import annotations
 
+import logging
+
 from urllib.parse import urlsplit
 
 # The stored values for [spool] accounting and a roster entry's
@@ -27,6 +29,9 @@ ACCOUNTING_AUTO = "auto"
 ACCOUNTING_PRINT_HANDY = "print_handy"
 ACCOUNTING_PRINTER = "printer"
 ACCOUNTING_VALUES = ("", ACCOUNTING_AUTO, ACCOUNTING_PRINT_HANDY, ACCOUNTING_PRINTER)
+
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_spoolman_url(url) -> str:
@@ -137,13 +142,18 @@ def detect_spoolman_link(moonraker_call) -> dict:
     return detection
 
 
-def resolve_accounting_authority(configured, detection=None, configured_url="") -> dict:
+def resolve_accounting_authority(configured, detection=None, configured_url="", *,
+                                 firmware_assigns_spools=False) -> dict:
     """Resolve the one accounting authority for a printer.
 
     An explicit configured value ("print_handy" or "printer") wins. "" and
-    "auto" follow the detected link: a linked Moonraker already charges
-    usage live, so the printer is the authority; with no link, Print Handy
-    is. The returned dict carries the authority, where the decision came
+    "auto" hand counting to the printer only when both are true: its
+    Moonraker is linked to a Spoolman, and its firmware picks the active
+    spool itself at each tool change (``firmware_assigns_spools``, the
+    OpenCreator AFC case). A linked Moonraker alone is not enough: on
+    every other printer Print Handy points Moonraker at the job's spool
+    for a one-spool print and clears it and charges each slot itself for a
+    multi-slot print, so handing those to the printer would count nothing. The returned dict carries the authority, where the decision came
     from ("source": "setting" or "auto"), the detection facts, whether the
     Moonraker server and the configured Spoolman URL are the same instance
     (None when either is unknown), and human-readable warnings for the
@@ -158,7 +168,8 @@ def resolve_accounting_authority(configured, detection=None, configured_url="") 
     if configured_norm in (ACCOUNTING_PRINT_HANDY, ACCOUNTING_PRINTER):
         authority, source = configured_norm, "setting"
     else:
-        authority = ACCOUNTING_PRINTER if linked else ACCOUNTING_PRINT_HANDY
+        authority = (ACCOUNTING_PRINTER if linked and firmware_assigns_spools
+                     else ACCOUNTING_PRINT_HANDY)
         source = "auto"
     warnings = []
     if authority == ACCOUNTING_PRINTER and not linked:
@@ -190,7 +201,16 @@ def resolve_accounting_authority(configured, detection=None, configured_url="") 
     }
 
 
-def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None) -> dict:
+def _firmware_assigns_spools(printer_id, adapter=None) -> bool:
+    """Whether this printer's firmware picks the active spool itself (adapter fact)."""
+    if adapter is None:
+        from print_handy import printers, settings
+        adapter = (printers.get(settings.by_id(printer_id)["model"], settings.view_for(printer_id))
+                   if printer_id else printers.current())
+    return bool(getattr(adapter, "firmware_assigns_spools", False))
+
+
+def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None, adapter=None) -> dict:
     """Resolve the accounting authority for one printer from the settings.
 
     The printer's roster entry wins over the global [spool] accounting and
@@ -207,4 +227,10 @@ def accounting_authority_for(printer_id=None, *, moonraker_call=None, data=None)
     configured_url = (view.get("services") or {}).get("spoolman_url") or ""
     detection = (detect_spoolman_link(moonraker_call) if moonraker_call is not None
                  else {"linked": False, "server_url": "", "active_spool_id": None, "error": ""})
-    return resolve_accounting_authority(configured, detection, configured_url)
+    try:
+        assigns = _firmware_assigns_spools(printer_id, adapter)
+    except Exception as exc:  # noqa: BLE001 - an unknown model keeps today's behavior
+        logger.warning("could not read the printer's spool handling, Print Handy keeps counting: %s", exc)
+        assigns = False
+    return resolve_accounting_authority(configured, detection, configured_url,
+                                        firmware_assigns_spools=assigns)

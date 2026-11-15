@@ -16,7 +16,7 @@ The choice is a setting, shown with the rest of the spool settings:
 - `[spool] accounting` (environment: `PRINT_HANDY__SPOOL__ACCOUNTING`) is the install-wide choice and the default printer's: `auto`, `print_handy`, or `printer`. It is also on the Web UI settings page, in the Spools group, and the guided setup asks it right after the Spoolman URL.
 - A `[[printers]]` entry can override both halves for one printer: `spoolman_url` names that printer's own Spoolman instance, and `spoolman_accounting` its accounting choice. An entry that sets neither uses the shared Spoolman and the shared choice.
 
-`auto` decides from the printer itself: Print Handy asks the printer's Moonraker for its loaded config (`/server/config`) and its active-spool endpoint (`/server/spoolman/spool_id`). If Moonraker names a `[spoolman]` server, or the endpoint answers at all, the printer is linked and counts. Otherwise Print Handy counts. The decision is made when a print starts and is recorded on the print, so the end-of-print charge follows the link as it was at launch, not as it happens to be later.
+`auto` decides from the printer itself: Print Handy asks the printer's Moonraker for its loaded config (`/server/config`) and its active-spool endpoint (`/server/spoolman/spool_id`). If Moonraker names a `[spoolman]` server, or the endpoint answers at all, the printer is linked. A link alone does not hand counting to the printer. `auto` makes the printer count only when it is linked and its firmware picks the active spool itself at each tool change, which today means OpenCreator with AFC. On every other printer `auto` keeps Print Handy counting, as it always has: Print Handy points Moonraker at the job's spool for a one-spool print, and for a multi-slot print it clears that pointer and charges each slot itself when the print ends. The decision is made when a print starts and is recorded on the print, so the end-of-print charge follows the link as it was at launch, not as it happens to be later.
 
 The printer check (`printer_state check`, and the status surfaces that use it) reports the detection and the resolved authority for every Moonraker printer, and warns about the combinations that cannot work:
 
@@ -27,7 +27,7 @@ One detail for single-spool printers: Moonraker's live charge is checked against
 
 ## Case 1: the bundled Spoolman
 
-Nothing to set up. The Docker stack runs Spoolman beside Print Handy and `services.spoolman_url` already points at it. Most printers have no Moonraker Spoolman link in this setup, so `auto` resolves to Print Handy counting, which is the long-standing behavior. If you later link a printer's Moonraker to the bundled Spoolman (Moonraker's own `[spoolman]` section, pointed at the bundled instance), `auto` hands counting to the printer from the next print on.
+Nothing to set up. The Docker stack runs Spoolman beside Print Handy and `services.spoolman_url` already points at it. `auto` resolves to Print Handy counting, which is the long-standing behavior, whether or not the printer's Moonraker is linked to the bundled Spoolman.
 
 ## Case 2: an outside Spoolman on another host
 
@@ -36,7 +36,7 @@ You already run Spoolman somewhere else (a NAS, another server, a shared invento
 Setup:
 
 1. Point Print Handy at it: `services.spoolman_url` (environment: `PRINT_HANDY__SERVICES__SPOOLMAN_URL`), or answer the Spoolman URL step in guided setup. For one printer only, set `spoolman_url` on that printer's `[[printers]]` entry instead.
-2. Decide who counts, per the rule above: if no printer's Moonraker links to that Spoolman, leave accounting on `auto` (Print Handy counts). If a printer's Moonraker does link to it, that printer counts; `auto` detects this, and setting that printer's `spoolman_accounting` to `printer` pins it.
+2. Decide who counts, per the rule above: if no printer's Moonraker links to that Spoolman, leave accounting on `auto` (Print Handy counts). If a printer's Moonraker links to it and you want the printer to count, set that printer's `spoolman_accounting` to `printer`; `auto` does that by itself only for firmware that picks the active spool itself (OpenCreator).
 3. Run `/spool sync` once. It converges the loaded-spool assignments both ways: spools the outside Spoolman says are loaded (its `ph_slot` claims) and spools only the local record knows are both carried into one assignment per slot, and remaining weights converge on the Spoolman records. A slot the two sides claim for different spools is named as a conflict and left alone; fix the claim in Spoolman or rebind the slot, then sync again.
 
 Print Handy's own spool features keep working against an outside Spoolman:
@@ -49,12 +49,12 @@ The Spoolman API has no authentication. Keep an outside Spoolman on your LAN or 
 
 ## Case 3: the printer's own Moonraker Spoolman
 
-Some firmware setups link Moonraker to a Spoolman themselves. OpenCreator with its AFC toolchanger is the standing example: the firmware points Moonraker at each tool's spool as tools change, and Moonraker charges usage live, per tool. Klipper and Moonraker installs with a hand-written `[spoolman]` section behave the same way.
+Some firmware setups link Moonraker to a Spoolman themselves. OpenCreator with its AFC toolchanger is the standing example: the firmware points Moonraker at each tool's spool as tools change, and Moonraker charges usage live, per tool. A Klipper and Moonraker install with a hand-written `[spoolman]` section charges whatever spool is active, but nothing on the printer changes the active spool per tool, so `auto` leaves counting with Print Handy there.
 
 Setup:
 
 1. Point Print Handy at the same instance the printer's Moonraker uses: `services.spoolman_url`, or that printer entry's `spoolman_url`. Print Handy and the printer must read and write one inventory, or loaded spools and remaining weights cannot line up.
-2. Set accounting so the printer counts: `auto` detects the link on every Moonraker printer (not only OpenCreator) and hands counting to the printer; set `spoolman_accounting` to `printer` on the printer's entry to pin it. Print Handy then never charges that printer's prints at the end, including multi-slot and multi-tool prints the firmware already charged tool by tool.
+2. Set accounting so the printer counts: on OpenCreator `auto` does this once it detects the link. On any other printer, set `spoolman_accounting` to `printer` on the printer's entry. Print Handy then never charges that printer's prints at the end, and on a multi-slot start it leaves Moonraker's active spool alone instead of clearing it.
 3. Check the printer: the printer check names the detected link (which instance Moonraker points at) and the resolved authority. If it warns that Moonraker points at a different instance than Print Handy is configured for, fix the URL from step 1 before printing.
 
 ## Settings summary

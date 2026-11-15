@@ -409,9 +409,9 @@ CATALOG = (
            "Spoolman URL for filament inventory; empty when Spoolman is not used.",
            validator="guided Spoolman URL / settings services check"),
     _field("spool", "accounting", "Spoolman accounting", "picker",
-           "Who counts filament usage (#1536): auto decides from the printer's "
-           "Moonraker Spoolman link (a linked Moonraker already charges, so the "
-           "printer counts); print_handy or printer name the one authority. The "
+           "Who counts filament usage (#1536): auto keeps Print Handy counting, "
+           "except on firmware that picks the active spool itself (OpenCreator) "
+           "with a Moonraker Spoolman link; print_handy or printer name the one authority. The "
            "other side never charges, so nothing is counted twice. A printer "
            "entry's spoolman_accounting overrides this for that printer.",
            choices=settings.SPOOL_ACCOUNTING_VALUES[1:],

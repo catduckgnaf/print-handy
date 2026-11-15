@@ -495,11 +495,11 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
              "http://spoolman:8000). Otherwise reply `skip`.", _validate_spoolman_url),
         Step("spoolman_accounting", "Spoolman accounting",
              "Who should count filament usage for this printer, so no print is counted "
-             "twice? Reply `printer` if Moonraker or the printer firmware already charges "
-             "usage to that Spoolman (pick this for OpenCreator/AFC, and for any Moonraker "
-             "that points at the same Spoolman), `print_handy` if Print Handy should do "
-             "the counting itself, or `auto` to decide from the printer's Moonraker link "
-             "each time a print starts.", _validate_spoolman_accounting,
+             "twice? Reply `auto` (recommended) to let Print Handy count, except on "
+             "firmware that picks the spool itself at each tool change (OpenCreator/AFC), "
+             "where the printer counts. Reply `printer` only if the printer's own firmware "
+             "tracks which spool each tool uses, or `print_handy` to have Print Handy "
+             "always count.", _validate_spoolman_accounting,
              applies=_spoolman_given),
         Step("camera_snapshot_url", "Camera snapshot URL (optional)",
              "If the printer has a camera, reply with its snapshot URL and finished prints "

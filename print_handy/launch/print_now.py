@@ -145,7 +145,7 @@ def _sync_active_spool(st, slot, printer_id=None):
     return result
 
 
-def _launch_accounting_authority(st):
+def _launch_accounting_authority(st, adapter=None, printer_id=None):
     """Who counts this print's filament, resolved live at launch (#1536).
 
     The detection signal is the printer's own Moonraker: its spoolman
@@ -161,7 +161,8 @@ def _launch_accounting_authority(st):
         def call(method, path):
             return _mr(st, path)
 
-        return spoolman_link.accounting_authority_for(moonraker_call=call).get('authority')
+        return spoolman_link.accounting_authority_for(
+            printer_id, moonraker_call=call, adapter=adapter).get('authority')
     except Exception as exc:
         logger.warning('could not resolve the spool accounting authority: %s', exc)
         return None
@@ -193,7 +194,7 @@ def _record_usage_baseline(st, job, job_path, spool_id):
             changed = True
         elif job.pop('spool_usage_baseline', None) is not None:
             changed = True
-        authority = _launch_accounting_authority(st)
+        authority = _launch_accounting_authority(st, printer_id=_recorded_printer_id(job))
         if authority:
             job['spool_accounting_authority'] = authority
             changed = True
@@ -1616,7 +1617,22 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         if len(slots_used) > 1:
             print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled during the print; '
                   "each slot's spool is charged its share of the sliced grams when the print ends.", flush=True)
-            cleared = _clear_active_spool(st)
+            authority = _launch_accounting_authority(st, adapter, _recorded_printer_id(job))
+            if authority == 'printer':
+                # The operator made the printer the accounting authority
+                # (#1536): its active spool is its own, so it is left alone,
+                # and the end-of-print charge reads this and stands down.
+                print("WARNING: spool accounting is set to the printer, so Print Handy leaves "
+                      "Moonraker's active spool alone and will not charge this print.", flush=True)
+                cleared = {}
+                if isinstance(job, dict) and job_path is not None:
+                    job['spool_accounting_authority'] = authority
+                    try:
+                        write_job(Path(job_path).parent, job)
+                    except Exception as exc:
+                        logger.warning('could not record the spool accounting authority: %s', exc)
+            else:
+                cleared = _clear_active_spool(st)
             if cleared.get('spoolman_pending') and job_path is not None:
                 # The clear could not be written: Moonraker may keep charging
                 # the stale spool during this print. Record which spool that

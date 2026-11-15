@@ -21,8 +21,8 @@ def test_accounting_step_follows_a_spoolman_url_and_explains_the_choice(tmp_path
     prompt = say(st, "http://spoolman.test:7912")
     assert "Spoolman accounting" in prompt
     assert "printer" in prompt and "print_handy" in prompt and "auto" in prompt
-    # The Moonraker wording the OpenCreator case needs is in the prompt.
-    assert "Moonraker" in prompt
+    # The prompt recommends auto and names the OpenCreator case.
+    assert "recommended" in prompt and "OpenCreator" in prompt
 
 
 def test_accounting_step_is_skipped_without_a_spoolman_url(tmp_path):
