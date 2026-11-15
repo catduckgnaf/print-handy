@@ -8,7 +8,6 @@ printer (Creator 5 / 5 Pro, #346) gets one question per colour with toolhead
 labels, a toolhead already assigned a different colour is not offered again,
 and more distinct colours than toolheads is refused before asking."""
 import asyncio
-import contextlib
 import contextvars
 import hashlib
 import json
@@ -129,8 +128,10 @@ def _new_stages(timing_path, offset):
         return set()
     stages = set()
     for line in tail.decode('utf-8', 'replace').splitlines():
-        with contextlib.suppress(ValueError, AttributeError):
+        try:
             stages.add(json.loads(line).get('stage'))
+        except (ValueError, AttributeError):
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     return stages
 
 
@@ -155,10 +156,12 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
                 continue
             posted.add(stage)
             # A note is progress only: delivery failure never touches the start itself.
-            with contextlib.suppress(Exception):
+            try:
                 if stage in START_PROGRESS_VOICE:
                     text = _voiced(text, START_PROGRESS_VOICE[stage], source, Path(timing_path).parent.name)
                 await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
 
 
 async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic):
@@ -180,8 +183,12 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
         return await work
     finally:
         watcher.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
+        try:
             await watcher
+        except (asyncio.CancelledError, Exception) as exc:
+            if isinstance(exc, asyncio.CancelledError) and asyncio.current_task().cancelling():
+                raise
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
 
 
 def _color_prompt_follows(refusal_context, tail):
@@ -257,11 +264,17 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     finally:
         if not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            try:
                 await task
+            except (asyncio.CancelledError, Exception) as exc:
+                if isinstance(exc, asyncio.CancelledError) and asyncio.current_task().cancelling():
+                    raise
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.wait_for(waiter, 5)
+        except Exception:
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         cm.wait_for_response(cid, 0.001)
         if stop_msg is not None:
             # The Stop button is dead once the work returns: retire it, and after a confirmed
@@ -273,17 +286,23 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 detail = str(result[1])
                 refusal_context['start_prompt_message_id'] = str(getattr(stop_msg, 'id', '') or '')
                 if REFUSAL_EDITOR is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         handled = bool(await REFUSAL_EDITOR(source, stop_msg, _launch_refusal_text(detail),
                                                             refusal_context, detail))
+                    except Exception:
+                        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
                 if not handled:
-                    with contextlib.suppress(Exception):
+                    try:
                         await stop_msg.edit(content=_launch_refusal_text(detail), view=None)
                         handled = True
+                    except Exception:
+                        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
                 refusal_context['prompt_handled'] = handled
             if not handled:
-                with contextlib.suppress(Exception):
+                try:
                     await stop_msg.edit(view=None)
+                except Exception:
+                    logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         elif sent is not None and getattr(sent, "message_id", None):
             # Clarify path (#524 stage 2): the standing prompt is Print
             # Handy's own question message — it carries a message id and
@@ -300,8 +319,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             if not handled:
                 retire = getattr(adapter, "retire_prompt", None)
                 if retire is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         await retire(cid)
+                    except Exception:
+                        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     return result
 
 
@@ -336,11 +357,13 @@ def _preaccepted_shortage(choice, shown_shortages, job_json):
         return None
     key, shown_g = shown_shortages[0]
     sliced_g = None
-    with contextlib.suppress(Exception):
+    try:
         from print_handy.runtime import discord_print_summary as dps
         plates = dps.plate_estimates(json.loads(Path(job_json).read_text()))
         grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
         sliced_g = float(sum(grams)) if grams else None
+    except Exception:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     if sliced_g is None or sliced_g > shown_g + SHORTAGE_PREACCEPT_SLACK_G:
         return None
     return [key]
@@ -656,10 +679,12 @@ def archive_job(archives, staging):
         raise source_archive.ArchiveRefused(
             f'that message has {len(archives)} ZIP files; send one ZIP per message.')
     staging = Path(staging)
-    with contextlib.suppress(OSError):
+    try:
         for old in staging.parent.glob('*.archive'):
             if old != staging and _time.time() - old.stat().st_mtime > ARCHIVE_STAGING_KEEP_S:
                 shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     paths, report = source_archive.extract(archives[0], staging)
     job = upload_job_set(paths)
     for row, part in zip(job['sources'], report['printable']):
@@ -939,8 +964,10 @@ def _owner_alive(root, owner):
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return True  # held: that process is running
-        with contextlib.suppress(OSError):
+        try:
             path.unlink()  # its holder is gone; the file is litter
+        except OSError:
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         fcntl.flock(fd, fcntl.LOCK_UN)
         return False
     finally:
@@ -1267,14 +1294,18 @@ async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, rece
     if receipt is not None:
         receipt['yolo_waivers'] = waived
         if receipt_path is not None:
-            with contextlib.suppress(Exception):
+            try:
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     shown = waived[:12] + ([f'... and {len(waived) - 12} more'] if len(waived) > 12 else [])
-    with contextlib.suppress(Exception):
+    try:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='Yolo overrode these checks:\n' + '\n'.join(f'- {w}' for w in shown))
 
 
+    except Exception:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
 def _printer_rejected(raw):
     """The refusal line of a start the printer itself rejected: the file was uploaded, nothing started."""
     return str(raw or '').startswith('REFUSED: the printer rejected the start request')
@@ -1392,9 +1423,11 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None, prin
         return message
     if answer != 0:  # _ask returns the button index
         return 'Not restarted. Nothing uploaded or started.'
-    with contextlib.suppress(Exception):
+    try:
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
+    except Exception:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     from print_handy import printer_control
     ok, result = await asyncio.to_thread(printer_control.for_printer(printer_id).force_reboot)
     return result + (' Send the link or press Print again to retry.' if ok else '')
@@ -1923,8 +1956,10 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
         # default printer; refuse rather than print on a printer this channel does not serve.
         from .. import settings as _settings
         default_id = None
-        with contextlib.suppress(Exception):
+        try:
             default_id = _settings.default_printer_id()
+        except Exception:
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         if default_id and str(printer_id).split(':')[-1] != str(default_id):
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f'{name} is sliced G-code, which prints as-is only on the default '
@@ -1935,15 +1970,19 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     # model instead of offering to print another printer's file as-is.
     from . import ai_fix as _ai_fix
     _known_models = []
-    with contextlib.suppress(Exception):
+    try:
         from .. import printers as _printers
         _current = _printers.current()
         _model = getattr(_current, 'model', None)  # the PrinterModel record, not a name
         _known_models = [getattr(_current, 'key', None), getattr(_model, 'key', None),
                          getattr(_model, 'label', None)]
-    with contextlib.suppress(Exception):
+    except Exception:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
+    try:
         from .. import settings as _settings
         _known_models.append((_settings.current().get('printer') or {}).get('name'))
+    except Exception:
+        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
     _foreign = _ai_fix.is_foreign_gcode(path, _known_models) if _known_models else None
     if _foreign:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3046,15 +3085,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         and getattr(early, 'release', None) is not None and early.release.is_set()):
                     # first_slice_done fires before the flagged verdict and the
                     # speculative supports slice exist; wait for those (bounded).
-                    with contextlib.suppress(asyncio.TimeoutError):
+                    try:
                         await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
+                    except asyncio.TimeoutError:
+                        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
                 sup_task = getattr(early, 'supports_task', None)
                 if (getattr(early, 'flagged', False) and sup_task is not None and not sup_task.done()
                         and getattr(early, 'release', None) is not None and early.release.is_set()):
                     # A timeout or a failed supports slice leaves the "slicing..." line;
                     # the intake's own cancellation still propagates.
-                    with contextlib.suppress(asyncio.TimeoutError, Exception):
+                    try:
                         await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
+                    except Exception:
+                        logger.debug('best-effort prepared-intake operation failed', exc_info=True)
             waiting = early.running() and not (
                 getattr(early, 'flag_decided', None) is not None and early.flag_decided.is_set()
                 and not (getattr(early, 'supports_task', None) is not None and not early.supports_task.done()))
@@ -3642,11 +3685,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # the nozzle it slices for.
             measured_gap = ai_fix.measured_clearance_gap(clearance)
             bed_mm = nozzle_mm = None
-            with contextlib.suppress(Exception):
+            try:
                 from ..runtime import _config
                 printer_cfg = (_config.cfg() or {}).get('printer') or {}
                 bed_mm = printer_cfg.get('bed_mm')
                 nozzle_mm = printer_cfg.get('nozzle_diameter')
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
             try:
                 proposal = await _heavy(ai_fix.propose_fix, problem, job_now, mesh=mesh,
                                         bed_mm=bed_mm, nozzle_mm=nozzle_mm,
@@ -4623,15 +4668,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # own at print-now. A job printed before is a reprint: name the newest
         # earlier print from the launch registry, never as this start's number (#1017).
         previous = None
-        with contextlib.suppress(Exception):
+        try:
             from ..runtime import print_control
             previous = print_control.latest_number_for_job(jp)
+        except Exception:
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
         # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
         targets = ''
-        with contextlib.suppress(Exception):
+        try:
             from ..runtime.print_control import start_targets_text
             targets = start_targets_text(Path(first).read_text(errors='replace'))
+        except Exception:
+            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         prep_msg = ' · '.join(['Preparing to start']
                               + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])
                               + ([targets] if targets else []))
@@ -4736,9 +4785,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if unpushed:
                         accept_color_mismatch(jp, target, unpushed)  # screen update unavailable: print as chosen
                         # The print still goes ahead; the channel is told which slots stayed as they were (#798).
-                        with contextlib.suppress(Exception):
+                        try:
                             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                                content=screen_unpushed_note(unpushed))
+                        except Exception:
+                            logger.debug('best-effort prepared-intake operation failed', exc_info=True)
                 else:
                     receipt['status'] = 'SLICED_NOT_STARTED'
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -4747,10 +4798,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return {'action': 'skip', 'reason': 'operator cancelled on a slot color difference'}
                 uploading = "Uploading to the printer. Press Stop to request cancellation."
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 clear_color_acceptance(jp)
-            with contextlib.suppress(Exception):
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
+            try:
                 clear_label_acceptance(jp)
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
             # A Print as sliced answer is this start's only: a later Retry asks again (#1336).
             target.pop('accept_material', None)
             target.pop('accept_spool_change', None)
@@ -4810,8 +4865,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         logger.warning('intake stopped by operator: %s', type(exc).__name__)
         uncertain_start = isinstance(exc, Stopped) and exc.uncertain
         if jp is not None and not uncertain_start:
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         if uncertain_start:
             receipt.update(status='START_UNCERTAIN', sliced=True, uploaded=None, started=None,
                            start_outcome='uncertain', start_error=str(exc))
@@ -4835,8 +4892,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A failed intake discards its background slice (P2-23), as the
             # cancelled path above already does: the slice's output must not
             # outlive the intake that produced it. Resume re-slices.
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
@@ -4886,8 +4945,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A failed intake discards its background slice (P2-23), as the
             # cancelled path above already does: the slice's output must not
             # outlive the intake that produced it.
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         from .site_accounts import chat_safe, short_cause
         from . import model_job as _mj
         if isinstance(exc, SiteLoginNeeded):
