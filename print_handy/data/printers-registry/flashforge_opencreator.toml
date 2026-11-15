@@ -1,0 +1,78 @@
+# Printer registry: flashforge_opencreator. See printers/README.md for the schema.
+#
+# One [[printer]] per registered model whose key starts with
+# "flashforge_opencreator." — the loader (print_handy/knowledge/registry.py)
+# merges every file in this directory in sorted filename order, and tests pin
+# each entry against the code profile in
+# print_handy/printers/flashforge_opencreator/ so this file cannot silently
+# drift from the code. Thermal facts are from the OpenCreator documentation
+# and the shipped opencreator-fs config tree (checked 2026-11-14, #1490):
+# documented and config verified, not hardware verified.
+
+[[printer]]
+key = "flashforge_opencreator.creator5"
+label = "Flashforge Creator 5 (OpenCreator)"
+vendor = "flashforge_opencreator"
+firmware = "OpenCreator Kalico"
+firmware_family = "klipper"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [256.0, 256.0]
+max_height_mm = 256.0
+tools = 4
+color_system = "multi_tool"
+profile = "print_handy/printers/flashforge_opencreator/creator5.py"
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The same hardware as flashforge.creator5 on the other custom firmware (OpenCreator instead of ZMod); the two firmwares are mutually incompatible. No active chamber heating on the base model. Print start is not verified on a live printer."
+[printer.thermal]
+enclosure = "open"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "unknown"
+chamber_heater_present = "absent"
+chamber_heater_control = "not_supported"
+chamber_heater_evidence = ""
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "present"
+chamber_sensor_fresh_reading = "unknown"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "M106"
+fan_auxiliary_present = "unknown"
+fan_auxiliary_mapping = "unknown"
+fan_exhaust_present = "unknown"
+fan_exhaust_mapping = "unknown"
+fan_filtration_present = "absent"
+fan_filtration_mapping = "unknown"
+fan_provenance = "vendor documentation"
+
+[[printer]]
+key = "flashforge_opencreator.creator5_pro"
+label = "Flashforge Creator 5 Pro (OpenCreator)"
+vendor = "flashforge_opencreator"
+firmware = "OpenCreator Kalico"
+firmware_family = "klipper"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [256.0, 256.0]
+max_height_mm = 256.0
+tools = 4
+color_system = "multi_tool"
+profile = "print_handy/printers/flashforge_opencreator/creator5_pro.py"
+notes = "Four independent toolheads (a tool changer, T0-T3), not an IFS feeder: tools are recorded under tools, and there are no filament_slots. The Pro adds the enclosed frame, active chamber heating and air filtration over the Creator 5; print geometry is identical, and the thermal facts are recorded separately in the thermal record below. The chamber heater maximum is not settled upstream (docs table 65 C, shipped config 80 C), so Print Handy records no chamber ceiling for this model. Print start is not verified on a live printer."
+[printer.thermal]
+enclosure = "enclosed"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "yes"
+chamber_heater_present = "present"
+chamber_heater_control = "supported"
+chamber_heater_evidence = "[heater_generic chamber_heater] with G-code ID C in the OpenCreator printer.pro.cfg (shipped opencreator-fs config tree, checked 2026-11-14, #1490); the slicer start form sets it with M191"
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "present"
+chamber_sensor_fresh_reading = "unknown"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "M106"
+fan_auxiliary_present = "present"
+fan_auxiliary_mapping = "M106 P2 (center fresh air input fan)"
+fan_exhaust_present = "present"
+fan_exhaust_mapping = "M106 P3 (filter unit fan)"
+fan_filtration_present = "present"
+fan_filtration_mapping = "M106 P3 (filter unit fan)"
+fan_provenance = "vendor documentation"

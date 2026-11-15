@@ -21,7 +21,11 @@ So the stock page never reads as if the AD5X were the only Flashforge printer, h
 | Creator 5 | No stock profile yet | Built-in profile: `flashforge.creator5` |
 | Creator 5 Pro | No stock profile yet | Built-in profile: `flashforge.creator5_pro` |
 
-The ZMod profiles are covered in [ZMod printers](ZMOD.md). Nothing on this page claims stock-firmware support for a model without a stock profile.
+The ZMod profiles are covered in [ZMod printers](ZMOD.md). The Creator 5
+and Creator 5 Pro also run a second custom firmware, OpenCreator, with
+its own profiles (`flashforge_opencreator.creator5`,
+`flashforge_opencreator.creator5_pro`); see
+[OpenCreator printers](OPENCREATOR.md). Nothing on this page claims stock-firmware support for a model without a stock profile.
 
 ## How Print Handy talks to it
 
