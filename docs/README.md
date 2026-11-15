@@ -1,76 +1,66 @@
 # Print Handy documentation
 
-[Back to Print Handy](../README.md) · [Discord help](https://discord.gg/mT2Ht3nqZu) · [Report a bug or request a printer](https://github.com/catduckgnaf/print-handy/issues)
+[Project overview](../README.md) · [Contributing](../CONTRIBUTING.md)
 
-The README is the tour. This is where you come when the printer decides to have opinions. Pick what you're trying to do; you shouldn't have to read a novel to find the spool settings.
+Pick your problem. Print Handy runs on your hardware with no cloud of its own (your chat app still carries what you send through it), and the core flows need no AI at all.
 
-## Install Print Handy
+## Start here
 
-There are **three main installation routes**. They all run Print Handy, not three different products.
+- [Docker](DOCKER.md): the recommended install, with a copy-paste quickstart from nothing to a first print.
+- [Home Assistant OS app](HOME-ASSISTANT-OS.md): install the same image as a Home Assistant app that updates itself with each release.
+- [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
+- [Native installation](INSTALL.md): install Print Handy without Docker (Python + systemd).
+- [Web UI](WEBUI.md): local status, setup and settings interface, on by default. It serves openly on your network until you set a login in its walkthrough.
+- [Live demo](LIVE-DEMO.md): static, simulated Discord-style chat demo in the browser. No install, no account, nothing prints.
+- [Bambu A1 Docker walkthrough](BAMBU-A1-DOCKER.md): hardware-specific steps and verification limits.
 
-| Your setup | Guide |
-|---|---|
-| A Linux machine with Docker | [Docker and Compose](DOCKER.md) |
-| An Unraid server | [Unraid template](https://github.com/catduckgnaf/catduck-unraid-templates) · [Unraid-specific Docker settings](DOCKER.md#unraid-dockerman) |
-| Home Assistant OS or Supervised | [Home Assistant add-on](HOME-ASSISTANT-OS.md) |
+## Everyday printing
 
-For any route, [choose your printer](PRINTER-PROFILES.md#find-your-printer), then connect the chat platform you actually want: [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md). Or use the [local Web UI](WEBUI.md), including its browser chat and model workflow.
+- [Project reference](PROJECT-REFERENCE.md): commands and everyday workflows.
+- [Multi-part projects](PROJECTS.md): upload several STL/3MF files together, trace project/plate JSON IDs and print the next plate.
+- [Settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md): settings, precedence and environment overrides.
+- [Slicer warnings](SLICER-WARNINGS.md): OrcaSlicer warnings after slicing.
+- [Firmware updates](FIRMWARE-UPDATE.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md).
+- [Design a part](DESIGN.md): optional AI-assisted OpenSCAD design. Review the result before the usual approval flow.
+- [Edit a prepared model](EDITING.md): confirmed edit operations and limits. OrcaSlicer warning behavior is covered in [Slicer warnings](SLICER-WARNINGS.md).
+- [Printer profiles](PRINTER-PROFILES.md): supported delivery methods and verification limits.
+- [Status voice](STATUS-VOICE.md): the local, no-AI sarcastic quips on intake progress, the copy-count Easter eggs, and how roasts rotate.
+- [Printer accessories](ACCESSORIES.md): hardware fitted to one printer that did not ship with its model, including the Bondtech INDX tool changer for Klipper printers.
+- [More than one printer](DOCKER.md#more-than-one-printer): one instance serves a whole printer roster, declare every printer in one config file; the full roster reference is the [Printers list](SETTINGS.md#printers-list). Running [separate instances](MULTI-INSTANCE.md) stays available when you want hard process isolation.
 
-**Before exposing the Web UI:** follow the first-run login setup. Until access is configured, anyone who can reach the port can use the interface and its printer controls. Details are in the [Web UI guide](WEBUI.md).
+## Printer guides
 
-## Start printing
+Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connection paths and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
 
-- [Print a model and see the commands](PROJECT-REFERENCE.md): links, files, colors, copies and the usual questions.
-- [Edit it](EDITING.md): rotate, resize, supports, geometry changes and what those commands actually do.
-- [Multi-part jobs](PROJECTS.md): several files or plates, and how to print the next one.
-- [Slicer warnings](SLICER-WARNINGS.md): what OrcaSlicer found and what Print Handy asks you to decide.
-- [Spool and printer management](PROJECT-REFERENCE.md): filament inventory, slot matching, commands, print records.
-- [More than one printer](DOCKER.md#more-than-one-printer): one runtime with a printer roster; [isolated instances](MULTI-INSTANCE.md) if that's what you need.
-- [The jokes](STATUS-VOICE.md): status quips, copy-count surprises and how the roast system works. Yes, the docs actually explain the jokes.
+- [ZMod](ZMOD.md) · [Forge-X](FORGEX.md) · [OpenCreator](OPENCREATOR.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
+- [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
+- [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
+- [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)
+- [Device best practices](DEVICE-BEST-PRACTICES.md)
 
-## Cameras, design and upgrades
+## Troubleshooting
 
-- [Pasta Cam / camera watchdog](DOCKER.md#camera-watch-visual_watch): which printer connections can be watched, camera requirements and alert settings.
-- [Timelapses](DOCKER.md#timelapse-capture-go2rtc): frame capture, encoding and sharing.
-- [Web UI, data and Pasta Wrapped](WEBUI.md): print history and optional recap tools.
-- [AI design](DESIGN.md): describe or revise a part with OpenSCAD and a configured model endpoint. Ordinary printing does not need AI.
-- [Firmware and component updates](FIRMWARE-UPDATE.md): which updates Print Handy can apply, which it can only report and which need a manual guide.
-- [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md) · [Accessories](ACCESSORIES.md).
+- Stuck and want a person? Ask in the [Print Handy Discord server](https://discord.gg/mT2Ht3nqZu), in the #support channel, or file an [issue](https://github.com/catduckgnaf/print-handy/issues) when it is a bug that needs tracking.
+- [Home Assistant stop button and panic recovery](home-assistant-panic.md) · [Troubleshooting by symptom](TROUBLESHOOTING.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md) · [Diagnostics](DIAGNOSTICS.md)
+- [Intake limits](INTAKE-LIMITS.md) · [Mesh audit](MESH-AUDIT.md)
+- The `doctor` checks configuration and configured services. It may contact Moonraker or Spoolman; run it only where authorized. A clean check does not prove physical readiness.
 
-## Printer support
+## Advanced setup
 
-**Start with the firmware, not the logo.** A profile passing automated tests is not the same as a verified real-machine print. [Support and verification levels](PRINTER-SUPPORT.md) spells out the difference, and [printer profiles](PRINTER-PROFILES.md) lists the exact model keys.
+- [Docker details](DOCKER.md): image pinning, storage, optional camera features, timelapses, upgrades and rollback.
+- [Web UI details](WEBUI.md): access, settings behavior, optional controls and limitations.
+- [Multi-instance setup](MULTI-INSTANCE.md) · [Listeners](LISTENERS.md) · [Component provenance](COMPONENTS.md)
+- [Cloudflare examples](CLOUDFLARE.md): optional hosted endpoints and network use. Examples are not proof of a live deployment.
+- [Flash Studio](FLASH-STUDIO.md): optional user-installed slicer.
+- [Geometry layout](GEOMETRY-LAYOUT.md) · [CAD split plans](CAD-SPLIT-PLANS.md)
 
-### FlashForge
+## Contributors and history
 
-- **Factory firmware:** [Stock FlashForge AD5X](FLASHFORGE-STOCK.md) (native LAN interface, not Moonraker).
-- **ZMod:** [AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro](ZMOD.md) (Moonraker). [AD5X hardware notes](DEVICE-AD5X.md).
-- **OpenCreator:** [Creator 5 and Creator 5 Pro](OPENCREATOR.md) (its own Moonraker profiles, distinct from ZMod).
-- **Reforge:** [Upstream Creator 5 firmware](https://github.com/Klipper4FlashForge/firmware), acknowledged but **no separate Print Handy profile or verified integration yet**. [Request support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml).
+- [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
+- [Branding guide](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md) · [Release checklist](history/RELEASE-CHECKLIST.md) · [Release notes template](history/RELEASE-NOTES-TEMPLATE.md) · [Internal release history](history/INTERNAL_RELEASE_NOTES.md)
+- Historical and internal records, not setup instructions, live in [`history/`](history/). They are kept as written, so older ones still use the project's earlier names (Print Buddy, the Hermes plugin) and describe setups that no longer exist; for anything current, follow the guides above. The records: [operator live-proof protocol](history/PHASE2-LIVE-PROOFS.md), [rename migration](history/RENAME-MIGRATION.md), [Docker acceptance](history/DOCKER-117-ACCEPTANCE.md), [Docker progress](history/DOCKER-117-PROGRESS.md), [timelapse record](history/ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](history/hardcoded-inventory.md), [CAD evaluation](history/KICAD-EVALUATION.md), [reuse map](history/REUSE-MAP.md), [multi-printer design](history/MULTI-PRINTER-DESIGN.md), the [AD5X implementation contract](history/AD5X-CONTRACT.md) and the [recovered testing lane](history/RECOVERY-TESTING.md).
+- [3MF remap inventory](history/3MF-REMAP-INVENTORY.md): which 3MF references a conversion remaps, and where each one lives.
+- [3MF conversion evidence matrix](history/3MF-CONVERSION-EVIDENCE.md): the criterion-by-criterion evidence for the foreign 3MF conversion work.
+- [Geometry soundness audit](history/GEOMETRY_AUDIT.md): what the sizing, rotation, mirroring, bed fit and support checks cover, and their known limits.
 
-These firmware projects are independent. Selecting a similarly named Creator 5 profile from the wrong firmware is not a clever compatibility trick.
-
-### Other printer families
-
-- [Bambu Lab](BAMBU-LAB.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md).
-- [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md) · [Anycubic](ANYCUBIC.md).
-- [Snapmaker](SNAPMAKER.md) · [OctoPrint / Marlin](OCTOPRINT-MARLIN.md) · [Generic Klipper and unlisted printers](PRINTER-SUPPORT.md#your-printer-is-not-listed).
-- [Printer hardware best practices](DEVICE-BEST-PRACTICES.md) · [Bambu LAN details](BAMBU-CONNECTIVITY.md).
-
-## Something broke?
-
-[Symptom-by-symptom troubleshooting](TROUBLESHOOTING.md) is the first stop. Then [diagnostics](DIAGNOSTICS.md), [guided setup and debugging](GUIDED-SETUP-DEBUGGING.md), [intake limits](INTAKE-LIMITS.md) or [mesh audit](MESH-AUDIT.md), depending on what went wrong. [Home Assistant panic recovery](home-assistant-panic.md) is there if you need it.
-
-The `doctor` checks settings and services, not whether a printer on the other end of the network will physically behave. If you're stuck, ask in [Discord #support](https://discord.gg/mT2Ht3nqZu) or [open an issue](https://github.com/catduckgnaf/print-handy/issues). Include the printer model, firmware, sanitized logs and what actually happened.
-
-## For tinkerers and contributors
-
-- [All settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md) · [Listeners](LISTENERS.md) · [Component licenses and provenance](COMPONENTS.md).
-- [Docker runtime details](DOCKER.md) · [Web UI internals](WEBUI.md) · [Cloudflare examples](CLOUDFLARE.md) · [Optional Flash Studio](FLASH-STUDIO.md).
-- [Geometry and layout](GEOMETRY-LAYOUT.md) · [CAD split plans](CAD-SPLIT-PLANS.md) · [Projects](PROJECTS.md).
-- **Advanced, non-primary setup:** [Native Python/systemd](INSTALL.md) and [standalone bot details](STANDALONE.md). These are two guides for the *same* advanced path, not fourth and fifth headline installers. Native installs must provide their own slicer and other dependencies.
-- [Contributing](../CONTRIBUTING.md) · [Branding](BRANDING.md) · [Release notes guide](RELEASE-NOTES-GUIDE.md).
-
-Old investigation reports, previous architecture decisions and superseded release material stay in [docs/history](history/). They are records, not instructions for a fresh install. The [Bambu A1 walkthrough](BAMBU-A1-DOCKER.md) and [simulated live demo](LIVE-DEMO.md) remain available as evidence and examples, not as separate installation choices.
-
-These versioned docs are the source for the code in this repository. The [public documentation site](https://catduckgnaf.github.io/print-handy-docs/) syncs its copies separately, so a brand-new change here can appear there later. Keep docs and code in agreement; screenshots of a happy bot are not hardware verification.
+These versioned `docs/` pages are the source of truth. Document features with the code and identify wiki impact in the [contribution checklist](../CONTRIBUTING.md#automated-pr-review-support). Use documentation for the checked-out revision; draft work is not shipped capability.

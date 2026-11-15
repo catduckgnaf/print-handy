@@ -1,0 +1,175 @@
+{
+  "type": "machine",
+  "name": "Flashforge Adventurer 5M 0.4 Nozzle",
+  "from": "system",
+  "instantiation": "true",
+  "printer_technology": "FFF",
+  "deretraction_speed": [
+    "30"
+  ],
+  "extruder_colour": [
+    "#FFFFFF"
+  ],
+  "extruder_offset": [
+    "0x0"
+  ],
+  "gcode_flavor": "klipper",
+  "machine_max_acceleration_e": [
+    "5000",
+    "5000"
+  ],
+  "machine_max_acceleration_extruding": [
+    "20000",
+    "20000"
+  ],
+  "machine_max_acceleration_retracting": [
+    "5000",
+    "5000"
+  ],
+  "machine_max_acceleration_x": [
+    "20000",
+    "20000"
+  ],
+  "machine_max_acceleration_y": [
+    "20000",
+    "20000"
+  ],
+  "machine_max_acceleration_z": [
+    "500",
+    "500"
+  ],
+  "machine_max_speed_e": [
+    "30",
+    "30"
+  ],
+  "machine_max_speed_x": [
+    "600",
+    "600"
+  ],
+  "machine_max_speed_y": [
+    "600",
+    "600"
+  ],
+  "machine_max_speed_z": [
+    "20",
+    "20"
+  ],
+  "machine_max_jerk_e": [
+    "2.5",
+    "2.5"
+  ],
+  "machine_max_jerk_x": [
+    "9",
+    "9"
+  ],
+  "machine_max_jerk_y": [
+    "9",
+    "9"
+  ],
+  "machine_max_jerk_z": [
+    "3",
+    "3"
+  ],
+  "machine_min_extruding_rate": [
+    "0",
+    "0"
+  ],
+  "machine_min_travel_rate": [
+    "0",
+    "0"
+  ],
+  "max_layer_height": [
+    "0.28"
+  ],
+  "min_layer_height": [
+    "0.08"
+  ],
+  "printable_height": "220",
+  "extruder_clearance_radius": [
+    "76"
+  ],
+  "extruder_clearance_height_to_rod": [
+    "27"
+  ],
+  "extruder_clearance_height_to_lid": [
+    "150"
+  ],
+  "nozzle_diameter": [
+    "0.4"
+  ],
+  "printer_settings_id": "Flashforge Adventurer 5M 0.4 Nozzle",
+  "printer_variant": "0.4",
+  "retraction_minimum_travel": [
+    "1"
+  ],
+  "retract_before_wipe": [
+    "100%"
+  ],
+  "retract_when_changing_layer": [
+    "1"
+  ],
+  "retraction_length": [
+    "0.8"
+  ],
+  "retract_length_toolchange": [
+    "2"
+  ],
+  "z_hop": [
+    "0.4"
+  ],
+  "retract_restart_extra": [
+    "0"
+  ],
+  "retract_restart_extra_toolchange": [
+    "0"
+  ],
+  "retraction_speed": [
+    "30"
+  ],
+  "single_extruder_multi_material": "0",
+  "change_filament_gcode": "",
+  "wipe": [
+    "1"
+  ],
+  "default_print_profile": "0.20mm Standard @Flashforge AD5M 0.4 Nozzle",
+  "before_layer_change_gcode": ";BEFORE_LAYER_CHANGE\n;[layer_z]",
+  "machine_start_gcode": "SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]\nSTART_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] BED_TEMP=[bed_temperature_initial_layer_single]",
+  "machine_end_gcode": "END_PRINT",
+  "machine_max_acceleration_travel": [
+    "20000",
+    "20000"
+  ],
+  "machine_pause_gcode": "PAUSE",
+  "default_filament_profile": [
+    "Flashforge Generic PLA"
+  ],
+  "bed_exclude_area": [
+    "0x0"
+  ],
+  "layer_change_gcode": ";AFTER_LAYER_CHANGE\n;[layer_z]\nSET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}",
+  "scan_first_layer": "0",
+  "nozzle_type": "stainless_steel",
+  "auxiliary_fan": "1",
+  "printable_area": [
+    "0x0",
+    "220x0",
+    "220x220",
+    "0x220"
+  ],
+  "support_multi_bed_types": "1",
+  "thumbnails": [
+    "512x512/PNG"
+  ],
+  "use_relative_e_distances": "1",
+  "z_hop_types": [
+    "Normal Lift"
+  ],
+  "wipe_distance": "2",
+  "use_3mf": "0",
+  "setting_id": "n2MSk8g91mAD7PZb",
+  "printer_model": "Flashforge Adventurer 5M",
+  "silent_mode": "0",
+  "emit_machine_limits_to_gcode": "0",
+  "host_type": "moonraker",
+  "printer_agent": "moonraker"
+}
