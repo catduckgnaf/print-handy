@@ -16,6 +16,8 @@ import pytest
 from print_handy.core import source_colors
 from print_handy.core.discord_color_intake import collect
 
+from .test_prepared_intake import env  # noqa: F401  (fixture for the prepare_link entry-point test)
+
 
 def plaque(tmp_path):
     """The issue's file: named parts whose names and author colors agree."""
@@ -338,3 +340,85 @@ def test_partial_proposal_on_tool_based_printer_keeps_claimed_toolheads_taken(tm
         slots = {v['slot'] for v in saved['choices'].values()}
         assert 2 in slots and len(slots) == 2
     asyncio.run(run())
+
+
+# ---------------------------------------------------------------- entry points (#1499)
+#
+# The two tests above pin the keyword arguments. These pin the call sites:
+# each drives a real color flow and counts the per-part grouping passes that
+# run before the first color question is posted. Dropping `rows=grouped` in
+# prepared_intake, or either `groups=groups` hand-off, makes them fail.
+
+def _count_grouping(monkeypatch):
+    counts = {'grouped_prompts': 0, 'color_groups': 0}
+    for name in counts:
+        real = getattr(source_colors, name)
+
+        def counted(*args, _real=real, _name=name, **kwargs):
+            counts[_name] += 1
+            return _real(*args, **kwargs)
+        monkeypatch.setattr(source_colors, name, counted)
+    return counts
+
+
+def test_discord_color_flow_groups_once_before_the_first_question(tmp_path, monkeypatch):
+    """Discord collect (#1499): one color_groups pass feeds the remembered
+    lookup, the proposal and the offer. A remembered mapping is stored first,
+    so the remembered lookup really groups when it is not handed the groups."""
+    p = plaque(tmp_path)
+    jp = _job(tmp_path, p)
+    asyncio.run(collect(jp, plaque_state(), Adapter([0]), 'offline', 'colors-count-seed', timeout=1))
+    jp2 = tmp_path / 'repost' / 'JOB.json'
+    jp2.parent.mkdir()
+    jp2.write_text(json.dumps({'downloaded_file': str(p), 'color_schema': 'part_slots_v1',
+                               'color_manifest': source_colors.inventory(p)}))
+    counts = _count_grouping(monkeypatch)
+    seen = {}
+
+    class Counting(Adapter):
+        async def send_clarify(self, **kwargs):
+            seen.setdefault('first', dict(counts))
+            return await super().send_clarify(**kwargs)
+
+    adapter = Counting([0])  # Same colors as last time
+    asyncio.run(collect(jp2, plaque_state(), adapter, 'offline', 'colors-count', timeout=1))
+    assert adapter.questions[0]['choices'][0] == 'Same colors as last time'
+    assert seen['first']['color_groups'] == 1, seen['first']
+    assert seen['first']['grouped_prompts'] == 1, seen['first']
+
+
+def test_prepared_intake_color_plan_groups_once_before_the_first_question(monkeypatch, env):
+    """prepare_link (#1499): the color-plan ask reuses the intake's own
+    grouped prompts and hands its groups to the proposal, so the per-part
+    grouping runs once before the first color question, not three times."""
+    from . import test_prepared_intake as tpi
+    counts = _count_grouping(monkeypatch)
+    seen = {}
+    real_send = tpi.Adapter.send_clarify
+
+    async def send_clarify(self, **kwargs):
+        seen.setdefault('first', dict(counts))
+        return await real_send(self, **kwargs)
+    monkeypatch.setattr(tpi.Adapter, 'send_clarify', send_clarify)
+    adapter, _result, _receipt = tpi.run_flow(env, [2, 0, 1, 1])  # one color for everything, slot 1, slice only, Done
+    assert 'One color for everything' in adapter.questions[0]['choices'], adapter.questions[0]['choices']
+    assert seen['first']['grouped_prompts'] == 1, seen['first']
+    assert seen['first']['color_groups'] == 1, seen['first']
+
+
+def test_discord_legacy_per_part_questions_reuse_the_offer_groups(tmp_path, monkeypatch):
+    """No loaded spool matches, so no offer is shown and the legacy mode
+    question leads to per-part questions: those reuse the groups built for
+    the (empty) proposal instead of grouping the source a second time."""
+    p = plaque(tmp_path)
+    jp = _job(tmp_path, p)
+    state = {'spool': {'material': 'PLA', 'spoolman_id': 20, 'name': 'red'},
+             'filament_slots': {'1': {'color': 'Red', 'material': 'PLA', 'spoolman_id': 20},
+                                '2': {'color': 'Green', 'material': 'PLA', 'spoolman_id': 21}}}
+    counts = _count_grouping(monkeypatch)
+    adapter = Adapter([0, 0, 1])  # per part, then one question per color group
+    result = asyncio.run(collect(jp, state, adapter, 'offline', 'colors-legacy-count', timeout=1))
+    assert adapter.questions[0]['question'].startswith('How should the required')
+    assert len(adapter.questions) == 3  # the mode question plus one per color group (Black, Bronze)
+    assert result['mode'] == 'per_part'
+    assert counts['color_groups'] == 1, counts

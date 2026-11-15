@@ -2549,9 +2549,10 @@ def color_groups(manifest, selected_plate_ids=None, *, rows=None):
     'part_names', 'label'} — 'keys' are the decision keys the group answers,
     'name_words' the color words the part names themselves carry.
 
-    ``rows`` lets a caller that already built the grouped prompts for the
-    same selected plates hand them over instead of paying for the per-part
-    grouping again: on a several-hundred-part source one pass is a visible
+    ``rows`` lets a caller that already built the grouped prompts hand them
+    over instead of paying for the per-part grouping again. They must come
+    from ``grouped_prompts`` for the same manifest and ``selected_plate_ids``
+    as this call; nothing checks that: on a several-hundred-part source one pass is a visible
     slice of the time to the first color question, and the intake ask path
     used to run it three times (its own grouping, this one, and the one
     inside propose_mapping)."""
@@ -2630,9 +2631,10 @@ def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=Non
     Returns {'groups': [{...group, 'slot', 'spool_label'}], 'complete': bool,
     'matched': int}. Pure: applies nothing.
 
-    ``groups`` lets a caller that already grouped the source's colors for
-    the same selected plates hand the groups over; regrouping here cost a
-    second full per-part pass on every color-plan ask."""
+    ``groups`` lets a caller that already grouped the source's colors hand
+    the groups over; regrouping here cost a second full per-part pass on
+    every color-plan ask. They must come from ``color_groups`` for the same
+    manifest and ``selected_plate_ids`` as this call; nothing checks that."""
     from . import filament_color
     if groups is None:
         groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
@@ -2753,8 +2755,11 @@ def remembered_color_mapping(manifest, selections, selected_plate_ids=None, path
     loaded, or when the remembered choices do not cover every group the
     source asks about now — a stale mapping is never partly reused.
 
-    ``groups`` lets a caller that already grouped the source's colors for
-    the same selected plates hand the groups over instead of regrouping."""
+    ``groups`` lets a caller that already grouped the source's colors hand
+    the groups over instead of regrouping. They must come from
+    ``color_groups`` for the same manifest and ``selected_plate_ids`` as this
+    call; nothing checks that, and groups for another plate selection would
+    judge the coverage check below against the wrong decision keys."""
     fingerprint = spool_set_fingerprint(selections)
     entry = _load_mapping_store(path).get(f"{manifest['source_sha256']}:{fingerprint}")
     if not isinstance(entry, dict) or entry.get('source_sha256') != manifest['source_sha256']:
