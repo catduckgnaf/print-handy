@@ -39,14 +39,14 @@ EXPECTED = {
 
 
 def test_every_model_names_its_class():
-    assert len(printers.MODELS) == 86
+    assert len(printers.MODELS) == 88
     for key, model in printers.MODELS.items():
         assert model.color_system in COLOR_SYSTEMS, key
         assert model.color_system == EXPECTED.get(key, "single"), key
     counts = {name: sum(1 for m in printers.MODELS.values() if m.color_system == name)
               for name in COLOR_SYSTEMS}
     # "shared_tool" (#1198) is accessory-conferred only: no model declares it.
-    assert counts == {"single": 68, "multi_slot": 12, "multi_tool": 6, "shared_tool": 0}
+    assert counts == {"single": 70, "multi_slot": 12, "multi_tool": 6, "shared_tool": 0}
 
 
 def test_class_agrees_with_the_model_counts():

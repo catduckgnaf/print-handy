@@ -1,0 +1,87 @@
+# Printer registry: flashforge_forgex. See printers/README.md for the schema.
+#
+# One [[printer]] per registered model whose key starts with
+# "flashforge_forgex." — the loader (print_handy/knowledge/registry.py)
+# merges every file in this directory in sorted filename order, and tests pin
+# each entry against the code profile in
+# print_handy/printers/flashforge_forgex/ so this file cannot silently
+# drift from the code. Thermal facts are from the Forge-X documentation
+# and the shipped config tree of the 1.4.2 beta branch (checked
+# 2026-11-15, #1506): documented and config verified, not hardware
+# verified.
+#
+# firmware_family is "none" on purpose (#1506): Forge-X firmware
+# reporting is reporting only in this tranche. The stage 2 apply gate
+# (firmware_update.ELIGIBLE_FAMILIES) keys on this value, so "klipper"
+# would silently make the forge-x update component apply-eligible
+# against a branch-tip remote; "none" plus the Forge-X FamilyGuidance
+# entry in firmware_update.py is the deliberate report-only
+# construction, and docs/FORGEX.md states the same posture.
+
+[[printer]]
+key = "flashforge_forgex.ad5m"
+label = "Flashforge AD5M (Forge-X)"
+vendor = "flashforge_forgex"
+firmware = "Forge-X"
+firmware_family = "none"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [220.0, 220.0]
+max_height_mm = 220.0
+filament_slots = 1
+color_system = "single"
+profile = "print_handy/printers/flashforge_forgex/ad5m.py"
+notes = "Single extruder, no IFS. Same 220 mm cube as the ZMod AD5M without the filament system. The same hardware as flashforge.ad5m on the other custom firmware (Forge-X instead of ZMod); the two firmwares are mutually incompatible, most sharply at print start (both name the macro START_PRINT with different parameters). No chamber heater and no chamber temperature sensor. Print start is not verified on a live printer."
+[printer.thermal]
+enclosure = "open"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "unknown"
+chamber_heater_present = "absent"
+chamber_heater_control = "not_supported"
+chamber_heater_evidence = ""
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "absent"
+chamber_sensor_fresh_reading = "no"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "fan_generic fanM106"
+fan_auxiliary_present = "unknown"
+fan_auxiliary_mapping = "unknown"
+fan_exhaust_present = "unknown"
+fan_exhaust_mapping = "unknown"
+fan_filtration_present = "absent"
+fan_filtration_mapping = "unknown"
+fan_provenance = "vendor documentation"
+
+[[printer]]
+key = "flashforge_forgex.ad5m_pro"
+label = "Flashforge AD5M Pro (Forge-X)"
+vendor = "flashforge_forgex"
+firmware = "Forge-X"
+firmware_family = "none"
+connection = "moonraker"
+kinematics = "CoreXY"
+bed_mm = [220.0, 220.0]
+max_height_mm = 220.0
+filament_slots = 1
+color_system = "single"
+profile = "print_handy/printers/flashforge_forgex/ad5m_pro.py"
+notes = "Single extruder, no IFS. The Pro adds the enclosure, camera and air filtration over the AD5M; print geometry is identical, and the thermal facts are recorded separately in the thermal record below. The enclosure is passive on Forge-X: no chamber heater and no chamber temperature sensor on this model either."
+[printer.thermal]
+enclosure = "enclosed"
+enclosure_provenance = "vendor documentation"
+door_lid_state_knowable = "unknown"
+chamber_heater_present = "absent"
+chamber_heater_control = "not_supported"
+chamber_heater_evidence = ""
+chamber_provenance = "vendor documentation"
+chamber_sensor_present = "absent"
+chamber_sensor_fresh_reading = "no"
+fan_part_cooling_present = "present"
+fan_part_cooling_mapping = "fan_generic fanM106"
+fan_auxiliary_present = "present"
+fan_auxiliary_mapping = "fan_generic chamber_fan"
+fan_exhaust_present = "unknown"
+fan_exhaust_mapping = "unknown"
+fan_filtration_present = "present"
+fan_filtration_mapping = "unknown"
+fan_provenance = "vendor documentation"

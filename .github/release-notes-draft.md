@@ -24,6 +24,9 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 ### Start prints that answer in seconds
 - After the upload, chat now answers "the printer accepted the start and is heating up" within seconds instead of sitting silent for up to 40 s, and the upload, start-sent and confirmed updates are one message edited in place. A start is still sent exactly once and never resent. (#1485)
 
+### Print to an Adventurer 5M or 5M Pro on Forge-X firmware
+- Adventurer 5M and 5M Pro owners running Forge-X firmware (requires the Forge-X 1.4.2 beta; stable 1.4.1 is not supported by these models) can pick their printer (Flashforge AD5M (Forge-X) / Flashforge AD5M Pro (Forge-X)): slicing uses the firmware's documented single-line start form, delivery is plain G-code, firmware updates are reported but never applied, and pointing an AD5M profile at the wrong custom firmware (ZMod vs Forge-X) now says so in the readiness refusal — that direction previously passed silently, on a pair of firmwares that share the START_PRINT macro name with different parameters. Documented and configuration verified; not yet hardware verified. See docs/FORGEX.md. (#1506)
+
 ### Print to a Creator 5 or Creator 5 Pro on OpenCreator firmware
 - Creator 5 and Creator 5 Pro owners running OpenCreator firmware can pick their printer (Flashforge Creator 5 (OpenCreator) / Flashforge Creator 5 Pro (OpenCreator)): slicing uses the firmware's documented start form with labeled objects, delivery is plain G-code, and pointing a Creator profile at the wrong custom firmware (ZMod vs OpenCreator) now says so in the readiness refusal. Documented and configuration verified; not yet hardware verified. See docs/OPENCREATOR.md. (#1495)
 
@@ -65,5 +68,5 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 
 ## Verification and known limitations
 - Offline suites and CI green on every merged head, and on main at the release commit (CI run 43675045757).
-- Not verified on hardware: OpenCreator support on a real Creator 5 or Creator 5 Pro (the toolchanger and AFC status shapes are unverified, so the active tool reports as unknown), the Discord voice-channel Activity live, a real Discord slash-command sitting, and the new Web UI workflow against a live printer. All are covered by offline tests.
+- Not verified on hardware: OpenCreator support on a real Creator 5 or Creator 5 Pro (the toolchanger and AFC status shapes are unverified, so the active tool reports as unknown), Forge-X support on a real Adventurer 5M or 5M Pro (the mod_params and update-status shapes are unverified), the Discord voice-channel Activity live, a real Discord slash-command sitting, and the new Web UI workflow against a live printer. All are covered by offline tests.
 - Real-install timing was not measured for this release; no proof-run timing summary was recorded.
