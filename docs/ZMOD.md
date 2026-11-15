@@ -901,4 +901,8 @@ Set `[printer] model` to the key from the table (or `PRINT_HANDY__PRINTER__MODEL
 Docker). The setup wizard and the Web UI picker list these models from the printer
 registry, so no other configuration names them. Stock (non-ZMod) firmware is a
 separate path; only the AD5X has one today (`flashforge_stock.ad5x`,
-see [Stock Flashforge printers](FLASHFORGE-STOCK.md)).
+see [Stock Flashforge printers](FLASHFORGE-STOCK.md)). The Creator 5 and
+Creator 5 Pro also run a second, incompatible custom firmware,
+OpenCreator, with its own model keys (`flashforge_opencreator.creator5`,
+`flashforge_opencreator.creator5_pro`); see
+[OpenCreator printers](OPENCREATOR.md).

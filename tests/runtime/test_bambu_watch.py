@@ -685,12 +685,26 @@ def test_bambu_a_stall_alert_with_a_weak_detection_keeps_the_ping(monkeypatch):
     assert rig.events[-1] == ("uncertain", "alert")
 
 
-@pytest.mark.parametrize("detail", ["model unsure", "the vision check could not be completed"])
-def test_bambu_endpoint_and_detector_error_uncertain_still_alert_with_a_ping(monkeypatch, detail):
-    rig = _BambuWeakRig(monkeypatch, verdict=lambda image, prompt: ("uncertain", detail))
+def test_bambu_detector_error_uncertain_still_alerts_with_a_ping(monkeypatch):
+    """A verdict call that could not judge the frame is a watch failure,
+    not an inconclusive judgement: it alerts at once, with a ping."""
+    rig = _BambuWeakRig(monkeypatch, verdict=lambda image, prompt: (
+        "uncertain", "the vision check could not be completed"))
     rig.check(0.0, reason="layer2", layer=2)
     assert len(rig.alerts) == 1 and rig.alerts[0][1] is True
     assert rig.events == [("uncertain", "alert")]
+
+
+def test_bambu_endpoint_uncertain_notes_once_then_posts_the_streak_without_a_ping(monkeypatch):
+    """#1474: one inconclusive Bambu check is only noted; the streak
+    posts, without a ping."""
+    rig = _BambuWeakRig(monkeypatch, verdict=lambda image, prompt: ("uncertain", "model unsure"))
+    rig.check(0.0, reason="layer2", layer=2)
+    assert rig.alerts == [] and rig.events == [("uncertain", "noted")]
+    rig.check(0.0, reason="layer2", layer=2)
+    assert len(rig.alerts) == 1 and rig.alerts[0][1] is False
+    assert "inconclusive in 2 checks in a row" in rig.alerts[0][0]
+    assert rig.events[-1] == ("uncertain", "alert")
 
 
 # -- Stage 3: the alert's Pause button on Bambu ---------------------------------

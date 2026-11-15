@@ -96,6 +96,7 @@ GROUP_OF = {
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
     "discord.mention_starter": "platform",
+    "discord.job_card_thread": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -294,6 +295,13 @@ CATALOG = (
            "recorded starter and never mentions anyone. (Earlier this was "
            "mention_starter_on_complete and covered only the end-of-print post; the "
            "old name still works and is read as this setting.)",
+           validator="settings discord check"),
+    _field("discord", "job_card_thread", "Job card detail thread", "toggle",
+           "On Discord a print job is one card (an embed) edited in place instead of a "
+           "stream of messages. Off by default: long detail (support analysis, shortage "
+           "details, camera checks) stays on the card. On: the card opens a thread and "
+           "the long detail goes there, so the main channel keeps just the card and "
+           "the completion post.",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",
@@ -763,10 +771,12 @@ CATALOG = (
     _field("live_stream", "max_height", "Live feed height", "number",
            "Live feed height cap in pixels; width follows the camera's aspect. "
            "While all four feed values (height, frame rate, bitrate cap, "
-           "encoder) hold their defaults the live view is the camera stream "
-           "relayed as it arrives; changing any one makes the live view a "
-           "transcoded feed with all four applied. Timelapse capture keeps "
-           "the camera's own stream either way.",
+           "encoder) hold their defaults, an RTSP or WebRTC camera is "
+           "relayed as it arrives and an MJPEG or snapshot camera is "
+           "transcoded to H.264, because the Activity plays only MSE. "
+           "Changing any one makes the live view a transcoded feed with "
+           "all four applied. Timelapse capture keeps the camera's own "
+           "stream either way.",
            validator="settings live_stream check", minimum=144, maximum=2160),
     _field("live_stream", "fps", "Live feed frame rate", "number",
            "Live feed frame-rate cap, in frames per second; applied by the "

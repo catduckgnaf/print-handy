@@ -16,6 +16,9 @@ def plan(*states):
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     sent, pickers, ffmpeg = [], [], []
+    # Per-test announcer state: the completion post guard (#1474) records
+    # delivered prints in it, and one test's prints are not another's.
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "state.json")
     monkeypatch.setattr(plan_timelapse, "_root", lambda: tmp_path / "plans")
     monkeypatch.setattr(mel, "log", lambda _: None); monkeypatch.setattr(mel, "warn", lambda _: None)
     monkeypatch.setattr(mel, "post", lambda text: sent.append(text) or True)

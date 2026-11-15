@@ -16,6 +16,7 @@ values it always used, so Discord sessions, sources and replies are unchanged.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import collections
 import contextlib
 import logging
@@ -232,6 +233,71 @@ def _whole_name_winner(decision, wholes):
     return whole[0] if len(whole) == 1 else None
 
 
+# Extra verbs handlers accept in the subcommand slot, per command: the
+# spool handler's own aliases for its typed forms (handlers/spool.py).
+_SUBCOMMAND_HANDLER_ALIASES = {
+    "spool": frozenset({"ls", "set", "load", "add", "grams"}),
+}
+
+
+def subcommand_suggestion(text):
+    """The corrected typed form when a subcommand word is a near miss (#1496).
+
+    Fuzzy stays parallel with the command table: #1475 gave five commands
+    real subcommands, and a typo in that second word ("/spool chnage")
+    is the same kind of near miss as a typo in the command name — except
+    the handlers answer an unknown subcommand word themselves (a usage
+    line, a menu, a report), so the fallback never sees it. This is the
+    one suggestion ``process`` offers before dispatch; a decline or an
+    expiry falls through to the handler's own answer, unchanged.
+
+    Only a clear correction is offered: the shared policy
+    (``fuzzy.decide``) must name a single contender, or the word must be
+    a unique nearest neighbour within a small edit distance sharing its
+    first letter (the edit path also carries the pairs the scorer's
+    canonical forms hide, like "snyc" for "sync", whose canonical form
+    is "synchronize"). The vocabulary is the command's typed subcommand
+    words — subcommands whose typed word is empty (the bare form) have
+    no word to mistype. Exact words, numbers, handler aliases that sit
+    far from every subcommand word ("/spool ls", "/spool set") and
+    commands without subcommands are all left alone, and the remaining
+    arguments carry over untouched.
+    """
+    parts = str(text or "").strip().split()
+    if len(parts) < 2 or not parts[0].startswith("/"):
+        return None
+    command = commands.by_name(parts[0].lstrip("/").casefold())
+    if command is None or not command.subcommands:
+        return None
+    word = parts[1].casefold().strip("?.!")
+    words = [sub.word for sub in command.subcommands if sub.word]
+    if not word.isalpha() or word in words:
+        return None
+    # Words a handler already accepts in this slot are valid forms, not
+    # near misses — /spool's own aliases (spool_dispatch) must never be
+    # "corrected" into a prompt ("ls" scores 67 against "list").
+    if word in _SUBCOMMAND_HANDLER_ALIASES.get(command.name, ()):
+        return None
+    winner = None
+    decision = fuzzy.decide([(fuzzy.fuzzy_score(word, w), w) for w in words])
+    if decision.kind != "none" and len(decision.contenders) == 1:
+        winner = decision.best
+    else:
+        limit = 1 if len(word) <= 5 else 2
+        distances = [(fuzzy.edit_distance(word, w, limit), w) for w in words
+                     if w[0] == word[0]]
+        nearest = [w for distance, w in distances if distance <= limit]
+        if nearest:
+            best = min(distance for distance, w in distances if distance <= limit)
+            winners = [w for distance, w in distances if distance == best]
+            if len(winners) == 1:
+                winner = winners[0]
+    if winner is None:
+        return None
+    rest = " ".join(parts[2:])
+    return f"/{command.name} {winner}" + (f" {rest}" if rest else "")
+
+
 # Plain-language task suggestions (#792): common task intents when people phrase jobs in words.
 # Maps regex patterns to canonical command suggestions. A suggestion may carry
 # the matched words into the command via "{q}" (the pattern's named group) —
@@ -251,7 +317,16 @@ _FW_COMPONENT_VOCABULARY = ("helixscreen", "klipper", "moonraker")
 _TASK_INTENT_SUGGESTIONS = (
     # Spools: change / add / what is loaded
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
+    # The subcommand forms (#1496): fuzzy stays parallel with the command
+    # table #1475 formalized, so the specific forms route to their typed
+    # subcommand text, not only to the bare guided command. These sit
+    # above the generic add pattern, which keeps the bare "/spool".
+    (re.compile(rf"^{_LEAD}(?:add|create)\s+a\s+new\s+(?:spool|roll){_END}", re.I), "/spool new"),
+    (re.compile(rf"^new\s+(?:spool|roll){_END}", re.I), "/spool new"),
     (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
+    (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?spools{_END}", re.I), "/spool list"),
+    (re.compile(rf"^{_LEAD}(?:sync|synchronize)\s+(?:the\s+)?(?:spools?|filament)(?:\s+with\s+spoolman)?{_END}", re.I), "/spool sync"),
+    (re.compile(rf"^{_LEAD}sync\s+(?:with\s+)?spoolman{_END}", re.I), "/spool sync"),
     # Spool weight wrong (#1374): correcting the grams left is /spool weight.
     # No "correct" here: as an intent word it would pull the typo layer's
     # "corected" / "corectly" to "correct" for every other command.
@@ -277,6 +352,7 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:prepare|prep|get\s+ready)\s+(?:the\s+printer\s+)?(?:to|for)\s+clean(?:ing)?{_END}", re.I), "/print-bed-down"),
     (re.compile(rf"^{_LEAD}clean\s+the\s+nozzle{_END}", re.I), "/print-bed-down"),
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:the\s+)?nozzle{_END}", re.I), "/nozzle change"),
+    (re.compile(rf"^(?:please\s+)?nozzle\s+change{_END}", re.I), "/nozzle change"),
     # Status, progress and failure reports
     (re.compile(rf"^(?:please\s+)?(?:what\s+is\s+(?:the\s+)?)?(?:printer|print)\s+status{_END}", re.I), "/print-status"),
     (re.compile(rf"^{_LEAD}(?:show|check)\s+(?:me\s+)?(?:the\s+)?(?:printer|print)\s+status{_END}", re.I), "/print-status"),
@@ -294,11 +370,38 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:(?:print|start)\s+(?:the\s+)?)?next\s+plate{_END}", re.I), "/print-next"),
     (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
     (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibrate"),
+    # Calibration subcommands (#1496): each /print-calibration form #1475
+    # registered gets its own plain-language route to its typed form.
+    (re.compile(rf"^(?:please\s+)?(?:bed\s+mesh|mesh\s+calibration){_END}", re.I), "/print-calibration mesh"),
+    (re.compile(rf"^{_LEAD}(?:run|calibrate|do|make)\s+(?:a\s+|the\s+)?bed\s+mesh{_END}", re.I), "/print-calibration mesh"),
+    (re.compile(rf"^(?:please\s+)?(?:bed\s+screws|bed\s+screw\s+calibration|screw\s+calibration|screws?\s+tilt){_END}", re.I), "/print-calibration screws"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|adjust|level)\s+(?:the\s+)?bed\s+screws{_END}", re.I), "/print-calibration screws"),
+    (re.compile(rf"^(?:please\s+)?pid\s+(?:tuning|calibration|tune|calibrate){_END}", re.I), "/print-calibration pid"),
+    (re.compile(rf"^{_LEAD}(?:tune|calibrate|run)\s+(?:the\s+)?pid{_END}", re.I), "/print-calibration pid"),
+    (re.compile(rf"^(?:please\s+)?input\s+shaper(?:\s+calibration)?{_END}", re.I), "/print-calibration shaper"),
+    (re.compile(rf"^{_LEAD}(?:run|calibrate|do)\s+(?:the\s+)?input\s+shaper{_END}", re.I), "/print-calibration shaper"),
+    (re.compile(rf"^(?:please\s+)?belt\s+(?:tension|calibration){_END}", re.I), "/print-calibration belts"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|check|adjust)\s+(?:the\s+)?belts?{_END}", re.I), "/print-calibration belts"),
+    (re.compile(rf"^(?:please\s+)?z\s*offset(?:\s+calibration)?{_END}", re.I), "/print-calibration zoffset"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|set|adjust)\s+(?:the\s+)?z\s*offset{_END}", re.I), "/print-calibration zoffset"),
+    (re.compile(rf"^(?:please\s+)?(?:calibration\s+records|past\s+calibrations|previous\s+calibrations){_END}", re.I), "/print-calibration records"),
+    (re.compile(rf"^{_LEAD}(?:show|list|see)\s+(?:me\s+)?(?:the\s+|my\s+)?calibration\s+records{_END}", re.I), "/print-calibration records"),
     # Maintenance and firmware
     (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+|some\s+)?maintenance{_END}", re.I), "/print-maintenance"),
     (re.compile(rf"^(?:what\s+)?maintenance\s+(?:is\s+)?(?:due|needed){_END}", re.I), "/print-maintenance"),
+    (re.compile(rf"^(?:please\s+)?quick\s+maintenance{_END}", re.I), "/print-maintenance quick"),
+    (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:a\s+)?quick\s+maintenance{_END}", re.I), "/print-maintenance quick"),
     (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?firmware{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?firmware\s+update{_END}", re.I), "/print-firmware"),
+    # Firmware subcommand forms (#1496): the bare form is the versions
+    # report (its subcommand's typed word is empty), and the guide form
+    # takes the flavor the handler asks for when it is missing.
+    (re.compile(rf"^(?:please\s+)?firmware\s+versions?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^{_LEAD}(?:show|list|check)\s+(?:me\s+)?(?:the\s+)?firmware\s+versions?{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:please\s+)?what\s+firmware\s+version\s+is\s+(?:installed|running){_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:please\s+)?what\s+version\s+is\s+the\s+firmware{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:please\s+)?firmware\s+(?:update\s+)?guide{_END}", re.I), "/print-firmware guide"),
+    (re.compile(rf"^{_LEAD}(?:show|open|give)\s+(?:me\s+)?(?:the\s+)?firmware\s+(?:update\s+)?guide{_END}", re.I), "/print-firmware guide"),
     # Update checks phrased as "check for ... updates", including the ones
     # named by component (zmod, helixscreen, ...) — the plain check above
     # only matched the literal word "firmware" in two narrow shapes, so
@@ -332,10 +435,13 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:choose|pick|assign)\s+(?:the\s+)?colors?{_END}", re.I), "/print-colors"),
     (re.compile(rf"^{_LEAD}(?:list|show)\s+(?:me\s+)?(?:the\s+)?macros{_END}", re.I), "/print-macros"),
     (re.compile(rf"^(?:what|which)\s+macros\s+(?:are\s+there|do\s+i\s+have|can\s+i\s+run){_END}", re.I), "/print-macros"),
-    (re.compile(rf"^{_LEAD}run\s+a\s+macro{_END}", re.I), "/print-macros"),
+    (re.compile(rf"^{_LEAD}run\s+(?:a|the)\s+macro{_END}", re.I), "/print-macros run"),
     (re.compile(rf"^{_LEAD}(?:start|open|show|watch)\s+(?:me\s+)?(?:the\s+)?live\s+(?:camera|view|stream|feed){_END}", re.I), "/print-live"),
     (re.compile(rf"^{_LEAD}watch\s+(?:the\s+)?print\s+live{_END}", re.I), "/print-live"),
+    (re.compile(rf"^{_LEAD}(?:stop|end)\s+(?:the\s+)?live\s+(?:camera|view|stream|feed){_END}", re.I), "/print-live stop"),
+    (re.compile(rf"^(?:please\s+)?live\s+camera\s+status{_END}", re.I), "/print-live status"),
     (re.compile(rf"^{_LEAD}(?:calibrate\s+(?:the\s+)?plate|plate\s+calibration|capture\s+(?:the\s+)?plate\s+reference){_END}", re.I), "/print-plate-calibrate"),
+    (re.compile(rf"^{_LEAD}capture\s+(?:the\s+)?plate{_END}", re.I), "/print-plate-calibrate"),
     (re.compile(rf"^{_LEAD}add\s+(?:a\s+|an\s+|another\s+)?printer{_END}", re.I), "/print-handy add-printer"),
     # "set up <bot name>" is built per configured name: see _setup_intent.
     (re.compile(rf"^(?:please\s+)?what\s+can\s+you\s+do{_END}", re.I), "/print-help"),
@@ -518,7 +624,12 @@ def command_suggestion(text, bot_name=None):
     ``bot_name`` is the configured name, for "set up <bot name>".
 
     Only the first word is matched — "/spol list" suggests "/spool list",
-    arguments carried over untouched — against command names and aliases
+    arguments carried over untouched — against command names and aliases,
+    with one addition since #1496: an exact command whose subcommand
+    word is itself a near miss suggests the corrected form through
+    ``subcommand_suggestion``, which ``process`` also offers before
+    dispatch (the handlers answer unknown subcommand words themselves,
+    so that path never reaches this fallback)
     with the shared fuzzy scorer (``core.fuzzy``, windowed so "/stop" can
     mean "/print-stop"). The message must be command-shaped (first word
     starts with "/"): plain chat is never a near miss, however similar a
@@ -542,6 +653,9 @@ def command_suggestion(text, bot_name=None):
     task = _task_suggestion(text, bot_name)
     if task is not None:
         return task
+    subcommand = subcommand_suggestion(text)
+    if subcommand is not None:
+        return subcommand
     scored, rest, wholes = _command_scores(text)
     if not scored:
         return None
@@ -552,8 +666,12 @@ def command_suggestion(text, bot_name=None):
         winner = _whole_name_winner(decision, wholes)
         if winner is None:
             return None
-        return f"/{winner.name}" + (f" {rest}" if rest else "")
-    return f"/{decision.best.name}" + (f" {rest}" if rest else "")
+        suggestion = f"/{winner.name}" + (f" {rest}" if rest else "")
+    else:
+        suggestion = f"/{decision.best.name}" + (f" {rest}" if rest else "")
+    # A near miss in both words ("/spol chnage") gets both corrections:
+    # the carried-over tail is the subcommand layer's to fix or leave.
+    return subcommand_suggestion(suggestion) or suggestion
 
 
 def command_suggestion_candidates(text):
@@ -724,7 +842,38 @@ def safe_name(name):
     return cleaned[:120] or "model"
 
 
-class Gateway:
+# The slash command a handler is answering, for the current asyncio task only
+# (#1475). Each message and each slash command runs in its own task with its
+# own copy of the context, so one command's interaction can never receive
+# another command's replies: the shared adapter object is never swapped.
+_SLASH_ADAPTER: contextvars.ContextVar = contextvars.ContextVar("print_handy_slash_adapter", default=None)
+
+
+def _slash_adapter():
+    """The current task's slash proxy while its command is still running, else None.
+
+    A task spawned by a slash flow inherits the proxy with its context; once
+    the command has returned (``closed``) such a task posts through the real
+    adapter again instead of an interaction that is no longer waiting."""
+    proxy = _SLASH_ADAPTER.get()
+    if proxy is None or object.__getattribute__(proxy, "_delivery").closed:
+        return None
+    return proxy
+
+
+class _RoutedAdapter:
+    """``adapter`` attribute that answers with the current task's slash proxy, when one is live."""
+
+    @property
+    def adapter(self):
+        return _slash_adapter() or self._adapter
+
+    @adapter.setter
+    def adapter(self, value):
+        self._adapter = value
+
+
+class Gateway(_RoutedAdapter):
     """The gateway calls the handlers make: may this person act, where do replies go, which session.
 
     Channel scope is the routing map (#335): a source is in scope when its
@@ -783,7 +932,62 @@ class Gateway:
         return session_key(source)
 
 
-class BotCore:
+class _SlashDelivery:
+    """Where one slash command's answers go: its own interaction (#1475).
+
+    The interaction is deferred first; every ``send`` a handler makes while
+    it runs is delivered as the interaction's followup — the one visible
+    response — instead of a separate channel post next to an echoed
+    command line. Button questions (``send_clarify``) still post through
+    the real adapter: they are prompts with working buttons, recorded the
+    way every typed command's prompts are.
+    """
+
+    def __init__(self, core, interaction, view=None):
+        self.core = core
+        self.interaction = interaction
+        self.view = view
+        self.sent = False
+        self.prompted = False
+        self.closed = False  # set when run_slash returns: later sends use the real adapter
+
+    async def deliver(self, content, files=None):
+        adapter = self.core._adapter  # the real adapter, never this flow's own proxy
+        send_followup = getattr(adapter, "send_followup", None)
+        if send_followup is not None:
+            result = await send_followup(self.interaction, content, files=files,
+                                         view=self.view if not self.sent else None)
+        else:  # an adapter with no interaction delivery: the followup itself
+            await self.interaction.followup.send(content)
+            result = platform.SendResult(True)
+        self.sent = True
+        return result
+
+
+class _SlashAdapter:
+    """The platform adapter as a slash flow sees it: sends rerouted, rest delegated."""
+
+    def __init__(self, real, delivery):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_delivery", delivery)
+
+    def __getattr__(self, item):
+        return getattr(object.__getattribute__(self, "_real"), item)
+
+    def __setattr__(self, key, value):
+        setattr(object.__getattribute__(self, "_real"), key, value)
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None, files=None):
+        return await object.__getattribute__(self, "_delivery").deliver(content, files=files)
+
+    async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
+        delivery = object.__getattribute__(self, "_delivery")
+        delivery.prompted = True
+        return await object.__getattribute__(self, "_real").send_clarify(
+            chat_id, question, choices, clarify_id, session_key, metadata=metadata)
+
+
+class BotCore(_RoutedAdapter):
     def __init__(self, client, cfg=None, *, router=None, llm_opener=None, agent_opener=None,
                  platform_name=None, adapter=None, chat_id=None, use_llm=None):
         """Run the handlers against one platform adapter.
@@ -817,6 +1021,10 @@ class BotCore:
                 approver=settings.approver_ids(section) or None,
                 approve_all=bool(section.get("approval_all_users")),
                 upload_max_bytes=section.get("upload_max_bytes") or discord.get("upload_max_bytes"))
+            if self.platform_name == "discord":
+                # [discord] job_card_thread (#1472): long job detail goes
+                # to a thread on the job card instead of the main channel.
+                self.adapter.job_card_thread = bool(discord.get("job_card_thread", False))
         self.chat_id = str(chat_id if chat_id is not None
                            else section.get("chat_id") or (discord.get("chat_id") if not section else "")
                            or "")
@@ -1103,6 +1311,18 @@ class BotCore:
         if text.casefold() in HELP_WORDS:
             await self.adapter.send(chat_id=source.chat_id, content=self.help, metadata=metadata)
             return {"action": "skip", "reason": "help"}
+        if text and not self.gateway.setup_only \
+                and not (getattr(event, "metadata", None) or {}).get("subcommand_fallthrough"):
+            # A near-miss subcommand word (#1496): the handlers answer an
+            # unknown subcommand word themselves, so the fallback's
+            # did-you-mean never sees it — offer the correction here,
+            # before dispatch. A decline or an expiry falls through and
+            # the handler answers the original text exactly as today.
+            sub_suggestion = subcommand_suggestion(text)
+            if sub_suggestion is not None:
+                offered = await self._offer_subcommand_suggestion(event, sub_suggestion, metadata)
+                if offered is not None:
+                    return offered
         result = await self.router.dispatch(event, self.gateway)
         if result is None and self.gateway.setup_only:
             from .guided import SETUP_ONLY_REFUSAL
@@ -1362,6 +1582,55 @@ class BotCore:
         await self.adapter.close_prompt(clarify_id, "OK — nothing ran.")
         return await self._suggestion_unmatched(event, metadata)
 
+    async def _offer_subcommand_suggestion(self, event, suggestion, metadata):
+        """Ask "Did you mean …?" for a near-miss subcommand word (#1496).
+
+        The same clarify prompt as ``_offer_suggestion``, with one
+        difference: the original message has a handler answer of its own
+        (a usage line, a menu, a report), so a decline, an expiry or a
+        delivery failure re-dispatches the original text — marked so it
+        is not offered twice — instead of the plain unmatched reply.
+        Only an explicit yes runs the corrected form, through
+        ``process`` exactly as if it had been typed. Returns None only
+        when the prompt could not be delivered at all, so ``process``
+        falls through to dispatch itself.
+        """
+        question = (f"Did you mean `{suggestion}`? Nothing runs unless you say yes — "
+                    "and the command still asks before anything prints.")
+        clarify_id = await self._deliver_suggestion(
+            event, question, [SUGGEST_YES_LABEL, SUGGEST_NO_LABEL], metadata)
+        if clarify_id is None:
+            return None
+        if getattr(self.adapter, "polls_serially", False):
+            return self._background_suggestion(
+                self._answer_subcommand_suggestion(event, suggestion, metadata, clarify_id))
+        return await self._answer_subcommand_suggestion(event, suggestion, metadata, clarify_id)
+
+    async def _answer_subcommand_suggestion(self, event, suggestion, metadata, clarify_id):
+        source = event.source
+        answer, delivered = await self._wait_suggestion(clarify_id)
+        if not delivered:
+            # The wait itself failed (background path included): the
+            # handler's own answer is the honest outcome, so dispatch
+            # the original here rather than dropping the message.
+            original = make_event(source, event.text, f"{event.message_id}:fuzzy-fallthrough",
+                                  media_urls=event.media_urls,
+                                  metadata={"subcommand_fallthrough": True})
+            return await self.process(original, allow_llm=False)
+        if answer == SUGGEST_YES_LABEL or (isinstance(answer, str) and answer.strip().casefold() in {"yes", "y"}):
+            await self.adapter.close_prompt(clarify_id, f"Running {suggestion} — watch for its own confirmation.")
+            routed = make_event(source, suggestion, f"{event.message_id}:fuzzy",
+                                media_urls=event.media_urls, metadata={"fuzzy_command": True})
+            return await self.process(routed, allow_llm=False)
+        if answer is None:
+            await self.adapter.close_prompt(clarify_id, "That suggestion expired — nothing ran.")
+        else:
+            await self.adapter.close_prompt(clarify_id, "OK — nothing ran.")
+        original = make_event(source, event.text, f"{event.message_id}:fuzzy-fallthrough",
+                              media_urls=event.media_urls,
+                              metadata={"subcommand_fallthrough": True})
+        return await self.process(original, allow_llm=False)
+
     async def _offer_suggestion_choice(self, event, candidates, metadata):
         """Ask "Did you mean one of these?" for a contested near miss.
 
@@ -1437,8 +1706,15 @@ class BotCore:
     async def on_interaction(self, interaction):
         await self.adapter.handle_click(interaction)
 
-    async def run_slash(self, interaction, name, values):
-        """A slash command runs as its typed text, after the same channel and user checks."""
+    async def run_slash(self, interaction, name, values, *, view=None):
+        """A slash command runs as its typed text, after the same channel and user checks.
+
+        One visible response (#1475): the interaction is deferred and the
+        handler's answer is delivered as the interaction's own followup —
+        no echoed command line in the channel and no separate answer post.
+        Read-only commands (the table's ``ephemeral`` ones) defer
+        ephemerally, so only the asker sees the answer.
+        """
         user = interaction.user
         chat_id, thread_id = channel_scope(interaction.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
@@ -1448,19 +1724,41 @@ class BotCore:
         if not routed and not self.gateway.setup_only:
             await interaction.response.send_message(f"{self.bot_name} only works in its print channel.", ephemeral=True)
             return None
-        if self.gateway.setup_only:
-            text = commands.as_text(name, values)
-            await interaction.response.send_message(f"`{text}`")
-            return await self.process(make_event(source, text, interaction.id), allow_llm=False)
-        if not self.gateway._is_user_authorized_for_source(source):
+        if not self.gateway.setup_only and not self.gateway._is_user_authorized_for_source(source):
             logger.info("refused slash command from %s user %s in channel %s: %s",
                         self.platform_name, source.user_id, source.chat_id,
                         self.adapter.refusal_reason(source.user_id))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return None
         text = commands.as_text(name, values)
-        await interaction.response.send_message(f"`{text}`")
-        return await self.process(make_event(source, text, interaction.id), allow_llm=False)
+        command = commands.by_name(name)
+        await interaction.response.defer(ephemeral=bool(command and command.ephemeral))
+        delivery = _SlashDelivery(self, interaction, view=view)
+        # Context-local, never a swap of the shared adapter: a message or a
+        # second slash command handled while this one awaits a button keeps
+        # its own delivery (review of #1484).
+        token = _SLASH_ADAPTER.set(_SlashAdapter(self._adapter, delivery))
+        try:
+            if command is not None and command.name == "print-help":
+                # Slash help is the short form plus the command menu (the
+                # view), never the full wall the typed form still answers.
+                await delivery.deliver(commands.short_help_text(self.bot_name))
+                return {"action": "skip", "reason": "help"}
+            result = await self.process(make_event(source, text, interaction.id), allow_llm=False)
+        except Exception:
+            logger.exception("slash command %s failed", text)
+            if not delivery.sent and not delivery.prompted:
+                await delivery.deliver("That command failed, so nothing was changed by it. "
+                                       "The failure is in the bot log.")
+            return {"action": "skip", "reason": "slash command failed"}
+        finally:
+            delivery.closed = True
+            _SLASH_ADAPTER.reset(token)
+        if not delivery.sent and not delivery.prompted:
+            await _SlashDelivery(self, interaction).deliver("Done.")
+        elif not delivery.sent and delivery.prompted:
+            await _SlashDelivery(self, interaction).deliver("Answer the prompt above to continue.")
+        return result
 
     # ------------------------------------------------------------------ status
 

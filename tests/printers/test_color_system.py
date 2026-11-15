@@ -21,6 +21,8 @@ EXPECTED = {
     "flashforge_stock.ad5x": "multi_slot",
     "flashforge.creator5": "multi_tool",
     "flashforge.creator5_pro": "multi_tool",
+    "flashforge_opencreator.creator5": "multi_tool",
+    "flashforge_opencreator.creator5_pro": "multi_tool",
     "bambulab.a1": "multi_slot",
     "bambulab.a1mini": "multi_slot",
     "bambulab.a2l": "multi_slot",
@@ -37,14 +39,14 @@ EXPECTED = {
 
 
 def test_every_model_names_its_class():
-    assert len(printers.MODELS) == 84
+    assert len(printers.MODELS) == 86
     for key, model in printers.MODELS.items():
         assert model.color_system in COLOR_SYSTEMS, key
         assert model.color_system == EXPECTED.get(key, "single"), key
     counts = {name: sum(1 for m in printers.MODELS.values() if m.color_system == name)
               for name in COLOR_SYSTEMS}
     # "shared_tool" (#1198) is accessory-conferred only: no model declares it.
-    assert counts == {"single": 68, "multi_slot": 12, "multi_tool": 4, "shared_tool": 0}
+    assert counts == {"single": 68, "multi_slot": 12, "multi_tool": 6, "shared_tool": 0}
 
 
 def test_class_agrees_with_the_model_counts():

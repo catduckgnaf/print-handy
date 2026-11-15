@@ -8,7 +8,10 @@ or report it with a level and a cause. A handler whose whole body is ``pass``,
 ``contextlib.suppress`` is the same swallow under another name, so it is held
 to a per-file allowance that can only go down. Those calls predate #1417's
 sweep and are tracked in #1455. A new one fails here; removing one
-means lowering its count below in the same change.
+means lowering its count below in the same change. The #1455 sweep removed
+or narrowed most of them; the few that remain are reasoned exceptions, each
+with its written reason in ``SUPPRESS_REASONS``, and the guard fails when an
+allowance entry has no reason.
 
 #1467 extends the same freeze to the next shape of the same swallow: a
 handler that catches ``Exception`` (or is bare), binds no exception name,
@@ -33,20 +36,47 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ("print_handy", "scripts", "plugins", "docker")
 
-# contextlib.suppress(...) calls per file, frozen at the end of the #1417 sweep.
-# Only ever lower these.
+# contextlib.suppress(...) calls per file, frozen at the end of the #1417 sweep
+# and lowered by the #1455 sweep. Only ever lower these. Every file still
+# listed here carries its written reason in SUPPRESS_REASONS below (#1455):
+# the done state is this dict empty, or reasoned-only, and the guard enforces
+# the pairing.
 SUPPRESS_ALLOWANCE = {
-    "print_handy/bot/edit_chat.py": 1,
-    "print_handy/bot/handlers/common.py": 4,
     "print_handy/core/background_slice.py": 7,
-    "print_handy/core/owned_worker.py": 6,
-    "print_handy/core/prepared_intake.py": 29,
+    "print_handy/core/owned_worker.py": 4,
+    "print_handy/core/prepared_intake.py": 4,
     "print_handy/intake/fit_flow.py": 1,
-    "print_handy/intake/questions.py": 2,
-    "print_handy/runtime/family_control.py": 1,
-    "print_handy/runtime/moonraker_event_listener.py": 4,
-    "print_handy/runtime/print_alert_buttons.py": 4,
     "print_handy/runtime/timelapse_encode.py": 1,
+}
+
+# Why each file above may keep its suppress calls (#1455). A file with an
+# allowance but no reason here fails the guard, and so does a reason left
+# behind for a file whose calls are all gone.
+SUPPRESS_REASONS = {
+    "print_handy/core/background_slice.py": (
+        "Awaiting this runner's own slice tasks: _run records failures in "
+        "self.error / self.supports_error, so the await can only surface "
+        "CancelledError — an expected end state (a discarded or superseded "
+        "slice) whose outcome is read from the fields right after."),
+    "print_handy/core/owned_worker.py": (
+        "Signaling a process group that may already be dead (callers verify "
+        "death separately), the _gone poll whose timeout is the 'not yet' "
+        "signal, feeding a worker that died mid-exchange (the read side of "
+        "the gather surfaces the failure), and settle(), whose contract is "
+        "to absorb cancels while a future finishes."),
+    "print_handy/core/prepared_intake.py": (
+        "A never-raises TIMING.jsonl tail parse (a torn last line from the "
+        "concurrent writer is expected and skipped), awaiting watchers and "
+        "tasks this code cancelled itself one line above (their real "
+        "failures are retrieved and logged right after), and one bounded "
+        "wait whose timeout is an expected outcome, read from the slice "
+        "record next."),
+    "print_handy/intake/fit_flow.py": (
+        "Awaiting the fit task this finally block cancelled itself just "
+        "above; a real failure is retrieved and logged right after."),
+    "print_handy/runtime/timelapse_encode.py": (
+        "flock(LOCK_UN) in a finally: an unlock failure is moot because "
+        "closing the handle on the next line releases the lock either way."),
 }
 
 
@@ -467,6 +497,18 @@ def test_broad_no_log_handlers_never_grow():
     assert reasonless == [], (
         f"broad no-log allowance entries with no written reason (or a non-positive count): "
         f"{reasonless}. Every remaining entry needs its reason, per #1467.")
+
+
+def test_contextlib_suppress_allowance_is_reasoned():
+    """#1455's done state: the allowance is empty, or every entry in it has a written reason."""
+    unreasoned = {name for name in SUPPRESS_ALLOWANCE if not SUPPRESS_REASONS.get(name, "").strip()}
+    assert unreasoned == set(), (
+        f"suppress allowance entries without a written reason (#1455): {unreasoned}. "
+        "Remove the calls, or record why they may stay in SUPPRESS_REASONS.")
+    orphaned = set(SUPPRESS_REASONS) - set(SUPPRESS_ALLOWANCE)
+    assert orphaned == set(), (
+        f"suppress reasons for files with no allowance left: {orphaned}. "
+        "Drop the reason together with the allowance entry.")
 
 
 def test_the_guard_recognizes_every_silent_shape():
