@@ -269,6 +269,7 @@ ENTRY_POINTS = (
     # they moved from plugins/print-feedback into print_handy/bot/handlers, #1323)
     ("print_handy/bot/handlers/print_stop.py", "print_stop_dispatch"),
     ("print_handy/bot/handlers/print_status.py", "print_status_dispatch"),
+    ("print_handy/bot/handlers/print_pause.py", "print_pause_dispatch"),
     ("print_handy/bot/handlers/print_resume.py", "print_resume_dispatch"),
     ("print_handy/bot/handlers/print_reboot.py", "print_reboot_dispatch"),
     ("print_handy/bot/handlers/exclude.py", "exclude_dispatch"),

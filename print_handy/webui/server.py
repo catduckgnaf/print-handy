@@ -709,7 +709,7 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                    '<a class="button" href="/config?section=webui">Web UI settings</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
-            + (dashboard_module.render_dashboard(dashboard, snap) if dashboard else "")
+            + (dashboard_module.render_dashboard(dashboard, snap, form_token=form_token) if dashboard else "")
             + roster_table
             + failures_table
             # The connection readout and doctor table are system detail,
@@ -1888,6 +1888,22 @@ class _Handler(BaseHTTPRequestHandler):
             return
         printer_id, verb = unquote(segments[0]), segments[1]
         code, payload = self.server.printer_control_func(printer_id, verb, body)
+        self._json(code, payload)
+
+    def _dashboard_estop_post(self, printer_id, form):
+        """POST /dashboard/estop/<id>: the Status page's E-stop button.
+
+        A browser cannot send the ``X-WebUI-Token`` header the
+        ``/api/printers/<id>/emergency_stop`` route requires, so on a
+        claimed install that route refused every press from the page
+        with a 401. This route is ``session+csrf`` like every other
+        browser form: a live login session plus the session-bound
+        ``_csrf`` value the page embeds. The stop itself is the API's
+        own (``printer_control_func``, ``emergency_stop``, confirmed),
+        so the controls_enabled switch and every refusal are unchanged.
+        """
+        code, payload = self.server.printer_control_func(
+            printer_id, "emergency_stop", {"confirm": True})
         self._json(code, payload)
 
     # -- per-printer spools (#789) -------------------------------------------

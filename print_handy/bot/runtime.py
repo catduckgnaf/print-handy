@@ -146,6 +146,35 @@ async def await_prompt(registry, clarify_id, timeout, poll=None):
     return registry.wait_for_response(clarify_id, 0)
 
 
+# Commands a "yes" runs at once: they have no confirmation of their own, so
+# the suggestion prompt must not promise one (#1524).
+_RUNS_AT_ONCE = frozenset({"/print-pause"})
+
+
+def _runs_at_once(command):
+    return (str(command or "").split() or [""])[0] in _RUNS_AT_ONCE
+
+
+def _suggestion_question(suggestion, candidates=()):
+    """The "Did you mean" text, honest about commands that run at once."""
+    if suggestion is not None:
+        head = f"Did you mean `{suggestion}`? Nothing runs unless you say yes"
+        if _runs_at_once(suggestion):
+            return f"{head}. A yes pauses the print at once."
+        return f"{head} — and the command still asks before anything prints."
+    head = "Did you mean one of these? Nothing runs unless you pick one"
+    at_once = [c for c in candidates if _runs_at_once(c)]
+    if at_once:
+        return (f"{head}. `{at_once[0]}` pauses the print at once; "
+                "the others still ask before anything prints.")
+    return f"{head} — and the command still asks before anything prints."
+
+
+def _running_note(command):
+    if _runs_at_once(command):
+        return f"Running {command} now."
+    return f"Running {command} — watch for its own confirmation."
+
 class SessionTurns:
     """Per-session ordering on the event loop, with a bounded lock store.
 
@@ -370,12 +399,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:just\s+)?failed{_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:please\s+)?(?:what(?:'s|\s+is)\s+the\s+eta|how\s+much\s+time\s+is\s+left|time\s+remaining|percent\s+complete|what\s+layer\s+is\s+it\s+on){_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:please\s+)?(?:what\s+temp(?:erature)?\s+is\s+the\s+(?:bed|nozzle)|(?:hotend|bed)\s+temperature|how\s+hot\s+is\s+the\s+(?:nozzle|bed)|is\s+the\s+bed\s+heated|is\s+the\s+nozzle\s+hot){_END}", re.I), "/print-status"),
-    (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-camera"),
+    (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-status"),
     # Reprint and calibration
     (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again|retry\s+(?:the|that|last)\s+print|try\s+that\s+print\s+again|run\s+that\s+print\s+again|print\s+another\s+(?:one|copy)|print\s+one\s+more){_END}", re.I), "/print-again"),
     (re.compile(rf"^{_LEAD}(?:(?:print|start)\s+(?:the\s+)?)?next\s+plate{_END}", re.I), "/print-next"),
-    (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
-    (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibrate"),
+    (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibration"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibration"),
     # Calibration subcommands (#1496): each /print-calibration form #1475
     # registered gets its own plain-language route to its typed form.
     (re.compile(rf"^(?:please\s+)?(?:bed\s+mesh|mesh\s+calibration){_END}", re.I), "/print-calibration mesh"),
@@ -1573,8 +1602,7 @@ class BotCore(_RoutedAdapter):
         (or a delivery failure) still gets the plain unmatched reply, so
         the decline path is byte-identical to today's fallback.
         """
-        question = (f"Did you mean `{suggestion}`? Nothing runs unless you say yes — "
-                    "and the command still asks before anything prints.")
+        question = _suggestion_question(suggestion)
         clarify_id = await self._deliver_suggestion(
             event, question, [SUGGEST_YES_LABEL, SUGGEST_NO_LABEL], metadata)
         if clarify_id is None:
@@ -1590,7 +1618,7 @@ class BotCore(_RoutedAdapter):
         if not delivered:
             return await self._suggestion_unmatched(event, metadata)
         if answer == SUGGEST_YES_LABEL or (isinstance(answer, str) and answer.strip().casefold() in {"yes", "y"}):
-            await self.adapter.close_prompt(clarify_id, f"Running {suggestion} — watch for its own confirmation.")
+            await self.adapter.close_prompt(clarify_id, _running_note(suggestion))
             # The corrected dispatch carries the original attachments (P2-222):
             # accepting a suggestion must behave like typing the correct
             # command with the same files attached.
@@ -1616,8 +1644,7 @@ class BotCore(_RoutedAdapter):
         when the prompt could not be delivered at all, so ``process``
         falls through to dispatch itself.
         """
-        question = (f"Did you mean `{suggestion}`? Nothing runs unless you say yes — "
-                    "and the command still asks before anything prints.")
+        question = _suggestion_question(suggestion)
         clarify_id = await self._deliver_suggestion(
             event, question, [SUGGEST_YES_LABEL, SUGGEST_NO_LABEL], metadata)
         if clarify_id is None:
@@ -1639,7 +1666,7 @@ class BotCore(_RoutedAdapter):
                                   metadata={"subcommand_fallthrough": True})
             return await self.process(original, allow_llm=False)
         if answer == SUGGEST_YES_LABEL or (isinstance(answer, str) and answer.strip().casefold() in {"yes", "y"}):
-            await self.adapter.close_prompt(clarify_id, f"Running {suggestion} — watch for its own confirmation.")
+            await self.adapter.close_prompt(clarify_id, _running_note(suggestion))
             routed = make_event(source, suggestion, f"{event.message_id}:fuzzy",
                                 media_urls=event.media_urls, metadata={"fuzzy_command": True})
             return await self.process(routed, allow_llm=False)
@@ -1665,8 +1692,7 @@ class BotCore(_RoutedAdapter):
         delivery failure or the 60-second expiry all fall back to the
         plain unmatched reply path, and nothing runs.
         """
-        question = ("Did you mean one of these? Nothing runs unless you pick one — "
-                    "and the command still asks before anything prints.")
+        question = _suggestion_question(None, candidates)
         clarify_id = await self._deliver_suggestion(
             event, question, [*candidates, SUGGEST_NONE_LABEL], metadata)
         if clarify_id is None:
@@ -1682,7 +1708,7 @@ class BotCore(_RoutedAdapter):
         if not delivered:
             return await self._suggestion_unmatched(event, metadata)
         if answer in candidates:
-            await self.adapter.close_prompt(clarify_id, f"Running {answer} — watch for its own confirmation.")
+            await self.adapter.close_prompt(clarify_id, _running_note(answer))
             routed = make_event(source, answer, f"{event.message_id}:fuzzy",
                                 media_urls=event.media_urls, metadata={"fuzzy_command": True})
             return await self.process(routed, allow_llm=False)

@@ -16,12 +16,14 @@ already own each fact, and nothing else:
 - the latest timelapse from the clip roots the Wrapped finder searches;
 - the camera still from the existing snapshot route, embedded as an
   image and refreshed in place (the screen page's pattern);
-- the emergency stop through the existing control route
-  (``POST /api/printers/<id>/emergency_stop``), offered only while
-  ``[webui] controls_enabled`` is on, and still carrying that route's
-  own gates: the access policy, the ``{"confirm": true}`` body (the
-  page asks first, with a confirm dialog) and the per-family refusals,
-  whose reason the page shows verbatim. No new control path is added,
+- the emergency stop, offered only while ``[webui] controls_enabled``
+  is on. The button posts to ``POST /dashboard/estop/<id>``, a
+  ``session+csrf`` route (a browser cannot send the API's
+  ``X-WebUI-Token`` header, so the API route refused every press on a
+  claimed install), which calls the same control function as
+  ``POST /api/printers/<id>/emergency_stop`` with ``{"confirm": true}``:
+  the page asks first with a confirm dialog, and the per-family
+  refusals come back verbatim. No new control path is added,
   and there is no Light button: the Web UI has no light control (the
   light is switched in chat and by the auto light-off automation), so
   the dashboard does not invent one.
@@ -797,10 +799,14 @@ _SCRIPT = (
     "if(!confirm('Emergency stop '+b.getAttribute('data-name')+'? "
     "This halts the printer immediately.'))return;"
     "b.disabled=true;"
-    "fetch('/api/printers/'+b.getAttribute('data-estop')+'/emergency_stop',"
-    "{method:'POST',headers:{'Content-Type':'application/json'},"
-    "body:JSON.stringify({confirm:true})})"
-    ".then(function(r){return r.json();})"
+    "var t=document.getElementById('dash-csrf');"
+    "fetch('/dashboard/estop/'+encodeURIComponent(b.getAttribute('data-estop')),"
+    "{method:'POST',credentials:'same-origin',"
+    "headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+    "body:'_csrf='+encodeURIComponent(t?t.value:'')})"
+    ".then(function(r){return r.json().catch(function(){return {ok:false,reason:"
+    "r.status===403?'this page is out of date or you are signed out; reload it and press again'"
+    ":'HTTP '+r.status};});})"
     ".then(function(j){if(note)note.textContent=j.ok?(j.detail||'Emergency stop sent.')"
     ":('Not sent: '+(j.reason||'refused'));b.disabled=false;})"
     ".catch(function(){if(note)note.textContent="
@@ -809,10 +815,15 @@ _SCRIPT = (
     "</script>")
 
 
-def render_dashboard(dash, snap, *, now=None):
-    """The dashboard sections as HTML, for the Status page body."""
+def render_dashboard(dash, snap, *, now=None, form_token=""):
+    """The dashboard sections as HTML, for the Status page body.
+
+    ``form_token`` is the request's ``_csrf`` value; the E-stop button
+    posts it to ``/dashboard/estop/<id>`` (a session+csrf route), since a
+    browser cannot send the API's ``X-WebUI-Token`` header."""
     now = time.time() if now is None else now
-    parts = [_health_row(dash, snap)]
+    parts = [_health_row(dash, snap),
+             f'<input type="hidden" id="dash-csrf" value="{_esc(form_token)}">']
     parts.extend(_card(card) for card in dash["cards"])
     parts.append(_timelapse(dash, now))
     parts.append(_recent(dash, now))

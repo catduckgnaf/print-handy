@@ -152,14 +152,20 @@ class JobCard:
         if title:
             self.title = title
 
-    def add_answered(self, question, answer_line):
-        """Collapse an answered question into one line on the card."""
+    def add_answered(self, question, answer_line, cid=None):
+        """Collapse an answered question into one line on the card.
+
+        ``cid`` names the answered prompt: the open question is cleared
+        only when it is that prompt (or none is named), so an answer
+        recorded after the next question went up never erases it."""
         short = _first_line(question)
         if len(short) > 90:
             short = short[:87] + "..."
         line = f"{short} → {answer_line}" if short else str(answer_line)
         if line not in self.answered:
             self.answered.append(line)
+        if cid is not None and self.question_cid not in (None, str(cid)):
+            return
         if self.question_cid is not None or self.question is not None:
             self.question = None
             self.question_cid = None
