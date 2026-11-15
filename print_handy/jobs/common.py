@@ -4,9 +4,9 @@ Moved verbatim from ``print_handy.core.model_job`` (#1323), so the gcode,
 launch and intake modules can use them without importing model_job. The
 old names are still importable from there for one release.
 """
-import json, os, urllib.request
+import json, os
 
-from .. import settings
+from .. import moonraker, settings
 
 
 PROFILE = settings.current()["paths"]["state_home"]
@@ -35,13 +35,16 @@ MAX_HEIGHT_MM = settings.current()["printer"]["max_print_height_mm"]
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 
 
-def request_json(url, *, data=None, headers=None, timeout=25):
+def request_json(url, *, data=None, headers=None, timeout=25, moonraker_url=False):
     h={"User-Agent":UA, "Accept":"application/json"}; h.update(headers or {})
-    body=json.dumps(data).encode() if data is not None else None
-    req=urllib.request.Request(url, data=body, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as r: return json.load(r)
+    # Through the one Moonraker transport (#1466): it adds X-Api-Key only
+    # when this URL is a Moonraker URL (marked, or a configured Moonraker
+    # base), so the outside model sites request_json also serves never
+    # receive the printer's key.
+    return moonraker.url_json(url, data=data, headers=h, timeout=timeout,
+                              moonraker=moonraker_url)
 
 
 def _mr(st, path, data=None, timeout=30):
-    return request_json(st["moonraker_url"]+path, data=data, timeout=timeout,
+    return request_json(st["moonraker_url"]+path, data=data, timeout=timeout, moonraker_url=True,
                         headers={"Content-Type":"application/json"} if data is not None else None)

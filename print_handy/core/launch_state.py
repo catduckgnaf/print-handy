@@ -601,11 +601,12 @@ def printer_clock_skew(moonraker_url, timeout=6):
     needed. Unreadable means unknown, never zero.
     """
     import time
-    import urllib.request
     from email.utils import parsedate_to_datetime
+
+    from .. import moonraker as _moonraker
     try:
-        req = urllib.request.Request(str(moonraker_url).rstrip("/") + "/server/info", method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _moonraker.open_url(str(moonraker_url).rstrip("/") + "/server/info",
+                                 method="GET", timeout=timeout, moonraker=True) as resp:
             stamp = resp.headers.get("Date")
         return time.time() - parsedate_to_datetime(stamp).timestamp() if stamp else None
     except Exception:
@@ -671,8 +672,9 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None, adapter=No
     """
     import json
     import urllib.parse
-    import urllib.request
     from datetime import datetime, timedelta
+
+    from .. import moonraker as _moonraker
     from zoneinfo import ZoneInfo
     say = log or (lambda m: None)
     if os.environ.get("PRINT_HANDY_CLOCK_SYNC", "1").strip().lower() in ("0", "false", "no", "off"):
@@ -698,14 +700,13 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None, adapter=No
         # instant: across a DST change in tz_name the instant's offset would differ by an hour.
         local = datetime.fromtimestamp(now if now is not None else time.time(), ZoneInfo(tz_name))
         stamp = (local.replace(tzinfo=None) + timedelta(seconds=gap)).strftime("%Y.%m.%d-%H:%M:%S")
-        req = urllib.request.Request(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
-                                     data=b"", method="POST")
-        urllib.request.urlopen(req, timeout=20).read()
+        _moonraker.open_url(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
+                            data=b"", method="POST", timeout=20, moonraker=True).read()
         time.sleep(2)
         return stamp, printer_clock_skew(base)
 
     try:
-        with urllib.request.urlopen(base + "/printer/objects/query?print_stats&virtual_sdcard", timeout=8) as r:
+        with _moonraker.open_url(base + "/printer/objects/query?print_stats&virtual_sdcard", timeout=8, moonraker=True) as r:
             st = json.load(r)["result"]["status"]
         ps, sd = st.get("print_stats") or {}, st.get("virtual_sdcard") or {}
         if ps.get("state") != "standby" or ps.get("filename") or sd.get("is_active"):

@@ -42,10 +42,9 @@ import socket
 import threading
 import time
 import urllib.parse
-import urllib.request
 from urllib.parse import urlparse
 
-from .. import __version__, doctor, healthcheck, logs, printers, settings
+from .. import __version__, doctor, healthcheck, logs, moonraker, printers, settings
 from ..bot import health as bot_health
 from ..core import purge
 
@@ -554,10 +553,9 @@ def _moonraker_status(adapter, view):
     if not base:
         raise ValueError("no Moonraker URL is configured for this printer")
     objects = urllib.parse.quote("&".join(adapter.moonraker_objects()), safe="&=")
-    request = urllib.request.Request(f"{base}/printer/objects/query?{objects}",
-                                     headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=_STATUS_TIMEOUT_S) as response:
-        payload = json.loads(response.read() or b"{}")
+    payload = moonraker.moonraker_json(base, f"/printer/objects/query?{objects}",
+                                       timeout=_STATUS_TIMEOUT_S,
+                                       headers={"Accept": "application/json"})
     raw = (payload.get("result") or {}).get("status") or {}
     return adapter.normalize_status(raw)
 

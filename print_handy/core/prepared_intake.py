@@ -2093,6 +2093,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     key = 'model-link:' + iid
     event_metadata = getattr(event, 'metadata', None) or {}
     live_token = _LIVE_KEY.set(event_metadata.get('live_session_key') or key)
+    # Front-of-flow timing (#1476): message_received is stamped now;
+    # the buffer is bound to the job folder when it is created below.
+    front_token = mj.front_begin()
     log_token = logs.bind(intake=iid, job_correlation_id=iid)
     logger.info('intake started origin=%s', logs.redact(str(origin)))
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
@@ -2221,6 +2224,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         await send_preview(adapter, source, job, chosen, metadata, state=state, voice_key=iid)
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
+        mj.front_bind(folder / 'JOB.json')  # buffered front stages land in TIMING.jsonl (#1476)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
         stamp_started_by(job, source)
         fetch = copy_upload if (reuse or job['site'] == 'upload') else (
@@ -2234,6 +2238,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 lambda: _with_stop(adapter, source, key, metadata, None,
                                    asyncio.to_thread(fetch, job, chosen, folder / 'source')))
             job['downloaded_file'] = str(path)
+        mj.front_mark('download_done')  # the source file is in the job folder (#1476)
         if await asyncio.to_thread(is_gcode_3mf, path):
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
@@ -2273,6 +2278,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             first_layer_mm=support_clearance.profile_first_layer_mm(printer_id, source=path))
         if clearance_rep:
             job['support_clearance'] = clearance_rep
+        mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
@@ -5001,6 +5007,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if jp is not None:
             drop_runner(jp)
         _LIVE_KEY.reset(live_token)
+        mj.front_end(front_token)
         logs.unbind(log_token)
 
 

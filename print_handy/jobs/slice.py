@@ -27,10 +27,18 @@ from .store import (
 logger = logging.getLogger(__name__)
 
 
-def finalize_multicolor(*args, **kwargs):
-    """ZMod color/slot-map insertion and MD5, through the printer adapter. A printer without the
-    ZMod contract (the stock AD5X, #658) gets nothing inserted: its launch binds the slot from the job."""
-    native = printers.current().native_or_none
+def finalize_multicolor(*args, adapter=None, job=None, **kwargs):
+    """ZMod color/slot-map insertion and MD5, through the job printer's adapter (#1468).
+
+    Callers that slice a job pass that job's adapter (``adapter=``) or the
+    job itself (``job=``); the native contract consulted is that printer's,
+    never the default printer's. A printer without the ZMod contract (the
+    stock AD5X, #658) gets nothing inserted: its launch binds the slot from
+    the job. With neither argument the configured printer is used, as
+    legacy callers outside a job context have always done."""
+    if adapter is None and job is not None:
+        adapter = _job_adapter(job)
+    native = (adapter if adapter is not None else printers.current()).native_or_none
     return None if native is None else native.finalize(*args, **kwargs)
 
 
@@ -1261,7 +1269,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
         material = st.get('filament_slots', {}).get(str(slots[0]), {}).get('material')
         if not material:
             raise RuntimeError(f'merged plate physical IFS slot {slots[0]} has no verified material')
-        finalize_multicolor(out, None, st, {'0': slots[0]})
+        finalize_multicolor(out, None, st, {'0': slots[0]}, adapter=_job_adapter(job))
         placed_ids = sorted(report['object_ids'], key=str)
         extra = {'plate': str(plate), 'plate_report': report}
     else:
@@ -1463,7 +1471,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
-            finalize_multicolor(out, None, st, {'0': slot})
+            finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
             check = verify_gcode_offline(out, st, _job_adapter(job))
         except RuntimeError as exc:
             # One plate failing a safety guard (e.g. an off-bed move) must not discard the
@@ -1861,7 +1869,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
         out, provenance, configs = slice_model(plate, slice_dir, st, preserve_layout=True,
                                                filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
-        finalize_multicolor(out, None, st, {'0': slot})
+        finalize_multicolor(out, None, st, {'0': slot}, adapter=_job_adapter(job))
         check = verify_gcode_offline(out, st, _job_adapter(job))
         artifacts.append({'slot': slot, 'plate_id': index, 'binding_key': f'{index}:{slot}',
                           'part_keys': keys, 'plate': str(plate), 'gcode': str(out),
@@ -2367,7 +2375,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
             material = st.get('filament_slots', {}).get(str(group['slot']), {}).get('material')
             if not material:
                 raise RuntimeError(f"derived plate physical IFS slot {group['slot']} has no verified material")
-            finalize_multicolor(out, None, st, {'0': group['slot']})
+            finalize_multicolor(out, None, st, {'0': group['slot']}, adapter=adapter)
             # Verify the exact final bytes (after map, color and MD5 rewrite).
             check = verify_gcode_offline(out, st, _job_adapter(job))
             artifacts.append({'slot': group['slot'], 'part_keys': group['part_keys'], 'plate': str(plate),
@@ -2534,7 +2542,7 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
                                               color_decisions=slice_decisions, filament_slot=selected_slot,
                                               copies=copies, **scale_kw)
-        finalize_multicolor(out, None, st, {"0": selected_slot})
+        finalize_multicolor(out, None, st, {"0": selected_slot}, adapter=adapter)
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
                                               color_decisions=slice_decisions, copies=copies, **scale_kw)
@@ -2546,8 +2554,12 @@ def _slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha
     _timing(job_path, 'orca_finalize_done',
             **{k: _split[k] for k in ('slicer_s', 'python_s') if k in _split})
     _timing(job_path, 'verify_begin')
-    if adapter.key == printers.current().key:
-        _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
+    # Every printer, not only the default one (#1468): verification runs
+    # against the job's own adapter and recorded printer id, and the
+    # gcode_verified stamp below is reached only when it passed. A slice
+    # the verifier refuses fails here instead of producing a downloadable
+    # file recorded as verified.
+    _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
     if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):

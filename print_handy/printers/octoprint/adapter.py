@@ -1,7 +1,9 @@
 """Single extruder Marlin through OctoPrint, never through Moonraker."""
+import json
 import os
 
 from ..klipper.adapter import KlipperAdapter
+from . import guard
 from .client import OctoPrintClient, OctoPrintError
 
 
@@ -9,6 +11,56 @@ class OctoPrintAdapter(KlipperAdapter):
     # Not a Bondtech INDX host (#1198): the INDX code inherited from KlipperAdapter never runs here.
     supported_accessories = frozenset()
     transport = 'octoprint'
+
+    def fact(self, name):
+        """A model fact for the family guard and the heater ceiling, from the model's own declarations.
+
+        The OctoPrint models carry no separate facts table: bed and height are the
+        model settings, the expected printer_model is the one the model's pinned
+        Orca template declares, and the motion envelope is the bed itself (the
+        Marlin start sequence never parks off the bed) with the same derived
+        travel headroom the Prusa facts record. Temperature limits are declared
+        by no OctoPrint model today, so max_hotend_c / max_bed_c come only from
+        the model's own settings when they carry them and raise KeyError
+        otherwise — a caller reading a limit through fact() treats that as "no
+        limit declared", exactly as core.heater_ceiling does.
+        """
+        printer = self.config.get("printer") or {}
+        if name == "bed_mm":
+            return tuple(float(v) for v in printer["bed_mm"])
+        if name == "max_print_height_mm":
+            return float(printer["max_print_height_mm"])
+        if name == "motion_envelope_mm":
+            bed = self.fact("bed_mm")
+            return (0.0, 0.0, bed[0], bed[1])
+        if name == "travel_z_headroom_mm":
+            return 1.0
+        if name == "bed_exclude_area":
+            return ()
+        if name == "printer_model":
+            return self._template_printer_model()
+        if name in ("max_hotend_c", "max_bed_c") and name in printer:
+            return float(printer[name])
+        raise KeyError(name)
+
+    def _template_printer_model(self):
+        """The printer_model the model's pinned Orca template declares, read once per adapter."""
+        cached = getattr(self, "_printer_model_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            machine = json.loads((self.templates_dir() / "machine.json").read_text())
+            model = machine["printer_model"]
+        except Exception as exc:
+            raise KeyError("printer_model") from exc
+        self._printer_model_cache = str(model)
+        return self._printer_model_cache
+
+    def gcode_problems(self, text, state=None):
+        # The family guard (#1469), not the Klipper INDX check this class
+        # inherits: no OctoPrint model is an INDX host, so the inherited
+        # early return left every OctoPrint/Marlin model unchecked.
+        return guard.gcode_problems(text, self, state=state)
 
     def client(self):
         return OctoPrintClient(self.config['services'].get('octoprint_url', ''), os.environ.get('OCTOPRINT_API_KEY', ''))

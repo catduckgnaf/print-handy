@@ -51,9 +51,10 @@ def _base_for(printer_id: str | None) -> str:
 
 
 def _call(path: str, method: str = "GET", timeout: float = 10, printer_id: str | None = None) -> dict[str, Any]:
-    req = urllib.request.Request(_config.require(_base_for(printer_id), "services.moonraker_url") + path, method=method, data=b"" if method == "POST" else None)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read() or b"{}")
+    from .. import moonraker
+    return moonraker.moonraker_json(
+        _config.require(_base_for(printer_id), "services.moonraker_url"),
+        path, method=method, data=b"" if method == "POST" else None, timeout=timeout)
 
 
 def shutdown_message(printer_id: str | None = None) -> str:
