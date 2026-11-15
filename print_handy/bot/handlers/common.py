@@ -676,18 +676,22 @@ async def _announce_command_start(send, target, detail, job=None, plate=None, ch
     from print_handy.runtime import discord_print_summary as print_summary
     from print_handy.runtime import print_next
     if job is None:
-        with contextlib.suppress(Exception):
+        try:
             job, plate = print_summary.find_job(target['gcode'])
+        except Exception:
+            logger.debug('could not look up the job for the start post', exc_info=True)
     message = print_summary.format_started(job, plate)
     # No roast here: the one roast per print rides the completion post (#874).
     remote = print_next.started_file(detail) if print_next.still_preparing(detail) else None
     sent = await send(message)
     message_id = getattr(sent, 'message_id', None) or getattr(sent, 'id', None)
     if remote and message_id:
-        with contextlib.suppress(OSError):
+        try:
             # The originating channel/thread, so the warmup edit does not fall
             # back to the configured channel (2.2.5 review, P2-11).
             print_next.record_start_message(remote, str(message_id), chat_id=chat_id, thread_id=thread_id)
+        except OSError:
+            logger.debug('could not record the start message for the warmup edit', exc_info=True)
     return sent
 
 
@@ -1574,10 +1578,12 @@ def alert_button_handlers(bot, adapter):
             message = await bot.wait_for('message', check=check, timeout=timeout)
         except Exception:
             logger.debug('label photo wait ended without a photo', exc_info=True)
-            with contextlib.suppress(Exception):
+            try:
                 if channel is not None:
                     await channel.send('No photo arrived, so nothing was changed. '
                                        'Start again from the prompt whenever you are ready.')
+            except Exception:
+                logger.debug('could not post the no-photo notice', exc_info=True)
             return
         if channel is None:
             channel = getattr(message, 'channel', None)
@@ -2229,8 +2235,10 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That offer is old or was already used. Nothing started.', ephemeral=True)
             return
         from print_handy.runtime import next_plate_offer
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.to_thread(next_plate_offer.clear)
+        except Exception:
+            logger.debug('could not clear the next-plate offer', exc_info=True)
         await interaction.response.edit_message(content='Left the queue alone. Nothing started.', view=None)
 
     async def handle_plate_go(interaction, aid):

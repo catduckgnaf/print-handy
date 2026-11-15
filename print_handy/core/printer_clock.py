@@ -23,7 +23,7 @@ never treated as wrong.
 """
 
 import time
-import urllib.request
+import urllib.request  # noqa: F401  (tests patch urllib.request.urlopen through this module)
 from email.utils import parsedate_to_datetime
 
 # A printer clock this far from the host's is "off": ordinary drift is
@@ -53,10 +53,11 @@ def read_clock_skew(moonraker_url, timeout=6, now=None, api_key=None):
     if not base:
         return None
     try:
-        req = urllib.request.Request(base + "/server/info", method="GET")
-        if api_key:
-            req.add_header("X-Api-Key", api_key)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        from .. import moonraker as _moonraker
+        # An explicit api_key (including "") is honored exactly; the
+        # default None now also resolves the configured key (#1466).
+        with _moonraker.open_url(base + "/server/info", method="GET", timeout=timeout,
+                                 moonraker=True, key=api_key) as resp:
             stamp = resp.headers.get("Date")
         if not stamp:
             return None

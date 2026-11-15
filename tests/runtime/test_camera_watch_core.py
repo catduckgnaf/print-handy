@@ -420,6 +420,80 @@ def test_a_weak_detection_alerts_only_once_it_persisted(family):
     assert not cw.weak_noted("uncertain", _weak(1), reason="stalled_layers", changed=False)
 
 
+@pytest.mark.parametrize("family", sorted(cw.FAMILY_RULES))
+def test_an_inconclusive_single_frame_is_noted_not_posted(family):
+    """#1474: an endpoint "uncertain" (no local detection) on a single
+    frame is logged, not posted; as part of a streak it is posted without
+    a ping. A watch failure is not an inconclusive judgement and keeps
+    alerting, and a stall check alerts whatever the streak says."""
+    rules = cw.FAMILY_RULES[family]
+
+    def suspicious(seen, *, failed=False, reason="periodic", changed=True):
+        return cw.is_suspicious("uncertain", reason=reason, changed=changed, profile=NO_VETO,
+                                rules=rules, detection=None, failed=failed,
+                                uncertain_seen=seen)
+
+    def noted(seen, *, failed=False, reason="periodic", changed=True):
+        return cw.inconclusive_noted("uncertain", None, reason=reason, changed=changed,
+                                     failed=failed, uncertain_seen=seen)
+
+    assert not suspicious(1) and noted(1)
+    assert suspicious(2) and not noted(2)
+    assert not cw.alert_pings("periodic", "uncertain", None, uncertain_seen=2)
+    # No streak tracked (a caller that does not pass one): pre-#1474 alerting.
+    assert suspicious(None) and not noted(None)
+    assert cw.alert_pings("periodic", "uncertain", None)
+    # A verdict call that could not judge the frame is a watch failure.
+    assert suspicious(1, failed=True) and not noted(1, failed=True)
+    # A stall over an unchanged frame still alerts, streak or not.
+    assert suspicious(1, reason="stalled_layers", changed=False)
+    assert not noted(1, reason="stalled_layers", changed=False)
+
+
+def test_inconclusive_streak_counts_only_independent_uncertain_frames():
+    """#1474: the streak is consecutive uncertain checks; an unchanged
+    frame is not independent evidence, and any other verdict resets it."""
+    streak = cw.InconclusiveStreak()
+    assert streak.note("uncertain") == 1
+    assert streak.note("uncertain", counted=False) == 1  # same frame again
+    assert streak.note("uncertain") == 2
+    assert streak.note("ok") == 0
+    assert streak.note("uncertain") == 1
+    streak.reset()
+    assert streak.note("uncertain") == 1
+
+
+def test_a_real_spaghetti_detection_still_posts_and_pings():
+    """#1474 safety: quieting inconclusive frames must not quiet a real
+    failure — a strong local detection and an endpoint spaghetti verdict
+    both post and ping, whatever the inconclusive streak holds."""
+    strong = _weak(1, confidence=0.9, verdict="spaghetti")
+    for family in sorted(cw.FAMILY_RULES):
+        rules = cw.FAMILY_RULES[family]
+        assert cw.is_suspicious("spaghetti", reason="periodic", changed=True, profile=NO_VETO,
+                                rules=rules, detection=strong, uncertain_seen=1)
+        assert cw.is_suspicious("spaghetti", reason="periodic", changed=True, profile=NO_VETO,
+                                rules=rules, detection=None, uncertain_seen=1)
+    assert cw.alert_pings("periodic", "spaghetti", strong, uncertain_seen=1)
+    assert cw.alert_pings("periodic", "spaghetti", None, uncertain_seen=1)
+    # And a single weak local frame at 9% — the channel's "possible
+    # spaghetti at 9 percent" — is noted, never posted, never a ping.
+    weak9 = _weak(1, confidence=0.09)
+    assert not cw.is_suspicious("uncertain", reason="periodic", changed=True, profile=NO_VETO,
+                                rules=cw.FAMILY_RULES["moonraker"], detection=weak9)
+    assert cw.weak_noted("uncertain", weak9)
+
+
+def test_a_posted_inconclusive_streak_says_how_many_checks_could_not_tell():
+    text = cw.alert_text("periodic", 9, "uncertain", "any display text", uncertain_seen=2)
+    assert text == ("Routine check at layer 9: the check could not tell from these "
+                    "frames (inconclusive in 2 checks in a row). Please take a look "
+                    "at the print.")
+    # Without a streak the endpoint's uncertain keeps its single-frame wording.
+    assert "the check could not tell from this frame" in cw.alert_text(
+        "periodic", 9, "uncertain", "")
+
+
 def test_an_escalated_or_strong_detection_is_never_weak():
     # The escalated verdict's detection is below FAILURE_AT but is a failure verdict.
     escalated = _weak(3, verdict="spaghetti")

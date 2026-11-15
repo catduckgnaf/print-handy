@@ -112,7 +112,7 @@ async def loaded_spools_dispatch(event, gateway, **kwargs):
     and how much is left — read-only, no confirmation, never the shelf.
 
     Trigger forms: `/print-spools`, `/spool loaded`, a bare `/print-colors`
-    (no JOB.json — the archived-job form `/print-colors <JOB.json>` keeps
+    (no job named — the archived-job form `/print-colors <job>` keeps
     its meaning and is claimed earlier by color_selection_dispatch), and
     the anchored plain-text asks in _loaded_spools_intent. Runs before
     spool_dispatch so '/spool loaded' is not read as a spool change verb.

@@ -109,6 +109,38 @@ class StandaloneAdapter(BasePlatformAdapter):
                 handle.close()
         return SendResult(True, message_id=str(first.id) if first is not None else None)
 
+    async def send_followup(self, interaction, content, files=None, view=None):
+        """Deliver one handler answer as a slash interaction's own response (#1475).
+
+        The interaction was deferred by ``BotCore.run_slash``; its followup
+        is the one visible response, so the answer lands there instead of as
+        a separate channel post. ``view`` attaches only to the first piece
+        (the /print-help command menu). A ``MEDIA:/path`` marker becomes an
+        attachment, exactly as in ``send``.
+        """
+        import discord
+        body, paths = rest.outgoing(content, files)
+        pieces = rest.chunks(body)
+        first = None
+        opened = []
+        try:
+            for index, piece in enumerate(pieces):
+                kwargs = {"allowed_mentions": discord.AllowedMentions.none()}
+                if index == 0 and view is not None:
+                    kwargs["view"] = view
+                if index == len(pieces) - 1 and paths:
+                    opened = [discord.File(str(path)) for path in paths]
+                    kwargs["files"] = opened
+                sent = await interaction.followup.send(piece or None, **kwargs)
+                first = first or sent
+        except Exception as exc:
+            logger.warning("Discord slash followup failed: %r", exc)
+            return SendResult(False, error=str(exc))
+        finally:
+            for handle in opened:
+                handle.close()
+        return SendResult(True, message_id=str(first.id) if getattr(first, "id", None) else None)
+
     async def signal_working(self, chat_id, metadata=None):
         """One Discord typing indicator (shown about 10 s, or until the reply)."""
         channel = await self._channel(chat_id, metadata)

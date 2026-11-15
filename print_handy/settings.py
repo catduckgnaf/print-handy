@@ -412,7 +412,13 @@ def _check_keys(home, extra, source):
             cleaned[section] = values
             continue
         if section not in home:
-            if (section == "notify" and isinstance(values, dict)
+            # A section the defaults tree does not define is still a known
+            # section when every key in it is an OPTIONAL_KEYS entry for that
+            # section: [notify] before it joined the tree, and the legacy
+            # vendor sections [prusa] and [elegoo_sdcp], whose keys live only
+            # in OPTIONAL_KEYS (#1461). The values are type-checked against
+            # OPTIONAL_KEYS exactly like the in-tree optional keys below.
+            if (isinstance(values, dict)
                     and values and all((section, key) in OPTIONAL_KEYS for key in values)):
                 for key, value in values.items():
                     expected_type = OPTIONAL_KEYS[(section, key)]

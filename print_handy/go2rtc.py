@@ -5,12 +5,14 @@ binary (docker/go2rtc-prebuilt.sh), and docker/supervise.sh runs it as a
 supervised child exactly when a feature needs the camera fan-out.
 go2rtc's only job is stream normalisation — it ingests the configured
 camera source and restreams it on loopback; nothing in this module
-captures frames or encodes video. One exception, added in 2.2.2: when a
-[live_stream] transcode value is set away from its default, the
-generated config also publishes a transcoded live-view stream (an
-ffmpeg exec source over the loopback restream), so the live feed's
-height, frame rate, bitrate cap and encoder preference are applied to
-the feed the Activity plays; capture still reads the raw stream.
+captures frames or encodes video. One exception: the generated config
+publishes a transcoded live-view stream (an ffmpeg exec source over
+the loopback restream) when a [live_stream] transcode value is set
+away from its default, and also at the defaults when the camera
+source is MJPEG or a snapshot. The Activity page plays only MSE
+H.264, which those sources are not, so the default relay would hand
+the player a stream it cannot open. Capture still reads the raw
+stream.
 
 Two features share the one upstream camera pull (the #311 contention
 rule: go2rtc holds the single connection to the camera and fans out):
@@ -48,7 +50,6 @@ import json
 import os
 import shlex
 import sys
-import urllib.request
 from pathlib import Path
 
 from . import settings
@@ -242,23 +243,29 @@ RESTREAM_URL = f"rtsp://127.0.0.1:8554/{GO2RTC_STREAM_NAME}"
 def transcode_plan(data=None, *, probe=None, run=None) -> dict | None:
     """The live-view transcode plan, or None when the feed is relayed as-is.
 
-    Engaged exactly when live viewing is enabled and a [live_stream]
-    transcode value is set away from its default
-    (:func:`print_handy.live_stream.transcode_engaged`). The encoder is
-    the first candidate for the operator's [live_stream] encoder
-    preference from a probe of the real ffmpeg — the timelapse encode's
-    prober and candidate order, which guarantee a CPU candidate last,
-    so a plan always exists when ffmpeg does. ``probe`` and ``run`` are
-    injectable for tests.
+    Engaged when live viewing is enabled and either a [live_stream]
+    transcode value is set away from its default, or the resolved
+    camera source is one the Activity's MSE player cannot play
+    (MJPEG or snapshot). The encoder is the first H.264 candidate for
+    the operator's [live_stream] encoder preference from a probe of the
+    real ffmpeg — the timelapse encode's prober and candidate order,
+    which guarantee a CPU candidate last, so a plan always exists when
+    ffmpeg does. ``probe`` and ``run`` are injectable for tests.
     """
     data = settings.current() if data is None else data
     section = data.get("live_stream", {})
-    if not live_enabled(data) or not transcode_engaged(section):
+    if not live_enabled(data):
+        return None
+    source = resolve_source(data)
+    kind = None if source is None else source.kind
+    if not transcode_engaged(section, source_kind=kind):
         return None
     from .runtime import timelapse_encode
     # The configured executable is carried in the plan (P2-262): it is
     # the binary the probe below inspects, so it must also be the one
-    # the generated exec command launches.
+    # the generated exec command launches. The live feed is H.264: the
+    # Activity page offers only avc1 MSE codecs, so a VP8-first
+    # candidate order would hand the player a stream it cannot open.
     ffmpeg = data.get("paths", {}).get("ffmpeg") or "ffmpeg"
     if probe is None:
         probe = timelapse_encode.probe_ffmpeg(ffmpeg, run=run)
@@ -385,7 +392,8 @@ def gate(data=None) -> int:
 def check(url=API_URL, timeout=3) -> tuple[bool, str]:
     """Health probe for the docker healthcheck: go2rtc's API on loopback."""
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        from . import moonraker
+        with moonraker.open_url(url, timeout=timeout) as response:
             return response.status == 200, f"HTTP {response.status}"
     except Exception as exc:  # the healthcheck reports, never raises
         return False, str(exc)

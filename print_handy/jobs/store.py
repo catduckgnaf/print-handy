@@ -5,6 +5,7 @@ Moved verbatim from ``print_handy.core.model_job`` (#1323). The old names are st
 importable from there for one release.
 """
 import logging
+import contextvars
 import hashlib, json, os, re, time
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from .filament import position_limit, validate_filament_selection
 logger = logging.getLogger("print_handy.core.model_job")
 
 
-def _timing(job_path, stage, **extra):
+def _timing(job_path, stage, at=None, **extra):
     """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises.
 
     Stage map for the single-plate slice path (#952 — intervals are
@@ -34,15 +35,91 @@ def _timing(job_path, stage, **extra):
     ``preflight_verify_done`` and ``upload_begin``, mixed with approval
     consumption and lease acquisition). Other slice paths (multi-plate,
     split) emit ``slice_done`` without the ``orca_*``/``verify_*`` stages.
+
+    ``at`` overrides the stamped time: the front-of-flow capture below
+    stamps a stage when it happens and writes the line later, when the
+    job folder exists (#1476).
     """
     try:
-        line={"stage":stage,"t":round(time.time(),3),"pid":os.getpid(),**extra}
+        line={"stage":stage,"t":round(at if at is not None else time.time(),3),"pid":os.getpid(),**extra}
         logger.debug("TIMING %s", json.dumps(line))  # stdout stays clean in production logs
         if job_path is not None:
             with (Path(job_path).parent/"TIMING.jsonl").open("a") as out: out.write(json.dumps(line)+"\n")
     except Exception as exc:
         # Timing is diagnostics only; it must never take down the launch it measures.
         logger.debug("launch timing stage %s not recorded: %s", stage, exc)
+
+
+# Front-of-flow timing capture (#1476). The first stages of an intake
+# happen before the job folder exists: the message arrives and the
+# first question can be posted (a profile choice, a reprint confirm)
+# while there is still nowhere to append a TIMING.jsonl line. So one
+# intake carries a small buffer in a context variable: front_begin()
+# opens it and stamps ``message_received`` (the moment the intake takes
+# the message; a chat platform's own receive time is not carried on the
+# event, so the intake's door is the honest start of the measurable
+# flow), front_mark() stamps a stage when it happens (first stamp
+# wins), and front_bind() attaches the job path once the folder exists
+# and flushes the buffered stages with their true times. A stage
+# stamped after binding is written at once. Everything here is
+# fail-soft exactly like _timing: a full disk or a missing folder must
+# never block or break the flow being measured.
+_FRONT_TIMING = contextvars.ContextVar("print_handy_front_timing", default=None)
+
+
+def front_begin():
+    """Open the front-of-flow timing buffer for one intake.
+
+    Returns the token front_end() needs. Stamps ``message_received``
+    at once (see the note above)."""
+    buffer = {"times": {}, "written": set(), "job_path": None}
+    token = _FRONT_TIMING.set(buffer)
+    front_mark("message_received")
+    return token
+
+
+def front_mark(stage):
+    """Stamp one front-of-flow stage now; the first stamp wins.
+
+    Writes the line at once when a job path is already bound, else the
+    stamp waits in the buffer for front_bind()."""
+    try:
+        buffer = _FRONT_TIMING.get()
+        if buffer is None or stage in buffer["times"]:
+            return
+        buffer["times"][stage] = time.time()
+        if buffer["job_path"] is not None:
+            _front_flush(buffer)
+    except Exception as exc:
+        logger.debug("front timing stage %s not recorded: %s", stage, exc)
+
+
+def front_bind(job_path):
+    """Bind the current intake's buffer to a job (its JOB.json path)
+    and flush the stages stamped before the job folder existed."""
+    try:
+        buffer = _FRONT_TIMING.get()
+        if buffer is None:
+            return
+        buffer["job_path"] = job_path
+        _front_flush(buffer)
+    except Exception as exc:
+        logger.debug("front timing not bound to %s: %s", job_path, exc)
+
+
+def _front_flush(buffer):
+    for stage, at in buffer["times"].items():
+        if stage not in buffer["written"]:
+            _timing(buffer["job_path"], stage, at=at)
+            buffer["written"].add(stage)
+
+
+def front_end(token):
+    """Close the buffer front_begin() opened (call in a finally)."""
+    try:
+        _FRONT_TIMING.reset(token)
+    except Exception as exc:
+        logger.debug("front timing not closed: %s", exc)
 
 
 def write_job(folder, job):

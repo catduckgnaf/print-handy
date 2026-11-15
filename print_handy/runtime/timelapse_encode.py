@@ -350,6 +350,9 @@ def render_lock(target):
             yield
         finally:
             if handle is not None:
+                # suppress kept with reason (#1455): an unlock failure is
+                # moot — closing the handle on the next line releases the
+                # lock either way, so there is nothing to report or recover.
                 with contextlib.suppress(OSError):
                     fcntl.flock(handle, fcntl.LOCK_UN)
                 handle.close()

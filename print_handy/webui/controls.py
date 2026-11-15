@@ -76,9 +76,8 @@ import json
 import re
 import shlex
 import urllib.error
-import urllib.request
 
-from .. import printer_control, printers, settings
+from .. import moonraker, printer_control, printers, settings
 from ..core import exclude_object as _exclude_object
 from ..core import heater_ceiling as _heater_ceiling
 from . import status as status_module
@@ -141,11 +140,10 @@ def _moonraker_post(view, path, payload=None):
     base = (view.get("services", {}).get("moonraker_url") or "").rstrip("/")
     if not base:
         raise ValueError("no Moonraker URL is configured for this printer")
-    body = json.dumps(payload).encode() if payload is not None else b""
-    request = urllib.request.Request(base + path, method="POST", data=body,
+    return moonraker.moonraker_json(base, path, method="POST",
+                                     data=payload if payload is not None else b"",
+                                     timeout=_SEND_TIMEOUT_S,
                                      headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=_SEND_TIMEOUT_S) as response:
-        return json.loads(response.read() or b"{}")
 
 
 def default_send(adapter, view, command):
@@ -295,6 +293,8 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
                 detail = _read_back_after_no_reply(adapter, view, read, action)
         except ControlError:
             raise
+        except moonraker.MoonrakerAuthError as exc:
+            raise ControlError(502, f"{exc} Nothing more was sent.") from None
         except urllib.error.HTTPError as exc:
             if not 400 <= exc.code < 500:
                 raise ControlError(502, f"the printer answered {action} with HTTP {exc.code}") from None

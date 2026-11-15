@@ -266,7 +266,8 @@ from . import model_sources as _model_sources
 from ..jobs.store import (  # moved in 2.3.0 (#1323); old path kept for one release
     CONTEXT, RECORD_KEYS, _detail_tail, _job_adapter, _job_for_gcode, _job_printer_id,
     _job_record_for_gcode, _printer_key, _recipe_changed, _recorded_printer_id, _timing,
-    decisions_digest, effective_color_decisions, gcode_estimate_s, human_dur, remote_name,
+    decisions_digest, effective_color_decisions, front_begin, front_bind, front_end,
+    front_mark, gcode_estimate_s, human_dur, remote_name,
     resolve_print_target, write_job,
 )
 
@@ -684,8 +685,8 @@ def _fetch_remote_gcode_sha256(moonraker_url, remote_name, timeout=60):
     escaped = urllib.parse.quote(remote_name)
     url = f"{moonraker_url}/server/files/gcodes/{escaped}"
     hasher = hashlib.sha256()
-    req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    from .. import moonraker as _moonraker
+    with _moonraker.open_url(url, timeout=timeout, moonraker=True) as resp:
         total_read = 0
         while True:
             chunk = resp.read(65536)

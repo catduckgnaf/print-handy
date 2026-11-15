@@ -129,6 +129,9 @@ def _new_stages(timing_path, offset):
         return set()
     stages = set()
     for line in tail.decode('utf-8', 'replace').splitlines():
+        # suppress kept with reason (#1455): this helper never raises, and a
+        # torn final line from the concurrent writer is expected — the line
+        # is skipped and the next poll reads it whole.
         with contextlib.suppress(ValueError, AttributeError):
             stages.add(json.loads(line).get('stage'))
     return stages
@@ -155,10 +158,12 @@ async def _watch_start_progress(adapter, source, metadata, timing_path, offset, 
                 continue
             posted.add(stage)
             # A note is progress only: delivery failure never touches the start itself.
-            with contextlib.suppress(Exception):
+            try:
                 if stage in START_PROGRESS_VOICE:
                     text = _voiced(text, START_PROGRESS_VOICE[stage], source, Path(timing_path).parent.name)
                 await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+            except Exception:
+                logger.debug("start progress note failed", exc_info=True)
 
 
 async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic):
@@ -180,8 +185,16 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
         return await work
     finally:
         watcher.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await watcher
+        # suppress kept with reason (#1455): the watcher was cancelled by us
+        # just above, so its CancelledError is the expected outcome. A real
+        # failure raised while it unwinds is caught and logged here, inside
+        # the suppress, so it can never escape this finally and replace the
+        # result or skip the cleanup that follows.
+        with contextlib.suppress(asyncio.CancelledError):
+            try:
+                await watcher
+            except Exception as exc:
+                logger.debug("start progress watcher failed: %r", exc)
 
 
 def _color_prompt_follows(refusal_context, tail):
@@ -257,11 +270,21 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     finally:
         if not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+            # suppress kept with reason (#1455): the task was cancelled by us
+            # just above, so its CancelledError is the expected outcome. A real
+            # failure raised while it unwinds is caught and logged here, inside
+            # the suppress, so it can never escape this finally and replace the
+            # result or skip the cleanup that follows.
+            with contextlib.suppress(asyncio.CancelledError):
+                try:
+                    await task
+                except Exception as exc:
+                    logger.debug("stopped work failed while being torn down: %r", exc)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.wait_for(waiter, 5)
+        except Exception:
+            logger.debug("clarify waiter did not settle during teardown", exc_info=True)
         cm.wait_for_response(cid, 0.001)
         if stop_msg is not None:
             # The Stop button is dead once the work returns: retire it, and after a confirmed
@@ -273,17 +296,23 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 detail = str(result[1])
                 refusal_context['start_prompt_message_id'] = str(getattr(stop_msg, 'id', '') or '')
                 if REFUSAL_EDITOR is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         handled = bool(await REFUSAL_EDITOR(source, stop_msg, _launch_refusal_text(detail),
                                                             refusal_context, detail))
+                    except Exception:
+                        logger.debug("refusal editor failed", exc_info=True)
                 if not handled:
-                    with contextlib.suppress(Exception):
+                    try:
                         await stop_msg.edit(content=_launch_refusal_text(detail), view=None)
                         handled = True
+                    except Exception:
+                        logger.debug("could not turn the stop prompt into refusal guidance", exc_info=True)
                 refusal_context['prompt_handled'] = handled
             if not handled:
-                with contextlib.suppress(Exception):
+                try:
                     await stop_msg.edit(view=None)
+                except Exception:
+                    logger.debug("could not retire the stop prompt buttons", exc_info=True)
         elif sent is not None and getattr(sent, "message_id", None):
             # Clarify path (#524 stage 2): the standing prompt is Print
             # Handy's own question message — it carries a message id and
@@ -300,8 +329,10 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             if not handled:
                 retire = getattr(adapter, "retire_prompt", None)
                 if retire is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         await retire(cid)
+                    except Exception:
+                        logger.debug("could not retire the clarify prompt", exc_info=True)
     return result
 
 
@@ -336,11 +367,13 @@ def _preaccepted_shortage(choice, shown_shortages, job_json):
         return None
     key, shown_g = shown_shortages[0]
     sliced_g = None
-    with contextlib.suppress(Exception):
+    try:
         from print_handy.runtime import discord_print_summary as dps
         plates = dps.plate_estimates(json.loads(Path(job_json).read_text()))
         grams = [p.get('filament_g') for p in plates or [] if p.get('filament_g') is not None]
         sliced_g = float(sum(grams)) if grams else None
+    except Exception:
+        logger.debug("could not read the plate estimates for the shortage pre-accept", exc_info=True)
     if sliced_g is None or sliced_g > shown_g + SHORTAGE_PREACCEPT_SLACK_G:
         return None
     return [key]
@@ -656,10 +689,12 @@ def archive_job(archives, staging):
         raise source_archive.ArchiveRefused(
             f'that message has {len(archives)} ZIP files; send one ZIP per message.')
     staging = Path(staging)
-    with contextlib.suppress(OSError):
+    try:
         for old in staging.parent.glob('*.archive'):
             if old != staging and _time.time() - old.stat().st_mtime > ARCHIVE_STAGING_KEEP_S:
                 shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        logger.debug("could not sweep stale archive staging folders", exc_info=True)
     paths, report = source_archive.extract(archives[0], staging)
     job = upload_job_set(paths)
     for row, part in zip(job['sources'], report['printable']):
@@ -939,8 +974,10 @@ def _owner_alive(root, owner):
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return True  # held: that process is running
-        with contextlib.suppress(OSError):
+        try:
             path.unlink()  # its holder is gone; the file is litter
+        except OSError:
+            logger.debug("could not remove the stale owner lock file %s", path, exc_info=True)
         fcntl.flock(fd, fcntl.LOCK_UN)
         return False
     finally:
@@ -1267,12 +1304,16 @@ async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, rece
     if receipt is not None:
         receipt['yolo_waivers'] = waived
         if receipt_path is not None:
-            with contextlib.suppress(Exception):
+            try:
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            except Exception:
+                logger.debug("could not record the yolo waivers on the receipt", exc_info=True)
     shown = waived[:12] + ([f'... and {len(waived) - 12} more'] if len(waived) > 12 else [])
-    with contextlib.suppress(Exception):
+    try:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='Yolo overrode these checks:\n' + '\n'.join(f'- {w}' for w in shown))
+    except Exception:
+        logger.debug("could not post the yolo waivers", exc_info=True)
 
 
 def _printer_rejected(raw):
@@ -1392,9 +1433,11 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None, prin
         return message
     if answer != 0:  # _ask returns the button index
         return 'Not restarted. Nothing uploaded or started.'
-    with contextlib.suppress(Exception):
+    try:
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
+    except Exception:
+        logger.debug("could not post the force-restart notice", exc_info=True)
     from print_handy import printer_control
     ok, result = await asyncio.to_thread(printer_control.for_printer(printer_id).force_reboot)
     return result + (' Send the link or press Print again to retry.' if ok else '')
@@ -1876,6 +1919,40 @@ def _card_wrap(adapter, source):
         return adapter
 
 
+def multi_file_fix_note(job):
+    """Why no AI fix is offered on a job built from several files, or ''.
+
+    The file count is known before any fix button is drawn (#1474): a
+    geometry or mesh fix rewrites one file and would drop the others, so
+    ``ai_fix.check_file_fix`` refuses it after the fact. Offering the
+    button first — and letting the operator press it to learn that — is
+    channel noise; the warning text carries the reason instead. Plan-only
+    fixes would be safe, but which kind the AI proposes is only known
+    after the press, so the button is not drawn at all.
+    """
+    from . import ai_fix
+    files = ai_fix.source_files(job)
+    if len(files) <= 1:
+        return ''
+    return (f'No AI fix is offered for this job: it is built from {len(files)} files; '
+            'a geometry or mesh fix changes one file and would drop the others, '
+            'so it is refused. Fix the file on its own first.')
+
+
+def recorded_fix_failure(job, source_sha256):
+    """True when an AI fix already failed for this job's current source (#1474).
+
+    The failure is recorded on the job (``ai_fix_failed``) by the intake
+    whose fix failed, keyed by the source it failed on: the identical fix
+    on the same slice fails the same way, so no later intake of the same
+    job offers it again. A changed source (a fixed file, a new upload) is
+    a different slice and may be offered a fix again.
+    """
+    failed = (job or {}).get('ai_fix_failed')
+    return (isinstance(failed, dict) and bool(source_sha256)
+            and failed.get('source_sha256') == source_sha256)
+
+
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None, confirm_target=False):
     wrapped = _card_wrap(adapter, getattr(event, 'source', None))
@@ -1961,8 +2038,10 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
         # default printer; refuse rather than print on a printer this channel does not serve.
         from .. import settings as _settings
         default_id = None
-        with contextlib.suppress(Exception):
+        try:
             default_id = _settings.default_printer_id()
+        except Exception:
+            logger.debug("could not look up the default printer", exc_info=True)
         if default_id and str(printer_id).split(':')[-1] != str(default_id):
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f'{name} is sliced G-code, which prints as-is only on the default '
@@ -1973,15 +2052,19 @@ async def _print_gcode_file_intake(event, adapter, root, path, timeout=None, pri
     # model instead of offering to print another printer's file as-is.
     from . import ai_fix as _ai_fix
     _known_models = []
-    with contextlib.suppress(Exception):
+    try:
         from .. import printers as _printers
         _current = _printers.current()
         _model = getattr(_current, 'model', None)  # the PrinterModel record, not a name
         _known_models = [getattr(_current, 'key', None), getattr(_model, 'key', None),
                          getattr(_model, 'label', None)]
-    with contextlib.suppress(Exception):
+    except Exception:
+        logger.debug("could not look up the current printer for the foreign G-code check", exc_info=True)
+    try:
         from .. import settings as _settings
         _known_models.append((_settings.current().get('printer') or {}).get('name'))
+    except Exception:
+        logger.debug("could not look up the configured printer name for the foreign G-code check", exc_info=True)
     _foreign = _ai_fix.is_foreign_gcode(path, _known_models) if _known_models else None
     if _foreign:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -2096,6 +2179,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     key = 'model-link:' + iid
     event_metadata = getattr(event, 'metadata', None) or {}
     live_token = _LIVE_KEY.set(event_metadata.get('live_session_key') or key)
+    # Front-of-flow timing (#1476): message_received is stamped now;
+    # the buffer is bound to the job folder when it is created below.
+    front_token = mj.front_begin()
     log_token = logs.bind(intake=iid, job_correlation_id=iid)
     logger.info('intake started origin=%s', logs.redact(str(origin)))
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
@@ -2224,6 +2310,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         await send_preview(adapter, source, job, chosen, metadata, state=state, voice_key=iid)
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
+        mj.front_bind(folder / 'JOB.json')  # buffered front stages land in TIMING.jsonl (#1476)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
         stamp_started_by(job, source)
         fetch = copy_upload if (reuse or job['site'] == 'upload') else (
@@ -2237,6 +2324,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 lambda: _with_stop(adapter, source, key, metadata, None,
                                    asyncio.to_thread(fetch, job, chosen, folder / 'source')))
             job['downloaded_file'] = str(path)
+        mj.front_mark('download_done')  # the source file is in the job folder (#1476)
         if await asyncio.to_thread(is_gcode_3mf, path):
             # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
             # refuse before the audit can misreport it as bad_3mf_structure.
@@ -2276,6 +2364,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             first_layer_mm=support_clearance.profile_first_layer_mm(printer_id, source=path))
         if clearance_rep:
             job['support_clearance'] = clearance_rep
+        mj.front_mark('inspection_done')  # audit, color manifest and clearance are done (#1476)
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
@@ -3084,6 +3173,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         and getattr(early, 'release', None) is not None and early.release.is_set()):
                     # first_slice_done fires before the flagged verdict and the
                     # speculative supports slice exist; wait for those (bounded).
+                    # suppress kept with reason (#1455): a bounded wait — timing
+                    # out is one of the two expected outcomes, and the decision
+                    # state is read from the slice record right after.
                     with contextlib.suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(decided.wait(), SUPPORTS_ESTIMATE_WAIT_S)
                 sup_task = getattr(early, 'supports_task', None)
@@ -3091,8 +3183,18 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         and getattr(early, 'release', None) is not None and early.release.is_set()):
                     # A timeout or a failed supports slice leaves the "slicing..." line;
                     # the intake's own cancellation still propagates.
-                    with contextlib.suppress(asyncio.TimeoutError, Exception):
+                    try:
                         await asyncio.wait_for(asyncio.shield(sup_task), SUPPORTS_ESTIMATE_WAIT_S)
+                    except asyncio.TimeoutError:
+                        # Bounded wait (#1455): timing out is one of the two
+                        # expected outcomes; the shielded slice keeps running
+                        # and its outcome is read from the slice record below.
+                        logger.debug("supports estimate not ready after %ss; asking without it",
+                                     SUPPORTS_ESTIMATE_WAIT_S)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.debug("speculative supports slice failed", exc_info=True)
             waiting = early.running() and not (
                 getattr(early, 'flag_decided', None) is not None and early.flag_decided.is_set()
                 and not (getattr(early, 'supports_task', None) is not None and not early.supports_task.done()))
@@ -3658,6 +3760,23 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             """
             nonlocal path, clearance, validated, binding, recipe_sha, latest, ai_fix_failed
             from . import ai_fix, edit_plan
+
+            def _record_fix_failed():
+                """This intake's fix failed: withdraw the offer here, and record
+                the failure on the job so a later intake of the same slice does
+                not offer the identical fix again (#1474)."""
+                nonlocal ai_fix_failed
+                ai_fix_failed = True
+                try:
+                    current = json.loads(jp.read_text())
+                    current['ai_fix_failed'] = {
+                        'source_sha256': decisions['source_sha256'],
+                        'problem': str(problem)[:300],
+                        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+                    mj.write_job(folder, current)
+                except (OSError, ValueError) as exc:
+                    logger.warning('could not record the AI fix failure on the job: %r', exc)
+
             allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''))
             if not allowed:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3680,11 +3799,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # the nozzle it slices for.
             measured_gap = ai_fix.measured_clearance_gap(clearance)
             bed_mm = nozzle_mm = None
-            with contextlib.suppress(Exception):
+            try:
                 from ..runtime import _config
                 printer_cfg = (_config.cfg() or {}).get('printer') or {}
                 bed_mm = printer_cfg.get('bed_mm')
                 nozzle_mm = printer_cfg.get('nozzle_diameter')
+            except Exception:
+                logger.debug("could not read the printer config for the fix proposal", exc_info=True)
             try:
                 proposal = await _heavy(ai_fix.propose_fix, problem, job_now, mesh=mesh,
                                         bed_mm=bed_mm, nozzle_mm=nozzle_mm,
@@ -3693,7 +3814,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 logger.warning('AI fix proposal failed: %r', exc)
                 # An endpoint that did not answer may answer next time; a
                 # refused proposal is refused again.
-                ai_fix_failed = ai_fix_failed or isinstance(exc, ai_fix.FixError)
+                if isinstance(exc, ai_fix.FixError):
+                    _record_fix_failed()
                 detail = (ai_fix.reason(exc) if isinstance(exc, ai_fix.FixError)
                           else 'the AI endpoint did not answer')
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3706,7 +3828,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                   path if Path(path).is_file() else None)
                             for plan in proposal.plans]
             except (edit_plan.PlanError, ai_fix.FixError) as exc:
-                ai_fix_failed = True
+                _record_fix_failed()
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f'The AI proposed a fix that cannot be applied '
                                            f'({ai_fix.reason(exc)}), so nothing was changed.')
@@ -3720,7 +3842,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       measured_gap_mm=measured_gap)
                 except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
                     logger.warning('AI fix could not be built: %r', exc)
-                    ai_fix_failed = True
+                    _record_fix_failed()
                     detail = f' ({ai_fix.reason(exc)})' if isinstance(exc, ai_fix.FixError) else ''
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f'That fix could not be built{detail}, so nothing '
@@ -3787,7 +3909,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         proposal.filament_map,
                         lambda sel: mj.resolve_filament_selection(state, sel))
                 except ai_fix.FixError as exc:
-                    ai_fix_failed = True
+                    _record_fix_failed()
                     ai_fix.discard_fixed_copy(fixed_path)
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f'{ai_fix.reason(exc)}, so nothing was changed.')
@@ -3835,6 +3957,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
                     latest.pop('support_clearance', None)
                     clearance = None
+            latest.pop('ai_fix_failed', None)  # an applied fix clears the recorded failure
             mj.write_job(folder, latest)
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)
@@ -3848,21 +3971,43 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             return proposal
 
+        def _fix_failed_before():
+            """A fix failed in this intake, or on an earlier intake of this
+            same source (recorded on the job, #1474)."""
+            if ai_fix_failed:
+                return True
+            try:
+                return recorded_fix_failure(json.loads(jp.read_text()),
+                                            decisions['source_sha256'])
+            except (OSError, ValueError):
+                return False
+
         def _no_fix_left_note():
-            """Why the heavy tier offers no fix: one failed here, or the budget is spent."""
+            """Why the heavy tier offers no fix: one failed, or the budget is spent."""
             from . import ai_fix
-            return ai_fix.FAILED_NOTE if ai_fix_failed else ai_fix.out_of_attempts_message()
+            return ai_fix.FAILED_NOTE if _fix_failed_before() else ai_fix.out_of_attempts_message()
 
         def _fix_budget_left():
             """AI fix attempts this job may still use (0 when none, or unreadable,
-            or once a fix failed in this intake)."""
+            or once a fix failed for this job's current source)."""
             from . import ai_fix
             if ai_fix_failed:
                 return 0
             try:
-                return ai_fix.attempts_left(json.loads(jp.read_text()))
+                job_now = json.loads(jp.read_text())
             except (OSError, ValueError):
                 return 0
+            if recorded_fix_failure(job_now, decisions['source_sha256']):
+                return 0
+            return ai_fix.attempts_left(job_now)
+
+        def _multi_file_fix_note():
+            """The multi-file reason no fix is offered for this job, or ''
+            (#1474: the count is known before the button is drawn)."""
+            try:
+                return multi_file_fix_note(json.loads(jp.read_text()))
+            except (OSError, ValueError):
+                return ''
 
 
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
@@ -3999,9 +4144,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # would have been offered.
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
-            fix_ready = heavy and _fix_budget_left() > 0
+            multi_note = _multi_file_fix_note()
+            fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             # No AI-fix note at all when the intake does not offer one (#1373).
-            no_fix_note = _no_fix_left_note() if heavy else ''
+            # A multi-file job's reason is its own (#1474): the button is not
+            # drawn, and the warning text says why.
+            no_fix_note = (multi_note or _no_fix_left_note()) if heavy else ''
             if refusal is not None and not refusal.fix and not fix_ready:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=diagnostics.plain_post(
                     'Stage: slice. ' + refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
@@ -4123,7 +4271,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # the same per-question cap and the job's fix budget,
                     # instead of a dead end.
                     if (_ai_fix.intake_fix_offered() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
-                            and _fix_budget_left() > 0):
+                            and _fix_budget_left() > 0 and not _multi_file_fix_note()):
                         picked = await _ask(adapter, source, key, failure_post,
                                             [_ai_fix.FIX_LABEL, 'Cancel'], timeout)
                         if picked == 0:
@@ -4148,7 +4296,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         return {'action': 'skip', 'reason': 'slice retry failed'}
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=failure_post + (
-                                           '\n' + _no_fix_left_note() if _ai_fix.intake_fix_offered()
+                                           '\n' + (_multi_file_fix_note() or _no_fix_left_note())
+                                           if _ai_fix.intake_fix_offered()
                                            else ''))
                     return {'action': 'skip', 'reason': 'slice retry failed'}
         mj._timing(jp, 'intake_slice_returned')
@@ -4245,7 +4394,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             nonlocal gcodes, sliced, clearance_ack_pending
             from . import ai_fix as _ai_fix
             heavy = _ai_fix.intake_fix_offered()
-            fix_ready = heavy and _fix_budget_left() > 0
+            multi_note = _multi_file_fix_note()
+            fix_ready = heavy and _fix_budget_left() > 0 and not multi_note
             fix_attempts = 0
             while True:
                 unverified = (unverified_result or {}).get('unverified') or []
@@ -4264,7 +4414,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  'supports cannot fix.')
                 lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
                              'repair the geometry (extend or sink).')
-                if heavy and not fix_ready and _fix_budget_left() <= 0:
+                if heavy and not fix_ready and multi_note:
+                    lines.append(multi_note)
+                elif heavy and not fix_ready and _fix_budget_left() <= 0:
                     lines.append(_no_fix_left_note())
                 choices = [PRINT_ANYWAY_LABEL]
                 if fix_ready:
@@ -4661,15 +4813,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         # own at print-now. A job printed before is a reprint: name the newest
         # earlier print from the launch registry, never as this start's number (#1017).
         previous = None
-        with contextlib.suppress(Exception):
+        try:
             from ..runtime import print_control
             previous = print_control.latest_number_for_job(jp)
+        except Exception:
+            logger.debug("could not look up the previous print number for this job", exc_info=True)
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
         # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
         targets = ''
-        with contextlib.suppress(Exception):
+        try:
             from ..runtime.print_control import start_targets_text
             targets = start_targets_text(Path(first).read_text(errors='replace'))
+        except Exception:
+            logger.debug("could not read the start targets from the G-code", exc_info=True)
         prep_msg = ' · '.join(['Preparing to start']
                               + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])
                               + ([targets] if targets else []))
@@ -4774,9 +4930,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if unpushed:
                         accept_color_mismatch(jp, target, unpushed)  # screen update unavailable: print as chosen
                         # The print still goes ahead; the channel is told which slots stayed as they were (#798).
-                        with contextlib.suppress(Exception):
+                        try:
                             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                                content=screen_unpushed_note(unpushed))
+                        except Exception:
+                            logger.debug("could not post the screen color note", exc_info=True)
                 else:
                     receipt['status'] = 'SLICED_NOT_STARTED'
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -4785,10 +4943,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return {'action': 'skip', 'reason': 'operator cancelled on a slot color difference'}
                 uploading = "Uploading to the printer. Press Stop to request cancellation."
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 clear_color_acceptance(jp)
-            with contextlib.suppress(Exception):
+            except Exception:
+                logger.debug("could not clear the color acceptance", exc_info=True)
+            try:
                 clear_label_acceptance(jp)
+            except Exception:
+                logger.debug("could not clear the label acceptance", exc_info=True)
             # A Print as sliced answer is this start's only: a later Retry asks again (#1336).
             target.pop('accept_material', None)
             target.pop('accept_spool_change', None)
@@ -4848,8 +5010,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         logger.warning('intake stopped by operator: %s', type(exc).__name__)
         uncertain_start = isinstance(exc, Stopped) and exc.uncertain
         if jp is not None and not uncertain_start:
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug("could not discard the stopped intake's slice", exc_info=True)
         if uncertain_start:
             receipt.update(status='START_UNCERTAIN', sliced=True, uploaded=None, started=None,
                            start_outcome='uncertain', start_error=str(exc))
@@ -4873,8 +5037,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A failed intake discards its background slice (P2-23), as the
             # cancelled path above already does: the slice's output must not
             # outlive the intake that produced it. Resume re-slices.
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug("could not discard the expired intake's slice", exc_info=True)
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
@@ -4924,8 +5090,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A failed intake discards its background slice (P2-23), as the
             # cancelled path above already does: the slice's output must not
             # outlive the intake that produced it.
-            with contextlib.suppress(Exception):
+            try:
                 await runner_for(jp).discard()
+            except Exception:
+                logger.debug("could not discard the failed intake's slice", exc_info=True)
         from .site_accounts import chat_safe, short_cause
         from . import model_job as _mj
         if isinstance(exc, SiteLoginNeeded):
@@ -4982,6 +5150,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if jp is not None:
             drop_runner(jp)
         _LIVE_KEY.reset(live_token)
+        mj.front_end(front_token)
         logs.unbind(log_token)
 
 

@@ -6,7 +6,6 @@ Every action re-reads the printer first and refuses when the state no longer mat
 """
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -51,9 +50,10 @@ def _base_for(printer_id: str | None) -> str:
 
 
 def _call(path: str, method: str = "GET", timeout: float = 10, printer_id: str | None = None) -> dict[str, Any]:
-    req = urllib.request.Request(_config.require(_base_for(printer_id), "services.moonraker_url") + path, method=method, data=b"" if method == "POST" else None)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read() or b"{}")
+    from .. import moonraker
+    return moonraker.moonraker_json(
+        _config.require(_base_for(printer_id), "services.moonraker_url"),
+        path, method=method, data=b"" if method == "POST" else None, timeout=timeout)
 
 
 def shutdown_message(printer_id: str | None = None) -> str:
@@ -1246,7 +1246,7 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
         with urllib.request.urlopen(req, timeout=15) as resp:
             ok = 200 <= resp.status < 300
             if ok:
-                with contextlib.suppress(Exception):
+                try:
                     mid = json.loads(resp.read() or b"{}").get("id")
                     if mid:
                         with _LOCK:
@@ -1254,6 +1254,9 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
                             if aid in data:
                                 data[aid].update(message_id=str(mid), channel_id=str(channel_id))
                                 _save(data)
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        "could not record the posted alert's message id", exc_info=True)
             return ok
     except Exception:
         take(aid)
@@ -1415,8 +1418,11 @@ def post_matrix_with_reactions(homeserver: str, token: str, room_id: str, conten
             data[aid].update(matrix_event_id=event_id, matrix_room_id=str(room_id))
             _save(data)
     for key, _action, _label in matrix_reaction_choices(kind):
-        with contextlib.suppress(Exception):
+        try:
             matrix_rest.send_reaction(homeserver, token, str(room_id), event_id, key)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "could not add a reaction choice to the Matrix alert", exc_info=True)
     return True
 
 
@@ -1459,9 +1465,12 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
                              "allowed_mentions": {"parse": []}}).encode(),
             method="PATCH", headers={"Authorization": f"Bot {token}", "Content-Type": "application/json",
                                      "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
-        with contextlib.suppress(Exception):
+        try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 retired += 200 <= resp.status < 300
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "could not strip the buttons from a stale alert", exc_info=True)
     return retired
 
 
@@ -1672,9 +1681,12 @@ def _repost_alert(kind: str, filename: str, alert: dict[str, Any], content: str)
     printer_id = alert.get("printer_id") or None
     identity = alert.get("identity")
     token, channel = "", ""
-    with contextlib.suppress(Exception):
+    try:
         token = _config.discord_token()
         channel = str(alert.get("channel_id") or _config.discord_chat_id() or "")
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "could not resolve the Discord routing for the replacement alert", exc_info=True)
     if token and channel and post_with_buttons(token, channel, content, kind, filename,
                                                 connection=connection, printer_id=printer_id,
                                                 identity=identity):
