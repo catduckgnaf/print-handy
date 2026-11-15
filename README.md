@@ -113,6 +113,8 @@ The question that matters is **which firmware and connection your printer actual
 | **OpenCreator** | Creator 5, Creator 5 Pro | Kalico / Moonraker; separate firmware and profiles from ZMod | [OpenCreator](docs/OPENCREATOR.md) |
 | **Reforge** | **No dedicated profile yet** | Independent Creator 5 / 5 Pro custom firmware; compatibility not verified here | [Reforge upstream](https://github.com/Klipper4FlashForge/firmware) · [Request printer support](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml) |
 
+**What has actually been checked?** The ZMod AD5X has limited on-hardware checks, but its [ZMod guide](docs/ZMOD.md) does not claim a verified Print Handy-started print. The stock AD5X LAN upload/start path is implemented but [not yet hardware-confirmed](docs/FLASHFORGE-STOCK.md). OpenCreator's Creator profiles are [tested against documentation and offline contracts, not a real printer](docs/OPENCREATOR.md). Reforge has no integration to verify yet. That's the useful difference between *profile exists* and *go on, bet your printer on it*.
+
 A Creator 5 running OpenCreator is not running ZMod, and a stock AD5X is not secretly a Moonraker printer. Choose the matching [model key](docs/PRINTER-PROFILES.md#find-your-printer). The [ZMod AD5X hardware baseline](docs/DEVICE-AD5X.md#tested-baseline) covers specific checks; it does not imply every FlashForge combination has been printed successfully.
 
 ### Everybody else
