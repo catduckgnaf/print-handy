@@ -663,7 +663,13 @@ def _opencreator_line(status):
         return f"{head}, and marks it not valid ({component.invalid}), so its state is unknown."
     if component.remote_unknown or component.behind is None:
         return f"{head}, and does not say how far behind it is."
-    if component.behind == 0 and not component.update_available:
+    if component.behind == 0:
+        if component.update_available:
+            # Zero commits behind but a different remote string: the two
+            # facts disagree, so neither "level" nor "behind" is claimed.
+            return (f"{head}, with no commits behind, but its source reads {component.remote}. "
+                    "Print Handy cannot tell whether it is current; check Software Update "
+                    "in Fluidd or Mainsail.")
         return f"{head}, level with its source."
     count = component.behind
     return (f"{head}, {count} commit{'' if count == 1 else 's'} behind its source. Update from "

@@ -114,3 +114,9 @@ def test_other_families_get_no_opencreator_line():
     text = fw.report_text(fw.parse_update_status(_payload()), entry("flashforge.ad5x"))
     assert "publishes no version number" not in text
     assert fw.is_apply_eligible(entry("flashforge.ad5x"))
+
+
+def test_zero_commits_behind_with_a_different_remote_is_stated_as_unclear():
+    text = fw.report_text(_status(remote_version="v0.0.0-9", commits_behind=[]), entry(KEYS[0]))
+    assert "with no commits behind, but its source reads v0.0.0-9" in text
+    assert "0 commits behind" not in text and "level with its source" not in text
