@@ -30,7 +30,7 @@ Pick your problem. Print Handy runs on your hardware with no cloud of its own (y
 
 ## Printer guides
 
-Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connection paths and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
+Start with [Find your printer](PRINTER-PROFILES.md#find-your-printer) to find your brand, model and firmware route, then [Printer support](PRINTER-SUPPORT.md) for what support means and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
 
 - [ZMod](ZMOD.md) · [Forge-X](FORGEX.md) · [OpenCreator](OPENCREATOR.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
 - [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)

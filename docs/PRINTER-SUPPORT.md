@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Printer profiles](PRINTER-PROFILES.md) · [Contributing](../CONTRIBUTING.md)
 
-This page answers three questions: what "supported" means for a printer, what to do if yours is not listed, and how to confirm that a listed printer really works. The [README](../README.md#will-it-work-with-my-printer) groups printers by firmware and connection; the model-by-model detail is in the vendor guides linked from there.
+This page answers three questions: what "supported" means for a printer, what to do if yours is not listed, and how to confirm that a listed printer really works. The [README](../README.md#find-your-printer) and the [printer profiles](PRINTER-PROFILES.md#find-your-printer) page organize printers brand first, then model, then firmware, then connection; the model-by-model detail is in the vendor guides linked from there.
 
 ## What "supported" means
 

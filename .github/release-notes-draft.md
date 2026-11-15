@@ -35,6 +35,9 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 - A new Timing page in the Web UI, a doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)
 - Crashes now leave evidence: an unhandled error saves a redacted crash record, the diagnostics bundle gains a Crashes section and carries logs even on installs that never configured a log file, and every job carries a correlation ID so one job can be followed across slicing, launch and monitoring. (#1409, #1424, #1429)
 
+### Find your printer by brand
+- The README's printer section and the printer profiles page now start from your printer's brand and model, then its firmware, then the connection. FlashForge shows its four profiled firmware routes (stock, ZMod, Forge-X, OpenCreator) under one brand heading, Creality, Qidi, Snapmaker and the other brands keep their own entries instead of disappearing into a generic Klipper list, and the profiles page lists every registered model key. (#1526)
+
 ### Stream the camera into a Discord voice channel
 - The Discord live camera view now transcodes an MJPEG or snapshot printer camera to H.264 when the live feed values are left at their defaults, so the Activity player receives a stream it can open; RTSP and WebRTC cameras are still relayed unchanged. The setup guide records the final design: the camera plays in the channel's Activity and the bot runs the session without joining the call. Not live-verified yet; the first live sitting is still to come. (#1453)
 
