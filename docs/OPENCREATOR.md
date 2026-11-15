@@ -311,12 +311,19 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   readiness and the active tool on the `creator5_toolchanger`
   contract, the AFC identity lane-map refusal, and the manufacturer
   ceilings recorded above.)
-- Reconciling Print Handy's spool records with the firmware's own
-  `lane_data` publishing: tranche 3, still gated on a live capture of
-  the namespace, because the upstream sources disagree three ways
-  about the record key. Until then, know that the printer publishes
-  filament records for OrcaSlicer's sync on its own schedule, and
-  Print Handy does not write that namespace for these models.
+- Converging Print Handy's spool records with the firmware's own
+  `lane_data` publishing. Tranche 3 delivered the reading half: the
+  namespace can carry either of two publisher shapes (the generic AFC
+  publisher's `T<n>` keys, or the `creator5_filament_sync` module's
+  `c5_tool<n>` keys), and Print Handy now parses both, labels every
+  record with the shape it came from, and reports a conflict instead
+  of guessing when the two shapes disagree about a tool. Which
+  publisher owns a given install's namespace is still unsettled (the
+  upstream sources disagree three ways), so nothing converges from
+  these records yet and Print Handy does not write that namespace for
+  these models: a spool bind or unbind names that refusal as its
+  lane_data outcome. A live capture of the namespace on a real
+  install remains the gate for convergence.
 - ACE Pro feeders and driving the VDS filament dryer, as Print Handy
   features. What the surfaces actually are (source-verified against
   the fork and the shipped config tree, 2026-11-15, following the

@@ -29,10 +29,19 @@ extruder object must be reporting, and the printer's AFC lane map must
 be the identity map, because the firmware remaps a file's tools through
 that map inside C5_PRINT_START, invisibly to the file. Print Handy
 never sends SET_MAP (the command swaps lanes rather than assigning).
+
+Filament records in Moonraker's lane_data namespace are read through
+lane_data.py (tranche 3): both publisher shapes the firmware can put
+there are accepted and labeled by source, disagreements surface as
+conflicts, and nothing converges from them yet. Spool writes to the
+namespace are refused outright (lane_data_write_refusal below): which
+publisher owns a live install's namespace is unverified until a real
+install's namespace has been captured, so a Print Handy write could
+fight the printer's own publisher.
 """
 from ..base import MultiColorUnsupported, basic_status
 from ..klipper.adapter import KlipperAdapter
-from . import facts, firmware_check, start_contract
+from . import facts, firmware_check, lane_data, start_contract
 
 # The documented machine start form, exactly as the templates carry it.
 # The chamber line keeps the slicer's own placeholder: no chamber value
@@ -65,6 +74,15 @@ class OpenCreatorAdapter(KlipperAdapter):
     # Print end is firmware-owned (the dispatcher runs C5_PRINT_STOP at
     # end of file): verification must not demand an end macro line.
     firmware_owned_end = True
+    # Spool-write posture (#1490 tranche 3): spool_sync.write_lane_side
+    # returns this named refusal for these models instead of writing a
+    # lane_data record. The namespace is published by the printer
+    # itself, and which of its two publishers owns it on a live install
+    # is unverified, so no key shape (T<n> or c5_tool<n>) is written.
+    lane_data_write_refusal = (
+        "not written: OpenCreator publishes the lane_data namespace itself "
+        "and Print Handy has not verified which publisher owns it, so spool "
+        "assignments are not written there (#1490)")
     facts = facts.CREATOR5
 
     @property
@@ -240,6 +258,17 @@ class OpenCreatorAdapter(KlipperAdapter):
         active = changer.get("active_tool") if isinstance(changer, dict) else None
         out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
         return out
+
+    def tool_lane_data(self, value):
+        """Per-tool filament records from a raw ``lane_data`` namespace value.
+
+        The reading half of tranche 3 (lane_data.py): both publisher
+        shapes are accepted, every record is labeled with the shape it
+        came from, and a tool whose publishers disagree carries a
+        conflict instead of a claim. Nothing converges from these
+        records yet; the live namespace capture is still the arbiter.
+        """
+        return lane_data.parse_tool_lane_data(value, self.tool_count)
 
     def spool_remain_g(self, status, tool):
         """Grams left on one toolhead, or None when the sample does not say.
