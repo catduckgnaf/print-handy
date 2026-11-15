@@ -2538,6 +2538,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             native.finalize(output, None, state, mapping, drop_unused=True)
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
+    # The printer's own last rewrite (OpenCreator's per-print start overrides,
+    # #1490): written back before the checks below read the file.
+    sliced_text = output.read_text(errors='replace')
+    rewritten = printer.finalize_output(sliced_text)
+    if rewritten != sliced_text:
+        output.write_text(rewritten)
     result_path = folder / 'result.json'
     # The finalized G-code, read once for every read-only check below (#1153):
     # the post-slice guard, the vendor start-code check and the printer's own

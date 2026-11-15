@@ -211,32 +211,97 @@ def synthesize_start(text):
         first_layer_height=first_layer_height, materials=materials)
 
 
-OPTION_DEFAULTS = {
-    "flow_calibration": 0,
-    "purge": 1,
-    "purge_line": 1,
-    "purge_line_all_tools": 0,
-    "bed_leveling": 1,
-    "host_pressure_advance": 0,
+# Per-print overrides (#1490 tranche 5): the six firmware switches a
+# C5_PRINT_START line can override, as [printer] opencreator_<switch>
+# settings. Each is "printer" (send nothing; the printer's own persistent
+# switch decides), "on" or "off". The build plate check,
+# [printer] opencreator_buildplate_check, is "printer" or "off", sent as
+# BUILDPLATE_CHECK=0 only when "off". The setting names are spelled out so a search finds them.
+OVERRIDE_SETTINGS = {
+    "opencreator_flow_calibration": "FLOW_CALIBRATION",
+    "opencreator_purge": "PURGE",
+    "opencreator_purge_line": "PURGE_LINE",
+    "opencreator_purge_line_all_tools": "PURGE_LINE_ALL_TOOLS",
+    "opencreator_bed_leveling": "BED_LEVELING",
+    "opencreator_host_pressure_advance": "HOST_PRESSURE_ADVANCE",
 }
+OVERRIDE_CHOICES = ("printer", "on", "off")
+BUILDPLATE_SETTING = "opencreator_buildplate_check"
+# The firmware's build plate check can only be skipped per print, never
+# forced on, so its setting has no "on".
+BUILDPLATE_CHOICES = ("printer", "off")
 
 
-def option_params(options=None):
-    """Render explicit OpenCreator switches for a C5_PRINT_START line.
+def override_params(printer_settings=None):
+    """The C5_PRINT_START overrides one [printer] table asks for, in order.
 
-    Values default to the modeled firmware settings and accept only boolean
-    values; unknown or malformed inputs fail closed instead of entering G-code.
+    Empty when every switch is left to the printer, which is the default:
+    then no explicit line is written and the firmware synthesizes its own
+    start. An unknown value raises ValueError instead of reaching G-code.
     """
-    options = options if isinstance(options, dict) else {}
-    params = {"FLOW_CALIBRATION": 0, "PURGE": 1, "PURGE_LINE": 1,
-              "PURGE_LINE_ALL_TOOLS": 0, "BED_LEVELING": 1,
-              "HOST_PRESSURE_ADVANCE": 0, "BUILDPLATE_CHECK": 0}
-    for key, default in OPTION_DEFAULTS.items():
-        value = options.get(f"opencreator_{key}", bool(default))
-        if type(value) is not bool:
-            raise ValueError(f"opencreator_{key} must be a boolean")
-        params[key.upper()] = int(value)
+    table = printer_settings if isinstance(printer_settings, dict) else {}
+    params = {}
+    for key, param in OVERRIDE_SETTINGS.items():
+        value = table.get(key, "printer")
+        if value is None:
+            value = "printer"
+        if value not in OVERRIDE_CHOICES:
+            raise ValueError(f'[printer] {key} must be "printer", "on" or "off", got {value!r}')
+        if value != "printer":
+            params[param] = 1 if value == "on" else 0
+    check = table.get(BUILDPLATE_SETTING, "printer")
+    if check is None:
+        check = "printer"
+    if check not in BUILDPLATE_CHOICES:
+        raise ValueError(f'[printer] {BUILDPLATE_SETTING} must be "printer" or "off", got {check!r}')
+    if check == "off":
+        params["BUILDPLATE_CHECK"] = 0
     return params
+
+
+def explicit_start_line(text, overrides):
+    """The full C5_PRINT_START line for ``text`` with ``overrides`` appended, or None.
+
+    An explicit line opts the file out of the dispatcher's synthesis, so the
+    firmware fills in nothing for it. The line therefore carries everything
+    the dispatcher would have synthesized from this same file (TOOL, HOTEND,
+    BED, FIRST_LAYER_HEIGHT, MATERIAL0..3, USED_TOOLS, the other used tools'
+    HOTENDn, IDLEn and CHAMBER, in the dispatcher's order), and the
+    overrides after them, as upstream's own slicer plugin writes it.
+
+    None when there are no overrides (leave the file to the firmware).
+    Raises ValueError for a file that already has an explicit line, or
+    whose hotend temperature the dispatcher could not find either.
+    """
+    if not overrides:
+        return None
+    start = synthesize_start(text)
+    if start.explicit:
+        raise ValueError("the file already carries its own C5_PRINT_START line; "
+                         "per-print overrides cannot be added to it")
+    if start.hotend is None:
+        raise ValueError("no hotend temperature is discoverable in the file, so no "
+                         "explicit C5_PRINT_START line can be built for it")
+    parts = [f"C5_PRINT_START TOOL={start.tool:d} HOTEND={start.hotend:g} BED={start.bed:g}"]
+    if start.first_layer_height is not None:
+        parts.append(f"FIRST_LAYER_HEIGHT={start.first_layer_height:g}")
+    parts.extend(f"MATERIAL{i}={m}" for i, m in enumerate(start.materials))
+    if start.used_tools:
+        parts.append("USED_TOOLS=" + ",".join(str(i) for i in start.used_tools))
+    parts.extend(f"HOTEND{i}={t:g}" for i, t in sorted(start.hotends.items()))
+    parts.extend(f"IDLE{i}={t:g}" for i, t in sorted(start.idles.items()))
+    if start.chamber is not None and start.chamber > 0:
+        parts.append(f"CHAMBER={start.chamber:g}")
+    parts.extend(f"{key}={int(value)}" for key, value in overrides.items())
+    return " ".join(parts)
+
+
+def with_overrides(text, overrides):
+    """``text`` with the explicit start line as its first line, or unchanged without overrides."""
+    line = explicit_start_line(text, overrides)
+    if line is None:
+        return text
+    return line + "\n" + text
 
 
 def first_selected_tool(text):
