@@ -79,7 +79,8 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     # faked; this test is about artifact binding, not the #820 assembly guard.
     monkeypatch.setattr(mj, 'refuse_assembly_split', lambda *a, **k: None)
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
-    asyncio.run(collect(jp, st, Transport([0, 0, 3]), 'offline', 'first', timeout=1))
+    # #1473: decline the proposed mapping (1), then the authored per-part picks.
+    asyncio.run(collect(jp, st, Transport([1, 0, 3]), 'offline', 'first', timeout=1))
     first = json.loads(jp.read_text())['color_decisions']
     assert sorted(c['slot'] for c in first['choices'].values()) == [1, 4]
     mj.slice_job(jp)

@@ -2423,6 +2423,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             accepted; units still to ask), or None to use the legacy mode
             question. A mapping is only ever applied after the operator taps
             its button — proposing or remembering never decides."""
+            if layered and not manifest['painted'] and len(manifest['parts']) <= 1:
+                # Nothing but height changes makes this multicolor (#870):
+                # the legacy question names that choice ("Keep the
+                # height-based colors"); a mapping offer must not pre-empt it.
+                return None
             groups = color_groups(manifest, selected_plate_ids=selected_plates)
             if len(groups) < 2:
                 return None
