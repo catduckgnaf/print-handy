@@ -114,7 +114,9 @@ def version_key(text) -> tuple:
         return (*numbers, 1, _FINAL_RANK, 0)
     if suffix.isdigit():
         return (*numbers, 1, _FINAL_RANK, int(suffix))
-    match = re.match(r"([a-zA-Z]+)\.?(\d*)", suffix)
+    # "beta.2", "rc1" and Forge-X's "beta-4" all carry a stage serial:
+    # 1.4.2-beta-4 < 1.4.2-beta-10 (#1506).
+    match = re.match(r"([a-zA-Z]+)[.-]?(\d*)", suffix)
     stage = match.group(1).lower() if match else ""
     serial = int(match.group(2)) if match and match.group(2) else 0
     return (*numbers, 0, _STAGE_RANK.get(stage, 0), serial)

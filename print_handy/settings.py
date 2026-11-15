@@ -220,6 +220,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("notify", "ntfy_topic"): str,
                  ("firmware", "update_alerts"): bool,
                  ("firmware", "update_check_hours"): int,
+                 ("firmware", "forgex_apply"): bool,
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
@@ -1833,6 +1834,9 @@ def _validate_firmware(data):
     if isinstance(hours, bool) or not isinstance(hours, int)             or not 1 <= hours <= FIRMWARE_CHECK_HOURS_MAX:
         raise SettingsError(f"[firmware] update_check_hours must be a whole number of hours "
                             f"from 1 to {FIRMWARE_CHECK_HOURS_MAX}, got {hours!r}")
+    forgex_apply = firmware.setdefault("forgex_apply", False)
+    if not isinstance(forgex_apply, bool):
+        raise SettingsError(f"[firmware] forgex_apply must be true or false, got {forgex_apply!r}")
     names = firmware.setdefault("notice_firmwares", list(FIRMWARE_NOTICE_DEFAULT))
     if not isinstance(names, (list, tuple)) or not all(isinstance(n, str) for n in names):
         raise SettingsError(f"[firmware] notice_firmwares must be a list of firmware feed ids, "

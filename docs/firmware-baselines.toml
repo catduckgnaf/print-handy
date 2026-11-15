@@ -158,3 +158,15 @@ repo = "QIDITECH/QIDI_SMART3"
 feed = "releases"
 baseline = "4.1.13"
 basis = "Smart_V4.1.13 (2024-01-15) was the newest X-Smart 3 release when QIDI support was written (#463, merged 2026-10-27)"
+
+# Forge-X (DrA1ex/ff5m): releases. Print Handy's Forge-X models target the
+# 1.4.2 beta line (docs/FORGEX.md); the watch counts final releases only,
+# so the newest final, 1.4.1, is the baseline, and the first final 1.4.2
+# opens the notice that moves support from the beta to stable (#1506).
+
+[[firmware]]
+name = "Forge-X"
+repo = "DrA1ex/ff5m"
+feed = "releases"
+baseline = "1.4.1"
+basis = "1.4.1 (2026-02-18) is the newest final Forge-X release; Print Handy's Forge-X models were written against the 1.4.2 beta line on top of it (#1506), so a final 1.4.2 is the release that moves support to stable"
