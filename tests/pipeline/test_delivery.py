@@ -259,7 +259,7 @@ def test_slice_only_on_the_default_flashforge_profile_sends_the_file(env):  # no
     Flashforge with methods ["printer"], and Slice and Download must still hand over the file.
     Fails on the base (the flow ended at a Start / Cancel question and no file was sent)."""
     # one color, slot 1, Slice and Download, Send the files here, Done
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 1, 1])
     menus = _delivery_menu(adapter)
     assert menus[0]["choices"] == [print_next.START_LABEL, "Send the files here", delivery.DONE_LABEL]
     attached = [m for m in adapter.sent if "MEDIA:" in m]
@@ -274,7 +274,7 @@ def test_slice_only_with_printer_only_methods_still_sends_the_file(env, monkeypa
     """#1443: an install that explicitly narrowed [delivery] methods to ["printer"]
     gets the same offer — the Slice and Download choice itself asks for the file."""
     use_config(monkeypatch, config_for("flashforge.ad5x", ["printer"]))
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 1, 1])
     attached = [m for m in adapter.sent if "MEDIA:" in m]
     assert len(attached) == 1 and attached[0].endswith(f"MEDIA:{env.sliced[0]}")
     assert env.starts == [] and receipt["status"] == "SLICED_NOT_STARTED"
