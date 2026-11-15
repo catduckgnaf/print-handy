@@ -2613,7 +2613,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 # the legacy question names that choice ("Keep the
                 # height-based colors"); a mapping offer must not pre-empt it.
                 return None
-            groups = color_groups(manifest, selected_plate_ids=selected_plates)
+            # Reuse the grouped prompts the intake already built for these
+            # plates, and hand the groups on to the remembered/proposal
+            # lookups: regrouping per lookup tripled the per-part grouping
+            # work on the way to the first color question.
+            groups = color_groups(manifest, selected_plate_ids=selected_plates,
+                                  rows=grouped)
             if len(groups) < 2:
                 return None
             if job_adapter.tool_based:
@@ -2629,9 +2634,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
             by_slot = {sel['slot']: sel for sel in selections}
             remembered = remembered_color_mapping(manifest, selections,
-                                                  selected_plate_ids=selected_plates)
+                                                  selected_plate_ids=selected_plates,
+                                                  groups=groups)
             proposal = None if remembered else propose_mapping(
-                manifest, selections, selected_plate_ids=selected_plates)
+                manifest, selections, selected_plate_ids=selected_plates,
+                groups=groups)
             if remembered:
                 prompt = (f"Same colors as last time for this file? "
                           f"{mapping_summary(remembered['groups'])}")

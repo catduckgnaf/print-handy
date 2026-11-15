@@ -2538,7 +2538,7 @@ def _part_display_name(part):
     return name
 
 
-def color_groups(manifest, selected_plate_ids=None):
+def color_groups(manifest, selected_plate_ids=None, *, rows=None):
     """The color questions grouped into one decision per source color.
 
     Built on grouped_prompts (numbered families already collapsed), then
@@ -2547,8 +2547,14 @@ def color_groups(manifest, selected_plate_ids=None):
     whose source color cannot be read stay their own group. Each group:
     {'keys', 'rows', 'color', 'material', 'color_words', 'name_words',
     'part_names', 'label'} — 'keys' are the decision keys the group answers,
-    'name_words' the color words the part names themselves carry."""
-    rows = grouped_prompts(manifest, selected_plate_ids=selected_plate_ids)
+    'name_words' the color words the part names themselves carry.
+
+    ``rows`` lets a caller that already built the grouped prompts hand them
+    over instead of paying for the per-part grouping again. They must come
+    from ``grouped_prompts`` for the same manifest and ``selected_plate_ids``
+    as this call; nothing checks that."""
+    if rows is None:
+        rows = grouped_prompts(manifest, selected_plate_ids=selected_plate_ids)
     parts = {p['key']: p for p in manifest.get('parts') or []}
     groups, order = {}, []
     for row in rows:
@@ -2610,7 +2616,7 @@ def _spool_label(selection):
     return color
 
 
-def propose_mapping(manifest, selections, selected_plate_ids=None):
+def propose_mapping(manifest, selections, selected_plate_ids=None, *, groups=None):
     """Propose a loaded spool for each color group, or None for a group.
 
     A spool matches a group when its color is the group's author color
@@ -2620,9 +2626,15 @@ def propose_mapping(manifest, selections, selected_plate_ids=None):
     choice. One slot may serve several groups only when they share a color;
     a slot claimed by two different colors leaves the later group unmatched.
     Returns {'groups': [{...group, 'slot', 'spool_label'}], 'complete': bool,
-    'matched': int}. Pure: applies nothing."""
+    'matched': int}. Pure: applies nothing.
+
+    ``groups`` lets a caller that already grouped the source's colors hand
+    the groups over instead of regrouping. They must come from ``color_groups``
+    for the same manifest and ``selected_plate_ids`` as this call; nothing
+    checks that."""
     from . import filament_color
-    groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
+    if groups is None:
+        groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
     claimed = {}
     out, matched = [], 0
     for group in groups:
@@ -2731,21 +2743,28 @@ def remember_color_mapping(manifest, selections, choices, path=None):
         logger.debug('could not remember the accepted color mapping', exc_info=True)
 
 
-def remembered_color_mapping(manifest, selections, selected_plate_ids=None, path=None):
+def remembered_color_mapping(manifest, selections, selected_plate_ids=None, path=None, *, groups=None):
     """The mapping accepted last time for this exact source + spool set.
 
     Returns {'choices': {decision_key: slot}, 'groups': [...]} or None.
     None when nothing was remembered, when the spool set changed (the
     fingerprint is part of the key), when a remembered slot is no longer
     loaded, or when the remembered choices do not cover every group the
-    source asks about now — a stale mapping is never partly reused."""
+    source asks about now — a stale mapping is never partly reused.
+
+    ``groups`` lets a caller that already grouped the source's colors hand
+    the groups over instead of regrouping. They must come from
+    ``color_groups`` for the same manifest and ``selected_plate_ids`` as this
+    call; nothing checks that, and groups for another plate selection would
+    judge the coverage check below against the wrong decision keys."""
     fingerprint = spool_set_fingerprint(selections)
     entry = _load_mapping_store(path).get(f"{manifest['source_sha256']}:{fingerprint}")
     if not isinstance(entry, dict) or entry.get('source_sha256') != manifest['source_sha256']:
         return None
     stored = entry.get('choices') or {}
     loaded = {int(s['slot']): s for s in selections or []}
-    groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
+    if groups is None:
+        groups = color_groups(manifest, selected_plate_ids=selected_plate_ids)
     wanted = [key for group in groups for key in group['keys']]
     if not wanted or any(key not in stored for key in wanted):
         return None

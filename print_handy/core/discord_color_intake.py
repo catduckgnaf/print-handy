@@ -206,6 +206,7 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
     noun = 'stencils' if all('stencil' in str(p.get('name', '')).lower() for p in manifest['parts']) else 'parts'
     noun = 'stencils' if schema != 'part_slots_v1' else noun
     slots = mode = None
+    groups = None  # set below for part_slots_v1; reused by the legacy per-part path
     if schema == 'part_slots_v1':
         # #1473: offer a remembered or proposed mapping first. It is a
         # default, never a decision: only the operator's tap applies it.
@@ -214,9 +215,11 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
             if multi_tool:
                 refuse_over_capacity()
             remembered = remembered_color_mapping(manifest, selections,
-                                                  selected_plate_ids=selected_plates)
+                                                  selected_plate_ids=selected_plates,
+                                                  groups=groups)
             proposal = None if remembered else propose_mapping(
-                manifest, selections, selected_plate_ids=selected_plates)
+                manifest, selections, selected_plate_ids=selected_plates,
+                groups=groups)
             if remembered or (proposal and proposal['matched']):
                 if remembered:
                     offer = (f"Same colors as last time for this file? "
@@ -275,7 +278,9 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
         else:
             if multi_tool:
                 refuse_over_capacity()
-            slots = await ask_slots()
+            # The groups built for the offer, when there were any: no second
+            # per-part grouping pass for the legacy questions (#1499).
+            slots = await ask_slots(groups)
             mode = 'per_part'
     latest = json.loads(path.read_text())
     if file_sha256(latest['downloaded_file']) != source_hash:
