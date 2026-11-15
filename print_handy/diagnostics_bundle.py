@@ -365,6 +365,18 @@ def printer_logs_section(data, *, log_lines: int = DEFAULT_LOG_LINES, fetch=None
     return "\n\n".join(parts) or "(no printers configured)"
 
 
+def timing_section(data) -> str:
+    """The real user-facing waits from the archive's TIMING.jsonl files
+    (#1476): the same summary the doctor and the Web UI Timing page
+    show, built by print_handy.jobs.timing_report."""
+    from .jobs import timing_report
+
+    archive = (data.get("paths") or {}).get("archive")
+    if not archive:
+        return "(unavailable: no job archive is configured)"
+    return timing_report.render_text(timing_report.build_report(archive))
+
+
 def doctor_output() -> str:
     from . import doctor
     out = io.StringIO()
@@ -545,6 +557,10 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
         "## Crashes",
         "",
         _section(crash_report.section, data),
+        "",
+        "## Timing",
+        "",
+        _section(timing_section, data) if load_error is None else "(unavailable: the configuration did not load)",
         "",
         "## Doctor",
         "",
