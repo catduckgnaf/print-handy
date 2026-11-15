@@ -13,7 +13,6 @@ import sys
 import tempfile
 import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
@@ -164,12 +163,9 @@ def get_job():
 
 
 def get_json(path, timeout=10):
-    headers = {"Accept": "application/json"}
-    if API_KEY:
-        headers["X-Api-Key"] = API_KEY
-    request = urllib.request.Request(f"{_config.require(BASE, 'services.moonraker_url')}{path}", headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)
+    from .. import moonraker
+    return moonraker.moonraker_json(_config.require(BASE, 'services.moonraker_url'), path,
+                                    timeout=timeout, headers={"Accept": "application/json"})
 
 
 def get_file_metadata(filename):
@@ -248,11 +244,10 @@ def download_timelapse(video_name, job_key):
         return destination
     temporary = destination.with_name(f".{destination.name}.partial")
     encoded = urllib.parse.quote(name)
-    request = urllib.request.Request(f"{_config.require(BASE, 'services.moonraker_url')}/server/files/timelapse/{encoded}")
-    if API_KEY:
-        request.add_header("X-Api-Key", API_KEY)
+    from .. import moonraker
     try:
-        with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as handle:
+        with moonraker.open_url(f"{_config.require(BASE, 'services.moonraker_url')}/server/files/timelapse/{encoded}",
+                                timeout=60, moonraker=True) as response, temporary.open("wb") as handle:
             copied = 0
             while True:
                 chunk = response.read(1024 * 1024)

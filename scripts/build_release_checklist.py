@@ -539,6 +539,108 @@ def build_checklist(data):
     )
     lines.append("")
 
+    # -- (h2) Real-install timing (#1476). ----------------------------------
+    lines.append("## Real-install timing")
+    lines.append("")
+    lines.append(
+        "The mock baseline above is not the product's speed (#1476): the "
+        "waits a person feels are measured from `TIMING.jsonl` on a real "
+        "install. A proof run records them with "
+        "`python3 -m print_handy.jobs.timing_report --summary-out "
+        "timing-summary.json` on the proof install (add `--check-budgets` "
+        "to gate on the budgets in that module), and the summary is handed "
+        "to this builder with `--timing-summary`; the previous release's "
+        "summary goes in with `--previous-timing-summary` so a span whose "
+        "median moved more than 20% and more than 0.5 s is flagged "
+        "(the rule in `print_handy/jobs/timing_report.py`, which is the "
+        "source of truth for spans, budgets and the movement threshold)."
+    )
+    lines.append("")
+    timing = data.get("timing_summary")
+    if not isinstance(timing, dict) or not isinstance(timing.get("spans"), dict):
+        lines.append(
+            "- [ ] Real-install timing: **not measured** for this release. "
+            "No proof-run timing summary was given to the checklist "
+            "builder, so no medians are recorded here (none are invented). "
+            "Run the proof install's timing report as above and rebuild "
+            "with `--timing-summary`, or defer explicitly. "
+            "Decision: measured / deferred by catduck."
+        )
+    else:
+        lost = timing.get("start_response_lost") or {}
+        lines.append(
+            f"Recorded from a proof run: {timing.get('jobs_used', 0)} jobs "
+            f"used of {timing.get('jobs_seen', 0)} seen; start responses "
+            f"lost: {lost.get('occurrences', 0)} in {lost.get('jobs', 0)} "
+            "job(s)."
+        )
+        lines.append("")
+        lines.append("| Span | Median | p90 | Jobs |")
+        lines.append("| --- | --- | --- | --- |")
+        over = []
+        for key, span in timing["spans"].items():
+            label = span.get("label") or key
+            median = span.get("median")
+            p90 = span.get("p90")
+            lines.append(
+                f"| {label} | "
+                f"{'not measured' if median is None else f'{median:.1f}s'} | "
+                f"{'not measured' if p90 is None else f'{p90:.1f}s'} | "
+                f"{span.get('n', 0)} |"
+            )
+            for which in span.get("over_budget") or []:
+                over.append(f"{label} ({which})")
+        lines.append("")
+        if over:
+            lines.append(
+                "- [ ] Real-install timing: spans over budget: "
+                + ", ".join(over)
+                + ". Resolve before tagging, or defer explicitly. "
+                "Decision: resolved / deferred by catduck."
+            )
+        else:
+            lines.append(
+                "- [ ] Real-install timing: every measured span is inside "
+                "its budget. Decision: verified."
+            )
+        previous = data.get("previous_timing_summary")
+        if isinstance(previous, dict) and isinstance(previous.get("spans"), dict):
+            moved = []
+            for key, span in timing["spans"].items():
+                before = (previous["spans"].get(key) or {}).get("median")
+                now = span.get("median")
+                if before is None or now is None:
+                    continue
+                delta = now - before
+                # Mirrors timing_report.movement: flag only when the move
+                # is over both 20% and 0.5 s.
+                if abs(delta) > 0.5 and (before <= 0 or abs(delta) / before > 0.20):
+                    moved.append(
+                        f"{span.get('label') or key} "
+                        f"{'slower' if delta > 0 else 'faster'} by "
+                        f"{abs(delta):.1f}s (was {before:.1f}s, now {now:.1f}s)"
+                    )
+            if moved:
+                lines.append(
+                    "- [ ] Median movement since the previous recorded "
+                    "summary: " + "; ".join(moved) + ". Each move is "
+                    "explained here or the span is fixed before tagging. "
+                    "Decision: explained / fixed / deferred by catduck."
+                )
+            else:
+                lines.append(
+                    "- [ ] No span's median moved past the threshold since "
+                    "the previous recorded summary. Decision: verified."
+                )
+        else:
+            lines.append(
+                "- [ ] No previous timing summary was given, so median "
+                "movement since the last release is not measured. This "
+                "summary becomes the baseline the next release compares "
+                "against. Decision: recorded."
+            )
+    lines.append("")
+
     # -- (i) The gate. --------------------------------------------------------
     lines.append("## Fix-first gate")
     lines.append("")
@@ -568,6 +670,18 @@ def main(argv=None):
     parser.add_argument(
         "--title-output", help="optional file to write the issue title to"
     )
+    parser.add_argument(
+        "--timing-summary",
+        help="a proof run's timing summary JSON (from "
+        "print_handy.jobs.timing_report --summary-out), recorded in the "
+        "Real-install timing section; without it that section records "
+        "not measured",
+    )
+    parser.add_argument(
+        "--previous-timing-summary",
+        help="the previous release's timing summary JSON, compared "
+        "against --timing-summary for median movement flags",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -575,6 +689,15 @@ def main(argv=None):
     except (OSError, json.JSONDecodeError) as exc:
         print(f"build_release_checklist: cannot read input: {exc}", file=sys.stderr)
         return 2
+    for arg, key in ((args.timing_summary, "timing_summary"),
+                     (args.previous_timing_summary, "previous_timing_summary")):
+        if arg:
+            try:
+                data[key] = json.loads(open(arg, encoding="utf-8").read())
+            except (OSError, json.JSONDecodeError) as exc:
+                print(f"build_release_checklist: cannot read {arg}: {exc}",
+                      file=sys.stderr)
+                return 2
     version = data.get("version", "")
     if not VERSION_RE.fullmatch(version or ""):
         print(

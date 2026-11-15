@@ -22,10 +22,10 @@ import secrets
 import threading
 import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .. import moonraker
 from ..core import fuzzy, projects
 from . import _config
 
@@ -150,16 +150,12 @@ INTERRUPTED_HINT = ("If the printer screen offers Resume, tap it there. Don't re
 
 def _call(path: str, method: str = "GET", data: dict[str, Any] | None = None, timeout: float = 10,
           base: str | None = None) -> dict[str, Any]:
-    body = None
-    headers = {}
-    if data is not None:
-        body = json.dumps(data).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    elif method == "POST":
+    body = data
+    if body is None and method == "POST":
         body = b""
-    req = urllib.request.Request(_config.require(BASE if base is None else base, "services.moonraker_url") + path, method=method, data=body, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read() or b"{}")
+    return moonraker.moonraker_json(
+        _config.require(BASE if base is None else base, "services.moonraker_url"),
+        path, method=method, data=body, timeout=timeout)
 
 
 def _send(path: str, method: str = "GET", data: dict[str, Any] | None = None, timeout: float = 10,
@@ -293,7 +289,10 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
     Refused without sending when the toolhead filament sensor reads empty.
     An unreadable sensor does not block the resume.
     """
-    before = status(printer_id)
+    try:
+        before = status(printer_id)
+    except moonraker.MoonrakerAuthError as exc:
+        return False, f"{exc} Nothing sent."
     if not resumable(before):
         return False, not_resumable_text(before)
     if expected_filename and before["filename"] and before["filename"] != expected_filename:
@@ -301,7 +300,10 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
     if head_filament_loaded(printer_id) is False:
         return False, HEAD_EMPTY_TEXT
     from .print_stop import NO_REPLY_WAIT_S, post_print_command, read_back
-    replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+    try:
+        replied = post_print_command(_send, "/printer/print/resume", printer_id=printer_id)
+    except moonraker.MoonrakerAuthError as exc:
+        return False, f"{exc} The resume was not sent."
     if not replied:
         wait_s = max(wait_s, NO_REPLY_WAIT_S)
     after = read_back(lambda: status(printer_id), lambda st: st["state"] == "printing",
@@ -826,8 +828,10 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         # a model can legitimately be named like one.
         try:
             return resolve_plate_ref(query, archive)
-        except NextPlateError:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except NextPlateError as exc:
+            # Expected fall-through, not a fault (duckcatgnaf #1432).
+            __import__("logging").getLogger(__name__).debug(
+                "no project plate carries alias %r, trying titles: %s", query, exc)
     hits = match_printed(query, rows)
     if not hits:
         near = fuzzy_printed(query, rows)
@@ -1689,8 +1693,10 @@ def force_reboot(
         try:
             _send("/printer/gcode/script", method="POST", data={"script": "REBOOT"}, timeout=15,
                   printer_id=printer_id)
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except Exception as exc:
+            # REBOOT drops the connection by design; the safe-idle wait below
+            # decides success (duckcatgnaf #1432).
+            __import__("logging").getLogger(__name__).info("REBOOT macro call ended without a reply: %r", exc)
 
     def default_mr():
         if printer_id:

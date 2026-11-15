@@ -56,6 +56,7 @@ NAV = (
     ("/spools", "Spools"),
     ("/designs", "Designs"),
     ("/projects", "Projects"),
+    ("/timing", "Timing"),
     ("/config", "Settings"),
 )
 

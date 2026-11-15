@@ -16,7 +16,7 @@ body:
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed behaviour
+      label: Proposed behavior
       description: What should Print Handy do? Cover the user-visible flow, any new settings or defaults, and what happens when it cannot comply.
     validations:
       required: true

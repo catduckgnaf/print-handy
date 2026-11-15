@@ -145,6 +145,8 @@ ROUTES = (
     _get("/api/wrapped", SESSION, "_data_route", pass_path=True),
     _get("/wrapped/video-file", SESSION, "_wrapped_video_file_route"),
     _get("/api/wrapped/video-status", SESSION, "_wrapped_video_status_route"),
+    # The real user-facing waits, read back from TIMING.jsonl (#1476).
+    _get("/timing", SESSION, "_timing_route"),
     _get("/readyz", SESSION, "_readyz"),
     # /status, /spools, /camera/snapshot and /screen/snapshot per printer.
     _get("/api/printers/*", SESSION, "_printer_status_route", decode=False),
