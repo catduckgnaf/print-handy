@@ -1,3 +1,4 @@
+# A frame is a witness to one moment, not a receipt for the whole print.
 """Shared camera-watchdog pieces: sensitivity profiles, the vision verdict call, and the trigger policy.
 
 This module is the one implementation of the visual check the Moonraker
