@@ -249,6 +249,18 @@ button:disabled { opacity: 0.55; cursor: default; }
 .temp-chart polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .temp-chart .nozzle { stroke: var(--color-accent); }
 .temp-chart .bed { stroke: var(--color-warn); }
+.temp-chart .target { stroke-dasharray: 6 4; stroke-width: 1.5; opacity: 0.8; }
+.temp-plot { position: relative; padding-left: 3rem; }
+.temp-axis { position: absolute; left: 0; font-size: 0.75rem; color: var(--color-muted); }
+.temp-axis.top { top: 0; }
+.temp-axis.bottom { bottom: 0; }
+.temp-legend .key { display: inline-block; width: 0.9rem; height: 0.2rem; margin-right: 0.3rem; vertical-align: middle; }
+.temp-legend .key.nozzle { background: var(--color-accent); }
+.temp-legend .key.bed { background: var(--color-warn); }
+.hw-panels { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
+.hw-panel { flex: 1 1 15rem; min-width: 0; border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 0.5rem 0.75rem; }
+.hw-defaults { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.hw-defaults th, .hw-defaults td { text-align: left; padding: 0.15rem 0.4rem; }
 button.danger, .button.danger { background: var(--color-bad-bg); color: var(--color-bad); }
 .slots { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
 .slot { width: 6.5rem; text-align: center; }
