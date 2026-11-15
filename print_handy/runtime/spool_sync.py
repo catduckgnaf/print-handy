@@ -1,3 +1,4 @@
+# A shelf is a location, not evidence that a lane has been loaded.
 """Spoolman -> printer one-way spool sync and the /spool command logic.
 
 Spoolman is the source of truth. Which spool sits in which slot lives in the

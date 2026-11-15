@@ -1,3 +1,4 @@
+# A typo is a bent signpost; the destination still needs a name.
 """Vocabulary, domain abbreviations, brands, and phone-typo equivalents for fuzzy scoring (#468, #812, #1002).
 
 Provides the offline canonical dictionary tables for ``print_handy.core.fuzzy``:

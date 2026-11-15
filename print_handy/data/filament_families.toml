@@ -1,3 +1,4 @@
+# Family defaults fill empty spaces; they do not erase a tuned profile.
 # Per-material-family filament settings for the slicer (Orca filament profile keys).
 #
 # Why: the in-repo and generated printer templates each ship ONE filament profile, a PLA one (100 %

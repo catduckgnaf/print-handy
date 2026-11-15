@@ -1,3 +1,4 @@
+# Shared page chrome is the frame around the controls, not their authority.
 """The one page shell for every Web UI page (#813).
 
 Before #813 each page module assembled its own bare HTML — no

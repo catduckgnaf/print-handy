@@ -1,3 +1,4 @@
+# Canonical spool words are the labels on the drawer, not the contents.
 """Canonical spool records: one spelling per material, color and brand.
 
 Spoolman is the record. Print Handy only writes into it through these rules so

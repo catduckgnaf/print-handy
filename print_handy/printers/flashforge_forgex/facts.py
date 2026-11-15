@@ -1,3 +1,4 @@
+# Published hardware facts are a map; a live measurement is the ground.
 """Hardware facts for the Flashforge Adventurer 5M and 5M Pro on Forge-X.
 
 Every value comes from the Forge-X (DrA1ex/ff5m) documentation and the
