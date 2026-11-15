@@ -192,6 +192,22 @@ def test_every_moonraker_model_has_macro_coverage_except_the_inline_verdicts(reg
             assert ids, key
 
 
+def test_opencreator_macro_scope_is_exactly_set_print_stats_info(registry):
+    # The exact assertion for the #1490 scope widening of
+    # klipper.set-print-stats-info (its printers/notes fields are set
+    # aside in tests/test_knowledge.py for this entry): the OpenCreator
+    # Creator models gain exactly that entry and nothing else, because
+    # their documented start form emits SET_PRINT_STATS_INFO and no
+    # other scoped macro entry names a macro their files or firmware
+    # contract use.
+    for key in ("flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro"):
+        assert _applicable_macro_ids(registry, key) == {"klipper.set-print-stats-info"}, key
+    for entry in registry.firmware_entries:
+        if entry.id == "klipper.set-print-stats-info":
+            assert "flashforge_opencreator.creator5" in entry.printers
+            assert "flashforge_opencreator.creator5_pro" in entry.printers
+
+
 def test_snapmaker_u1_macro_scope_is_exactly_the_print_start_pair(registry):
     # The exact assertion for the klipper.print-start / print-end scope
     # widening (the two entries sit in the widened set in

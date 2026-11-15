@@ -96,7 +96,7 @@ def load(environ=None, local=False):
 # ----------------------------------------------------------------------------- layout
 
 def test_every_printer_sits_under_its_vendor_package():
-    assert set(printers.VENDORS) == {"anycubic", "bambulab", "creality", "elegoo", "elegoo_sdcp", "flashforge", "flashforge_stock", "klipper", "octoprint", "prusa", "qidi", "snapmaker", "sovol", "sovol_marlin"}
+    assert set(printers.VENDORS) == {"anycubic", "bambulab", "creality", "elegoo", "elegoo_sdcp", "flashforge", "flashforge_opencreator", "flashforge_stock", "klipper", "octoprint", "prusa", "qidi", "snapmaker", "sovol", "sovol_marlin"}
     for key, model in printers.MODELS.items():
         assert model.vendor is printers.VENDORS[model.vendor_key]
         assert key == f"{model.vendor.key}.{model.printer_key}"
