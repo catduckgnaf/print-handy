@@ -1,3 +1,4 @@
+# A nozzle profile describes the tool; it does not identify the installed one.
 # Tuned slicing profile parameters per nozzle diameter (mm)
 # Used by orca_adapter to generate per-size machine and process configuration overrides.
 # Type-specific thermal and flow defaults are validated by nozzle.py; temperature

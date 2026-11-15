@@ -3,7 +3,8 @@
 paint_color is a TriangleSelector tree serialized as hex nibbles read from the
 END of the string. Per node: low 2 bits = split side count (0 = leaf). A split
 node is followed by split+1 children. A leaf stores its state in the high 2
-bits; 3 means "state >= 3", and the next nibble holds state - 3. State 0 is the
+bits; 3 means "state >= 3": then a run of F nibbles (15 each) and one final
+nibble give state - 3, so painted models past 17 filaments read. State 0 is the
 object's base extruder; state N >= 1 is source filament N.
 
 PrusaSlicer's slic3rpe:mmu_segmentation attribute carries the same
@@ -122,9 +123,19 @@ def _parse(code):
             return ('s', c, [node() for _ in range(split + 1)])
         state = c >> 2
         if state == 3:
-            if pos >= len(nib):
-                raise ValueError('truncated paint_color')
-            state = nib[pos] + 3; pos += 1
+            # Extended state (BambuStudio/OrcaSlicer TriangleSelector): a run of
+            # 0xF nibbles, each adding 15, then one final nibble; state is
+            # 3 + 15 * run + final. Orca writes states 18..32 as F then (n - 18),
+            # which is the same rule with a run of one.
+            run = 0
+            while True:
+                if pos >= len(nib):
+                    raise ValueError('truncated paint_color')
+                n = nib[pos]; pos += 1
+                if n != 0xF:
+                    break
+                run += 1
+            state = 3 + 15 * run + n
         return ('l', state)
 
     tree = node()
@@ -143,9 +154,10 @@ def _emit(tree, out):
         if state < 3:
             out.append(state << 2)
         else:
-            if state - 3 > 15:
-                raise ValueError('paint state too large')
-            out.extend([0xC, state - 3])
+            run, rest = divmod(state - 3, 15)
+            out.append(0xC)
+            out.extend([0xF] * run)
+            out.append(rest)
 
 
 def _encode(tree):

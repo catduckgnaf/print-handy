@@ -42,6 +42,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/projects` | The same project readout as JSON |
 | `GET /sliced` | Read-only list of sliced jobs in the archive, with a download per plate file |
 | `GET /sliced/<job>/<n>` | Download of plate number `n` of that job (`.gcode` or `.gcode.3mf`), as an attachment |
+| `GET /settings-report/<job>` | Download of that job's settings report as JSON: which recorded settings were kept and which were replaced, and by what |
 | `GET /workflow` | The print workflow page: start from a link or a file, answer the intake's questions as on-page buttons, end in a download or a print start |
 | `GET /workflow/state` | The workflow page's poll: the newest transcript position and whether a reply is pending, as JSON |
 | `GET /workflow/download/<intake>/<n>` | Download of plate `n` of that session's own finished workflow, as an attachment |
@@ -124,6 +125,8 @@ The page keeps no store of its own and changes nothing: continuing or reprinting
 ### Sliced files page
 
 `/sliced` is where a slice becomes a file you take away (#1443): every sliced job in the archive, newest first, with a download link per plate file, plain `.gcode` and ZMod `.gcode.3mf` packages alike. This is the flow for printing by other means (a USB stick, an SD card, the printer's own screen), and the browser half of the link → slice → download flow: paste a model link into the **Slice a link** form on the Sources page (or drop it in chat), choose **Slice and Download**, and the finished file waits here. Files sliced from AI-made designs land here the same way. Downloads resolve only to files the job's own `JOB.json` names, inside that job's archive folder, and are served as attachments behind the same login. The page slices nothing, uploads nothing, and starts nothing.
+
+A job that recorded conversion provenance also gets a **Settings report** link: a JSON download listing each recorded setting as **kept** (the slice used the project's own value) or **replaced**, naming the layer that replaced it (this job's request, an operator setting, the loaded material's profile, a compatibility rule, or the destination printer profile). Only decisions the provenance actually records are listed. A setting whose change has no recorded cause is left out, not reported as unchanged, and a job with no provenance has no link and its report URL answers 404. The idea comes from FF-3MF-Converter's settings report; no code was taken from it.
 
 ### Status page
 

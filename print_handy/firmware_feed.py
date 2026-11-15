@@ -1,3 +1,4 @@
+# The release feed is a noticeboard, not permission to install.
 """The firmware feed: the newest release of every firmware Print Handy follows.
 
 Issue #1280 section I. One public JSON file, built by
