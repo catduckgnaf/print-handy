@@ -89,7 +89,7 @@ def test_moonraker_objects_are_the_standard_single_extruder_set(key):
     adapter = adapter_for(key)
     assert adapter.moonraker_objects() == [
         "webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed",
-        "exclude_object"]
+        "exclude_object", "mod_params"]
 
 
 @pytest.mark.parametrize("key", KEYS)
