@@ -135,6 +135,7 @@ def recent_prints(data, limit=_RECENT_LIMIT, *, records_vault=None):
     try:
         records, _skipped = print_stats.load_records(data_module._vault(data, records_vault))
     except Exception:  # a records problem is no list, never a broken page
+        log.warning("dashboard could not load print records", exc_info=True)
         return []
     rows = []
     for record in records:
@@ -158,19 +159,32 @@ def recent_prints(data, limit=_RECENT_LIMIT, *, records_vault=None):
     return rows[:limit]
 
 
-def latest_timelapse(data):
+# The clip walk stats every clip under every root, so the Status page
+# reuses one answer for this long instead of walking on every load.
+_TIMELAPSE_TTL_S = 60.0
+_timelapse_cache = {}
+
+
+def latest_timelapse(data, *, now=None):
     """The newest timelapse clip in the finder's roots, or None.
 
     Name, size and modification time only: the Web UI serves the
     compiled Wrapped video, not individual clips, so the dashboard
     names the clip and links to the Wrapped page rather than embedding
-    a player nothing can serve.
+    a player nothing can serve. The answer is cached per set of roots
+    for ``_TIMELAPSE_TTL_S`` seconds.
     """
-    newest = None
     try:
         roots = wrapped_video._clip_roots(data)
     except Exception:  # a roots problem is no clip, never a broken page
+        log.warning("dashboard could not resolve the timelapse roots", exc_info=True)
         return None
+    now = time.monotonic() if now is None else now
+    key = tuple(str(root) for root in roots)
+    cached = _timelapse_cache.get(key)
+    if cached is not None and now - cached[0] < _TIMELAPSE_TTL_S:
+        return cached[1]
+    newest = None
     for root in roots:
         if not root.is_dir():
             continue
@@ -181,6 +195,8 @@ def latest_timelapse(data):
                 continue
             if newest is None or stat.st_mtime > newest["mtime"]:
                 newest = {"name": path.name, "size": stat.st_size, "mtime": stat.st_mtime}
+    _timelapse_cache.clear()  # one roots set per install; never grows
+    _timelapse_cache[key] = (now, newest)
     return newest
 
 
@@ -218,10 +234,12 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
     try:
         entries = settings.printers(data)
     except Exception:  # a broken roster is no cards, never a broken page
+        log.warning("dashboard could not read the printer roster", exc_info=True)
         entries = []
     try:
         default_id = settings.default_printer_id(data)
     except Exception:
+        log.warning("dashboard could not read the default printer", exc_info=True)
         default_id = None
     controls_on = controls_module.controls_enabled(data)
     for entry in entries:
@@ -246,6 +264,7 @@ def build_dashboard(data, *, status_for=None, spools_for=None, history=None):
             card["model"] = (body or {}).get("model") or card["model"]
             history.sample(printer_id, live.get("hotend_c"), live.get("bed_c"))
         except Exception as exc:  # a dead read is an unavailable card
+            log.warning("dashboard status read failed for %s: %s", printer_id, exc)
             card["detail"] = f"{type(exc).__name__}: {exc}"
         card["history"] = history.samples(printer_id)
         try:

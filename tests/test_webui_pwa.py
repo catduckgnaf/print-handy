@@ -61,11 +61,10 @@ class PWAFoundationUnitTests(unittest.TestCase):
         self.assertNotEqual(any_512[0]["src"], maskable[0]["src"])
 
     def test_maskable_icon_is_a_distinct_padded_png(self):
-        # The regular 512 artwork is read from the branding set for
-        # the comparison only; the PWA static route does not serve it
-        # (it is the favicon change's route).
-        regular = (pwa.REPO_BRANDING_DIR / "icon-512.png").read_bytes()
-        _, maskable = pwa.resolve_static_file("icon-512-maskable.png")
+        # Both files are served by the one icon allowlist route; the
+        # maskable artwork must be its own padded file.
+        regular = (pwa.STATIC_DIR / "icon-512.png").read_bytes()
+        maskable = (pwa.STATIC_DIR / "icon-512-maskable.png").read_bytes()
         self.assertEqual(png_size(regular), (512, 512))
         self.assertEqual(png_size(maskable), (512, 512))
         self.assertNotEqual(regular, maskable)
@@ -166,29 +165,21 @@ class PWAFoundationUnitTests(unittest.TestCase):
         route, _ = routes.resolve("POST", "/sw.js")
         self.assertEqual(route.handler, "_read_only")
 
-    def test_static_asset_resolution_and_traversal_guards(self):
-        res_maskable = pwa.resolve_static_file("icon-512-maskable.png")
-        self.assertIsNotNone(res_maskable)
-        ctype, data = res_maskable
-        self.assertEqual(ctype, "image/png")
-        self.assertEqual(png_size(data), (512, 512))
-
-        # Every other name is refused, including real branding files:
-        # the favicon and the branding icons are the favicon change's
-        # routes, and this route must not duplicate them.
-        self.assertIsNone(pwa.resolve_static_file("icon-192.png"))
-        self.assertIsNone(pwa.resolve_static_file("icon-512.png"))
-        self.assertIsNone(pwa.resolve_static_file("icon-180.png"))
-        self.assertIsNone(pwa.resolve_static_file("favicon.ico"))
-
-        # Path traversal and invalid names are refused.
-        self.assertIsNone(pwa.resolve_static_file("../pyproject.toml"))
-        self.assertIsNone(pwa.resolve_static_file(".."))
-        self.assertIsNone(pwa.resolve_static_file("sub/file.png"))
-        self.assertIsNone(pwa.resolve_static_file(".hidden"))
-        self.assertIsNone(pwa.resolve_static_file(""))
-        self.assertIsNone(pwa.resolve_static_file("nonexistent.png"))
-
+    def test_cache_name_follows_the_cached_content(self):
+        # The cache name is derived, never bumped by hand: it carries
+        # the package version and rotates when the manifest or any
+        # static icon changes, so activate drops the stale cache.
+        from print_handy import __version__
+        self.assertTrue(pwa.CACHE_NAME.startswith(f"ph-static-{__version__}-"))
+        self.assertEqual(pwa._cache_name(), pwa.CACHE_NAME)
+        original = dict(pwa.MANIFEST)
+        try:
+            pwa.MANIFEST["short_name"] = "Print Handy (changed)"
+            self.assertNotEqual(pwa._cache_name(), pwa.CACHE_NAME)
+        finally:
+            pwa.MANIFEST.clear()
+            pwa.MANIFEST.update(original)
+        self.assertEqual(pwa._cache_name(), pwa.CACHE_NAME)
 
 class PWAFoundationServerIntegrationTests(WebServerCase):
     """End-to-end HTTP integration tests for PWA routes and cache contracts."""

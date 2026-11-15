@@ -244,3 +244,22 @@ def test_server_status_page_serves_the_dashboard():
             httpd.server_close()
     assert "dash-card" in body and "benchy.gcode" in body
     assert "Matte White" in body and "Recent prints" not in body  # no records written
+
+
+def test_latest_timelapse_reuses_one_walk_within_its_ttl():
+    """The Status page does not walk the clip roots on every load."""
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "local.yaml"
+        local.write_text(f"paths:\n  state_home: {tmp}/hermes\n  cache: {tmp}/cache\n")
+        data = settings.load(local=local, environ={})
+        clips = Path(tmp) / "cache" / "moonraker-announcements"
+        clips.mkdir(parents=True)
+        (clips / "print-1_first.mp4").write_bytes(b"x")
+        first = dashboard.latest_timelapse(data, now=1000.0)
+        later = clips / "print-2_later.mp4"
+        later.write_bytes(b"xx")
+        os.utime(later, (4_000_000_000, 4_000_000_000))
+        cached = dashboard.latest_timelapse(data, now=1000.0 + dashboard._TIMELAPSE_TTL_S / 2)
+        fresh = dashboard.latest_timelapse(data, now=1000.0 + dashboard._TIMELAPSE_TTL_S + 1)
+    assert first["name"] == cached["name"] == "print-1_first.mp4"
+    assert fresh["name"] == "print-2_later.mp4"

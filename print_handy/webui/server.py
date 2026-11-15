@@ -1507,6 +1507,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 label = self._chat_view().answer(clarify_id, index)
             except Exception:
+                log.warning("design page answer for %s did not reach the bot",
+                            clarify_id, exc_info=True)
                 self._designs_page(error="That answer didn't reach the bot "
                                          "in time. The question is still "
                                          "open — try again.")
@@ -2656,6 +2658,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 label = self._chat_view().answer(clarify_id, index)
             except Exception:
+                log.warning("workflow page answer for %s did not reach the bot",
+                            clarify_id, exc_info=True)
                 self._workflow_page(error="That answer didn't reach the "
                                           "bot in time. The question is "
                                           "still open, try again.")

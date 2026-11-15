@@ -14,8 +14,8 @@ that job's archive folder. Unlike Layers, which draws ``.gcode`` only, a
 download is format-agnostic: the plate file the job records is the file the
 printer takes, plain ``.gcode`` or a ZMod ``.gcode.3mf`` alike. Nothing
 here slices, uploads to a printer, or starts anything; slicing happens in
-chat (the Sources page's link form hands a link to web chat), and this page
-only hands back what a slice already produced.
+chat or on the on-page workflow (the Sources page's Start with a link form
+opens it), and this page only hands back what a slice already produced.
 """
 from __future__ import annotations
 
@@ -86,17 +86,33 @@ def _load_job(archive: Path, job_id: str) -> tuple[Path, dict] | None:
     return job, payload
 
 
-def list_sliced(archive: Path) -> list:
+# The page lists the newest jobs only: the archive grows forever and
+# every listed job costs a JOB.json parse and a stat per plate.
+SLICED_ROW_LIMIT = 100
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0
+
+
+def list_sliced(archive: Path, limit: int = SLICED_ROW_LIMIT) -> list:
     """Downloadable sliced jobs, newest first: one row per job, one entry per plate.
 
     A job with no plate file still on disk inside its own folder is skipped,
-    exactly as an unreadable JOB.json is.
+    exactly as an unreadable JOB.json is. At most ``limit`` rows are listed;
+    jobs are ordered by their JOB.json's modification time before any is
+    parsed, so older jobs past the limit are never read.
     """
     root = Path(archive)
     if not root.is_dir():
         return []
     rows = []
-    for job in root.glob("*/JOB.json"):
+    for job in sorted(root.glob("*/JOB.json"), key=_mtime, reverse=True):
+        if len(rows) >= limit:
+            break
         job_id = job.parent.name
         loaded = _load_job(root, job_id)
         if loaded is None:

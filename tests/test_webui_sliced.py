@@ -171,3 +171,15 @@ def test_server_lists_and_downloads_sliced_files(tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_list_sliced_lists_only_the_newest_jobs_up_to_the_limit(tmp_path):
+    """The Sliced files page has a row limit: older jobs past it are not read."""
+    import os
+    archive = tmp_path / "archive"
+    for n in range(5):
+        job = _job(archive, f"job-{n}", {"title": f"Job {n}", "gcode": "plate_1.gcode"},
+                   {"plate_1.gcode": GCODE})
+        os.utime(job / "JOB.json", (1_000_000 + n, 1_000_000 + n))
+    rows = sliced.list_sliced(archive, limit=2)
+    assert [row["job_id"] for row in rows] == ["job-4", "job-3"]

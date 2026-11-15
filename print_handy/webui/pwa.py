@@ -1,19 +1,18 @@
 """PWA foundation support for the Print Handy Web UI (#450 Phase 1).
 
-Provides the web app manifest, the service worker script, the offline
-fallback page, and resolution of the one install asset this change
-serves itself: the maskable icon. The routes are declared in
-:mod:`print_handy.webui.routes` with the ``public`` policy and
-answered by handlers in :mod:`print_handy.webui.server`; this module
-only builds the payloads.
+Builds the web app manifest, the service worker script and the offline
+fallback page. The routes are declared in
+:mod:`print_handy.webui.routes` with the ``public`` policy and answered
+by handlers in :mod:`print_handy.webui.server`; this module only builds
+the payloads. Every icon, the maskable one included, is served by the
+server's single icon allowlist (``ICON_FILES``, ``/favicon.ico`` and
+``/static/<name>``); nothing here resolves or serves files.
 
-The favicon and the branding icons the manifest lists are a separate
-change's routes and are deliberately not served here, so the two
-changes never duplicate a route. For the same reason the precache
-holds only what this change serves (the manifest, the offline page,
-and the maskable icon): the worker installs cleanly on its own, and
-the remaining icons are runtime-cached when the browser fetches them
-from their own routes.
+The precache holds the manifest, the offline page and the maskable
+icon; the other icons are runtime-cached when the browser fetches them.
+The cache name is derived from the package version and the bytes of
+the manifest and the static icons, so changing any of them rotates the
+cache and the worker's activate step drops the old one.
 
 Caching is deliberately narrow. API responses (``/api/*``), token
 upload links (``/u/*``), the login page, and every non-GET request
@@ -22,34 +21,23 @@ so stale printer state is never served as if it were live.
 """
 from __future__ import annotations
 
+import hashlib
 import json
-import mimetypes
 from pathlib import Path
-from typing import Optional, Tuple
 
+from .. import __version__
 from . import shell
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-REPO_BRANDING_DIR = Path(__file__).resolve().parents[2] / "assets" / "branding"
 
-# Cache name, versioned for Phase 1: bump it when the precache list or
-# the worker script changes so activate cleans the old cache up.
-CACHE_NAME = "ph-static-v1"
-
-# The precached install assets: only what this change serves, so the
-# worker installs on its own. The other manifest icons live on the
-# favicon change's routes and are runtime-cached when fetched, never
-# precached here (a precache entry that 404s fails the whole install).
+# The precached install assets. The other manifest icons are
+# runtime-cached when fetched, never precached (a precache entry that
+# 404s fails the whole install).
 PRECACHE_URLS = [
     "/manifest.webmanifest",
     "/offline",
     "/static/icon-512-maskable.png",
 ]
-
-# The one file the /static route serves: the maskable icon, which is
-# PWA-only artwork. Every other name is refused; the favicon and the
-# branding icons are the favicon change's routes, not duplicates here.
-STATIC_FILES = frozenset({"icon-512-maskable.png"})
 
 MANIFEST = {
     "name": "Print Handy",
@@ -105,6 +93,22 @@ MANIFEST = {
 }
 
 # The service worker implementation.
+
+def _cache_name() -> str:
+    """Cache name tied to the content it caches: the package version plus
+    a digest of the manifest and every static icon. Any change to them
+    rotates the name, so no release can ship a stale cache by forgetting
+    a manual bump."""
+    digest = hashlib.sha256(json.dumps(MANIFEST, sort_keys=True).encode())
+    for path in sorted(STATIC_DIR.glob("*")):
+        if path.is_file():
+            digest.update(path.name.encode())
+            digest.update(path.read_bytes())
+    return f"ph-static-{__version__}-{digest.hexdigest()[:12]}"
+
+
+CACHE_NAME = _cache_name()
+
 SW_SCRIPT = f"""// Print Handy Service Worker (PWA Phase 1, #450)
 var CACHE_NAME = {json.dumps(CACHE_NAME)};
 var PRECACHE_URLS = {json.dumps(PRECACHE_URLS, indent=2)};
@@ -222,41 +226,7 @@ def render_offline_page(theme: str = shell.DEFAULT_THEME) -> str:
     return shell.page("Offline", body, path="/offline", theme=theme, chrome=False, heading="Offline")
 
 
-def resolve_static_file(name: str) -> Optional[Tuple[str, bytes]]:
-    """Resolve the one static asset this change serves, by name.
-
-    Only the maskable icon in :data:`STATIC_FILES` is served; every
-    other name is refused, including simple names of real branding
-    files (those are the favicon change's routes). The name must be a
-    simple file name: no slashes, no leading dot, no traversal, and
-    the resolved path must stay inside the package static directory
-    or the repository branding directory.
-    """
-    if name not in STATIC_FILES:
-        return None
-    if "/" in name or "\\" in name or name.startswith(".") or ".." in name:
-        return None
-
-    for base in (STATIC_DIR, REPO_BRANDING_DIR):
-        path = base / name
-        if not path.is_file():
-            continue
-        try:
-            path.resolve().relative_to(base.resolve())
-        except ValueError:
-            return None
-        content_type, _ = mimetypes.guess_type(name)
-        if name.endswith(".ico"):
-            content_type = "image/x-icon"
-        elif name.endswith(".webmanifest"):
-            content_type = "application/manifest+json; charset=utf-8"
-        elif not content_type:
-            content_type = "application/octet-stream"
-        return content_type, path.read_bytes()
-    return None
-
-
 __all__ = [
-    "CACHE_NAME", "MANIFEST", "PRECACHE_URLS", "STATIC_FILES", "SW_SCRIPT",
-    "manifest_json", "render_offline_page", "resolve_static_file",
+    "CACHE_NAME", "MANIFEST", "PRECACHE_URLS", "SW_SCRIPT",
+    "manifest_json", "render_offline_page",
 ]
