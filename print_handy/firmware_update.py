@@ -87,6 +87,9 @@ ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
 # applicable component, forge-x, is offered only when the owner turns on
 # [firmware] forgex_apply (off by default). The gate is the profile plus that
 # setting, never what the printer offers.
+# OpenCreator (#1490): never applied, whatever its Update Manager offers.
+OPENCREATOR_VENDOR = "flashforge_opencreator"
+OPENCREATOR_COMPONENTS = frozenset({"opencreator", "opencreatorupdater"})   # the second is the SBC edition
 FORGEX_VENDOR = "flashforge_forgex"
 FORGEX_COMPONENT = "forgex"   # _component_key("forge-x")
 
@@ -140,6 +143,15 @@ def apply_block_reason(entry, cfg=None) -> str | None:
                 f"warns that updating a Neptune 4 to official Klipper/Moonraker makes the "
                 f"machine not work properly), so Print Handy never applies firmware "
                 f"updates on it.")
+    if entry.vendor == OPENCREATOR_VENDOR:
+        # Decided on #1490 (2026-11-15): report and alert only. The profile
+        # is a Klipper-family Moonraker printer, so without this line it
+        # would be apply-eligible.
+        return ("Print Handy reports OpenCreator updates and never applies them. "
+                "OpenCreator is alpha firmware on a Klipper fork, and one of its "
+                "updates can flash the printer's boards. Update from Software "
+                "Update in Fluidd or Mainsail while the printer is idle, and expect "
+                "a Klipper restart afterwards. See docs/OPENCREATOR.md.")
     if entry.vendor == FORGEX_VENDOR:
         if forgex_apply_enabled(cfg):
             return None
@@ -177,6 +189,9 @@ class Component:
     # instance a dirty repo. Moonraker refuses to update an invalid component,
     # so Print Handy never offers or requests one (#1295).
     invalid: str | None = None
+    # How many commits a git component is behind its remote, when Moonraker
+    # lists them; None when it does not say.
+    behind: int | None = None
 
     @property
     def update_available(self) -> bool:
@@ -345,7 +360,8 @@ def parse_update_status(payload) -> UpdateStatus:
         components.append(Component(name=str(name), current=current, remote=remote,
                                     package_count=count if isinstance(count, int)
                                     and not isinstance(count, bool) else 0,
-                                    invalid=_invalid_reason(raw)))
+                                    invalid=_invalid_reason(raw),
+                                    behind=_commits_behind(raw)))
     remaining = payload["result"].get("github_requests_remaining")
     reset = payload["result"].get("github_limit_reset_time")
     return UpdateStatus(
@@ -354,6 +370,15 @@ def parse_update_status(payload) -> UpdateStatus:
         and not isinstance(remaining, bool) else None,
         github_reset=float(reset) if isinstance(reset, (int, float))
         and not isinstance(reset, bool) else None)
+
+
+def _commits_behind(raw):
+    """Commits behind from Moonraker's own list or count, or None when it gives neither."""
+    count = raw.get("commits_behind_count")
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        return count
+    commits = raw.get("commits_behind")
+    return len(commits) if isinstance(commits, list) else None
 
 
 def _invalid_reason(raw):
@@ -620,6 +645,37 @@ def _component_line(component, *, eligible):
     return f"- {component.name}: {current} (up to date)"
 
 
+def _opencreator_line(status):
+    """The OpenCreator entry stated plainly: it has no version, only a commit position.
+
+    OpenCreator publishes no version number. Moonraker shows a git
+    describe string for the checkout, so the honest facts are that
+    string and how many commits behind it is. Unknown stays unknown.
+    """
+    component = next((c for c in status.components
+                      if _component_key(c.name) in OPENCREATOR_COMPONENTS), None)
+    if component is None:
+        return ("OpenCreator: not listed by this printer's Update Manager, so Print Handy "
+                "cannot tell whether it is current.")
+    head = (f"OpenCreator ({component.name}) publishes no version number. Moonraker reports "
+            f"its checkout as {component.current or 'not reported'}")
+    if component.invalid:
+        return f"{head}, and marks it not valid ({component.invalid}), so its state is unknown."
+    if component.remote_unknown or component.behind is None:
+        return f"{head}, and does not say how far behind it is."
+    if component.behind == 0:
+        if component.update_available:
+            # Zero commits behind but a different remote string: the two
+            # facts disagree, so neither "level" nor "behind" is claimed.
+            return (f"{head}, with no commits behind, but its source reads {component.remote}. "
+                    "Print Handy cannot tell whether it is current; check Software Update "
+                    "in Fluidd or Mainsail.")
+        return f"{head}, level with its source."
+    count = component.behind
+    return (f"{head}, {count} commit{'' if count == 1 else 's'} behind its source. Update from "
+            "Software Update in Fluidd or Mainsail while the printer is idle.")
+
+
 def report_text(status, entry, *, pairing="unknown", os_version=None,
                 mcu_state="unknown", mcu_versions=None) -> str:
     """The chat-ready stage 1 report for one parsed update status."""
@@ -640,6 +696,8 @@ def report_text(status, entry, *, pairing="unknown", os_version=None,
             lines.append(f"ZMod version: {zmod.current}")
         else:
             lines.append("ZMod version: unknown (not reported by Moonraker)")
+    if entry is not None and entry.vendor == OPENCREATOR_VENDOR:
+        lines.append(_opencreator_line(status))
     unknown = status.remotes_unknown
     if unknown:
         names = ", ".join(c.name for c in unknown)
@@ -1234,6 +1292,21 @@ GUIDANCE = {
                       "printer at an upstream Klipper release."),
         why_no_apply=("The U1 runs Snapmaker's own Klipper-based firmware, a vendor "
                       "fork. " + _FORK_WHY)),
+    "flashforge_opencreator": FamilyGuidance(
+        title="OpenCreator firmware (Flashforge Creator 5, Creator 5 Pro)",
+        can_report=("the components its Moonraker update manager lists (klipper, "
+                    "moonraker, the web interfaces, the screen, and the opencreator "
+                    "entry itself). OpenCreator publishes no version number, so its "
+                    "entry is a git describe string and a count of commits behind, "
+                    "and a state Moonraker cannot read is stated as unknown, never "
+                    "as up to date"),
+        manual_steps=("At the printer, in Fluidd or Mainsail: Software Update, "
+                      "while the printer is idle. Expect a Klipper restart "
+                      "afterwards. See docs/OPENCREATOR.md."),
+        why_no_apply=("OpenCreator is alpha firmware on a Klipper fork, and one of "
+                      "its updates can flash the printer's boards. Print Handy "
+                      "reports its update state and tells you when a release is "
+                      "out, and leaves installing it to you (#1490).")),
     "flashforge_forgex": FamilyGuidance(
         title="Forge-X firmware (Flashforge AD5M, AD5M Pro)",
         can_report=("the versions its Moonraker update manager reports for its "
@@ -1333,6 +1406,8 @@ def guidance_for(entry) -> FamilyGuidance | None:
         return GUIDANCE["snapmaker_u1"]
     if entry.vendor == "flashforge_stock":
         return GUIDANCE["flashforge_stock"]
+    if entry.vendor == OPENCREATOR_VENDOR:
+        return GUIDANCE["flashforge_opencreator"]
     if entry.vendor == "flashforge_forgex":
         return GUIDANCE["flashforge_forgex"]
     if entry.vendor == "bambulab":

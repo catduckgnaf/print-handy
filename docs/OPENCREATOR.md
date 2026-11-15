@@ -346,6 +346,32 @@ job invisibly. Print Handy never sends `SET_MAP` itself: on this
 firmware that command swaps two lanes' maps instead of assigning one,
 and changing the map is the operator's decision at the printer.
 
+### Firmware updates
+
+Print Handy reports OpenCreator's update state and never installs an
+update (decided on #1490, 2026-11-15). `/print-firmware update` is
+refused for every component on these two models, before anything is
+read from the printer, with the reason and the manual path.
+
+- **Why:** OpenCreator is alpha firmware on a Klipper fork, and one of
+  its updates can flash the printer's boards.
+- **How to update:** Software Update in Fluidd or Mainsail, while the
+  printer is idle. Expect a Klipper restart afterwards.
+- **What the report says:** `/print-firmware` lists every component the
+  printer's Update Manager reports. OpenCreator publishes no version
+  number, so its entry (`opencreator`, or `opencreator-updater` on the
+  SBC edition) is shown as the git describe string Moonraker reports
+  and how many commits behind it is. When Moonraker marks the checkout
+  not valid, or does not say how far behind it is, the report says the
+  state is unknown. It never says up to date on a guess.
+- **Release notices:** a new OpenCreator release is announced in chat
+  through the firmware feed, with no Update button (see
+  [FIRMWARE-UPDATE.md](FIRMWARE-UPDATE.md)).
+
+The report wording is checked against a live update status shared on
+#1490. The SBC edition's entry name comes from the project's
+documentation and is not checked against a capture.
+
 ### AFC lanes and the tool map
 
 Print Handy parses the AFC lane list and each reported `AFC_lane` record,
@@ -423,8 +449,8 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   an optional `temperature_ace` sensor type. So when ACE ships, it
   rides the existing AFC and sensor paths rather than a new surface;
   Print Handy adds no ACE code until it is in a release.
-- Driving OpenCreator updates or alerting on its versions: upstream
-  has no version tracking yet, so there is no reliable version to read.
+- Installing OpenCreator updates. Print Handy reports them and never
+  applies them (see Firmware updates below).
 - The OpenCreator Send OrcaSlicer plugin: Print Handy's slice guard
   protects `slicing_pipeline_plugin` by design, so a downloaded project
   cannot inject it, and Print Handy does not adopt it. It remains

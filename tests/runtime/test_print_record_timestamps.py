@@ -67,3 +67,10 @@ def test_model_job_card_started_at_is_utc_z():
     assert "started_at" in card
     assert card["started_at"].endswith("Z")
     assert records.normalize_utc(card["started_at"]) == card["started_at"]
+
+
+def test_an_iso_timestamp_is_not_logged_as_a_failure(caplog):
+    # The normal input wrote a WARNING with a traceback for every record.
+    with caplog.at_level("DEBUG"):
+        assert records.normalize_utc("2026-11-05T14:49:47Z") == "2026-11-05T14:49:47Z"
+    assert caplog.records == []
