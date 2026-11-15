@@ -11,6 +11,7 @@ preparation that was interrupted is started again only from fresh confirmations.
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import time
@@ -19,6 +20,8 @@ import weakref
 from pathlib import Path
 
 from . import resources
+
+logger = logging.getLogger(__name__)
 
 DEADLINE_S = 60 * 60      # upper bound for one heavy step; slice_job may run Orca (600 s limit) per plate
 GRACE_S = 10.0            # between SIGTERM and SIGKILL
@@ -112,6 +115,9 @@ def _members(pgid):
 
 
 def _signal(pgid, sig):
+    # suppress kept with reason (#1455): the group may already be gone, and an
+    # already-dead group is the goal state here; callers verify death
+    # separately (_gone) instead of trusting the signal.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(pgid, sig)
 
@@ -120,6 +126,9 @@ async def _gone(proc, seconds):
     end = time.monotonic() + seconds
     while True:
         if proc.returncode is None:
+            # suppress kept with reason (#1455): this is a poll — the timeout
+            # is the "not gone yet" signal, and the loop re-checks the
+            # returncode and the deadline right after.
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(asyncio.shield(proc.wait()), 0.05)
         if proc.returncode is not None and not _members(proc.pid):
@@ -177,6 +186,9 @@ async def _read(stream, limit, tail=False):
 
 async def _exchange(proc, payload):
     async def feed():
+        # suppress kept with reason (#1455): the worker may have died before
+        # or during the feed; that failure is surfaced by the read side of
+        # this same gather (and the returncode), not by the write.
         with contextlib.suppress(BrokenPipeError, ConnectionResetError):
             proc.stdin.write(payload)
             await proc.stdin.drain()
@@ -343,12 +355,14 @@ async def run(argv, payload, *, label, lane, cwd=None, record=None, warm_argv=No
             _LIVE.pop(proc.pid, None)
             _SHUTTING_DOWN.discard(proc.pid)
             if record is not None:
-                with contextlib.suppress(OSError):
+                try:
                     if how in (None, 'unconfirmed'):
                         _write_record(record, {'state': 'stop_unconfirmed', 'step': label, 'started_at': started,
                                                'worker_pid': proc.pid, 'owner': _OWNER})
                     else:
                         record.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("could not update the worker record %s", record, exc_info=True)
 
 
 async def shutdown():
@@ -381,8 +395,10 @@ def interrupted(folder):
 
 
 def clear(folder):
-    with contextlib.suppress(OSError):
+    try:
         (Path(folder) / RECORD).unlink(missing_ok=True)
+    except OSError:
+        logger.debug("could not remove the worker record in %s", folder, exc_info=True)
 
 
 async def in_thread(func, *args, **kwargs):
@@ -398,6 +414,10 @@ async def in_thread(func, *args, **kwargs):
 async def settle(fut):
     """Wait until fut is done, whatever cancels arrive meanwhile. Its result or error is dropped."""
     while not fut.done():
+        # suppress kept with reason (#1455): absorbing cancels is this
+        # function's contract (see the docstring) — the caller is already
+        # handling the cancellation, and fut's own exception is retrieved
+        # below so it is never reported as unretrieved.
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait({fut})
     if not fut.cancelled():

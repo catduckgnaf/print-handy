@@ -60,7 +60,6 @@ Who posts what, per print — exactly one owner for each post:
 """
 from __future__ import annotations
 
-import contextlib
 import logging
 import sys
 import threading
@@ -717,12 +716,14 @@ class FamilyAutoLight:
                     f"light off ({self.connection})")
         except Exception as exc:
             warn(f"auto light idle check failed ({self.connection}): {exc!r}")
-            with contextlib.suppress(Exception):
+            try:
                 # An unobservable plate is an uncertain observation: it
                 # resets the empty streak (the Moonraker listener's
                 # P2-201 rule), instead of letting a pre-outage streak
                 # satisfy the sustained-empty requirement.
                 policy.note_verdict("uncertain", self._clock())
+            except Exception as note_exc:
+                warn(f"auto light: could not record the uncertain verdict ({self.connection}): {note_exc!r}")
 
 
 def _thread_runner(fn):

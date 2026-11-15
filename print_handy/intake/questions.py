@@ -4,10 +4,12 @@ recorded acceptances, and the reply parsers they share.
 Moved verbatim from ``print_handy.core.prepared_intake`` (#1323). The old names are still
 importable from there for one release.
 """
-import contextlib, contextvars, json, re, time
+import contextvars, json, logging, re, time
 from pathlib import Path
 
 from ..core.link_intake import ask
+
+logger = logging.getLogger(__name__)
 
 
 def _typo_words(value):
@@ -76,14 +78,18 @@ async def _ask(adapter, source, key, question, choices, timeout=None, **kwargs):
             first = first[:117] + '...'
         meta = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
         if pick is not None:
-            with contextlib.suppress(Exception):
+            try:
                 await adapter.send(chat_id=source.chat_id, metadata=meta,
                                    content=f'Yolo: {first} -> {list(choices)[pick]}')
+            except Exception:
+                logger.debug("could not announce the yolo answer", exc_info=True)
             return pick
         # A printer action or a model change: yolo never answers these itself.
-        with contextlib.suppress(Exception):
+        try:
             await adapter.send(chat_id=source.chat_id, metadata=meta,
                                content=f'Yolo does not answer this one; a person has to: {first}')
+        except Exception:
+            logger.debug("could not announce that yolo is leaving the question to a person", exc_info=True)
     return await ask(adapter, source, key, question, list(choices), timeout, live_key=live_key, **kwargs)
 
 
