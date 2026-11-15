@@ -9,6 +9,9 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 ### Run a print from the browser
 - The Web UI's Status page is now a dashboard: camera, printer state, temperatures over time, filament, and recent prints in one place. A new Workflow page runs a print from a link or an upload right in the browser, a Printer settings tab makes per-printer setup plain, the Designs page can start a design in the browser, and Pasta Wrapped got its polish. The Web UI also installs as an app (PWA foundation) and has a proper favicon. (#1464)
 - A new Sliced files page lets you download finished slices from the Web UI. (#1464)
+- Click a slot's spool on the dashboard to switch it, add a new spool, rename it, put it back on the shelf or archive it. A rename now names that one spool (a per-spool nickname in Spoolman), not every spool of the same filament. (#1523)
+- Each sliced job has a downloadable settings report: which slicer settings were kept and which were replaced, and by what (the job, you, the material profile, a compatibility fallback or the printer profile). (#1522)
+- A new Firmware page shows the newest release of each followed firmware (ZMod, OpenCreator and the Forge-X beta), and chat mentions a newer release once. `[firmware] notice_firmwares` picks which firmwares to follow. Nothing is ever installed from it. (#1512)
 
 ### Use real Discord slash commands
 - Slash commands are real slash commands now: each one answers once, inside the interaction, with no echoed command line and no second post. `/spool`, `/print-calibration`, `/print-firmware`, `/print-macros` and `/nozzle` open with real subcommands and typed options, and job, plan, plate, spool, slot, macro and printer fields autocomplete from your own lists as you type. `/print-colors` picks a past job instead of asking for a file path on the server, and `/print-help` leads with the five things people do most. (#1484)
@@ -26,10 +29,15 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 
 ### Print to an Adventurer 5M or 5M Pro on Forge-X firmware
 - Adventurer 5M and 5M Pro owners running Forge-X firmware (requires the Forge-X 1.4.2 beta; stable 1.4.1 is not supported by these models) can pick their printer (Flashforge AD5M (Forge-X) / Flashforge AD5M Pro (Forge-X)): slicing uses the firmware's documented single-line start form, delivery is plain G-code, firmware updates are reported but never applied, and pointing an AD5M profile at the wrong custom firmware (ZMod vs Forge-X) now says so in the readiness refusal — that direction previously passed silently, on a pair of firmwares that share the START_PRINT macro name with different parameters. Documented and configuration verified; not yet hardware verified. See docs/FORGEX.md. (#1506)
+- Print Handy reads the Forge-X screen mode and slices for Feather, Guppy and Headless. A Stock-screen print is refused with the fix named (`SET_MOD PARAM=display VALUE=FEATHER`), and a start line that would carry `Z_OFFSET` or `SKIP_ZOFFSET` (both cancel a Forge-X print) is refused. (#1519)
+- `/print-calibration` works on Forge-X through its own macros: bed mesh (AUTO_FULL_BED_LEVEL), extruder and bed PID, and input shaper (FORGE_SHAPER_CALIBRATE), each saved only when you accept, plus guides for bed screws and Z offset. `[printer] forgex_timelapse = off` skips the printer's timelapse for the prints Print Handy sends. (#1527)
 
 ### Print to a Creator 5 or Creator 5 Pro on OpenCreator firmware
 - Creator 5 and Creator 5 Pro owners running OpenCreator firmware can pick their printer (Flashforge Creator 5 (OpenCreator) / Flashforge Creator 5 Pro (OpenCreator)): slicing uses the firmware's documented start form with labeled objects, delivery is plain G-code, and pointing a Creator profile at the wrong custom firmware (ZMod vs OpenCreator) now says so in the readiness refusal. Documented and configuration verified; not yet hardware verified. See docs/OPENCREATOR.md. (#1495)
-- Thanks to Cartrigger (FlashForge C5 Modding Group, OpenCreator) for explaining the firmware's VDS, ACE and print-start behavior on #1490 and for offering support.
+- The synthesized print start is checked before upload, including the tool count, the AFC lane map, temperature ceilings, each tool's material and the first layer height. (#1503, #1516)
+- The AFC lane map and lane records are read and matched to Spoolman spools. (#1518)
+- Per-print start options in settings and the Web UI: flow calibration, purge, purge line (first tool or all tools), bed leveling, host pressure advance and skipping the build-plate check. Each defaults to `printer`, which sends nothing and leaves the printer's own setting in charge. (#1517)
+- Thanks to Cartrigger (FlashForge C5 Modding Group, OpenCreator) for explaining the firmware's VDS, ACE, AFC and print-start behavior on #1490 and for offering support.
 
 ### See where the time goes
 - A new Timing page in the Web UI, a doctor section and the diagnostics bundle show the waits you actually feel — link to first question, last answer to ready, slicing, tap to print started — as medians and p90s from each job's timing log. (#1489)
@@ -37,8 +45,12 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 
 ### Stream the camera into a Discord voice channel
 - The Discord live camera view now transcodes an MJPEG or snapshot printer camera to H.264 when the live feed values are left at their defaults, so the Activity player receives a stream it can open; RTSP and WebRTC cameras are still relayed unchanged. The setup guide records the final design: the camera plays in the channel's Activity and the bot runs the session without joining the call. Not live-verified yet; the first live sitting is still to come. (#1453)
+- `/print-live` also works from the live voice channel's own text chat. (#1505)
 
 ## Fixes
+- The Web UI workflow could hand back a download from outside the job's intake folder. Downloads are now limited to that job's intake archive. (#1514)
+- 3MF files painted with more than 18 colors (Orca's and Bambu Studio's extended paint states) lost those colors. They are now decoded and remapped. (#1520)
+- The color-plan question no longer regroups the same parts three times before asking. (#1500)
 - Slices for a printer other than the default were marked verified without the offline safety checks ever running, and could be downloaded on that basis. Every slice is now verified at slice time with the job's own printer, and a slice the checker refuses fails at slice time with the reason. (#1478)
 - OctoPrint and Marlin printers accepted G-code files sliced for another printer, carrying Klipper or ZMod start macros, or moving outside the bed, and failed at the printer instead. Those files are now refused up front with the reason named; hand-written Marlin start code still works. (#1481)
 - On key-protected Moonraker installs, some surfaces sent no API key and failed quietly. Stop, pause, resume, the Web UI, launch checks and the purge safety gate now all send the `MOONRAKER_API_KEY` you configured through one shared transport; a missing or wrong key is named as such, and a towerless print whose purge mode cannot be checked because of an auth failure is refused instead of going ahead unchecked. (#1483)
@@ -58,13 +70,15 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.3.4, also 
 - **The Moonraker listener's separate log file is retired.** Its lines are in the shared log now, where `[logging] levels` and debug capture see them. (#1422)
 - **Settings-file `[prusa]` and `[elegoo_sdcp]` hosts now take effect.** If you wrote one and Print Handy used a different address, it will now use the address on file. (#1480)
 - **Live camera feeds transcode at defaults.** An MJPEG or snapshot camera is transcoded to H.264 for the Discord live view unless you changed the live feed values; the raw camera stream that timelapse and the watchdog read is unchanged. (#1453)
-- No setting was removed or renamed. One setting was added: `discord.job_card_thread`, off by default. (#1488)
+- No setting was removed or renamed. Settings added: `discord.job_card_thread`, off by default (#1488); `firmware.notice_firmwares`, default `zmod,opencreator,forge-x` (#1512); the OpenCreator per-print start options `printer.opencreator_flow_calibration`, `_purge`, `_purge_line`, `_purge_line_all_tools`, `_bed_leveling`, `_host_pressure_advance` and `_buildplate_check`, all default `printer` (#1517); and `printer.forgex_timelapse`, default `printer` (#1527).
 
 ## Technical details and contributors
 - The silent-failure cleanup (#1417, #1455): every silent `except: pass` and `contextlib.suppress` in the package was replaced with logging, recovery, or a narrowed handler — launch (#1439), runtime (#1431, #1432, #1433), core (#1421, #1434, #1435, #1436, #1482), bot (#1437, #1438), Web UI (#1426), jobs and G-code (#1423), and the package-root modules (#1440) — and a package-wide guard test now fails if a new silent handler lands (#1457), including broad no-log handlers on launch decision paths (#1479).
 - Logging markers for the supervisor, Web UI and gates (#1420); default Docker log writes stay fail-open so a logging failure cannot take the container down (#1419).
 - Tests no longer inherit a credential from the machine running the suite (#1441), and every test gets its own prompt registry (#1442).
 - Development-checkout bug reports can answer the diagnostics-bundle field with Not applicable (#1477).
+- The README leads with what Print Handy does, three install paths and honest printer support. (#1509, #1511)
+- The slicing-speed gate keeps a baseline per runner CPU, so a different CI CPU is no longer read as a slowdown. (#1513)
 - Slicing-speed baselines verified unchanged for this release: from main CI run 43675045757 on the release commit, the discord-timing median ratio is 0.945 over the 28 cases of 0.3 s and up with no gate failures, and the real-slicer leg (same EPYC 7763 runner class as its baseline) shows no rises.
 
 ## Verification and known limitations
