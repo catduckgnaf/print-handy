@@ -165,27 +165,99 @@ def test_readiness_toolchanger_contract():
     problems = adapter.readiness_problems({}, errored)
     assert any("tool sensor error" in p and "dock 1 and grab 2 disagree" in p
                for p in problems), problems
-    unmounted = _ready_status()
-    unmounted["creator5_toolchanger"]["active_tool"] = None
-    problems = adapter.readiness_problems({}, unmounted)
-    assert any("no tool is mounted" in p for p in problems), problems
+    # Every tool docked (no active tool, no sensor error) is the normal
+    # idle state: print start picks up the tool it needs.
+    docked = _ready_status()
+    docked["creator5_toolchanger"]["active_tool"] = None
+    assert adapter.readiness_problems({}, docked) == []
+    busy = _ready_status()
+    busy["creator5_toolchanger"]["busy"] = True
+    assert any("toolchanger is busy" in p for p in adapter.readiness_problems({}, busy))
+    unknown = _ready_status()
+    unknown["creator5_toolchanger"]["active_tool"] = 7
+    assert any("unknown active tool" in p for p in adapter.readiness_problems({}, unknown))
+    # build_plate_detected is the last check's result, not a live
+    # reading: a stale False must not refuse (print start re-checks).
+    stale_plate = _ready_status()
+    stale_plate["creator5_toolchanger"]["build_plate_detected"] = False
+    assert adapter.readiness_problems({}, stale_plate) == []
+
+
+def test_readiness_afc_state_fails_closed():
+    adapter = adapter_for(PRO)
+    no_afc = _ready_status()
+    del no_afc["AFC"]
+    assert any(p.startswith("AFC is not reporting") for p in adapter.readiness_problems({}, no_afc))
+    errored = _ready_status()
+    errored["AFC"]["error_state"] = True
+    assert any("AFC reports an error state" in p for p in adapter.readiness_problems({}, errored))
+    mount = _ready_status()
+    mount["AFC_extruder extruder1"]["mount_sensor_error"] = "dock and grab both closed"
+    problems = adapter.readiness_problems({}, mount)
+    assert any("toolhead 2 reports a mount sensor error" in p
+               and "dock and grab both closed" in p for p in problems), problems
+    no_extruder = _ready_status()
+    del no_extruder["AFC_extruder extruder2"]
+    assert any("AFC_extruder extruder2 is not reporting" in p
+               for p in adapter.readiness_problems({}, no_extruder))
 
 
 def test_readiness_afc_identity_map_passes_and_a_swap_refuses():
     adapter = adapter_for(PRO)
     swapped = _ready_status()
-    swapped["AFC_extruder extruder0"] = {"map": "T1", "current_map": "T1"}
-    swapped["AFC_extruder extruder1"] = {"map": "T0", "current_map": "T0"}
+    swapped["AFC_lane extruder0"] = {"map": ["T1"], "current_map": ""}
+    swapped["AFC_lane extruder1"] = {"map": ["T0"], "current_map": ""}
     problems = adapter.readiness_problems({}, swapped)
     assert any("not the identity map" in p and "extruder0 is mapped to T1" in p
                and "extruder1 is mapped to T0" in p for p in problems), problems
     missing = _ready_status()
-    del missing["AFC_extruder extruder2"]
-    assert any("AFC_extruder extruder2 is not reporting" in p
+    del missing["AFC_lane extruder2"]
+    assert any("AFC_lane extruder2 is not reporting" in p
                for p in adapter.readiness_problems({}, missing))
-    list_form = _ready_status()
-    list_form["AFC_extruder extruder3"] = {"map": ["T3"]}
-    assert adapter.readiness_problems({}, list_form) == []
+    # The fork's lane status is empty until its connect step finishes.
+    not_connected = _ready_status()
+    not_connected["AFC_lane extruder2"] = {}
+    assert any("AFC_lane extruder2 does not report its lane map" in p
+               for p in adapter.readiness_problems({}, not_connected))
+    # The map is never read from the AFC_extruder object: the fork's
+    # status there carries none, so a map only there must not pass.
+    wrong_home = _ready_status()
+    del wrong_home["AFC_lane extruder3"]
+    wrong_home["AFC_extruder extruder3"]["map"] = "T3"
+    assert any("AFC_lane extruder3 is not reporting" in p
+               for p in adapter.readiness_problems({}, wrong_home))
+    string_form = _ready_status()
+    string_form["AFC_lane extruder3"] = {"map": "T3"}
+    assert adapter.readiness_problems({}, string_form) == []
+    double = _ready_status()
+    double["AFC_lane extruder3"] = {"map": ["T3", "T2"]}
+    assert any("extruder3 is mapped to T3, T2" in p
+               for p in adapter.readiness_problems({}, double))
+
+
+def test_pro_chamber_target_above_the_ceiling_is_refused():
+    pro, base = adapter_for(PRO), adapter_for(KEYS[0])
+    at_ceiling = _file(["M140 S60", "M191 S65"])
+    assert pro.start_synthesis_problems(at_ceiling, 60, 220) == []
+    hot = _file(["M140 S60", "M191 S75"])
+    problems = pro.start_synthesis_problems(hot, 60, 220)
+    assert any("chamber at 75 C" in p and "65 C chamber ceiling" in p for p in problems), problems
+    from_config = _file(["M140 S60"], chamber_temps="70,0,0,0", chamber_on="1,0,0,0")
+    assert any("chamber at 70 C" in p for p in pro.start_synthesis_problems(from_config, 60, 220))
+    # The base model has no chamber heater: the firmware answers a
+    # chamber target with a notice, so there is nothing to hold.
+    assert base.start_synthesis_problems(hot, 60, 220) == []
+
+
+def test_explicit_line_owns_its_hotend_and_first_tool():
+    no_hotend = _file(["C5_PRINT_START TOOL=0 BED=60", "M140 S60"])
+    problems = start_contract.start_problems(no_hotend, 60, 220)
+    assert len(problems) == 1 and "names no HOTEND" in problems[0], problems
+    wrong_tool = _file(["C5_PRINT_START TOOL=1 HOTEND=220 BED=60", "T2", "M140 S60"])
+    problems = start_contract.start_problems(wrong_tool, 60, 220)
+    assert any("selects T1" in p and "is T2" in p for p in problems), problems
+    matching = _file(["C5_PRINT_START TOOL=2 HOTEND=220 BED=60", "T2", "M140 S60"])
+    assert start_contract.start_problems(matching, 60, 220) == []
 
 
 def test_manufacturer_ceilings_are_the_recorded_ceilings():
@@ -208,3 +280,45 @@ def test_base_model_start_form_writes_no_chamber_command():
     assert "M191" not in base.machine_start_gcode("", "auto")
     pro = adapter_for(PRO)
     assert any(line.startswith("M191") for line in pro.start_plan(60, 220))
+
+
+
+def _live_verify_errors(monkeypatch, tmp_path, text):
+    """The live verify_gcode entry point's problems for an OpenCreator Pro file.
+
+    These hand-built files carry no slicer width metadata, so the live
+    check always reports that; the tests below read which start and end
+    problems it reports beside it.
+    """
+    from print_handy.gcode import verify
+
+    adapter = adapter_for(PRO)
+    path = tmp_path / "job.gcode"
+    path.write_text(text)
+    state = {"nozzle": {"diameter_mm": 0.4, "type": "hardened_steel"},
+             "spool": {"material": "PLA"},
+             "axis_limits_mm": {"x": [0, 256], "y": [0, 256], "z": [0, 256]}}
+    monkeypatch.setattr(verify.printer_state, "check", lambda *a, **k: (True, [], {}))
+    with pytest.raises(RuntimeError) as caught:
+        verify.verify_gcode(path, adapter=adapter, state=state,
+                            recorded_temps={"nozzle": 220, "bed": 60})
+    return str(caught.value)
+
+
+def test_live_verification_models_the_synthesis_and_demands_no_end_macro(monkeypatch, tmp_path):
+    # The production (live) entry point, not only the offline sibling.
+    # A synthesized-start file has no start macro line and no end macro
+    # line, because the firmware owns both: neither is reported missing.
+    assert "C5_PRINT_START" not in SINGLE_TOOL_T0 and "END_PRINT" not in SINGLE_TOOL_T0
+    message = _live_verify_errors(monkeypatch, tmp_path, SINGLE_TOOL_T0)
+    assert "missing first layer WIDTH metadata" in message
+    for absent in ("matching bed", "safe end sequence", "the firmware would synthesize",
+                   "unverified mapping"):
+        assert absent not in message, message
+
+
+def test_live_verification_refuses_a_wrong_bed_and_a_hot_chamber(monkeypatch, tmp_path):
+    message = _live_verify_errors(monkeypatch, tmp_path, _file(["M140 S70", "G90"]))
+    assert "runs bed 70 C, not the job's 60 C" in message
+    message = _live_verify_errors(monkeypatch, tmp_path, _file(["M140 S60", "M191 S75"]))
+    assert "65 C chamber ceiling" in message

@@ -54,9 +54,15 @@ def _gcode_tools(text):
     return tools
 
 
-def _refuse_multicolor(text):
-    """Non-multi-slot families refuse a G-code that selects any tool but T0, through the adapter."""
-    adapter = printers.current()
+def _refuse_multicolor(text, adapter=None):
+    """Non-multi-slot families refuse a G-code that selects any tool but T0, through the adapter.
+
+    ``adapter`` is the printer the file is being verified for; without
+    one this is the configured printer, as it always was. A routed
+    verification must pass its own: the file's tools are judged by the
+    target printer's mapping contract, never the default printer's.
+    """
+    adapter = adapter if adapter is not None else printers.current()
     adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, {})
     return adapter
 
@@ -354,7 +360,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         except RuntimeError as exc:
             errors.append(str(exc))
     else:
-        _refuse_multicolor(text)
+        _refuse_multicolor(text, adapter)
         from ..core.orca_config import split_config_list
         try:
             # Orca quotes a material with a space: `"Silk PLA"` is the material Silk PLA.

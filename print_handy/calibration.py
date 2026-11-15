@@ -605,6 +605,13 @@ def pid_difference_lines(before: PidValues, after: PidValues) -> list:
     return lines
 
 
+def _runs_mpc(settings, heater) -> bool:
+    """Whether one heater's configfile section runs MPC control (Kalico)."""
+    section = settings.get(heater) if isinstance(settings, dict) else None
+    return (isinstance(section, dict)
+            and str(section.get("control") or "").strip().lower() == "mpc")
+
+
 def _pid_before(settings, heater):
     """The configured PID terms for one heater from configfile settings, or None."""
     section = settings.get(heater) if isinstance(settings, dict) else None
@@ -614,7 +621,7 @@ def _pid_before(settings, heater):
     # hotends' algorithm, #1490) has no PID gains to tune, whatever PID
     # terms its config section also carries: PID_CALIBRATE does not apply
     # to it, so no PID calibration is offered or run for that heater.
-    if str(section.get("control") or "").strip().lower() == "mpc":
+    if _runs_mpc(settings, heater):
         return None
     # Klipper's configfile status lowercases every option name, so the
     # terms arrive as pid_kp / pid_ki / pid_kd whatever casing the
@@ -910,6 +917,12 @@ def prepare_pid(transport, entry, heater, target) -> PreparedPid:
     except Exception as exc:
         raise CalibrationError(COULD_NOT_READ_TEXT) from exc
     before = _pid_before(settings, heater)
+    if before is None and _runs_mpc(settings, heater):
+        raise CalibrationRefusal(f"The {HEATER_LABELS[heater].lower()} runs MPC (model "
+                                 "predictive control), not PID, so there are no PID "
+                                 "values to tune. MPC is tuned at the printer with the "
+                                 "firmware's own command (`C5_MPC_CALIBRATE` on "
+                                 "OpenCreator, `MPC_CALIBRATE` on Kalico). Nothing was sent.")
     if before is None:
         raise CalibrationRefusal(f"The printer's configuration reports no PID values for "
                                  f"the {HEATER_LABELS[heater].lower()}, so there is no "

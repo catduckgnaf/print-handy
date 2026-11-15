@@ -265,6 +265,12 @@ above the manufacturer rating, and the firmware clamps a job's chamber
 target to that config value at print start. Print Handy's 65 C ceiling
 is therefore the only thing holding a chamber target to the rated
 maximum on this firmware; do not read the config's 80 C as headroom.
+It is held in two places: the controls, macros and preheat refuse a
+chamber target above it, and verification refuses a Pro file whose
+start would run the chamber above it (the file's first `M141` or
+`M191`, or the chamber value the firmware would take from the file's
+settings block). The base Creator 5 has no chamber heater, so no
+chamber ceiling applies to its files.
 
 ### Readiness, the active tool and the AFC lane map
 
@@ -274,15 +280,26 @@ Readiness and status ride on the `creator5_toolchanger` object
 or None), `sensor_error` (a string or None), `busy`,
 `build_plate_detected`, `dock_positions` and `tool_measurements`. A
 non-null `sensor_error` is a readiness problem naming the sensor
-disagreement; `active_tool` None with no sensor error means no tool is
-mounted, and readiness says so plainly. Print Handy's status reports
-the active tool from this object.
+disagreement. `active_tool` None with no sensor error means every tool
+is docked, the normal idle state, and is not a problem: print start
+picks up the tool it needs. A `busy` toolchanger refuses the start
+until it finishes. `build_plate_detected` is not read for readiness:
+it is the result of the last plate check, so a stale value proves
+nothing, and print start runs its own check after homing. Print
+Handy's status reports the active tool from this object.
+
+AFC is part of readiness as well: the `AFC` object must be reporting
+with no error state, and no toolhead's `AFC_extruder` object may
+report a mount sensor error.
 
 The printer's AFC lane map is part of readiness too. Inside
 `C5_PRINT_START`, the firmware remaps the file's tool numbering
-through that map (the lanes are the `AFC_extruder extruder0` to
-`extruder3` objects, each mapped to a `T` command; the shipped map is
-the identity, extruderN to `T<N>`). Print Handy's Creator contract is
+through that map. Each toolhead is configured as an `AFC_extruder
+extruder0` to `extruder3` section mapped to a `T` command, and the
+firmware reports the live map on the matching lane objects, `AFC_lane
+extruder0` to `extruder3` (the `AFC_extruder` status itself carries no
+map, so Print Handy reads the lane objects). The shipped map is the
+identity, extruderN to `T<N>`. Print Handy's Creator contract is
 identity-only, so a non-identity map refuses the start with a message
 naming the actual mapping, rather than letting the printer remap a
 job invisibly. Print Handy never sends `SET_MAP` itself: on this
