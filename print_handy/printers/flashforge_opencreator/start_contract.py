@@ -33,7 +33,13 @@ The synthesis, as the fork specifies it:
   IDLE values come from ``idle_temperature`` entries greater than 0.
 - Per-slot config lists are read from the footer first, then the
   header, taking the last occurrence in the first source that contains
-  the key.
+  the key. When the file is longer than the header window, the
+  header's trailing partial line is dropped for config reads, because
+  the window may have cut a config line in half.
+- The dispatcher also fills MATERIALn from ``filament_type`` and
+  FIRST_LAYER_HEIGHT from the config block; this model covers the
+  tool and temperature fields Print Handy's verification compares,
+  and does not track those two.
 - No discoverable hotend temperature is the firmware's own failure
   mode: the job fails before any motion with a console reason.
 """
@@ -46,8 +52,8 @@ WINDOW = 65536
 
 _EXPLICIT_RE = re.compile(r"^\s*C5_PRINT_START\b", re.IGNORECASE)
 _TOOL_RE = re.compile(r"^T([0-3])(?:\s|$)")
-_SELECT_TOOL_RE = re.compile(r"^AFC_SELECT_TOOL\s+TOOL=extruder(\d+)", re.IGNORECASE)
-_TEMP_RE = re.compile(r"^M(104|109|140|141|190|191)\b[^;]*?S(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+_SELECT_TOOL_RE = re.compile(r"^AFC_SELECT_TOOL\s+TOOL=extruder([0-3]?)", re.IGNORECASE)
+_TEMP_RE = re.compile(r"^M(104|109|140|141|190|191)\b[^;]*?\bS\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _ARG_RE = re.compile(r"([A-Z_0-9]+)=([+-]?(?:\d+(?:\.\d*)?|\.\d+))", re.IGNORECASE)
 _CONFIG_RE = re.compile(r"^;\s*([A-Za-z0-9_ \[\]]+?)\s*=\s*(.*?)\s*$")
 
@@ -112,6 +118,12 @@ def synthesize_start(text):
     text = text if isinstance(text, str) else ""
     header = text[:WINDOW]
     footer = text[-WINDOW:] if len(text) > WINDOW else text
+    # Config lists are read from a header whose trailing partial line is
+    # dropped when the window cut the file mid-line (the dispatcher's
+    # material_header); command classes scan the header as it stands.
+    config_header = header
+    if len(text) > WINDOW and not header.endswith(("\n", "\r")):
+        config_header = header.rpartition("\n")[0]
     raw_lines = header.splitlines()
     for line in raw_lines:
         if _EXPLICIT_RE.match(line):
@@ -125,8 +137,8 @@ def synthesize_start(text):
                 chamber=args.get("CHAMBER"),
                 args=args)
     lines = [_code(line) for line in raw_lines]
-    used = _config_values(header, footer, "filament used [mm]")
-    used_tools = tuple(i for i, v in enumerate(used) if v > 0)
+    used = _config_values(config_header, footer, "filament used [mm]")
+    used_tools = tuple(i for i, v in enumerate(used[:4]) if v > 0)
     tool = None
     for line in lines:
         match = _TOOL_RE.match(line.upper())
@@ -137,28 +149,30 @@ def synthesize_start(text):
         for line in lines:
             match = _SELECT_TOOL_RE.match(line)
             if match:
-                tool = int(match.group(1))
+                tool = int(match.group(1) or 0)
                 break
     if tool is None:
         tool = used_tools[0] if used_tools else 0
     hotend = _first_temp(lines, (109,))
     if hotend is None:
         hotend = _first_temp(lines, (104,))
-    temps = _config_values(header, footer, "nozzle_temperature_initial_layer")
+    temps = _config_values(config_header, footer, "nozzle_temperature_initial_layer")
     if hotend is None and 0 <= tool < len(temps) and temps[tool] > 0:
         hotend = temps[tool]
     bed = _first_temp(lines, (140, 190)) or 0.0
     chamber = _first_temp(lines, (141, 191))
     if chamber is None:
-        chamber_temps = _config_values(header, footer, "chamber_temperature")
-        active = _config_values(header, footer, "activate_chamber_temp_control")
-        candidates = [chamber_temps[i] for i in used_tools
-                      if i < len(chamber_temps) and i < len(active) and active[i] > 0
-                      and chamber_temps[i] > 0]
-        chamber = max(candidates) if candidates else None
-    hotends = {i: temps[i] for i in used_tools if i < len(temps) and temps[i] > 0}
-    idle_values = _config_values(header, footer, "idle_temperature")
-    idles = {i: idle_values[i] for i in range(len(idle_values)) if idle_values[i] > 0}
+        chamber_temps = _config_values(config_header, footer, "chamber_temperature")
+        active = _config_values(config_header, footer, "activate_chamber_temp_control")
+        candidates = [chamber_temps[i] for i in (used_tools or (tool,))
+                      if i < len(chamber_temps)
+                      and (i >= len(active) or active[i] > 0)]
+        chamber = max(candidates) if candidates and max(candidates) > 0 else None
+    hotends = {i: temps[i] for i in used_tools
+               if i != tool and i < len(temps) and temps[i] > 0}
+    idle_values = _config_values(config_header, footer, "idle_temperature")
+    idles = {i: idle_values[i] for i in range(min(4, len(idle_values)))
+             if idle_values[i] > 0}
     return SynthesizedStart(
         explicit=False, tool=tool, hotend=hotend, bed=bed, chamber=chamber,
         used_tools=used_tools, hotends=hotends, idles=idles)

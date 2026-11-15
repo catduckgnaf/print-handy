@@ -163,6 +163,17 @@ would do with it: fail before any motion. An explicit `C5_PRINT_START`
 line in the file opts out of synthesis, and verification then checks
 that line's own values instead.
 
+Upstream's own reference for print-start configuration is the
+OpenCreator Send plugin (see the scoped-out list below for why Print
+Handy does not adopt it): it mirrors this same synthesis, and when an
+operator changes a per-print option it writes the explicit
+`C5_PRINT_START` line at the top of the file with the option switches
+(`FLOW_CALIBRATION`, `PURGE`, `PURGE_LINE`, `PURGE_LINE_ALL_TOOLS`,
+`BED_LEVELING`, `HOST_PRESSURE_ADVANCE`, and the build plate check)
+set on it, which is exactly the opt-out above. Where the plugin's
+mirror and the fork's dispatcher differ, the fork's current default
+branch is the authority this page and Print Handy's model follow.
+
 Machine end G-code is empty. Print end is firmware-owned
 (`C5_PRINT_STOP`), there is no `END_PRINT` on this firmware, and the
 one line the slicer documentation says to remove from the stock
@@ -306,14 +317,36 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   about the record key. Until then, know that the printer publishes
   filament records for OrcaSlicer's sync on its own schedule, and
   Print Handy does not write that namespace for these models.
-- ACE Pro feeders (the ACE module's presence in release packages is
-  unverified from public sources) and the VDS filament dryer (an
-  SoC-only accessory upstream marks untested for lack of hardware).
+- ACE Pro feeders and driving the VDS filament dryer, as Print Handy
+  features. What the surfaces actually are (source-verified against
+  the fork and the shipped config tree, 2026-11-15, following the
+  upstream maintainer's pointers on the research issue): the VDS
+  dryer's two chambers are standard Moonraker temperature sensors,
+  `temperature_sensor dryer_a` and `temperature_sensor dryer_b`,
+  registered by the `creator5_dryer` module itself (status:
+  temperature, humidity, measured minimum and maximum) whenever the
+  dryer config is included, which the installer does when a dryer
+  answers during install. They read through the ordinary sensor path,
+  no custom object needed; the dryer's own object and its
+  `C5_DRYER_START` / `STOP` / `PAUSE` / `DEHUMIDIFY` / `STATUS`
+  commands and material macros are the control surface Print Handy
+  does not drive yet. The ACE Pro is not in any OpenCreator release:
+  it lives only on the fork's `ace-pro` and `ace-upstream` branches.
+  There its unit is an ordinary AFC unit whose lanes are ordinary AFC
+  lanes (the standard spool macros register for them), and its dryer
+  presents per unit as a heater object `ace_dryer_<unit>`, a humidity
+  object `ace_humidity_<unit>` and a `temperature_fan <unit>`, with
+  `AFC_ACE_*` commands; the `ace-upstream` branch additionally carries
+  an optional `temperature_ace` sensor type. So when ACE ships, it
+  rides the existing AFC and sensor paths rather than a new surface;
+  Print Handy adds no ACE code until it is in a release.
 - Driving OpenCreator updates or alerting on its versions: upstream
   has no version tracking yet, so there is no reliable version to read.
 - The OpenCreator Send OrcaSlicer plugin: Print Handy's slice guard
   protects `slicing_pipeline_plugin` by design, so a downloaded project
-  cannot inject it, and Print Handy does not adopt it.
+  cannot inject it, and Print Handy does not adopt it. It remains
+  upstream's reference implementation for print-start configuration
+  (see the start form section).
 - The Legacy edition (see Editions above).
 
 ## Choosing between the Creator firmwares

@@ -69,10 +69,34 @@ def test_multi_tool_synthesis_reads_used_tools_per_tool_temps_and_idles():
     start = start_contract.synthesize_start(text)
     assert start.tool == 0
     assert start.used_tools == (0, 1, 3)
-    assert start.hotends == {0: 220.0, 1: 240.0, 3: 200.0}
+    assert start.hotends == {1: 240.0, 3: 200.0}  # the selected tool's temp is HOTEND itself
     assert start.idles == {3: 150.0}
     assert start.hotend == 220.0
     assert start_contract.start_problems(text, 65, 220) == []
+
+
+def test_chamber_fallback_uses_the_tool_slot_and_a_short_active_list_is_on():
+    # No filament-used list at all: the chamber fallback reads the
+    # selected tool's slot, and a slot past the end of the
+    # activate_chamber_temp_control list counts as control on.
+    text = _file(["T2"], used="0,0,0,0", temps="200,205,215,210",
+                 chamber_temps="40,45,50,35", chamber_on="1")
+    start = start_contract.synthesize_start(text)
+    assert start.tool == 2
+    assert start.chamber == 50.0
+
+
+def test_config_line_cut_by_the_header_window_is_not_read():
+    # A config line the 64 KB header window cuts inside its first value
+    # is dropped for config reads, the way the dispatcher drops the
+    # partial line: the value is not read from the truncated line, and
+    # with no other source the file has no discoverable hotend temp.
+    filler = "G1 X1 Y1\n" * 7277 + "G1\n"  # 65496 chars
+    config = "; nozzle_temperature_initial_layer = 230,0,0,0\n"
+    text = filler + config + "G1 X2 Y2\n" * 8000
+    assert text[:65536].endswith("= 230")  # the window cuts the list there
+    start = start_contract.synthesize_start(text)
+    assert start.hotend is None
 
 
 def test_m109_wins_over_m104_and_m104_is_the_preheat_fallback():
