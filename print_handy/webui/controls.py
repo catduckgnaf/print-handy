@@ -40,6 +40,14 @@ The ha-print-handy #1 routes add, under the same guard:
   like the module's other mutating routes: a printer reporting a state
   that cannot accept commands (unknown, error, shutdown, disconnected,
   offline, unavailable) refuses 409 and receives nothing.
+- ``POST /api/printers/<id>/nozzle`` — record a nozzle change
+  (#1548): the record step of the guided ``/nozzle change`` flow
+  (``runtime/nozzle_change.record_nozzle_change``) as an operation,
+  for a nozzle the operator has physically fitted. It writes only
+  the hardware record; it sends nothing to the printer — no heating,
+  no loosening, no motion — and it does not sync Klipper's
+  printer.cfg (that sync restarts Klipper and stays with the guided
+  flow and ``printer_state set``).
 - ``POST /api/printers/<id>/exclude`` — exclude one named object from
   the running print, Moonraker only (exclude-object is a Klipper
   feature; other families refuse 501). The body is
@@ -278,7 +286,7 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
         if action not in ACTIONS:
             raise ControlError(404, "try /api/printers/<id>/pause, resume, cancel, "
                                     "temperature, target, emergency_stop, firmware_restart, "
-                                    "server_restart, gcode or exclude")
+                                    "server_restart, gcode, exclude or nozzle")
         entry, view = _resolve(data, printer_id)
         if action == "cancel" and not (isinstance(body, dict) and body.get("confirm") is True):
             raise ControlError(400, 'cancel needs the JSON body {"confirm": true}. Nothing sent.')
@@ -872,3 +880,102 @@ def exclude_object(data, printer_id, body=None, *, adapter=None, read=None, send
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": "exclude", "object": target,
                  "detail": plan["reason"]}
+
+
+# -- record a nozzle change (#1548) ----------------------------------------
+
+
+def _default_nozzle_record(printer_id, view, diameter_mm, nozzle_type,
+                           supported_sizes, supported_types):
+    """Write one nozzle change through the guided flow's record step.
+
+    The load, the record and the save run under the hardware record's
+    own lock (``printer_state.hardware_lock``), exactly as
+    ``nozzle_change.finish_change`` records. A printer with no record
+    yet gets the seeded first record from its settings view first
+    (the ``printer_state set`` behavior on a fresh install), so the
+    record step has a record to update. No Klipper sync runs here:
+    syncing printer.cfg restarts Klipper, and this route sends
+    nothing to the printer at all. Returns the saved state dict.
+    """
+    from ..core import printer_state
+    from ..runtime import nozzle_change as _nozzle_change
+    with printer_state.hardware_lock(printer_id):
+        try:
+            state = printer_state.load(printer_id)
+        except (FileNotFoundError, OSError, ValueError):
+            printer_state.seed_hardware_record(printer_id, view)
+            state = printer_state.load(printer_id)
+        _nozzle_change.record_nozzle_change(
+            state, diameter_mm, nozzle_type,
+            supported_sizes=supported_sizes, supported_types=supported_types)
+        printer_state.save(state, printer_id)
+    return state
+
+
+def record_nozzle(data, printer_id, body=None, *, adapter=None, record=None):
+    """(code, body) for POST /api/printers/<id>/nozzle (#1548).
+
+    Body: ``{"diameter_mm": <number>, "type": "<nozzle type>"}`` —
+    both fields are required. Behind the same controls gate as every
+    other control route (``_resolve``: controls off is a 403, an
+    unknown printer a 404). The write is the guided flow's record
+    step alone (``runtime/nozzle_change.record_nozzle_change``,
+    through :func:`_default_nozzle_record`): the fitted nozzle is
+    replaced in the hardware record, the Z offset is cleared and
+    marked unverified, and the calibration-pending list is set,
+    exactly as a guided change records. Validation is that record
+    step's own (``core.nozzle.validate_nozzle_setting`` against the
+    printer's supported sizes and types when the adapter names them,
+    the canonical sets otherwise); an unsupported diameter or type
+    refuses 400 and records nothing.
+
+    This route never contacts the printer: no adapter control, no
+    G-code, no heating, loosening or motion, and no Klipper sync.
+    ``record`` overrides the record write for tests; ``adapter``
+    overrides the printer adapter the supported sets are read from.
+    """
+    try:
+        entry, view = _resolve(data, printer_id)
+        body = body if isinstance(body, dict) else {}
+        diameter = body.get("diameter_mm")
+        if isinstance(diameter, bool) or not isinstance(diameter, (int, float)) \
+                or diameter != diameter:
+            raise ControlError(400, "diameter_mm must be a number of mm. Nothing recorded.")
+        nozzle_type = body.get("type")
+        if not isinstance(nozzle_type, str) or not nozzle_type.strip():
+            raise ControlError(400, "type must name the fitted nozzle type. "
+                                    "Nothing recorded.")
+        supported_sizes = supported_types = None
+        try:
+            resolved = adapter or printers.get(entry["model"], view)
+            supported_sizes = getattr(resolved, "supported_nozzle_sizes", None)
+            supported_types = getattr(resolved, "supported_nozzle_types", None)
+        except Exception:  # no adapter facts: the canonical sets decide
+            supported_sizes = supported_types = None
+        if record is None:
+            state = _default_nozzle_record(printer_id, view, float(diameter),
+                                           nozzle_type, supported_sizes,
+                                           supported_types)
+        else:
+            state = record(printer_id, view, float(diameter), nozzle_type,
+                           supported_sizes, supported_types)
+    except ControlError as refusal:
+        return refusal.code, {"ok": False, "reason": refusal.reason}
+    except Exception as exc:
+        # The record step's validation (NozzleError, a ValueError) and
+        # any record problem refuse in the API shape; nothing partial
+        # is claimed as recorded.
+        from ..core.nozzle import NozzleError
+        if isinstance(exc, NozzleError):
+            return 400, {"ok": False, "reason": f"{exc} Nothing recorded."}
+        return 500, {"ok": False, "reason": f"the nozzle change could not be "
+                                           f"recorded ({type(exc).__name__}: {exc})"}
+    fitted = (state or {}).get("nozzle") or {}
+    return 200, {"ok": True, "id": entry["id"], "action": "nozzle",
+                 "diameter_mm": fitted.get("diameter_mm", float(diameter)),
+                 "type": fitted.get("type") or nozzle_type,
+                 "detail": "nozzle change recorded; the previous calibration is "
+                           "historical only and the Z offset, bed mesh and "
+                           "pressure advance / flow checks are due. Nothing was "
+                           "sent to the printer."}

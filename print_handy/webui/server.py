@@ -17,6 +17,14 @@ step) serving:
   endpoints behind ``{"confirm": true}``, raw G-code (Moonraker
   script, OctoPrint printer commands), and Klipper exclude-object
   through ``core.exclude_object``;
+- ``POST /api/upload`` — the header-token upload (#1548): multipart,
+  one file into the same inbox and under the same intake rules as
+  ``POST /upload``, answering in the API JSON shape for clients that
+  cannot use session cookies, CSRF form tokens or minted links;
+- ``POST /api/printers/<id>/nozzle`` — record a nozzle change
+  (#1548, same controls module and guard): the record step of the
+  guided ``/nozzle change`` flow for a nozzle already fitted; it
+  writes only the hardware record and sends nothing to the printer;
 - ``GET /api/printers/<id>/status`` — one roster printer's live status
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
@@ -1861,12 +1869,12 @@ class _Handler(BaseHTTPRequestHandler):
         """
         segments = rest.split("/")
         verbs = (*controls_module.ACTIONS, "temperature", "target",
-                 *controls_module.POWER_ACTIONS, "gcode", "exclude")
+                 *controls_module.POWER_ACTIONS, "gcode", "exclude", "nozzle")
         if len(segments) != 2 or not segments[0] or segments[1] not in verbs:
             self._json(404, {"ok": False, "reason": "try /api/printers/<id>/pause, resume, "
                                                     "cancel, temperature, target, emergency_stop, "
-                                                    "firmware_restart, server_restart, gcode "
-                                                    "or exclude"})
+                                                    "firmware_restart, server_restart, gcode, "
+                                                    "exclude or nozzle"})
             return
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         try:
@@ -2952,6 +2960,46 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, self._upload_page_html(notice=notice, error=error_text),
                    "text/html; charset=utf-8")
 
+    def _api_upload_post(self):
+        """POST /api/upload (#1548): the header-token upload.
+
+        Policy ``header`` (routes.py): the access-token header only
+        (or no token configured); a login session never authorizes
+        it, and there is no form token to check — the header is the
+        whole credential, which is the point for the Home Assistant
+        integration. The receive is the upload page's own
+        (_receive_upload: streamed to a spool file, the shared size
+        budget, the STL intake limit and the inbox quota checked
+        before a byte lands, the same filename cleaning in
+        save_upload), so the file lands in the same inbox under the
+        same rules and stays an inbox file, never a print. Answers
+        are the API JSON shape: ``{ok: true, filename}`` on success,
+        ``{ok: false, reason}`` with the refusal's own code (400 for
+        a refused file, 413 too large, 503 busy, 507 inbox full).
+        """
+
+        def handle(fields, files):
+            if not files:
+                self._json(400, {"ok": False, "reason": "no file was attached"})
+                return
+            saved, reason = upload_module.save_upload(
+                self.server.settings_data, files[0][0], files[0][1])
+            if saved is None:
+                self._json(507 if reason.startswith(upload_module.INBOX_FULL)
+                           else 400, {"ok": False, "reason": reason})
+                return
+            self._json(200, {"ok": True, "filename": saved.name})
+
+        refused = self._receive_upload(handle)
+        if refused:
+            code, reason = refused
+            payload = {"ok": False, "reason": reason}
+            if code == 503:
+                self._send(code, json.dumps(payload, indent=1, sort_keys=True),
+                           "application/json", headers=[("Retry-After", "30")])
+            else:
+                self._json(code, payload)
+
     def _link_valid(self, token):
         return upload_module.link_valid(self.server.settings_data, token,
                                         self._credential_fingerprint())
@@ -3293,6 +3341,8 @@ def start_web_alerts(server):
 
 
 def _printer_control(data, printer_id, verb, body):
+    if verb == "nozzle":
+        return controls_module.record_nozzle(data, printer_id, body)
     if verb == "temperature":
         return controls_module.set_temperature(data, printer_id, body)
     if verb == "target":

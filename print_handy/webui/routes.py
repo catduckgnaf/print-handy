@@ -207,6 +207,11 @@ ROUTES = (
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),
     # The Status page E-stop button (a browser cannot send the header).
     _post("/dashboard/estop/*", SESSION_CSRF, "_dashboard_estop_post", back="/"),
+    # Header-token upload (#1548): multipart, the header only, like the
+    # other API writes — a header client cannot use the session+CSRF
+    # upload page or a minted link. Exact row, so it wins over the
+    # catch-all and never reaches the printer POST route.
+    _post("/api/upload", HEADER, "_api_upload_post"),
     # Printer controls and spool actions: JSON, the header only.
     _post("/api/printers/*", HEADER, "_printer_post_route", decode=False),
     _post("*", PUBLIC, "_read_only", decode=False),
