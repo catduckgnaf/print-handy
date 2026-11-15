@@ -254,6 +254,45 @@ def record(rows, old=None, recorded_from=""):
     return out
 
 
+
+def profile_for(baseline, cpus):
+    """(baseline to gate against, its label): the runner's own CPU profile when it has one.
+
+    Hosted runners land on different CPUs about 1.6x apart on the same commit (#1332), so a run
+    is compared with a recording from the same CPU when one exists (``by_cpu``, catduck
+    2026-11-15). Otherwise the top-level default applies, as before. Limits (tolerance, slack,
+    fit-check budget and required rows) always come from the top level; a profile carries only
+    its own ``cases`` and ``recorded_from``.
+    """
+    profiles = baseline.get("by_cpu") or {}
+    if len(cpus) == 1 and cpus[0] in profiles:
+        merged = {k: v for k, v in baseline.items() if k != "by_cpu"}
+        merged.update(profiles[cpus[0]])
+        return merged, f"CPU profile {cpus[0]}"
+    return baseline, "default baseline"
+
+
+def record_profile(rows, baseline, cpus, recorded_from=""):
+    """The whole baseline file with this run recorded as its CPU's profile (``by_cpu``).
+
+    The default cases and every other CPU's profile are kept unchanged. A CPU's first profile
+    is a fresh recording (a raise against another CPU's numbers is meaningless); a later one is
+    compared with that same CPU's previous profile, so its raises still need a reason.
+    """
+    if len(cpus) != 1:
+        raise SystemExit("--per-cpu needs results from exactly one runner CPU, got "
+                         + (", ".join(cpus) or "none recorded"))
+    cpu = cpus[0]
+    profiles = dict(baseline.get("by_cpu") or {})
+    limits_only = {k: v for k, v in baseline.items() if k not in ("cases", "by_cpu", "recorded_from")}
+    prev = profiles.get(cpu)
+    old = dict(limits_only, cases=prev["cases"]) if prev else limits_only
+    fresh = record(rows, old, recorded_from)
+    profiles[cpu] = {"recorded_from": fresh["recorded_from"], "cases": fresh["cases"]}
+    out = dict(baseline)
+    out["by_cpu"] = dict(sorted(profiles.items()))
+    return out
+
 def runner_cpus(results):
     """The distinct CPU models named by time_corpus result files (#1332), in order seen."""
     seen = []
@@ -264,7 +303,8 @@ def runner_cpus(results):
     return seen
 
 
-def summary(rows, baseline, problems, title="Timing gate", absolute_slack=False, notes=(), cpus=()):
+def summary(rows, baseline, problems, title="Timing gate", absolute_slack=False, notes=(), cpus=(),
+            profile="default baseline"):
     """Markdown: one line per case/transport with the median, its baseline and its limit."""
     tol = limits(baseline)[0]
     cases = baseline.get("cases", {})
@@ -275,8 +315,9 @@ def summary(rows, baseline, problems, title="Timing gate", absolute_slack=False,
              f"Limit = baseline x (1 + {tol:.0%}) + {slack_text}, compared on the median of "
              f"{max((r.get('repeats', 1) for r in rows), default=0)} repeats. "
              f"{len(problems)} problem(s).", "",
-             f"Runner CPU: {', '.join(cpus) if cpus else 'not recorded'}. Hosted runners differ by up "
-             "to about 1.6x on the same commit, so compare a raise against a run on the same CPU.", "",
+             f"Runner CPU: {', '.join(cpus) if cpus else 'not recorded'}. Compared against the {profile}. "
+             "Hosted runners differ by up to about 1.6x on the same commit, so each CPU can carry its "
+             "own recording (by_cpu).", "",
              "| case/transport | result | metric | median s | baseline s | limit s | vs baseline |",
              "|---|---|---|---|---|---|---|"]
     for row in sorted(rows, key=key):
@@ -309,6 +350,9 @@ def main(argv=None):
     ap.add_argument("results", nargs="+", help="one or more time_corpus JSON files; medians are compared")
     ap.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     ap.add_argument("--record", action="store_true")
+    ap.add_argument("--per-cpu", action="store_true",
+                    help="with --record: print the whole baseline file with this run stored as its runner "
+                         "CPU's profile under by_cpu, leaving the default and other CPUs unchanged")
     ap.add_argument("--recorded-from", default="",
                     help="with --record: the CI run and commit the results came from (stored in the baseline)")
     ap.add_argument("--summary", help="append a per-case markdown table to this file (e.g. $GITHUB_STEP_SUMMARY)")
@@ -328,13 +372,21 @@ def main(argv=None):
         recorded_from = args.recorded_from
         if recorded_from and cpus:
             recorded_from = f"{recorded_from}, runner CPU {' / '.join(cpus)}"
-        proposed = record(rows, baseline, recorded_from)
+        if args.per_cpu:
+            proposed = record_profile(rows, baseline, cpus, recorded_from)
+            print(json.dumps(proposed, indent=1, sort_keys=True))
+            for line in drift_lines(dict(proposed, cases=proposed["by_cpu"][cpus[0]]["cases"])):
+                print(f"cumulative drift: {line}", file=sys.stderr)
+            return 0
+        proposed = record(rows, profile_for(baseline, cpus)[0], recorded_from)
         print(json.dumps(proposed, indent=1, sort_keys=True))
         # The reviewer of a re-record sees the cumulative drift of every raised entry with the
         # proposal, on stderr so stdout stays the pure JSON the CI step redirects to a file.
         for line in drift_lines(proposed):
             print(f"cumulative drift: {line}", file=sys.stderr)
         return 0
+    baseline, profile = profile_for(baseline, cpus)
+    print(f"timing gate: comparing against the {profile}")
     problems = check(rows, baseline, args.absolute_slack)
     notes = [] if args.absolute_slack else drift_notes(rows, baseline)
     for n in notes:
@@ -344,7 +396,7 @@ def main(argv=None):
     print(f"timing gate: {len(rows)} runs, {len(problems)} problems" + (" (warn-only)" if args.warn_only else ""))
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as fh:
-            fh.write(summary(rows, baseline, problems, args.title, args.absolute_slack, notes, cpus))
+            fh.write(summary(rows, baseline, problems, args.title, args.absolute_slack, notes, cpus, profile))
     return 0 if args.warn_only or not problems else 1
 
 

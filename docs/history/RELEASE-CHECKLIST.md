@@ -31,7 +31,10 @@ before merging; it fails closed.
   entry a `reason`, and merge as its own PR **before** tagging.
   Never mix proposed savings with shipped ones (audit A11). Check the
   artifact's runner CPU first: a run on a runner faster or slower than
-  the baseline's is re-run, not recorded (#1347, #1388). Any case that
+  the baseline's is recorded as that CPU's own profile with
+  `--per-cpu` (`proposed-baseline-per-cpu.json`), not re-run and not
+  copied over the default (#1347, #1388; per-CPU profiles, catduck
+  2026-11-15, tests/README.md). Any case that
   rose gets an entry in
   [Performance regressions](PERFORMANCE-REGRESSIONS.md) before it is
   re-recorded, with its cause or "unverified" (#1392).
