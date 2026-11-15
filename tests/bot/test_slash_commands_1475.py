@@ -91,7 +91,8 @@ def _tree():
 def test_subcommand_commands_register_as_groups_with_typed_options():
     tree = _tree()
     spool = tree.get_command("spool")
-    assert [c.name for c in spool.commands] == ["guided", "list", "change", "new", "weight", "sync"]
+    assert [c.name for c in spool.commands] == ["guided", "list", "change", "new", "weight",
+                                                "shelve", "rename", "archive", "unarchive", "sync"]
     change = spool.get_command("change")
     params = {p.name: p for p in change.parameters}
     assert params["slot"].type.name == "integer" and params["slot"].required
