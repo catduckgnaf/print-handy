@@ -1,5 +1,17 @@
 # Docker
 
+Docker is one of Print Handy's three main installation paths, alongside [Unraid](https://github.com/catduckgnaf/catduck-unraid-templates) and the [Home Assistant add-on](HOME-ASSISTANT-OS.md). This page is the deep dive. For the short copy-and-paste setup, start at [Install it in the README](../README.md#install-it).
+
+## First time here?
+
+1. Download the release's `docker-compose.yml` and `.env.example` using the [README quickstart](../README.md#docker).
+2. Set `PRINT_HANDY_IMAGE` to the digest you intend to run ([how to find the digest](#pinning-the-image)). A release tag is a reference, not proof of a fixed digest.
+3. Select the exact printer **model and firmware** in [Printer support](PRINTER-SUPPORT.md). Moonraker settings are only for printers that actually speak Moonraker.
+4. Configure [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md), [Matrix](MATRIX-BOT-SETUP.md) or the local [Web UI](WEBUI.md).
+5. Start Compose, claim the Web UI login and run `docker compose exec combined python3 -m print_handy.doctor`. The doctor checks services and configuration; your first print is still a real hardware test.
+
+Want Unraid instead? The [Community Apps template repo](https://github.com/catduckgnaf/catduck-unraid-templates) gets you there without hand-editing Compose. No extra installation species required.
+
 ## Run a print
 
 1. Share a model link or upload an STL/3MF through your configured chat platform.
