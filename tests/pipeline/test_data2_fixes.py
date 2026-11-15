@@ -25,7 +25,7 @@ def _receipt(env, mid):
 def test_resume_reuses_saved_color_decisions(env):
     """P1-38: a resume whose JOB.json already holds color decisions must reuse
     them, not rebuild them from an unassigned ``mode`` (UnboundLocalError)."""
-    run_flow(env, [1, 0, 0], mid='first')
+    run_flow(env, [2, 0, 0], mid='first')
     prev = prepared_intake.newest_archived_job()
     saved = prev['color_decisions']
     assert saved['mode'] == 'single_color'
@@ -206,7 +206,7 @@ def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch
         return [gcode]
 
     monkeypatch.setattr(model_job, 'slice_job', fake_slice)
-    adapter, _result, receipt = run_flow(env, [1, 0, 0], mid='partial1')
+    adapter, _result, receipt = run_flow(env, [2, 0, 0], mid='partial1')
     assert receipt['status'] != 'FAILED', receipt
     posts = [post for post in adapter.sent if 'will NOT print' in post]
     assert posts and 'Plate 2' in posts[0] and 'does not fit the bed' in posts[0]

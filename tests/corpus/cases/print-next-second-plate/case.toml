@@ -8,6 +8,18 @@ description = "two plates via the split plan; plate 1 starts in the setup flow, 
 kind = "print-next"
 
 [[click]]
+question = "Use these colors?"
+button = "Change colors"
+
+[[click]]
+question = "pick the rest?"
+button = "Pick every color"
+
+[[click]]
+question = "Same colors as last time"
+button = "Change colors"
+
+[[click]]
 question = "Choose colors for these parts"
 button = "One color for everything"
 

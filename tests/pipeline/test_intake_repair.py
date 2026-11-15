@@ -101,8 +101,8 @@ def test_intake_flow_quantity_prompt_and_duration_answer(env, monkeypatch):
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='m_dur', text=text)
 
-    # picks: one color (1), slot 1 (0), quantity 2 copies (1), confirm 2 copies (0), slice only (1), then cancel (1)
-    adapter = Adapter([1, 0, 1, 0, 1, 1])
+    # picks: one color (2 on the #1473 offer), slot 1 (0), quantity 2 copies (1), confirm 2 copies (0), slice only (1), then cancel (1)
+    adapter = Adapter([2, 0, 1, 0, 1, 1])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
 
     # Check quantity question was asked with 3 choices: 1 copy, 2 copies, 3 copies

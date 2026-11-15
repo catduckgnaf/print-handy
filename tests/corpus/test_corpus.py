@@ -328,11 +328,11 @@ def test_matrix_expansion_derives_names_expectations_and_known_failure_links():
     assert none["expect"]["plate_mode"] == "split" and none["known_failure"] == "#820: example defect"
     assert tight["expect"]["parts"] == ["Base", "Trim", "Letters"] and tight["expect"]["slots"] == 3
     assert tight["expect"]["colors"] == {"Base": "white", "Trim": "black", "Letters": "pink"}
-    assert [rule["question"] for rule in tight["click"]][1:4] == ["for Base,", "for Trim,", "for Letters,"]
+    assert [rule["question"] for rule in tight["click"]][4:7] == ["for Base,", "for Trim,", "for Letters,"]
     assert tight["model"]["fit"] == "tight" and [p["extruder"] for p in tight["model"]["part"]] == [1, 2, 3]
     loose = tomllib.loads(matrix.expand({"name": "l{colors}", "layout": "loose", "colors": [2], "fit": ["roomy"],
                                          "printer": {"nozzle": 0.25, "tower": 35}})[0].text)
-    assert loose["printer"] == {"nozzle": 0.25, "tower": 35} and loose["click"][1]["question"] == '("Part 1")'
+    assert loose["printer"] == {"nozzle": 0.25, "tower": 35} and loose["click"][4]["question"] == '("Part 1")'
 
 
 def test_a_generated_matrix_case_the_matrix_no_longer_yields_is_an_error(tmp_path, monkeypatch):

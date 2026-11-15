@@ -60,9 +60,10 @@ def saved_job(env):
 
 def test_a1_without_spoolman_reaches_the_color_question_and_saves_one_color(env, monkeypatch):  # noqa: F811
     use_model(monkeypatch, A1)
-    # "One color for everything", the only slot, then "Cancel print request":
+    # "One color for everything" (2 on the #1473 partial offer: only the
+    # white spool can match), the only slot, then "Cancel print request":
     # the color decisions are already saved on the job when it is answered.
-    adapter, result, receipt = run_a1_flow(env, [1, 0, 3], a1_state())
+    adapter, result, receipt = run_a1_flow(env, [2, 0, 3], a1_state())
     assert not any("configured slots" in m for m in adapter.sent), adapter.sent
     color = next(q for q in adapter.questions if q["question"].startswith("Choose the color for"))
     assert color["choices"][:-1] == ["White PLA"]

@@ -368,7 +368,7 @@ def test_yolo_model_answers_every_question_out_loud_and_starts_with_the_flag(env
 def test_yolo_from_a_non_approver_runs_the_normal_intake(env, monkeypatch):
     monkeypatch.setattr(yolo, 'may_yolo', lambda user_id, platform='discord', cfg=None: False)
     # Normal flow answers: one color (1), slot 1 (0), Slice and print now (0).
-    adapter, result, receipt, event = _yolo_flow(env, picks=[1, 0, 0])
+    adapter, result, receipt, event = _yolo_flow(env, picks=[2, 0, 0])
     assert any('only a print approver can use it' in m for m in adapter.sent)
     assert adapter.questions, 'the normal questions were asked'
     assert receipt['status'] == 'STARTED'

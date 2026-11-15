@@ -340,6 +340,58 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
         cm.wait_for_response(cid, 0.001)
 
 
+async def ask_batch(adapter, source, session_key, question, groups, timeout=None):
+    """Ask several choice groups at once; returns one picked index per group.
+
+    ``groups`` is [{label, choices}]. On an adapter that can render a batch
+    (Discord: one message with a select menu per group, five rows to a
+    message, then a second message) every group is asked in that one
+    message. Other adapters keep the one-question-at-a-time flow, group by
+    group. Nothing is answered by default: an expired or cancelled batch
+    raises and the caller saves nothing."""
+    send_batch = getattr(adapter, 'send_clarify_batch', None)
+    truncated = [[str(c)[:100] for c in group['choices']] for group in groups]
+    if send_batch is None or any(len(set(labels)) != len(labels) for labels in truncated):
+        return [await ask(adapter, source, session_key,
+                          f"{question}\n{group['label']}", group['choices'], timeout)
+                for group in groups]
+    from .prompts import gateway as _prompts
+    cm = _prompts()
+    cids = [uuid.uuid4().hex for _ in groups]
+    try:
+        for cid, group, labels in zip(cids, groups, truncated):
+            cm.register(cid, session_key, question, labels)
+        result = await send_batch(chat_id=str(source.chat_id), question=question,
+            groups=[{'label': group['label'], 'question': group.get('question'),
+                     'choices': labels, 'clarify_id': cid}
+                    for group, labels, cid in zip(groups, truncated, cids)],
+            session_key=session_key,
+            metadata={'thread_id': source.thread_id} if source.thread_id else None)
+        if not result.success:
+            raise RuntimeError('batch color prompt delivery failed')
+        answers = await asyncio.gather(
+            *(_prompt_wait_answer(cm, cid, timeout) for cid in cids))
+        picked = []
+        for answer, labels in zip(answers, truncated):
+            if answer is None:
+                raise PromptExpired('this question expired before every menu was answered; no decision saved')
+            if answer == cm.CANCELLED:
+                raise PromptCancelled('cancelled')
+            if answer not in labels:
+                raise RuntimeError('batch color choice cancelled, expired or noncanonical; no decisions saved')
+            picked.append(labels.index(answer))
+        return picked
+    finally:
+        for cid in cids:
+            cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+            cm.wait_for_response(cid, 0.001)
+
+
+async def _prompt_wait_answer(cm, cid, timeout):
+    from . import prompts as _prompt_wait
+    return await _prompt_wait.await_answer(cid, timeout, registry=cm)
+
+
 async def collect_link(event, adapter, state, root, timeout=300):
     from .model_job import resolve_filament_selection, build_slot_labels, build_tool_labels, configured_slots, position_limit
     from .. import printers

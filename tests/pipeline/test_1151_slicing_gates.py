@@ -37,7 +37,7 @@ def test_reslice_with_supports_requires_a_new_clearance_acknowledgement(env, mon
     _v12_warning_env(env, monkeypatch)
     # color(1), slot(0), Print anyway at Ready(5), Re-slice with supports(0),
     # then Print anyway at the re-asked gate question(0).
-    adapter, result, receipt = run_flow(env, [1, 0, 5, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 0])
     gate_q = adapter.questions[-1]
     assert gate_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']
@@ -57,7 +57,7 @@ def test_reslice_with_supports_cancel_at_the_reasked_gate_starts_nothing(env, mo
     _v12_warning_env(env, monkeypatch)
     # color(1), slot(0), Print anyway at Ready(5), Re-slice with supports(0),
     # then Cancel at the re-asked gate question(1).
-    adapter, result, receipt = run_flow(env, [1, 0, 5, 0, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 5, 0, 1])
     gate_q = adapter.questions[-1]
     assert gate_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
     assert 'under 1.0 mm' in gate_q['question']

@@ -218,7 +218,7 @@ def test_fit_choice_rows_are_four_or_fewer_and_never_offer_preview():
 
 def test_one_click_slice_and_print_needs_no_typed_approval(env):
     # picks: one color for everything, slot 1, then choice 1 "Slice and print ... (bed is clear)"
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     last = adapter.questions[-1]['choices']
     assert last[0].startswith('Slice and print') and 'bed is clear' in last[0]
     assert last[1] == 'Slice and Download' and last[2] == 'Scale the model' and last[3] == 'Cancel print request'
@@ -242,13 +242,13 @@ def test_slice_only_posts_start_button_bound_to_exact_plate(env):
     # #1443: the slice-only question is the delivery menu; its Start button is
     # the same per-job bed-clear button, bound to the exact plate.
     from print_handy.core import delivery
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 0])  # slice only, then START button
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 0])  # slice only, then START button
     assert adapter.questions[-1]['choices'] == [print_next.START_LABEL, 'Send the files here', delivery.DONE_LABEL]
     assert len(env.starts) == 1 and receipt['status'] == 'STARTED'
 
 
 def test_slice_only_then_done_never_starts(env):
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 2])  # slice only, then Done on the delivery menu
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 2])  # slice only, then Done on the delivery menu
     assert env.starts == [] and receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
 
 
@@ -314,7 +314,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
     monkeypatch.setattr(prepared_intake, 'STOP_SENDER', stop_sender)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='stop-live-start', text='https://www.printables.com/model/1-ghost')
-    adapter = InteractiveAdapter([1, 0, 0])
+    adapter = InteractiveAdapter([2, 0, 0])
 
     async def run():
         result = await prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=3)
@@ -337,7 +337,7 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
 
 
 def test_cancel_choice_discards_the_early_slice_and_never_starts(env):
-    adapter, result, receipt = run_flow(env, [1, 0, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 3])
     # Issue 63 starts the slice while the confirm question is up. Cancel throws it away.
     assert env.starts == [] and receipt['status'] == 'CANCELLED'
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
@@ -347,7 +347,7 @@ def test_scale_bigger_repeats_the_ready_question_and_slices_at_the_new_size(env,
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 1)
     # color, slot, Scale the model, Bigger, 5%, then Slice and print now.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 1, 0])
     ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
     assert len(ready) == 2
     assert 'Scaled to 105% of the authored size.' in ready[1]['question']
@@ -368,7 +368,7 @@ def test_scale_smaller_stacks_on_the_previous_scale(env, monkeypatch):
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 1)
     # Scale smaller by 10% (to 90%), then scale bigger by 10% (to 99%), then Cancel.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 1, 2, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 1, 2, 2, 0, 2, 3])
     ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
     assert len(ready) == 3
     assert 'Scaled to 90% of the authored size.' in ready[1]['question']
@@ -383,7 +383,7 @@ def test_scale_that_does_not_fit_the_bed_is_refused_and_nothing_is_scaled(env, m
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
                         lambda path, st, **kw: 0 if float(kw.get('scale') or 1.0) > 1.0 else real(path, st))
     # Scale bigger by 10% is refused; the repeated question is answered with Cancel.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
     assert any('110% does not fit' in text and 'stays at 100%' in text for text in adapter.sent)
     assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
     assert env.starts == [] and env.sliced == []
@@ -398,7 +398,7 @@ def test_scale_past_the_bed_offers_the_biggest_size_that_fits_and_scales_to_it(e
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))
     # Scale bigger by 10% does not fit; take the offered biggest fit (104%),
     # then Slice and print now on the repeated question.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 0, 0])
     offer = [q for q in adapter.questions if 'biggest size that fits' in q['question']]
     assert offer and '110% does not fit' in offer[0]['question']
     assert offer[0]['choices'] == ['Scale to 104%', 'Keep 100%', 'Cancel scaling']
@@ -427,7 +427,7 @@ def test_scale_fit_search_probe_failure_names_the_slicer_failure(env, monkeypatc
 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
     # Scale bigger by 10%; the repeated Ready question is answered with Cancel.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
     assert any('could not work out the biggest size that fits because the slicer check failed' in text
                and 'stays at 100%' in text for text in adapter.sent)
     assert not any('biggest size that fits is' in q['question'] for q in adapter.questions)
@@ -439,7 +439,7 @@ def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))
     # Scale bigger by 10% does not fit; keep 100% at the offer, then Cancel.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 1, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 1, 3])
     offer = [q for q in adapter.questions if 'biggest size that fits' in q['question']]
     assert offer and offer[0]['choices'][0] == 'Scale to 104%'
     assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
@@ -459,7 +459,7 @@ def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkey
 
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
     # Scale bigger by 10% is refused and the search fails; Cancel at the repeated question.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 2, 3])
     assert any('110% does not fit' in text and 'stays at 100%' in text
                and 'could not work out the biggest size that fits' in text for text in adapter.sent)
     assert not [q for q in adapter.questions if 'biggest size that fits' in q['question']]
@@ -470,7 +470,7 @@ def test_a_failed_biggest_fit_search_is_reported_not_called_a_no_fit(env, monkey
 def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
     # Scale the model, back out of the amount question, back out of the
     # direction question on a second try, then Cancel the print request.
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 3, 2, 2, 3])
+    adapter, result, receipt = run_flow(env, [2, 0, 2, 0, 3, 2, 2, 3])
     ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
     assert len(ready) == 3
     assert not any('Scaled to' in q['question'] for q in ready)
@@ -511,7 +511,7 @@ def test_expired_slice_confirmation_discards_the_background_slice(env):
 
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
-    adapter = ExpiringAdapter([1, 0, 1])  # color answers, then Cancel on the Resume prompt
+    adapter = ExpiringAdapter([2, 0, 1])  # color answers, then Cancel on the Resume prompt
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert result['action'] == 'skip'
     assert env.starts == [] and env.sliced == []
@@ -526,7 +526,7 @@ def test_failed_intake_discards_the_background_slice(env, monkeypatch):
         raise RuntimeError('synthetic start failure')
 
     monkeypatch.setattr(print_next, 'start', broken_start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
     assert receipt['status'] == 'FAILED'
     assert env.starts == [] and env.sliced == []
@@ -571,7 +571,7 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
 
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='m-stop58', text='https://www.printables.com/model/1-ghost')
-    adapter = StopAdapter([1, 0, 0])
+    adapter = StopAdapter([2, 0, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=5))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert any(q['question'].startswith('Waiting for the background slice') for q in adapter.questions)
@@ -602,7 +602,7 @@ def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
 
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
     # Expire the first question, then continue: mode, two part colors, cancel.
-    adapter = Adapter([0, 0, 0, 0, 3])
+    adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
@@ -639,8 +639,8 @@ def test_unanswered_or_cancelled_resume_closes_the_intake(env, monkeypatch, resu
 def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env):
     # First color question expires. Resume must ask the next saved question
     # (the color choice), not stop after the action marker.
-    # Picks: Resume, per-part mode, two part colors, then cancel the print request.
-    adapter = Adapter([0, 0, 0, 0, 3])
+    # Picks: Resume, Change colors (#1473), two part colors, then cancel the print request.
+    adapter = Adapter([0, 1, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
@@ -667,7 +667,7 @@ def test_changed_gcode_after_slice_is_refused_by_existing_gate(env, monkeypatch)
         Path(target['gcode']).write_text('; tampered\n')
         return await original(target)
     monkeypatch.setattr(print_next, 'start', tampered)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'START_REFUSED' and receipt['started'] is False
     assert any(m.startswith("Didn't start:") for m in adapter.sent)
 
@@ -683,7 +683,7 @@ def test_failed_slice_retry_needs_fresh_approval_and_start_button(env, monkeypat
         return real_slice(job_path, *args, **kwargs)
 
     monkeypatch.setattr(model_job, 'slice_job', fail_once)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='retry-approved')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='retry-approved')
 
     retry = [q for q in adapter.questions if q['choices'][0] == 'Retry slice once (no print)']
     # #1443: after the retry the fresh start button sits on the slice-only delivery menu.
@@ -705,7 +705,7 @@ def test_cancelled_slice_retry_cannot_be_replayed(env, monkeypatch):
         raise RuntimeError('synthetic slice failure')
 
     monkeypatch.setattr(model_job, 'slice_job', always_fail)
-    adapter, _result, receipt = run_flow(env, [1, 0, 0, 1], mid='retry-cancelled')
+    adapter, _result, receipt = run_flow(env, [2, 0, 0, 1], mid='retry-cancelled')
     assert len(calls) == 1 and env.starts == []
     assert receipt['status'] == 'CANCELLED' and receipt['sliced'] is False
     assert 'slice_approval' not in receipt
@@ -732,7 +732,7 @@ def test_uncertain_subprocess_exit_is_not_a_refusal(env, monkeypatch):
         env.starts.append(target)
         return False, 'UNCERTAIN: print-now timed out. The plate may already have started. Not retrying.'
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='uncertain-process')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='uncertain-process')
     assert receipt['status'] == 'START_PENDING'
     assert receipt['started'] is None
 
@@ -741,7 +741,7 @@ def test_uncertain_submission_is_not_a_started_print_or_refusal(env, monkeypatch
     async def start(target):
         return await _test_unknown_start(target, env)
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='uncertain-submission')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='uncertain-submission')
     assert receipt['status'] == 'START_PENDING'
     assert receipt['started'] is None
     assert len(env.starts) == 1
@@ -772,7 +772,7 @@ def test_lost_start_response_is_pending_for_every_printer_family(env, monkeypatc
         env.starts.append(target)
         return False, LOST_START_TAILS[family]
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='lost-' + family.split()[0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='lost-' + family.split()[0])
     assert receipt['status'] == 'START_PENDING' and receipt['started'] is None
     assert len(env.starts) == 1  # never resubmitted
     assert "Didn't start" not in adapter.sent[-1]
@@ -784,7 +784,7 @@ def test_explicit_preupload_refusal_is_still_a_refusal(env, monkeypatch):
         env.starts.append(target)
         return False, 'REFUSED: idle guard failed: print.state is printing. Nothing uploaded or started.'
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='explicit-refusal')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='explicit-refusal')
     assert receipt['status'] == 'START_REFUSED' and receipt['started'] is False
 
 
@@ -794,7 +794,7 @@ def test_failed_upload_post_names_the_upload_stage_and_unknown_state(env, monkey
         env.starts.append(target)
         return False, 'The file could not be uploaded to the printer, so nothing started. Detail: boom'
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='upload-failure')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='upload-failure')
     final = adapter.sent[-1]
     assert receipt['status'] == 'START_PENDING'
     assert 'Stage: upload.' in final and 'may already have the file' in final
@@ -806,7 +806,7 @@ def test_unconfirmed_start_post_names_the_launch_stage(env, monkeypatch):
     async def start(target):
         return False, 'UNCERTAIN: print-now timed out. The plate may already have started. Not retrying.'
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='launch-unknown')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='launch-unknown')
     assert 'has not confirmed it yet' in adapter.sent[-1]
     assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'unknown'
 
@@ -816,7 +816,7 @@ def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypa
         env.starts.append(target)
         return False, 'REFUSED: idle guard failed: print.state is printing. Nothing uploaded or started.'
     monkeypatch.setattr(print_next, 'start', start)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='refusal-stage')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='refusal-stage')
     posts = adapter.sent + [q['question'] for q in adapter.questions]
     assert any(m.startswith("Didn't start") for m in posts), posts
     assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'nothing'
@@ -852,7 +852,7 @@ def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(
         self.sent.append(content)
         return S(success=True, message_id=f'm{len(self.sent)}')
     monkeypatch.setattr(Adapter, 'send', send)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     starts = [m for m in adapter.sent if m.startswith('Print started')]
     assert len(starts) == 1 and 'Warming up' not in starts[0]
@@ -881,7 +881,7 @@ def test_start_already_printing_posts_no_roast_and_records_nothing(env, monkeypa
         self.sent.append(content)
         return S(success=True, message_id=f'm{len(self.sent)}')
     monkeypatch.setattr(Adapter, 'send', send)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     starts = [m for m in adapter.sent if m.startswith('Print started')]
     assert len(starts) == 1 and "One roast for the Ghost Stand" not in starts[0]
@@ -914,7 +914,7 @@ def test_warming_start_on_telegram_posts_no_roast_and_records_no_edit(env, monke
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
                        platform=S(value='telegram')),
               message_id='m1', text='https://www.printables.com/model/1-ghost')
-    adapter = Adapter([1, 0, 0])
+    adapter = Adapter([2, 0, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
@@ -939,7 +939,7 @@ def test_start_refused_posts_no_roast(env, monkeypatch, tmp_path):
         env.starts.append(target)
         return False, 'REFUSED: printer is busy with another job. Nothing uploaded or started.'
     monkeypatch.setattr(print_next, 'start', refused)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    adapter, result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'START_REFUSED' and receipt['started'] is False
     assert roast_calls == []
     assert not any('Roast that must not appear' in m for m in adapter.sent)
@@ -953,7 +953,7 @@ def test_preparation_metadata_mismatch_never_blocks_start(env, monkeypatch):
     monkeypatch.setattr(print_next, 'start', preparing)
     monkeypatch.setattr(prepared_intake.print_summary, 'format_preparation',
                         lambda *_args, **_kw: 'Print preparing: stale metadata unavailable')
-    adapter, _result, receipt = run_flow(env, [1, 0, 0])
+    adapter, _result, receipt = run_flow(env, [2, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     assert any(msg.startswith('Preparing to start') and '#unknown' not in msg for msg in adapter.log)
 
@@ -969,7 +969,7 @@ def test_preparing_line_never_shows_the_jobs_first_number_as_this_starts(env, mo
         return True, REAL_AWAITING
     monkeypatch.setattr(print_next, 'start', preparing)
     monkeypatch.setattr(print_control, 'latest_number_for_job', lambda _path: 7)
-    adapter, _result, receipt = run_flow(env, [1, 0, 0], mid='again')
+    adapter, _result, receipt = run_flow(env, [2, 0, 0], mid='again')
     assert receipt['status'] == 'STARTED'
     prep = [msg for msg in adapter.log if msg.startswith('Preparing to start')]
     assert prep and 'A reprint of print #7; it gets its own new print number' in prep[0]
@@ -984,13 +984,13 @@ def test_preparing_line_for_a_fresh_job_names_no_number(env, monkeypatch):
         return True, REAL_AWAITING
     monkeypatch.setattr(print_next, 'start', preparing)
     monkeypatch.setattr(print_control, 'latest_number_for_job', lambda _path: None)
-    adapter, _result, _receipt = run_flow(env, [1, 0, 0], mid='fresh')
+    adapter, _result, _receipt = run_flow(env, [2, 0, 0], mid='fresh')
     prep = [msg for msg in adapter.log if msg.startswith('Preparing to start')]
     assert prep and '#' not in prep[0].splitlines()[0]
 
 
 def test_duplicate_event_does_not_start_twice(env):
-    run_flow(env, [1, 0, 0], mid='dup')
+    run_flow(env, [2, 0, 0], mid='dup')
     adapter = Adapter([])
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='dup',
               text='https://www.printables.com/model/1-ghost')
@@ -1010,7 +1010,7 @@ def test_message_identity_is_a_sha256_not_the_raw_discord_snowflake(env, monkeyp
         'sources': [{'name': 'identity.3mf', 'instance_id': 1}]})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id=mid, text='https://www.printables.com/model/1-identity')
-    result = asyncio.run(prepared_intake.prepare_link(event, Adapter([1, 0, 1]), state(), env.root, timeout=1))
+    result = asyncio.run(prepared_intake.prepare_link(event, Adapter([2, 0, 1]), state(), env.root, timeout=1))
     assert result['action'] == 'skip'
     receipt = json.loads((env.root / f'{expected}.json').read_text())
     assert receipt['intake_id'] == expected
@@ -1108,7 +1108,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
                         lambda path: {**real(path), 'filament_stats': {'total_g': 25, 'total_m': 8, 'extruders': {}}})
     st = state()
     st['filament_slots']['1']['remaining_grams'] = 200
-    adapter = Adapter([1, 0, 3])  # one color, slot 1, cancel the print request
+    adapter = Adapter([2, 0, 3])  # one color, slot 1, cancel the print request
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
@@ -1218,7 +1218,7 @@ def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
               message_id='profiles', text=url)
     # Contract (2026-10-12): the URL profileId is used directly; no profile button.
     # one color, slot 1, then cancel. The early slice starts during the question and is discarded.
-    adapter = Adapter([1, 0, 3])
+    adapter = Adapter([2, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert not any('print profiles' in q['question'] for q in adapter.questions)
     assert selected == [3848581]
@@ -1249,7 +1249,7 @@ def test_quantity_buttons_choose_midpoint_and_answer_duration(env, monkeypatch):
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='duration', text='https://www.printables.com/model/1-ghost how long would this take?')
     # one color, slot 1, choose 2 copies, slice only, then decline start
-    adapter = Adapter([1, 0, 1, 1, 1])
+    adapter = Adapter([2, 0, 1, 1, 1])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     quantity = next(q for q in adapter.questions if 'copies' in q['question'].lower())
     assert quantity['choices'] == ['One copy', 'Two copies', 'Max (3 copies)', 'Cancel']
@@ -1289,7 +1289,7 @@ def test_typed_quantity_uses_value_not_button_position(env, monkeypatch):
             return S(success=True)
 
     # one color, slot 1, (typed 4 copies), slice only, then decline start
-    adapter = TypedQuantity([1, 0, 1, 1])
+    adapter = TypedQuantity([2, 0, 1, 1])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert calls == [4]
     quantity = next(q for q in adapter.questions if 'How many copies' in q['question'])
@@ -1447,8 +1447,8 @@ def test_capacity_zero_offers_rotation_alternative(env, monkeypatch):
                         lambda path, st: {'scales': [0.89, 0.75, 0.5], 'rotations': [rot]})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-rot', text='https://www.printables.com/model/1-ghost')
-    # One color, slot 1, pick choice 0 (the rotated alternative), slice only, Done (no start).
-    adapter = Adapter([1, 0, 0, 1, 2])
+    # One color (2 on the #1473 offer), slot 1, pick choice 0 (the rotated alternative), slice only, Done (no start).
+    adapter = Adapter([2, 0, 0, 1, 2])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     scale_prompt = next(q for q in adapter.questions if 'does not fit the' in q['question'])
     assert scale_prompt['choices'][0] == '100% + supports'
@@ -1467,7 +1467,7 @@ def test_capacity_zero_cancel_stops_without_slice(env, monkeypatch):
                         lambda path, st: {'scales': [0.98, 0.75, 0.5], 'rotations': []})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='too-large-cancel', text='https://www.printables.com/model/1-ghost')
-    adapter = Adapter([1, 0, 1])  # shrink, slot, then Cancel
+    adapter = Adapter([2, 0, 1])  # shrink, slot, then Cancel
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert result['reason'] == 'cancelled oversized model'
     assert any('Print cancelled' in text for text in adapter.sent)
@@ -1495,7 +1495,7 @@ def _per_part_oversized(env, monkeypatch, honored, answers):
 
 def test_per_part_offers_only_fits_every_slot_plate_honors(env, monkeypatch):
     # Per-part mode, both parts on the first slot, then pick the first fit row.
-    adapter, result, seen = _per_part_oversized(env, monkeypatch, {0.5}, [0, 0, 0, 0])
+    adapter, result, seen = _per_part_oversized(env, monkeypatch, {0.5}, [1, 0, 0, 0])
     assert seen and seen[0][0] == 'per_part'
     fit_question = next(q for q in adapter.questions if 'does not fit the' in q['question'])
     assert not any('88' in c or '94' in c for c in fit_question['choices'])
@@ -1602,7 +1602,7 @@ def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
         task = asyncio.create_task(ticker())
         event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
                   message_id=__import__('uuid').uuid4().hex, text='https://www.printables.com/model/1-ghost')
-        adapter = Ordered([0, 0, 1, 3])  # per-part mode, Shell->slot1, Eyes->slot2, cancel
+        adapter = Ordered([1, 0, 1, 3])  # #1473: Change colors, Shell->slot1, Eyes->slot2, cancel
         try:
             await prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1)
         finally:
@@ -1622,15 +1622,17 @@ def test_multipart_inspection_runs_off_event_loop_and_loop_stays_responsive(env,
     assert env.starts == [] and not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
 
 
-def test_multipart_first_prompt_states_part_count_and_asks_color_choice(env, monkeypatch):
+def test_multipart_first_prompt_offers_the_proposed_mapping(env, monkeypatch):
     adapter, order, _, _ = _slow_inventory_flow(env, monkeypatch)
     assert order[0][0] == 'ask'  # no separate message precedes the prompt
     first = adapter.questions[0]
-    assert first['question'].startswith('Inspected 2 parts: Shell, Eyes.')
-    assert 'Choose colors for these parts or one color for everything?' in first['question']
-    assert len(first['choices']) == 3
+    # #1473: both author colors match loaded spools, so the first prompt is
+    # the proposed mapping, not a mode question.
+    assert first['question'] == 'Colors for these parts: Shell: White PLA, Eyes: Black PLA. Use these colors?'
+    assert first['choices'][:3] == ['Use these colors', 'Change colors', 'One color for everything']
+    assert len(first['choices']) == 4
     assert first['choices'][-1] == 'Cancel'
-    # Per-part answers continue to the per-part prompts instead of stalling.
+    # Choosing Change continues to the per-part prompts instead of stalling.
     assert [q['question'] for q in adapter.questions[1:3]] == [
         'Choose the color/material for Shell, author made it White',
         'Choose the color/material for Eyes, author made it Black']
@@ -1661,7 +1663,7 @@ def test_dropped_3mf_runs_same_intake_without_any_site(env, monkeypatch):
               text='', media_urls=[str(drop)])
     assert prepared_intake.model_file(event) == drop
     assert prepared_intake.model_file(S(media_urls=[str(drop), str(drop)])) is None
-    adapter = Adapter([1, 0, 0])
+    adapter = Adapter([2, 0, 0])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -1690,7 +1692,7 @@ def test_reprint_request_detection(text, hit):
 
 
 def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
-    run_flow(env, [1, 0, 0], mid='first')
+    run_flow(env, [2, 0, 0], mid='first')
     def boom(*a, **k):
         raise AssertionError('reprint must not contact any site')
     for name in ('maker_inventory', 'maker_download', 'printables_inventory', 'printables_download'):
@@ -1699,7 +1701,7 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
     assert prev and prev['title'] == 'Ghost Stand'
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
               text='print the previous print in black')
-    adapter = Adapter([0, 1, 0, 0])  # yes reprint, slot 2, slice and print
+    adapter = Adapter([0, 2, 0, 0])  # yes reprint, slot 2, slice and print
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
     assert adapter.questions[0]['question'].startswith('Did you mean Ghost Stand')
     receipt = json.loads((env.root / (prepared_intake.hashlib.sha256(json.dumps(
@@ -1711,7 +1713,7 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
 
 
 def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
-    run_flow(env, [1, 0, 0], mid='first')
+    run_flow(env, [2, 0, 0], mid='first')
     prev = prepared_intake.newest_archived_job()
     folder = Path(prev['downloaded_file']).parents[1]
     # Left by a Print Handy process that stopped mid-slice.
@@ -1719,7 +1721,7 @@ def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
                                                      'worker_pid': 1, 'owner': 'previous-run'}))
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
               text='print the previous print in black')
-    adapter = Adapter([0, 1, 0, 0])  # yes reprint, slot 2, slice and print
+    adapter = Adapter([0, 2, 0, 0])  # yes reprint, slot 2, slice and print
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
     first = adapter.questions[0]['question']
     assert 'interrupted during slicing' in first and 'asked again' in first
@@ -1729,7 +1731,7 @@ def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
 
 
 def test_declined_reprint_does_nothing(env):
-    run_flow(env, [1, 0, 0], mid='first')
+    run_flow(env, [2, 0, 0], mid='first')
     prev = prepared_intake.newest_archived_job()
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='no',
               text='reprint that')
@@ -1756,7 +1758,7 @@ def test_followup_intake_names_its_target_before_color_questions(env):
     # model_link_dispatch hands it over; confirm_target is what marks it.
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='followup',
               text='https://www.printables.com/model/1-ghost print it')
-    adapter = Adapter([0, 1, 0, 0])  # yes at the naming gate, then the normal flow's picks
+    adapter = Adapter([0, 2, 0, 0])  # yes at the naming gate, then the normal flow's picks
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
                                                       confirm_target=True))
     assert adapter.questions[0]['question'].startswith('Print Ghost Stand?')
@@ -1888,7 +1890,7 @@ def test_split_slice_only_picker_cancel_starts_nothing(env, monkeypatch):
 
 
 def test_single_plate_has_no_picker(env):
-    adapter, _result, _receipt = run_flow(env, [1, 0, 0])
+    adapter, _result, _receipt = run_flow(env, [2, 0, 0])
     assert _plate_prompts(adapter) == [] and len(env.starts) == 1
 
 
@@ -2087,7 +2089,7 @@ def test_deterministic_slice_refusal_explains_and_offers_the_one_tap_fix(env, mo
 
     monkeypatch.setattr(model_job, 'slice_job', refuse_once)
     monkeypatch.setattr(slice_refusal, 'apply_fix', lambda fix, **kw: fixes.append(fix) or 'ok')
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='refusal-fixed')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='refusal-fixed')
     asked = [q for q in adapter.questions if 'never confirmed' in q['question']]
     assert len(asked) == 1
     question = asked[0]['question']
@@ -2107,7 +2109,7 @@ def test_slice_refusal_without_a_safe_fix_says_why_and_offers_no_blind_retry(env
         raise slice_refusal.unconfirmed_slot_color(2, {'material': 'PLA'}, 'IFS slot color/material mapping is unverified')
 
     monkeypatch.setattr(model_job, 'slice_job', refuse)
-    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='refusal-plain')
+    adapter, result, receipt = run_flow(env, [2, 0, 0], mid='refusal-plain')
     assert len(calls) == 1
     assert not [q for q in adapter.questions if q['choices'][0] == 'Retry slice once (no print)']
     said = '\n'.join(adapter.sent)
@@ -2160,7 +2162,7 @@ def test_slice_failure_journey_reports_cause_and_remedy(env, monkeypatch, copies
     # One color, slot, quantity, Slice and print now; cancel the optional retry.
     # A spare Cancel also lets this test fail on the released handler's actual
     # generic message, rather than failing because its blind retry exhausted picks.
-    adapter, result, receipt = run_flow(env, [1, 0, copies - 1, 0, 1],
+    adapter, result, receipt = run_flow(env, [2, 0, copies - 1, 0, 1],
                                       mid=f'failure-{kind}-{copies}-{worker_roundtrip}')
     posts = '\n'.join(adapter.sent + [q['question'] for q in adapter.questions])
     assert phrase in posts and 'SECRET' not in posts
@@ -2188,7 +2190,7 @@ def test_second_slice_failure_keeps_reference_and_diagnostics_step(env, monkeypa
         raise SliceFailure('SECRET timeout', kind='timeout', slicer='OrcaSlicer')
 
     monkeypatch.setattr(model_job, 'slice_job', fail)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0], mid='retry-fails-helpfully')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='retry-fails-helpfully')
     final = adapter.sent[-1]
     assert 'The one retry also failed' in final and 'time limit' in final
     assert '/print-handy bundle' in final and 'PH_SLICING_TRANSIENT' in final
@@ -2209,7 +2211,7 @@ def test_retry_clears_the_first_failure_record_and_replaces_it_on_a_second_failu
         return real_slice(job_path, *args, **kwargs)
 
     monkeypatch.setattr(model_job, 'slice_job', once_then_ok)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='retry-clears-failure')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0, 0], mid='retry-clears-failure')
     assert len(calls) == 2 and receipt['status'] == 'STARTED'
     assert 'failure' not in receipt and 'slice_error' not in receipt
 
@@ -2223,7 +2225,7 @@ def test_second_slice_failure_replaces_the_first_failure_record(env, monkeypatch
         raise errors.pop(0)
 
     monkeypatch.setattr(model_job, 'slice_job', fail)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0], mid='retry-replaces-failure')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='retry-replaces-failure')
     assert receipt['status'] == 'SLICE_FAILED'
     assert receipt['failure']['signature'] == 'model_unreadable' and receipt['failure']['stage'] == 'parse'
 
@@ -2385,7 +2387,7 @@ def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, mon
     # start question when the material needs an enclosure; a job that names no
     # registered model shows none.
     _slice_for_creator5_pro(monkeypatch, material='ABS')
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 2])  # slice only, then Done on the delivery menu
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 2])  # slice only, then Done on the delivery menu
     # #1443: the thermal facts ride the slice-only delivery menu's question (the
     # breakdown plus the start question), not the menu's "Anything else" repeat.
     start_question = next(q['question'] for q in adapter.questions
@@ -2400,12 +2402,12 @@ def test_start_question_has_no_thermal_lines_for_a_material_without_enclosure_ne
     # Nov 2026 channel: "Thermal: ... provenance ... mapping fan_generic fanM106"
     # on every PLA start question was debug output, not a decision.
     _slice_for_creator5_pro(monkeypatch)
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 1])
     assert 'Thermal:' not in adapter.questions[-1]['question']
 
 
 def test_start_question_has_no_thermal_lines_without_a_registered_model(env):
-    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+    adapter, result, receipt = run_flow(env, [2, 0, 1, 1])
     assert 'Thermal:' not in adapter.questions[-1]['question']
 
 
@@ -2539,7 +2541,7 @@ def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monke
         raise OSError('state file is read-only')
     monkeypatch.setattr(model_job, 'slice_job', refuse_once)
     monkeypatch.setattr(slice_refusal, 'apply_fix', broken_fix)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 0], mid='refusal-fix-fails')
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='refusal-fix-fails')
     assert result['reason'] == 'slice refusal fix failed'
     said = '\n'.join(adapter.sent)
     assert 'slot 1' in said and '`/spool change 1 <spool#>`' in said
@@ -2558,7 +2560,7 @@ def test_before_start_hook_runs_before_the_start_choice(env):
 
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook',
               text='https://www.printables.com/model/1-ghost shrink this by 20%')
-    adapter = Adapter([1, 0])
+    adapter = Adapter([2, 0])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
                                                       before_start=hook))
     assert seen == [True]
@@ -2575,7 +2577,7 @@ def test_before_start_hook_returning_none_continues_the_intake(env):
 
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook2',
               text='https://www.printables.com/model/1-ghost')
-    adapter = Adapter([1, 0, 3])
+    adapter = Adapter([2, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
                                              before_start=hook))
     assert any(q['question'].startswith('Ready to slice') for q in adapter.questions)

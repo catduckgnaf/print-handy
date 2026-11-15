@@ -5,6 +5,18 @@ description = "inch units and nested component transforms convert to a 25.4 x 15
 # Needs the inch unit handling of #825 (PR #826); the expectation below is the fixed behavior.
 
 [[click]]
+question = "Use these colors?"
+button = "Change colors"
+
+[[click]]
+question = "pick the rest?"
+button = "Pick every color"
+
+[[click]]
+question = "Same colors as last time"
+button = "Change colors"
+
+[[click]]
 question = "Choose the color for"
 button = "White"
 
