@@ -1866,9 +1866,23 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                            'material': state['spool'].get('material')}
         if state['spool'].get('color_code') is None:
             color_row = None  # no recorded color and no slots: the profile's own color stays
-        if slots:
-            if len(matching) != 1:
-                raise RuntimeError('selected spool must resolve to exactly one IFS slot')
+        if mapping and slots:
+            # The active spool is not authoritative for mapped jobs. Their
+            # first mapped physical slot is the reference material/color.
+            first_tool = min(mapping, key=int)
+            color_slot = mapping[first_tool]
+            slot = slots.get(str(color_slot)) or slots.get(color_slot) or {}
+            # Do not fetch an unrelated active spool's temperatures or density.
+            state = {**state, 'spool': {'spoolman_id': slot.get('spoolman_id'),
+                                      'name': slot.get('name'), 'material': slot.get('material'),
+                                      'density': slot.get('density') or 1.24}}
+            color_row = slot
+        elif slots and len(matching) != 1:
+            # No job mapping identifies a physical slot. Keep the explicitly
+            # recorded material, but do not invent a slot from the saved map.
+            print('WARNING: selected spool does not resolve to exactly one IFS slot; '
+                  'slicing the recorded material without a physical slot selection', flush=True)
+        elif slots:
             color_slot, slot = matching[0]
             from .printer_state import same_material
             if not same_material(slot.get('material'), state['spool']['material']):
@@ -1891,7 +1905,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     color = slot_hex(color_slot, color_row) if color_row is not None else None
     # The printer picks the filament profile for the job's material (Bambu Lab: its checked vendor profile for that
     # base polymer, refused when there is none); the hardware record then sets type, density and temperatures.
-    filament_template = printer.filament_template(templates, state['spool']['material'])
+    filament_template = printer.filament_template(templates, (state.get('spool') or {}).get('material'))
     # The job's spool sets its temperatures on every slice (2026-10-31: Silk PLA in IFS
     # slot 2 sliced at the printer-wide 210 °C left by an earlier PLA spool, not 220 °C).
     from .printer_state import slice_temperatures, spoolman_url as _spoolman_url

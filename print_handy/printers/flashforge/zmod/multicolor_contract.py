@@ -161,9 +161,10 @@ def validate_materials(text, material, state, mapping=None, tools=None):
             raise RuntimeError('unknown tool mapping for multicolor material validation')
         from ....core import material_accept
         from ....core.printer_state import same_material
-        if not same_material(materials[0], state['spool']['material']):
+        loaded_material = (state.get('spool') or {}).get('material')
+        if loaded_material and not same_material(materials[0], loaded_material):
             # A warning the operator may accept with Print as sliced (#1336).
-            found = material_accept.material_problem(materials[0], state['spool']['material'])
+            found = material_accept.material_problem(materials[0], loaded_material)
             if found:
                 raise RuntimeError(material_accept.message(found, ''))
         return None

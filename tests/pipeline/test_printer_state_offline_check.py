@@ -95,3 +95,22 @@ def test_flashforge_offline_check_never_judges_an_empty_detail():
     ok, probs, _facts = printer_state.check(dict(STATE), adapter=adapter, live=False)
     assert ok and probs == []
     assert adapter.readiness_calls == 0
+
+
+def test_empty_active_spool_does_not_add_mismatch_or_crash(monkeypatch):
+    from unittest.mock import patch
+    class Adapter:
+        transport = 'moonraker'
+        connection = 'moonraker'
+        has_native_screen = False
+    st = {'spool': {}, 'moonraker_url': 'http://moonraker', 'nozzle': {'diameter_mm': 0.4}}
+    def get(url, **kwargs):
+        if 'configfile=settings' in url:
+            return {'result': {'status': {'configfile': {'settings': {'extruder': {'nozzle_diameter': 0.4}}}}}}
+        if 'spoolman/spool_id' in url:
+            return {'result': {'spool_id': None}}
+        raise AssertionError(url)
+    with patch.object(printer_state, '_get', side_effect=get):
+        ok, problems, facts = printer_state.check(st, adapter=Adapter())
+    assert ok and problems == []
+    assert 'active_spool_mismatch' not in facts

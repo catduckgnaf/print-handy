@@ -129,3 +129,13 @@ def test_another_file_printing_is_still_not_this_start():
          mock.patch.object(job.time, 'monotonic', side_effect=lambda: next(clock)), \
          mock.patch.object(job.time, 'sleep'):
         assert job._wait_printing({}, 'X.gcode.3mf', 25) == 'busy'
+
+
+def test_empty_active_spool_is_a_selection_mismatch_not_a_key_error(tmp_path, offline_hardware):
+    offline_hardware['spool'] = {}
+    from print_handy.core import orca_adapter
+    with mock.patch.object(job, 'ARCHIVE', tmp_path), \
+         mock.patch.object(orca_adapter, 'slice_model') as slicer:
+        with pytest.raises(ValueError, match='selected filament differs from recorded slot/active spool'):
+            job.prepare_first_layer(1, 'white', 'PLA', 10)
+    slicer.assert_not_called()

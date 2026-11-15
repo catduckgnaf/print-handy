@@ -2593,7 +2593,7 @@ def prepare_first_layer(slot, color, material, spoolman_id, slicer="orca"):
     if (mapped.get("spoolman_id") != spoolman_id or
             str(mapped.get("color", "")).casefold() != color.casefold() or
             str(mapped.get("material", "")).casefold() != material.casefold() or
-            st["spool"]["spoolman_id"] != spoolman_id):
+            st["spool"].get("spoolman_id") != spoolman_id):
         raise ValueError("selected filament differs from recorded slot/active spool; live reconciliation required")
     folder = ARCHIVE / "ad5x-first-layer-sliced"
     source = folder / "source" / "first_layer_50x50.stl"
