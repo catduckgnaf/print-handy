@@ -903,6 +903,10 @@ class Gateway(_RoutedAdapter):
         chat = str(getattr(source, "chat_id", ""))
         routed = (chat in self.channel_printers or chat in self.shared_printers) \
             if (self.channel_printers or self.shared_printers) else chat == self.chat_id
+        # /print-live from the configured live voice channel's own chat (#1504):
+        # run_slash marks only that one command's source, after checking the
+        # channel; the user allowlist below still applies unchanged.
+        routed = routed or bool(getattr(source, "live_voice_channel", False))
         return routed and self.adapter.is_allowed_id(getattr(source, "user_id", None))
 
     def printer_id_for(self, source):
@@ -1033,6 +1037,11 @@ class BotCore(_RoutedAdapter):
         # is shared (#536) — served, but with no printer decided.
         self.channel_printers = routing.channel_map(self.cfg, self.platform_name)
         self.shared_printers = routing.shared_channel_map(self.cfg, self.platform_name)
+        # The live camera's voice channel (#1504): its own text chat accepts
+        # /print-live, and only /print-live. Discord only, like the command.
+        live = self.cfg.get("live_stream") or {}
+        self.live_voice_channel_id = (str(live.get("voice_channel_id") or "").strip()
+                                      if self.platform_name == "discord" else "")
         self.gateway = Gateway(self.adapter, self.chat_id, self.channel_printers,
                                self.shared_printers,
                                setup_only=bool((self.cfg.get("bot") or {}).get("setup_only")))
@@ -1706,6 +1715,20 @@ class BotCore(_RoutedAdapter):
     async def on_interaction(self, interaction):
         await self.adapter.handle_click(interaction)
 
+    def _print_channel_refusal(self, name=None):
+        """The slash refusal for an unrouted channel, naming where to go (#1504)."""
+        channels = list(self.channel_printers) + [c for c in self.shared_printers
+                                                  if c not in self.channel_printers]
+        if not channels and self.chat_id:
+            channels = [self.chat_id]
+        text = f"{self.bot_name} only works in its print channel"
+        if self.platform_name == "discord" and channels:
+            text += ": " + ", ".join(f"<#{c}>" for c in channels[:3])
+        text += "."
+        if name == "print-live" and self.live_voice_channel_id:
+            text += f" /print-live also works in <#{self.live_voice_channel_id}>."
+        return text
+
     async def run_slash(self, interaction, name, values, *, view=None):
         """A slash command runs as its typed text, after the same channel and user checks.
 
@@ -1718,11 +1741,19 @@ class BotCore(_RoutedAdapter):
         user = interaction.user
         chat_id, thread_id = channel_scope(interaction.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
+        live_voice = (not routed and name == "print-live" and bool(self.live_voice_channel_id)
+                      and str(chat_id) == self.live_voice_channel_id and thread_id is None)
         source = make_source(user.id, chat_id, thread_id, getattr(user, "bot", False),
                              platform_name=self.platform_name, printer_id=printer_id,
                              shared_printer_ids=self.shared_ids_for_chat(chat_id))
+        if live_voice:
+            # The live session is install-wide (one voice channel), so the
+            # command needs no printer of its own; the source is marked so the
+            # gateway's authorization treats this one command as routed.
+            source.live_voice_channel = True
+            routed = True
         if not routed and not self.gateway.setup_only:
-            await interaction.response.send_message(f"{self.bot_name} only works in its print channel.", ephemeral=True)
+            await interaction.response.send_message(self._print_channel_refusal(name), ephemeral=True)
             return None
         if not self.gateway.setup_only and not self.gateway._is_user_authorized_for_source(source):
             logger.info("refused slash command from %s user %s in channel %s: %s",

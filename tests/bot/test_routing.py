@@ -174,6 +174,62 @@ def test_botcore_starts_on_a_duplicate_claim_and_serves_it_shared(cfg):
     assert core.status(False)["shared_printers"] == core.shared_printers
 
 
+VOICE = "100000000000000555"
+
+
+def test_print_live_runs_from_the_live_voice_channel_and_nothing_else_does(cfg):
+    """#1504: /print-live from the configured live voice channel's own chat is
+    served (the source passes the same authorization a print channel gives),
+    while every other command there is still refused, a thread in the voice
+    channel is not the voice chat, and an unlisted user is still refused."""
+    cfg = two_printer_cfg(cfg)
+    cfg.setdefault("live_stream", {})["voice_channel_id"] = VOICE
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(OPERATOR))
+    voice = discord.add_channel(int(VOICE))
+    voice_thread = discord.add_channel(int(CHAT_X), parent_id=int(VOICE))
+    router = RecordingRouter()
+    core = runtime.BotCore(discord.client, cfg, router=router)
+
+    async def slash(channel, name, values=None, user=None):
+        interaction = fake_discord.FakeInteraction(discord, user or discord.operator, channel=channel)
+        return await core.run_slash(interaction, name, values or {}), interaction
+
+    out, _interaction = run(slash(voice, "print-live", {"action": "status"}))
+    assert out == {"action": "skip", "reason": "recorded"}
+    source = router.events[-1].source
+    assert source.chat_id == VOICE and router.events[-1].text == "/print-live status"
+    assert core.gateway._is_user_authorized_for_source(source)
+
+    for name in ("print-stop", "print-help"):
+        out, interaction = run(slash(voice, name))
+        assert out is None
+        assert "only works in its print channel" in interaction.replies[0]["content"]
+    out, interaction = run(slash(voice_thread, "print-live", {"action": "status"}))
+    assert out is None
+    assert len(router.events) == 1
+
+    stranger = fake_discord.FakeUser(300000000000000003, "stranger")
+    out, interaction = run(slash(voice, "print-live", {"action": "status"}, user=stranger))
+    assert out is None and "Not allowed" in interaction.replies[0]["content"]
+    assert len(router.events) == 1
+
+
+def test_slash_refusal_names_the_print_channel(cfg):
+    """#1504: the refusal says where the bot works instead of only that it does not work here."""
+    cfg = two_printer_cfg(cfg)
+    cfg.setdefault("live_stream", {})["voice_channel_id"] = VOICE
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(OPERATOR))
+    chan_x = discord.add_channel(int(CHAT_X))
+    core = runtime.BotCore(discord.client, cfg, router=RecordingRouter())
+    interaction = fake_discord.FakeInteraction(discord, discord.operator, channel=chan_x)
+    assert run(core.run_slash(interaction, "print-live", {"action": "start"})) is None
+    text = interaction.replies[0]["content"]
+    assert f"<#{CHAT_B}>" in text
+    assert f"/print-live also works in <#{VOICE}>" in text
+
+
 def test_botcore_without_a_roster_keeps_single_chat_behaviour(cfg):
     cfg["printers"] = []  # a config dict carrying no roster at all
     discord, core = make(cfg)

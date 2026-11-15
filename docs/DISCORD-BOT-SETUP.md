@@ -333,6 +333,11 @@ household, exactly as you would for print approvals.
 - `/print-live start` opens the viewing session and posts the pointer: join the configured
   voice channel and launch the **Print Handy** activity from its activity shelf.
   `/print-live stop` ends it; `/print-live status` reports it.
+- Run `/print-live` from the print channel, or from the text chat of the configured
+  live voice channel (`live_stream.voice_channel_id`) itself, where viewers already are.
+  The voice channel's chat accepts `/print-live` only: every other command there gets the
+  usual refusal, which names the print channel. The same `allowed_user_ids` check applies
+  in both places.
 - With `live_stream.auto_start_on_print = true` (off by default), a print start opens the
   session and posts the pointer automatically, and the session ends when that print ends.
 - A session with nobody watching ends itself after `live_stream.empty_timeout_s`
