@@ -102,8 +102,8 @@ def system_prompt(help_text, platform=None):
     label = _PLATFORM_LABELS.get(str(platform or "").strip().lower())
     who = f"the {label} helper" if label else "the chat helper"
     return (f"You are {_config.bot_name()}, {who} for a 3D printer. You cannot see the printer, "
-            "start, stop or change anything yourself. Every printer action is a command that asks the "
-            "operator to press a button first. Answer in at most two short sentences. If one of these "
+            "start, stop or change anything yourself. Every printer action is a command the operator "
+            "runs; most ask for a button press first. Answer in at most two short sentences. If one of these "
             "commands does what the person asks, name it in \"command\"; otherwise use null. Never invent "
             "commands, G-code or settings.\n\n" + help_text +
             '\n\nReply with JSON only: {"reply": "<text>", "command": "<command or null>"}')

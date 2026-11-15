@@ -332,19 +332,80 @@ AFC is part of readiness as well: the `AFC` object must be reporting
 with no error state, and no toolhead's `AFC_extruder` object may
 report a mount sensor error.
 
-The printer's AFC lane map is part of readiness too. Inside
-`C5_PRINT_START`, the firmware remaps the file's tool numbering
-through that map. Each toolhead is configured as an `AFC_extruder
-extruder0` to `extruder3` section mapped to a `T` command, and the
-firmware reports the live map on the matching lane objects, `AFC_lane
-extruder0` to `extruder3` (the `AFC_extruder` status itself carries no
-map, so Print Handy reads the lane objects). The shipped map is the
-identity, extruderN to `T<N>`. Print Handy's Creator contract is
-identity-only, so a non-identity map refuses the start with a message
-naming the actual mapping, rather than letting the printer remap a
-job invisibly. Print Handy never sends `SET_MAP` itself: on this
-firmware that command swaps two lanes' maps instead of assigning one,
-and changing the map is the operator's decision at the printer.
+The printer's AFC tool map is part of readiness too. Inside
+`C5_PRINT_START`, the firmware sends each tool in the file to the lane
+mapped to it, so the map, not the tool number, decides which toolhead
+prints a tool. Print Handy follows the printer's map (decided on #1490,
+2026-11-15). A printer whose map has been changed from the shipped one
+is accepted, and Print Handy works out which toolhead each tool in the
+file will really print on.
+
+The map is read from the lanes the `AFC` object lists in `lanes`. Lane
+names belong to the printer: a standalone install names them
+`extruder0` to `extruder3`, and a printer with an ACE unit names them
+`lane1` to `lane4` and has no `AFC_lane extruderN` object at all (live
+capture, shared on #1490). Each listed lane is read under `AFC_lane
+<name>` or `AFC_stepper <name>`, whichever answers. Its `map` is the
+tool it prints and its `extruder` is the toolhead it feeds. The
+`AFC_extruder` status carries no map and is not used for this.
+
+A map is refused only when it cannot be resolved, and the message names
+the cause:
+
+- AFC does not list its lanes, or a listed lane is not reporting.
+- A lane does not report its map, or which toolhead it feeds.
+- A tool is mapped to more than one lane, or to none.
+- Two tools land on the same toolhead.
+- AFC's multiple tool mapping is on.
+
+Print Handy never sends `SET_MAP` itself: on this firmware that command
+swaps two lanes' maps instead of assigning one, and changing the map is
+the operator's decision at the printer.
+
+An ACE unit is not supported yet. When AFC reports one, readiness
+refuses the start and says so by name, even if the lanes behind it
+resolve.
+
+Not hardware verified: the swapped-map and ACE cases are checked
+against the firmware source and one live capture, not against a print.
+The capture did not include the per-lane objects of an ACE printer.
+
+### Runout and power-loss alerts (not hardware verified)
+
+The listener reads Moonraker action-prompt responses, not echoed commands.
+A complete runout prompt is mirrored with exactly its offered Load and continue
+(`_OC_RUNOUT_LOAD_CONTINUE`) and loaded-tool switch choices
+(`_OC_RUNOUT_SWITCH TO=n`). Missing, incomplete or unrecognized choices do not
+create a guessed action. Discord, Telegram, Matrix and web chat use the same
+alert action path.
+
+On connection and when Klipper becomes ready, `power_loss_recovery` is queried.
+When `recovery_available` is true, one alert per observed interruption names the
+file, file-byte progress if valid, and the reported `holding_bed` state. Resume
+corresponds to `RECOVER_PRINT`; Discard corresponds to
+`CLEAR_POWER_LOSS_RECOVERY`. Neither command is sent automatically.
+
+**All of these buttons currently refuse to send commands, even after a press.**
+Runout switching and power-loss recovery are not hardware verified. Use the
+printer's own controls after checking the printer. There is no enable setting
+or bypass. This tranche adds the alert foundation, not authorization for live
+recovery. Consequently, resumed-print record correlation is not claimed here:
+no recovery action or new print number is created by these alerts. A hardware
+pass and original-record correlation remain tracked by #1490 before enabling
+commands. Dedupe lasts for this listener's lifetime; restarting it may repeat
+an available recovery notice.
+
+### Backup lanes (display only; not hardware verified)
+
+Before start, Print Handy displays each selected tool's AFC lane (all four
+when the selection does not name tools) and
+`runout_lane`, and includes that summary in Job Details. Lane names come from
+AFC's resolved tool map, never from an assumed `extruderN` name. Missing or
+unreadable targets, a self-target, unconfirmed filament (`load` is false or
+unknown), unknown material, and differing material families produce advisory
+warnings. These warnings never become readiness blockers. Material metadata
+alone is not evidence of filament presence. Print Handy never sends
+`SET_RUNOUT` or `SET_MAP` from this surface.
 
 ### Firmware updates
 
@@ -372,17 +433,17 @@ The report wording is checked against a live update status shared on
 #1490. The SBC edition's entry name comes from the project's
 documentation and is not checked against a capture.
 
-### AFC lanes and the tool map
+### AFC lanes and filament records
 
-Print Handy parses the AFC lane list and each reported `AFC_lane` record,
-including the lane's tool map. It also reads per-tool filament records from
-`lane_data` in either publisher shape: generic AFC's `T<n>` keys, which
-include `extruder_index`, and `creator5_filament_sync`'s `c5_tool<n>` keys.
-AFC tool records are accepted only when the key and `extruder_index` agree.
+Print Handy reads per-tool filament records from `lane_data` in either
+publisher shape: generic AFC's `T<n>` keys, which include
+`extruder_index`, and `creator5_filament_sync`'s `c5_tool<n>` keys. On
+a remapped printer a `T<n>` record's `extruder_index` differs from its
+key. The record is kept under its tool, with the toolhead beside it. A
+`T<n>` record with no usable `extruder_index` is left out.
 
-The identity map (`extruder0` to `T0`, through `extruder3` to `T3`) is
-accepted; a remapped or unreported lane is refused by readiness, with the
-lane and actual mapping named. Print Handy does not send `SET_MAP`.
+Spool charging per tool is not built for this printer family yet, so
+the map does not change what is charged today.
 
 Writing spool data to the printer is not done yet. Live `lane_data`
 ownership is unverified, and Cartrigger's capture is pending. Outbound
@@ -411,7 +472,7 @@ Scoped out of the first tranche (#1490 names the follow-up tranches):
   flow calibration) as Print Handy job questions: a later tranche.
   (Tranche 2 delivered the synthesized-start modeling in verification,
   readiness and the active tool on the `creator5_toolchanger`
-  contract, the AFC identity lane-map refusal, and the manufacturer
+  contract, following the printer's AFC tool map, and the manufacturer
   ceilings recorded above.)
 - Converging Print Handy's spool records with the firmware's own
   `lane_data` publishing. Tranche 3 delivered the reading half: the

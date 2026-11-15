@@ -2126,6 +2126,30 @@ def test_slice_refusal_crosses_the_worker_boundary_as_data():
     assert '#9E9E9E' in back.plain  # an unreadable name says the neutral default out loud
 
 
+def test_failed_first_slice_does_not_show_doomed_ready_prompt(env, monkeypatch):
+    from print_handy.core.slice_failure import SliceFailure
+
+    def fail(*args, **kwargs):
+        raise SliceFailure('SECRET timeout', kind='timeout', slicer='OrcaSlicer')
+
+    monkeypatch.setattr(model_job, 'slice_job', fail)
+    from print_handy.core import background_slice
+    held_init = background_slice.BackgroundSlice.__init__
+
+    def released_init(runner):
+        held_init(runner)
+        runner.release.set()
+
+    monkeypatch.setattr(background_slice.BackgroundSlice, '__init__', released_init)
+    adapter, result, receipt = run_flow(env, [2, 0, 0, 0], mid='failed-first-slice-no-ready')
+    assert not any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+    assert result['action'] == 'skip'
+    assert receipt['status'] == 'SLICE_FAILED'
+    assert 'slice_approval' not in receipt
+    assert 'time limit' in '\\n'.join(adapter.sent)
+    assert env.starts == []
+
+
 @pytest.mark.parametrize('copies', [1, 2])
 @pytest.mark.parametrize('worker_roundtrip', [False, True])
 @pytest.mark.parametrize('kind,phrase,retryable', [

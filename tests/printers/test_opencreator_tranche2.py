@@ -231,37 +231,44 @@ def test_readiness_afc_state_fails_closed():
                for p in adapter.readiness_problems({}, no_extruder))
 
 
-def test_readiness_afc_identity_map_passes_and_a_swap_refuses():
+def test_readiness_follows_the_afc_map_and_refuses_one_it_cannot_resolve():
+    # Decided on #1490 (2026-11-15): the printer's map is followed, so a
+    # swap is no longer refused. What still refuses is a map that does
+    # not give every tool exactly one lane and one toolhead.
     adapter = adapter_for(PRO)
     swapped = _ready_status()
-    swapped["AFC_lane extruder0"] = {"map": ["T1"], "current_map": ""}
-    swapped["AFC_lane extruder1"] = {"map": ["T0"], "current_map": ""}
-    problems = adapter.readiness_problems({}, swapped)
-    assert any("not the identity map" in p and "extruder0 is mapped to T1" in p
-               and "extruder1 is mapped to T0" in p for p in problems), problems
+    swapped["AFC_lane extruder0"]["map"] = ["T1"]
+    swapped["AFC_lane extruder1"]["map"] = ["T0"]
+    assert adapter.readiness_problems({}, swapped) == []
+    assert adapter.tool_head_map(swapped) == {0: 1, 1: 0, 2: 2, 3: 3}
     missing = _ready_status()
     del missing["AFC_lane extruder2"]
-    assert any("AFC_lane extruder2 is not reporting" in p
+    assert any("AFC lane extruder2 is not reporting" in p
                for p in adapter.readiness_problems({}, missing))
     # The fork's lane status is empty until its connect step finishes.
     not_connected = _ready_status()
     not_connected["AFC_lane extruder2"] = {}
-    assert any("AFC_lane extruder2 does not report its lane map" in p
+    assert any("AFC lane extruder2 is not reporting" in p
                for p in adapter.readiness_problems({}, not_connected))
+    no_map = _ready_status()
+    del no_map["AFC_lane extruder2"]["map"]
+    assert any("AFC lane extruder2 does not report its tool map" in p
+               for p in adapter.readiness_problems({}, no_map))
     # The map is never read from the AFC_extruder object: the fork's
     # status there carries none, so a map only there must not pass.
     wrong_home = _ready_status()
     del wrong_home["AFC_lane extruder3"]
     wrong_home["AFC_extruder extruder3"]["map"] = "T3"
-    assert any("AFC_lane extruder3 is not reporting" in p
+    assert any("AFC lane extruder3 is not reporting" in p
                for p in adapter.readiness_problems({}, wrong_home))
     string_form = _ready_status()
-    string_form["AFC_lane extruder3"] = {"map": "T3"}
+    string_form["AFC_lane extruder3"]["map"] = "T3"
     assert adapter.readiness_problems({}, string_form) == []
     double = _ready_status()
-    double["AFC_lane extruder3"] = {"map": ["T3", "T2"]}
-    assert any("extruder3 is mapped to T3, T2" in p
+    double["AFC_lane extruder3"]["map"] = ["T3", "T2"]
+    assert any("T2 is mapped to more than one AFC lane (extruder2, extruder3)" in p
                for p in adapter.readiness_problems({}, double))
+    assert adapter.tool_head_map(double) is None
 
 
 def test_pro_chamber_target_above_the_ceiling_is_refused():
@@ -380,3 +387,85 @@ def test_status_reports_no_active_tool_while_the_sensors_disagree():
     assert adapter.normalize_status(raw)["active_tool"] is None
     raw["creator5_toolchanger"]["sensor_error"] = None
     assert adapter.normalize_status(raw)["active_tool"] == 1
+
+
+# ------------------------------------------------------------------ per-tool material check
+
+# Real OrcaSlicer writes one filament_type entry per toolhead, separated by
+# semicolons, for every file on a toolhead printer, single-color jobs included.
+def _four_tool(materials, body=None):
+    body = SINGLE_TOOL_T0 if body is None else body
+    return body.replace("; filament_type = PLA,PLA,PLA,PLA", f"; filament_type = {materials}")
+
+
+def _verify_with_slots(monkeypatch, tmp_path, text, slots, spool=None, key=PRO):
+    from print_handy.gcode import verify
+
+    path = tmp_path / "job.gcode"
+    path.write_text(text)
+    state = {"nozzle": {"diameter_mm": 0.4, "type": "hardened_steel"},
+             "spool": spool if spool is not None else {},
+             "filament_slots": slots,
+             "axis_limits_mm": {"x": [0, 256], "y": [0, 256], "z": [0, 256]}}
+    monkeypatch.setattr(verify.printer_state, "check", lambda *a, **k: (True, [], {}))
+    with pytest.raises(RuntimeError) as caught:
+        verify.verify_gcode(path, adapter=adapter_for(key), state=state,
+                            recorded_temps={"nozzle": 220, "bed": 60})
+    return str(caught.value)
+
+
+def test_single_color_file_on_a_toolhead_printer_gets_no_bogus_material_warning(monkeypatch, tmp_path):
+    assert "; filament_type = PLA,PLA,PLA,PLA" in SINGLE_TOOL_T0
+    text = _four_tool("PLA;PLA;PLA;PLA")
+    message = _verify_with_slots(monkeypatch, tmp_path, text, {"1": {"material": "PLA"}})
+    assert "filament_type" not in message, message
+
+
+def test_an_empty_active_spool_record_does_not_crash_the_material_check(monkeypatch, tmp_path):
+    # No slot record and no active spool: a named warning, never a KeyError.
+    message = _verify_with_slots(monkeypatch, tmp_path, _four_tool("PLA;PLA;PLA;PLA"), {})
+    assert "G-code filament_type 'PLA' != loaded None for T0 (position 1)" in message
+
+
+def test_a_single_tool_file_falls_back_to_the_active_spool(monkeypatch, tmp_path):
+    message = _verify_with_slots(monkeypatch, tmp_path, _four_tool("PLA;PETG;ABS;ASA"), {},
+                                 spool={"material": "PLA"})
+    assert "filament_type" not in message, message
+
+
+def test_a_real_mismatch_on_the_used_tool_is_named_and_unused_tools_are_ignored(monkeypatch, tmp_path):
+    message = _verify_with_slots(monkeypatch, tmp_path, _four_tool("PETG;ABS;ABS;ABS"),
+                                 {"1": {"material": "PLA"}, "2": {"material": "PLA"}})
+    assert "G-code filament_type 'PETG' != loaded 'PLA' for T0 (position 1)" in message
+    assert "ABS" not in message
+
+
+def test_each_used_tool_is_checked_against_its_own_position(monkeypatch, tmp_path):
+    text = _four_tool("PLA;PETG;PLA;PLA") + "T1\nG1 X20 Y20 E1\n"
+    ok = _verify_with_slots(monkeypatch, tmp_path, text,
+                            {"1": {"material": "PLA"}, "2": {"material": "PETG"}})
+    assert "filament_type" not in ok, ok
+    wrong = _verify_with_slots(monkeypatch, tmp_path, text,
+                               {"1": {"material": "PLA"}, "2": {"material": "PLA"}})
+    assert "G-code filament_type 'PETG' != loaded 'PLA' for T1 (position 2)" in wrong
+    assert "for T0" not in wrong
+
+
+def test_a_used_tool_with_no_filament_entry_is_a_warning_to_accept(monkeypatch, tmp_path):
+    text = _four_tool("PLA;PLA") + "T3\nG1 X20 Y20 E1\n"
+    message = _verify_with_slots(monkeypatch, tmp_path, text, {"1": {"material": "PLA"}})
+    assert "G-code selects T3 but its filament_type lists only 2 material(s)" in message
+    assert _every_material_problem_is_acceptable(message)
+
+
+def _every_material_problem_is_acceptable(message):
+    from print_handy.core import material_accept
+    parts = [p for p in message.split("; ") if "filament_type" in p]
+    return bool(parts) and all(material_accept.TOKEN.search(p) for p in parts)
+
+
+def test_per_tool_material_problems_are_warnings_never_a_hard_stop(monkeypatch, tmp_path):
+    text = _four_tool("PETG;ABS;PLA;PLA") + "T1\nG1 X20 Y20 E1\n"
+    message = _verify_with_slots(monkeypatch, tmp_path, text, {})
+    assert "for T0 (position 1)" in message and "for T1 (position 2)" in message
+    assert _every_material_problem_is_acceptable(message)

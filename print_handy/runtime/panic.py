@@ -17,11 +17,13 @@ import argparse
 import json
 import sys
 import logging
+import subprocess
 import time
 from typing import Any
 
 from . import print_control as pc
 from .slot_load import load_slot
+from ._suppress import repeated_failure
 
 
 def _known_printer(printer_id):
@@ -76,7 +78,7 @@ def force_restart(
     try:
         call("/printer/emergency_stop", method="POST", timeout=15)
     except Exception:
-        __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        logging.getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
 
     # Step 2: Firmware restart
     steps.append("firmware_restart")
@@ -89,12 +91,14 @@ def force_restart(
     # Step 3: Poll until klippy is ready
     deadline = time.monotonic() + wait_s
     klippy_ready = False
+    log_poll_failure = repeated_failure("Klippy status poll failed", logger=logging.getLogger(__name__))
     last_st: dict[str, Any] = {}
     while time.monotonic() < deadline:
         time.sleep(poll_s)
         try:
             last_st = read_st()
-        except Exception:
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
+            log_poll_failure(exc)
             continue
         if str(last_st.get("klippy", "")).casefold() == "ready":
             klippy_ready = True
@@ -137,14 +141,15 @@ def force_restart(
 
     reboot_deadline = time.monotonic() + reboot_wait_s
     idle_ok = False
+    log_reboot_failure = repeated_failure("Reboot idle check failed", logger=logging.getLogger(__name__))
     while time.monotonic() < reboot_deadline:
         try:
             m, n = mr_read(), nat_read()
             if isinstance(m, dict) and isinstance(n, dict) and safe_idle(m, n):
                 idle_ok = True
                 break
-        except Exception:
-            __import__("logging").getLogger(__name__).warning("Suppressed exception in best-effort runtime operation", exc_info=True)
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
+            log_reboot_failure(exc)
         time.sleep(poll_s)
 
     if idle_ok:

@@ -394,7 +394,7 @@ def _main():
         notes=[]
         if chosen.get("site_nozzle_mm") not in (None, st["nozzle"]["diameter_mm"]): notes.append(f"site profile declares {chosen['site_nozzle_mm']} mm")
         site_mats=set(chosen.get("materials") or [])
-        if site_mats and st["spool"]["material"] not in site_mats: notes.append(f"site profile material is {', '.join(sorted(site_mats))}; loaded material is {st['spool']['material']}")
+        if site_mats and (st.get("spool") or {}).get("material") not in site_mats: notes.append(f"site profile material is {', '.join(sorted(site_mats))}; loaded material is {(st.get('spool') or {}).get('material', 'unknown')}")
         if notes: print("SITE PROFILE NOT REUSED: " + "; ".join(notes) + ". Reslicing geometry to live local state.")
     srcdir=folder/"source"; path=download_for_site(job,chosen,srcdir)
     intake_working_copy(path)  # canonical namespace and millimeters for everything below (#814, #825)

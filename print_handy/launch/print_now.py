@@ -421,16 +421,20 @@ def _record_start_with_context(gcode_path, moonraker_name=None, started_at=None,
     key=moonraker_name or g.name
     src=(job or {}).get("selected_source") or {}
     correlation_id = job_correlation.ensure(job) if isinstance(job, dict) else None
+    # The active-spool record is legitimately empty on a multi-slot launch
+    # (the launch clears it) and after an unassign. A KeyError here lost the
+    # whole start record: no history and no per-slot usage charge.
+    spool = st.get("spool") or {}
     ctx={"job_key":key,"title":(job or {}).get("title") or g.stem,"source_url":(job or {}).get("url"),
          "source_platform":(job or {}).get("site"),"started_at":started_at or print_records.utc_now(),
          "hardware":st.get("printer", "Klipper") + ", "+printer_state.summary(st),
          "printer_profile":"Klipper base ini, resliced locally (site settings not imported)",
          "estimated_time":cfg("estimated printing time (normal mode)") or _bambu_total_estimated_time(text),"estimated_filament_g":cfg("total filament used [g]") or _filament_total_g(text),
-         "filament_diameter_mm":st["spool"]["diameter_mm"],"filament_density":st["spool"]["density"],
+         "filament_diameter_mm":spool.get("diameter_mm") or 1.75,"filament_density":spool.get("density") or 1.24,
          "slicer_settings":{**{k:cfg(k) for k in RECORD_KEYS if cfg(k) is not None},
                             **_per_tool_filament_settings(text),
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
-         "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
+         "active_spool":{"id":spool.get("spoolman_id"),"material":spool.get("material"),"color":spool.get("name")}}
     if correlation_id:
         # Persisted by record_start with a one-field merge; never rewrite the
         # whole JOB.json here, or a stale copy drops the plate's project claim.
@@ -685,6 +689,7 @@ def job_details(out, *, hardware=None, selection=None, settings=None, record_pat
         f"- Stock nozzle: {u(nozzle_mm)} mm; targets nozzle {u(hot)} C, bed {u(bed)} C",
         *([f"- Temperature material: {u((hardware or {}).get('spool', {}).get('material'))}; source: {u((hardware or {}).get('temperature_resolution', {}).get('source'))}"] if hardware else []),
         *([f"- Calibration: Z offset {z}; {mesh_line(mesh)}"] if calibration else []),
+        *([(hardware or {})["opencreator_backup_lanes"]] if (hardware or {}).get("opencreator_backup_lanes") else []),
         _maintenance_detail_line(),
     ])
 

@@ -250,18 +250,36 @@ button:disabled { opacity: 0.55; cursor: default; }
 .temp-chart .nozzle { stroke: var(--color-accent); }
 .temp-chart .bed { stroke: var(--color-warn); }
 .temp-chart .target { stroke-dasharray: 6 4; stroke-width: 1.5; opacity: 0.8; }
+.temp-row { display: flex; align-items: center; gap: 0.75rem; margin: 0.25rem 0; }
+.temp-name { width: 4.5rem; flex: none; font-size: 0.9rem; }
+.temp-row .temp-plot { flex: 1; min-width: 0; }
+.temp-row .temp-chart { height: 3.5rem; }
 .temp-plot { position: relative; padding-left: 3rem; }
 .temp-axis { position: absolute; left: 0; font-size: 0.75rem; color: var(--color-muted); }
 .temp-axis.top { top: 0; }
 .temp-axis.bottom { bottom: 0; }
-.temp-legend .key { display: inline-block; width: 0.9rem; height: 0.2rem; margin-right: 0.3rem; vertical-align: middle; }
-.temp-legend .key.nozzle { background: var(--color-accent); }
-.temp-legend .key.bed { background: var(--color-warn); }
+.key { display: inline-block; width: 0.9rem; height: 0.2rem; margin-right: 0.3rem; vertical-align: middle; }
+.key.nozzle { background: var(--color-accent); }
+.key.bed { background: var(--color-warn); }
+.dash-panel { border-top: 1px solid var(--color-line); margin-top: 1rem; padding-top: 0.75rem; }
+.dash-panel h3, .hw-panel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+.dash-job { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.dash-controls { margin-top: 0.75rem; }
+.dash-card .job-line, .dash-card p { overflow-wrap: anywhere; }
+.disc { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.slot .slot-action { white-space: nowrap; }
+.panel-action { margin: 0.5rem 0 0.15rem; }
+.hw-more summary, .sys-details summary { cursor: pointer; font-weight: 600; }
+.hw-more { margin-top: 0.5rem; }
+.sys-details { margin-top: 1rem; }
+.sys-details[open] summary { margin-bottom: 0.75rem; }
 .hw-panels { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
 .hw-panel { flex: 1 1 15rem; min-width: 0; border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 0.5rem 0.75rem; }
 .hw-defaults { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .hw-defaults th, .hw-defaults td { text-align: left; padding: 0.15rem 0.4rem; }
 button.danger, .button.danger { background: var(--color-bad-bg); color: var(--color-bad); }
+button.danger[data-estop] { font-weight: 700; padding: 0.6rem 1.1rem; background: #c62828; color: #fff; border: 0; }
+button.danger[data-estop]:hover, button.danger[data-estop]:focus-visible { background: #b71c1c; outline: 3px solid #ef9a9a; outline-offset: 2px; }
 .slots { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
 .slot { width: 6.5rem; text-align: center; }
 .slot-link { display: block; color: inherit; text-decoration: none; border: 1px solid transparent; border-radius: 0.5rem; padding: 0.4rem; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }

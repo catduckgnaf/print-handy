@@ -562,19 +562,6 @@ def save(data, printer_id, form, *, environ=None, confirmed=()):
     """
     model = build_model(data, printer_id, environ=environ)
     entry_changes, catalog_changes, submitted, errors = parse_submission(form, model)
-    if not errors and catalog_changes:
-        field_errors, general = pages.validate_change_set(catalog_changes,
-                                                          environ=environ)
-        for field_id, message in field_errors.items():
-            errors[field_id] = message
-        if general:
-            errors["_general"] = general
-    if not errors and entry_changes:
-        entry_errors, general = _entry_write_errors(printer_id, entry_changes,
-                                                    environ=environ)
-        errors.update(entry_errors)
-        if general:
-            errors["_general"] = general
     if errors:
         return "form", model, submitted, errors, ()
     moves = _pending_moves(data, model, entry_changes, catalog_changes,
@@ -583,26 +570,17 @@ def save(data, printer_id, form, *, environ=None, confirmed=()):
     if unconfirmed:
         return "form", model, submitted, {}, moves
     changed, warnings = [], []
-    if catalog_changes:
-        try:
-            pairs, warnings = config_api.write_changes_reporting(
-                {field.id: value for field, value in catalog_changes.items()},
-                environ=environ, rebind=confirmed)
-        except config_api.WebUIConfigError as exc:
-            field_errors, general = pages.attribute_error(
-                str(exc), catalog_changes, environ=environ)
-            errors.update(field_errors)
-            if general:
-                errors["_general"] = general
-            return "form", model, submitted, errors, ()
-        changed.extend(f"{section}.{key}" for section, key in pairs)
+    try:
+        pairs, warnings, entry_pairs = config_api.write_printer_settings(
+            printer_id, entry_changes,
+            {field.id: value for field, value in catalog_changes.items()},
+            environ=environ, rebind=confirmed)
+    except config_api.WebUIConfigError as exc:
+        errors.update({"_general": str(exc)})
+        return "form", model, submitted, errors, ()
+    changed.extend(f"{section}.{key}" for section, key in pairs)
+    changed.extend(f"{pid} {key}" for pid, key in entry_pairs)
     if entry_changes:
-        try:
-            pairs = config_api.write_printer_entry(printer_id, entry_changes,
-                                                   environ=environ)
-        except config_api.WebUIConfigError as exc:
-            return "form", model, submitted, {"_general": str(exc)}, ()
-        changed.extend(f"{pid} {key}" for pid, key in pairs)
         # Confirmed moves of the default printer's entry addresses bind
         # the stored keys to the new hosts, as a catalog save does.
         printer_model, _view = _model_of(data, printer_id)

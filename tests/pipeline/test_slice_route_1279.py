@@ -132,8 +132,8 @@ def _fake_orca(captured):
     return run
 
 
-def _slice(source, tmp_path, picks):
-    state = model_job.printer_state.load()
+def _slice(source, tmp_path, picks, state=None):
+    state = state or model_job.printer_state.load()
     captured = {}
     spool = io.BytesIO(json.dumps({"archived": False, "filament": {"material": "PLA"}}).encode())
     with patch.object(orca_adapter.subprocess, "run", side_effect=_fake_orca(captured)), \
@@ -233,3 +233,13 @@ def test_a_filament_named_only_for_supports_keeps_the_rebuild(tmp_path):
                              project={"support_filament": "3"})
     plan = slice_route.plan(source, decisions(source, {1: 3, 2: 1, 3: 2}))
     assert plan["route"] == "rebuild" and "filament 3 prints only supports" in plan["reason"], plan
+
+
+@pytest.mark.parametrize('active', [{}, {'spoolman_id': 999, 'material': 'PETG', 'density': 9}])
+def test_mapped_multicolor_slice_uses_first_mapped_slot_not_active_spool(tmp_path, active):
+    source = two_part_source(tmp_path / "mapped.3mf")
+    state = model_job.printer_state.load()
+    # The active spool may be empty/unrelated while prepared picks identify real slots.
+    state["spool"] = active
+    _out, provenance, _captured, _remap = _slice(source, tmp_path, {1: 3, 2: 1}, state=state)
+    assert provenance["tool_mapping"] == {"0": 1, "1": 3}

@@ -205,6 +205,8 @@ ROUTES = (
     _post("/debug", SESSION_CSRF, "_debug_post", back="/"),
     _post("/printers", SESSION_CSRF, "_printers_post", back="/printers"),
     _post("/spools/*", SESSION_CSRF, "_spools_page_post", back="/spools/{arg}"),
+    # The Status page E-stop button (a browser cannot send the header).
+    _post("/dashboard/estop/*", SESSION_CSRF, "_dashboard_estop_post", back="/"),
     # Printer controls and spool actions: JSON, the header only.
     _post("/api/printers/*", HEADER, "_printer_post_route", decode=False),
     _post("*", PUBLIC, "_read_only", decode=False),

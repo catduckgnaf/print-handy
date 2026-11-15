@@ -398,6 +398,65 @@ def test_discord_card_prompt_belongs_to_its_initiator():
     assert any("White" in line for line in card.answered)
 
 
+def test_discord_card_next_question_survives_a_slow_click_edit():
+    """Live on 2.3.4: after "Choose files" the card showed the answered
+    line and "Waiting for an answer" but no question and no buttons. The
+    press resolved its prompt, the intake attached the next question at
+    once, and the press's own card edit (built before that question
+    existed, with no buttons) landed last and wiped it."""
+    fake = discord_env()
+    adapter = DiscordAdapter(fake.client, [OPERATOR])
+    card, message, cid = _card_with_prompt(adapter, fake, question="This model has 3 files.",
+                                           choices=("Print all 3", "Choose files"))
+    _label, custom = next((t, c) for t, c in fake.prompt_buttons(message) if t == "Choose files")
+    original = message.edit
+    edits = []
+
+    async def scenario():
+        gate = asyncio.Event()
+
+        async def slow_edit(*args, **kwargs):
+            edits.append(kwargs.get("view"))
+            if len(edits) == 1:
+                await gate.wait()  # the press's edit is still in flight
+            await original(*args, **kwargs)
+
+        message.edit = slow_edit
+        press = asyncio.ensure_future(fake.press(message, custom))
+        for _ in range(100):
+            if edits:
+                break
+            await asyncio.sleep(0)
+        assert edits, "the press never reached its card edit"
+        # The intake's next question, as JobCardSession.send_clarify posts it.
+        nxt = uuid.uuid4().hex
+        prompts.register(nxt, "sess", "Which files should I print?", ["1: shell", "2: plunger"])
+        card.question, card.question_cid = "Which files should I print?", nxt
+        attach = asyncio.ensure_future(adapter.attach_card_prompt(
+            CHAT, card, "Which files should I print?", ["1: shell", "2: plunger"], nxt, "sess"))
+        await asyncio.sleep(0.01)
+        gate.set()
+        await asyncio.gather(press, attach)
+        return nxt
+
+    nxt = run(scenario())
+    assert not prompts.is_open(cid) and prompts.is_open(nxt)
+    assert any("Choose files" in line for line in card.answered)
+    assert card.question_cid == nxt
+    assert message.view is not None
+    assert [t for t, _c in fake.prompt_buttons(message)] == ["1: shell", "2: plunger"]
+    assert "Which files should I print?" in message.embed.description
+
+
+def test_discord_card_answer_for_an_older_prompt_keeps_the_newer_question():
+    card = JobCard("Bag clip")
+    card.question, card.question_cid = "Which files?", "new"
+    card.add_answered("This model has 3 files.", "chose Choose files", cid="old")
+    assert card.question_cid == "new" and card.question == "Which files?"
+    card.add_answered("Which files?", "1 2 3", cid="new")
+    assert card.question is None and card.question_cid is None
+
+
 def test_discord_card_typed_answer_collapses_through_close_prompt():
     fake = discord_env()
     adapter = DiscordAdapter(fake.client, [OPERATOR])

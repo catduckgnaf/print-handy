@@ -1351,8 +1351,9 @@ def check(st=None, printer_id=None, adapter=None, *, live=True):
         probs.append(f"Klipper nozzle_diameter {facts['klipper_nozzle']} != state {st['nozzle']['diameter_mm']}")
     try:
         facts["moonraker_active_spool"] = _get(f"{mr}/server/spoolman/spool_id")["result"].get("spool_id")
-        if facts["moonraker_active_spool"] != st["spool"]["spoolman_id"]:
-            facts["active_spool_mismatch"] = f"Moonraker active spool {facts['moonraker_active_spool']} != state #{st['spool']['spoolman_id']}"
+        recorded_spool_id = (st.get("spool") or {}).get("spoolman_id")
+        if facts["moonraker_active_spool"] != recorded_spool_id:
+            facts["active_spool_mismatch"] = f"Moonraker active spool {facts['moonraker_active_spool']} != state #{recorded_spool_id}"
     except Exception as e:
         warnings.append("the printer's active spool could not be checked, so the recorded spool was used")
     # Spoolman link detection (#1536): is this printer's Moonraker itself

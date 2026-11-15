@@ -33,6 +33,7 @@ import re
 import shutil
 import stat
 import tempfile
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,9 @@ ENVIRONMENT = "environment"
 DEFAULT = "default"  # supplied by validation's defaults; no file or env layer names it
 
 _MISSING = object()
+
+# All settings-file read/modify/validate/write transactions share this lock.
+_WRITE_LOCK = threading.RLock()
 
 
 class WebUIConfigError(ValueError):
@@ -794,7 +798,8 @@ def printer_entry_state(data, printer_id, *, home=None, local=None, environ=None
     return PrinterEntryState(shape, printer_id, keys)
 
 
-def _prepare_printer_entry(printer_id, changes, *, config_path, home, environ):
+def _prepare_printer_entry(printer_id, changes, *, config_path, home, environ,
+                           validate=True):
     """(target, validated_text, tolerated) for a roster-entry edit, or
     None when the entry already carries every submitted value. Raises
     WebUIConfigError — writing nothing — for every shape the writer
@@ -853,6 +858,8 @@ def _prepare_printer_entry(printer_id, changes, *, config_path, home, environ):
             changed = True
     if not changed:
         return None
+    if not validate:
+        return target, candidate, []
     text, tolerated = _validate_candidate(candidate, target, home=home, environ=environ)
     return target, text, tolerated
 
@@ -875,6 +882,14 @@ def write_printer_entry(printer_id, changes, *, config_path=None, home=None,
     ``(printer_id, key)`` pairs written, [] when the entry already
     carried the submitted values.
     """
+    with _WRITE_LOCK:
+        return _write_printer_entry_locked(printer_id, changes, config_path=config_path,
+                                           home=home, environ=environ,
+                                           timestamp=timestamp)
+
+
+def _write_printer_entry_locked(printer_id, changes, *, config_path=None, home=None,
+                                environ=None, timestamp=None):
     environ = os.environ if environ is None else environ
     prepared = _prepare_printer_entry(printer_id, changes, config_path=config_path,
                                       home=home, environ=environ)
@@ -919,8 +934,8 @@ def pending_rebinds(changes, *, config_path=None, home=None, environ=None):
     return credential_binding.pending_rebinds(by_id, old, data, environ)
 
 
-def _write_changes(changes, *, config_path, home, environ, timestamp,
-                   rebind=(), credential_check=True):
+def _write_changes_locked(changes, *, config_path, home, environ, timestamp,
+                          rebind=(), credential_check=True, entry_update=None):
     """The write_changes core: the write itself, returning
     ``(changed, warnings)`` — the ``(section, key)`` pairs written, in
     the order given, and the tolerated closed-table violations this
@@ -934,7 +949,7 @@ def _write_changes(changes, *, config_path, home, environ, timestamp,
             raise WebUIConfigError(f"{raw_field!r} is not a Web UI catalog field; nothing was written")
         items.append((field, list(value) if isinstance(value, tuple) else value))
     target = Path(config_path) if config_path is not None else settings_file_path(environ)
-    if not items:
+    if not items and entry_update is None:
         # Nothing submitted is a no-op save too: it answers for the file
         # it leaves in place, like a save whose values all match.
         return [], _note_noop_write(target, home=home, environ=environ)
@@ -956,6 +971,15 @@ def _write_changes(changes, *, config_path, home, environ, timestamp,
     if not isinstance(current, dict):  # pragma: no cover - settings._read enforces this
         raise WebUIConfigError(f"{target}: top-level config must be a mapping")
     candidate = copy.deepcopy(current)
+    entry_changed = False
+    if entry_update is not None:
+        printer_id, entry_changes = entry_update
+        prepared = _prepare_printer_entry(
+            printer_id, entry_changes, config_path=target, home=home,
+            environ=environ, validate=False)
+        if prepared is not None:
+            candidate = prepared[1]
+            entry_changed = True
     changed = []
     for field, value in items:
         section = candidate.setdefault(field.section, {})
@@ -964,7 +988,7 @@ def _write_changes(changes, *, config_path, home, environ, timestamp,
         if section.get(field.key, _MISSING) != value:
             changed.append((field.section, field.key))
         section[field.key] = value
-    if not changed:
+    if not changed and not entry_changed:
         return [], _note_noop_write(target, home=home, environ=environ)
     moves = []
     if credential_check:
@@ -988,6 +1012,31 @@ def _write_changes(changes, *, config_path, home, environ, timestamp,
         credential_binding.rebind(move.setting, values[move.setting])
         log.info("the stored %s key now goes to %s (confirmed on save)", move.service, move.new_host)
     return changed, _note_tolerated(target, tolerated)
+
+
+def _write_changes(changes, *, config_path, home, environ, timestamp,
+                   rebind=(), credential_check=True):
+    # Include every read, validation and backup/write step in the transaction.
+    with _WRITE_LOCK:
+        return _write_changes_locked(changes, config_path=config_path, home=home,
+                                     environ=environ, timestamp=timestamp,
+                                     rebind=rebind,
+                                     credential_check=credential_check)
+
+
+def write_printer_settings(printer_id, entry_changes, catalog_changes, *,
+                           config_path=None, home=None, environ=None, timestamp=None,
+                           rebind=()):
+    """Validate both printer-settings portions against one staged config,
+    then replace the real file once under the shared write lock."""
+    environ = os.environ if environ is None else environ
+    target = Path(config_path) if config_path is not None else settings_file_path(environ)
+    with _WRITE_LOCK:
+        pairs, warnings = _write_changes_locked(
+            catalog_changes, config_path=target, home=home, environ=environ,
+            timestamp=timestamp, rebind=rebind,
+            entry_update=(printer_id, entry_changes) if entry_changes else None)
+        return pairs, warnings, [(printer_id, key) for key in entry_changes]
 
 
 def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None,

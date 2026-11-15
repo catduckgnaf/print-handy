@@ -219,6 +219,12 @@ def _mute_button(aid: str) -> dict[str, Any]:
 
 
 def components(aid: str, kind: str) -> list[dict[str, Any]]:
+    from ..printers.flashforge_opencreator.alerts import choices
+    offers = choices(kind)
+    if offers:
+        return [{"type": 1, "components": [
+            {"type": 2, "style": 2, "label": label, "custom_id": f"{PREFIX}:{action}:{aid}"}
+            for action, label in offers]}]
     if kind == "visual":
         return [{"type": 1, "components": [
             {"type": 2, "style": 2, "label": "Pause", "custom_id": f"{PREFIX}:pause:{aid}"},
@@ -1329,6 +1335,8 @@ MATRIX_REACTION_KEYS = {
     "acknowledge": "✅",
     "mute": "🔇",
     "recover": "🔄",
+    "ocload": "📥", "ocswitch0": "0️⃣", "ocswitch1": "1️⃣",
+    "ocswitch2": "2️⃣", "ocswitch3": "3️⃣", "ocresume": "⏩", "ocdiscard": "🗑️",
 }
 
 
@@ -1579,7 +1587,8 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
 
 def parse_custom_id(custom_id: str) -> tuple[str, str] | None:
     parts = str(custom_id or "").split(":")
-    if len(parts) == 3 and parts[0] == PREFIX and parts[1] in ("resume", "cancel", "pause", "acknowledge", "mute", "recover"):
+    from ..printers.flashforge_opencreator.alerts import COMMANDS
+    if len(parts) == 3 and parts[0] == PREFIX and parts[1] in ("resume", "cancel", "pause", "acknowledge", "mute", "recover", *COMMANDS):
         return parts[1], parts[2]
     return None
 
@@ -1900,6 +1909,11 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     if refusal:
         return refusal
     kw = {"printer_id": pid} if pid else {}
+    from ..printers.flashforge_opencreator import alerts as oc_alerts
+    if str(alert.get("kind", "")).startswith("oc-") or action in oc_alerts.COMMANDS:
+        from .. import printers, settings
+        adapter = printers.get(settings.by_id(pid)["model"], settings.view_for(pid)) if pid else printers.current()
+        return oc_alerts.refuse_action(action, alert, adapter)
     control = printer_control.for_printer(pid)
     connection = alert.get("connection")
     if connection:

@@ -599,3 +599,9 @@ def test_a_file_finalized_before_1305_with_an_unused_tool_still_launches():
     text = sparse_artifact([0, 2], ['PLA', 'PLA', 'PLA', 'PLA'])
     text = text.rstrip('\n') + '\n' + contract.MAP_PREFIX + json.dumps({'0': 1, '1': 2, '2': 3, '3': 4}) + '\n'
     assert contract.validate_materials(text, 'PLA;PLA;PLA;PLA', st) == {'0': 1, '1': 2, '2': 3, '3': 4}
+
+
+def test_single_color_without_active_spool_skips_material_comparison():
+    st = state()
+    st['spool'] = {}
+    assert contract.validate_materials(artifact(1), 'PLA', st) is None

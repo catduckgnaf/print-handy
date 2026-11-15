@@ -2,8 +2,8 @@
 
 Modeled on the Snapmaker U1 adapter (a Klipper-line multi-tool adapter),
 not on the ZMod multi-tool adapter: OpenCreator is Kalico plus upstream
-Moonraker, its toolheads are tools under the identity contract (slicer
-tool i always prints with toolhead i), and none of the ZMod firmware's
+Moonraker, its positions are tools (position i is slicer tool i-1; the
+printer's AFC map decides which toolhead prints it), and none of the ZMod firmware's
 objects or start form exist on it.
 
 Start contract (documented form, OpenCreator slicer documentation,
@@ -31,13 +31,16 @@ last plate check (None until one runs, and a stale False stays until
 the next check), and print start runs its own check after homing.
 Readiness fails closed: the object must be reporting, every toolhead's
 extruder object must be reporting, AFC must be reporting without an
-error state or a mount sensor error, and the printer's AFC lane map
-must be the identity map, because the firmware remaps a file's tools
-through that map inside C5_PRINT_START, invisibly to the file. The map
-is read from the AFC_lane extruderN objects: the fork registers one
-standalone lane per AFC_extruder section under that name, and the lane
-status carries map (the list of T commands the lane answers) while the
-AFC_extruder status carries no map at all. Print Handy never sends
+error state or a mount sensor error, and the printer's AFC tool map
+must be readable. The firmware sends each file tool to the lane mapped
+to it inside C5_PRINT_START, so that map, not the tool number, decides
+which toolhead prints a tool. Print Handy follows it (#1490, decided
+2026-11-15): a remapped printer is accepted, and a map that does not
+give every tool exactly one lane and one toolhead is refused. The map
+is read from the lanes AFC lists, under AFC_lane or AFC_stepper,
+because lane names are the printer's own: a live capture with an ACE
+unit lists lane1 to lane4 and has no AFC_lane extruderN object at all.
+An attached ACE unit is refused by name. Print Handy never sends
 SET_MAP (the command swaps lanes rather than assigning).
 
 Filament records in Moonraker's lane_data namespace are read through
@@ -52,7 +55,7 @@ fight the printer's own publisher.
 from ...core import heater_ceiling
 from ..base import MultiColorUnsupported, basic_status
 from ..klipper.adapter import KlipperAdapter
-from . import facts, firmware_check, lane_data, start_contract
+from . import afc, facts, firmware_check, lane_data, start_contract
 
 # The documented machine start form, exactly as the templates carry it.
 # The chamber line keeps the slicer's own placeholder: no chamber value
@@ -128,13 +131,6 @@ class OpenCreatorAdapter(KlipperAdapter):
     @staticmethod
     def _afc_extruder_name(tool):
         return f"AFC_extruder extruder{tool}"
-
-    @staticmethod
-    def _afc_lane_name(tool):
-        # The fork registers each standalone toolhead's lane as
-        # "AFC_lane <AFC_extruder section name>"; the lane map is
-        # reported there, not on the AFC_extruder object.
-        return f"AFC_lane extruder{tool}"
 
     def start_lines(self):
         return DOCUMENTED_START_LINES if self.has_chamber else BASE_START_LINES
@@ -237,44 +233,35 @@ class OpenCreatorAdapter(KlipperAdapter):
                                 f"{block.get('mount_sensor_error')}")
         return problems
 
-    def _afc_map_problems(self, status):
-        """The identity lane-map check: the printer-side remap is refused, never used.
+    def tool_head_map(self, status):
+        """File tool -> toolhead index from the printer's own AFC map, or None when unresolved."""
+        resolved, _ = afc.resolve_tool_map(status, self.tool_count)
+        if resolved is None:
+            return None
+        return {tool: row["head"] for tool, row in resolved.items()}
 
-        The map is read from each AFC_lane extruderN object's map (the
-        list of T commands that lane answers; source-verified against
-        the fork's AFC_lane status, #1490). current_map is not used: it
-        is empty until the first tool change. A missing object or a
-        missing map fails closed, on the same unconditional pattern as
-        the extruder objects: a sample that omits them must never pass
-        as a ready printer whose map was never checked.
+    def _afc_map_problems(self, status):
+        """The printer's tool map must be readable; whatever it says is followed.
+
+        Inside C5_PRINT_START the firmware sends each file tool to the
+        lane mapped to it, so the map decides which toolhead a tool
+        prints with. It is read from the lanes AFC itself lists (#1490,
+        live capture): each lane's map is the T commands it answers
+        and its extruder is the toolhead it feeds. current_map is not
+        used: it is empty until the first tool change. A remapped
+        printer is accepted. A map that does not give every tool
+        exactly one lane and one toolhead fails closed, as does an
+        attached ACE unit, which feeds lanes Print Handy cannot yet
+        account for.
         """
         problems = []
-        offenders = []
-        for tool in range(self.tool_count):
-            name = self._afc_lane_name(tool)
-            block = status.get(name)
-            if not isinstance(block, dict):
-                problems.append(f"{name} is not reporting (its lane map cannot be checked)")
-                continue
-            raw = block.get("map")
-            if isinstance(raw, str):
-                mapped = [part.strip() for part in raw.split(",") if part.strip()]
-            elif isinstance(raw, (list, tuple, set)):
-                mapped = [str(v).strip() for v in raw if str(v).strip()]
-            else:
-                mapped = []
-            if not mapped:
-                problems.append(f"{name} does not report its lane map")
-            elif set(mapped) != {f"T{tool}"}:
-                offenders.append(f"extruder{tool} is mapped to {', '.join(mapped)}")
-        if offenders:
+        units = afc.ace_units(status)
+        if units:
             problems.append(
-                "the printer's AFC lane map is not the identity map this printer's "
-                "contract requires (" + "; ".join(offenders) + "); the printer would "
-                "remap the file's tools inside C5_PRINT_START, invisibly to Print Handy. "
-                "Restore the identity map at the printer (extruder0 to T0, extruder1 "
-                "to T1, extruder2 to T2, extruder3 to T3) before printing")
-        return problems
+                f"an ACE unit is attached ({', '.join(units)}); printing through an ACE unit "
+                "on OpenCreator is not supported by Print Handy yet")
+        _, map_problems = afc.resolve_tool_map(status, self.tool_count)
+        return problems + map_problems
 
     def readiness_problems(self, state, status, selection=None, **kw):
         problems = super().readiness_problems(state, status, selection, **kw)
@@ -294,12 +281,33 @@ class OpenCreatorAdapter(KlipperAdapter):
             problems.append(mismatch)
         return problems
 
+    def backup_lane_summary(self, status, selection=None):
+        """Advisory text only; never a readiness refusal or mapping write."""
+        from .backup import summarize_backup_lanes
+        mapping = selection.get("tool_mapping") if isinstance(selection, dict) else None
+        tools = list(mapping) if isinstance(mapping, dict) and mapping else range(self.tool_count)
+        result = summarize_backup_lanes(status, tools)
+        lines = ["OpenCreator backup lanes (display only; not hardware verified):"]
+        for row in result["rows"]:
+            lines.append(f"T{row['tool']}: {row['lane'] or 'unknown lane'} runout_lane="
+                         f"{row['runout_lane'] or 'not configured'}")
+        lines.extend(f"Warning: {warning}" for warning in result["warnings"])
+        return "\n".join(lines)
+
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
                 "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
-                *[self._afc_extruder_name(tool) for tool in range(self.tool_count)],
-                *[self._afc_lane_name(tool) for tool in range(self.tool_count)]]
+                *[self._afc_extruder_name(tool) for tool in range(self.tool_count)]]
+
+    def moonraker_followup_objects(self, status):
+        """Lane objects to query once AFC has named its lanes.
+
+        Lane names are the printer's own (extruder0 to extruder3 on a
+        standalone install, lane1 to lane4 behind an ACE unit), so they
+        are read from AFC.lanes and never assumed.
+        """
+        return afc.lane_object_names(status)
 
     def normalize_status(self, raw):
         out = basic_status(raw)
@@ -318,6 +326,8 @@ class OpenCreatorAdapter(KlipperAdapter):
             # The sensors disagree: whatever the field holds is not a reading.
             active = None
         out["active_tool"] = active if type(active) is int and 0 <= active < self.tool_count else None
+        from .backup import summarize_backup_lanes
+        out["backup_lanes"] = summarize_backup_lanes(raw, range(self.tool_count))
         return out
 
     def tool_lane_data(self, value):
