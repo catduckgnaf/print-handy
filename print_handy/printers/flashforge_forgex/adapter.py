@@ -21,11 +21,11 @@ is deliberate:
   the ZMod form's MESH=auto does not carry over.
 - No Z_OFFSET and no SKIP_ZOFFSET: both are deprecated on Forge-X and
   fatal — passing either cancels the print.
-- No TIMELAPSE parameter in this tranche: the beta accepts one, and
-  the per-print timelapse and per-screen-mode start work is tranche
-  2. The templates likewise emit no TIMELAPSE_TAKE_FRAME in the
-  layer-change G-code, because the beta's native timelapse handles
-  frames itself.
+- No TIMELAPSE parameter by default. [printer] forgex_timelapse "off"
+  adds TIMELAPSE=0 to the sliced file's START_PRINT line (finalize_output)
+  to skip the printer's timelapse for those prints. The templates emit
+  no TIMELAPSE_TAKE_FRAME in the layer-change G-code, because the beta's
+  native timelapse handles frames itself.
 
 Print end is END_PRINT, which the firmware defines on every screen
 mode. Readiness is the Klipper print_stats and webhooks checks plus
@@ -67,6 +67,15 @@ class ForgeXAdapter(KlipperAdapter):
 
     def machine_end_gcode(self, template_end):
         return "END_PRINT"
+
+    def finalize_output(self, text):
+        # Per-print timelapse skip (#1506 tranche 2b): with [printer]
+        # forgex_timelapse "printer" (the default) the file is unchanged and
+        # the printer's own timelapse switch decides; "off" adds TIMELAPSE=0
+        # to the file's single START_PRINT line.
+        if start_contract.timelapse_choice(self.config.get("printer")) == "off":
+            return start_contract.with_timelapse_skip(text)
+        return text
 
     def start_plan(self, bed_temp, nozzle_temp, *, mesh="auto"):
         lines = [DOCUMENTED_START_LINES[0],

@@ -91,6 +91,7 @@ GROUP_OF = {
     "printer.opencreator_bed_leveling": "printers",
     "printer.opencreator_host_pressure_advance": "printers",
     "printer.opencreator_buildplate_check": "printers",
+    "printer.forgex_timelapse": "printers",
     "delivery.methods": "slicing",
     "layout.spacing": "slicing",
     "bot.mode": "platform",
@@ -289,6 +290,11 @@ CATALOG = (
            "skips it for prints Print Handy slices, by writing the full C5_PRINT_START line "
            "into the file.",
            choices=("printer", "off"), validator="settings opencreator override check"),
+    _field("printer", "forgex_timelapse", "Forge-X: timelapse", "picker",
+           "Forge-X printers only. printer leaves the printer's own timelapse switch in charge; "
+           "off adds TIMELAPSE=0 to the start line of prints Print Handy slices, so they make "
+           "no timelapse. Forge-X cannot be told to make one for a single print.",
+           choices=("printer", "off"), validator="settings forgex timelapse check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
     _field("bot", "mode", "Bot mode", "picker",
            "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
@@ -1014,6 +1020,8 @@ def config_page_visible(field, data, reveal=None) -> bool:
     model = _configured_model(data)
     if field.id == "printer.zmod_delivery_format":
         return bool(model and model.vendor.key == "flashforge")
+    if field.id == "printer.forgex_timelapse":
+        return bool(model and model.vendor.key == "flashforge_forgex")
     if field.id.startswith("printer.opencreator_"):
         return bool(model and model.vendor.key == "flashforge_opencreator")
     if field.id == "bambu.lan_serial":

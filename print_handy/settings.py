@@ -173,6 +173,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("printer", "opencreator_bed_leveling"): str,
                  ("printer", "opencreator_host_pressure_advance"): str,
                  ("printer", "opencreator_buildplate_check"): str,
+                 ("printer", "forgex_timelapse"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
                  ("vision", "ai_enabled"): bool,
@@ -745,6 +746,17 @@ def _validate_zmod_delivery_format(data, model):
         raise SettingsError("[printer] zmod_delivery_format only applies to Flashforge/ZMod printers")
     if value not in ("gcode", "3mf", "auto"):
         raise SettingsError(f"[printer] zmod_delivery_format must be \"gcode\", \"3mf\" or \"auto\", got {value!r}")
+
+
+def _validate_forgex_timelapse(data, model):
+    """[printer] forgex_timelapse (#1506): "printer" or "off", Forge-X only when not the default."""
+    from .printers.flashforge_forgex import start_contract
+    try:
+        value = start_contract.timelapse_choice(data["printer"])
+    except ValueError as error:
+        raise SettingsError(str(error)) from None
+    if value != "printer" and model.vendor.key != "flashforge_forgex":
+        raise SettingsError("[printer] forgex_timelapse only applies to Flashforge printers on Forge-X firmware")
 
 
 def _validate_opencreator_overrides(data, model):
@@ -2297,6 +2309,7 @@ def validate(data):
     _validate_bambu_lan(data, model)
     _validate_zmod_delivery_format(data, model)
     _validate_opencreator_overrides(data, model)
+    _validate_forgex_timelapse(data, model)
     _validate_stock_lan(data, model)
     _validate_prusa_link(data, model)
     _validate_elegoo_sdcp(data, model)
