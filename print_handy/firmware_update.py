@@ -83,6 +83,18 @@ BUSY_STATES = frozenset({"printing", "paused"})
 # Elegoo/Creality/QIDI/Anycubic Moonraker model is refused by the same
 # rule until per-vendor evidence clears that vendor.
 ELIGIBLE_FAMILIES = frozenset({"zmod", "klipper"})
+# Forge-X (#1506 tranche 3): its registry family stays "none", and its one
+# applicable component, forge-x, is offered only when the owner turns on
+# [firmware] forgex_apply (off by default). The gate is the profile plus that
+# setting, never what the printer offers.
+FORGEX_VENDOR = "flashforge_forgex"
+FORGEX_COMPONENT = "forgex"   # _component_key("forge-x")
+
+
+def forgex_apply_enabled(cfg) -> bool:
+    """[firmware] forgex_apply from a settings mapping; False when absent."""
+    firmware = (cfg or {}).get("firmware") if isinstance(cfg, dict) else None
+    return isinstance(firmware, dict) and firmware.get("forgex_apply") is True
 FORK_VENDORS = frozenset({"elegoo", "creality", "qidi", "anycubic", "snapmaker"})
 
 
@@ -107,7 +119,7 @@ def printer_entry(model_key, registry=None):
     return None
 
 
-def apply_block_reason(entry) -> str | None:
+def apply_block_reason(entry, cfg=None) -> str | None:
     """Why stage 2 apply is not offered for this registry entry, or None when it is.
 
     Eligibility is a property of the printer profile — firmware family,
@@ -128,6 +140,14 @@ def apply_block_reason(entry) -> str | None:
                 f"warns that updating a Neptune 4 to official Klipper/Moonraker makes the "
                 f"machine not work properly), so Print Handy never applies firmware "
                 f"updates on it.")
+    if entry.vendor == FORGEX_VENDOR:
+        if forgex_apply_enabled(cfg):
+            return None
+        return ("Print Handy reports Forge-X updates but applies them only when "
+                "`[firmware] forgex_apply` is turned on (off by default): the forge-x "
+                "component tracks a branch tip, and installing from chat is not yet "
+                "verified on a real Forge-X printer. Update from Software Update in "
+                "Fluidd or Mainsail instead, or see docs/FORGEX.md.")
     if entry.firmware_family not in ELIGIBLE_FAMILIES:
         return (f"This printer's firmware family ({entry.firmware_family or 'none'}) is not "
                 f"one Print Handy can update: only ZMod and vanilla Klipper printers are "
@@ -135,8 +155,8 @@ def apply_block_reason(entry) -> str | None:
     return None
 
 
-def is_apply_eligible(entry) -> bool:
-    return apply_block_reason(entry) is None
+def is_apply_eligible(entry, cfg=None) -> bool:
+    return apply_block_reason(entry, cfg) is None
 
 
 # --------------------------------------------------------------------- status
@@ -758,14 +778,39 @@ class PreparedUpdate:
         return self.component.name
 
 
-def prepare_update(transport, entry, component_token) -> PreparedUpdate:
+def _forgex_refusal(component) -> str | None:
+    """Why one Forge-X component may not be applied, or None (#1506 tranche 3).
+
+    Only forge-x itself (the mod, a git component on Moonraker). Fluidd,
+    Mainsail and GuppyScreen ship with the mod's line and are left to it.
+    Over the air only within a version line: the first two numbers of the
+    installed and the offered version must both be readable and equal; a new
+    line is a USB re-flash (docs/FORGEX.md). An unreadable version refuses.
+    """
+    if _component_key(component.name) != FORGEX_COMPONENT:
+        return (f"On Forge-X Print Handy installs only the **forge-x** component; "
+                f"**{component.name}** updates with Forge-X itself. Nothing was sent.")
+    have, offered = version_parts(component.current), version_parts(component.remote)
+    if len(have) < 2 or len(offered) < 2:
+        return ("Print Handy cannot read both the installed and the offered Forge-X "
+                f"versions ({component.current or 'not reported'} -> "
+                f"{component.remote or 'not reported'}), so it cannot tell whether the "
+                "update stays within your version line. Nothing was sent.")
+    if have[:2] != offered[:2]:
+        return (f"**forge-x** {component.remote} is a new Forge-X version line (installed: "
+                f"{component.current}). Forge-X moves between lines only by a USB re-flash "
+                "at the printer, never over the air; see docs/FORGEX.md. Nothing was sent.")
+    return None
+
+
+def prepare_update(transport, entry, component_token, cfg=None) -> PreparedUpdate:
     """Validate one update request against the profile and the live printer; send nothing.
 
     The component name is only ever resolved against the live status just
     read — never trusted as typed — and the printer must be eligible,
     idle, and (on ZMod) free of a base/component pairing mismatch.
     """
-    reason = apply_block_reason(entry)
+    reason = apply_block_reason(entry, cfg)
     if reason is not None:
         raise FirmwareRefusal(reason + " Nothing was sent.")
     try:
@@ -793,6 +838,10 @@ def prepare_update(transport, entry, component_token) -> PreparedUpdate:
                               "Handy will not request one. "
                               + (hint + " " if hint else "")
                               + "Nothing was sent.")
+    if entry is not None and entry.vendor == FORGEX_VENDOR and component.update_available:
+        refusal = _forgex_refusal(component)
+        if refusal is not None:
+            raise FirmwareRefusal(refusal)
     if not component.update_available:
         raise FirmwareRefusal(f"**{component.name}** is already up to date "
                               f"({component.current or 'version not reported'}); there is "
@@ -966,7 +1015,7 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
 NOT_APPLIED_TEXT = "Update not applied. Nothing sent."
 
 
-async def confirmed_update(transport, entry, component_token, ask) -> str:
+async def confirmed_update(transport, entry, component_token, ask, cfg=None) -> str:
     """Stage 2 end to end: prepare, ask, then send. The one apply flow.
 
     Every surface that applies an update goes through here:
@@ -981,7 +1030,7 @@ async def confirmed_update(transport, entry, component_token, ask) -> str:
     """
     import asyncio
     try:
-        prepared = await asyncio.to_thread(prepare_update, transport, entry, component_token)
+        prepared = await asyncio.to_thread(prepare_update, transport, entry, component_token, cfg)
     except (FirmwareRefusal, FirmwareError) as exc:
         return str(exc)
     answer = await ask(update_prompt_text(prepared), [UPDATE_LABEL, CANCEL_LABEL])
@@ -1200,13 +1249,13 @@ GUIDANCE = {
                       "Forge-X release image for your exact model, put it on a USB "
                       "drive without unpacking it, and install it at the printer "
                       "from the drive. See docs/FORGEX.md."),
-        why_no_apply=("Print Handy reports Forge-X update state but does not apply "
-                      "it (#1506): the forge-x component tracks a branch tip rather "
-                      "than release tags, whether a USB-installed printer reports a "
-                      "readable version at all is not yet verified on live hardware, "
-                      "and the same-line-only rule for over-the-air updates is not "
-                      "yet encoded as a Print Handy gate. Guarded apply is tranche "
-                      "3 of #1506, under #1280 section I.")),
+        why_no_apply=("Print Handy reports Forge-X update state and installs it only "
+                      "when `[firmware] forgex_apply` is on (off by default, #1506): "
+                      "the forge-x component tracks a branch tip rather than release "
+                      "tags, and installing is not yet verified on a real Forge-X "
+                      "printer. With it on, only forge-x installs, only within the "
+                      "installed version line, behind the usual confirmation and idle "
+                      "checks.")),
     "flashforge_stock": FamilyGuidance(
         title="Flashforge stock firmware (AD5X)",
         can_report=("nothing programmatic: the stock LAN API Print Handy uses carries "

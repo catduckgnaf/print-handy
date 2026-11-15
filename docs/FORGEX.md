@@ -230,36 +230,46 @@ The check reads object and component names only, never unverified
 inner fields, and absence of evidence is treated as absence: a plain
 missing-object failure keeps its usual wording.
 
-## Firmware updates: reporting only
+## Firmware updates
 
-Print Handy's posture for Forge-X updates is **reporting only**, and
-it is recorded in the models' registry entries, not just here: their
-`firmware_family` is `none`, with a Forge-X guidance entry in the
-firmware-update machinery, so `/print-firmware` lists what the
-printer's Moonraker update manager reports and Print Handy never
-offers to apply it. That is deliberate (#1506, under #1280 section
-I), for three reasons:
+`/print-firmware` lists what the printer's Moonraker update manager
+reports for its components (`forge-x`, `fluidd`, `mainsail`,
+`guppyscreen`; there is deliberately no `klipper` or `moonraker`
+component, because those update with the flashed image). The models'
+registry `firmware_family` stays `none`, and installing is off by
+default.
 
-- The `forge-x` component (a git component, alongside `fluidd`,
-  `mainsail` and `guppyscreen`; there is deliberately no `klipper` or
-  `moonraker` component, because those update with the flashed image)
-  tracks a branch tip (the `1.4.2` branch on a beta install), not
-  release tags, so its reported versions are git describe strings,
-  not release numbers.
-- Whether a printer installed from the USB image reports a readable
-  `forge-x` version at all is unverified; a version Moonraker reports
-  as not reported is stated as not reported, never as up to date.
-- Upstream's rule is that over-the-air updates are supported only
-  within a version line; crossing lines (for example 1.4.x to a
-  future 1.5.x) is a USB re-flash. Print Handy has not yet encoded
-  that rule as a gate.
+**Installing from chat is opt-in.** With `[firmware] forgex_apply =
+true`, `/print-firmware update forge-x` installs a Forge-X update, under
+these rules:
 
-To update manually: within a version line, use Software Update in
-Fluidd or Mainsail at the printer. Across lines, download the
-Forge-X release image for your exact model and install it from a USB
-drive at the printer. Guarded apply from Print Handy is tranche 3 of
-#1506, gated on a live update-status capture from a real Forge-X
-install.
+- the `forge-x` component only; the web clients and the screen update
+  with Forge-X itself;
+- within your version line only: the installed and the offered version
+  must both be readable and share their first two numbers. Upstream
+  updates over the air only within a line; crossing lines (for example
+  1.4.x to 1.5.x) is a USB re-flash, which Print Handy always refuses;
+- an unreadable or not-reported version refuses, it is never treated
+  as up to date;
+- the usual confirmation, the idle check before asking and again before
+  sending, and a verified re-read afterwards.
+
+It is off by default because the `forge-x` component tracks a branch tip
+(its versions are git describe strings, not release numbers) and
+installing has not yet been verified on a real Forge-X printer.
+
+**Alerts.** New Forge-X releases reach chat through the firmware feed
+(`[firmware] notice_firmwares`, `forge-x` by default). While these
+models target the 1.4.2 beta, the feed follows prereleases, ordered by
+their build number (`1.4.2-beta-4` is older than `1.4.2-beta-10`). The
+weekly firmware watch also follows Forge-X's final releases from a 1.4.1
+baseline, so the first final 1.4.2 opens the notice that moves support
+from the beta to stable.
+
+To update by hand: within a version line, use Software Update in
+Fluidd or Mainsail at the printer. Across lines, download the Forge-X
+release image for your exact model and install it from a USB drive at
+the printer.
 
 ## AD5M vs AD5M Pro on Forge-X
 

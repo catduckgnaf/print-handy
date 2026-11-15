@@ -520,6 +520,7 @@ def test_only_zmod_printers_get_alerts(cfg):
 def test_settings_default_on_daily():
     data = _config.cfg()
     assert data["firmware"] == {"update_alerts": True, "update_check_hours": 24,
+                                "forgex_apply": False,
                                 "notice_firmwares": ["zmod", "opencreator", "forge-x"]}
 
 

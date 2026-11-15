@@ -132,6 +132,7 @@ GROUP_OF = {
     "firmware.update_alerts": "notifications",
     "firmware.update_check_hours": "notifications",
     "firmware.notice_firmwares": "notifications",
+    "firmware.forgex_apply": "notifications",
     "llm.chat_url": "ai",
     "llm.model": "ai",
     "design.chat_url": "ai",
@@ -463,6 +464,11 @@ CATALOG = (
            "Hours between update checks for each printer (1 to 168). A check is "
            "skipped while the printer is printing.",
            validator="settings firmware check", minimum=1, maximum=168),
+    _field("firmware", "forgex_apply", "Forge-X: install updates from chat", "toggle",
+           "Off by default. On lets /print-firmware update forge-x install a Forge-X "
+           "update within your version line, after a confirmation, only while the printer "
+           "is idle, verified by re-reading. Not yet verified on a real Forge-X printer.",
+           validator="settings firmware check"),
     _field("firmware", "notice_firmwares", "Firmware release notices", "picker",
            "Which firmware lines get a chat notice when they publish a new release. "
            "Forge-X follows the 1.4.2 beta until it ships stable. Others show on the "

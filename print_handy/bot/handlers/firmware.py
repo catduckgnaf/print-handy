@@ -85,8 +85,9 @@ async def firmware_dispatch(event, gateway, **kwargs):
                                         'One component at a time. Nothing was sent to '
                                         'the printer.'))
             return {'action': 'skip', 'reason': 'print firmware usage shown'}
-        if connection != 'moonraker' or not firmware_update.is_apply_eligible(entry):
-            reason = firmware_update.apply_block_reason(entry)
+        cfg = _config.cfg()
+        if connection != 'moonraker' or not firmware_update.is_apply_eligible(entry, cfg):
+            reason = firmware_update.apply_block_reason(entry, cfg)
             message = (reason + ' Nothing was sent to the printer.') if reason else \
                 firmware_update.not_moonraker_text(connection)
             await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
@@ -107,7 +108,8 @@ async def firmware_dispatch(event, gateway, **kwargs):
         try:
             # The one confirmed apply flow, shared with the update alert's
             # Update button (print_handy.firmware_alerts).
-            message = await firmware_update.confirmed_update(mr, entry, ' '.join(args[1:]), ask)
+            message = await firmware_update.confirmed_update(mr, entry, ' '.join(args[1:]), ask,
+                                                             cfg)
         except Exception:
             logger.exception('/print-firmware update failed')
             message = ('The firmware update stopped on an error. No confirmation was '
