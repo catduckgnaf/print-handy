@@ -13,7 +13,7 @@ Find a model, drop its link or STL/3MF into Discord, Telegram, Matrix or the Web
 
 It also has a personality problem. Your model might get roasted, your eleventh copy deserves a Spinal Tap reference, and Pasta Cam would very much like your printer to stop making spaghetti.
 
-**Current release: 2.3.4**
+Current release: **2.3.4**
 
 [Install](#install-it) · [See it work](#from-link-to-print) · [Printer support](#will-it-work-with-my-printer) · [Full docs](https://catduckgnaf.github.io/print-handy-docs/) · [Discord](https://discord.gg/mT2Ht3nqZu) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -22,7 +22,7 @@ It also has a personality problem. Your model might get roasted, your eleventh c
 - **Drop a link or a file.** MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs, Nexprint, direct STL/3MF links and file uploads feed the print workflow. Some sites or downloads have limits or need credentials; [model sources](docs/PROJECT-REFERENCE.md) explains the details.
 - **Tell the slicer what you want.** Pick colors, filaments and copies. Rotate, resize, split across plates and adjust supports from chat; Print Handy checks bed fit before making you waste filament on a sculpture of disappointment. [Model editing](docs/EDITING.md) has the supported operations and their limits.
 - **Spoolman without the spreadsheet cosplay.** Track your filament, match spools to printer slots and get prompted when a spool runs out. A bundled Spoolman instance is included in the container; you can also connect your own. [Spools and commands](docs/PROJECT-REFERENCE.md).
-- **Pasta Cam.** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
+- **Pasta Cam (camera watchdog).** Camera checks can flag spaghetti, detached parts and other suspicious print behavior, with alerts and controls. Coverage depends on printer family, camera setup and enabled monitoring. It's a watchdog, not a psychic. Tune it with `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` (1 to 5). [Camera watch and compatibility](docs/DOCKER.md#camera-watch-visual_watch).
 - **Print updates with attitude.** Progress, pauses, errors, finish posts, optional timelapses, model roasts and non-AI status quips. Some printer connections monitor only jobs Print Handy started. [Status voice](docs/STATUS-VOICE.md) · [Timelapses](docs/DOCKER.md#timelapse-capture-go2rtc).
 - **A real Web UI.** Set up printers, work through a model link or upload, use chat in your browser, browse slices and print history, and view the **Pasta Wrapped** recap. Some recap/video features depend on the records and options available. [Web UI guide](docs/WEBUI.md).
 - **Firmware, without pretending every printer is the same.** Check firmware versions and available components; eligible ZMod and vanilla Klipper printers can apply a reported component update with confirmation. Other firmware paths get guidance or read-only reporting. [Exactly what updates work](docs/FIRMWARE-UPDATE.md).
@@ -58,15 +58,7 @@ These screenshots are **mockups based on real bot text and controls**, not proof
 
 </details>
 
-## Install it
-
-Three choices. Pick the machine you have, not an installation guide as a personality test.
-
-| Install | For whom | Start here |
-|---|---|---|
-| **Docker** | A Linux box, server, NAS or Raspberry Pi running 64-bit Docker | [Docker setup](docs/DOCKER.md) |
-| **Unraid** | You're already in the Apps tab and intend to stay there | [Unraid instructions](#unraid) · [Docker-specific options](docs/DOCKER.md) |
-| **Home Assistant add-on** | You run Home Assistant OS or Supervised and want Print Handy managed there | [Home Assistant setup](docs/HOME-ASSISTANT-OS.md) |
+## Get started
 
 ### Docker
 
