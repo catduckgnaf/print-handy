@@ -185,6 +185,31 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
+    synthesis_problems = getattr(adapter, "start_synthesis_problems", None)
+    if callable(synthesis_problems):
+        # A firmware whose dispatcher synthesizes its print start from the
+        # file (OpenCreator, #1490): there is no start macro line or native
+        # heater prefix to demand, and print end is firmware-owned. Verify
+        # the start the firmware would synthesize, the nozzle, and bounds.
+        state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
+        from ..core.nozzle import effective_nozzle_temperature as _effective
+        nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
+        hotend = _effective(nozzle_type, float(state['temps_c']['nozzle']))
+        bed = state['temps_c']['bed']
+        errors += synthesis_problems(text, bed, hotend)
+        nozzle = lines.config_value('nozzle_diameter')
+        if nozzle is None or abs(float(nozzle) - state['nozzle']['diameter_mm']) > 1e-3:
+            errors.append(f"nozzle {nozzle} != recorded {state['nozzle']['diameter_mm']}")
+        bounds = cached_motion_bounds(raw, text)
+        limits = state.get('axis_limits_mm', {'x': [0, BED_MM], 'y': [0, BED_MM], 'z': [0, state.get('max_print_height_mm', MAX_HEIGHT_MM)]})
+        for axis in 'xyz':
+            low, high = bounds[axis]
+            limit_low, limit_high = map(float, limits[axis])
+            if low < limit_low - 1e-3 or high > limit_high + 1e-3:
+                errors.append(f'{axis.upper()} bounds {low:.3f}..{high:.3f} exceed {limit_low:.3f}..{limit_high:.3f}')
+        if errors:
+            raise RuntimeError('offline G-code verification failed: ' + '; '.join(errors))
+        return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True}
     state = _with_gcode_temperatures(state, text, recorded_temps, lines=lines)
     from ..core.nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
@@ -361,19 +386,29 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
         if not all(lines.search(rf'^{cmd}\s+S0(?:\s|$)', cmd) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
-        macro = adapter.start_macro
-        if not (numeric_macro_match(macro, 'BED', 'HOTEND') or
-                sovol_style_start_matches(text, bed, hotend, lines=lines)):
-            errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
-                          " (accepted starts: the configured macro with BED/HOTEND arguments,"
-                          " START_PRINT with BED_TEMP/EXTRUDER_TEMP arguments, or a bare"
-                          " START_PRINT whose M190/M109 heater lines match those temperatures)")
+        synthesis_problems = getattr(adapter, "start_synthesis_problems", None)
+        if callable(synthesis_problems):
+            # A firmware whose dispatcher synthesizes its print start from
+            # the file (OpenCreator, #1490) has no start macro line to
+            # match: verify the start the firmware would synthesize.
+            errors += synthesis_problems(text, bed, hotend)
+        else:
+            macro = adapter.start_macro
+            if not (numeric_macro_match(macro, 'BED', 'HOTEND') or
+                    sovol_style_start_matches(text, bed, hotend, lines=lines)):
+                errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
+                              " (accepted starts: the configured macro with BED/HOTEND arguments,"
+                              " START_PRINT with BED_TEMP/EXTRUDER_TEMP arguments, or a bare"
+                              " START_PRINT whose M190/M109 heater lines match those temperatures)")
     elif not (numeric_macro_match('PRINT_START', 'BED', 'HOTEND') or
               numeric_macro_match('START_PRINT', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
     def ends_with(macro_name):
         return lines.search(rf'^{re.escape(macro_name)}(?:\s|$)', macro_name)
-    if not octoprint:
+    if getattr(adapter, "firmware_owned_end", False):
+        pass  # Print end is firmware-owned (OpenCreator's dispatcher runs
+        # C5_PRINT_STOP itself): the file carries no end macro line to demand.
+    elif not octoprint:
         if native:
             if not (ends_with('PRINT_END') or ends_with('END_PRINT')):
                 errors.append("missing END_PRINT/PRINT_END safe end sequence")

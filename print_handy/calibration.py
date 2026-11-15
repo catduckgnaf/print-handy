@@ -610,6 +610,12 @@ def _pid_before(settings, heater):
     section = settings.get(heater) if isinstance(settings, dict) else None
     if not isinstance(section, dict):
         return None
+    # An MPC heater (Kalico's model-predictive control, the OpenCreator
+    # hotends' algorithm, #1490) has no PID gains to tune, whatever PID
+    # terms its config section also carries: PID_CALIBRATE does not apply
+    # to it, so no PID calibration is offered or run for that heater.
+    if str(section.get("control") or "").strip().lower() == "mpc":
+        return None
     # Klipper's configfile status lowercases every option name, so the
     # terms arrive as pid_kp / pid_ki / pid_kd whatever casing the
     # printer.cfg file itself uses; look them up case-insensitively.

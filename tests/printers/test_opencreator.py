@@ -32,13 +32,25 @@ DOCUMENTED_START = (
     "M83"
 )
 
+# The base Creator 5 has no chamber heater: its start form omits the
+# M191 line entirely (tranche 2, #1490).
+BASE_START = DOCUMENTED_START.replace("M191 S[overall_chamber_temperature]\n", "")
+
+START_FOR_KEY = {KEYS[0]: BASE_START, KEYS[1]: DOCUMENTED_START}
+
 
 def _ready_status():
     status = {"print_stats": {"state": "standby"}, "webhooks": {"state": "ready"},
-              "heater_bed": {"temperature": 24.0}}
+              "heater_bed": {"temperature": 24.0},
+              "creator5_toolchanger": {"active_tool": 0, "sensor_error": None, "busy": False,
+                                       "build_plate_detected": True,
+                                       "dock_positions": [[0, 0]] * 4,
+                                       "tool_measurements": [[0, 0, 0]] * 4},
+              "AFC": {"maps": ["T0", "T1", "T2", "T3"]}}
     for tool in range(4):
         name = "extruder" if tool == 0 else f"extruder{tool}"
         status[name] = {"temperature": 24.0}
+        status[f"AFC_extruder extruder{tool}"] = {"map": f"T{tool}", "current_map": f"T{tool}"}
     return status
 
 
@@ -59,11 +71,15 @@ def test_model_is_a_four_tool_changer_on_its_own_vendor(key):
     assert model.supported_nozzle_sizes == (0.25, 0.4, 0.6, 0.8)
     for fact in facts.CREATOR5.values():
         assert fact.verified is False
-        assert fact.source == "OPENCREATOR"
-    # No temperature ceiling fact is recorded for this family: the docs
-    # and the shipped config disagree, so the ceiling stays unknown.
+        assert fact.source in ("OPENCREATOR", "FLASHFORGE")
+    # Temperature ceilings are the manufacturer ratings from FlashForge's
+    # specifications table (#1490 tranche 2): extruder and bed for both
+    # models, chamber for the Pro only. The base printer has no chamber
+    # heater, so it records no chamber ceiling at all.
+    assert facts.CREATOR5["max_hotend_c"].value == 320
+    assert facts.CREATOR5["max_bed_c"].value == 120
     assert "max_chamber_c" not in facts.CREATOR5
-    assert "max_hotend_c" not in facts.CREATOR5
+    assert facts.CREATOR5_PRO["max_chamber_c"].value == 65
 
 
 @pytest.mark.parametrize("key", KEYS)
@@ -85,18 +101,20 @@ def test_moonraker_objects_are_the_standard_multi_tool_set(key):
     assert adapter.moonraker_objects() == [
         "webhooks", "print_stats", "virtual_sdcard",
         "extruder", "extruder1", "extruder2", "extruder3",
-        "heater_bed", "exclude_object"]
+        "heater_bed", "exclude_object", "creator5_toolchanger", "AFC",
+        "AFC_extruder extruder0", "AFC_extruder extruder1",
+        "AFC_extruder extruder2", "AFC_extruder extruder3"]
 
 
 @pytest.mark.parametrize("key", KEYS)
 def test_start_contract_is_the_documented_form(key):
     adapter = adapter_for(key)
     machine = json.loads((adapter.templates_dir() / "machine.json").read_text())
-    assert machine["machine_start_gcode"] == DOCUMENTED_START
+    assert machine["machine_start_gcode"] == START_FOR_KEY[key]
     # The adapter adds nothing to the template start: no macro line, no
     # mesh argument, no nozzle heating line, so the firmware dispatcher
     # synthesizes its print start from the file as documented.
-    assert adapter.machine_start_gcode(machine["machine_start_gcode"], "auto") == DOCUMENTED_START
+    assert adapter.machine_start_gcode(machine["machine_start_gcode"], "auto") == START_FOR_KEY[key]
     for forbidden in ("START_PRINT", "PRINT_START", "MESH=", "C5_PRINT_START"):
         assert forbidden not in machine["machine_start_gcode"], forbidden
         assert forbidden not in "\n".join(adapter.start_plan(60, 215)), forbidden
@@ -154,14 +172,21 @@ def test_readiness_fails_closed_and_needs_no_zmod_object(key):
 
 
 @pytest.mark.parametrize("key", KEYS)
-def test_status_reports_toolheads_and_unknown_active_tool(key):
+def test_status_reports_toolheads_and_the_toolchanger_active_tool(key):
     adapter = adapter_for(key)
     out = adapter.normalize_status({"print_stats": {"state": "printing"},
                                     "extruder": {"temperature": 210.0},
-                                    "extruder2": {"temperature": 215.0}})
+                                    "extruder2": {"temperature": 215.0},
+                                    "creator5_toolchanger": {"active_tool": 2}})
     assert [h["temperature"] for h in out["toolheads"]] == [210.0, None, 215.0, None]
-    # No verified object provides the active tool on this firmware yet.
-    assert out["active_tool"] is None
+    # The active tool is the toolchanger object's (source-verified
+    # contract, #1490 tranche 2); absent or malformed, it stays unknown.
+    assert out["active_tool"] == 2
+    assert adapter.normalize_status({})["active_tool"] is None
+    assert adapter.normalize_status(
+        {"creator5_toolchanger": {"active_tool": None}})["active_tool"] is None
+    assert adapter.normalize_status(
+        {"creator5_toolchanger": {"active_tool": 7}})["active_tool"] is None
     assert "slots" not in out
 
 
@@ -211,7 +236,11 @@ def test_zmod_model_pointed_at_opencreator_warns(key, evidence):
 @pytest.mark.parametrize("key", ZMOD_KEYS)
 def test_zmod_model_without_evidence_keeps_the_plain_zmod_color_wording(key):
     adapter = adapter_for(key)
-    problems = adapter.readiness_problems({}, _ready_status())
+    status = _ready_status()
+    for name in [n for n in status if n == "AFC" or n.startswith("AFC")
+                 or n.startswith("creator5_toolchanger")]:
+        del status[name]
+    problems = adapter.readiness_problems({}, status)
     assert any("zmod_color is not reporting" in p for p in problems), problems
     assert not any("OpenCreator" in p for p in problems), problems
 
