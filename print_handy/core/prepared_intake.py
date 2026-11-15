@@ -2375,7 +2375,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             return {'keys': group['keys'], 'label': group['label'],
                     'question': question, 'colour_row': group['rows'][0]}
 
-        async def _ask_units(units, choices):
+        async def _ask_units(units, choices, taken=None):
             """Fill ``choices`` (decision key -> selection) by asking each unit.
 
             On Discord every unit is one select menu in a single batch
@@ -2396,7 +2396,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     for decision_key in unit['keys']:
                         choices[decision_key] = selections[pick]
                 return
-            taken = {}  # tool -> source colour already assigned to it (tool_based only)
+            # tool -> source colour already assigned to it (tool_based only).
+            # Seeded with the toolheads a partly accepted proposal already
+            # claimed, so a remaining question never offers one of those to
+            # a different source colour (review of #1487).
+            taken = dict(taken or {})
             for unit in units:
                 if job_adapter.tool_based:
                     colour = prompt_source_colour(manifest, unit['colour_row'])
@@ -2465,14 +2469,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 return {'mode': 0, 'units': [],
                         'choices': {k: by_slot[g['slot']] for g in proposal['groups']
                                     for k in g['keys']}}
-            preset, pending = {}, []
+            preset, pending, claimed = {}, [], {}
             for group in (proposal['groups'] if proposal else groups):
                 if pick == 0 and group.get('slot') is not None:
                     for k in group['keys']:
                         preset[k] = by_slot[group['slot']]
+                    if job_adapter.tool_based:
+                        claimed[group['slot']] = prompt_source_colour(manifest, group['rows'][0])
                 else:
                     pending.append(_group_unit(group))
-            return {'mode': 0, 'choices': preset, 'units': pending}
+            return {'mode': 0, 'choices': preset, 'units': pending, 'taken': claimed}
         families = [row for row in grouped if len(row['keys']) > 1]
         tally = {}
         for p in manifest['parts']:
@@ -2561,7 +2567,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # #1473: the accepted mapping fills what it covers; only
                     # the groups the operator still owes are asked.
                     choices = dict(color_plan['choices'])
-                    await _ask_units(color_plan['units'], choices)
+                    await _ask_units(color_plan['units'], choices, color_plan.get('taken'))
                 else:
                     # Numbered siblings (Stencil 1/2/3) and parts sharing an
                     # author color get one question (#1473) unless the

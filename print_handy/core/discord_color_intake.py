@@ -136,11 +136,12 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                 selected_plates=pending.selected_plates, via='discord_color_choices')
             intake_color_choices(path, state, **kwargs)
 
-    async def ask_slots_dict(groups=None):
+    async def ask_slots_dict(groups=None, taken=None):
         """Ask one question per color group (#1473): numbered siblings and
         parts sharing an author color share one question; answers expand
-        back to every decision key in the group."""
-        taken = {}
+        back to every decision key in the group. ``taken`` seeds the
+        toolheads a partly accepted proposal already claimed (#1487 review)."""
+        taken = dict(taken or {})
         picked = {}
         for group in (groups if groups is not None
                       else color_groups(manifest, selected_plate_ids=selected_plates)):
@@ -252,13 +253,16 @@ async def _collect(job_path, state, adapter, chat_id, session_key, metadata=None
                         refuse_over_capacity()
                     picked = {}
                     pending = []
+                    claimed = {}
                     for group in (proposal['groups'] if proposal else groups):
                         if pick == 0 and group.get('slot') is not None:
                             for k in group['keys']:
                                 picked[k] = group['slot']
+                            if multi_tool:
+                                claimed[group['slot']] = prompt_source_colour(manifest, group['rows'][0])
                         else:
                             pending.append(group)
-                    picked.update(await ask_slots_dict(pending))
+                    picked.update(await ask_slots_dict(pending, claimed))
                     slots = [picked[row['key']] for row in questions]
                     mode = 'per_part'
     if mode is None:
