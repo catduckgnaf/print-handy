@@ -63,6 +63,7 @@ STEP_ANSWERS = {
     "model": CANONICAL["model"],
     "moonraker_url": CANONICAL["moonraker_url"],
     "spoolman_url": CANONICAL["spoolman_url"],
+    "spoolman_accounting": "auto",
     "token_stored": "stored",
     "camera_snapshot_url": CANONICAL["camera_snapshot_url"],
     "camera_source": "mjpeg",

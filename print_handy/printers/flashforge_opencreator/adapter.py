@@ -93,6 +93,9 @@ class OpenCreatorAdapter(KlipperAdapter):
     # lane_data record. The namespace is published by the printer
     # itself, and which of its two publishers owns it on a live install
     # is unverified, so no key shape (T<n> or c5_tool<n>) is written.
+    # AFC sets Moonraker's active spool at each tool change, so with a
+    # Moonraker Spoolman link the printer counts filament itself (#1536).
+    firmware_assigns_spools = True
     lane_data_write_refusal = (
         "not written: OpenCreator publishes the lane_data namespace itself "
         "and Print Handy has not verified which publisher owns it, so spool "

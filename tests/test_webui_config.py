@@ -25,6 +25,7 @@ GUIDED_FIELDS = {
     "homeserver_url": "matrix.homeserver_url",
     "moonraker_url": "services.moonraker_url",
     "spoolman_url": "services.spoolman_url",
+    "spoolman_accounting": "spool.accounting",
     "camera_snapshot_url": "services.camera_snapshot_url",
     "timelapse": "timelapse.capture_enabled",
 }

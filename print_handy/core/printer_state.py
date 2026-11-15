@@ -1081,18 +1081,24 @@ def offset_authority_problems(st, variables, native):
     return ["calibration mode is unknown; no offset substitution permitted"]
 
 
-def spoolman_url(st=None):
+def spoolman_url(st=None, printer_id=None):
     """The Spoolman base URL to use: configured settings win over the hardware record.
 
     `services.spoolman_url` in settings (which includes the
     PRINT_HANDY__SERVICES__SPOOLMAN_URL and legacy SPOOLMAN_URL environment
-    variables) is the operator's current configuration. The copy cached in
-    printer_hardware.json can go stale during migrations — it kept pointing at
-    a decommissioned host while the bundled Spoolman lived on 127.0.0.1:8000
-    (#235) — so it is only a fallback for when settings do not name a URL.
+    variables) is the operator's current configuration. With a printer_id,
+    that printer's roster view is read instead, so an entry's own
+    spoolman_url (an outside Spoolman, #1536) wins for that printer. The
+    copy cached in printer_hardware.json can go stale during migrations —
+    it kept pointing at a decommissioned host while the bundled Spoolman
+    lived on 127.0.0.1:8000 (#235) — so it is only a fallback for when
+    settings do not name a URL.
     """
     try:
-        configured = (settings.current().get("services") or {}).get("spoolman_url")
+        data = settings.current()
+        if printer_id:
+            data = settings.view_for(printer_id, data)
+        configured = (data.get("services") or {}).get("spoolman_url")
     except Exception:
         configured = None
     for candidate in (configured, (st or {}).get("spoolman_url")):
@@ -1350,6 +1356,28 @@ def check(st=None, printer_id=None, adapter=None, *, live=True):
             facts["active_spool_mismatch"] = f"Moonraker active spool {facts['moonraker_active_spool']} != state #{recorded_spool_id}"
     except Exception as e:
         warnings.append("the printer's active spool could not be checked, so the recorded spool was used")
+    # Spoolman link detection (#1536): is this printer's Moonraker itself
+    # linked to a Spoolman, and which instance? Best-effort facts for the
+    # status surfaces and the one-accounting-authority resolution; the
+    # resolution's warnings join the spool warnings. Never a gate.
+    try:
+        from . import spoolman_link
+
+        def _mr_call(method, path):
+            return _get(f"{mr}{path}", method=method)
+
+        detection = spoolman_link.detect_spoolman_link(_mr_call)
+        facts["spoolman_link"] = detection
+        view = (settings.view_for(facts["printer_id"]) if facts.get("printer_id")
+                else settings.current())
+        resolved = spoolman_link.resolve_accounting_authority(
+            (view.get("spool") or {}).get("accounting") or "", detection,
+            (view.get("services") or {}).get("spoolman_url") or "",
+            firmware_assigns_spools=bool(getattr(adapter, "firmware_assigns_spools", False)))
+        facts["spool_accounting"] = resolved
+        warnings.extend(resolved["warnings"])
+    except Exception:
+        logger.debug("Best-effort recovery from Exception", exc_info=True)
     _check_spoolman(_live_spool_view(st, facts, warnings), warnings, facts)
     try:
         if not native:

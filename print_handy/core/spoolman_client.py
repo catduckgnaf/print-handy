@@ -144,6 +144,32 @@ def list_spools(*, base_url: str | None = None, timeout: float | None = None,
     return result if isinstance(result, list) else None
 
 
+def get_filament(filament_id: int, *, base_url: str | None = None,
+                 timeout: float | None = None) -> dict[str, Any] | None:
+    """One filament record, or None when Spoolman is unavailable or has no such record shape."""
+    result = call("GET", f"/api/v1/filament/{int(filament_id)}", base_url=base_url, timeout=timeout)
+    return result if isinstance(result, dict) else None
+
+
+def list_filaments(*, base_url: str | None = None, timeout: float | None = None) -> list[Any] | None:
+    """Filament records, or None when Spoolman is unavailable (#1536: outside Spoolman reads)."""
+    result = call("GET", "/api/v1/filament", base_url=base_url, timeout=timeout)
+    return result if isinstance(result, list) else None
+
+
+def get_vendor(vendor_id: int, *, base_url: str | None = None,
+               timeout: float | None = None) -> dict[str, Any] | None:
+    """One vendor record, or None when Spoolman is unavailable or has no such record shape."""
+    result = call("GET", f"/api/v1/vendor/{int(vendor_id)}", base_url=base_url, timeout=timeout)
+    return result if isinstance(result, dict) else None
+
+
+def list_vendors(*, base_url: str | None = None, timeout: float | None = None) -> list[Any] | None:
+    """Vendor records, or None when Spoolman is unavailable (#1536: outside Spoolman reads)."""
+    result = call("GET", "/api/v1/vendor", base_url=base_url, timeout=timeout)
+    return result if isinstance(result, list) else None
+
+
 def health(*, base_url: str | None = None, timeout: float | None = None) -> tuple[bool, str]:
     """(ok, detail) for one Spoolman base URL's /api/v1/health. Never raises.
 

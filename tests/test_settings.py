@@ -310,7 +310,7 @@ class OverrideTests(unittest.TestCase):
             "vision": {"model", "ai_enabled", "roast_enabled", "roast_custom_bank", "local_detector_enabled",
                        "local_model_path", "watch_source", "local_empty_enabled",
                        "auto_light_off_minutes", "light_object"},
-            "spool": {"prompt_brand"},
+            "spool": {"prompt_brand", "accounting"},
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer
