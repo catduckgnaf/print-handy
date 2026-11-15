@@ -58,6 +58,7 @@ which use fakes only.
 """
 from __future__ import annotations
 
+
 import html
 import json
 import logging
@@ -190,9 +191,11 @@ def spool_summary(row, cache_rec=None):
     from ..runtime.discord_print_summary import filament_label
     name = filament_label(color, material) or str(cache_rec.get("name") or "").strip()
     spool_id = (row or {}).get("id", cache_rec.get("spoolman_id"))
+    nickname = spool_sync.spool_nickname(row)
     return {
         "id": int(spool_id) if spool_id is not None else None,
-        "name": name or f"Spool #{spool_id}",
+        "name": nickname or name or f"Spool #{spool_id}",
+        "nickname": nickname,
         "color": color,
         "material": material,
         "brand": str(vendor.get("name") or "").strip() or None,
@@ -451,6 +454,13 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
             if not isinstance(body["archived"], bool):
                 raise SpoolsError(400, "archived must be true or false. Nothing changed.")
             spool_patch["archived"] = body["archived"]
+        if "nickname" in body:
+            nickname = str(body["nickname"] or "").strip()
+            if len(nickname) > 60:
+                raise SpoolsError(400, "nickname must be 60 characters or fewer. Nothing changed.")
+            # An empty nickname clears it; the filament name shows again.
+            spool_patch["extra"] = {spool_sync.PH_NICKNAME_FIELD:
+                                    json.dumps(nickname) if nickname else None}
         for key in ("name", "material"):
             if key in body:
                 text = str(body[key] or "").strip()
@@ -496,7 +506,7 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
                 vendor = _call(client, "POST", "/api/v1/vendor", {"name": brand})
             filament_patch["vendor_id"] = vendor["id"]
         if not spool_patch and not filament_patch:
-            raise SpoolsError(400, "give at least one field to change: name, material, "
+            raise SpoolsError(400, "give at least one field to change: nickname, name, material, "
                                    "color, color_hex, brand, remaining_weight or archived. "
                                    "Nothing changed.")
         filament = spool.get("filament") or {}
@@ -507,6 +517,9 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
         if filament_patch:
             _call(client, "PATCH", f"/api/v1/filament/{int(filament_id)}", filament_patch)
         if spool_patch:
+            if "extra" in spool_patch and not spool_sync.ensure_extra_field(
+                    client, spool_sync.PH_NICKNAME_FIELD, spool_sync.PH_NICKNAME_FIELD_NAME):
+                raise SpoolsError(502, "Spoolman did not accept the nickname field. Nothing changed.")
             _call(client, "PATCH", f"/api/v1/spool/{spool_id}", spool_patch)
             if "remaining_weight" in spool_patch:
                 # The end-of-print usage check never rewrites a weight the
@@ -519,6 +532,10 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
     detail = f"Spool #{spool_id} updated in Spoolman."
     if "remaining_weight" in spool_patch:
         detail = f"Spool #{spool_id} now has {spool_patch['remaining_weight']:g} g left in Spoolman."
+    if "extra" in spool_patch:
+        detail = (f"Spool #{spool_id} renamed to {body['nickname'].strip()!r}; only this spool changed."
+                  if str(body.get("nickname") or "").strip() else
+                  f"Spool #{spool_id}'s nickname cleared; it shows its filament name again.")
     if filament_patch:
         detail += (" The name, material, color and brand live on the filament record, "
                    "so every spool of that filament type shows the change.")
@@ -888,7 +905,7 @@ def _spool_rows(view, form_token, pid, slot_options, *, show_archived):
 
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
                        purchase_ready=False, theme=shell.DEFAULT_THEME, printers=None,
-                       show_archived=False):
+                       show_archived=False, controls_enabled=True):
     """The per-printer Spools page: the #744 loaded view, the spool list,
     and the assign/swap/unassign/add/edit/sync forms with pickers.
 
@@ -924,19 +941,36 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
     loaded_rows = []
     for row in view["slots"]:
         spool = row["spool"]
+        slot_anchor = f'id="slot-{row["slot"]}"'
         if spool:
             cell = f"{esc(_picker_label(spool))} — {esc(_amount_text(spool))}"
             actions = _weight_form(form_token, pid, spool) if spool.get("id") is not None else ""
         else:
             cell, actions = "empty", ""
-        if shelf_options:
+        if controls_enabled and shelf_options:
             actions += _replace_form(form_token, pid, row["slot"], shelf_options,
                                      label="Replace with" if spool else "Load")
-        loaded_rows.append(f"<tr><th>Slot {row['slot']}</th><td>{cell}</td><td>{actions}</td></tr>")
+        if controls_enabled and spool:
+            actions += _form(form_token, pid, "edit",
+                f'<input type="hidden" name="spool_id" value="{esc(spool["id"])}">'
+                '<label>Rename <input name="nickname" maxlength="60" required></label> '
+                '<button type="submit" class="secondary">Rename</button>', attrs='class="inline"')
+            actions += _form(form_token, pid, "unassign",
+                f'<input type="hidden" name="slot" value="{row["slot"]}">'
+                '<button type="submit" class="secondary">Put back on shelf</button>', attrs='class="inline"')
+            actions += _form(form_token, pid, "edit",
+                f'<input type="hidden" name="spool_id" value="{esc(spool["id"])}">'
+                '<input type="hidden" name="archived" value="true">'
+                '<button type="submit" class="secondary">Archive</button>', attrs='class="inline"')
+        loaded_rows.append(f'<tr id="slot-{row["slot"]}"><th>Slot {row["slot"]}</th><td>{cell}</td><td>{actions}</td></tr>')
+    picker_help = (" Replace with loads a shelf spool into the slot; the spool that was there "
+                   "goes back on the shelf. Rename gives this one spool a nickname (other spools of the same filament keep theirs), Put back on shelf "
+                   "empties the slot and keeps the spool, and Archive retires it."
+                   if controls_enabled else
+                   " Printer controls are off ([webui] controls_enabled), so slots are read only.")
     parts.append(f'<h2>Loaded</h2><div class="table-scroll"><table>{"".join(loaded_rows)}</table></div>'
-                 '<p class="help">Set corrects the grams left on the spool in Spoolman. '
-                 "Replace with loads a shelf spool into the slot; the spool that was there "
-                 "goes back on the shelf.</p>")
+                 '<p class="help">Set corrects the grams left on the spool in Spoolman.'
+                 f"{picker_help}</p>")
     archived_count = sum(1 for spool in view["spools"] if spool["archived"])
     base = f"/spools/{quote(str(pid), safe='')}"
     if show_archived:
@@ -1111,6 +1145,8 @@ def form_body(action, form):
         for name, value in picked.items():
             if value:
                 body[name] = value
+        if "nickname" in form:
+            body["nickname"] = first("nickname")
         if first("remaining_weight"):
             body["remaining_weight"] = number("remaining_weight")
         # The checkbox only submits when ticked, and edit cannot

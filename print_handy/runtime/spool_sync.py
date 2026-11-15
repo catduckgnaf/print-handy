@@ -747,6 +747,43 @@ def ensure_ph_slot_field(client: Client = spoolman) -> bool:
     return True
 
 
+PH_NICKNAME_FIELD = "ph_nickname"
+PH_NICKNAME_FIELD_NAME = "Print Handy nickname"
+
+
+def ensure_extra_field(client: Client, key: str, name: str) -> bool:
+    """Define one text extra field on Spoolman spools when it is missing. Best effort."""
+    log = __import__("logging").getLogger(__name__)
+    try:
+        fields = _call_client(client, "GET", "/api/v1/field/spool", None)
+    except Exception:
+        log.warning("Spoolman spool field list unavailable; %s field not ensured", key, exc_info=True)
+        return False
+    if not isinstance(fields, list):
+        return False
+    if any(isinstance(row, dict) and row.get("key") == key for row in fields):
+        return True
+    try:
+        _call_client(client, "POST", f"/api/v1/field/spool/{key}",
+                     {"name": name, "field_type": "text"})
+    except Exception:
+        log.warning("Spoolman refused to create the %s spool field", key, exc_info=True)
+        return False
+    return True
+
+
+def spool_nickname(spool: Any) -> str | None:
+    """The per-spool nickname Print Handy stored on this Spoolman spool, if any.
+
+    The filament record's name is shared by every spool of that filament
+    type, so a rename of one spool lives here instead (#1515).
+    """
+    extra = spool.get("extra") if isinstance(spool, dict) else None
+    if not isinstance(extra, dict):
+        return None
+    return _decode_extra_value(extra.get(PH_NICKNAME_FIELD))
+
+
 def _set_ph_slot(client: Client, spool_id: int, value: str | None) -> bool:
     """Write (or, with None, clear) one spool's ``ph_slot``. Best effort: False on any failure."""
     ensure_ph_slot_field(client)

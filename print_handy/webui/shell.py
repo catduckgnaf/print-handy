@@ -252,6 +252,10 @@ button:disabled { opacity: 0.55; cursor: default; }
 button.danger, .button.danger { background: var(--color-bad-bg); color: var(--color-bad); }
 .slots { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.75rem 0; }
 .slot { width: 6.5rem; text-align: center; }
+.slot-link { display: block; color: inherit; text-decoration: none; border: 1px solid transparent; border-radius: 0.5rem; padding: 0.4rem; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
+.slot-link:hover { background: var(--color-panel); border-color: var(--color-line); }
+.slot-link:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+.slot-action { display: inline-block; margin-top: 0.35rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-line); border-radius: 0.35rem; font-size: 0.8rem; font-weight: 600; }
 .slot .disc { margin-bottom: 0.375rem; }
 .disc { display: inline-block; width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 2px solid var(--color-line); background: var(--color-bg); }
 .disc.small { width: 1.4rem; height: 1.4rem; vertical-align: middle; }
