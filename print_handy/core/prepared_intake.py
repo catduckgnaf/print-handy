@@ -186,8 +186,6 @@ async def _with_start_progress(adapter, source, metadata, job_path, work, clock=
         try:
             await watcher
         except (asyncio.CancelledError, Exception) as exc:
-            if isinstance(exc, asyncio.CancelledError) and asyncio.current_task().cancelling():
-                raise
             logger.debug('best-effort prepared-intake operation failed', exc_info=True)
 
 
@@ -267,8 +265,6 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             try:
                 await task
             except (asyncio.CancelledError, Exception) as exc:
-                if isinstance(exc, asyncio.CancelledError) and asyncio.current_task().cancelling():
-                    raise
                 logger.debug('best-effort prepared-intake operation failed', exc_info=True)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         try:
