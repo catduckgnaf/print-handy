@@ -1,0 +1,28 @@
+# OpenCreator macro registry. Entries use the shared Klipper family IDs;
+# loader preserves this separately sourced file immediately after klipper.toml.
+# Source: OpenCreator opencreator-fs shipped config tree. Source verified,
+# hardware unverified; runtime macro execution is fail-closed for these models.
+
+[[entry]]
+id = "klipper.opencreator-doors"
+name = "C5_DOORS"
+aliases = ["opencreator doors", "door state opencreator"]
+firmware = "klipper"
+kind = "macro"
+printers = ["flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro"]
+command = "C5_DOORS"
+description = "Reports whether the top and front doors are open or closed, using the printer's door-button states."
+safety = "Read-only status report; does not heat or move the printer. Source verified, but not verified on hardware."
+notes = "Source: opencreator-fs fs/usr/data/config/printer.misc.cfg [gcode_macro C5_DOORS]. Not hardware verified."
+
+[[entry]]
+id = "klipper.opencreator-nozzle-hours"
+name = "NOZZLE_HOURS"
+aliases = ["opencreator nozzle hours", "nozzle usage hours"]
+firmware = "klipper"
+kind = "macro"
+printers = ["flashforge_opencreator.creator5", "flashforge_opencreator.creator5_pro"]
+command = "NOZZLE_HOURS"
+description = "Reports accumulated nozzle usage hours."
+safety = "Read-only status report; does not heat or move the printer. Source verified, but not verified on hardware."
+notes = "Source: opencreator-fs shipped configuration defines [gcode_macro NOZZLE_HOURS]. Not hardware verified."
