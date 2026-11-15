@@ -298,9 +298,7 @@ async def calibration_dispatch(event, gateway, **kwargs):
                        '[bed_screws] configuration). Nothing was sent to the printer.')
             return {'action': 'skip', 'reason': 'print calibration screws not offered'}
         if option.mode == 'guide':
-            guide = calibration.SCREWS_ZMOD_GUIDE \
-                if entry is not None and entry.firmware_family == 'zmod' \
-                else calibration.SCREWS_KLIPPER_GUIDE
+            guide = calibration.screws_guide(entry)
             await send(guide)
             record(calibration='screws', outcome='reported', detail='guide shown')
             return {'action': 'skip', 'reason': 'print calibration screws guide shown'}

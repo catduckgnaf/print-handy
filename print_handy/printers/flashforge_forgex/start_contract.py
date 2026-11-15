@@ -24,6 +24,8 @@ not hardware verified.
 """
 from __future__ import annotations
 
+import re
+
 from enum import Enum
 
 
@@ -71,6 +73,46 @@ def stock_screen_problem(status) -> str | None:
     return ("this Forge-X printer is set to the Stock screen, and Print Handy's Forge-X profile "
             "slices the Feather/Guppy/Headless start form. Switch the display to Feather, "
             "Guppy or Headless (SET_MOD PARAM=display), or see docs/FORGEX.md")
+
+
+# Per-print timelapse (#1506 tranche 2b). Forge-X's native timelapse is
+# switched on at the printer (SET_MOD PARAM=timelapse VALUE=1); START_PRINT
+# TIMELAPSE=0 skips it for one print, and START_PRINT refuses any value but
+# 0 or 1 (config/stock.cfg in the 1.4.2 beta, read for behavior only). It
+# cannot turn timelapse on for a print, so the setting has no "on".
+TIMELAPSE_SETTING = "forgex_timelapse"
+TIMELAPSE_CHOICES = ("printer", "off")
+_START_RE = re.compile(r"^(\s*START_PRINT\b)(.*)$", re.IGNORECASE | re.MULTILINE)
+
+
+def timelapse_choice(printer_settings) -> str:
+    """The [printer] forgex_timelapse value, "printer" by default; ValueError when invalid."""
+    table = printer_settings if isinstance(printer_settings, dict) else {}
+    value = table.get(TIMELAPSE_SETTING, "printer")
+    if value is None:
+        value = "printer"
+    if value not in TIMELAPSE_CHOICES:
+        raise ValueError(f'[printer] {TIMELAPSE_SETTING} must be "printer" or "off", got {value!r}')
+    return value
+
+
+def with_timelapse_skip(text):
+    """``text`` with TIMELAPSE=0 on its one START_PRINT line.
+
+    Raises ValueError for a file with no START_PRINT line, more than one, or a
+    line that already names TIMELAPSE, rather than guessing which to change.
+    """
+    matches = list(_START_RE.finditer(text if isinstance(text, str) else ""))
+    if len(matches) != 1:
+        raise ValueError(f"expected exactly one START_PRINT line, found {len(matches)}")
+    match = matches[0]
+    words = {word.split("=", 1)[0].upper() for word in match.group(2).split()}
+    if "TIMELAPSE" in words:
+        raise ValueError("the START_PRINT line already names TIMELAPSE")
+    line = match.group(1) + match.group(2).rstrip() + " TIMELAPSE=0"
+    if forbidden_params(line):  # pragma: no cover - this rewrite never adds them
+        raise ValueError("Forge-X start would carry a fatal parameter")
+    return text[:match.start()] + line + text[match.end():]
 
 
 def forbidden_params(line) -> list[str]:
