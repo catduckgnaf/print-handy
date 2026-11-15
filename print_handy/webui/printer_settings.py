@@ -562,19 +562,6 @@ def save(data, printer_id, form, *, environ=None, confirmed=()):
     """
     model = build_model(data, printer_id, environ=environ)
     entry_changes, catalog_changes, submitted, errors = parse_submission(form, model)
-    if not errors and catalog_changes:
-        field_errors, general = pages.validate_change_set(catalog_changes,
-                                                          environ=environ)
-        for field_id, message in field_errors.items():
-            errors[field_id] = message
-        if general:
-            errors["_general"] = general
-    if not errors and entry_changes:
-        entry_errors, general = _entry_write_errors(printer_id, entry_changes,
-                                                    environ=environ)
-        errors.update(entry_errors)
-        if general:
-            errors["_general"] = general
     if errors:
         return "form", model, submitted, errors, ()
     moves = _pending_moves(data, model, entry_changes, catalog_changes,

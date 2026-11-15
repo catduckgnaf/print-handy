@@ -58,6 +58,26 @@ class PrinterSettingsTransactionTests(unittest.TestCase):
         self.assertEqual(actual["printers"][0]["name"], "Workshop AD5X")
         self.assertEqual(actual["delivery"]["methods"], ["printer"])
 
+    def test_save_rejects_combined_candidate_without_partial_catalog_write(self):
+        from print_handy.webui import printer_settings
+        from print_handy.webui.catalog import field_by_id
+        data = settings.load(local=self.config, environ=self.environ)
+        real_validate = config_api._validate_candidate
+
+        def reject_combination(candidate, target, **kwargs):
+            if (candidate.get("delivery", {}).get("methods") == ["printer"]
+                    and candidate["printers"][0].get("name") == "New name"):
+                raise config_api.WebUIConfigError("combined candidate refused")
+            return real_validate(candidate, target, **kwargs)
+
+        before = self.config.read_bytes()
+        with patch.object(printer_settings, "parse_submission", return_value=(
+                {"name": "New name"}, {field_by_id("delivery.methods"): ["printer"]}, {}, {})), \
+                patch.object(config_api, "_validate_candidate", side_effect=reject_combination):
+            result = printer_settings.save(data, "ad5x", {}, environ=self.environ)
+        self.assertEqual(result[0], "form")
+        self.assertEqual(self.config.read_bytes(), before)
+
     def test_catalog_and_entry_writers_serialize_without_lost_updates(self):
         first_validation = threading.Event()
         second_validation = threading.Event()
