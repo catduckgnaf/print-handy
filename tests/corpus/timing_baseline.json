@@ -1,4 +1,1095 @@
 {
+ "by_cpu": {
+  "AMD EPYC 9V45 96-Core Processor": {
+   "cases": {
+    "assembly-2c-tight/direct": {
+     "first_prompt_s": 0.28,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.28,
+      "fit_check_s": 0.0,
+      "wall_s": 0.39
+     },
+     "wall_s": 0.39
+    },
+    "assembly-2c-tight/standalone": {
+     "first_prompt_s": 0.27,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.27,
+      "fit_check_s": 0.0,
+      "wall_s": 0.54
+     },
+     "wall_s": 0.54
+    },
+    "assembly-3c-tight/direct": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.0,
+      "wall_s": 0.18
+     },
+     "wall_s": 0.18
+    },
+    "assembly-3c-tight/standalone": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.0,
+      "wall_s": 0.18
+     },
+     "wall_s": 0.18
+    },
+    "assembly-four-color-tight/direct": {
+     "first_prompt_s": 0.15,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.15,
+      "fit_check_s": 0.0,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "assembly-four-color-tight/standalone": {
+     "first_prompt_s": 0.15,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.15,
+      "fit_check_s": 0.0,
+      "wall_s": 0.22
+     },
+     "wall_s": 0.22
+    },
+    "assembly-small-tower/direct": {
+     "first_prompt_s": 0.12,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.12,
+      "fit_check_s": 0.0,
+      "wall_s": 0.18
+     },
+     "wall_s": 0.18
+    },
+    "assembly-small-tower/standalone": {
+     "first_prompt_s": 0.11,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.11,
+      "fit_check_s": 0.0,
+      "wall_s": 0.16
+     },
+     "wall_s": 0.16
+    },
+    "assembly-three-color-no-room/direct": {
+     "first_prompt_s": 0.16,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.16,
+      "fit_check_s": 0.0,
+      "wall_s": 0.19
+     },
+     "wall_s": 0.19
+    },
+    "assembly-three-color-no-room/standalone": {
+     "first_prompt_s": 0.17,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.17,
+      "fit_check_s": 0.0,
+      "wall_s": 0.19
+     },
+     "wall_s": 0.19
+    },
+    "assembly-two-color-roomy/direct": {
+     "first_prompt_s": 0.06,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.06,
+      "fit_check_s": 0.0,
+      "wall_s": 0.11
+     },
+     "wall_s": 0.11
+    },
+    "assembly-two-color-roomy/standalone": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 0.0,
+      "wall_s": 0.1
+     },
+     "wall_s": 0.1
+    },
+    "copies-multiple-plates/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "copies-multiple-plates/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "core-basematerials-parts/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "core-basematerials-parts/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "core-colorgroup-items/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "core-colorgroup-items/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "core-cyclic-components/direct": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "core-cyclic-components/standalone": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "core-dangling-build-item/direct": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "core-dangling-build-item/standalone": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "core-inch-nested-assembly/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-inch-nested-assembly/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-multiproperties-texture/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "core-multiproperties-texture/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-one-color/direct": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "core-one-color/standalone": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "core-prefixed-namespace/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-prefixed-namespace/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-triangle-colors/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "core-triangle-colors/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "duplicate-part-names/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "duplicate-part-names/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "five-colors-over-slots/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "five-colors-over-slots/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "foreign-bambu-profile-split/direct": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.01,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "foreign-bambu-profile-split/standalone": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.01,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "foreign-bambu-profile/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.11
+     },
+     "wall_s": 0.11
+    },
+    "foreign-bambu-profile/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "four-colors-one-plate/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "four-colors-one-plate/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "height-color-changes/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "height-color-changes/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "islands-144-four-color/direct": {
+     "first_prompt_s": 0.16,
+     "fit_check_s": 0.03,
+     "original": {
+      "first_prompt_s": 0.16,
+      "fit_check_s": 0.03,
+      "wall_s": 0.67
+     },
+     "wall_s": 0.67
+    },
+    "islands-144-four-color/standalone": {
+     "first_prompt_s": 0.14,
+     "fit_check_s": 0.06,
+     "original": {
+      "first_prompt_s": 0.14,
+      "fit_check_s": 0.06,
+      "wall_s": 0.71
+     },
+     "wall_s": 0.71
+    },
+    "loose-2c-tight/direct": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 0.0,
+      "wall_s": 0.11
+     },
+     "wall_s": 0.11
+    },
+    "loose-2c-tight/standalone": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 0.0,
+      "wall_s": 0.09
+     },
+     "wall_s": 0.09
+    },
+    "loose-3c-tight/direct": {
+     "first_prompt_s": 0.07,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.07,
+      "fit_check_s": 0.0,
+      "wall_s": 0.12
+     },
+     "wall_s": 0.12
+    },
+    "loose-3c-tight/standalone": {
+     "first_prompt_s": 0.06,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.06,
+      "fit_check_s": 0.0,
+      "wall_s": 0.11
+     },
+     "wall_s": 0.11
+    },
+    "loose-4c-tight/direct": {
+     "first_prompt_s": 0.04,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.04,
+      "fit_check_s": 0.0,
+      "wall_s": 0.12
+     },
+     "wall_s": 0.12
+    },
+    "loose-4c-tight/standalone": {
+     "first_prompt_s": 0.05,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.05,
+      "fit_check_s": 0.0,
+      "wall_s": 0.1
+     },
+     "wall_s": 0.1
+    },
+    "many-parts/direct": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "many-parts/standalone": {
+     "first_prompt_s": 0.02,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.02,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "missing-plate-metadata/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "missing-plate-metadata/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "multiplate-select/direct": {
+     "first_prompt_s": 0.12,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.12,
+      "fit_check_s": 0.0,
+      "wall_s": 0.18
+     },
+     "wall_s": 0.18
+    },
+    "multiplate-select/standalone": {
+     "first_prompt_s": 0.12,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.12,
+      "fit_check_s": 0.0,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "must-shrink/direct": {
+     "first_prompt_s": 0.22,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.22,
+      "fit_check_s": 0.01,
+      "wall_s": 0.4
+     },
+     "wall_s": 0.4
+    },
+    "must-shrink/standalone": {
+     "first_prompt_s": 0.23,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.23,
+      "fit_check_s": 0.01,
+      "wall_s": 0.39
+     },
+     "wall_s": 0.39
+    },
+    "needs-supports/direct": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.09
+     },
+     "wall_s": 0.09
+    },
+    "needs-supports/standalone": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.1
+     },
+     "wall_s": 0.1
+    },
+    "parts-512-four-color/direct": {
+     "first_prompt_s": 0.57,
+     "fit_check_s": 0.13,
+     "original": {
+      "first_prompt_s": 0.57,
+      "fit_check_s": 0.13,
+      "wall_s": 2.83
+     },
+     "wall_s": 2.83
+    },
+    "parts-512-four-color/standalone": {
+     "first_prompt_s": 0.58,
+     "fit_check_s": 0.17,
+     "original": {
+      "first_prompt_s": 0.58,
+      "fit_check_s": 0.17,
+      "wall_s": 2.94
+     },
+     "wall_s": 2.94
+    },
+    "parts-one-plate/direct": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.09
+     },
+     "wall_s": 0.09
+    },
+    "parts-one-plate/standalone": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.01,
+      "wall_s": 0.09
+     },
+     "wall_s": 0.09
+    },
+    "plates-multicolor/direct": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.01,
+      "wall_s": 0.1
+     },
+     "wall_s": 0.1
+    },
+    "plates-multicolor/standalone": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.01,
+      "wall_s": 0.1
+     },
+     "wall_s": 0.1
+    },
+    "prime-tower-clearance/direct": {
+     "first_prompt_s": 0.1,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.1,
+      "fit_check_s": 0.0,
+      "wall_s": 0.22
+     },
+     "wall_s": 0.22
+    },
+    "prime-tower-clearance/standalone": {
+     "first_prompt_s": 0.1,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.1,
+      "fit_check_s": 0.0,
+      "wall_s": 0.21
+     },
+     "wall_s": 0.21
+    },
+    "print-next-second-plate/direct": {
+     "first_prompt_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.0,
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "print-next-second-plate/standalone": {
+     "first_prompt_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.0,
+      "wall_s": 0.0
+     },
+     "wall_s": 0.0
+    },
+    "prusa-mmu-project/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "prusa-mmu-project/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "rotation-fit/direct": {
+     "first_prompt_s": 0.07,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.07,
+      "fit_check_s": 0.01,
+      "wall_s": 0.16
+     },
+     "wall_s": 0.16
+    },
+    "rotation-fit/standalone": {
+     "first_prompt_s": 0.08,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.08,
+      "fit_check_s": 0.01,
+      "wall_s": 0.16
+     },
+     "wall_s": 0.16
+    },
+    "single-part/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "single-part/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "split-plan/direct": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.01,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "split-plan/standalone": {
+     "first_prompt_s": 0.13,
+     "fit_check_s": 0.01,
+     "original": {
+      "first_prompt_s": 0.13,
+      "fit_check_s": 0.01,
+      "wall_s": 0.2
+     },
+     "wall_s": 0.2
+    },
+    "stl-ascii/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-ascii/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-degenerate-zero-volume/direct": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "stl-degenerate-zero-volume/standalone": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "stl-inverted-normals/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "stl-inverted-normals/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "stl-large-plate/direct": {
+     "first_prompt_s": 0.03,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.03,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "stl-large-plate/standalone": {
+     "first_prompt_s": 0.04,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.04,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "stl-must-shrink/direct": {
+     "first_prompt_s": 0.22,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.22,
+      "fit_check_s": 0.0,
+      "wall_s": 0.38
+     },
+     "wall_s": 0.38
+    },
+    "stl-must-shrink/standalone": {
+     "first_prompt_s": 0.22,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.22,
+      "fit_check_s": 0.0,
+      "wall_s": 0.38
+     },
+     "wall_s": 0.38
+    },
+    "stl-needs-supports/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "stl-needs-supports/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "stl-open-thin-wall/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.07
+     },
+     "wall_s": 0.07
+    },
+    "stl-open-thin-wall/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.06
+     },
+     "wall_s": 0.06
+    },
+    "stl-single-part/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-single-part/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "stl-tall/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "stl-tall/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.08
+     },
+     "wall_s": 0.08
+    },
+    "stl-text-solid-header/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-text-solid-header/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "stl-thin-footprint/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-thin-footprint/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-tiny/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-tiny/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-very-thin-wall/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "stl-very-thin-wall/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.04
+     },
+     "wall_s": 0.04
+    },
+    "typed-setup-walkthrough/direct": {
+     "original": {
+      "wall_s": 0.01
+     },
+     "wall_s": 0.01
+    },
+    "typed-setup-walkthrough/standalone": {
+     "original": {
+      "wall_s": 0.0
+     },
+     "wall_s": 0.0
+    },
+    "unicode-part-extra-plate/direct": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "unicode-part-extra-plate/standalone": {
+     "first_prompt_s": 0.01,
+     "fit_check_s": 0.0,
+     "original": {
+      "first_prompt_s": 0.01,
+      "fit_check_s": 0.0,
+      "wall_s": 0.05
+     },
+     "wall_s": 0.05
+    },
+    "witch-ghost-cults3d/direct": {
+     "first_prompt_s": 0.33,
+     "fit_check_s": 0.12,
+     "original": {
+      "first_prompt_s": 0.33,
+      "fit_check_s": 0.12,
+      "wall_s": 1.0
+     },
+     "wall_s": 1.0
+    },
+    "witch-ghost-cults3d/standalone": {
+     "first_prompt_s": 0.36,
+     "fit_check_s": 0.12,
+     "original": {
+      "first_prompt_s": 0.36,
+      "fit_check_s": 0.12,
+      "wall_s": 1.04
+     },
+     "wall_s": 1.04
+    }
+   },
+   "recorded_from": "CI run 43685401435 (595ef054ddd0b333a28071e354bf26e298e0e2d4), artifact discord-timing, median of 3, 2.3.4 release, runner CPU AMD EPYC 9V45 96-Core Processor"
+  }
+ },
  "cases": {
   "assembly-2c-tight/direct": {
    "first_prompt_s": 0.44,
